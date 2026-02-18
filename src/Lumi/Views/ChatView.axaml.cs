@@ -271,6 +271,15 @@ public partial class ChatView : UserControl
             if (toolName is "read_powershell" or "stop_powershell")
                 return;
 
+            // announce_file: don't show a tool card — collect the file for attachment chip
+            if (toolName == "announce_file")
+            {
+                var filePath = ExtractJsonField(msgVm.Content, "filePath");
+                if (filePath is not null && File.Exists(filePath) && _shownFilePaths.Add(filePath))
+                    _pendingToolFileChips.Add(filePath);
+                return;
+            }
+
             // report_intent: don't show a tool card — capture intent text for group label
             if (toolName == "report_intent")
             {
@@ -369,20 +378,6 @@ public partial class ChatView : UserControl
             _currentToolGroupStack!.Children.Add(toolCall);
             _currentToolGroupCount++;
             UpdateToolGroupLabel();
-
-            // For saved chats: collect file paths for files created by any tool
-            if (msgVm.ToolStatus is "Completed")
-            {
-                string? createdPath = null;
-
-                if (ChatViewModel.IsFileCreationTool(msgVm.ToolName))
-                    createdPath = ChatViewModel.ExtractFilePathFromArgs(msgVm.Content);
-                else if (toolName == "powershell")
-                    createdPath = ChatViewModel.ExtractFilePathFromPowershell(msgVm.Content);
-
-                if (createdPath is not null && _shownFilePaths.Add(createdPath))
-                    _pendingToolFileChips.Add(createdPath);
-            }
         }
         else if (msgVm.Role == "reasoning")
         {
@@ -494,7 +489,13 @@ public partial class ChatView : UserControl
                 if (args.PropertyName == nameof(ChatMessageViewModel.Content))
                     md.Markdown = msgVm.Content;
                 if (args.PropertyName == nameof(ChatMessageViewModel.IsStreaming))
+                {
                     msg.IsStreaming = msgVm.IsStreaming;
+                    // When assistant streaming ends, check final content for file references
+                    // (initial check during streaming only sees partial content)
+                    if (!msgVm.IsStreaming && role == StrataChatRole.Assistant)
+                        AddFileReferencesFromContent(msgVm.Content);
+                }
             };
 
             InsertBeforeTypingIndicator(msg);

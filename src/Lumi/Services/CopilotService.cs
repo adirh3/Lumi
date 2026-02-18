@@ -24,7 +24,7 @@ public class CopilotService : IAsyncDisposable
     public event Action<string, string>? OnReasoningDelta;   // reasoningId, delta
     public event Action<string>? OnReasoningComplete;
     public event Action<string, string, string?>? OnToolStart; // toolCallId, toolName, args
-    public event Action<string, bool>? OnToolComplete;         // toolCallId, success
+    public event Action<string, bool, ToolExecutionCompleteDataResult?>? OnToolComplete; // toolCallId, success, result
     public event Action? OnTurnStart;
     public event Action? OnTurnEnd;
     public event Action<string>? OnTitleChanged;
@@ -181,7 +181,7 @@ public class CopilotService : IAsyncDisposable
                     OnToolStart?.Invoke(toolStart.Data.ToolCallId, toolStart.Data.ToolName, toolStart.Data.Arguments?.ToString());
                     break;
                 case ToolExecutionCompleteEvent toolEnd:
-                    OnToolComplete?.Invoke(toolEnd.Data.ToolCallId, toolEnd.Data.Success == true);
+                    OnToolComplete?.Invoke(toolEnd.Data.ToolCallId, toolEnd.Data.Success == true, toolEnd.Data.Result);
                     break;
                 case AssistantTurnEndEvent:
                     OnTurnEnd?.Invoke();

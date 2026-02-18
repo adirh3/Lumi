@@ -60,6 +60,9 @@ public static class SystemPromptBuilder
 
             Be concise, helpful, and friendly. Use markdown for formatting when helpful.
 
+            ## File Deliverables
+            When you create, convert, or produce a file for the user (e.g. a PDF, DOCX, image, spreadsheet), call `announce_file(filePath)` with the absolute path so the UI shows a clickable attachment chip. Only announce final user-facing files — not intermediate scripts or temp files.
+
             ## Memory
             You have tools to manage persistent memories about the user. These survive across all conversations and help you be their best companion.
 

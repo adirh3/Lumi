@@ -164,7 +164,7 @@ public partial class ChatViewModel : ObservableObject
             ScrollToEndRequested?.Invoke();
         });
 
-        _copilotService.OnToolComplete += (callId, success) => Dispatcher.UIThread.Post(() =>
+        _copilotService.OnToolComplete += (callId, success, result) => Dispatcher.UIThread.Post(() =>
         {
             var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == callId);
             if (vm is not null)
@@ -172,17 +172,25 @@ public partial class ChatViewModel : ObservableObject
                 vm.Message.ToolStatus = success ? "Completed" : "Failed";
                 vm.NotifyToolStatusChanged();
 
-                // Only show file chip for file-creation tools
                 if (success)
                 {
-                    string? filePath = null;
-                    if (IsFileCreationTool(vm.Message.ToolName))
-                        filePath = ExtractFilePathFromArgs(vm.Message.Content);
-                    else if (vm.Message.ToolName == "powershell")
-                        filePath = ExtractFilePathFromPowershell(vm.Message.Content);
-
-                    if (filePath is not null && File.Exists(filePath) && _shownFileChips.Add(filePath))
-                        FileCreatedByTool?.Invoke(filePath);
+                    // announce_file tool handles file chips directly via its own callback.
+                    // As a secondary source, check SDK resource links for file-creation tools.
+                    var toolName = vm.Message.ToolName;
+                    if ((IsFileCreationTool(toolName) || toolName == "powershell")
+                        && result?.Contents is { Length: > 0 } contents)
+                    {
+                        foreach (var item in contents)
+                        {
+                            if (item is ToolExecutionCompleteDataResultContentsItemResourceLink rl
+                                && !string.IsNullOrEmpty(rl.Uri))
+                            {
+                                var fp = UriToLocalPath(rl.Uri);
+                                if (fp is not null && File.Exists(fp) && IsUserFacingFile(fp) && _shownFileChips.Add(fp))
+                                    FileCreatedByTool?.Invoke(fp);
+                            }
+                        }
+                    }
                 }
             }
         });
@@ -328,8 +336,8 @@ public partial class ChatViewModel : ObservableObject
         // Build custom agents for SDK (register all agents as subagents)
         var customAgents = BuildCustomAgents();
 
-        // Build memory tools
-        var memoryTools = BuildMemoryTools();
+        // Build custom tools (memory + file announcement)
+        var customTools = BuildCustomTools();
 
         try
         {
@@ -340,13 +348,13 @@ public partial class ChatViewModel : ObservableObject
             if (CurrentChat.CopilotSessionId is null)
             {
                 var session = await _copilotService.CreateSessionAsync(
-                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, memoryTools, _cts.Token);
+                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, _cts.Token);
                 CurrentChat.CopilotSessionId = session.SessionId;
             }
             else if (_copilotService.CurrentSessionId != CurrentChat.CopilotSessionId)
             {
                 await _copilotService.ResumeSessionAsync(
-                    CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir, skillDirs, customAgents, memoryTools, _cts.Token);
+                    CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, _cts.Token);
             }
 
             await _copilotService.SendMessageAsync(prompt, attachments, _cts.Token);
@@ -454,6 +462,32 @@ public partial class ChatViewModel : ObservableObject
             agents.Add(agentConfig);
         }
         return agents;
+    }
+
+    private List<AIFunction> BuildCustomTools()
+    {
+        var tools = BuildMemoryTools();
+        tools.Add(BuildAnnounceFileTool());
+        return tools;
+    }
+
+    private AIFunction BuildAnnounceFileTool()
+    {
+        return AIFunctionFactory.Create(
+            ([Description("Absolute path of the file that was created, converted, or produced for the user")] string filePath) =>
+            {
+                if (File.Exists(filePath) && IsUserFacingFile(filePath))
+                {
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (_shownFileChips.Add(filePath))
+                            FileCreatedByTool?.Invoke(filePath);
+                    });
+                }
+                return $"File announced: {filePath}";
+            },
+            "announce_file",
+            "Show a file attachment chip to the user for a file you created or produced. Call this ONCE for each final deliverable file (e.g. the PDF, DOCX, PPTX, image, etc.). Do NOT call for intermediate/temporary files like scripts.");
     }
 
     private List<AIFunction> BuildMemoryTools()
@@ -594,76 +628,34 @@ public partial class ChatViewModel : ObservableObject
             or "insert" or "write" or "save_file";
     }
 
-    public static string? ExtractFilePathFromArgs(string? argsJson)
+    /// <summary>Converts a file:// URI or plain path to a local filesystem path.</summary>
+    private static string? UriToLocalPath(string uri)
     {
-        if (string.IsNullOrWhiteSpace(argsJson)) return null;
-        try
-        {
-            using var doc = JsonDocument.Parse(argsJson);
-            var root = doc.RootElement;
-            if (root.TryGetProperty("filePath", out var fp)) return fp.GetString();
-            if (root.TryGetProperty("path", out var p)) return p.GetString();
-            if (root.TryGetProperty("file", out var f)) return f.GetString();
-            if (root.TryGetProperty("filename", out var fn)) return fn.GetString();
-            if (root.TryGetProperty("file_path", out var fp2)) return fp2.GetString();
-            // For multi_replace, check first replacement
-            if (root.TryGetProperty("replacements", out var repl) 
-                && repl.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var item in repl.EnumerateArray())
-                {
-                    if (item.TryGetProperty("filePath", out var rfp)) return rfp.GetString();
-                    if (item.TryGetProperty("path", out var rp)) return rp.GetString();
-                }
-            }
-            return null;
-        }
-        catch { return null; }
+        if (Uri.TryCreate(uri, UriKind.Absolute, out var parsed) && parsed.IsFile)
+            return parsed.LocalPath;
+        // Already a plain path
+        if (Path.IsPathRooted(uri))
+            return uri;
+        return null;
+    }
+
+    /// <summary>Extensions for intermediary/script files that shouldn't appear as attachment chips.</summary>
+    private static readonly HashSet<string> ScriptExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".py", ".ps1", ".bat", ".cmd", ".sh", ".bash", ".vbs", ".wsf", ".js", ".mjs", ".ts"
+    };
+
+    /// <summary>Returns true if the file looks like a user-facing deliverable, not a temp script.</summary>
+    public static bool IsUserFacingFile(string filePath)
+    {
+        var ext = Path.GetExtension(filePath);
+        return !ScriptExtensions.Contains(ext);
     }
 
     private static readonly System.Text.RegularExpressions.Regex FilePathRegex = new(
         @"(?:^|[\s`""'(\[])([A-Za-z]:\\[^\s`""'<>|*?\[\]]+\.\w{1,10})"
         + @"|(?:^|[\s`""'(\[])((?:/|~/)[^\s`""'<>|*?\[\]]+\.\w{1,10})",
         System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.Compiled);
-
-    private static readonly System.Text.RegularExpressions.Regex PsFileOutputRegex = new(
-        @"(?:SaveAs|Save)\s*\(\s*[""']([^""']+)[""']"
-        + @"|(?:Out-File|Set-Content|Add-Content|Export-\w+)\s+['""]?([^'""\s;|]+)"
-        + @"|>\s*['""]?([^'""\s;|]+)",
-        System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-    /// <summary>
-    /// Extracts a file output path from a powershell command (SaveAs, Out-File, Set-Content, redirect, etc.).
-    /// Returns the raw filename if variables like $PWD prevent full resolution.
-    /// </summary>
-    public static string? ExtractFilePathFromPowershell(string? argsJson)
-    {
-        if (string.IsNullOrWhiteSpace(argsJson)) return null;
-        try
-        {
-            using var doc = System.Text.Json.JsonDocument.Parse(argsJson);
-            if (!doc.RootElement.TryGetProperty("command", out var cmdEl)) return null;
-            var command = cmdEl.GetString();
-            if (string.IsNullOrEmpty(command)) return null;
-
-            var match = PsFileOutputRegex.Match(command);
-            if (!match.Success) return null;
-
-            var rawPath = match.Groups[1].Success ? match.Groups[1].Value
-                        : match.Groups[2].Success ? match.Groups[2].Value
-                        : match.Groups[3].Success ? match.Groups[3].Value
-                        : null;
-            if (rawPath is null) return null;
-
-            // If the path contains PS variables, just return the filename portion
-            if (rawPath.Contains('$'))
-                return Path.GetFileName(rawPath);
-
-            try { return Path.GetFullPath(rawPath); }
-            catch { return rawPath; }
-        }
-        catch { return null; }
-    }
 
     public static string[] ExtractFilePathsFromContent(string content)
     {
@@ -738,7 +730,7 @@ public partial class ChatViewModel : ObservableObject
             skillDirs.Add(dir);
         }
         var customAgents = BuildCustomAgents();
-        var memoryTools = BuildMemoryTools();
+        var customTools = BuildCustomTools();
 
         try
         {
@@ -748,21 +740,21 @@ public partial class ChatViewModel : ObservableObject
             {
                 if (_copilotService.CurrentSessionId == CurrentChat.CopilotSessionId)
                 {
-                    // Session is still active \u2014 just resend
+                    // Session is still active — just resend
                 }
                 else
                 {
                     // Resume the saved session to restore server-side history
                     await _copilotService.ResumeSessionAsync(
                         CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir,
-                        skillDirs, customAgents, memoryTools, _cts.Token);
+                        skillDirs, customAgents, customTools, _cts.Token);
                 }
             }
             else
             {
-                // No session at all \u2014 create new (first-time edge case)
+                // No session at all — create new (first-time edge case)
                 var session = await _copilotService.CreateSessionAsync(
-                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, memoryTools, _cts.Token);
+                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, _cts.Token);
                 CurrentChat.CopilotSessionId = session.SessionId;
             }
 
@@ -827,6 +819,7 @@ public partial class ChatViewModel : ObservableObject
             "update_memory" => "Updating memory",
             "delete_memory" => "Forgetting",
             "recall_memory" => "Recalling",
+            "announce_file" => "Sharing file",
             _ => FormatSnakeCaseToTitle(toolName)
         };
     }
