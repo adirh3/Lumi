@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using GitHub.Copilot.SDK;
 using Lumi.Models;
+using Microsoft.Extensions.AI;
 
 namespace Lumi.Services;
 
@@ -56,6 +57,7 @@ public class CopilotService : IAsyncDisposable
         string? workingDirectory = null,
         List<string>? skillDirectories = null,
         List<CustomAgentConfig>? customAgents = null,
+        List<AIFunction>? tools = null,
         CancellationToken ct = default)
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
@@ -82,6 +84,9 @@ public class CopilotService : IAsyncDisposable
         if (customAgents is { Count: > 0 })
             config.CustomAgents = customAgents;
 
+        if (tools is { Count: > 0 })
+            config.Tools = tools;
+
         _session = await _client.CreateSessionAsync(config, ct);
         _currentSessionId = _session.SessionId;
         SubscribeToEvents(_session);
@@ -95,6 +100,7 @@ public class CopilotService : IAsyncDisposable
         string? workingDirectory = null,
         List<string>? skillDirectories = null,
         List<CustomAgentConfig>? customAgents = null,
+        List<AIFunction>? tools = null,
         CancellationToken ct = default)
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
@@ -119,6 +125,9 @@ public class CopilotService : IAsyncDisposable
 
         if (customAgents is { Count: > 0 })
             config.CustomAgents = customAgents;
+
+        if (tools is { Count: > 0 })
+            config.Tools = tools;
 
         _session = await _client.ResumeSessionAsync(sessionId, config, ct);
         _currentSessionId = _session.SessionId;

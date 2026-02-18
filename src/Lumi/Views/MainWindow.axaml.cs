@@ -44,7 +44,8 @@ public partial class MainWindow : Window
             this.FindControl<Control>("PageProjects"),         // 1
             this.FindControl<Control>("PageSkills"),           // 2
             this.FindControl<Control>("PageAgents"),           // 3
-            this.FindControl<Control>("PageSettings"),         // 4
+            this.FindControl<Control>("PageMemories"),         // 4
+            this.FindControl<Control>("PageSettings"),         // 5
         ];
 
         _navButtons =
@@ -53,6 +54,7 @@ public partial class MainWindow : Window
             this.FindControl<Button>("NavProjects"),
             this.FindControl<Button>("NavSkills"),
             this.FindControl<Button>("NavAgents"),
+            this.FindControl<Button>("NavMemories"),
             this.FindControl<Button>("NavSettings"),
         ];
 

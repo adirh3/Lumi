@@ -939,6 +939,37 @@ public partial class ChatView : UserControl
                         sb.AppendLine($"**Location:** `{dir}`");
                     return sb.ToString().TrimEnd();
                 }
+
+                case "save_memory":
+                {
+                    var key = GetString(root, "key");
+                    var content = GetString(root, "content");
+                    if (key is null) break;
+                    var result = $"**Key:** {key}";
+                    if (content is not null)
+                        result += $"\n**Content:** {(content.Length > 120 ? content[..120] + "\u2026" : content)}";
+                    return result;
+                }
+
+                case "update_memory":
+                {
+                    var key = GetString(root, "key");
+                    var content = GetString(root, "content");
+                    var newKey = GetString(root, "newKey");
+                    if (key is null) break;
+                    var result = $"**Key:** {key}";
+                    if (newKey is not null) result += $"\n**New key:** {newKey}";
+                    if (content is not null)
+                        result += $"\n**Content:** {(content.Length > 120 ? content[..120] + "\u2026" : content)}";
+                    return result;
+                }
+
+                case "delete_memory":
+                case "recall_memory":
+                {
+                    var key = GetString(root, "key");
+                    return key is not null ? $"**Key:** {key}" : null;
+                }
             }
 
             // Generic fallback: clean key → value display with friendly labels
@@ -1079,6 +1110,15 @@ public partial class ChatView : UserControl
                 var fileName = path is not null ? Path.GetFileName(path) : null;
                 return ("Creating file", fileName);
             }
+
+            case "save_memory":
+                return ("Remembering", ExtractJsonField(argsJson, "key"));
+            case "update_memory":
+                return ("Updating memory", ExtractJsonField(argsJson, "key"));
+            case "delete_memory":
+                return ("Forgetting", ExtractJsonField(argsJson, "key"));
+            case "recall_memory":
+                return ("Recalling", ExtractJsonField(argsJson, "key"));
 
             default:
                 var displayName = author ?? FormatToolNameFriendly(toolName);

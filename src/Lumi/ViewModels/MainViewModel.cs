@@ -38,6 +38,7 @@ public partial class MainViewModel : ObservableObject
     public SkillsViewModel SkillsVM { get; }
     public AgentsViewModel AgentsVM { get; }
     public ProjectsViewModel ProjectsVM { get; }
+    public MemoriesViewModel MemoriesVM { get; }
     public SettingsViewModel SettingsVM { get; }
 
     // Grouped chat list for sidebar
@@ -61,6 +62,7 @@ public partial class MainViewModel : ObservableObject
         SkillsVM = new SkillsViewModel(dataStore);
         AgentsVM = new AgentsViewModel(dataStore);
         ProjectsVM = new ProjectsViewModel(dataStore);
+        MemoriesVM = new MemoriesViewModel(dataStore);
         SettingsVM = new SettingsViewModel(dataStore);
 
         ChatVM.ChatUpdated += () => RefreshChatList();

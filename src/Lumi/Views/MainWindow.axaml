@@ -23,6 +23,7 @@
     <StreamGeometry x:Key="Icon.Search">M10 3a7 7 0 1 0 4.2 12.6l4.1 4.1a1 1 0 0 0 1.4-1.4l-4.1-4.1A7 7 0 0 0 10 3zm-5 7a5 5 0 1 1 10 0 5 5 0 0 1-10 0z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Plus">M12 4a1 1 0 0 1 1 1v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6V5a1 1 0 0 1 1-1z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Trash">M9 3h6a1 1 0 0 1 1 1H7a1 1 0 0 1 1-1zM4 6h16v1H4V6zm2 2h12l-1 13H7L6 8zm4 2v8h1v-8h-1zm3 0v8h1v-8h-1z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Memory">M9.5 2A1.5 1.5 0 0 0 8 3.5V4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-4v-.5A1.5 1.5 0 0 0 14.5 2h-5zM10 4V3.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4h-4zm-2 5a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm5 0a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm-5 4a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm5 0a1 1 0 1 1 2 0 1 1 0 0 1-2 0z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Rename">M4 18h4l10-10a2 2 0 0 0 0-2.83l-1.17-1.17a2 2 0 0 0-2.83 0L4 14v4zm2-3.17L14.59 6.24l1.17 1.17L7.17 16H6v-1.17z</StreamGeometry>
   </Window.Resources>
 
@@ -114,8 +115,13 @@
             <PathIcon Data="{StaticResource Icon.Sparkle}" Width="16" Height="16"
                       Foreground="{DynamicResource Brush.TextSecondary}" />
           </Button>
-          <Button Classes="subtle nav-icon" x:Name="NavSettings" ToolTip.Tip="Settings"
+          <Button Classes="subtle nav-icon" x:Name="NavMemories" ToolTip.Tip="Memories"
                   Command="{Binding SetNavCommand}" CommandParameter="4">
+            <PathIcon Data="{StaticResource Icon.Memory}" Width="16" Height="16"
+                      Foreground="{DynamicResource Brush.TextSecondary}" />
+          </Button>
+          <Button Classes="subtle nav-icon" x:Name="NavSettings" ToolTip.Tip="Settings"
+                  Command="{Binding SetNavCommand}" CommandParameter="5">
             <PathIcon Data="{StaticResource Icon.Gear}" Width="16" Height="16"
                       Foreground="{DynamicResource Brush.TextSecondary}" />
           </Button>
@@ -255,6 +261,13 @@
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
                 BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
           <views:AgentsView DataContext="{Binding AgentsVM}" />
+        </Border>
+        <Border x:Name="PageMemories" IsVisible="False"
+                Margin="14,10" CornerRadius="{DynamicResource Radius.Overlay}"
+                Background="{DynamicResource Brush.SurfaceCard}"
+                BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
+                BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
+          <views:MemoriesView DataContext="{Binding MemoriesVM}" />
         </Border>
         <Border x:Name="PageSettings" IsVisible="False"
                 Margin="14,10" CornerRadius="{DynamicResource Radius.Overlay}"

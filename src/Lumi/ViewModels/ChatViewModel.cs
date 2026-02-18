@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -12,6 +13,9 @@ using CommunityToolkit.Mvvm.Input;
 using GitHub.Copilot.SDK;
 using Lumi.Models;
 using Lumi.Services;
+using Microsoft.Extensions.AI;
+
+using ChatMessage = Lumi.Models.ChatMessage;
 
 namespace Lumi.ViewModels;
 
@@ -324,6 +328,9 @@ public partial class ChatViewModel : ObservableObject
         // Build custom agents for SDK (register all agents as subagents)
         var customAgents = BuildCustomAgents();
 
+        // Build memory tools
+        var memoryTools = BuildMemoryTools();
+
         try
         {
             _cts = new CancellationTokenSource();
@@ -333,13 +340,13 @@ public partial class ChatViewModel : ObservableObject
             if (CurrentChat.CopilotSessionId is null)
             {
                 var session = await _copilotService.CreateSessionAsync(
-                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, _cts.Token);
+                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, memoryTools, _cts.Token);
                 CurrentChat.CopilotSessionId = session.SessionId;
             }
             else if (_copilotService.CurrentSessionId != CurrentChat.CopilotSessionId)
             {
                 await _copilotService.ResumeSessionAsync(
-                    CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir, skillDirs, customAgents, _cts.Token);
+                    CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir, skillDirs, customAgents, memoryTools, _cts.Token);
             }
 
             await _copilotService.SendMessageAsync(prompt, attachments, _cts.Token);
@@ -447,6 +454,83 @@ public partial class ChatViewModel : ObservableObject
             agents.Add(agentConfig);
         }
         return agents;
+    }
+
+    private List<AIFunction> BuildMemoryTools()
+    {
+        return
+        [
+            AIFunctionFactory.Create(
+                ([Description("Brief label for the memory (e.g. Birthday, Dog's name, Prefers dark mode)")] string key,
+                 [Description("Full memory text with details")] string content,
+                 [Description("Category: Personal, Preferences, Work, etc. Default: General")] string? category) =>
+                {
+                    category ??= "General";
+                    var memories = _dataStore.Data.Memories;
+                    var existing = memories.FirstOrDefault(m => m.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+                    if (existing is not null)
+                    {
+                        existing.Content = content;
+                        existing.Category = category;
+                        existing.UpdatedAt = DateTimeOffset.Now;
+                    }
+                    else
+                    {
+                        memories.Add(new Memory
+                        {
+                            Key = key,
+                            Content = content,
+                            Category = category,
+                            SourceChatId = CurrentChat?.Id.ToString()
+                        });
+                    }
+                    _dataStore.Save();
+                    return $"Memory saved: {key}";
+                },
+                "save_memory",
+                "Save or update a persistent memory about the user"),
+
+            AIFunctionFactory.Create(
+                ([Description("Key of the memory to update")] string key,
+                 [Description("New content text (optional)")] string? content,
+                 [Description("New key if renaming (optional)")] string? newKey) =>
+                {
+                    var memory = _dataStore.Data.Memories
+                        .FirstOrDefault(m => m.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+                    if (memory is null) return $"Memory not found: {key}";
+                    if (content is not null) memory.Content = content;
+                    if (newKey is not null) memory.Key = newKey;
+                    memory.UpdatedAt = DateTimeOffset.Now;
+                    _dataStore.Save();
+                    return $"Memory updated: {memory.Key}";
+                },
+                "update_memory",
+                "Update an existing memory's content or key"),
+
+            AIFunctionFactory.Create(
+                ([Description("Key of the memory to remove")] string key) =>
+                {
+                    var memory = _dataStore.Data.Memories
+                        .FirstOrDefault(m => m.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+                    if (memory is null) return $"Memory not found: {key}";
+                    _dataStore.Data.Memories.Remove(memory);
+                    _dataStore.Save();
+                    return $"Memory deleted: {key}";
+                },
+                "delete_memory",
+                "Remove a memory that is no longer relevant"),
+
+            AIFunctionFactory.Create(
+                ([Description("Key of the memory to retrieve full content for")] string key) =>
+                {
+                    var memory = _dataStore.Data.Memories
+                        .FirstOrDefault(m => m.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+                    if (memory is null) return $"Memory not found: {key}";
+                    return memory.Content;
+                },
+                "recall_memory",
+                "Fetch the full content of a memory by its key"),
+        ];
     }
 
     /// <summary>Returns StrataComposerChip items for all agents (for composer autocomplete).</summary>
@@ -654,13 +738,12 @@ public partial class ChatViewModel : ObservableObject
             skillDirs.Add(dir);
         }
         var customAgents = BuildCustomAgents();
+        var memoryTools = BuildMemoryTools();
 
         try
         {
             _cts = new CancellationTokenSource();
             var workDir = GetWorkingDirectory();
-
-            // Try to resume existing session to preserve context
             if (CurrentChat.CopilotSessionId is not null)
             {
                 if (_copilotService.CurrentSessionId == CurrentChat.CopilotSessionId)
@@ -672,14 +755,14 @@ public partial class ChatViewModel : ObservableObject
                     // Resume the saved session to restore server-side history
                     await _copilotService.ResumeSessionAsync(
                         CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir,
-                        skillDirs, customAgents, _cts.Token);
+                        skillDirs, customAgents, memoryTools, _cts.Token);
                 }
             }
             else
             {
                 // No session at all \u2014 create new (first-time edge case)
                 var session = await _copilotService.CreateSessionAsync(
-                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, _cts.Token);
+                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, memoryTools, _cts.Token);
                 CurrentChat.CopilotSessionId = session.SessionId;
             }
 
@@ -740,6 +823,10 @@ public partial class ChatViewModel : ObservableObject
             "browser_click" or "click" => "Clicking element",
             "browser_type" or "type" => "Typing text",
             "browser_snapshot" or "screenshot" => "Taking screenshot",
+            "save_memory" => "Remembering",
+            "update_memory" => "Updating memory",
+            "delete_memory" => "Forgetting",
+            "recall_memory" => "Recalling",
             _ => FormatSnakeCaseToTitle(toolName)
         };
     }

@@ -67,9 +67,12 @@ public class LumiAgent
 public class Memory
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    public string Key { get; set; } = "";
     public string Content { get; set; } = "";
+    public string Category { get; set; } = "General";
     public string? SourceChatId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
 }
 
 public class UserSettings
