@@ -1,0 +1,29 @@
+## Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.dll
+*.exe
+*.pdb
+*.cache
+
+## .NET
+*.user
+*.suo
+*.userprefs
+*.nupkg
+project.lock.json
+
+## IDE
+.vs/
+.idea/
+*.swp
+*~
+
+## OS
+Thumbs.db
+.DS_Store
+
+## App data (local runtime state)
+data.json

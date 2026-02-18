@@ -1,0 +1,268 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Lumi.ViewModels"
+        xmlns:views="using:Lumi.Views"
+        xmlns:sc="using:StrataTheme.Controls"
+        xmlns:models="using:Lumi.Models"
+        x:Class="Lumi.Views.MainWindow"
+        x:CompileBindings="False"
+        Title="Lumi"
+        Width="1320" Height="860"
+        MinWidth="800" MinHeight="560"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource Brush.Background}">
+
+  <Window.Resources>
+    <!-- ── SVG Icon Paths ── -->
+    <StreamGeometry x:Key="Icon.Chat">M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7l-4 3V6a2 2 0 0 1 2-2z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Folder">M2 6a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Bolt">M13 2L3 14h9l-1 8 10-12h-9l1-8z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Sparkle">M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Gear">M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm-1-8h2l.4 2.2a8 8 0 0 1 2.3 1.3l2.1-.8 1 1.7-1.7 1.4a8 8 0 0 1 0 2.4l1.7 1.4-1 1.7-2.1-.8a8 8 0 0 1-2.3 1.3L13 22h-2l-.4-2.2a8 8 0 0 1-2.3-1.3l-2.1.8-1-1.7 1.7-1.4a8 8 0 0 1 0-2.4L5.2 12.4l1-1.7 2.1.8a8 8 0 0 1 2.3-1.3L11 8z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Compose">M15.2 3.8a2.4 2.4 0 0 1 3.4 0l1.6 1.6a2.4 2.4 0 0 1 0 3.4L9 20l-5 1 1-5L15.2 3.8z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Search">M10 3a7 7 0 1 0 4.2 12.6l4.1 4.1a1 1 0 0 0 1.4-1.4l-4.1-4.1A7 7 0 0 0 10 3zm-5 7a5 5 0 1 1 10 0 5 5 0 0 1-10 0z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Plus">M12 4a1 1 0 0 1 1 1v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6V5a1 1 0 0 1 1-1z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Trash">M9 3h6a1 1 0 0 1 1 1H7a1 1 0 0 1 1-1zM4 6h16v1H4V6zm2 2h12l-1 13H7L6 8zm4 2v8h1v-8h-1zm3 0v8h1v-8h-1z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Rename">M4 18h4l10-10a2 2 0 0 0 0-2.83l-1.17-1.17a2 2 0 0 0-2.83 0L4 14v4zm2-3.17L14.59 6.24l1.17 1.17L7.17 16H6v-1.17z</StreamGeometry>
+  </Window.Resources>
+
+  <Window.Styles>
+    <!-- Sidebar ListBox: transparent, borderless, blends in -->
+    <Style Selector="ListBox.sidebar-list">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="0" />
+    </Style>
+    <Style Selector="ListBox.sidebar-list ListBoxItem">
+      <Setter Property="Padding" Value="12,7" />
+      <Setter Property="Margin" Value="1,0" />
+      <Setter Property="MinHeight" Value="0" />
+    </Style>
+    <!-- Nav icon buttons -->
+    <Style Selector="Button.nav-icon">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Width" Value="36" />
+      <Setter Property="Height" Value="36" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="Button.nav-icon:pointerover">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+    </Style>
+    <Style Selector="Button.nav-icon.active">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+    <Style Selector="Button.nav-icon.active:pointerover">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
+    </Style>
+  </Window.Styles>
+
+  <Panel>
+    <!-- ═══ Onboarding Overlay ═══ -->
+    <Panel x:Name="OnboardingPanel" IsVisible="True">
+      <Border Background="{DynamicResource Brush.Background}" />
+      <Border HorizontalAlignment="Center" VerticalAlignment="Center"
+              Classes="strata-card" Padding="48,40" MaxWidth="480">
+        <StackPanel Spacing="24" HorizontalAlignment="Center">
+          <Border Width="72" Height="72" CornerRadius="36"
+                  Background="{DynamicResource Brush.AccentGradient}"
+                  HorizontalAlignment="Center">
+            <TextBlock Text="L" FontSize="32" FontWeight="Bold"
+                       Foreground="{DynamicResource Brush.TextOnAccent}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <StackPanel Spacing="6" HorizontalAlignment="Center">
+            <TextBlock Classes="headline" Text="Hello! I'm Lumi" HorizontalAlignment="Center" />
+            <TextBlock Classes="secondary" Text="Your personal assistant. What should I call you?"
+                       HorizontalAlignment="Center" TextAlignment="Center" />
+          </StackPanel>
+          <StackPanel Spacing="12">
+            <TextBox Watermark="Your name" Text="{Binding OnboardingName}" HorizontalAlignment="Stretch" />
+            <Button Classes="accent" Content="Let's go!"
+                    Command="{Binding CompleteOnboardingCommand}"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Panel>
+
+    <!-- ═══ Main App ═══ -->
+    <DockPanel x:Name="MainPanel" IsVisible="False">
+
+      <!-- LEFT SIDEBAR -->
+      <Border DockPanel.Dock="Left" Width="240">
+        <DockPanel>
+
+          <!-- ── Top: Brand + New Chat ── -->
+          <DockPanel DockPanel.Dock="Top" Margin="14,14,14,0">
+            <TextBlock Text="Lumi" FontSize="15" FontWeight="SemiBold"
+                       VerticalAlignment="Center" Margin="4,0,0,0" />
+          </DockPanel>
+
+          <!-- ── New Chat button ── -->
+          <Border DockPanel.Dock="Top" Margin="14,10,14,0">
+            <Button Classes="subtle" HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Left"
+                    CornerRadius="{DynamicResource Radius.Base}"
+                    Padding="10,8" MinHeight="0"
+                    ToolTip.Tip="New chat"
+                    Command="{Binding NewChatCommand}">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <PathIcon Data="{StaticResource Icon.Compose}" Width="13" Height="13"
+                          Foreground="{DynamicResource Brush.AccentDefault}" />
+                <TextBlock Text="New Chat" FontWeight="Medium"
+                           Foreground="{DynamicResource Brush.TextSecondary}"
+                           VerticalAlignment="Center" />
+              </StackPanel>
+            </Button>
+          </Border>
+
+          <!-- ── Search with icon ── -->
+          <Border DockPanel.Dock="Top" Margin="14,6,14,0">
+            <Panel>
+              <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                        Foreground="{DynamicResource Brush.TextTertiary}"
+                        HorizontalAlignment="Left" VerticalAlignment="Center"
+                        Margin="10,0,0,0" IsHitTestVisible="False" />
+              <TextBox Watermark="Search…" x:Name="ChatSearchBox"
+                       Text="{Binding ChatSearchQuery, Mode=TwoWay}"
+                       Padding="28,5,8,5" />
+            </Panel>
+          </Border>
+
+          <!-- ── Bottom: floating nav card ── -->
+          <Border DockPanel.Dock="Bottom" Margin="14,6,14,14">
+            <Border Background="{DynamicResource Brush.SurfaceCard}"
+                    BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                    BorderThickness="1"
+                    CornerRadius="{DynamicResource Radius.Interactive}"
+                    Padding="6,5"
+                    BoxShadow="0 1 3 0 #08000000, 0 4 12 0 #06000000">
+              <StackPanel x:Name="NavRow" Orientation="Horizontal" Spacing="2"
+                          HorizontalAlignment="Center">
+                <Button Classes="nav-icon" x:Name="NavChat" ToolTip.Tip="Chats"
+                        Command="{Binding SetNavCommand}" CommandParameter="0">
+                  <PathIcon Data="{StaticResource Icon.Chat}" Width="16" Height="16"
+                            Foreground="{DynamicResource Brush.TextSecondary}" />
+                </Button>
+                <Button Classes="nav-icon" x:Name="NavProjects" ToolTip.Tip="Projects"
+                        Command="{Binding SetNavCommand}" CommandParameter="1">
+                  <PathIcon Data="{StaticResource Icon.Folder}" Width="16" Height="16"
+                            Foreground="{DynamicResource Brush.TextSecondary}" />
+                </Button>
+                <Button Classes="nav-icon" x:Name="NavSkills" ToolTip.Tip="Skills"
+                        Command="{Binding SetNavCommand}" CommandParameter="2">
+                  <PathIcon Data="{StaticResource Icon.Bolt}" Width="16" Height="16"
+                            Foreground="{DynamicResource Brush.TextSecondary}" />
+                </Button>
+                <Button Classes="nav-icon" x:Name="NavAgents" ToolTip.Tip="Lumis"
+                        Command="{Binding SetNavCommand}" CommandParameter="3">
+                  <PathIcon Data="{StaticResource Icon.Sparkle}" Width="16" Height="16"
+                            Foreground="{DynamicResource Brush.TextSecondary}" />
+                </Button>
+                <Button Classes="nav-icon" x:Name="NavSettings" ToolTip.Tip="Settings"
+                        Command="{Binding SetNavCommand}" CommandParameter="4">
+                  <PathIcon Data="{StaticResource Icon.Gear}" Width="16" Height="16"
+                            Foreground="{DynamicResource Brush.TextSecondary}" />
+                </Button>
+              </StackPanel>
+            </Border>
+          </Border>
+
+          <!-- ── Chat list (grouped by time, Strata ListBox per group) ── -->
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                        Margin="0,8,0,0">
+            <ItemsControl x:Name="ChatGroupsHost" ItemsSource="{Binding ChatGroups}" Margin="6,0,6,8">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel Margin="0,0,0,2">
+                    <!-- Group header -->
+                    <TextBlock Text="{Binding Label}" FontSize="{DynamicResource Font.SizeCaption}" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Brush.TextTertiary}"
+                               Margin="10,10,0,4" />
+                    <!-- Strata ListBox for this group -->
+                    <ListBox Classes="sidebar-list"
+                             ItemsSource="{Binding Chats}"
+                             SelectionMode="Single"
+                             SelectedItem="{x:Null}">
+                      <ListBox.ItemTemplate>
+                        <DataTemplate>
+                          <Panel Background="Transparent">
+                            <Panel.ContextMenu>
+                              <ContextMenu>
+                                <MenuItem Header="Rename"
+                                          Command="{Binding $parent[Window].DataContext.StartRenameChatCommand}"
+                                          CommandParameter="{Binding}">
+                                  <MenuItem.Icon>
+                                    <PathIcon Data="{StaticResource Icon.Rename}" Width="14" Height="14" />
+                                  </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator />
+                                <MenuItem Header="Delete"
+                                          Command="{Binding $parent[Window].DataContext.DeleteChatCommand}"
+                                          CommandParameter="{Binding}">
+                                  <MenuItem.Icon>
+                                    <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
+                                  </MenuItem.Icon>
+                                </MenuItem>
+                              </ContextMenu>
+                            </Panel.ContextMenu>
+                            <TextBlock Text="{Binding Title}"
+                                       TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center" />
+                          </Panel>
+                        </DataTemplate>
+                      </ListBox.ItemTemplate>
+                    </ListBox>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+
+      <!-- ═══ MAIN CONTENT ═══ -->
+      <Panel>
+        <!-- Floating island for chat -->
+        <Border x:Name="ChatIsland" Margin="4,10,14,10"
+                CornerRadius="{DynamicResource Radius.Overlay}"
+                Background="{DynamicResource Brush.SurfaceCard}"
+                BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                BorderThickness="1"
+                BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000"
+                ClipToBounds="True">
+          <views:ChatView x:Name="PageChat" DataContext="{Binding ChatVM}" />
+        </Border>
+        <views:ProjectsView x:Name="PageProjects" DataContext="{Binding ProjectsVM}" IsVisible="False" />
+        <views:SkillsView x:Name="PageSkills" DataContext="{Binding SkillsVM}" IsVisible="False" />
+        <views:AgentsView x:Name="PageAgents" DataContext="{Binding AgentsVM}" IsVisible="False" />
+        <views:SettingsView x:Name="PageSettings" DataContext="{Binding SettingsVM}" IsVisible="False" />
+      </Panel>
+    </DockPanel>
+
+    <!-- ═══ Rename Dialog Overlay ═══ -->
+    <Panel x:Name="RenameOverlay" IsVisible="False">
+      <Border Background="#40000000" />
+      <Border HorizontalAlignment="Center" VerticalAlignment="Center"
+              Classes="strata-dialog" Padding="24,20" MinWidth="320" MaxWidth="400">
+        <StackPanel Spacing="14">
+          <TextBlock Text="Rename Chat" FontSize="14" FontWeight="SemiBold" />
+          <TextBox x:Name="RenameTextBox"
+                   Text="{Binding RenamingTitle, Mode=TwoWay}"
+                   Watermark="Chat title" FontSize="13" />
+          <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+            <Button Classes="subtle" Content="Cancel" Padding="14,6" MinHeight="0"
+                    Command="{Binding CancelRenameChatCommand}" />
+            <Button Classes="accent" Content="Rename" Padding="14,6" MinHeight="0"
+                    Command="{Binding CommitRenameChatCommand}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Panel>
+  </Panel>
+</Window>

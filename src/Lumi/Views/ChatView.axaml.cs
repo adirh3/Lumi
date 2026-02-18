@@ -1,0 +1,1048 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.Specialized;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+using Avalonia.Controls;
+using Avalonia.Data.Converters;
+using Avalonia.Layout;
+using Avalonia.Markup.Xaml;
+using Avalonia.Platform.Storage;
+using Lumi.ViewModels;
+using StrataTheme.Controls;
+
+namespace Lumi.Views;
+
+public partial class ChatView : UserControl
+{
+    private StrataChatShell? _chatShell;
+    private StrataChatComposer? _welcomeComposer;
+    private StrataChatComposer? _activeComposer;
+    private StrataAttachmentList? _welcomePendingAttachmentList;
+    private StrataAttachmentList? _pendingAttachmentList;
+    private Panel? _welcomePanel;
+    private Panel? _chatPanel;
+    private StackPanel? _messageStack;
+
+    // Tool grouping state
+    private StrataThink? _currentToolGroup;
+    private StackPanel? _currentToolGroupStack;
+    private int _currentToolGroupCount;
+
+    // Typing indicator
+    private StrataTypingIndicator? _typingIndicator;
+
+    // Track files already shown as chips to avoid duplicates
+    private readonly HashSet<string> _shownFilePaths = new(StringComparer.OrdinalIgnoreCase);
+
+    // Files created during tool execution, to be shown after the assistant message
+    private readonly List<string> _pendingToolFileChips = [];
+
+    // Track tool call start times for duration display
+    private readonly Dictionary<string, long> _toolStartTimes = [];
+
+    // Track the current intent text from report_intent for friendly group labels
+    private string? _currentIntentText;
+
+    // Track if we've already wired up event handlers
+    private ChatViewModel? _subscribedVm;
+
+    public ChatView()
+    {
+        InitializeComponent();
+    }
+
+    private void InitializeComponent()
+    {
+        AvaloniaXamlLoader.Load(this);
+        _chatShell = this.FindControl<StrataChatShell>("ChatShell");
+        _welcomeComposer = this.FindControl<StrataChatComposer>("WelcomeComposer");
+        _activeComposer = this.FindControl<StrataChatComposer>("ActiveComposer");
+        _welcomePendingAttachmentList = this.FindControl<StrataAttachmentList>("WelcomePendingAttachmentList");
+        _pendingAttachmentList = this.FindControl<StrataAttachmentList>("PendingAttachmentList");
+        _welcomePanel = this.FindControl<Panel>("WelcomePanel");
+        _chatPanel = this.FindControl<Panel>("ChatPanel");
+    }
+
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+
+        if (DataContext is not ChatViewModel vm) return;
+
+        // Guard against duplicate subscriptions from repeated OnDataContextChanged calls
+        if (vm == _subscribedVm) return;
+        _subscribedVm = vm;
+
+        vm.ScrollToEndRequested += () => _chatShell?.ScrollToEnd();
+
+        if (_welcomeComposer is not null)
+        {
+            _welcomeComposer.SendRequested += (_, _) =>
+            {
+                SyncModelFromComposer(_welcomeComposer, vm);
+                vm.SendMessageCommand.Execute(null);
+            };
+            _welcomeComposer.StopRequested += (_, _) => vm.StopGenerationCommand.Execute(null);
+            _welcomeComposer.AttachRequested += (_, _) => _ = PickAndAttachFilesAsync(vm);
+        }
+
+        if (_activeComposer is not null)
+        {
+            _activeComposer.SendRequested += (_, _) =>
+            {
+                SyncModelFromComposer(_activeComposer, vm);
+                vm.SendMessageCommand.Execute(null);
+            };
+            _activeComposer.StopRequested += (_, _) => vm.StopGenerationCommand.Execute(null);
+            _activeComposer.AttachRequested += (_, _) => _ = PickAndAttachFilesAsync(vm);
+        }
+
+        // Wire pending attachments list to the observable collection
+        vm.PendingAttachments.CollectionChanged += (_, _) => RebuildPendingAttachmentChips(vm);
+
+        // Wire file-created-by-tool to show attachment chips in the transcript
+        vm.FileCreatedByTool += filePath =>
+        {
+            if (_shownFilePaths.Add(filePath))
+                _pendingToolFileChips.Add(filePath);
+        };
+
+        // Show/hide typing indicator when agent is busy
+        vm.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ChatViewModel.IsBusy))
+            {
+                if (vm.IsBusy)
+                    ShowTypingIndicator(vm.StatusText);
+                else
+                    HideTypingIndicator();
+            }
+            else if (args.PropertyName == nameof(ChatViewModel.StatusText) && vm.IsBusy)
+            {
+                UpdateTypingIndicatorLabel(vm.StatusText);
+            }
+        };
+
+        vm.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ChatViewModel.CurrentChat))
+            {
+                var hasChat = vm.CurrentChat is not null;
+                if (_welcomePanel is not null) _welcomePanel.IsVisible = !hasChat;
+                if (_chatPanel is not null) _chatPanel.IsVisible = hasChat;
+
+                // Always rebuild when loading a chat (messages are already populated)
+                RebuildMessageStack(vm);
+
+                if (hasChat)
+                    _chatShell?.ResetAutoScroll();
+            }
+            else if (args.PropertyName == nameof(ChatViewModel.SelectedModel))
+            {
+                UpdateQualityLevels(vm.SelectedModel);
+            }
+        };
+
+        vm.Messages.CollectionChanged += (_, args) =>
+        {
+            if (args.Action == NotifyCollectionChangedAction.Add && args.NewItems is not null)
+            {
+                // Skip Add events during LoadChat — RebuildMessageStack handles them
+                if (vm.IsLoadingChat) return;
+
+                foreach (ChatMessageViewModel msgVm in args.NewItems)
+                    AddMessageControl(msgVm);
+            }
+            else if (args.Action == NotifyCollectionChangedAction.Reset)
+            {
+                _messageStack?.Children.Clear();
+                _currentToolGroup = null;
+                _currentToolGroupStack = null;
+                _currentToolGroupCount = 0;
+                _currentIntentText = null;
+                _shownFilePaths.Clear();
+                _pendingToolFileChips.Clear();
+                _toolStartTimes.Clear();
+            }
+        };
+    }
+
+    private void RebuildMessageStack(ChatViewModel vm)
+    {
+        // Replace the transcript content with a StackPanel we control
+        _messageStack = new StackPanel { Spacing = 8 };
+        _currentToolGroup = null;
+        _currentToolGroupStack = null;
+        _currentToolGroupCount = 0;
+        _currentIntentText = null;
+        _shownFilePaths.Clear();
+        _pendingToolFileChips.Clear();
+        _toolStartTimes.Clear();
+        if (_chatShell is not null)
+            _chatShell.Transcript = _messageStack;
+
+        foreach (var msgVm in vm.Messages)
+            AddMessageControl(msgVm);
+
+        CloseToolGroup();
+    }
+
+    private void AddMessageControl(ChatMessageViewModel msgVm)
+    {
+        if (_messageStack is null)
+        {
+            _messageStack = new StackPanel { Spacing = 8 };
+            if (_chatShell is not null)
+                _chatShell.Transcript = _messageStack;
+        }
+
+        var role = msgVm.Role switch
+        {
+            "user" => StrataChatRole.User,
+            "assistant" => StrataChatRole.Assistant,
+            "tool" => StrataChatRole.Tool,
+            "reasoning" => StrataChatRole.System,
+            "system" => StrataChatRole.System,
+            _ => StrataChatRole.Assistant
+        };
+
+        if (msgVm.Role == "tool")
+        {
+            var toolName = msgVm.ToolName ?? "";
+
+            // Skip internal polling/control tools — they clutter the UI
+            if (toolName is "read_powershell" or "stop_powershell")
+                return;
+
+            // report_intent: don't show a tool card — capture intent text for group label
+            if (toolName == "report_intent")
+            {
+                var intentText = ExtractJsonField(msgVm.Content, "intent");
+                if (!string.IsNullOrEmpty(intentText))
+                {
+                    _currentIntentText = intentText;
+
+                    // Start/update the group with the intent label
+                    var isLive = msgVm.ToolStatus is not "Completed" and not "Failed";
+                    if (_currentToolGroup is null)
+                    {
+                        _currentToolGroupStack = new StackPanel { Spacing = 4 };
+                        _currentToolGroupCount = 0;
+                        _currentToolGroup = new StrataThink
+                        {
+                            Label = isLive ? intentText + "\u2026" : intentText,
+                            IsExpanded = false,
+                            IsActive = isLive,
+                            Content = _currentToolGroupStack
+                        };
+                        InsertBeforeTypingIndicator(_currentToolGroup);
+                    }
+                    else
+                    {
+                        _currentToolGroup.Label = isLive ? intentText + "\u2026" : intentText;
+                    }
+                }
+                return;
+            }
+
+            var initialStatus = msgVm.ToolStatus switch
+            {
+                "Completed" => StrataAiToolCallStatus.Completed,
+                "Failed" => StrataAiToolCallStatus.Failed,
+                _ => StrataAiToolCallStatus.InProgress
+            };
+
+            var (friendlyName, friendlyInfo) = GetFriendlyToolDisplay(toolName, msgVm.Author, msgVm.Content);
+
+            var toolCall = new StrataAiToolCall
+            {
+                ToolName = friendlyName,
+                Status = initialStatus,
+                IsExpanded = false,
+                InputParameters = FormatToolArgsFriendly(toolName, msgVm.Content),
+                MoreInfo = friendlyInfo
+            };
+
+            // Track start time for duration calculation (live sessions only)
+            var toolCallId = msgVm.Message.ToolCallId;
+            if (toolCallId is not null && initialStatus == StrataAiToolCallStatus.InProgress)
+                _toolStartTimes[toolCallId] = Stopwatch.GetTimestamp();
+
+            msgVm.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(ChatMessageViewModel.ToolStatus))
+                {
+                    toolCall.Status = msgVm.ToolStatus switch
+                    {
+                        "Completed" => StrataAiToolCallStatus.Completed,
+                        "Failed" => StrataAiToolCallStatus.Failed,
+                        _ => StrataAiToolCallStatus.InProgress
+                    };
+
+                    // Calculate duration from tracked start time
+                    if (toolCallId is not null && toolCall.Status is not StrataAiToolCallStatus.InProgress
+                        && _toolStartTimes.TryGetValue(toolCallId, out var startTick))
+                    {
+                        var elapsed = Stopwatch.GetElapsedTime(startTick);
+                        toolCall.DurationMs = elapsed.TotalMilliseconds;
+                        _toolStartTimes.Remove(toolCallId);
+                    }
+
+                    UpdateToolGroupLabel();
+                }
+            };
+
+            // Group consecutive tool calls inside a StrataThink
+            if (_currentToolGroup is null)
+            {
+                _currentToolGroupStack = new StackPanel { Spacing = 4 };
+                _currentToolGroupCount = 0;
+                _currentToolGroup = new StrataThink
+                {
+                    Label = _currentIntentText is not null
+                        ? _currentIntentText + "\u2026"
+                        : "Working\u2026",
+                    IsExpanded = false,
+                    IsActive = initialStatus == StrataAiToolCallStatus.InProgress,
+                    Content = _currentToolGroupStack
+                };
+                InsertBeforeTypingIndicator(_currentToolGroup);
+            }
+
+            _currentToolGroupStack!.Children.Add(toolCall);
+            _currentToolGroupCount++;
+            UpdateToolGroupLabel();
+
+            // For saved chats: collect file paths for files created by any tool
+            if (msgVm.ToolStatus is "Completed")
+            {
+                string? createdPath = null;
+
+                if (ChatViewModel.IsFileCreationTool(msgVm.ToolName))
+                    createdPath = ChatViewModel.ExtractFilePathFromArgs(msgVm.Content);
+                else if (toolName == "powershell")
+                    createdPath = ChatViewModel.ExtractFilePathFromPowershell(msgVm.Content);
+
+                if (createdPath is not null && _shownFilePaths.Add(createdPath))
+                    _pendingToolFileChips.Add(createdPath);
+            }
+        }
+        else if (msgVm.Role == "reasoning")
+        {
+            CloseToolGroup();
+
+            var think = new StrataThink
+            {
+                Label = "Reasoning",
+                IsExpanded = false
+            };
+
+            var md = new StrataMarkdown { Markdown = msgVm.Content, IsInline = true };
+            think.Content = md;
+
+            msgVm.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(ChatMessageViewModel.Content))
+                    md.Markdown = msgVm.Content;
+            };
+
+            InsertBeforeTypingIndicator(think);
+        }
+        else
+        {
+            CloseToolGroup();
+
+            var md = new StrataMarkdown { Markdown = msgVm.Content, IsInline = true };
+
+            var isUser = role == StrataChatRole.User;
+
+            // For user messages with attachments, wrap content + attachments in a StackPanel
+            object msgContent;
+            if (isUser && msgVm.Message.Attachments.Count > 0)
+            {
+                var contentStack = new StackPanel { Spacing = 6 };
+                contentStack.Children.Add(md);
+
+                var attachList = new StrataAttachmentList { ShowAddButton = false };
+                foreach (var filePath in msgVm.Message.Attachments)
+                {
+                    var chip = CreateFileChip(filePath, isRemovable: false);
+                    attachList.Items.Add(chip);
+                }
+                contentStack.Children.Add(attachList);
+                msgContent = contentStack;
+            }
+            else if (!isUser && _pendingToolFileChips.Count > 0)
+            {
+                // Attach files created by tools to the assistant message
+                var contentStack = new StackPanel { Spacing = 6 };
+                contentStack.Children.Add(md);
+
+                var attachList = new StrataAttachmentList { ShowAddButton = false };
+                foreach (var filePath in _pendingToolFileChips)
+                {
+                    var chip = CreateFileChip(filePath, isRemovable: false);
+                    attachList.Items.Add(chip);
+                }
+                contentStack.Children.Add(attachList);
+                _pendingToolFileChips.Clear();
+                msgContent = contentStack;
+            }
+            else
+            {
+                msgContent = md;
+            }
+
+            var msg = new StrataChatMessage
+            {
+                Role = role,
+                Author = msgVm.Author ?? "",
+                Timestamp = msgVm.TimestampText,
+                IsStreaming = msgVm.IsStreaming,
+                IsEditable = isUser,
+                Content = msgContent
+            };
+
+            // For user messages: wire edit to extract markdown, and retry to resend
+            if (isUser)
+            {
+                msg.EditRequested += (_, _) =>
+                {
+                    msg.EditText = msgVm.Content;
+                };
+
+                msg.EditConfirmed += (_, _) =>
+                {
+                    if (msg.EditText is not null)
+                    {
+                        msgVm.Message.Content = msg.EditText;
+                        msgVm.NotifyContentChanged();
+
+                        // Resend from this message
+                        if (DataContext is ChatViewModel chatVm)
+                            _ = chatVm.ResendFromMessageAsync(msgVm.Message);
+                    }
+                };
+
+                msg.RegenerateRequested += (_, _) =>
+                {
+                    // Retry: resend the same user message
+                    if (DataContext is ChatViewModel chatVm)
+                        _ = chatVm.ResendFromMessageAsync(msgVm.Message);
+                };
+            }
+
+            msgVm.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(ChatMessageViewModel.Content))
+                    md.Markdown = msgVm.Content;
+                if (args.PropertyName == nameof(ChatMessageViewModel.IsStreaming))
+                    msg.IsStreaming = msgVm.IsStreaming;
+            };
+
+            InsertBeforeTypingIndicator(msg);
+
+            // For assistant messages: detect file paths in content and show reference chips
+            if (!isUser && !string.IsNullOrEmpty(msgVm.Content))
+            {
+                AddFileReferencesFromContent(msgVm.Content);
+            }
+        }
+
+        _chatShell?.ScrollToEnd();
+    }
+
+    private void CloseToolGroup()
+    {
+        if (_currentToolGroup is not null)
+        {
+            _currentToolGroup.IsActive = false;
+            // Finalize the label — if no tool cards were added, show the intent or "Finished"
+            if (_currentToolGroupCount == 0 && _currentIntentText is not null)
+                _currentToolGroup.Label = _currentIntentText;
+            else
+                UpdateToolGroupLabel();
+            _currentToolGroup = null;
+            _currentToolGroupStack = null;
+            _currentToolGroupCount = 0;
+            _currentIntentText = null;
+        }
+    }
+
+    private void UpdateToolGroupLabel()
+    {
+        if (_currentToolGroup is null) return;
+
+        var completedCount = 0;
+        var failedCount = 0;
+        if (_currentToolGroupStack is not null)
+        {
+            foreach (var child in _currentToolGroupStack.Children)
+            {
+                if (child is StrataAiToolCall tc)
+                {
+                    if (tc.Status == StrataAiToolCallStatus.Completed) completedCount++;
+                    else if (tc.Status == StrataAiToolCallStatus.Failed) failedCount++;
+                }
+            }
+        }
+
+        var allDone = completedCount + failedCount == _currentToolGroupCount && _currentToolGroupCount > 0;
+        if (allDone)
+        {
+            if (_currentIntentText is not null)
+            {
+                // Use the intent text as the completed label
+                _currentToolGroup.Label = failedCount > 0
+                    ? $"{_currentIntentText} ({failedCount} failed)"
+                    : _currentIntentText;
+            }
+            else
+            {
+                _currentToolGroup.Label = failedCount > 0
+                    ? $"Finished ({failedCount} failed)"
+                    : _currentToolGroupCount == 1 ? "Finished" : $"Finished {_currentToolGroupCount} actions";
+            }
+            _currentToolGroup.IsActive = false;
+        }
+        else
+        {
+            if (_currentIntentText is not null)
+            {
+                _currentToolGroup.Label = _currentIntentText + "\u2026";
+            }
+            else
+            {
+                _currentToolGroup.Label = _currentToolGroupCount == 1
+                    ? "Working\u2026"
+                    : $"Working ({_currentToolGroupCount} actions)\u2026";
+            }
+        }
+    }
+
+    private static void SyncModelFromComposer(StrataChatComposer composer, ChatViewModel vm)
+    {
+        var selected = composer.SelectedModel?.ToString();
+        if (!string.IsNullOrEmpty(selected) && selected != vm.SelectedModel)
+            vm.SelectedModel = selected;
+    }
+
+    private void ShowTypingIndicator(string? label)
+    {
+        if (_messageStack is null) return;
+
+        if (_typingIndicator is null)
+        {
+            _typingIndicator = new StrataTypingIndicator
+            {
+                Label = label ?? "Thinking\u2026",
+                IsActive = true
+            };
+            _messageStack.Children.Add(_typingIndicator);
+        }
+        else
+        {
+            _typingIndicator.Label = label ?? "Thinking\u2026";
+            _typingIndicator.IsActive = true;
+            // Ensure it's at the bottom
+            if (_messageStack.Children.Contains(_typingIndicator))
+                _messageStack.Children.Remove(_typingIndicator);
+            _messageStack.Children.Add(_typingIndicator);
+        }
+
+        _chatShell?.ScrollToEnd();
+    }
+
+    private void HideTypingIndicator()
+    {
+        if (_typingIndicator is not null && _messageStack is not null)
+        {
+            _messageStack.Children.Remove(_typingIndicator);
+            _typingIndicator = null;
+        }
+    }
+
+    private void UpdateTypingIndicatorLabel(string? label)
+    {
+        if (_typingIndicator is not null && !string.IsNullOrEmpty(label))
+            _typingIndicator.Label = label;
+    }
+
+    private void InsertBeforeTypingIndicator(Control control)
+    {
+        if (_messageStack is null) return;
+
+        if (_typingIndicator is not null && _messageStack.Children.Contains(_typingIndicator))
+        {
+            var idx = _messageStack.Children.IndexOf(_typingIndicator);
+            _messageStack.Children.Insert(idx, control);
+        }
+        else
+        {
+            _messageStack.Children.Add(control);
+        }
+    }
+
+    private void AddFileReferencesFromContent(string content)
+    {
+        var paths = ChatViewModel.ExtractFilePathsFromContent(content);
+        if (paths.Length == 0) return;
+
+        var attachList = new StrataAttachmentList { ShowAddButton = false };
+        var anyAdded = false;
+
+        foreach (var fp in paths)
+        {
+            if (File.Exists(fp) && _shownFilePaths.Add(fp))
+            {
+                var chip = CreateFileChip(fp, isRemovable: false);
+                attachList.Items.Add(chip);
+                anyAdded = true;
+            }
+        }
+
+        if (anyAdded)
+            InsertBeforeTypingIndicator(attachList);
+    }
+
+    private static readonly string[] ReasoningLevels = ["Low", "Medium", "High"];
+
+    private static bool IsReasoningModel(string? modelId)
+    {
+        if (string.IsNullOrEmpty(modelId)) return false;
+        // Models that support reasoning effort: o-series, and models with "thinking" capability
+        return modelId.StartsWith("o1", StringComparison.OrdinalIgnoreCase)
+            || modelId.StartsWith("o3", StringComparison.OrdinalIgnoreCase)
+            || modelId.StartsWith("o4", StringComparison.OrdinalIgnoreCase)
+            || modelId.Contains("think", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void UpdateQualityLevels(string? modelId)
+    {
+        var levels = IsReasoningModel(modelId) ? ReasoningLevels : null;
+        if (_welcomeComposer is not null) _welcomeComposer.QualityLevels = levels;
+        if (_activeComposer is not null) _activeComposer.QualityLevels = levels;
+    }
+
+    private async Task PickAndAttachFilesAsync(ChatViewModel vm)
+    {
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel is null) return;
+
+        var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Attach files",
+            AllowMultiple = true
+        });
+
+        foreach (var file in files)
+        {
+            var path = file.TryGetLocalPath();
+            if (path is not null)
+                vm.AddAttachment(path);
+        }
+
+        if (files.Count > 0)
+        {
+            var composer = _activeComposer ?? _welcomeComposer;
+            composer?.FocusInput();
+        }
+    }
+
+    private void RebuildPendingAttachmentChips(ChatViewModel vm)
+    {
+        UpdateAttachmentList(_pendingAttachmentList, vm);
+        UpdateAttachmentList(_welcomePendingAttachmentList, vm);
+    }
+
+    private static void UpdateAttachmentList(StrataAttachmentList? list, ChatViewModel vm)
+    {
+        if (list is null) return;
+
+        list.Items.Clear();
+
+        foreach (var filePath in vm.PendingAttachments)
+        {
+            var chip = CreateFileChip(filePath, isRemovable: true);
+            chip.RemoveRequested += (_, _) => vm.RemoveAttachment(filePath);
+            list.Items.Add(chip);
+        }
+
+        list.IsVisible = vm.PendingAttachments.Count > 0;
+    }
+
+    private static StrataFileAttachment CreateFileChip(string filePath, bool isRemovable)
+    {
+        var fileName = Path.GetFileName(filePath);
+        string? fileSize = null;
+        try
+        {
+            var info = new FileInfo(filePath);
+            if (info.Exists)
+                fileSize = FormatFileSize(info.Length);
+        }
+        catch { /* ignore */ }
+
+        var chip = new StrataFileAttachment
+        {
+            FileName = fileName,
+            FileSize = fileSize,
+            Status = StrataAttachmentStatus.Completed,
+            IsRemovable = isRemovable
+        };
+
+        chip.OpenRequested += (_, _) => OpenFileInSystem(filePath);
+        return chip;
+    }
+
+    private static void OpenFileInSystem(string filePath)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = filePath,
+                UseShellExecute = true
+            });
+        }
+        catch { /* ignore if file doesn't exist */ }
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        return bytes switch
+        {
+            < 1024 => $"{bytes} B",
+            < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
+            < 1024 * 1024 * 1024 => $"{bytes / (1024.0 * 1024):F1} MB",
+            _ => $"{bytes / (1024.0 * 1024 * 1024):F2} GB"
+        };
+    }
+
+    private static string? FormatToolArgs(string? argsJson)
+    {
+        if (string.IsNullOrWhiteSpace(argsJson)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(argsJson);
+            return JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch
+        {
+            return argsJson;
+        }
+    }
+
+    /// <summary>
+    /// Formats tool arguments into a human-readable, non-technical summary.
+    /// Known tools get tailored labels; unknown tools get clean key → value lines.
+    /// </summary>
+    private static string? FormatToolArgsFriendly(string toolName, string? argsJson)
+    {
+        if (string.IsNullOrWhiteSpace(argsJson)) return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(argsJson);
+            var root = doc.RootElement;
+
+            switch (toolName)
+            {
+                case "web_fetch":
+                {
+                    var url = GetString(root, "url");
+                    if (url is null) break;
+                    return $"**URL:** {url}";
+                }
+
+                case "view":
+                {
+                    var path = GetString(root, "path");
+                    if (path is null) break;
+                    var fileName = Path.GetFileName(path);
+                    var dir = Path.GetDirectoryName(path);
+                    if (string.IsNullOrEmpty(Path.GetExtension(path)))
+                        return $"**Path:** `{path}`";
+                    var sb = new StringBuilder();
+                    sb.AppendLine($"**File:** `{fileName}`");
+                    if (!string.IsNullOrEmpty(dir))
+                        sb.AppendLine($"**Location:** `{dir}`");
+                    return sb.ToString().TrimEnd();
+                }
+
+                case "powershell":
+                {
+                    var cmd = GetString(root, "command");
+                    if (string.IsNullOrEmpty(cmd)) break;
+                    return $"```powershell\n{cmd.Trim()}\n```";
+                }
+
+                case "report_intent":
+                {
+                    var intent = GetString(root, "intent");
+                    return intent is not null ? $"Intent: {intent}" : null;
+                }
+
+                case "read_powershell":
+                case "stop_powershell":
+                    return null; // No useful detail to show
+
+                case "create":
+                {
+                    var path = GetString(root, "path");
+                    if (path is null) break;
+                    var fileName = Path.GetFileName(path);
+                    var dir = Path.GetDirectoryName(path);
+                    var sb = new StringBuilder();
+                    sb.AppendLine($"**File:** `{fileName}`");
+                    if (!string.IsNullOrEmpty(dir))
+                        sb.AppendLine($"**Location:** `{dir}`");
+                    return sb.ToString().TrimEnd();
+                }
+            }
+
+            // Generic fallback: clean key → value display with friendly labels
+            return FormatGenericArgs(root);
+        }
+        catch
+        {
+            return argsJson;
+        }
+    }
+
+    /// <summary>Formats unknown tool args as clean "Label: value" lines.</summary>
+    private static string? FormatGenericArgs(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object) return root.ToString();
+
+        var sb = new StringBuilder();
+        foreach (var prop in root.EnumerateObject())
+        {
+            var label = FriendlyFieldName(prop.Name);
+            var value = prop.Value.ValueKind switch
+            {
+                JsonValueKind.String => prop.Value.GetString() ?? "",
+                JsonValueKind.True => "Yes",
+                JsonValueKind.False => "No",
+                JsonValueKind.Number => prop.Value.ToString(),
+                _ => prop.Value.ToString()
+            };
+
+            // Truncate very long values
+            if (value.Length > 200)
+                value = value[..197] + "...";
+
+            sb.AppendLine($"**{label}:** {value}");
+        }
+
+        return sb.Length > 0 ? sb.ToString().TrimEnd() : null;
+    }
+
+    /// <summary>Turns "camelCase" or "snake_case" field names into "Camel case" display labels.</summary>
+    private static string FriendlyFieldName(string fieldName)
+    {
+        // Map common programmer field names to friendly labels
+        return fieldName switch
+        {
+            "url" => "URL",
+            "filePath" or "file_path" => "File",
+            "path" => "Path",
+            "query" => "Search query",
+            "command" => "Command",
+            "description" => "Description",
+            "initial_wait" => "Timeout",
+            "intent" => "Intent",
+            "content" => "Content",
+            "text" => "Text",
+            "language" => "Language",
+            "timeout" => "Timeout",
+            "args" or "arguments" => "Arguments",
+            "input" => "Input",
+            "output" => "Output",
+            "name" => "Name",
+            "type" => "Type",
+            "format" => "Format",
+            "limit" => "Limit",
+            "offset" => "Start at",
+            "count" => "Count",
+            _ => CapitalizeFirst(fieldName.Replace('_', ' '))
+        };
+    }
+
+    private static string CapitalizeFirst(string s)
+        => string.IsNullOrEmpty(s) ? s : char.ToUpper(s[0]) + s[1..];
+
+    private static string? GetString(JsonElement el, string prop)
+        => el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    /// <summary>
+    /// Maps a tool call to a user-friendly display name and summary line.
+    /// Non-coders see human-readable labels instead of raw tool names and JSON.
+    /// </summary>
+    private static (string Name, string? Info) GetFriendlyToolDisplay(string toolName, string? author, string? argsJson)
+    {
+        switch (toolName)
+        {
+            case "web_fetch":
+            {
+                var url = ExtractJsonField(argsJson, "url");
+                string? domain = null;
+                if (url is not null && Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                    domain = uri.Host;
+                return ("Reading website", domain ?? url);
+            }
+
+            case "view":
+            {
+                var path = ExtractJsonField(argsJson, "path");
+                if (path is null) return ("Reading file", null);
+
+                var ext = Path.GetExtension(path);
+                var fileName = Path.GetFileName(path);
+
+                // No extension likely means a directory listing
+                if (string.IsNullOrEmpty(ext))
+                    return ("Browsing folder", fileName);
+
+                // Rich documents
+                if (ext is ".docx" or ".doc" or ".pdf" or ".pptx" or ".ppt" or ".xlsx" or ".xls" or ".rtf")
+                    return ("Reading document", fileName);
+
+                return ("Reading file", fileName);
+            }
+
+            case "powershell":
+            {
+                // Use description as tool name if available
+                var desc = ExtractJsonField(argsJson, "description");
+                if (!string.IsNullOrWhiteSpace(desc))
+                    return (desc, null);
+
+                // Fall back: derive a short summary from the command itself
+                var cmd = ExtractJsonField(argsJson, "command");
+                var summary = SummarizeCommand(cmd);
+                return (summary ?? "Running command", null);
+            }
+
+            case "report_intent":
+                return ("Planning", ExtractJsonField(argsJson, "intent"));
+
+            case "read_powershell":
+                return ("Reading terminal output", null);
+
+            case "stop_powershell":
+                return ("Stopping command", null);
+
+            case "create":
+            {
+                var path = ExtractJsonField(argsJson, "path");
+                var fileName = path is not null ? Path.GetFileName(path) : null;
+                return ("Creating file", fileName);
+            }
+
+            default:
+                var displayName = author ?? FormatToolNameFriendly(toolName);
+                var info = ExtractToolSummary(toolName, argsJson);
+                return (displayName, info);
+        }
+    }
+
+    /// <summary>Derives a short human-readable summary from a raw PowerShell command.</summary>
+    private static string? SummarizeCommand(string? cmd)
+    {
+        if (string.IsNullOrWhiteSpace(cmd)) return null;
+
+        var firstLine = cmd.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault(l => !l.TrimStart().StartsWith('#'))?.Trim();
+        if (firstLine is null) return null;
+
+        // Match common cmdlet patterns
+        if (firstLine.StartsWith("Get-Content", StringComparison.OrdinalIgnoreCase))
+            return "Reading file contents";
+        if (firstLine.StartsWith("Get-ChildItem", StringComparison.OrdinalIgnoreCase)
+            || firstLine.StartsWith("dir ", StringComparison.OrdinalIgnoreCase)
+            || firstLine.StartsWith("ls ", StringComparison.OrdinalIgnoreCase))
+            return "Listing files";
+        if (firstLine.StartsWith("Copy-Item", StringComparison.OrdinalIgnoreCase))
+            return "Copying files";
+        if (firstLine.StartsWith("Remove-Item", StringComparison.OrdinalIgnoreCase))
+            return "Cleaning up files";
+        if (firstLine.StartsWith("Expand-Archive", StringComparison.OrdinalIgnoreCase))
+            return "Extracting archive";
+        if (firstLine.StartsWith("Get-Command", StringComparison.OrdinalIgnoreCase))
+            return "Checking available tools";
+        if (firstLine.StartsWith("Install-", StringComparison.OrdinalIgnoreCase))
+            return "Installing package";
+        if (firstLine.StartsWith("pip install", StringComparison.OrdinalIgnoreCase))
+            return "Installing Python package";
+        if (firstLine.StartsWith("npm install", StringComparison.OrdinalIgnoreCase))
+            return "Installing npm package";
+        if (firstLine.StartsWith("cd ", StringComparison.OrdinalIgnoreCase))
+            return "Navigating directories";
+        if (firstLine.Contains("New-Object -ComObject Word", StringComparison.OrdinalIgnoreCase))
+            return "Opening Word document";
+        if (firstLine.Contains("New-Object -ComObject PowerPoint", StringComparison.OrdinalIgnoreCase))
+            return "Opening PowerPoint file";
+        if (firstLine.Contains("New-Object -ComObject Excel", StringComparison.OrdinalIgnoreCase))
+            return "Opening Excel file";
+
+        return null;
+    }
+
+    /// <summary>Converts snake_case or dot.separated tool names to Title Case.</summary>
+    private static string FormatToolNameFriendly(string toolName)
+    {
+        if (string.IsNullOrEmpty(toolName)) return "Action";
+
+        var cleaned = toolName.Replace('_', ' ').Replace('.', ' ').Trim();
+        if (cleaned.Length == 0) return "Action";
+
+        // Capitalize first letter
+        return char.ToUpper(cleaned[0]) + cleaned[1..];
+    }
+
+    /// <summary>Extracts a single string field from a JSON object.</summary>
+    private static string? ExtractJsonField(string? json, string fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty(fieldName, out var val) ? val.GetString() : null;
+        }
+        catch { return null; }
+    }
+
+    private static string? ExtractToolSummary(string? toolName, string? argsJson)
+    {
+        if (string.IsNullOrWhiteSpace(argsJson)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(argsJson);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("url", out var url))
+                return url.GetString();
+            if (root.TryGetProperty("path", out var path))
+                return path.GetString();
+            if (root.TryGetProperty("filePath", out var filePath))
+                return filePath.GetString();
+            if (root.TryGetProperty("query", out var query))
+                return query.GetString();
+            if (root.TryGetProperty("command", out var cmd))
+                return cmd.GetString();
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+}
+

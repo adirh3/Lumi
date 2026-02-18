@@ -1,0 +1,88 @@
+using System;
+using System.Collections.Generic;
+using System.Text.Json.Serialization;
+
+namespace Lumi.Models;
+
+public class ChatMessage
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Role { get; set; } = "user"; // user, assistant, system, tool, reasoning
+    public string Content { get; set; } = "";
+    public string? Author { get; set; }
+    public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.Now;
+    public string? ToolName { get; set; }
+    public string? ToolCallId { get; set; }
+    public string? ToolStatus { get; set; } // InProgress, Completed, Failed
+    public bool IsStreaming { get; set; }
+    public List<string> Attachments { get; set; } = [];
+}
+
+public class Chat
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Title { get; set; } = "New Chat";
+    public Guid? ProjectId { get; set; }
+    public Guid? AgentId { get; set; }
+    public string? CopilotSessionId { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
+    public List<ChatMessage> Messages { get; set; } = [];
+}
+
+public class Project
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = "";
+    public string Instructions { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+}
+
+public class Skill
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string Content { get; set; } = ""; // Markdown instructions
+    public string IconGlyph { get; set; } = "⚡";
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+}
+
+public class LumiAgent
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string SystemPrompt { get; set; } = "";
+    public string IconGlyph { get; set; } = "✦";
+    public List<Guid> SkillIds { get; set; } = [];
+    public List<string> ToolNames { get; set; } = [];
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+}
+
+public class Memory
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Content { get; set; } = "";
+    public string? SourceChatId { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+}
+
+public class UserSettings
+{
+    public string? UserName { get; set; }
+    public bool IsDarkTheme { get; set; } = true;
+    public bool IsCompactDensity { get; set; }
+    public string PreferredModel { get; set; } = "claude-sonnet-4";
+    public bool IsOnboarded { get; set; }
+}
+
+public class AppData
+{
+    public UserSettings Settings { get; set; } = new();
+    public List<Chat> Chats { get; set; } = [];
+    public List<Project> Projects { get; set; } = [];
+    public List<Skill> Skills { get; set; } = [];
+    public List<LumiAgent> Agents { get; set; } = [];
+    public List<Memory> Memories { get; set; } = [];
+}

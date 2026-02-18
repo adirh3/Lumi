@@ -1,0 +1,101 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:models="using:Lumi.Models"
+             x:Class="Lumi.Views.AgentsView"
+             x:DataType="vm:AgentsViewModel">
+
+  <Grid ColumnDefinitions="*,16,1.2*" Margin="32,24">
+
+    <!-- Left: agent list -->
+    <DockPanel Grid.Column="0">
+      <StackPanel DockPanel.Dock="Top" Spacing="12" Margin="0,0,0,16">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Classes="accent" Content="＋ New Lumi"
+                  Command="{Binding NewAgentCommand}" />
+          <TextBlock Classes="headline" Text="Lumis" VerticalAlignment="Center" />
+        </DockPanel>
+        <TextBox Watermark="Search agents…" Text="{Binding SearchQuery}" />
+      </StackPanel>
+
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <ItemsControl ItemsSource="{Binding Agents}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="models:LumiAgent">
+              <Button Classes="subtle" HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Left" Margin="0,2"
+                      Command="{Binding $parent[UserControl].((vm:AgentsViewModel)DataContext).EditAgentCommand}"
+                      CommandParameter="{Binding}">
+                <DockPanel>
+                  <Button Classes="subtle" DockPanel.Dock="Right"
+                          Content="🗑" FontSize="12" Padding="6,2" Opacity="0.5"
+                          Command="{Binding $parent[UserControl].((vm:AgentsViewModel)DataContext).DeleteAgentCommand}"
+                          CommandParameter="{Binding}" />
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Border Width="36" Height="36" CornerRadius="10"
+                            Background="{DynamicResource Brush.AccentSubtle}">
+                      <TextBlock Text="{Binding IconGlyph}" FontSize="18"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding Name}" FontWeight="Medium" />
+                      <TextBlock Classes="caption" Foreground="{DynamicResource Brush.TextTertiary}"
+                                 Text="{Binding Description}" TextTrimming="CharacterEllipsis" MaxWidth="200" />
+                    </StackPanel>
+                  </StackPanel>
+                </DockPanel>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </DockPanel>
+
+    <!-- Right: editor -->
+    <Border Grid.Column="2" Classes="strata-card" Padding="24,20"
+            IsVisible="{Binding IsEditing}">
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="16">
+          <TextBlock Classes="title" Text="Lumi Editor" />
+          <Border Height="1" Background="{DynamicResource Brush.BorderSubtle}" />
+
+          <StackPanel Spacing="6">
+            <TextBlock Classes="caption" FontWeight="Medium" Text="Name" />
+            <TextBox Text="{Binding EditName}" Watermark="e.g. Daily Planner" />
+          </StackPanel>
+
+          <StackPanel Spacing="6">
+            <TextBlock Classes="caption" FontWeight="Medium" Text="Icon" />
+            <TextBox Text="{Binding EditIconGlyph}" Watermark="✦" MaxWidth="60" HorizontalAlignment="Left" />
+          </StackPanel>
+
+          <StackPanel Spacing="6">
+            <TextBlock Classes="caption" FontWeight="Medium" Text="Description" />
+            <TextBox Text="{Binding EditDescription}" Watermark="What does this Lumi do?" />
+          </StackPanel>
+
+          <StackPanel Spacing="6">
+            <TextBlock Classes="caption" FontWeight="Medium" Text="System Prompt" />
+            <TextBox Text="{Binding EditSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap"
+                     MinHeight="200" Watermark="Instructions that define this Lumi's personality and behavior…" />
+          </StackPanel>
+
+          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+            <Button Classes="accent" Content="Save" Command="{Binding SaveAgentCommand}" />
+            <Button Content="Cancel" Command="{Binding CancelEditCommand}" />
+          </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+
+    <!-- Empty state -->
+    <Border Grid.Column="2" IsVisible="{Binding !IsEditing}"
+            HorizontalAlignment="Center" VerticalAlignment="Center">
+      <StackPanel Spacing="8" HorizontalAlignment="Center">
+        <TextBlock Classes="title" Text="✦" FontSize="40" HorizontalAlignment="Center" />
+        <TextBlock Classes="secondary" Text="Select a Lumi to edit or create a new one"
+                   HorizontalAlignment="Center" />
+      </StackPanel>
+    </Border>
+  </Grid>
+</UserControl>
