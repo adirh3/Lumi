@@ -29,6 +29,9 @@ public class CopilotService : IAsyncDisposable
     public event Action<string>? OnTitleChanged;
     public event Action<string>? OnError;
     public event Action? OnIdle;
+    public event Action<string>? OnSkillInvoked;               // skillName
+    public event Action<string>? OnSubagentStarted;            // agentName
+    public event Action<string>? OnSubagentCompleted;          // agentName
 
     public async Task ConnectAsync(CancellationToken ct = default)
     {
@@ -51,6 +54,8 @@ public class CopilotService : IAsyncDisposable
         string? systemPrompt = null,
         string? model = null,
         string? workingDirectory = null,
+        List<string>? skillDirectories = null,
+        List<CustomAgentConfig>? customAgents = null,
         CancellationToken ct = default)
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
@@ -66,9 +71,16 @@ public class CopilotService : IAsyncDisposable
         {
             config.SystemMessage = new SystemMessageConfig
             {
-                Content = systemPrompt
+                Content = systemPrompt,
+                Mode = SystemMessageMode.Append
             };
         }
+
+        if (skillDirectories is { Count: > 0 })
+            config.SkillDirectories = skillDirectories;
+
+        if (customAgents is { Count: > 0 })
+            config.CustomAgents = customAgents;
 
         _session = await _client.CreateSessionAsync(config, ct);
         _currentSessionId = _session.SessionId;
@@ -81,6 +93,8 @@ public class CopilotService : IAsyncDisposable
         string? systemPrompt = null,
         string? model = null,
         string? workingDirectory = null,
+        List<string>? skillDirectories = null,
+        List<CustomAgentConfig>? customAgents = null,
         CancellationToken ct = default)
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
@@ -95,9 +109,16 @@ public class CopilotService : IAsyncDisposable
         {
             config.SystemMessage = new SystemMessageConfig
             {
-                Content = systemPrompt
+                Content = systemPrompt,
+                Mode = SystemMessageMode.Append
             };
         }
+
+        if (skillDirectories is { Count: > 0 })
+            config.SkillDirectories = skillDirectories;
+
+        if (customAgents is { Count: > 0 })
+            config.CustomAgents = customAgents;
 
         _session = await _client.ResumeSessionAsync(sessionId, config, ct);
         _currentSessionId = _session.SessionId;
@@ -164,6 +185,15 @@ public class CopilotService : IAsyncDisposable
                     break;
                 case SessionErrorEvent err:
                     OnError?.Invoke(err.Data.Message);
+                    break;
+                case SkillInvokedEvent skill:
+                    OnSkillInvoked?.Invoke(skill.Data.Name);
+                    break;
+                case SubagentStartedEvent subStart:
+                    OnSubagentStarted?.Invoke(subStart.Data.AgentDisplayName);
+                    break;
+                case SubagentCompletedEvent subEnd:
+                    OnSubagentCompleted?.Invoke(subEnd.Data.AgentDisplayName);
                     break;
             }
         });

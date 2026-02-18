@@ -1,44 +1,33 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.ViewModels"
+             xmlns:sc="using:StrataTheme.Controls"
              x:Class="Lumi.Views.SettingsView"
-             x:DataType="vm:SettingsViewModel">
+             x:CompileBindings="False">
 
   <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-    <StackPanel Spacing="24" Margin="32,24" MaxWidth="640">
+    <StackPanel Spacing="20" Margin="36,24" MaxWidth="520">
 
-      <Border BorderBrush="{DynamicResource Brush.AccentDefault}" BorderThickness="3,0,0,0" Padding="16,0,0,0">
-        <StackPanel Spacing="4">
-          <TextBlock Classes="headline" Text="Settings" />
-          <TextBlock Classes="secondary" Text="Configure your Lumi experience." />
-        </StackPanel>
-      </Border>
+      <TextBlock Text="Settings" FontSize="15" FontWeight="SemiBold" />
 
-      <Border Classes="strata-card" Padding="24,20">
-        <StackPanel Spacing="16">
-          <TextBlock Classes="subtitle" Text="Profile" />
-          <Border Height="1" Background="{DynamicResource Brush.BorderSubtle}" />
-          <StackPanel Spacing="6">
-            <TextBlock Classes="caption" FontWeight="Medium" Text="Your Name" />
-            <TextBox Text="{Binding UserName}" Watermark="How should Lumi address you?" />
-          </StackPanel>
-          <StackPanel Spacing="6">
-            <TextBlock Classes="caption" FontWeight="Medium" Text="Preferred Model" />
-            <TextBox Text="{Binding PreferredModel}" Watermark="e.g. claude-sonnet-4" />
-          </StackPanel>
-          <Button Classes="accent" Content="Save" Command="{Binding SaveCommand}" />
-        </StackPanel>
-      </Border>
+      <sc:StrataSettingGroup Header="Profile">
+        <sc:StrataSetting Header="Your Name" Description="How Lumi addresses you">
+          <TextBox Text="{Binding UserName}" Watermark="Enter your name" Width="220" />
+        </sc:StrataSetting>
+        <sc:StrataSetting Header="Preferred Model" Description="Default language model">
+          <TextBox Text="{Binding PreferredModel}" Watermark="e.g. claude-sonnet-4" Width="220" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
 
-      <Border Classes="strata-card" Padding="24,20">
-        <StackPanel Spacing="16">
-          <TextBlock Classes="subtitle" Text="About" />
-          <Border Height="1" Background="{DynamicResource Brush.BorderSubtle}" />
-          <TextBlock TextWrapping="Wrap" Classes="secondary"
-                     Text="Lumi is your personal agentic assistant powered by GitHub Copilot. Built with Avalonia and Strata UI." />
-          <TextBlock Classes="caption" Foreground="{DynamicResource Brush.TextTertiary}" Text="Version 0.1.0" />
-        </StackPanel>
-      </Border>
+      <Button Classes="accent" Content="Save" Padding="18,7" MinHeight="0"
+              Command="{Binding SaveCommand}" HorizontalAlignment="Left" />
+
+      <sc:StrataSettingGroup Header="About">
+        <sc:StrataSetting Header="Lumi"
+                          Description="Your personal agentic assistant powered by GitHub Copilot. Built with Avalonia and Strata UI.">
+          <TextBlock Text="v0.1.0" FontSize="12" Foreground="{DynamicResource Brush.TextTertiary}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
 
     </StackPanel>
   </ScrollViewer>

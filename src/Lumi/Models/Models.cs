@@ -28,6 +28,7 @@ public class Chat
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     public List<ChatMessage> Messages { get; set; } = [];
+    public List<Guid> ActiveSkillIds { get; set; } = [];
 }
 
 public class Project
@@ -45,6 +46,7 @@ public class Skill
     public string Description { get; set; } = "";
     public string Content { get; set; } = ""; // Markdown instructions
     public string IconGlyph { get; set; } = "⚡";
+    public bool IsBuiltIn { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
 }
 
@@ -55,6 +57,8 @@ public class LumiAgent
     public string Description { get; set; } = "";
     public string SystemPrompt { get; set; } = "";
     public string IconGlyph { get; set; } = "✦";
+    public bool IsBuiltIn { get; set; }
+    public bool IsLearningAgent { get; set; }
     public List<Guid> SkillIds { get; set; } = [];
     public List<string> ToolNames { get; set; } = [];
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
@@ -75,6 +79,7 @@ public class UserSettings
     public bool IsCompactDensity { get; set; }
     public string PreferredModel { get; set; } = "claude-sonnet-4";
     public bool IsOnboarded { get; set; }
+    public bool DefaultsSeeded { get; set; }
 }
 
 public class AppData

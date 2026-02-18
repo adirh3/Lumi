@@ -56,10 +56,15 @@ public partial class SkillsViewModel : ObservableObject
     private void EditSkill(Skill skill)
     {
         SelectedSkill = skill;
-        EditName = skill.Name;
-        EditDescription = skill.Description;
-        EditContent = skill.Content;
-        EditIconGlyph = skill.IconGlyph;
+    }
+
+    partial void OnSelectedSkillChanged(Skill? value)
+    {
+        if (value is null) return;
+        EditName = value.Name;
+        EditDescription = value.Description;
+        EditContent = value.Content;
+        EditIconGlyph = value.IconGlyph;
         IsEditing = true;
     }
 
@@ -88,6 +93,7 @@ public partial class SkillsViewModel : ObservableObject
         }
 
         _dataStore.Save();
+        _dataStore.SyncSkillFiles();
         IsEditing = false;
         RefreshList();
     }
@@ -103,6 +109,7 @@ public partial class SkillsViewModel : ObservableObject
     {
         _dataStore.Data.Skills.Remove(skill);
         _dataStore.Save();
+        _dataStore.SyncSkillFiles();
         if (SelectedSkill == skill)
         {
             SelectedSkill = null;

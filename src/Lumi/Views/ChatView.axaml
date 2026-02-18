@@ -50,7 +50,8 @@
                                  QualityLevels="{x:Null}"
                                  SuggestionA="Plan my day"
                                  SuggestionB="Summarize this"
-                                 SuggestionC="Help me write" />
+                                 SuggestionC="Help me write"
+                                 SkillItems="{Binding ActiveSkillChips}" />
         </StackPanel>
       </StackPanel>
     </Panel>
@@ -103,7 +104,8 @@
                                   IsBusy="{Binding IsBusy}"
                                   Models="{Binding AvailableModels}"
                                   SelectedModel="{Binding SelectedModel, Mode=TwoWay}"
-                                  QualityLevels="{x:Null}" />
+                                  QualityLevels="{x:Null}"
+                                  SkillItems="{Binding ActiveSkillChips}" />
           </StackPanel>
         </sc:StrataChatShell.Composer>
 

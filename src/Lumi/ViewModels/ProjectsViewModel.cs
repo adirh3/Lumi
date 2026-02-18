@@ -51,8 +51,13 @@ public partial class ProjectsViewModel : ObservableObject
     private void EditProject(Project project)
     {
         SelectedProject = project;
-        EditName = project.Name;
-        EditInstructions = project.Instructions;
+    }
+
+    partial void OnSelectedProjectChanged(Project? value)
+    {
+        if (value is null) return;
+        EditName = value.Name;
+        EditInstructions = value.Instructions;
         IsEditing = true;
     }
 

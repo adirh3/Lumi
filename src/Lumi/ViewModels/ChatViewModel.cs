@@ -41,10 +41,17 @@ public partial class ChatViewModel : ObservableObject
     public ObservableCollection<string> AvailableModels { get; set; } = ["claude-sonnet-4", "gpt-4o", "o3"];
     public ObservableCollection<string> PendingAttachments { get; } = [];
 
+    /// <summary>Skills currently active for this chat session — shown as chips in the composer.</summary>
+    public ObservableCollection<object> ActiveSkillChips { get; } = [];
+
+    /// <summary>Skill IDs active for the current chat.</summary>
+    public List<Guid> ActiveSkillIds { get; } = [];
+
     // Events for the view to react to
     public event Action? ScrollToEndRequested;
     public event Action? ChatUpdated;
     public event Action<string>? FileCreatedByTool;
+    public event Action? AgentChanged;
 
     public ChatViewModel(DataStore dataStore, CopilotService copilotService)
     {
@@ -209,6 +216,28 @@ public partial class ChatViewModel : ObservableObject
         foreach (var msg in chat.Messages.Where(m => m.Role != "reasoning"))
             Messages.Add(new ChatMessageViewModel(msg));
         CurrentChat = chat;
+
+        // Restore active skills from chat
+        ActiveSkillIds.Clear();
+        ActiveSkillChips.Clear();
+        foreach (var skillId in chat.ActiveSkillIds)
+        {
+            var skill = _dataStore.Data.Skills.FirstOrDefault(s => s.Id == skillId);
+            if (skill is not null)
+            {
+                ActiveSkillIds.Add(skillId);
+                ActiveSkillChips.Add(new StrataTheme.Controls.StrataComposerChip(skill.Name, skill.IconGlyph));
+            }
+        }
+
+        // Restore active agent from chat
+        if (chat.AgentId.HasValue)
+        {
+            var agent = _dataStore.Data.Agents.FirstOrDefault(a => a.Id == chat.AgentId.Value);
+            if (agent is not null)
+                ActiveAgent = agent;
+        }
+
         IsLoadingChat = false;
     }
 
@@ -221,6 +250,8 @@ public partial class ChatViewModel : ObservableObject
         _accumulatedContent = "";
         _accumulatedReasoning = "";
         _shownFileChips.Clear();
+        ActiveSkillIds.Clear();
+        ActiveSkillChips.Clear();
         StatusText = "";
     }
 
@@ -247,7 +278,9 @@ public partial class ChatViewModel : ObservableObject
         {
             var chat = new Chat
             {
-                Title = prompt.Length > 40 ? prompt[..40].Trim() + "…" : prompt
+                Title = prompt.Length > 40 ? prompt[..40].Trim() + "…" : prompt,
+                AgentId = ActiveAgent?.Id,
+                ActiveSkillIds = new List<Guid>(ActiveSkillIds)
             };
             _dataStore.Data.Chats.Add(chat);
             CurrentChat = chat;
@@ -268,14 +301,28 @@ public partial class ChatViewModel : ObservableObject
         SaveChat();
         ScrollToEndRequested?.Invoke();
 
-        // Build system prompt
-        var skills = _dataStore.Data.Skills;
+        // Build system prompt with active skills
+        var allSkills = _dataStore.Data.Skills;
+        var activeSkills = ActiveSkillIds.Count > 0
+            ? allSkills.Where(s => ActiveSkillIds.Contains(s.Id)).ToList()
+            : new List<Skill>();
         var memories = _dataStore.Data.Memories;
         var project = CurrentChat.ProjectId.HasValue
             ? _dataStore.Data.Projects.FirstOrDefault(p => p.Id == CurrentChat.ProjectId)
             : null;
         var systemPrompt = SystemPromptBuilder.Build(
-            _dataStore.Data.Settings, ActiveAgent, project, skills, memories);
+            _dataStore.Data.Settings, ActiveAgent, project, allSkills, activeSkills, memories);
+
+        // Build skill directories for SDK
+        var skillDirs = new List<string>();
+        if (ActiveSkillIds.Count > 0)
+        {
+            var dir = _dataStore.SyncSkillFilesForIds(ActiveSkillIds);
+            skillDirs.Add(dir);
+        }
+
+        // Build custom agents for SDK (register all agents as subagents)
+        var customAgents = BuildCustomAgents();
 
         try
         {
@@ -286,13 +333,13 @@ public partial class ChatViewModel : ObservableObject
             if (CurrentChat.CopilotSessionId is null)
             {
                 var session = await _copilotService.CreateSessionAsync(
-                    systemPrompt, SelectedModel, workDir, _cts.Token);
+                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, _cts.Token);
                 CurrentChat.CopilotSessionId = session.SessionId;
             }
             else if (_copilotService.CurrentSessionId != CurrentChat.CopilotSessionId)
             {
                 await _copilotService.ResumeSessionAsync(
-                    CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir, _cts.Token);
+                    CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir, skillDirs, customAgents, _cts.Token);
             }
 
             await _copilotService.SendMessageAsync(prompt, attachments, _cts.Token);
@@ -324,9 +371,112 @@ public partial class ChatViewModel : ObservableObject
         }
     }
 
+    /// <summary>Whether the agent can still be changed (only before the first message is sent).</summary>
+    public bool CanChangeAgent => CurrentChat is null || CurrentChat.Messages.Count == 0;
+
     public void SetActiveAgent(LumiAgent? agent)
     {
+        // Don't allow switching agents once a chat has messages
+        if (!CanChangeAgent) return;
+
         ActiveAgent = agent;
+        if (CurrentChat is not null)
+        {
+            CurrentChat.AgentId = agent?.Id;
+            SaveChat();
+        }
+        AgentChanged?.Invoke();
+    }
+
+    public void AddSkill(Skill skill)
+    {
+        if (ActiveSkillIds.Contains(skill.Id)) return;
+        ActiveSkillIds.Add(skill.Id);
+        ActiveSkillChips.Add(new StrataTheme.Controls.StrataComposerChip(skill.Name, skill.IconGlyph));
+        SyncActiveSkillsToChat();
+    }
+
+    /// <summary>Registers a skill ID without adding a chip (composer already added it).</summary>
+    public void RegisterSkillIdByName(string name)
+    {
+        var skill = _dataStore.Data.Skills.FirstOrDefault(s => s.Name == name);
+        if (skill is null || ActiveSkillIds.Contains(skill.Id)) return;
+        ActiveSkillIds.Add(skill.Id);
+        SyncActiveSkillsToChat();
+    }
+
+    private void SyncActiveSkillsToChat()
+    {
+        if (CurrentChat is not null)
+        {
+            CurrentChat.ActiveSkillIds = new List<Guid>(ActiveSkillIds);
+            SaveChat();
+        }
+    }
+
+    public void RemoveSkillByName(string name)
+    {
+        var skill = _dataStore.Data.Skills.FirstOrDefault(s => s.Name == name);
+        if (skill is null) return;
+        ActiveSkillIds.Remove(skill.Id);
+        var chip = ActiveSkillChips.OfType<StrataTheme.Controls.StrataComposerChip>()
+            .FirstOrDefault(c => c.Name == name);
+        if (chip is not null) ActiveSkillChips.Remove(chip);
+        SyncActiveSkillsToChat();
+    }
+
+    private List<CustomAgentConfig> BuildCustomAgents()
+    {
+        var agents = new List<CustomAgentConfig>();
+        foreach (var agent in _dataStore.Data.Agents)
+        {
+            // Skip the currently active agent (already in main system prompt)
+            if (ActiveAgent?.Id == agent.Id) continue;
+
+            var agentConfig = new CustomAgentConfig
+            {
+                Name = agent.Name,
+                DisplayName = agent.Name,
+                Description = agent.Description,
+                Prompt = agent.SystemPrompt,
+            };
+
+            if (agent.ToolNames.Count > 0)
+                agentConfig.Tools = agent.ToolNames;
+
+            agents.Add(agentConfig);
+        }
+        return agents;
+    }
+
+    /// <summary>Returns StrataComposerChip items for all agents (for composer autocomplete).</summary>
+    public List<StrataTheme.Controls.StrataComposerChip> GetAgentChips()
+    {
+        return _dataStore.Data.Agents
+            .Select(a => new StrataTheme.Controls.StrataComposerChip(a.Name, a.IconGlyph))
+            .ToList();
+    }
+
+    /// <summary>Returns StrataComposerChip items for all skills (for composer autocomplete).</summary>
+    public List<StrataTheme.Controls.StrataComposerChip> GetSkillChips()
+    {
+        return _dataStore.Data.Skills
+            .Select(s => new StrataTheme.Controls.StrataComposerChip(s.Name, s.IconGlyph))
+            .ToList();
+    }
+
+    /// <summary>Selects an agent by name (called from composer autocomplete).</summary>
+    public void SelectAgentByName(string name)
+    {
+        var agent = _dataStore.Data.Agents.FirstOrDefault(a => a.Name == name);
+        SetActiveAgent(agent);
+    }
+
+    /// <summary>Adds a skill by name (called from composer autocomplete).</summary>
+    public void AddSkillByName(string name)
+    {
+        var skill = _dataStore.Data.Skills.FirstOrDefault(s => s.Name == name);
+        if (skill is not null) AddSkill(skill);
     }
 
     public void AddAttachment(string filePath)
@@ -486,13 +636,24 @@ public partial class ChatViewModel : ObservableObject
             catch { StatusText = "Connection failed."; return; }
         }
 
-        var skills = _dataStore.Data.Skills;
+        var allSkills = _dataStore.Data.Skills;
+        var activeSkills = ActiveSkillIds.Count > 0
+            ? allSkills.Where(s => ActiveSkillIds.Contains(s.Id)).ToList()
+            : new List<Skill>();
         var memories = _dataStore.Data.Memories;
         var project = CurrentChat.ProjectId.HasValue
             ? _dataStore.Data.Projects.FirstOrDefault(p => p.Id == CurrentChat.ProjectId)
             : null;
         var systemPrompt = SystemPromptBuilder.Build(
-            _dataStore.Data.Settings, ActiveAgent, project, skills, memories);
+            _dataStore.Data.Settings, ActiveAgent, project, allSkills, activeSkills, memories);
+
+        var skillDirs = new List<string>();
+        if (ActiveSkillIds.Count > 0)
+        {
+            var dir = _dataStore.SyncSkillFilesForIds(ActiveSkillIds);
+            skillDirs.Add(dir);
+        }
+        var customAgents = BuildCustomAgents();
 
         try
         {
@@ -510,14 +671,15 @@ public partial class ChatViewModel : ObservableObject
                 {
                     // Resume the saved session to restore server-side history
                     await _copilotService.ResumeSessionAsync(
-                        CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir, _cts.Token);
+                        CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir,
+                        skillDirs, customAgents, _cts.Token);
                 }
             }
             else
             {
                 // No session at all \u2014 create new (first-time edge case)
                 var session = await _copilotService.CreateSessionAsync(
-                    systemPrompt, SelectedModel, workDir, _cts.Token);
+                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, _cts.Token);
                 CurrentChat.CopilotSessionId = session.SessionId;
             }
 

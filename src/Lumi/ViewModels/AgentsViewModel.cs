@@ -22,6 +22,9 @@ public partial class AgentsViewModel : ObservableObject
 
     public ObservableCollection<LumiAgent> Agents { get; } = [];
 
+    /// <summary>All skills available for assignment to agents.</summary>
+    public ObservableCollection<SkillToggle> AvailableSkills { get; } = [];
+
     public AgentsViewModel(DataStore dataStore)
     {
         _dataStore = dataStore;
@@ -41,6 +44,16 @@ public partial class AgentsViewModel : ObservableObject
             Agents.Add(agent);
     }
 
+    private void RefreshAvailableSkills(LumiAgent? agent)
+    {
+        AvailableSkills.Clear();
+        foreach (var skill in _dataStore.Data.Skills.OrderBy(s => s.Name))
+        {
+            var isAssigned = agent?.SkillIds.Contains(skill.Id) == true;
+            AvailableSkills.Add(new SkillToggle(skill.Id, skill.Name, skill.IconGlyph, isAssigned));
+        }
+    }
+
     [RelayCommand]
     private void NewAgent()
     {
@@ -49,6 +62,7 @@ public partial class AgentsViewModel : ObservableObject
         EditDescription = "";
         EditSystemPrompt = "";
         EditIconGlyph = "✦";
+        RefreshAvailableSkills(null);
         IsEditing = true;
     }
 
@@ -56,10 +70,16 @@ public partial class AgentsViewModel : ObservableObject
     private void EditAgent(LumiAgent agent)
     {
         SelectedAgent = agent;
-        EditName = agent.Name;
-        EditDescription = agent.Description;
-        EditSystemPrompt = agent.SystemPrompt;
-        EditIconGlyph = agent.IconGlyph;
+    }
+
+    partial void OnSelectedAgentChanged(LumiAgent? value)
+    {
+        if (value is null) return;
+        EditName = value.Name;
+        EditDescription = value.Description;
+        EditSystemPrompt = value.SystemPrompt;
+        EditIconGlyph = value.IconGlyph;
+        RefreshAvailableSkills(value);
         IsEditing = true;
     }
 
@@ -68,12 +88,18 @@ public partial class AgentsViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(EditName)) return;
 
+        var selectedSkillIds = AvailableSkills
+            .Where(s => s.IsSelected)
+            .Select(s => s.SkillId)
+            .ToList();
+
         if (SelectedAgent is not null)
         {
             SelectedAgent.Name = EditName.Trim();
             SelectedAgent.Description = EditDescription.Trim();
             SelectedAgent.SystemPrompt = EditSystemPrompt.Trim();
             SelectedAgent.IconGlyph = EditIconGlyph;
+            SelectedAgent.SkillIds = selectedSkillIds;
         }
         else
         {
@@ -82,7 +108,8 @@ public partial class AgentsViewModel : ObservableObject
                 Name = EditName.Trim(),
                 Description = EditDescription.Trim(),
                 SystemPrompt = EditSystemPrompt.Trim(),
-                IconGlyph = EditIconGlyph
+                IconGlyph = EditIconGlyph,
+                SkillIds = selectedSkillIds
             };
             _dataStore.Data.Agents.Add(agent);
         }
@@ -112,4 +139,21 @@ public partial class AgentsViewModel : ObservableObject
     }
 
     partial void OnSearchQueryChanged(string value) => RefreshList();
+}
+
+/// <summary>Tracks a skill's selected state in the agent editor.</summary>
+public partial class SkillToggle : ObservableObject
+{
+    public Guid SkillId { get; }
+    public string Name { get; }
+    public string IconGlyph { get; }
+    [ObservableProperty] private bool _isSelected;
+
+    public SkillToggle(Guid skillId, string name, string iconGlyph, bool isSelected)
+    {
+        SkillId = skillId;
+        Name = name;
+        IconGlyph = iconGlyph;
+        _isSelected = isSelected;
+    }
 }

@@ -16,6 +16,7 @@ public partial class MainWindow : Window
 {
     private Panel? _onboardingPanel;
     private DockPanel? _mainPanel;
+    private DockPanel? _chatLayout;
     private Border? _chatIsland;
     private Control?[] _pages = [];
     private Button?[] _navButtons = [];
@@ -34,15 +35,16 @@ public partial class MainWindow : Window
 
         _onboardingPanel = this.FindControl<Panel>("OnboardingPanel");
         _mainPanel = this.FindControl<DockPanel>("MainPanel");
+        _chatLayout = this.FindControl<DockPanel>("ChatLayout");
         _chatIsland = this.FindControl<Border>("ChatIsland");
 
         _pages =
         [
-            _chatIsland,
-            this.FindControl<Control>("PageProjects"),
-            this.FindControl<Control>("PageSkills"),
-            this.FindControl<Control>("PageAgents"),
-            this.FindControl<Control>("PageSettings"),
+            _chatLayout,                                       // 0 = Chat (sidebar + island)
+            this.FindControl<Control>("PageProjects"),         // 1
+            this.FindControl<Control>("PageSkills"),           // 2
+            this.FindControl<Control>("PageAgents"),           // 3
+            this.FindControl<Control>("PageSettings"),         // 4
         ];
 
         _navButtons =
@@ -92,6 +94,13 @@ public partial class MainWindow : Window
                 {
                     ShowPage(vm.SelectedNavIndex);
                     UpdateNavHighlight(vm.SelectedNavIndex);
+
+                    // Refresh composer catalogs when switching to chat tab
+                    if (vm.SelectedNavIndex == 0)
+                    {
+                        var chatView = this.FindControl<ChatView>("PageChat");
+                        chatView?.PopulateComposerCatalogs(vm.ChatVM);
+                    }
                 }
                 else if (args.PropertyName == nameof(MainViewModel.ActiveChatId))
                 {

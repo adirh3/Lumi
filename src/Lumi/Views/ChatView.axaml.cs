@@ -12,6 +12,7 @@ using Avalonia.Data.Converters;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
+using Lumi.Models;
 using Lumi.ViewModels;
 using StrataTheme.Controls;
 
@@ -80,6 +81,13 @@ public partial class ChatView : UserControl
 
         vm.ScrollToEndRequested += () => _chatShell?.ScrollToEnd();
 
+        // Populate available agents & skills for autocomplete
+        PopulateComposerCatalogs(vm);
+
+        // Update agent display on composers
+        UpdateComposerAgent(vm.ActiveAgent);
+        vm.AgentChanged += () => UpdateComposerAgent(vm.ActiveAgent);
+
         if (_welcomeComposer is not null)
         {
             _welcomeComposer.SendRequested += (_, _) =>
@@ -89,6 +97,21 @@ public partial class ChatView : UserControl
             };
             _welcomeComposer.StopRequested += (_, _) => vm.StopGenerationCommand.Execute(null);
             _welcomeComposer.AttachRequested += (_, _) => _ = PickAndAttachFilesAsync(vm);
+            _welcomeComposer.AgentRemoved += (_, _) => vm.SetActiveAgent(null);
+            _welcomeComposer.SkillRemoved += (_, args) =>
+            {
+                if (args is ComposerChipRemovedEventArgs chipArgs)
+                {
+                    var name = chipArgs.Item is StrataComposerChip sc ? sc.Name : chipArgs.Item?.ToString() ?? "";
+                    vm.RemoveSkillByName(name);
+                }
+            };
+            // Watch for agent selection via autocomplete
+            _welcomeComposer.PropertyChanged += (_, args) =>
+            {
+                if (args.Property.Name == "AgentName")
+                    OnComposerAgentChanged(_welcomeComposer, vm);
+            };
         }
 
         if (_activeComposer is not null)
@@ -100,10 +123,39 @@ public partial class ChatView : UserControl
             };
             _activeComposer.StopRequested += (_, _) => vm.StopGenerationCommand.Execute(null);
             _activeComposer.AttachRequested += (_, _) => _ = PickAndAttachFilesAsync(vm);
+            _activeComposer.AgentRemoved += (_, _) => vm.SetActiveAgent(null);
+            _activeComposer.SkillRemoved += (_, args) =>
+            {
+                if (args is ComposerChipRemovedEventArgs chipArgs)
+                {
+                    var name = chipArgs.Item is StrataComposerChip sc ? sc.Name : chipArgs.Item?.ToString() ?? "";
+                    vm.RemoveSkillByName(name);
+                }
+            };
+            // Watch for agent selection via autocomplete
+            _activeComposer.PropertyChanged += (_, args) =>
+            {
+                if (args.Property.Name == "AgentName")
+                    OnComposerAgentChanged(_activeComposer, vm);
+            };
         }
 
         // Wire pending attachments list to the observable collection
         vm.PendingAttachments.CollectionChanged += (_, _) => RebuildPendingAttachmentChips(vm);
+
+        // When a skill chip is added via composer autocomplete, register the ID (chip already added by composer)
+        vm.ActiveSkillChips.CollectionChanged += (_, args) =>
+        {
+            if (vm.IsLoadingChat) return;
+            if (args.Action == NotifyCollectionChangedAction.Add && args.NewItems is not null)
+            {
+                foreach (var item in args.NewItems)
+                {
+                    if (item is StrataComposerChip chip)
+                        vm.RegisterSkillIdByName(chip.Name);
+                }
+            }
+        };
 
         // Wire file-created-by-tool to show attachment chips in the transcript
         vm.FileCreatedByTool += filePath =>
@@ -627,6 +679,89 @@ public partial class ChatView : UserControl
         var levels = IsReasoningModel(modelId) ? ReasoningLevels : null;
         if (_welcomeComposer is not null) _welcomeComposer.QualityLevels = levels;
         if (_activeComposer is not null) _activeComposer.QualityLevels = levels;
+    }
+
+    /// <summary>
+    /// Populates the AvailableAgents and AvailableSkills catalogs on both composers
+    /// so the user can type @ or / to trigger autocomplete.
+    /// </summary>
+    public void PopulateComposerCatalogs(ChatViewModel vm)
+    {
+        // Build agent catalog from DataStore (accessed via vm)
+        var agentChips = vm.GetAgentChips();
+        var skillChips = vm.GetSkillChips();
+
+        if (_welcomeComposer is not null)
+        {
+            _welcomeComposer.AvailableAgents = agentChips;
+            _welcomeComposer.AvailableSkills = skillChips;
+        }
+        if (_activeComposer is not null)
+        {
+            _activeComposer.AvailableAgents = agentChips;
+            _activeComposer.AvailableSkills = skillChips;
+        }
+    }
+
+    private void UpdateComposerAgent(LumiAgent? agent)
+    {
+        var name = agent?.Name;
+        var glyph = agent?.IconGlyph ?? "◉";
+
+        if (_welcomeComposer is not null)
+        {
+            _welcomeComposer.AgentName = name;
+            _welcomeComposer.AgentGlyph = glyph;
+        }
+        if (_activeComposer is not null)
+        {
+            _activeComposer.AgentName = name;
+            _activeComposer.AgentGlyph = glyph;
+        }
+
+        // Update the agent badge in the chat header
+        var badge = this.FindControl<Avalonia.Controls.Border>("AgentBadge");
+        var badgeText = this.FindControl<Avalonia.Controls.TextBlock>("AgentBadgeText");
+        if (badge is not null)
+        {
+            badge.IsVisible = agent is not null;
+            if (badgeText is not null && agent is not null)
+                badgeText.Text = $"{agent.IconGlyph} {agent.Name}";
+        }
+    }
+
+    /// <summary>Called when the composer's AgentName property changes (user selected via autocomplete).</summary>
+    private void OnComposerAgentChanged(StrataChatComposer composer, ChatViewModel vm)
+    {
+        var agentName = composer.AgentName;
+
+        // Ignore if this matches what's already active (to avoid loops)
+        if (vm.ActiveAgent?.Name == agentName) return;
+
+        // Block agent changes once the chat has messages
+        if (!vm.CanChangeAgent)
+        {
+            // Revert the composer back to the current agent
+            composer.AgentName = vm.ActiveAgent?.Name;
+            composer.AgentGlyph = vm.ActiveAgent?.IconGlyph ?? "◉";
+            return;
+        }
+
+        if (string.IsNullOrEmpty(agentName))
+        {
+            vm.SetActiveAgent(null);
+        }
+        else
+        {
+            vm.SelectAgentByName(agentName);
+            // Sync the other composer
+            var other = composer == _welcomeComposer ? _activeComposer : _welcomeComposer;
+            if (other is not null)
+            {
+                other.AgentName = composer.AgentName;
+                other.AgentGlyph = composer.AgentGlyph;
+            }
+        }
     }
 
     private async Task PickAndAttachFilesAsync(ChatViewModel vm)

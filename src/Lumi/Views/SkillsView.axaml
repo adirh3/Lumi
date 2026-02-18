@@ -3,99 +3,114 @@
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:models="using:Lumi.Models"
              x:Class="Lumi.Views.SkillsView"
-             x:DataType="vm:SkillsViewModel">
+             x:CompileBindings="False">
 
-  <Grid ColumnDefinitions="*,16,1.2*" Margin="32,24">
+  <Grid ColumnDefinitions="260,*">
 
-    <!-- Left: skill list -->
-    <DockPanel Grid.Column="0">
-      <StackPanel DockPanel.Dock="Top" Spacing="12" Margin="0,0,0,16">
-        <DockPanel>
-          <Button DockPanel.Dock="Right" Classes="accent" Content="＋ New Skill"
-                  Command="{Binding NewSkillCommand}" />
-          <TextBlock Classes="headline" Text="Skills" VerticalAlignment="Center" />
+    <!-- ── Left: item list ── -->
+    <Border BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="0,0,1,0">
+      <DockPanel Margin="0,16,0,0">
+        <!-- Header row -->
+        <DockPanel DockPanel.Dock="Top" Margin="16,0,16,0">
+          <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
+                  CornerRadius="{DynamicResource Radius.Base}"
+                  Command="{Binding NewSkillCommand}" ToolTip.Tip="New skill">
+            <PathIcon Data="M12 4a1 1 0 0 1 1 1v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6V5a1 1 0 0 1 1-1z"
+                      Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}" />
+          </Button>
+          <TextBlock Text="Skills" FontSize="13" FontWeight="SemiBold"
+                     Foreground="{DynamicResource Brush.TextSecondary}"
+                     VerticalAlignment="Center" />
         </DockPanel>
-        <TextBox Watermark="Search skills…" Text="{Binding SearchQuery}" />
-      </StackPanel>
 
-      <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <ItemsControl ItemsSource="{Binding Skills}">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="models:Skill">
-              <Button Classes="subtle" HorizontalAlignment="Stretch"
-                      HorizontalContentAlignment="Left" Margin="0,2"
-                      Command="{Binding $parent[UserControl].((vm:SkillsViewModel)DataContext).EditSkillCommand}"
-                      CommandParameter="{Binding}">
-                <DockPanel>
-                  <Button Classes="subtle" DockPanel.Dock="Right"
-                          Content="🗑" FontSize="12" Padding="6,2" Opacity="0.5"
-                          Command="{Binding $parent[UserControl].((vm:SkillsViewModel)DataContext).DeleteSkillCommand}"
-                          CommandParameter="{Binding}" />
-                  <StackPanel Orientation="Horizontal" Spacing="10">
-                    <Border Width="32" Height="32" CornerRadius="8"
-                            Background="{DynamicResource Brush.AccentSubtle}">
-                      <TextBlock Text="{Binding IconGlyph}" FontSize="16"
-                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <StackPanel Spacing="2" VerticalAlignment="Center">
-                      <TextBlock Text="{Binding Name}" FontWeight="Medium" />
-                      <TextBlock Classes="caption" Foreground="{DynamicResource Brush.TextTertiary}"
-                                 Text="{Binding Description}" TextTrimming="CharacterEllipsis" MaxWidth="200" />
-                    </StackPanel>
-                  </StackPanel>
-                </DockPanel>
-              </Button>
+        <!-- Search -->
+        <Border DockPanel.Dock="Top" Margin="12,10,12,0">
+          <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
+                   Padding="10,5" FontSize="12" />
+        </Border>
+
+        <!-- Item list -->
+        <ListBox Classes="sidebar-list" Margin="8,8,8,8"
+                 ItemsSource="{Binding Skills}"
+                 SelectedItem="{Binding SelectedSkill, Mode=TwoWay}"
+                 SelectionMode="Single">
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <Panel Background="Transparent">
+                <Panel.ContextMenu>
+                  <ContextMenu>
+                    <MenuItem Header="Delete"
+                              Command="{Binding $parent[UserControl].DataContext.DeleteSkillCommand}"
+                              CommandParameter="{Binding}" />
+                  </ContextMenu>
+                </Panel.ContextMenu>
+                <StackPanel Spacing="1">
+                  <TextBlock Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{Binding Description}" FontSize="11"
+                             Foreground="{DynamicResource Brush.TextTertiary}"
+                             TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                </StackPanel>
+              </Panel>
             </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-      </ScrollViewer>
-    </DockPanel>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
 
-    <!-- Right: editor -->
-    <Border Grid.Column="2" Classes="strata-card" Padding="24,20"
-            IsVisible="{Binding IsEditing}">
-      <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Spacing="16">
-          <TextBlock Classes="title" Text="Skill Editor" />
-          <Border Height="1" Background="{DynamicResource Brush.BorderSubtle}" />
+    <!-- ── Right: editor ── -->
+    <Panel Grid.Column="1">
+      <!-- Editor form -->
+      <ScrollViewer IsVisible="{Binding IsEditing}"
+                    HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Auto" Padding="36,24">
+        <StackPanel Spacing="20">
+          <TextBlock Text="Skill Editor" FontSize="15" FontWeight="SemiBold" />
 
-          <StackPanel Spacing="6">
-            <TextBlock Classes="caption" FontWeight="Medium" Text="Name" />
+          <StackPanel Spacing="4">
+            <TextBlock Text="NAME" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+                       LetterSpacing="0.8" />
             <TextBox Text="{Binding EditName}" Watermark="e.g. Word Creator" />
           </StackPanel>
 
-          <StackPanel Spacing="6">
-            <TextBlock Classes="caption" FontWeight="Medium" Text="Icon" />
-            <TextBox Text="{Binding EditIconGlyph}" Watermark="⚡" MaxWidth="60" HorizontalAlignment="Left" />
-          </StackPanel>
+          <Grid ColumnDefinitions="72,20,*">
+            <StackPanel Spacing="4">
+              <TextBlock Text="ICON" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+                         LetterSpacing="0.8" />
+              <TextBox Text="{Binding EditIconGlyph}" Watermark="⚡"
+                       HorizontalContentAlignment="Center" />
+            </StackPanel>
+            <StackPanel Grid.Column="2" Spacing="4">
+              <TextBlock Text="DESCRIPTION" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+                         LetterSpacing="0.8" />
+              <TextBox Text="{Binding EditDescription}"
+                       Watermark="Short description of what this skill does" />
+            </StackPanel>
+          </Grid>
 
-          <StackPanel Spacing="6">
-            <TextBlock Classes="caption" FontWeight="Medium" Text="Description" />
-            <TextBox Text="{Binding EditDescription}" Watermark="Short description of what this skill does" />
-          </StackPanel>
-
-          <StackPanel Spacing="6">
-            <TextBlock Classes="caption" FontWeight="Medium" Text="Instructions (Markdown)" />
+          <StackPanel Spacing="4">
+            <TextBlock Text="INSTRUCTIONS" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+                       LetterSpacing="0.8" />
             <TextBox Text="{Binding EditContent}" AcceptsReturn="True" TextWrapping="Wrap"
-                     MinHeight="200" Watermark="Detailed instructions for how to use this skill…" />
+                     MinHeight="260"
+                     Watermark="Markdown instructions for how to use this skill…" />
           </StackPanel>
 
-          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
-            <Button Classes="accent" Content="Save" Command="{Binding SaveSkillCommand}" />
-            <Button Content="Cancel" Command="{Binding CancelEditCommand}" />
+          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+            <Button Classes="accent" Content="Save" Padding="18,7" MinHeight="0"
+                    Command="{Binding SaveSkillCommand}" />
+            <Button Classes="subtle" Content="Cancel" Padding="18,7" MinHeight="0"
+                    Command="{Binding CancelEditCommand}" />
           </StackPanel>
         </StackPanel>
       </ScrollViewer>
-    </Border>
 
-    <!-- Empty state -->
-    <Border Grid.Column="2" IsVisible="{Binding !IsEditing}"
-            HorizontalAlignment="Center" VerticalAlignment="Center">
-      <StackPanel Spacing="8" HorizontalAlignment="Center">
-        <TextBlock Classes="title" Text="⚡" FontSize="40" HorizontalAlignment="Center" />
-        <TextBlock Classes="secondary" Text="Select a skill to edit or create a new one"
+      <!-- Empty state -->
+      <StackPanel IsVisible="{Binding !IsEditing}"
+                  HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" Opacity="0.4">
+        <TextBlock Text="⚡" FontSize="32" HorizontalAlignment="Center" />
+        <TextBlock Text="Select or create a skill" FontSize="13"
                    HorizontalAlignment="Center" />
       </StackPanel>
-    </Border>
+    </Panel>
   </Grid>
 </UserControl>

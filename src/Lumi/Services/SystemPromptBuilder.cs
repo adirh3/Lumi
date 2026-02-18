@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Lumi.Models;
 
 namespace Lumi.Services;
 
 public static class SystemPromptBuilder
 {
-    public static string Build(UserSettings settings, LumiAgent? agent, Project? project, List<Skill> skills, List<Memory> memories)
+    public static string Build(UserSettings settings, LumiAgent? agent, Project? project,
+        List<Skill> allSkills, List<Skill> activeSkills, List<Memory> memories)
     {
         var userName = settings.UserName ?? "there";
         var timeOfDay = GetTimeOfDay();
@@ -26,9 +28,23 @@ public static class SystemPromptBuilder
             prompt += $"""
 
 
-                --- Agent: {agent.Name} ---
+                --- Active Agent: {agent.Name} ---
                 {agent.SystemPrompt}
                 """;
+
+            // Include agent's linked skills
+            if (agent.SkillIds.Count > 0)
+            {
+                var agentSkills = allSkills.Where(s => agent.SkillIds.Contains(s.Id)).ToList();
+                if (agentSkills.Count > 0)
+                {
+                    prompt += "\n\n--- Agent Skills ---\n";
+                    foreach (var skill in agentSkills)
+                    {
+                        prompt += $"\n### {skill.Name}\n{skill.Content}\n";
+                    }
+                }
+            }
         }
 
         if (project is not null && !string.IsNullOrWhiteSpace(project.Instructions))
@@ -41,12 +57,24 @@ public static class SystemPromptBuilder
                 """;
         }
 
-        if (skills.Count > 0)
+        // Active skills selected by the user for this chat (full content)
+        if (activeSkills.Count > 0)
         {
-            prompt += "\n\n--- Available Skills ---\n";
-            foreach (var skill in skills)
+            prompt += "\n\n--- Active Skills (use these to help the user) ---\n";
+            foreach (var skill in activeSkills)
             {
-                prompt += $"- **{skill.Name}**: {skill.Description}\n";
+                prompt += $"\n### {skill.Name}\n{skill.Content}\n";
+            }
+        }
+
+        // All available skills (summary only, so LLM knows what's available)
+        if (allSkills.Count > 0)
+        {
+            prompt += "\n\n--- All Available Skills (user can activate these with /skill) ---\n";
+            foreach (var skill in allSkills)
+            {
+                var activeMarker = activeSkills.Any(s => s.Id == skill.Id) ? " ✓" : "";
+                prompt += $"- **{skill.Name}**: {skill.Description}{activeMarker}\n";
             }
         }
 
