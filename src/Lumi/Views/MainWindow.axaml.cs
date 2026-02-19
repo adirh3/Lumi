@@ -30,6 +30,8 @@ public partial class MainWindow : Window
     private StackPanel? _projectFilterBar;
     private ComboBox? _onboardingSexCombo;
     private ComboBox? _onboardingLanguageCombo;
+    private TextBox? _chatSearchBox;
+    private ChatView? _chatView;
     private bool _suppressSelectionSync;
 
     public MainWindow()
@@ -95,6 +97,8 @@ public partial class MainWindow : Window
 
         _onboardingSexCombo = this.FindControl<ComboBox>("OnboardingSexCombo");
         _onboardingLanguageCombo = this.FindControl<ComboBox>("OnboardingLanguageCombo");
+        _chatSearchBox = this.FindControl<TextBox>("ChatSearchBox");
+        _chatView = this.FindControl<ChatView>("PageChat");
 
         // Populate onboarding ComboBoxes
         if (_onboardingSexCombo is not null)
@@ -128,6 +132,109 @@ public partial class MainWindow : Window
         }
 
         base.OnClosing(e);
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.Handled) return;
+        if (DataContext is not MainViewModel vm || !vm.IsOnboarded) return;
+
+        var ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+        var shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
+        var noMods = e.KeyModifiers == KeyModifiers.None;
+
+        // ── Rename dialog: Enter to confirm, Escape to cancel ──
+        if (_renameOverlay?.IsVisible == true)
+        {
+            if (e.Key == Key.Enter && noMods)
+            {
+                vm.CommitRenameChatCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.Escape && noMods)
+            {
+                vm.CancelRenameChatCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
+            return; // Block other shortcuts while rename dialog is open
+        }
+
+        // ── Ctrl+N — New chat ──
+        if (ctrl && !shift && e.Key == Key.N)
+        {
+            vm.NewChatCommand.Execute(null);
+            Dispatcher.UIThread.Post(() => _chatView?.FocusComposer(), DispatcherPriority.Input);
+            e.Handled = true;
+            return;
+        }
+
+        // ── Ctrl+L — Focus chat input ──
+        if (ctrl && !shift && e.Key == Key.L)
+        {
+            if (vm.SelectedNavIndex != 0)
+                vm.SelectedNavIndex = 0;
+            Dispatcher.UIThread.Post(() => _chatView?.FocusComposer(), DispatcherPriority.Input);
+            e.Handled = true;
+            return;
+        }
+
+        // ── Ctrl+K — Focus chat search ──
+        if (ctrl && !shift && e.Key == Key.K)
+        {
+            if (vm.SelectedNavIndex != 0)
+                vm.SelectedNavIndex = 0;
+            Dispatcher.UIThread.Post(() =>
+            {
+                _chatSearchBox?.Focus();
+                _chatSearchBox?.SelectAll();
+            }, DispatcherPriority.Input);
+            e.Handled = true;
+            return;
+        }
+
+        // ── Ctrl+, — Settings ──
+        if (ctrl && !shift && e.Key == Key.OemComma)
+        {
+            vm.SelectedNavIndex = 5;
+            e.Handled = true;
+            return;
+        }
+
+        // ── Ctrl+1..6 — Tab navigation ──
+        if (ctrl && !shift)
+        {
+            var tabIndex = e.Key switch
+            {
+                Key.D1 => 0,
+                Key.D2 => 1,
+                Key.D3 => 2,
+                Key.D4 => 3,
+                Key.D5 => 4,
+                Key.D6 => 5,
+                _ => -1
+            };
+            if (tabIndex >= 0)
+            {
+                vm.SelectedNavIndex = tabIndex;
+                e.Handled = true;
+                return;
+            }
+        }
+
+        // ── Escape — Clear search / deselect chat ──
+        if (e.Key == Key.Escape && noMods)
+        {
+            // If search has text, clear it
+            if (vm.SelectedNavIndex == 0 && !string.IsNullOrEmpty(vm.ChatSearchQuery))
+            {
+                vm.ChatSearchQuery = "";
+                e.Handled = true;
+                return;
+            }
+        }
     }
 
     private void HideToTray()

@@ -780,6 +780,13 @@ public partial class ChatView : UserControl
     /// Populates the AvailableAgents and AvailableSkills catalogs on both composers
     /// so the user can type @ or / to trigger autocomplete.
     /// </summary>
+    /// <summary>Focuses the active chat composer input, or the welcome composer if no chat is open.</summary>
+    public void FocusComposer()
+    {
+        var composer = _chatPanel?.IsVisible == true ? _activeComposer : _welcomeComposer;
+        composer?.FocusInput();
+    }
+
     public void PopulateComposerCatalogs(ChatViewModel vm)
     {
         // Build agent catalog from DataStore (accessed via vm)
