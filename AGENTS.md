@@ -63,4 +63,5 @@ No test project exists yet. StrataTheme project must be available at `E:\Git\Str
 - **Tool display names** — add friendly mappings in `ChatView.axaml.cs` `GetFriendlyToolDisplay()` and `ChatViewModel.cs` `FormatToolDisplayName()`
 - **CRUD ViewModels** follow identical master-detail pattern — `SelectedX`, `IsEditing`, `EditX` properties, `New/Edit/Save/Cancel/Delete` commands
 - **Strata controls** — always use Strata UI components for chat elements. Inspect the StrataTheme source for API
+- **Modify StrataTheme when needed** — if a UI change makes more sense as a StrataTheme feature or fix (new control, new property, style tweak, bug fix), go ahead and make the change directly in the StrataTheme project at `E:\Git\Strata`. Don't work around library limitations in Lumi when the right fix belongs in Strata.
 - **No over-engineering** — this is a personal app, keep implementations simple and direct

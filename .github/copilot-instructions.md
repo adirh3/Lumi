@@ -114,10 +114,11 @@ src/Lumi/
 1. **Use CommunityToolkit.Mvvm patterns** — `[ObservableProperty]` generates properties from fields (e.g., `[ObservableProperty] string _name;` generates `Name`). Use `partial void On<PropertyName>Changed()` for side effects.
 2. **UI thread safety** — All CopilotService event handlers dispatch to UI thread via `Dispatcher.UIThread.Post()`.
 3. **Strata controls** — When adding chat UI elements, use Strata controls. Reference the StrataTheme source at `E:\Git\Strata` for API details.
-4. **No database** — Data is stored as JSON. Add new persistent collections to `AppData` in `Models.cs`.
-5. **System prompt context** — When adding new context sources, extend `SystemPromptBuilder.Build()`.
-6. **Chat transcript** — The chat view builds controls programmatically in `ChatView.axaml.cs`. New message types need a rendering case in `AddMessageControl()`.
-7. **Keep it simple** — Avoid over-engineering. This is a personal assistant app, not an enterprise system.
+4. **Modify StrataTheme when needed** — If a UI change makes more sense as a StrataTheme feature or fix (new control, new property, style tweak, bug fix), go ahead and make the change directly in the StrataTheme project at `E:\Git\Strata`. Don't work around library limitations in Lumi when the right fix belongs in Strata.
+5. **No database** — Data is stored as JSON. Add new persistent collections to `AppData` in `Models.cs`.
+6. **System prompt context** — When adding new context sources, extend `SystemPromptBuilder.Build()`.
+7. **Chat transcript** — The chat view builds controls programmatically in `ChatView.axaml.cs`. New message types need a rendering case in `AddMessageControl()`.
+8. **Keep it simple** — Avoid over-engineering. This is a personal assistant app, not an enterprise system.
 
 ## Building & Running
 
