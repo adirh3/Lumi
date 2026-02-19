@@ -13,6 +13,23 @@ public partial class SettingsViewModel : ObservableObject
     // ── Page navigation ──
     [ObservableProperty] private int _selectedPageIndex;
 
+    // ── Search ──
+    [ObservableProperty] private string _searchQuery = "";
+    [ObservableProperty] private string _searchResultSummary = "";
+
+    public bool IsSearching => !string.IsNullOrWhiteSpace(SearchQuery);
+
+    partial void OnSearchQueryChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsSearching));
+    }
+
+    partial void OnSelectedPageIndexChanged(int value)
+    {
+        if (IsSearching)
+            SearchQuery = "";
+    }
+
     public ObservableCollection<string> Pages { get; } =
     [
         "General",

@@ -24,9 +24,34 @@
       </DockPanel>
     </Border>
 
+    <ScrollViewer x:Name="MainScrollViewer" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+    <StackPanel x:Name="AllPagesStack" Spacing="0">
+
+    <!-- Search results header (shown during search) -->
+    <DockPanel x:Name="SearchResultsHeader" IsVisible="False"
+              Margin="36,24,36,4" MaxWidth="560" HorizontalAlignment="Left">
+      <Button x:Name="ClearSearchButton" DockPanel.Dock="Right" Classes="subtle"
+              Content="Clear" Padding="8,4" MinHeight="0" MinWidth="0"
+              FontSize="{DynamicResource Font.SizeCaption}"
+              Foreground="{DynamicResource Brush.AccentDefault}"
+              VerticalAlignment="Center" />
+      <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextTertiary}">
+          <PathIcon.Data>
+            <StreamGeometry>M10 3a7 7 0 1 0 4.2 12.6l4.1 4.1a1 1 0 0 0 1.4-1.4l-4.1-4.1A7 7 0 0 0 10 3zm-5 7a5 5 0 1 1 10 0 5 5 0 0 1-10 0z</StreamGeometry>
+          </PathIcon.Data>
+        </PathIcon>
+        <StackPanel Orientation="Horizontal" Spacing="0">
+          <TextBlock x:Name="SearchCountText" FontSize="13" FontWeight="SemiBold"
+                     Foreground="{DynamicResource Brush.AccentDefault}" />
+          <TextBlock x:Name="SearchQueryText" FontSize="13"
+                     Foreground="{DynamicResource Brush.TextSecondary}" />
+        </StackPanel>
+      </StackPanel>
+    </DockPanel>
+
     <!-- ═══ Page 0: General ═══ -->
-    <ScrollViewer x:Name="PageGeneral" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-      <StackPanel Spacing="20" Margin="36,24" MaxWidth="560">
+      <StackPanel x:Name="PageGeneral" Spacing="20" Margin="36,24" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="General" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
           <TextBlock Text="Profile and startup preferences" FontSize="{DynamicResource Font.SizeCaption}"
@@ -57,11 +82,9 @@
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
       </StackPanel>
-    </ScrollViewer>
 
     <!-- ═══ Page 1: Appearance ═══ -->
-    <ScrollViewer x:Name="PageAppearance" IsVisible="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-      <StackPanel Spacing="20" Margin="36,24" MaxWidth="560">
+      <StackPanel x:Name="PageAppearance" IsVisible="False" Spacing="20" Margin="36,24" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="Appearance" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
           <TextBlock Text="Customize how Lumi looks and feels" FontSize="{DynamicResource Font.SizeCaption}"
@@ -99,11 +122,9 @@
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
       </StackPanel>
-    </ScrollViewer>
 
     <!-- ═══ Page 2: Chat ═══ -->
-    <ScrollViewer x:Name="PageChat" IsVisible="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-      <StackPanel Spacing="20" Margin="36,24" MaxWidth="560">
+      <StackPanel x:Name="PageChat" IsVisible="False" Spacing="20" Margin="36,24" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="Chat" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
           <TextBlock Text="Configure chat behavior and display" FontSize="{DynamicResource Font.SizeCaption}"
@@ -149,11 +170,9 @@
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
       </StackPanel>
-    </ScrollViewer>
 
     <!-- ═══ Page 3: AI & Models ═══ -->
-    <ScrollViewer x:Name="PageAI" IsVisible="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-      <StackPanel Spacing="20" Margin="36,24" MaxWidth="560">
+      <StackPanel x:Name="PageAI" IsVisible="False" Spacing="20" Margin="36,24" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="AI &amp; Models" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
           <TextBlock Text="Configure AI model and behavior" FontSize="{DynamicResource Font.SizeCaption}"
@@ -167,11 +186,9 @@
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
       </StackPanel>
-    </ScrollViewer>
 
     <!-- ═══ Page 4: Privacy & Data ═══ -->
-    <ScrollViewer x:Name="PagePrivacy" IsVisible="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-      <StackPanel Spacing="20" Margin="36,24" MaxWidth="560">
+      <StackPanel x:Name="PagePrivacy" IsVisible="False" Spacing="20" Margin="36,24" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="Privacy &amp; Data" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
           <TextBlock Text="Manage your data and privacy preferences" FontSize="{DynamicResource Font.SizeCaption}"
@@ -209,11 +226,9 @@
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
       </StackPanel>
-    </ScrollViewer>
 
     <!-- ═══ Page 5: About ═══ -->
-    <ScrollViewer x:Name="PageAbout" IsVisible="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-      <StackPanel Spacing="20" Margin="36,24" MaxWidth="560">
+      <StackPanel x:Name="PageAbout" IsVisible="False" Spacing="20" Margin="36,24" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="About" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
           <TextBlock Text="Information about Lumi" FontSize="{DynamicResource Font.SizeCaption}"
@@ -265,7 +280,29 @@
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
       </StackPanel>
+
+    </StackPanel>
     </ScrollViewer>
+
+    <!-- No results indicator -->
+    <StackPanel x:Name="NoResultsPanel" IsVisible="False"
+                VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
+      <PathIcon Width="40" Height="40" Foreground="{DynamicResource Brush.TextTertiary}"
+                HorizontalAlignment="Center">
+        <PathIcon.Data>
+          <StreamGeometry>M10 3a7 7 0 1 0 4.2 12.6l4.1 4.1a1 1 0 0 0 1.4-1.4l-4.1-4.1A7 7 0 0 0 10 3zm-5 7a5 5 0 1 1 10 0 5 5 0 0 1-10 0z</StreamGeometry>
+        </PathIcon.Data>
+      </PathIcon>
+      <StackPanel Spacing="4" HorizontalAlignment="Center">
+        <TextBlock x:Name="NoResultsQueryText" FontSize="{DynamicResource Font.SizeBody}"
+                   Foreground="{DynamicResource Brush.TextSecondary}" HorizontalAlignment="Center" />
+        <TextBlock Text="Try a different search term" FontSize="{DynamicResource Font.SizeCaption}"
+                   Foreground="{DynamicResource Brush.TextTertiary}" HorizontalAlignment="Center" />
+      </StackPanel>
+      <Button x:Name="NoResultsClearButton" Classes="subtle" Content="Clear search"
+              Padding="12,6" MinHeight="0" HorizontalAlignment="Center"
+              Foreground="{DynamicResource Brush.AccentDefault}" />
+    </StackPanel>
 
   </Panel>
 </UserControl>

@@ -494,6 +494,16 @@
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" />
               </DockPanel>
+              <Border DockPanel.Dock="Top" Margin="14,6,14,0">
+                <TextBox Watermark="Search settings…" Text="{Binding SearchQuery}"
+                         Padding="6,5,8,5" FontSize="12">
+                  <TextBox.InnerLeftContent>
+                    <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                              Foreground="{DynamicResource Brush.TextTertiary}"
+                              Margin="4,0,4,0" />
+                  </TextBox.InnerLeftContent>
+                </TextBox>
+              </Border>
               <ListBox Classes="sidebar-list" Margin="8,8,8,8"
                        SelectedIndex="{Binding SelectedPageIndex, Mode=TwoWay}"
                        SelectionMode="Single">
