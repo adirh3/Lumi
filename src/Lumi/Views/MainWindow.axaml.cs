@@ -16,7 +16,7 @@ public partial class MainWindow : Window
 {
     private Panel? _onboardingPanel;
     private DockPanel? _mainPanel;
-    private DockPanel? _chatLayout;
+    private Panel? _chatSidebarContent;
     private Border? _chatIsland;
     private Control?[] _pages = [];
     private Button?[] _navButtons = [];
@@ -27,6 +27,12 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ExtendClientAreaToDecorationsHint = true;
+        ExtendClientAreaChromeHints = Avalonia.Platform.ExtendClientAreaChromeHints.PreferSystemChrome;
+
+        // Force transparent background after theme styles are applied
+        Background = Avalonia.Media.Brushes.Transparent;
+        TransparencyBackgroundFallback = Avalonia.Media.Brushes.Transparent;
     }
 
     private void InitializeComponent()
@@ -35,12 +41,12 @@ public partial class MainWindow : Window
 
         _onboardingPanel = this.FindControl<Panel>("OnboardingPanel");
         _mainPanel = this.FindControl<DockPanel>("MainPanel");
-        _chatLayout = this.FindControl<DockPanel>("ChatLayout");
+        _chatSidebarContent = this.FindControl<Panel>("ChatSidebarContent");
         _chatIsland = this.FindControl<Border>("ChatIsland");
 
         _pages =
         [
-            _chatLayout,                                       // 0 = Chat (sidebar + island)
+            _chatIsland,                                       // 0 = Chat
             this.FindControl<Control>("PageProjects"),         // 1
             this.FindControl<Control>("PageSkills"),           // 2
             this.FindControl<Control>("PageAgents"),           // 3
@@ -149,6 +155,10 @@ public partial class MainWindow : Window
             if (_pages[i] is not null)
                 _pages[i]!.IsVisible = i == index;
         }
+
+        // Show chat sidebar content only on the chat tab
+        if (_chatSidebarContent is not null)
+            _chatSidebarContent.IsVisible = index == 0;
     }
 
     private void UpdateNavHighlight(int index)

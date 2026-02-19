@@ -10,7 +10,8 @@
         Width="1320" Height="860"
         MinWidth="800" MinHeight="560"
         WindowStartupLocation="CenterScreen"
-        Background="{DynamicResource Brush.Background}">
+        TransparencyLevelHint="AcrylicBlur"
+        Background="Transparent">
 
   <Window.Resources>
     <!-- ── SVG Icon Paths ── -->
@@ -60,9 +61,16 @@
   </Window.Styles>
 
   <Panel>
+    <!-- Semi-transparent background that lets Mica/Acrylic show through -->
+    <Border x:Name="AcrylicFallback">
+      <Border.Background>
+        <SolidColorBrush Color="{DynamicResource Color.Background}" Opacity="0.8" />
+      </Border.Background>
+    </Border>
+
     <!-- ═══ Onboarding Overlay ═══ -->
     <Panel x:Name="OnboardingPanel" IsVisible="True">
-      <Border Background="{DynamicResource Brush.Background}" />
+      <Border Background="{DynamicResource Brush.Background}" Opacity="0.5" />
       <Border HorizontalAlignment="Center" VerticalAlignment="Center"
               Classes="strata-card" Padding="48,40" MaxWidth="480">
         <StackPanel Spacing="24" HorizontalAlignment="Center">
@@ -91,59 +99,58 @@
     <!-- ═══ Main App ═══ -->
     <DockPanel x:Name="MainPanel" IsVisible="False">
 
-      <!-- ── Bottom-left nav (always visible, aligns with sidebar) ── -->
-      <Border DockPanel.Dock="Bottom" HorizontalAlignment="Left" Margin="0,0,0,0">
-        <StackPanel x:Name="NavRow" Orientation="Horizontal" Spacing="0"
-                    Margin="14,6,14,10">
-          <Button Classes="subtle nav-icon" x:Name="NavChat" ToolTip.Tip="Chats"
-                  Command="{Binding SetNavCommand}" CommandParameter="0">
-            <PathIcon Data="{StaticResource Icon.Chat}" Width="16" Height="16"
-                      Foreground="{DynamicResource Brush.TextSecondary}" />
-          </Button>
-          <Button Classes="subtle nav-icon" x:Name="NavProjects" ToolTip.Tip="Projects"
-                  Command="{Binding SetNavCommand}" CommandParameter="1">
-            <PathIcon Data="{StaticResource Icon.Folder}" Width="16" Height="16"
-                      Foreground="{DynamicResource Brush.TextSecondary}" />
-          </Button>
-          <Button Classes="subtle nav-icon" x:Name="NavSkills" ToolTip.Tip="Skills"
-                  Command="{Binding SetNavCommand}" CommandParameter="2">
-            <PathIcon Data="{StaticResource Icon.Bolt}" Width="16" Height="16"
-                      Foreground="{DynamicResource Brush.TextSecondary}" />
-          </Button>
-          <Button Classes="subtle nav-icon" x:Name="NavAgents" ToolTip.Tip="Lumis"
-                  Command="{Binding SetNavCommand}" CommandParameter="3">
-            <PathIcon Data="{StaticResource Icon.Sparkle}" Width="16" Height="16"
-                      Foreground="{DynamicResource Brush.TextSecondary}" />
-          </Button>
-          <Button Classes="subtle nav-icon" x:Name="NavMemories" ToolTip.Tip="Memories"
-                  Command="{Binding SetNavCommand}" CommandParameter="4">
-            <PathIcon Data="{StaticResource Icon.Memory}" Width="16" Height="16"
-                      Foreground="{DynamicResource Brush.TextSecondary}" />
-          </Button>
-          <Button Classes="subtle nav-icon" x:Name="NavSettings" ToolTip.Tip="Settings"
-                  Command="{Binding SetNavCommand}" CommandParameter="5">
-            <PathIcon Data="{StaticResource Icon.Gear}" Width="16" Height="16"
-                      Foreground="{DynamicResource Brush.TextSecondary}" />
-          </Button>
-        </StackPanel>
-      </Border>
+      <!-- ═══ ALWAYS-VISIBLE LEFT SIDEBAR ═══ -->
+      <Border DockPanel.Dock="Left" Width="240">
+        <DockPanel>
 
-      <!-- ═══ CONTENT AREA ═══ -->
-      <Panel>
+          <!-- ── Top: Title bar inset (respects window chrome buttons) ── -->
+          <Border DockPanel.Dock="Top" IsHitTestVisible="False"
+                  Height="38" />
+          <DockPanel DockPanel.Dock="Top" Margin="14,0,14,0">
+            <TextBlock Text="Lumi" FontSize="15" FontWeight="SemiBold"
+                       VerticalAlignment="Center" Margin="4,0,0,0" />
+          </DockPanel>
 
-        <!-- ── Chat layout: sidebar + island (only visible on Chat tab) ── -->
-        <DockPanel x:Name="ChatLayout">
+          <!-- ── Bottom: Nav row ── -->
+          <Border DockPanel.Dock="Bottom">
+            <StackPanel x:Name="NavRow" Orientation="Horizontal" Spacing="0"
+                        Margin="14,6,14,10">
+              <Button Classes="subtle nav-icon" x:Name="NavChat" ToolTip.Tip="Chats"
+                      Command="{Binding SetNavCommand}" CommandParameter="0">
+                <PathIcon Data="{StaticResource Icon.Chat}" Width="16" Height="16"
+                          Foreground="{DynamicResource Brush.TextSecondary}" />
+              </Button>
+              <Button Classes="subtle nav-icon" x:Name="NavProjects" ToolTip.Tip="Projects"
+                      Command="{Binding SetNavCommand}" CommandParameter="1">
+                <PathIcon Data="{StaticResource Icon.Folder}" Width="16" Height="16"
+                          Foreground="{DynamicResource Brush.TextSecondary}" />
+              </Button>
+              <Button Classes="subtle nav-icon" x:Name="NavSkills" ToolTip.Tip="Skills"
+                      Command="{Binding SetNavCommand}" CommandParameter="2">
+                <PathIcon Data="{StaticResource Icon.Bolt}" Width="16" Height="16"
+                          Foreground="{DynamicResource Brush.TextSecondary}" />
+              </Button>
+              <Button Classes="subtle nav-icon" x:Name="NavAgents" ToolTip.Tip="Lumis"
+                      Command="{Binding SetNavCommand}" CommandParameter="3">
+                <PathIcon Data="{StaticResource Icon.Sparkle}" Width="16" Height="16"
+                          Foreground="{DynamicResource Brush.TextSecondary}" />
+              </Button>
+              <Button Classes="subtle nav-icon" x:Name="NavMemories" ToolTip.Tip="Memories"
+                      Command="{Binding SetNavCommand}" CommandParameter="4">
+                <PathIcon Data="{StaticResource Icon.Memory}" Width="16" Height="16"
+                          Foreground="{DynamicResource Brush.TextSecondary}" />
+              </Button>
+              <Button Classes="subtle nav-icon" x:Name="NavSettings" ToolTip.Tip="Settings"
+                      Command="{Binding SetNavCommand}" CommandParameter="5">
+                <PathIcon Data="{StaticResource Icon.Gear}" Width="16" Height="16"
+                          Foreground="{DynamicResource Brush.TextSecondary}" />
+              </Button>
+            </StackPanel>
+          </Border>
 
-          <!-- LEFT SIDEBAR -->
-          <Border DockPanel.Dock="Left" Width="240">
+          <!-- ── Chat sidebar content (visible on Chat tab) ── -->
+          <Panel x:Name="ChatSidebarContent">
             <DockPanel>
-
-              <!-- ── Top: Brand ── -->
-              <DockPanel DockPanel.Dock="Top" Margin="14,14,14,0">
-                <TextBlock Text="Lumi" FontSize="15" FontWeight="SemiBold"
-                           VerticalAlignment="Center" Margin="4,0,0,0" />
-              </DockPanel>
-
               <!-- ── New Chat button ── -->
               <Border DockPanel.Dock="Top" Margin="14,10,14,0">
                 <Button Classes="subtle" HorizontalAlignment="Stretch"
@@ -226,51 +233,54 @@
                 </ItemsControl>
               </ScrollViewer>
             </DockPanel>
-          </Border>
-
-          <!-- Chat island -->
-          <Border x:Name="ChatIsland" Margin="4,10,14,10"
-                  CornerRadius="{DynamicResource Radius.Overlay}"
-                  Background="{DynamicResource Brush.SurfaceCard}"
-                  BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                  BorderThickness="1"
-                  BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000"
-                  ClipToBounds="True">
-            <views:ChatView x:Name="PageChat" DataContext="{Binding ChatVM}" />
-          </Border>
+          </Panel>
         </DockPanel>
+      </Border>
+
+      <!-- ═══ CONTENT AREA (full height, inset for title bar) ═══ -->
+      <Panel Margin="0,32,0,0">
+        <!-- Chat view (visible on Chat tab) -->
+        <Border x:Name="ChatIsland" Margin="4,6,8,8"
+                CornerRadius="{DynamicResource Radius.Overlay}"
+                Background="{DynamicResource Brush.SurfaceCard}"
+                BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                BorderThickness="1"
+                BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000"
+                ClipToBounds="True">
+          <views:ChatView x:Name="PageChat" DataContext="{Binding ChatVM}" />
+        </Border>
 
         <!-- ── Full-width pages with island treatment (visible when not on Chat tab) ── -->
         <Border x:Name="PageProjects" IsVisible="False"
-                Margin="14,10" CornerRadius="{DynamicResource Radius.Overlay}"
+                Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
                 BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
           <views:ProjectsView DataContext="{Binding ProjectsVM}" />
         </Border>
         <Border x:Name="PageSkills" IsVisible="False"
-                Margin="14,10" CornerRadius="{DynamicResource Radius.Overlay}"
+                Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
                 BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
           <views:SkillsView DataContext="{Binding SkillsVM}" />
         </Border>
         <Border x:Name="PageAgents" IsVisible="False"
-                Margin="14,10" CornerRadius="{DynamicResource Radius.Overlay}"
+                Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
                 BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
           <views:AgentsView DataContext="{Binding AgentsVM}" />
         </Border>
         <Border x:Name="PageMemories" IsVisible="False"
-                Margin="14,10" CornerRadius="{DynamicResource Radius.Overlay}"
+                Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
                 BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
           <views:MemoriesView DataContext="{Binding MemoriesVM}" />
         </Border>
         <Border x:Name="PageSettings" IsVisible="False"
-                Margin="14,10" CornerRadius="{DynamicResource Radius.Overlay}"
+                Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
                 BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">

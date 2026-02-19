@@ -19,47 +19,48 @@
   <Panel>
     <!-- Welcome state (no active chat) -->
     <Panel x:Name="WelcomePanel">
-      <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="24" MaxWidth="520">
-        <!-- Animated orb -->
-        <Border x:Name="WelcomeOrb" Width="80" Height="80" CornerRadius="40"
+      <!-- Centered greeting (offset up to leave room for composer) -->
+      <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16"
+                  MaxWidth="480" Margin="0,0,0,120">
+        <Border x:Name="WelcomeOrb" Width="64" Height="64" CornerRadius="32"
                 Background="{DynamicResource Brush.AccentGradient}"
                 HorizontalAlignment="Center" Opacity="0.9">
-          <TextBlock Text="L" FontSize="36" FontWeight="Bold"
+          <TextBlock Text="L" FontSize="28" FontWeight="Bold"
                      Foreground="{DynamicResource Brush.TextOnAccent}"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Border>
 
-        <StackPanel Spacing="8" HorizontalAlignment="Center">
+        <StackPanel Spacing="6" HorizontalAlignment="Center">
           <TextBlock Classes="headline" Text="What can I help with?"
                      HorizontalAlignment="Center" />
           <TextBlock Classes="secondary" TextAlignment="Center" TextWrapping="Wrap"
-                     Text="Start a conversation, use a skill, or switch to a Lumi agent for specialized help." />
+                     Text="Start a conversation, use a skill, or switch to a Lumi agent." />
         </StackPanel>
+      </StackPanel>
 
-        <!-- Quick composer -->
-        <StackPanel Spacing="4">
-          <sc:StrataAttachmentList x:Name="WelcomePendingAttachmentList"
-                                   ShowAddButton="False"
-                                   IsVisible="False" />
-          <sc:StrataChatComposer x:Name="WelcomeComposer"
-                                 Placeholder="Message Lumi…"
-                                 PromptText="{Binding PromptText, Mode=TwoWay}"
-                                 IsBusy="{Binding IsBusy}"
-                                 Models="{Binding AvailableModels}"
-                                 SelectedModel="{Binding SelectedModel, Mode=TwoWay}"
-                                 QualityLevels="{x:Null}"
-                                 SuggestionA="Plan my day"
-                                 SuggestionB="Summarize this"
-                                 SuggestionC="Help me write"
-                                 SkillItems="{Binding ActiveSkillChips}" />
-        </StackPanel>
+      <!-- Bottom-pinned composer -->
+      <StackPanel VerticalAlignment="Bottom" Spacing="4" MaxWidth="680"
+                  HorizontalAlignment="Stretch" Margin="24,0,24,20">
+        <sc:StrataAttachmentList x:Name="WelcomePendingAttachmentList"
+                                 ShowAddButton="False"
+                                 IsVisible="False" />
+        <sc:StrataChatComposer x:Name="WelcomeComposer"
+                               Placeholder="Message Lumi…"
+                               PromptText="{Binding PromptText, Mode=TwoWay}"
+                               IsBusy="{Binding IsBusy}"
+                               Models="{Binding AvailableModels}"
+                               SelectedModel="{Binding SelectedModel, Mode=TwoWay}"
+                               QualityLevels="{x:Null}"
+                               SuggestionA="Plan my day"
+                               SuggestionB="Summarize this"
+                               SuggestionC="Help me write"
+                               SkillItems="{Binding ActiveSkillChips}" />
       </StackPanel>
     </Panel>
 
     <!-- Active chat -->
     <Panel x:Name="ChatPanel" IsVisible="False">
-      <sc:StrataChatShell x:Name="ChatShell" IsOnline="True"
-                          VerticalAlignment="Stretch">
+      <sc:StrataChatShell x:Name="ChatShell" IsOnline="True">
 
         <sc:StrataChatShell.Header>
           <DockPanel Margin="0,0,8,0">
@@ -72,13 +73,14 @@
               </Border>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-              <Border Width="28" Height="28" CornerRadius="8"
+              <Border Width="26" Height="26" CornerRadius="7"
                       Background="{DynamicResource Brush.AccentGradient}">
-                <TextBlock Text="L" FontSize="13" FontWeight="Bold"
+                <TextBlock Text="L" FontSize="12" FontWeight="Bold"
                            Foreground="{DynamicResource Brush.TextOnAccent}"
                            HorizontalAlignment="Center" VerticalAlignment="Center" />
               </Border>
-              <TextBlock Classes="body-strong" Text="{Binding CurrentChat.Title}" />
+              <TextBlock Classes="body-strong" Text="{Binding CurrentChat.Title}"
+                         TextTrimming="CharacterEllipsis" />
             </StackPanel>
           </DockPanel>
         </sc:StrataChatShell.Header>
