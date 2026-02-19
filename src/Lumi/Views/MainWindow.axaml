@@ -171,15 +171,15 @@
                 </Button>
               </Border>
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
-                <Panel>
-                  <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
-                            Foreground="{DynamicResource Brush.TextTertiary}"
-                            HorizontalAlignment="Left" VerticalAlignment="Center"
-                            Margin="10,0,0,0" IsHitTestVisible="False" />
-                  <TextBox Watermark="Search…" x:Name="ChatSearchBox"
-                           Text="{Binding ChatSearchQuery, Mode=TwoWay}"
-                           Padding="28,5,8,5" />
-                </Panel>
+                <TextBox Watermark="Search…" x:Name="ChatSearchBox"
+                         Text="{Binding ChatSearchQuery, Mode=TwoWay}"
+                         Padding="6,5,8,5" FontSize="12">
+                  <TextBox.InnerLeftContent>
+                    <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                              Foreground="{DynamicResource Brush.TextTertiary}"
+                              Margin="4,0,4,0" />
+                  </TextBox.InnerLeftContent>
+                </TextBox>
               </Border>
               <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                             Margin="0,8,0,0">
@@ -246,14 +246,14 @@
                            VerticalAlignment="Center" />
               </DockPanel>
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
-                <Panel>
-                  <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
-                            Foreground="{DynamicResource Brush.TextTertiary}"
-                            HorizontalAlignment="Left" VerticalAlignment="Center"
-                            Margin="10,0,0,0" IsHitTestVisible="False" />
-                  <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
-                           Padding="28,5,8,5" />
-                </Panel>
+                <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
+                         Padding="6,5,8,5" FontSize="12">
+                  <TextBox.InnerLeftContent>
+                    <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                              Foreground="{DynamicResource Brush.TextTertiary}"
+                              Margin="4,0,4,0" />
+                  </TextBox.InnerLeftContent>
+                </TextBox>
               </Border>
               <ListBox Classes="sidebar-list" Margin="8,8,8,8"
                        ItemsSource="{Binding Projects}"
@@ -300,14 +300,14 @@
                            VerticalAlignment="Center" />
               </DockPanel>
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
-                <Panel>
-                  <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
-                            Foreground="{DynamicResource Brush.TextTertiary}"
-                            HorizontalAlignment="Left" VerticalAlignment="Center"
-                            Margin="10,0,0,0" IsHitTestVisible="False" />
-                  <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
-                           Padding="28,5,8,5" />
-                </Panel>
+                <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
+                         Padding="6,5,8,5" FontSize="12">
+                  <TextBox.InnerLeftContent>
+                    <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                              Foreground="{DynamicResource Brush.TextTertiary}"
+                              Margin="4,0,4,0" />
+                  </TextBox.InnerLeftContent>
+                </TextBox>
               </Border>
               <ListBox Classes="sidebar-list" Margin="8,8,8,8"
                        ItemsSource="{Binding Skills}"
@@ -355,14 +355,14 @@
                            VerticalAlignment="Center" />
               </DockPanel>
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
-                <Panel>
-                  <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
-                            Foreground="{DynamicResource Brush.TextTertiary}"
-                            HorizontalAlignment="Left" VerticalAlignment="Center"
-                            Margin="10,0,0,0" IsHitTestVisible="False" />
-                  <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
-                           Padding="28,5,8,5" />
-                </Panel>
+                <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
+                         Padding="6,5,8,5" FontSize="12">
+                  <TextBox.InnerLeftContent>
+                    <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                              Foreground="{DynamicResource Brush.TextTertiary}"
+                              Margin="4,0,4,0" />
+                  </TextBox.InnerLeftContent>
+                </TextBox>
               </Border>
               <ListBox Classes="sidebar-list" Margin="8,8,8,8"
                        ItemsSource="{Binding Agents}"
@@ -410,14 +410,14 @@
                            VerticalAlignment="Center" />
               </DockPanel>
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
-                <Panel>
-                  <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
-                            Foreground="{DynamicResource Brush.TextTertiary}"
-                            HorizontalAlignment="Left" VerticalAlignment="Center"
-                            Margin="10,0,0,0" IsHitTestVisible="False" />
-                  <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
-                           Padding="28,5,8,5" />
-                </Panel>
+                <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
+                         Padding="6,5,8,5" FontSize="12">
+                  <TextBox.InnerLeftContent>
+                    <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                              Foreground="{DynamicResource Brush.TextTertiary}"
+                              Margin="4,0,4,0" />
+                  </TextBox.InnerLeftContent>
+                </TextBox>
               </Border>
               <ListBox Classes="sidebar-list" Margin="8,8,8,8"
                        ItemsSource="{Binding Memories}"
