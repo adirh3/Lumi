@@ -5,60 +5,7 @@
              x:Class="Lumi.Views.MemoriesView"
              x:CompileBindings="False">
 
-  <Grid ColumnDefinitions="260,*">
-
-    <!-- ── Left: item list ── -->
-    <Border BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="0,0,1,0">
-      <DockPanel Margin="0,16,0,0">
-        <!-- Header row -->
-        <DockPanel DockPanel.Dock="Top" Margin="16,0,16,0">
-          <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
-                  CornerRadius="{DynamicResource Radius.Base}"
-                  Command="{Binding NewMemoryCommand}" ToolTip.Tip="New memory">
-            <PathIcon Data="M12 4a1 1 0 0 1 1 1v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6V5a1 1 0 0 1 1-1z"
-                      Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}" />
-          </Button>
-          <TextBlock Text="Memories" FontSize="13" FontWeight="SemiBold"
-                     Foreground="{DynamicResource Brush.TextSecondary}"
-                     VerticalAlignment="Center" />
-        </DockPanel>
-
-        <!-- Search -->
-        <Border DockPanel.Dock="Top" Margin="12,10,12,0">
-          <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
-                   Padding="10,5" FontSize="12" />
-        </Border>
-
-        <!-- Item list -->
-        <ListBox Classes="sidebar-list" Margin="8,8,8,8"
-                 ItemsSource="{Binding Memories}"
-                 SelectedItem="{Binding SelectedMemory, Mode=TwoWay}"
-                 SelectionMode="Single">
-          <ListBox.ItemTemplate>
-            <DataTemplate>
-              <Panel Background="Transparent">
-                <Panel.ContextMenu>
-                  <ContextMenu>
-                    <MenuItem Header="Delete"
-                              Command="{Binding $parent[UserControl].DataContext.DeleteMemoryCommand}"
-                              CommandParameter="{Binding}" />
-                  </ContextMenu>
-                </Panel.ContextMenu>
-                <StackPanel Spacing="1">
-                  <TextBlock Text="{Binding Key}" FontSize="13" TextTrimming="CharacterEllipsis" />
-                  <TextBlock Text="{Binding Category}" FontSize="11"
-                             Foreground="{DynamicResource Brush.TextTertiary}"
-                             TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
-                </StackPanel>
-              </Panel>
-            </DataTemplate>
-          </ListBox.ItemTemplate>
-        </ListBox>
-      </DockPanel>
-    </Border>
-
-    <!-- ── Right: editor ── -->
-    <Panel Grid.Column="1">
+  <Panel>
       <!-- Editor form -->
       <ScrollViewer IsVisible="{Binding IsEditing}"
                     HorizontalScrollBarVisibility="Disabled"
@@ -103,6 +50,5 @@
         <TextBlock Text="Select or create a memory" FontSize="13"
                    HorizontalAlignment="Center" />
       </StackPanel>
-    </Panel>
-  </Grid>
+  </Panel>
 </UserControl>

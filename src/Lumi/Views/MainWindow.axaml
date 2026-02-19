@@ -148,10 +148,12 @@
             </StackPanel>
           </Border>
 
-          <!-- ── Chat sidebar content (visible on Chat tab) ── -->
-          <Panel x:Name="ChatSidebarContent">
+          <!-- ═══ SIDEBAR CONTENT PANELS (one per tab, wrapped for DockPanel fill) ═══ -->
+          <Panel>
+
+          <!-- ── 0: Chat sidebar ── -->
+          <Panel x:Name="SidebarChat">
             <DockPanel>
-              <!-- ── New Chat button ── -->
               <Border DockPanel.Dock="Top" Margin="14,10,14,0">
                 <Button Classes="subtle" HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Left"
@@ -168,8 +170,6 @@
                   </StackPanel>
                 </Button>
               </Border>
-
-              <!-- ── Search with icon ── -->
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
                 <Panel>
                   <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
@@ -181,19 +181,15 @@
                            Padding="28,5,8,5" />
                 </Panel>
               </Border>
-
-              <!-- ── Chat list (grouped by time) ── -->
               <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                             Margin="0,8,0,0">
                 <ItemsControl x:Name="ChatGroupsHost" ItemsSource="{Binding ChatGroups}" Margin="6,0,6,8">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
                       <StackPanel Margin="0,0,0,2">
-                        <!-- Group header -->
                         <TextBlock Text="{Binding Label}" FontSize="{DynamicResource Font.SizeCaption}" FontWeight="SemiBold"
                                    Foreground="{DynamicResource Brush.TextTertiary}"
                                    Margin="10,10,0,4" />
-                        <!-- Strata ListBox for this group -->
                         <ListBox Classes="sidebar-list"
                                  ItemsSource="{Binding Chats}"
                                  SelectionMode="Single"
@@ -234,6 +230,234 @@
               </ScrollViewer>
             </DockPanel>
           </Panel>
+
+          <!-- ── 1: Projects sidebar ── -->
+          <Panel x:Name="SidebarProjects" IsVisible="False" DataContext="{Binding ProjectsVM}">
+            <DockPanel>
+              <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
+                <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
+                        CornerRadius="{DynamicResource Radius.Base}"
+                        Command="{Binding NewProjectCommand}" ToolTip.Tip="New project">
+                  <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
+                            Foreground="{DynamicResource Brush.TextSecondary}" />
+                </Button>
+                <TextBlock Text="Projects" FontSize="13" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Brush.TextSecondary}"
+                           VerticalAlignment="Center" />
+              </DockPanel>
+              <Border DockPanel.Dock="Top" Margin="14,6,14,0">
+                <Panel>
+                  <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                            Foreground="{DynamicResource Brush.TextTertiary}"
+                            HorizontalAlignment="Left" VerticalAlignment="Center"
+                            Margin="10,0,0,0" IsHitTestVisible="False" />
+                  <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
+                           Padding="28,5,8,5" />
+                </Panel>
+              </Border>
+              <ListBox Classes="sidebar-list" Margin="8,8,8,8"
+                       ItemsSource="{Binding Projects}"
+                       SelectedItem="{Binding SelectedProject, Mode=TwoWay}"
+                       SelectionMode="Single">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <Panel Background="Transparent">
+                      <Panel.ContextMenu>
+                        <ContextMenu>
+                          <MenuItem Header="Delete"
+                                    Command="{Binding $parent[Window].DataContext.ProjectsVM.DeleteProjectCommand}"
+                                    CommandParameter="{Binding}">
+                            <MenuItem.Icon>
+                              <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
+                            </MenuItem.Icon>
+                          </MenuItem>
+                        </ContextMenu>
+                      </Panel.ContextMenu>
+                      <StackPanel Spacing="1">
+                        <TextBlock Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis" />
+                        <TextBlock FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}"
+                                   Text="{Binding CreatedAt, StringFormat='{}{0:MMM d, yyyy}'}" />
+                      </StackPanel>
+                    </Panel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </DockPanel>
+          </Panel>
+
+          <!-- ── 2: Skills sidebar ── -->
+          <Panel x:Name="SidebarSkills" IsVisible="False" DataContext="{Binding SkillsVM}">
+            <DockPanel>
+              <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
+                <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
+                        CornerRadius="{DynamicResource Radius.Base}"
+                        Command="{Binding NewSkillCommand}" ToolTip.Tip="New skill">
+                  <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
+                            Foreground="{DynamicResource Brush.TextSecondary}" />
+                </Button>
+                <TextBlock Text="Skills" FontSize="13" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Brush.TextSecondary}"
+                           VerticalAlignment="Center" />
+              </DockPanel>
+              <Border DockPanel.Dock="Top" Margin="14,6,14,0">
+                <Panel>
+                  <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                            Foreground="{DynamicResource Brush.TextTertiary}"
+                            HorizontalAlignment="Left" VerticalAlignment="Center"
+                            Margin="10,0,0,0" IsHitTestVisible="False" />
+                  <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
+                           Padding="28,5,8,5" />
+                </Panel>
+              </Border>
+              <ListBox Classes="sidebar-list" Margin="8,8,8,8"
+                       ItemsSource="{Binding Skills}"
+                       SelectedItem="{Binding SelectedSkill, Mode=TwoWay}"
+                       SelectionMode="Single">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <Panel Background="Transparent">
+                      <Panel.ContextMenu>
+                        <ContextMenu>
+                          <MenuItem Header="Delete"
+                                    Command="{Binding $parent[Window].DataContext.SkillsVM.DeleteSkillCommand}"
+                                    CommandParameter="{Binding}">
+                            <MenuItem.Icon>
+                              <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
+                            </MenuItem.Icon>
+                          </MenuItem>
+                        </ContextMenu>
+                      </Panel.ContextMenu>
+                      <StackPanel Spacing="1">
+                        <TextBlock Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Description}" FontSize="11"
+                                   Foreground="{DynamicResource Brush.TextTertiary}"
+                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                      </StackPanel>
+                    </Panel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </DockPanel>
+          </Panel>
+
+          <!-- ── 3: Lumis sidebar ── -->
+          <Panel x:Name="SidebarAgents" IsVisible="False" DataContext="{Binding AgentsVM}">
+            <DockPanel>
+              <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
+                <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
+                        CornerRadius="{DynamicResource Radius.Base}"
+                        Command="{Binding NewAgentCommand}" ToolTip.Tip="New Lumi">
+                  <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
+                            Foreground="{DynamicResource Brush.TextSecondary}" />
+                </Button>
+                <TextBlock Text="Lumis" FontSize="13" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Brush.TextSecondary}"
+                           VerticalAlignment="Center" />
+              </DockPanel>
+              <Border DockPanel.Dock="Top" Margin="14,6,14,0">
+                <Panel>
+                  <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                            Foreground="{DynamicResource Brush.TextTertiary}"
+                            HorizontalAlignment="Left" VerticalAlignment="Center"
+                            Margin="10,0,0,0" IsHitTestVisible="False" />
+                  <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
+                           Padding="28,5,8,5" />
+                </Panel>
+              </Border>
+              <ListBox Classes="sidebar-list" Margin="8,8,8,8"
+                       ItemsSource="{Binding Agents}"
+                       SelectedItem="{Binding SelectedAgent, Mode=TwoWay}"
+                       SelectionMode="Single">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <Panel Background="Transparent">
+                      <Panel.ContextMenu>
+                        <ContextMenu>
+                          <MenuItem Header="Delete"
+                                    Command="{Binding $parent[Window].DataContext.AgentsVM.DeleteAgentCommand}"
+                                    CommandParameter="{Binding}">
+                            <MenuItem.Icon>
+                              <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
+                            </MenuItem.Icon>
+                          </MenuItem>
+                        </ContextMenu>
+                      </Panel.ContextMenu>
+                      <StackPanel Spacing="1">
+                        <TextBlock Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Description}" FontSize="11"
+                                   Foreground="{DynamicResource Brush.TextTertiary}"
+                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                      </StackPanel>
+                    </Panel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </DockPanel>
+          </Panel>
+
+          <!-- ── 4: Memories sidebar ── -->
+          <Panel x:Name="SidebarMemories" IsVisible="False" DataContext="{Binding MemoriesVM}">
+            <DockPanel>
+              <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
+                <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
+                        CornerRadius="{DynamicResource Radius.Base}"
+                        Command="{Binding NewMemoryCommand}" ToolTip.Tip="New memory">
+                  <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
+                            Foreground="{DynamicResource Brush.TextSecondary}" />
+                </Button>
+                <TextBlock Text="Memories" FontSize="13" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Brush.TextSecondary}"
+                           VerticalAlignment="Center" />
+              </DockPanel>
+              <Border DockPanel.Dock="Top" Margin="14,6,14,0">
+                <Panel>
+                  <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                            Foreground="{DynamicResource Brush.TextTertiary}"
+                            HorizontalAlignment="Left" VerticalAlignment="Center"
+                            Margin="10,0,0,0" IsHitTestVisible="False" />
+                  <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
+                           Padding="28,5,8,5" />
+                </Panel>
+              </Border>
+              <ListBox Classes="sidebar-list" Margin="8,8,8,8"
+                       ItemsSource="{Binding Memories}"
+                       SelectedItem="{Binding SelectedMemory, Mode=TwoWay}"
+                       SelectionMode="Single">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <Panel Background="Transparent">
+                      <Panel.ContextMenu>
+                        <ContextMenu>
+                          <MenuItem Header="Delete"
+                                    Command="{Binding $parent[Window].DataContext.MemoriesVM.DeleteMemoryCommand}"
+                                    CommandParameter="{Binding}">
+                            <MenuItem.Icon>
+                              <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
+                            </MenuItem.Icon>
+                          </MenuItem>
+                        </ContextMenu>
+                      </Panel.ContextMenu>
+                      <StackPanel Spacing="1">
+                        <TextBlock Text="{Binding Key}" FontSize="13" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Category}" FontSize="11"
+                                   Foreground="{DynamicResource Brush.TextTertiary}"
+                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                      </StackPanel>
+                    </Panel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </DockPanel>
+          </Panel>
+
+          <!-- ── 5: Settings sidebar (empty — just a label) ── -->
+          <Panel x:Name="SidebarSettings" IsVisible="False">
+            <TextBlock Text="Settings" FontSize="13" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Brush.TextTertiary}"
+                       Margin="18,10,0,0" />
+          </Panel>
+
+          </Panel><!-- end sidebar content wrapper -->
         </DockPanel>
       </Border>
 

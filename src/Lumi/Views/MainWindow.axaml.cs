@@ -16,9 +16,9 @@ public partial class MainWindow : Window
 {
     private Panel? _onboardingPanel;
     private DockPanel? _mainPanel;
-    private Panel? _chatSidebarContent;
     private Border? _chatIsland;
     private Control?[] _pages = [];
+    private Panel?[] _sidebarPanels = [];
     private Button?[] _navButtons = [];
     private Panel? _renameOverlay;
     private TextBox? _renameTextBox;
@@ -41,7 +41,6 @@ public partial class MainWindow : Window
 
         _onboardingPanel = this.FindControl<Panel>("OnboardingPanel");
         _mainPanel = this.FindControl<DockPanel>("MainPanel");
-        _chatSidebarContent = this.FindControl<Panel>("ChatSidebarContent");
         _chatIsland = this.FindControl<Border>("ChatIsland");
 
         _pages =
@@ -52,6 +51,16 @@ public partial class MainWindow : Window
             this.FindControl<Control>("PageAgents"),           // 3
             this.FindControl<Control>("PageMemories"),         // 4
             this.FindControl<Control>("PageSettings"),         // 5
+        ];
+
+        _sidebarPanels =
+        [
+            this.FindControl<Panel>("SidebarChat"),            // 0
+            this.FindControl<Panel>("SidebarProjects"),        // 1
+            this.FindControl<Panel>("SidebarSkills"),          // 2
+            this.FindControl<Panel>("SidebarAgents"),          // 3
+            this.FindControl<Panel>("SidebarMemories"),        // 4
+            this.FindControl<Panel>("SidebarSettings"),        // 5
         ];
 
         _navButtons =
@@ -156,9 +165,12 @@ public partial class MainWindow : Window
                 _pages[i]!.IsVisible = i == index;
         }
 
-        // Show chat sidebar content only on the chat tab
-        if (_chatSidebarContent is not null)
-            _chatSidebarContent.IsVisible = index == 0;
+        // Show the matching sidebar panel
+        for (int i = 0; i < _sidebarPanels.Length; i++)
+        {
+            if (_sidebarPanels[i] is not null)
+                _sidebarPanels[i]!.IsVisible = i == index;
+        }
     }
 
     private void UpdateNavHighlight(int index)
