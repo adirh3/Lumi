@@ -14,6 +14,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <AdditionalFiles Include="Resources\Strings\*.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.3.12" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.12" />
     <PackageReference Include="Avalonia.Themes.Simple" Version="11.3.12" />
@@ -23,6 +27,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Lumi.Generators\Lumi.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\..\Strata\src\StrataTheme\StrataTheme.csproj" />
   </ItemGroup>
 

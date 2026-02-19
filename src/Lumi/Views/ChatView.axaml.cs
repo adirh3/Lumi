@@ -14,6 +14,7 @@ using Avalonia.Data.Converters;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.ViewModels;
 using StrataTheme.Controls;
@@ -451,7 +452,7 @@ public partial class ChatView : UserControl
                 {
                     Label = _currentIntentText is not null
                         ? _currentIntentText + "\u2026"
-                        : "Working\u2026",
+                        : Loc.ToolGroup_Working,
                     IsExpanded = false,
                     IsActive = initialStatus == StrataAiToolCallStatus.InProgress,
                     Content = _currentToolGroupStack
@@ -472,7 +473,7 @@ public partial class ChatView : UserControl
 
             var think = new StrataThink
             {
-                Label = "Reasoning",
+                Label = Loc.Tool_ReasoningLabel,
                 IsExpanded = false
             };
 
@@ -645,14 +646,14 @@ public partial class ChatView : UserControl
             {
                 // Use the intent text as the completed label
                 _currentToolGroup.Label = failedCount > 0
-                    ? $"{_currentIntentText} ({failedCount} failed)"
+                    ? string.Format(Loc.ToolGroup_FinishedWithFailed, _currentIntentText, failedCount)
                     : _currentIntentText;
             }
             else
             {
                 _currentToolGroup.Label = failedCount > 0
-                    ? $"Finished ({failedCount} failed)"
-                    : _currentToolGroupCount == 1 ? "Finished" : $"Finished {_currentToolGroupCount} actions";
+                    ? string.Format(Loc.ToolGroup_FinishedFailed, failedCount)
+                    : _currentToolGroupCount == 1 ? Loc.ToolGroup_Finished : string.Format(Loc.ToolGroup_FinishedCount, _currentToolGroupCount);
             }
             _currentToolGroup.IsActive = false;
         }
@@ -665,8 +666,8 @@ public partial class ChatView : UserControl
             else
             {
                 _currentToolGroup.Label = _currentToolGroupCount == 1
-                    ? "Working\u2026"
-                    : $"Working ({_currentToolGroupCount} actions)\u2026";
+                    ? Loc.ToolGroup_Working
+                    : string.Format(Loc.ToolGroup_WorkingCount, _currentToolGroupCount);
             }
         }
     }
@@ -686,14 +687,14 @@ public partial class ChatView : UserControl
         {
             _typingIndicator = new StrataTypingIndicator
             {
-                Label = label ?? "Thinking\u2026",
+                Label = label ?? Loc.Status_Thinking,
                 IsActive = true
             };
             _messageStack.Children.Add(_typingIndicator);
         }
         else
         {
-            _typingIndicator.Label = label ?? "Thinking\u2026";
+            _typingIndicator.Label = label ?? Loc.Status_Thinking;
             _typingIndicator.IsActive = true;
             // Ensure it's at the bottom
             if (_messageStack.Children.Contains(_typingIndicator))
@@ -756,7 +757,7 @@ public partial class ChatView : UserControl
             InsertBeforeTypingIndicator(attachList);
     }
 
-    private static readonly string[] ReasoningLevels = ["Low", "Medium", "High"];
+    private static string[] ReasoningLevels => [Loc.Quality_Low, Loc.Quality_Medium, Loc.Quality_High];
 
     private static bool IsReasoningModel(string? modelId)
     {
@@ -894,7 +895,7 @@ public partial class ChatView : UserControl
 
         var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Attach files",
+            Title = Loc.FilePicker_AttachFiles,
             AllowMultiple = true
         });
 
@@ -975,10 +976,10 @@ public partial class ChatView : UserControl
     {
         return bytes switch
         {
-            < 1024 => $"{bytes} B",
-            < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
-            < 1024 * 1024 * 1024 => $"{bytes / (1024.0 * 1024):F1} MB",
-            _ => $"{bytes / (1024.0 * 1024 * 1024):F2} GB"
+            < 1024 => string.Format(Loc.FileSize_B, bytes),
+            < 1024 * 1024 => string.Format(Loc.FileSize_KB, $"{bytes / 1024.0:F1}"),
+            < 1024 * 1024 * 1024 => string.Format(Loc.FileSize_MB, $"{bytes / (1024.0 * 1024):F1}"),
+            _ => string.Format(Loc.FileSize_GB, $"{bytes / (1024.0 * 1024 * 1024):F2}")
         };
     }
 
@@ -1116,8 +1117,8 @@ public partial class ChatView : UserControl
             var value = prop.Value.ValueKind switch
             {
                 JsonValueKind.String => prop.Value.GetString() ?? "",
-                JsonValueKind.True => "Yes",
-                JsonValueKind.False => "No",
+                JsonValueKind.True => Loc.Bool_Yes,
+                JsonValueKind.False => Loc.Bool_No,
                 JsonValueKind.Number => prop.Value.ToString(),
                 _ => prop.Value.ToString()
             };
@@ -1138,27 +1139,27 @@ public partial class ChatView : UserControl
         // Map common programmer field names to friendly labels
         return fieldName switch
         {
-            "url" => "URL",
-            "filePath" or "file_path" => "File",
-            "path" => "Path",
-            "query" => "Search query",
-            "command" => "Command",
-            "description" => "Description",
-            "initial_wait" => "Timeout",
-            "intent" => "Intent",
-            "content" => "Content",
-            "text" => "Text",
-            "language" => "Language",
-            "timeout" => "Timeout",
-            "args" or "arguments" => "Arguments",
-            "input" => "Input",
-            "output" => "Output",
-            "name" => "Name",
-            "type" => "Type",
-            "format" => "Format",
-            "limit" => "Limit",
-            "offset" => "Start at",
-            "count" => "Count",
+            "url" => Loc.FieldLabel_URL,
+            "filePath" or "file_path" => Loc.FieldLabel_File,
+            "path" => Loc.FieldLabel_Path,
+            "query" => Loc.FieldLabel_SearchQuery,
+            "command" => Loc.FieldLabel_Command,
+            "description" => Loc.FieldLabel_Description,
+            "initial_wait" => Loc.FieldLabel_Timeout,
+            "intent" => Loc.FieldLabel_Intent,
+            "content" => Loc.FieldLabel_Content,
+            "text" => Loc.FieldLabel_Text,
+            "language" => Loc.FieldLabel_Language,
+            "timeout" => Loc.FieldLabel_Timeout,
+            "args" or "arguments" => Loc.FieldLabel_Arguments,
+            "input" => Loc.FieldLabel_Input,
+            "output" => Loc.FieldLabel_Output,
+            "name" => Loc.FieldLabel_Name,
+            "type" => Loc.FieldLabel_Type,
+            "format" => Loc.FieldLabel_Format,
+            "limit" => Loc.FieldLabel_Limit,
+            "offset" => Loc.FieldLabel_StartAt,
+            "count" => Loc.FieldLabel_Count,
             _ => CapitalizeFirst(fieldName.Replace('_', ' '))
         };
     }
@@ -1183,26 +1184,26 @@ public partial class ChatView : UserControl
                 string? domain = null;
                 if (url is not null && Uri.TryCreate(url, UriKind.Absolute, out var uri))
                     domain = uri.Host;
-                return ("Reading website", domain ?? url);
+                return (Loc.Tool_ReadingWebsite, domain ?? url);
             }
 
             case "view":
             {
                 var path = ExtractJsonField(argsJson, "path");
-                if (path is null) return ("Reading file", null);
+                if (path is null) return (Loc.Tool_ReadingFile, null);
 
                 var ext = Path.GetExtension(path);
                 var fileName = Path.GetFileName(path);
 
                 // No extension likely means a directory listing
                 if (string.IsNullOrEmpty(ext))
-                    return ("Browsing folder", fileName);
+                    return (Loc.Tool_BrowsingFolder, fileName);
 
                 // Rich documents
                 if (ext is ".docx" or ".doc" or ".pdf" or ".pptx" or ".ppt" or ".xlsx" or ".xls" or ".rtf")
-                    return ("Reading document", fileName);
+                    return (Loc.Tool_ReadingDocument, fileName);
 
-                return ("Reading file", fileName);
+                return (Loc.Tool_ReadingFile, fileName);
             }
 
             case "powershell":
@@ -1215,33 +1216,33 @@ public partial class ChatView : UserControl
                 // Fall back: derive a short summary from the command itself
                 var cmd = ExtractJsonField(argsJson, "command");
                 var summary = SummarizeCommand(cmd);
-                return (summary ?? "Running command", null);
+                return (summary ?? Loc.Tool_RunningCommand, null);
             }
 
             case "report_intent":
-                return ("Planning", ExtractJsonField(argsJson, "intent"));
+                return (Loc.Tool_Planning, ExtractJsonField(argsJson, "intent"));
 
             case "read_powershell":
-                return ("Reading terminal output", null);
+                return (Loc.Tool_ReadingTerminal, null);
 
             case "stop_powershell":
-                return ("Stopping command", null);
+                return (Loc.Tool_StoppingCommand, null);
 
             case "create":
             {
                 var path = ExtractJsonField(argsJson, "path");
                 var fileName = path is not null ? Path.GetFileName(path) : null;
-                return ("Creating file", fileName);
+                return (Loc.Tool_CreatingFile, fileName);
             }
 
             case "save_memory":
-                return ("Remembering", ExtractJsonField(argsJson, "key"));
+                return (Loc.Tool_Remembering, ExtractJsonField(argsJson, "key"));
             case "update_memory":
-                return ("Updating memory", ExtractJsonField(argsJson, "key"));
+                return (Loc.Tool_UpdatingMemory, ExtractJsonField(argsJson, "key"));
             case "delete_memory":
-                return ("Forgetting", ExtractJsonField(argsJson, "key"));
+                return (Loc.Tool_Forgetting, ExtractJsonField(argsJson, "key"));
             case "recall_memory":
-                return ("Recalling", ExtractJsonField(argsJson, "key"));
+                return (Loc.Tool_Recalling, ExtractJsonField(argsJson, "key"));
 
             default:
                 var displayName = author ?? FormatToolNameFriendly(toolName);
@@ -1261,33 +1262,33 @@ public partial class ChatView : UserControl
 
         // Match common cmdlet patterns
         if (firstLine.StartsWith("Get-Content", StringComparison.OrdinalIgnoreCase))
-            return "Reading file contents";
+            return Loc.Cmd_ReadingFileContents;
         if (firstLine.StartsWith("Get-ChildItem", StringComparison.OrdinalIgnoreCase)
             || firstLine.StartsWith("dir ", StringComparison.OrdinalIgnoreCase)
             || firstLine.StartsWith("ls ", StringComparison.OrdinalIgnoreCase))
-            return "Listing files";
+            return Loc.Cmd_ListingFiles;
         if (firstLine.StartsWith("Copy-Item", StringComparison.OrdinalIgnoreCase))
-            return "Copying files";
+            return Loc.Cmd_CopyingFiles;
         if (firstLine.StartsWith("Remove-Item", StringComparison.OrdinalIgnoreCase))
-            return "Cleaning up files";
+            return Loc.Cmd_CleaningUp;
         if (firstLine.StartsWith("Expand-Archive", StringComparison.OrdinalIgnoreCase))
-            return "Extracting archive";
+            return Loc.Cmd_ExtractingArchive;
         if (firstLine.StartsWith("Get-Command", StringComparison.OrdinalIgnoreCase))
-            return "Checking available tools";
+            return Loc.Cmd_CheckingTools;
         if (firstLine.StartsWith("Install-", StringComparison.OrdinalIgnoreCase))
-            return "Installing package";
+            return Loc.Cmd_InstallingPackage;
         if (firstLine.StartsWith("pip install", StringComparison.OrdinalIgnoreCase))
-            return "Installing Python package";
+            return Loc.Cmd_InstallingPython;
         if (firstLine.StartsWith("npm install", StringComparison.OrdinalIgnoreCase))
-            return "Installing npm package";
+            return Loc.Cmd_InstallingNpm;
         if (firstLine.StartsWith("cd ", StringComparison.OrdinalIgnoreCase))
-            return "Navigating directories";
+            return Loc.Cmd_NavigatingDirs;
         if (firstLine.Contains("New-Object -ComObject Word", StringComparison.OrdinalIgnoreCase))
-            return "Opening Word document";
+            return Loc.Cmd_OpeningWord;
         if (firstLine.Contains("New-Object -ComObject PowerPoint", StringComparison.OrdinalIgnoreCase))
-            return "Opening PowerPoint file";
+            return Loc.Cmd_OpeningPowerPoint;
         if (firstLine.Contains("New-Object -ComObject Excel", StringComparison.OrdinalIgnoreCase))
-            return "Opening Excel file";
+            return Loc.Cmd_OpeningExcel;
 
         return null;
     }
@@ -1295,10 +1296,10 @@ public partial class ChatView : UserControl
     /// <summary>Converts snake_case or dot.separated tool names to Title Case.</summary>
     private static string FormatToolNameFriendly(string toolName)
     {
-        if (string.IsNullOrEmpty(toolName)) return "Action";
+        if (string.IsNullOrEmpty(toolName)) return Loc.Tool_Action;
 
         var cleaned = toolName.Replace('_', ' ').Replace('.', ' ').Trim();
-        if (cleaned.Length == 0) return "Action";
+        if (cleaned.Length == 0) return Loc.Tool_Action;
 
         // Capitalize first letter
         return char.ToUpper(cleaned[0]) + cleaned[1..];

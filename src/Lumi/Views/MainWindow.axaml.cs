@@ -10,6 +10,7 @@ using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.ViewModels;
 
@@ -503,7 +504,7 @@ public partial class MainWindow : Window
         // "All" pill
         var allBtn = new Button
         {
-            Content = "All",
+            Content = Loc.Sidebar_All,
             Padding = new Thickness(10, 4),
             MinHeight = 0,
             MinWidth = 0,
@@ -574,7 +575,7 @@ public partial class MainWindow : Window
     {
         foreach (var menuItem in this.GetVisualDescendants().OfType<MenuItem>())
         {
-            if (menuItem.Header is not string header || header != "Move to Project") continue;
+            if (menuItem.Header is not string header || header != Loc.Menu_MoveToProject) continue;
 
             menuItem.Items.Clear();
             foreach (var project in vm.Projects)
@@ -608,7 +609,7 @@ public partial class MainWindow : Window
             if (countLabel is null) continue;
 
             var count = vm.ProjectsVM.GetChatCount(project.Id);
-            countLabel.Text = count > 0 ? $"{count} chat{(count == 1 ? "" : "s")}" : "";
+            countLabel.Text = count > 0 ? (count == 1 ? string.Format(Loc.Project_ChatCount, count) : string.Format(Loc.Project_ChatCounts, count)) : "";
         }
     }
 }

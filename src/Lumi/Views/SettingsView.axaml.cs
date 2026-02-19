@@ -4,6 +4,7 @@ using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Lumi.Localization;
 using Lumi.ViewModels;
 using StrataTheme.Controls;
 
@@ -87,22 +88,22 @@ public partial class SettingsView : UserControl
 
     private static readonly Dictionary<string, Action<SettingsViewModel>> _revertActions = new()
     {
-        ["Launch at Startup"] = vm => vm.RevertLaunchAtStartupCommand.Execute(null),
-        ["Start Minimized"] = vm => vm.RevertStartMinimizedCommand.Execute(null),
-        ["Enable Notifications"] = vm => vm.RevertNotificationsEnabledCommand.Execute(null),
-        ["Dark Mode"] = vm => vm.RevertIsDarkThemeCommand.Execute(null),
-        ["Compact Density"] = vm => vm.RevertIsCompactDensityCommand.Execute(null),
-        ["Font Size"] = vm => vm.RevertFontSizeCommand.Execute(null),
-        ["Show Animations"] = vm => vm.RevertShowAnimationsCommand.Execute(null),
-        ["Send with Enter"] = vm => vm.RevertSendWithEnterCommand.Execute(null),
-        ["Show Timestamps"] = vm => vm.RevertShowTimestampsCommand.Execute(null),
-        ["Show Tool Calls"] = vm => vm.RevertShowToolCallsCommand.Execute(null),
-        ["Show Reasoning"] = vm => vm.RevertShowReasoningCommand.Execute(null),
-        ["Auto-Generate Titles"] = vm => vm.RevertAutoGenerateTitlesCommand.Execute(null),
-        ["Max Context Messages"] = vm => vm.RevertMaxContextMessagesCommand.Execute(null),
-        ["Preferred Model"] = vm => vm.RevertPreferredModelCommand.Execute(null),
-        ["Auto-Save Memories"] = vm => vm.RevertEnableMemoryAutoSaveCommand.Execute(null),
-        ["Auto-Save Chats"] = vm => vm.RevertAutoSaveChatsCommand.Execute(null),
+        [Loc.Setting_LaunchAtStartup] = vm => vm.RevertLaunchAtStartupCommand.Execute(null),
+        [Loc.Setting_StartMinimized] = vm => vm.RevertStartMinimizedCommand.Execute(null),
+        [Loc.Setting_EnableNotifications] = vm => vm.RevertNotificationsEnabledCommand.Execute(null),
+        [Loc.Setting_DarkMode] = vm => vm.RevertIsDarkThemeCommand.Execute(null),
+        [Loc.Setting_CompactDensity] = vm => vm.RevertIsCompactDensityCommand.Execute(null),
+        [Loc.Setting_FontSize] = vm => vm.RevertFontSizeCommand.Execute(null),
+        [Loc.Setting_ShowAnimations] = vm => vm.RevertShowAnimationsCommand.Execute(null),
+        [Loc.Setting_SendWithEnter] = vm => vm.RevertSendWithEnterCommand.Execute(null),
+        [Loc.Setting_ShowTimestamps] = vm => vm.RevertShowTimestampsCommand.Execute(null),
+        [Loc.Setting_ShowToolCalls] = vm => vm.RevertShowToolCallsCommand.Execute(null),
+        [Loc.Setting_ShowReasoning] = vm => vm.RevertShowReasoningCommand.Execute(null),
+        [Loc.Setting_AutoGenerateTitles] = vm => vm.RevertAutoGenerateTitlesCommand.Execute(null),
+        [Loc.Setting_MaxContextMessages] = vm => vm.RevertMaxContextMessagesCommand.Execute(null),
+        [Loc.Setting_PreferredModel] = vm => vm.RevertPreferredModelCommand.Execute(null),
+        [Loc.Setting_AutoSaveMemories] = vm => vm.RevertEnableMemoryAutoSaveCommand.Execute(null),
+        [Loc.Setting_AutoSaveChats] = vm => vm.RevertAutoSaveChatsCommand.Execute(null),
     };
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -193,13 +194,13 @@ public partial class SettingsView : UserControl
                 _pageHeaders[i].Description.IsVisible = false;
         }
 
-        var resultWord = matchCount == 1 ? "result" : "results";
+        var resultWord = matchCount == 1 ? Loc.Search_Result : Loc.Search_Results;
 
         if (matchCount > 0)
         {
             _searchResultsHeader!.IsVisible = true;
             _searchCountText!.Text = matchCount.ToString();
-            _searchQueryText!.Text = $" {resultWord} for \u201c{terms}\u201d";
+            _searchQueryText!.Text = string.Format(Loc.Search_ResultsFor, resultWord, terms);
             _noResultsPanel!.IsVisible = false;
             _mainScrollViewer!.IsVisible = true;
             _mainScrollViewer.ScrollToHome();
@@ -208,14 +209,14 @@ public partial class SettingsView : UserControl
         {
             _searchResultsHeader!.IsVisible = false;
             _noResultsPanel!.IsVisible = true;
-            _noResultsQueryText!.Text = $"No results for \u201c{terms}\u201d";
+            _noResultsQueryText!.Text = string.Format(Loc.Search_NoResultsFor, terms);
             _mainScrollViewer!.IsVisible = false;
         }
 
         if (DataContext is SettingsViewModel vmSearch)
             vmSearch.SearchResultSummary = matchCount > 0
                 ? $"{matchCount} {resultWord}"
-                : "No results";
+                : Loc.Search_NoResults;
     }
 
     private void RestoreAllVisibility()

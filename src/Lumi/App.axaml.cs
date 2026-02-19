@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Styling;
+using Lumi.Localization;
 using Lumi.Services;
 using Lumi.ViewModels;
 using Lumi.Views;
@@ -22,6 +23,10 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var dataStore = new DataStore();
+
+            // Initialize localization before creating any UI
+            Loc.Load(dataStore.Data.Settings.Language);
+
             var copilotService = new CopilotService();
             var vm = new MainViewModel(dataStore, copilotService);
 
@@ -37,6 +42,10 @@ public partial class App : Application
             MainWindow.ApplyLaunchAtStartup(dataStore.Data.Settings.LaunchAtStartup);
 
             var window = new MainWindow { DataContext = vm };
+
+            // Apply RTL for right-to-left languages
+            if (Loc.IsRightToLeft)
+                window.FlowDirection = Avalonia.Media.FlowDirection.RightToLeft;
 
             // Apply StartMinimized
             if (dataStore.Data.Settings.StartMinimized)

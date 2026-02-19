@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:models="using:Lumi.Models"
+             xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.AgentsView"
              x:CompileBindings="False">
 
@@ -11,41 +12,41 @@
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto" Padding="36,24">
         <StackPanel Spacing="20">
-          <TextBlock Text="Lumi Editor" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold" />
+          <TextBlock Text="{loc:Str Editor_Lumi}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold" />
 
           <StackPanel Spacing="4">
-            <TextBlock Text="NAME" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+            <TextBlock Text="{loc:Str Field_Name}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                        LetterSpacing="0.8" />
-            <TextBox Text="{Binding EditName}" Watermark="e.g. Daily Planner" />
+            <TextBox Text="{Binding EditName}" Watermark="{loc:Str Watermark_AgentName}" />
           </StackPanel>
 
           <Grid ColumnDefinitions="72,20,*">
             <StackPanel Spacing="4">
-              <TextBlock Text="ICON" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+              <TextBlock Text="{loc:Str Field_Icon}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                          LetterSpacing="0.8" />
               <TextBox Text="{Binding EditIconGlyph}" Watermark="✦"
                        HorizontalContentAlignment="Center" />
             </StackPanel>
             <StackPanel Grid.Column="2" Spacing="4">
-              <TextBlock Text="DESCRIPTION" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+              <TextBlock Text="{loc:Str Field_Description}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                          LetterSpacing="0.8" />
               <TextBox Text="{Binding EditDescription}"
-                       Watermark="What does this Lumi do?" />
+                       Watermark="{loc:Str Watermark_AgentDescription}" />
             </StackPanel>
           </Grid>
 
           <StackPanel Spacing="4">
-            <TextBlock Text="SYSTEM PROMPT" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+            <TextBlock Text="{loc:Str Field_SystemPrompt}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                        LetterSpacing="0.8" />
             <TextBox Text="{Binding EditSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap"
                      MinHeight="260"
-                     Watermark="Instructions that define this Lumi's personality and behavior…" />
+                     Watermark="{loc:Str Watermark_AgentSystemPrompt}" />
           </StackPanel>
 
           <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-            <Button Classes="accent" Content="Save" Padding="18,7" MinHeight="0"
+            <Button Classes="accent" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
                     Command="{Binding SaveAgentCommand}" />
-            <Button Classes="subtle" Content="Cancel" Padding="18,7" MinHeight="0"
+            <Button Classes="subtle" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
                     Command="{Binding CancelEditCommand}" />
           </StackPanel>
         </StackPanel>
@@ -55,7 +56,7 @@
       <StackPanel IsVisible="{Binding !IsEditing}"
                   HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" Opacity="0.4">
         <TextBlock Text="✦" FontSize="32" HorizontalAlignment="Center" />
-        <TextBlock Text="Select or create a Lumi" FontSize="{DynamicResource Font.SizeBody}"
+        <TextBlock Text="{loc:Str Empty_SelectLumi}" FontSize="{DynamicResource Font.SizeBody}"
                    HorizontalAlignment="Center" />
       </StackPanel>
   </Panel>

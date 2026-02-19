@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:models="using:Lumi.Models"
+             xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.MemoriesView"
              x:CompileBindings="False">
 
@@ -11,33 +12,33 @@
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto" Padding="36,24">
         <StackPanel Spacing="20">
-          <TextBlock Text="Memory Editor" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold" />
+          <TextBlock Text="{loc:Str Editor_Memory}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold" />
 
           <Grid ColumnDefinitions="*,20,160">
             <StackPanel Spacing="4">
-              <TextBlock Text="KEY" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+              <TextBlock Text="{loc:Str Field_Key}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                          LetterSpacing="0.8" />
-              <TextBox Text="{Binding EditKey}" Watermark="e.g. Birthday, Dog's name" />
+              <TextBox Text="{Binding EditKey}" Watermark="{loc:Str Watermark_MemoryKey}" />
             </StackPanel>
             <StackPanel Grid.Column="2" Spacing="4">
-              <TextBlock Text="CATEGORY" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+              <TextBlock Text="{loc:Str Field_Category}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                          LetterSpacing="0.8" />
-              <TextBox Text="{Binding EditCategory}" Watermark="General" />
+              <TextBox Text="{Binding EditCategory}" Watermark="{loc:Str Watermark_MemoryCategory}" />
             </StackPanel>
           </Grid>
 
           <StackPanel Spacing="4">
-            <TextBlock Text="CONTENT" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+            <TextBlock Text="{loc:Str Field_Content}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                        LetterSpacing="0.8" />
             <TextBox Text="{Binding EditContent}" AcceptsReturn="True" TextWrapping="Wrap"
                      MinHeight="120"
-                     Watermark="Full details about this memory…" />
+                     Watermark="{loc:Str Watermark_MemoryContent}" />
           </StackPanel>
 
           <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-            <Button Classes="accent" Content="Save" Padding="18,7" MinHeight="0"
+            <Button Classes="accent" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
                     Command="{Binding SaveMemoryCommand}" />
-            <Button Classes="subtle" Content="Cancel" Padding="18,7" MinHeight="0"
+            <Button Classes="subtle" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
                     Command="{Binding CancelEditCommand}" />
           </StackPanel>
         </StackPanel>
@@ -47,7 +48,7 @@
       <StackPanel IsVisible="{Binding !IsEditing}"
                   HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" Opacity="0.4">
         <TextBlock Text="🧠" FontSize="32" HorizontalAlignment="Center" />
-        <TextBlock Text="Select or create a memory" FontSize="{DynamicResource Font.SizeBody}"
+        <TextBlock Text="{loc:Str Empty_SelectMemory}" FontSize="{DynamicResource Font.SizeBody}"
                    HorizontalAlignment="Center" />
       </StackPanel>
   </Panel>

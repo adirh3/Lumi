@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:models="using:Lumi.Models"
+             xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.ProjectsView"
              x:CompileBindings="False">
 
@@ -11,36 +12,36 @@
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto" Padding="36,24">
         <StackPanel Spacing="20">
-          <TextBlock Text="Project Editor" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold" />
+          <TextBlock Text="{loc:Str Editor_Project}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold" />
 
           <StackPanel Spacing="4">
-            <TextBlock Text="NAME" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+            <TextBlock Text="{loc:Str Field_Name}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                        LetterSpacing="0.8" />
-            <TextBox Text="{Binding EditName}" Watermark="e.g. My App" />
+            <TextBox Text="{Binding EditName}" Watermark="{loc:Str Watermark_ProjectName}" />
           </StackPanel>
 
           <StackPanel Spacing="4">
-            <TextBlock Text="INSTRUCTIONS" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+            <TextBlock Text="{loc:Str Field_Instructions}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                        LetterSpacing="0.8" />
             <TextBox Text="{Binding EditInstructions}" AcceptsReturn="True" TextWrapping="Wrap"
                      MinHeight="200"
-                     Watermark="Special instructions for chats in this project…" />
+                     Watermark="{loc:Str Watermark_ProjectInstructions}" />
           </StackPanel>
 
           <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-            <Button Classes="accent" Content="Save" Padding="18,7" MinHeight="0"
+            <Button Classes="accent" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
                     Command="{Binding SaveProjectCommand}" />
-            <Button Classes="subtle" Content="Cancel" Padding="18,7" MinHeight="0"
+            <Button Classes="subtle" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
                     Command="{Binding CancelEditCommand}" />
           </StackPanel>
 
           <!-- ── Chats in this project ── -->
           <StackPanel Spacing="8" IsVisible="{Binding SelectedProject, Converter={x:Static ObjectConverters.IsNotNull}}"
                       Margin="0,12,0,0">
-            <TextBlock Text="CHATS" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+            <TextBlock Text="{loc:Str Field_Chats}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                        LetterSpacing="0.8" />
             <StackPanel IsVisible="{Binding !ProjectChats.Count}" Margin="0,4,0,0">
-              <TextBlock Text="No chats in this project yet."
+              <TextBlock Text="{loc:Str Empty_NoProjectChats}"
                          FontSize="{DynamicResource Font.SizeCaption}" Foreground="{DynamicResource Brush.TextTertiary}" />
             </StackPanel>
             <ItemsControl ItemsSource="{Binding ProjectChats}">
@@ -73,7 +74,7 @@
       <StackPanel IsVisible="{Binding !IsEditing}"
                   HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" Opacity="0.4">
         <TextBlock Text="📁" FontSize="32" HorizontalAlignment="Center" />
-        <TextBlock Text="Select or create a project" FontSize="{DynamicResource Font.SizeBody}"
+        <TextBlock Text="{loc:Str Empty_SelectProject}" FontSize="{DynamicResource Font.SizeBody}"
                    HorizontalAlignment="Center" />
       </StackPanel>
   </Panel>

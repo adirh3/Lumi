@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 
@@ -25,7 +26,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _isCompactDensity;
     [ObservableProperty] private bool _isConnected;
     [ObservableProperty] private bool _isConnecting;
-    [ObservableProperty] private string _connectionStatus = "Disconnected";
+    [ObservableProperty] private string _connectionStatus = Loc.Status_Disconnected;
     [ObservableProperty] private string _userName = "";
     [ObservableProperty] private bool _isOnboarded;
     [ObservableProperty] private string _onboardingName = "";
@@ -105,10 +106,10 @@ public partial class MainViewModel : ObservableObject
         try
         {
             IsConnecting = true;
-            ConnectionStatus = "Connecting to GitHub Copilot…";
+            ConnectionStatus = Loc.Status_Connecting;
             await _copilotService.ConnectAsync();
             IsConnected = true;
-            ConnectionStatus = "Connected";
+            ConnectionStatus = Loc.Status_Connected;
 
             var models = await _copilotService.GetModelsAsync();
             ChatVM.AvailableModels = new ObservableCollection<string>(
@@ -116,7 +117,7 @@ public partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            ConnectionStatus = $"Connection failed: {ex.Message}";
+            ConnectionStatus = string.Format(Loc.Status_ConnectionFailed, ex.Message);
             IsConnected = false;
         }
         finally
@@ -161,13 +162,13 @@ public partial class MainViewModel : ObservableObject
         var olderChats = ordered.Where(c => c.UpdatedAt.Date < weekAgo).ToList();
 
         if (todayChats.Count > 0)
-            ChatGroups.Add(new ChatGroup { Label = "Today", Chats = new(todayChats) });
+            ChatGroups.Add(new ChatGroup { Label = Loc.ChatGroup_Today, Chats = new(todayChats) });
         if (yesterdayChats.Count > 0)
-            ChatGroups.Add(new ChatGroup { Label = "Yesterday", Chats = new(yesterdayChats) });
+            ChatGroups.Add(new ChatGroup { Label = Loc.ChatGroup_Yesterday, Chats = new(yesterdayChats) });
         if (weekChats.Count > 0)
-            ChatGroups.Add(new ChatGroup { Label = "Previous 7 Days", Chats = new(weekChats) });
+            ChatGroups.Add(new ChatGroup { Label = Loc.ChatGroup_Previous7Days, Chats = new(weekChats) });
         if (olderChats.Count > 0)
-            ChatGroups.Add(new ChatGroup { Label = "Older", Chats = new(olderChats) });
+            ChatGroups.Add(new ChatGroup { Label = Loc.ChatGroup_Older, Chats = new(olderChats) });
     }
 
     [RelayCommand]

@@ -81,6 +81,7 @@ public class UserSettings
     public string? UserName { get; set; }
     public bool IsOnboarded { get; set; }
     public bool DefaultsSeeded { get; set; }
+    public string Language { get; set; } = "en";
     public bool LaunchAtStartup { get; set; }
     public bool StartMinimized { get; set; }
     public bool NotificationsEnabled { get; set; } = true;

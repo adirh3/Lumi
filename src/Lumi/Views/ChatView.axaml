@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:sc="using:StrataTheme.Controls"
+             xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.ChatView"
              x:CompileBindings="False">
 
@@ -30,10 +31,10 @@
         </Border>
 
         <StackPanel Spacing="6" HorizontalAlignment="Center">
-          <TextBlock Classes="headline" Text="What can I help with?"
+          <TextBlock Classes="headline" Text="{loc:Str Chat_WelcomeTitle}"
                      HorizontalAlignment="Center" />
           <TextBlock Classes="secondary" TextAlignment="Center" TextWrapping="Wrap"
-                     Text="Start a conversation, use a skill, or switch to a Lumi agent." />
+                     Text="{loc:Str Chat_WelcomeSubtitle}" />
         </StackPanel>
       </StackPanel>
 
@@ -44,15 +45,15 @@
                                  ShowAddButton="False"
                                  IsVisible="False" />
         <sc:StrataChatComposer x:Name="WelcomeComposer"
-                               Placeholder="Message Lumi…"
+                               Placeholder="{loc:Str Chat_Placeholder}"
                                PromptText="{Binding PromptText, Mode=TwoWay}"
                                IsBusy="{Binding IsBusy}"
                                Models="{Binding AvailableModels}"
                                SelectedModel="{Binding SelectedModel, Mode=TwoWay}"
                                QualityLevels="{x:Null}"
-                               SuggestionA="Plan my day"
-                               SuggestionB="Summarize this"
-                               SuggestionC="Help me write"
+                               SuggestionA="{loc:Str Chat_SuggestionA}"
+                               SuggestionB="{loc:Str Chat_SuggestionB}"
+                               SuggestionC="{loc:Str Chat_SuggestionC}"
                                SkillItems="{Binding ActiveSkillChips}" />
       </StackPanel>
     </Panel>
@@ -79,7 +80,7 @@
             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
               <Border Width="26" Height="26" CornerRadius="7"
                       Background="{DynamicResource Brush.AccentGradient}">
-                <TextBlock Text="L" FontSize="12" FontWeight="Bold"
+                <TextBlock Text="{loc:Str Chat_AvatarLetter}" FontSize="12" FontWeight="Bold"
                            Foreground="{DynamicResource Brush.TextOnAccent}"
                            HorizontalAlignment="Center" VerticalAlignment="Center" />
               </Border>
@@ -105,7 +106,7 @@
                                      ShowAddButton="False"
                                      IsVisible="False" />
             <sc:StrataChatComposer x:Name="ActiveComposer"
-                                  Placeholder="Message Lumi…"
+                                  Placeholder="{loc:Str Chat_Placeholder}"
                                   PromptText="{Binding PromptText, Mode=TwoWay}"
                                   IsBusy="{Binding IsBusy}"
                                   Models="{Binding AvailableModels}"

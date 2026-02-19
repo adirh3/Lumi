@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="src\Lumi\Lumi.csproj" />
+  <Project Path="src\Lumi.Generators\Lumi.Generators.csproj" />
 </Solution>

@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Lumi.Localization;
 using Lumi.Services;
 
 namespace Lumi.ViewModels;
@@ -32,12 +33,12 @@ public partial class SettingsViewModel : ObservableObject
 
     public ObservableCollection<string> Pages { get; } =
     [
-        "General",
-        "Appearance",
-        "Chat",
-        "AI & Models",
-        "Privacy & Data",
-        "About"
+        Loc.Settings_General,
+        Loc.Settings_Appearance,
+        Loc.Settings_Chat,
+        Loc.Settings_AIModels,
+        Loc.Settings_PrivacyData,
+        Loc.Settings_About
     ];
 
     // ── General ──
@@ -66,6 +67,25 @@ public partial class SettingsViewModel : ObservableObject
     // ── Privacy & Data ──
     [ObservableProperty] private bool _enableMemoryAutoSave;
     [ObservableProperty] private bool _autoSaveChats;
+
+    // ── Language ──
+    public ObservableCollection<string> LanguageOptions { get; } = new(
+        Loc.AvailableLanguages.Select(l => $"{l.DisplayName} ({l.Code})"));
+
+    [ObservableProperty] private string _selectedLanguage;
+
+    partial void OnSelectedLanguageChanged(string value)
+    {
+        var code = Loc.AvailableLanguages
+            .FirstOrDefault(l => $"{l.DisplayName} ({l.Code})" == value).Code;
+        if (code is not null && code != _dataStore.Data.Settings.Language)
+        {
+            _dataStore.Data.Settings.Language = code;
+            Save();
+            NeedsRestart = true;
+            OnPropertyChanged(nameof(NeedsRestart));
+        }
+    }
 
     // ── About (read-only) ──
     public string AppVersion => "0.1.0";
@@ -106,6 +126,12 @@ public partial class SettingsViewModel : ObservableObject
         // Privacy
         _enableMemoryAutoSave = s.EnableMemoryAutoSave;
         _autoSaveChats = s.AutoSaveChats;
+
+        // Language
+        var langEntry = Loc.AvailableLanguages.FirstOrDefault(l => l.Code == s.Language);
+        _selectedLanguage = langEntry.Code is not null
+            ? $"{langEntry.DisplayName} ({langEntry.Code})"
+            : $"English (en)";
     }
 
     // ── Auto-save on every property change + notify IsModified ──

@@ -11,6 +11,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GitHub.Copilot.SDK;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Microsoft.Extensions.AI;
@@ -67,7 +68,7 @@ public partial class ChatViewModel : ObservableObject
         {
             IsBusy = true;
             IsStreaming = true;
-            StatusText = "Thinking…";
+            StatusText = Loc.Status_Thinking;
         });
 
         _copilotService.OnMessageDelta += delta => Dispatcher.UIThread.Post(() =>
@@ -84,13 +85,13 @@ public partial class ChatViewModel : ObservableObject
                 _streamingMessage = new ChatMessage
                 {
                     Role = "assistant",
-                    Author = ActiveAgent?.Name ?? "Lumi",
+                    Author = ActiveAgent?.Name ?? Loc.Author_Lumi,
                     Content = _accumulatedContent,
                     IsStreaming = true
                 };
                 Messages.Add(new ChatMessageViewModel(_streamingMessage));
             }
-            StatusText = "Generating…";
+            StatusText = Loc.Status_Generating;
             ScrollToEndRequested?.Invoke();
         });
 
@@ -117,7 +118,7 @@ public partial class ChatViewModel : ObservableObject
                 _reasoningMessage = new ChatMessage
                 {
                     Role = "reasoning",
-                    Author = "Thinking",
+                    Author = Loc.Author_Thinking,
                     Content = _accumulatedReasoning,
                     IsStreaming = true
                 };
@@ -130,7 +131,7 @@ public partial class ChatViewModel : ObservableObject
                 var vm = Messages.LastOrDefault(m => m.Message == _reasoningMessage);
                 vm?.NotifyContentChanged();
             }
-            StatusText = "Reasoning…";
+            StatusText = Loc.Status_Reasoning;
             ScrollToEndRequested?.Invoke();
         });
 
@@ -161,7 +162,7 @@ public partial class ChatViewModel : ObservableObject
             };
             CurrentChat?.Messages.Add(toolMsg);
             Messages.Add(new ChatMessageViewModel(toolMsg));
-            StatusText = $"Running {displayName}…";
+            StatusText = string.Format(Loc.Status_Running, displayName);
             ScrollToEndRequested?.Invoke();
         });
 
@@ -219,7 +220,7 @@ public partial class ChatViewModel : ObservableObject
 
         _copilotService.OnError += error => Dispatcher.UIThread.Post(() =>
         {
-            StatusText = $"Error: {error}";
+            StatusText = string.Format(Loc.Status_Error, error);
             IsBusy = false;
             IsStreaming = false;
         });
@@ -280,9 +281,9 @@ public partial class ChatViewModel : ObservableObject
 
         if (!_copilotService.IsConnected)
         {
-            StatusText = "Not connected to GitHub Copilot. Retrying…";
+            StatusText = Loc.Status_NotConnected;
             try { await _copilotService.ConnectAsync(); }
-            catch { StatusText = "Connection failed. Check your GitHub Copilot access."; return; }
+            catch { StatusText = Loc.Status_CheckAccess; return; }
         }
 
         var prompt = PromptText!.Trim();
@@ -312,7 +313,7 @@ public partial class ChatViewModel : ObservableObject
         {
             Role = "user",
             Content = prompt,
-            Author = _dataStore.Data.Settings.UserName ?? "You",
+            Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
             Attachments = attachments?.Select(a => a.Path).ToList() ?? []
         };
         CurrentChat.Messages.Add(userMsg);
@@ -368,7 +369,7 @@ public partial class ChatViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusText = $"Error: {ex.Message}";
+            StatusText = string.Format(Loc.Status_Error, ex.Message);
             IsBusy = false;
             IsStreaming = false;
         }
@@ -381,7 +382,7 @@ public partial class ChatViewModel : ObservableObject
         await _copilotService.AbortAsync();
         IsBusy = false;
         IsStreaming = false;
-        StatusText = "Stopped";
+        StatusText = Loc.Status_Stopped;
     }
 
     private void SaveChat()
@@ -741,9 +742,9 @@ public partial class ChatViewModel : ObservableObject
         // Resend
         if (!_copilotService.IsConnected)
         {
-            StatusText = "Not connected to GitHub Copilot. Retrying\u2026";
+            StatusText = Loc.Status_NotConnected;
             try { await _copilotService.ConnectAsync(); }
-            catch { StatusText = "Connection failed."; return; }
+            catch { StatusText = Loc.Status_ConnectionFailedShort; return; }
         }
 
         var allSkills = _dataStore.Data.Skills;
@@ -796,7 +797,7 @@ public partial class ChatViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusText = $"Error: {ex.Message}";
+            StatusText = string.Format(Loc.Status_Error, ex.Message);
             IsBusy = false;
             IsStreaming = false;
         }
@@ -827,33 +828,33 @@ public partial class ChatViewModel : ObservableObject
         var fileName = ExtractShortFileName(argsJson);
         return toolName switch
         {
-            "web_fetch" or "fetch" => "Reading website",
-            "web_search" or "search" => "Searching the web",
-            "view" or "read_file" or "read" => fileName is not null ? $"Reading {fileName}" : "Reading file",
-            "create" or "write_file" or "create_file" or "write" or "save_file" => fileName is not null ? $"Creating {fileName}" : "Creating file",
-            "edit" or "edit_file" or "str_replace_editor" or "str_replace" or "replace_string_in_file" or "insert" => fileName is not null ? $"Editing {fileName}" : "Editing file",
-            "multi_replace_string_in_file" => fileName is not null ? $"Editing {fileName}" : "Editing files",
-            "list_dir" or "list_directory" or "ls" => "Listing directory",
-            "bash" or "shell" or "powershell" or "run_command" or "execute_command" or "run_terminal" or "run_in_terminal" => "Running command",
-            "read_powershell" => "Reading terminal output",
-            "write_powershell" => "Writing to terminal",
-            "stop_powershell" => "Stopping terminal",
-            "report_intent" => "Planning",
-            "grep" or "grep_search" or "search_files" or "glob" => "Searching files",
-            "file_search" or "find" => "Finding files",
-            "semantic_search" => "Searching codebase",
-            "delete_file" or "delete" or "rm" => fileName is not null ? $"Deleting {fileName}" : "Deleting file",
-            "move_file" or "rename_file" or "mv" or "rename" => fileName is not null ? $"Moving {fileName}" : "Moving file",
-            "get_errors" or "diagnostics" => fileName is not null ? $"Checking {fileName}" : "Checking errors",
-            "browser_navigate" or "navigate" => "Opening page",
-            "browser_click" or "click" => "Clicking element",
-            "browser_type" or "type" => "Typing text",
-            "browser_snapshot" or "screenshot" => "Taking screenshot",
-            "save_memory" => "Remembering",
-            "update_memory" => "Updating memory",
-            "delete_memory" => "Forgetting",
-            "recall_memory" => "Recalling",
-            "announce_file" => "Sharing file",
+            "web_fetch" or "fetch" => Loc.Tool_ReadingWebsite,
+            "web_search" or "search" => Loc.Tool_SearchingWeb,
+            "view" or "read_file" or "read" => fileName is not null ? string.Format(Loc.Tool_ReadingNamed, fileName) : Loc.Tool_ReadingFile,
+            "create" or "write_file" or "create_file" or "write" or "save_file" => fileName is not null ? string.Format(Loc.Tool_CreatingNamed, fileName) : Loc.Tool_CreatingFile,
+            "edit" or "edit_file" or "str_replace_editor" or "str_replace" or "replace_string_in_file" or "insert" => fileName is not null ? string.Format(Loc.Tool_EditingNamed, fileName) : Loc.Tool_EditingFile,
+            "multi_replace_string_in_file" => fileName is not null ? string.Format(Loc.Tool_EditingNamed, fileName) : Loc.Tool_EditingFiles,
+            "list_dir" or "list_directory" or "ls" => Loc.Tool_ListingDirectory,
+            "bash" or "shell" or "powershell" or "run_command" or "execute_command" or "run_terminal" or "run_in_terminal" => Loc.Tool_RunningCommand,
+            "read_powershell" => Loc.Tool_ReadingTerminal,
+            "write_powershell" => Loc.Tool_WritingTerminal,
+            "stop_powershell" => Loc.Tool_StoppingTerminal,
+            "report_intent" => Loc.Tool_Planning,
+            "grep" or "grep_search" or "search_files" or "glob" => Loc.Tool_SearchingFiles,
+            "file_search" or "find" => Loc.Tool_FindingFiles,
+            "semantic_search" => Loc.Tool_SearchingCodebase,
+            "delete_file" or "delete" or "rm" => fileName is not null ? string.Format(Loc.Tool_DeletingNamed, fileName) : Loc.Tool_DeletingFile,
+            "move_file" or "rename_file" or "mv" or "rename" => fileName is not null ? string.Format(Loc.Tool_MovingNamed, fileName) : Loc.Tool_MovingFile,
+            "get_errors" or "diagnostics" => fileName is not null ? string.Format(Loc.Tool_CheckingNamed, fileName) : Loc.Tool_CheckingErrors,
+            "browser_navigate" or "navigate" => Loc.Tool_OpeningPage,
+            "browser_click" or "click" => Loc.Tool_ClickingElement,
+            "browser_type" or "type" => Loc.Tool_TypingText,
+            "browser_snapshot" or "screenshot" => Loc.Tool_TakingScreenshot,
+            "save_memory" => Loc.Tool_Remembering,
+            "update_memory" => Loc.Tool_UpdatingMemory,
+            "delete_memory" => Loc.Tool_Forgetting,
+            "recall_memory" => Loc.Tool_Recalling,
+            "announce_file" => Loc.Tool_SharingFile,
             _ => FormatSnakeCaseToTitle(toolName)
         };
     }

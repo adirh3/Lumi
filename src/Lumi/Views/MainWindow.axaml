@@ -4,6 +4,7 @@
         xmlns:views="using:Lumi.Views"
         xmlns:sc="using:StrataTheme.Controls"
         xmlns:models="using:Lumi.Models"
+        xmlns:loc="using:Lumi.Localization"
         x:Class="Lumi.Views.MainWindow"
         x:CompileBindings="False"
         Title="Lumi"
@@ -77,18 +78,18 @@
           <Border Width="72" Height="72" CornerRadius="36"
                   Background="{DynamicResource Brush.AccentGradient}"
                   HorizontalAlignment="Center">
-            <TextBlock Text="L" FontSize="32" FontWeight="Bold"
+            <TextBlock Text="{loc:Str Chat_AvatarLetter}" FontSize="32" FontWeight="Bold"
                        Foreground="{DynamicResource Brush.TextOnAccent}"
                        HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
           <StackPanel Spacing="6" HorizontalAlignment="Center">
-            <TextBlock Classes="headline" Text="Hello! I'm Lumi" HorizontalAlignment="Center" />
-            <TextBlock Classes="secondary" Text="Your personal assistant. What should I call you?"
+            <TextBlock Classes="headline" Text="{loc:Str Onboarding_Hello}" HorizontalAlignment="Center" />
+            <TextBlock Classes="secondary" Text="{loc:Str Onboarding_Subtitle}"
                        HorizontalAlignment="Center" TextAlignment="Center" />
           </StackPanel>
           <StackPanel Spacing="12">
-            <TextBox Watermark="Your name" Text="{Binding OnboardingName}" HorizontalAlignment="Stretch" />
-            <Button Classes="accent" Content="Let's go!"
+            <TextBox Watermark="{loc:Str Onboarding_NameWatermark}" Text="{Binding OnboardingName}" HorizontalAlignment="Stretch" />
+            <Button Classes="accent" Content="{loc:Str Onboarding_LetsGo}"
                     Command="{Binding CompleteOnboardingCommand}"
                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
           </StackPanel>
@@ -107,7 +108,7 @@
           <Border DockPanel.Dock="Top" IsHitTestVisible="False"
                   Height="38" />
           <DockPanel DockPanel.Dock="Top" Margin="14,0,14,0">
-            <TextBlock Text="Lumi" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
+            <TextBlock Text="{loc:Str App_Name}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
                        VerticalAlignment="Center" Margin="4,0,0,0" />
           </DockPanel>
 
@@ -115,32 +116,32 @@
           <Border DockPanel.Dock="Bottom">
             <StackPanel x:Name="NavRow" Orientation="Horizontal" Spacing="0"
                         Margin="14,6,14,10">
-              <Button Classes="subtle nav-icon" x:Name="NavChat" ToolTip.Tip="Chats"
+              <Button Classes="subtle nav-icon" x:Name="NavChat" ToolTip.Tip="{loc:Str Nav_Chats}"
                       Command="{Binding SetNavCommand}" CommandParameter="0">
                 <PathIcon Data="{StaticResource Icon.Chat}" Width="16" Height="16"
                           Foreground="{DynamicResource Brush.TextSecondary}" />
               </Button>
-              <Button Classes="subtle nav-icon" x:Name="NavProjects" ToolTip.Tip="Projects"
+              <Button Classes="subtle nav-icon" x:Name="NavProjects" ToolTip.Tip="{loc:Str Nav_Projects}"
                       Command="{Binding SetNavCommand}" CommandParameter="1">
                 <PathIcon Data="{StaticResource Icon.Folder}" Width="16" Height="16"
                           Foreground="{DynamicResource Brush.TextSecondary}" />
               </Button>
-              <Button Classes="subtle nav-icon" x:Name="NavSkills" ToolTip.Tip="Skills"
+              <Button Classes="subtle nav-icon" x:Name="NavSkills" ToolTip.Tip="{loc:Str Nav_Skills}"
                       Command="{Binding SetNavCommand}" CommandParameter="2">
                 <PathIcon Data="{StaticResource Icon.Bolt}" Width="16" Height="16"
                           Foreground="{DynamicResource Brush.TextSecondary}" />
               </Button>
-              <Button Classes="subtle nav-icon" x:Name="NavAgents" ToolTip.Tip="Lumis"
+              <Button Classes="subtle nav-icon" x:Name="NavAgents" ToolTip.Tip="{loc:Str Nav_Lumis}"
                       Command="{Binding SetNavCommand}" CommandParameter="3">
                 <PathIcon Data="{StaticResource Icon.Sparkle}" Width="16" Height="16"
                           Foreground="{DynamicResource Brush.TextSecondary}" />
               </Button>
-              <Button Classes="subtle nav-icon" x:Name="NavMemories" ToolTip.Tip="Memories"
+              <Button Classes="subtle nav-icon" x:Name="NavMemories" ToolTip.Tip="{loc:Str Nav_Memories}"
                       Command="{Binding SetNavCommand}" CommandParameter="4">
                 <PathIcon Data="{StaticResource Icon.Memory}" Width="16" Height="16"
                           Foreground="{DynamicResource Brush.TextSecondary}" />
               </Button>
-              <Button Classes="subtle nav-icon" x:Name="NavSettings" ToolTip.Tip="Settings"
+              <Button Classes="subtle nav-icon" x:Name="NavSettings" ToolTip.Tip="{loc:Str Nav_Settings}"
                       Command="{Binding SetNavCommand}" CommandParameter="5">
                 <PathIcon Data="{StaticResource Icon.Gear}" Width="16" Height="16"
                           Foreground="{DynamicResource Brush.TextSecondary}" />
@@ -159,19 +160,19 @@
                         HorizontalContentAlignment="Left"
                         CornerRadius="{DynamicResource Radius.Base}"
                         Padding="10,8" MinHeight="0"
-                        ToolTip.Tip="New chat"
+                        ToolTip.Tip="{loc:Str Sidebar_NewChatTooltip}"
                         Command="{Binding NewChatCommand}">
                   <StackPanel Orientation="Horizontal" Spacing="8">
                     <PathIcon Data="{StaticResource Icon.Compose}" Width="13" Height="13"
                               Foreground="{DynamicResource Brush.AccentDefault}" />
-                    <TextBlock Text="New Chat" FontWeight="Medium"
+                    <TextBlock Text="{loc:Str Sidebar_NewChat}" FontWeight="Medium"
                                Foreground="{DynamicResource Brush.TextSecondary}"
                                VerticalAlignment="Center" />
                   </StackPanel>
                 </Button>
               </Border>
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
-                <TextBox Watermark="Search…" x:Name="ChatSearchBox"
+                <TextBox Watermark="{loc:Str Sidebar_Search}" x:Name="ChatSearchBox"
                          Text="{Binding ChatSearchQuery, Mode=TwoWay}"
                          Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
@@ -208,19 +209,19 @@
                               <Panel Background="Transparent">
                                 <Panel.ContextMenu>
                                   <ContextMenu>
-                                    <MenuItem Header="Rename"
+                                    <MenuItem Header="{loc:Str Menu_Rename}"
                                               Command="{Binding $parent[Window].DataContext.StartRenameChatCommand}"
                                               CommandParameter="{Binding}">
                                       <MenuItem.Icon>
                                         <PathIcon Data="{StaticResource Icon.Rename}" Width="14" Height="14" />
                                       </MenuItem.Icon>
                                     </MenuItem>
-                                    <MenuItem x:Name="MoveToProjectMenu" Header="Move to Project">
+                                    <MenuItem x:Name="MoveToProjectMenu" Header="{loc:Str Menu_MoveToProject}">
                                       <MenuItem.Icon>
                                         <PathIcon Data="{StaticResource Icon.Folder}" Width="14" Height="14" />
                                       </MenuItem.Icon>
                                     </MenuItem>
-                                    <MenuItem Header="Remove from Project"
+                                    <MenuItem Header="{loc:Str Menu_RemoveFromProject}"
                                               Command="{Binding $parent[Window].DataContext.RemoveChatFromProjectCommand}"
                                               CommandParameter="{Binding}"
                                               IsVisible="{Binding ProjectId, Converter={x:Static ObjectConverters.IsNotNull}}">
@@ -229,7 +230,7 @@
                                       </MenuItem.Icon>
                                     </MenuItem>
                                     <Separator />
-                                    <MenuItem Header="Delete"
+                                    <MenuItem Header="{loc:Str Menu_Delete}"
                                               Command="{Binding $parent[Window].DataContext.DeleteChatCommand}"
                                               CommandParameter="{Binding}">
                                       <MenuItem.Icon>
@@ -268,16 +269,16 @@
               <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
                         CornerRadius="{DynamicResource Radius.Base}"
-                        Command="{Binding NewProjectCommand}" ToolTip.Tip="New project">
+                        Command="{Binding NewProjectCommand}" ToolTip.Tip="{loc:Str Sidebar_NewProjectTooltip}">
                   <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
                             Foreground="{DynamicResource Brush.TextSecondary}" />
                 </Button>
-                <TextBlock Text="Projects" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
+                <TextBlock Text="{loc:Str Sidebar_Projects}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" />
               </DockPanel>
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
-                <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
+                <TextBox Watermark="{loc:Str Sidebar_Search}" Text="{Binding SearchQuery}"
                          Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
                     <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
@@ -295,7 +296,7 @@
                     <Panel Background="Transparent">
                       <Panel.ContextMenu>
                         <ContextMenu>
-                          <MenuItem Header="Delete"
+                          <MenuItem Header="{loc:Str Menu_Delete}"
                                     Command="{Binding $parent[Window].DataContext.ProjectsVM.DeleteProjectCommand}"
                                     CommandParameter="{Binding}">
                             <MenuItem.Icon>
@@ -327,16 +328,16 @@
               <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
                         CornerRadius="{DynamicResource Radius.Base}"
-                        Command="{Binding NewSkillCommand}" ToolTip.Tip="New skill">
+                        Command="{Binding NewSkillCommand}" ToolTip.Tip="{loc:Str Sidebar_NewSkillTooltip}">
                   <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
                             Foreground="{DynamicResource Brush.TextSecondary}" />
                 </Button>
-                <TextBlock Text="Skills" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
+                <TextBlock Text="{loc:Str Sidebar_Skills}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" />
               </DockPanel>
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
-                <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
+                <TextBox Watermark="{loc:Str Sidebar_Search}" Text="{Binding SearchQuery}"
                          Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
                     <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
@@ -354,7 +355,7 @@
                     <Panel Background="Transparent">
                       <Panel.ContextMenu>
                         <ContextMenu>
-                          <MenuItem Header="Delete"
+                          <MenuItem Header="{loc:Str Menu_Delete}"
                                     Command="{Binding $parent[Window].DataContext.SkillsVM.DeleteSkillCommand}"
                                     CommandParameter="{Binding}">
                             <MenuItem.Icon>
@@ -382,16 +383,16 @@
               <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
                         CornerRadius="{DynamicResource Radius.Base}"
-                        Command="{Binding NewAgentCommand}" ToolTip.Tip="New Lumi">
+                        Command="{Binding NewAgentCommand}" ToolTip.Tip="{loc:Str Sidebar_NewLumiTooltip}">
                   <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
                             Foreground="{DynamicResource Brush.TextSecondary}" />
                 </Button>
-                <TextBlock Text="Lumis" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
+                <TextBlock Text="{loc:Str Sidebar_Lumis}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" />
               </DockPanel>
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
-                <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
+                <TextBox Watermark="{loc:Str Sidebar_Search}" Text="{Binding SearchQuery}"
                          Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
                     <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
@@ -409,7 +410,7 @@
                     <Panel Background="Transparent">
                       <Panel.ContextMenu>
                         <ContextMenu>
-                          <MenuItem Header="Delete"
+                          <MenuItem Header="{loc:Str Menu_Delete}"
                                     Command="{Binding $parent[Window].DataContext.AgentsVM.DeleteAgentCommand}"
                                     CommandParameter="{Binding}">
                             <MenuItem.Icon>
@@ -437,16 +438,16 @@
               <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
                         CornerRadius="{DynamicResource Radius.Base}"
-                        Command="{Binding NewMemoryCommand}" ToolTip.Tip="New memory">
+                        Command="{Binding NewMemoryCommand}" ToolTip.Tip="{loc:Str Sidebar_NewMemoryTooltip}">
                   <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
                             Foreground="{DynamicResource Brush.TextSecondary}" />
                 </Button>
-                <TextBlock Text="Memories" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
+                <TextBlock Text="{loc:Str Sidebar_Memories}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" />
               </DockPanel>
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
-                <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
+                <TextBox Watermark="{loc:Str Sidebar_Search}" Text="{Binding SearchQuery}"
                          Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
                     <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
@@ -464,7 +465,7 @@
                     <Panel Background="Transparent">
                       <Panel.ContextMenu>
                         <ContextMenu>
-                          <MenuItem Header="Delete"
+                          <MenuItem Header="{loc:Str Menu_Delete}"
                                     Command="{Binding $parent[Window].DataContext.MemoriesVM.DeleteMemoryCommand}"
                                     CommandParameter="{Binding}">
                             <MenuItem.Icon>
@@ -490,12 +491,12 @@
           <Panel x:Name="SidebarSettings" IsVisible="False" DataContext="{Binding SettingsVM}">
             <DockPanel>
               <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
-                <TextBlock Text="Settings" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
+                <TextBlock Text="{loc:Str Sidebar_Settings}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" />
               </DockPanel>
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
-                <TextBox Watermark="Search settings…" Text="{Binding SearchQuery}"
+                <TextBox Watermark="{loc:Str Sidebar_SearchSettings}" Text="{Binding SearchQuery}"
                          Padding="6,5,8,5" FontSize="12">
                   <TextBox.InnerLeftContent>
                     <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
@@ -514,7 +515,7 @@
                         <StreamGeometry>M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-4 0-8 2-8 4v2h16v-2c0-2-4-4-8-4z</StreamGeometry>
                       </PathIcon.Data>
                     </PathIcon>
-                    <TextBlock Text="General" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
+                    <TextBlock Text="{loc:Str Settings_General}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
                   </StackPanel>
                 </ListBoxItem>
                 <ListBoxItem Padding="12,8">
@@ -524,21 +525,21 @@
                         <StreamGeometry>M12 3a9 9 0 1 0 0 18c.7 0 1.4-.1 2-.2a1 1 0 0 0 .7-1.5 3 3 0 0 1 2.4-4.8H18a3 3 0 0 0 3-3A9 9 0 0 0 12 3zM7.5 12a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm2-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm2 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z</StreamGeometry>
                       </PathIcon.Data>
                     </PathIcon>
-                    <TextBlock Text="Appearance" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
+                    <TextBlock Text="{loc:Str Settings_Appearance}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
                   </StackPanel>
                 </ListBoxItem>
                 <ListBoxItem Padding="12,8">
                   <StackPanel Orientation="Horizontal" Spacing="10">
                     <PathIcon Data="{StaticResource Icon.Chat}" Width="14" Height="14"
                               Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBlock Text="Chat" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
+                    <TextBlock Text="{loc:Str Settings_Chat}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
                   </StackPanel>
                 </ListBoxItem>
                 <ListBoxItem Padding="12,8">
                   <StackPanel Orientation="Horizontal" Spacing="10">
                     <PathIcon Data="{StaticResource Icon.Sparkle}" Width="14" Height="14"
                               Foreground="{DynamicResource Brush.TextSecondary}" />
-                    <TextBlock Text="AI &amp; Models" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
+                    <TextBlock Text="{loc:Str Settings_AIModels}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
                   </StackPanel>
                 </ListBoxItem>
                 <ListBoxItem Padding="12,8">
@@ -548,7 +549,7 @@
                         <StreamGeometry>M12 1L3 5v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4zm0 3.2L18 7v4c0 4.2-2.8 8-6 9.2C8.8 19 6 15.2 6 11V7l6-2.8z</StreamGeometry>
                       </PathIcon.Data>
                     </PathIcon>
-                    <TextBlock Text="Privacy &amp; Data" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
+                    <TextBlock Text="{loc:Str Settings_PrivacyData}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
                   </StackPanel>
                 </ListBoxItem>
                 <ListBoxItem Padding="12,8">
@@ -558,7 +559,7 @@
                         <StreamGeometry>M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 3a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm2 12h-4v-1h1v-5h-1v-1h3v6h1v1z</StreamGeometry>
                       </PathIcon.Data>
                     </PathIcon>
-                    <TextBlock Text="About" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
+                    <TextBlock Text="{loc:Str Settings_About}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
                   </StackPanel>
                 </ListBoxItem>
               </ListBox>
@@ -627,14 +628,14 @@
       <Border HorizontalAlignment="Center" VerticalAlignment="Center"
               Classes="strata-dialog" Padding="24,20" MinWidth="320" MaxWidth="400">
         <StackPanel Spacing="14">
-          <TextBlock Text="Rename Chat" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold" />
+          <TextBlock Text="{loc:Str Dialog_RenameChat}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold" />
           <TextBox x:Name="RenameTextBox"
                    Text="{Binding RenamingTitle, Mode=TwoWay}"
-                   Watermark="Chat title" FontSize="{DynamicResource Font.SizeBody}" />
+                   Watermark="{loc:Str Dialog_ChatTitle}" FontSize="{DynamicResource Font.SizeBody}" />
           <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-            <Button Classes="subtle" Content="Cancel" Padding="14,6" MinHeight="0"
+            <Button Classes="subtle" Content="{loc:Str Common_Cancel}" Padding="14,6" MinHeight="0"
                     Command="{Binding CancelRenameChatCommand}" />
-            <Button Classes="accent" Content="Rename" Padding="14,6" MinHeight="0"
+            <Button Classes="accent" Content="{loc:Str Common_Rename}" Padding="14,6" MinHeight="0"
                     Command="{Binding CommitRenameChatCommand}" />
           </StackPanel>
         </StackPanel>
