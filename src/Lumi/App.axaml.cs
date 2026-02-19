@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Styling;
@@ -13,6 +14,9 @@ namespace Lumi;
 
 public partial class App : Application
 {
+    private TrayIcon? _trayIcon;
+    private Window? _mainWindow;
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -42,6 +46,7 @@ public partial class App : Application
             MainWindow.ApplyLaunchAtStartup(dataStore.Data.Settings.LaunchAtStartup);
 
             var window = new MainWindow { DataContext = vm };
+            _mainWindow = window;
 
             // Apply RTL for right-to-left languages
             if (Loc.IsRightToLeft)
@@ -51,9 +56,69 @@ public partial class App : Application
             if (dataStore.Data.Settings.StartMinimized)
                 window.WindowState = Avalonia.Controls.WindowState.Minimized;
 
+            // Set up tray icon if enabled
+            if (dataStore.Data.Settings.MinimizeToTray)
+                SetupTrayIcon(true);
+
             desktop.MainWindow = window;
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>Create or remove the system tray icon.</summary>
+    public void SetupTrayIcon(bool enable)
+    {
+        if (enable && _trayIcon is null)
+        {
+            var uri = new Uri("avares://Lumi/Assets/lumi-icon.png");
+            var icon = new WindowIcon(Avalonia.Platform.AssetLoader.Open(uri));
+
+            var showItem = new NativeMenuItem(Loc.Tray_Show);
+            showItem.Click += (_, _) => ShowMainWindow();
+
+            var exitItem = new NativeMenuItem(Loc.Tray_Exit);
+            exitItem.Click += (_, _) =>
+            {
+                if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+                    desktop.Shutdown();
+            };
+
+            var menu = new NativeMenu();
+            menu.Items.Add(showItem);
+            menu.Items.Add(new NativeMenuItemSeparator());
+            menu.Items.Add(exitItem);
+
+            _trayIcon = new TrayIcon
+            {
+                Icon = icon,
+                ToolTipText = Loc.App_Name,
+                Menu = menu,
+                IsVisible = true
+            };
+            _trayIcon.Clicked += (_, _) => ShowMainWindow();
+
+            var icons = new TrayIcons { _trayIcon };
+            TrayIcon.SetIcons(this, icons);
+        }
+        else if (!enable && _trayIcon is not null)
+        {
+            _trayIcon.IsVisible = false;
+            _trayIcon.Dispose();
+            _trayIcon = null;
+            TrayIcon.SetIcons(this, new TrayIcons());
+
+            // Ensure window is visible when disabling tray
+            ShowMainWindow();
+        }
+    }
+
+    public void ShowMainWindow()
+    {
+        if (_mainWindow is null) return;
+        _mainWindow.Show();
+        _mainWindow.ShowInTaskbar = true;
+        _mainWindow.WindowState = WindowState.Normal;
+        _mainWindow.Activate();
     }
 }

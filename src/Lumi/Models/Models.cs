@@ -85,6 +85,7 @@ public class UserSettings
     public string Language { get; set; } = "en";
     public bool LaunchAtStartup { get; set; }
     public bool StartMinimized { get; set; }
+    public bool MinimizeToTray { get; set; }
     public bool NotificationsEnabled { get; set; } = true;
 
     // ── Appearance ──

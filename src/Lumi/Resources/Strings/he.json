@@ -260,6 +260,8 @@
   "SettingDesc_LaunchAtStartup": "הפעלת לומי כשאתה מתחבר למחשב",
   "Setting_StartMinimized": "הפעלה ממוזערת",
   "SettingDesc_StartMinimized": "הפעלה ממוזערת במקום הצגת החלון",
+  "Setting_MinimizeToTray": "מזעור למגש",
+  "SettingDesc_MinimizeToTray": "שמירת לומי במגש המערכת בעת מזעור או סגירה",
   "Setting_EnableNotifications": "הפעלת התראות",
   "SettingDesc_EnableNotifications": "הצגת התראות שולחן עבודה למשימות שהושלמו",
   "Setting_DarkMode": "מצב כהה",
@@ -310,5 +312,8 @@
 
   "Button_ClearChats": "מחיקת צ׳אטים",
   "Button_ClearMemories": "מחיקת זיכרונות",
-  "Button_ResetDefaults": "איפוס ברירות מחדל"
+  "Button_ResetDefaults": "איפוס ברירות מחדל",
+
+  "Tray_Show": "הצגת לומי",
+  "Tray_Exit": "יציאה"
 }

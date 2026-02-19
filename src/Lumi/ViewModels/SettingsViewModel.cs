@@ -45,6 +45,7 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _userName;
     [ObservableProperty] private bool _launchAtStartup;
     [ObservableProperty] private bool _startMinimized;
+    [ObservableProperty] private bool _minimizeToTray;
     [ObservableProperty] private bool _notificationsEnabled;
 
     // ── Appearance ──
@@ -104,6 +105,7 @@ public partial class SettingsViewModel : ObservableObject
         _userName = s.UserName ?? "";
         _launchAtStartup = s.LaunchAtStartup;
         _startMinimized = s.StartMinimized;
+        _minimizeToTray = s.MinimizeToTray;
         _notificationsEnabled = s.NotificationsEnabled;
 
         // Appearance
@@ -139,6 +141,14 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnUserNameChanged(string value) { _dataStore.Data.Settings.UserName = value.Trim(); Save(); }
     partial void OnLaunchAtStartupChanged(bool value) { _dataStore.Data.Settings.LaunchAtStartup = value; Save(); Views.MainWindow.ApplyLaunchAtStartup(value); NotifyModified(); }
     partial void OnStartMinimizedChanged(bool value) { _dataStore.Data.Settings.StartMinimized = value; Save(); NotifyModified(); }
+    partial void OnMinimizeToTrayChanged(bool value)
+    {
+        _dataStore.Data.Settings.MinimizeToTray = value;
+        Save();
+        NotifyModified();
+        if (Avalonia.Application.Current is App app)
+            app.SetupTrayIcon(value);
+    }
     partial void OnNotificationsEnabledChanged(bool value) { _dataStore.Data.Settings.NotificationsEnabled = value; Save(); NotifyModified(); }
 
     partial void OnIsDarkThemeChanged(bool value) { _dataStore.Data.Settings.IsDarkTheme = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
@@ -163,6 +173,7 @@ public partial class SettingsViewModel : ObservableObject
 
     public bool IsLaunchAtStartupModified => LaunchAtStartup != _defaults.LaunchAtStartup;
     public bool IsStartMinimizedModified => StartMinimized != _defaults.StartMinimized;
+    public bool IsMinimizeToTrayModified => MinimizeToTray != _defaults.MinimizeToTray;
     public bool IsNotificationsEnabledModified => NotificationsEnabled != _defaults.NotificationsEnabled;
     public bool IsDarkThemeModified => IsDarkTheme != _defaults.IsDarkTheme;
     public bool IsCompactDensityModified => IsCompactDensity != _defaults.IsCompactDensity;
@@ -182,6 +193,7 @@ public partial class SettingsViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(IsLaunchAtStartupModified));
         OnPropertyChanged(nameof(IsStartMinimizedModified));
+        OnPropertyChanged(nameof(IsMinimizeToTrayModified));
         OnPropertyChanged(nameof(IsNotificationsEnabledModified));
         OnPropertyChanged(nameof(IsDarkThemeModified));
         OnPropertyChanged(nameof(IsCompactDensityModified));
@@ -201,6 +213,7 @@ public partial class SettingsViewModel : ObservableObject
     // ── Revert commands ──
     [RelayCommand] private void RevertLaunchAtStartup() => LaunchAtStartup = _defaults.LaunchAtStartup;
     [RelayCommand] private void RevertStartMinimized() => StartMinimized = _defaults.StartMinimized;
+    [RelayCommand] private void RevertMinimizeToTray() => MinimizeToTray = _defaults.MinimizeToTray;
     [RelayCommand] private void RevertNotificationsEnabled() => NotificationsEnabled = _defaults.NotificationsEnabled;
     [RelayCommand] private void RevertIsDarkTheme() => IsDarkTheme = _defaults.IsDarkTheme;
     [RelayCommand] private void RevertIsCompactDensity() => IsCompactDensity = _defaults.IsCompactDensity;
@@ -266,6 +279,7 @@ public partial class SettingsViewModel : ObservableObject
         // Apply defaults to this VM
         LaunchAtStartup = defaults.LaunchAtStartup;
         StartMinimized = defaults.StartMinimized;
+        MinimizeToTray = defaults.MinimizeToTray;
         NotificationsEnabled = defaults.NotificationsEnabled;
         IsDarkTheme = defaults.IsDarkTheme;
         IsCompactDensity = defaults.IsCompactDensity;

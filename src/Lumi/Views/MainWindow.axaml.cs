@@ -4,6 +4,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -41,6 +42,13 @@ public partial class MainWindow : Window
         // Force transparent background after theme styles are applied
         Background = Avalonia.Media.Brushes.Transparent;
         TransparencyBackgroundFallback = Avalonia.Media.Brushes.Transparent;
+
+        // Watch for minimize to hide to tray
+        this.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == WindowStateProperty)
+                OnWindowStateChanged();
+        };
     }
 
     private void InitializeComponent()
@@ -107,6 +115,35 @@ public partial class MainWindow : Window
                 Loc.AvailableLanguages.Select(l => $"{l.DisplayName} ({l.Code})").ToArray();
             _onboardingLanguageCombo.PlaceholderText = Loc.Onboarding_Language;
             _onboardingLanguageCombo.SelectedIndex = 0;
+        }
+    }
+
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        // If minimize-to-tray is enabled, hide instead of closing
+        if (DataContext is MainViewModel vm && vm.SettingsVM.MinimizeToTray)
+        {
+            e.Cancel = true;
+            HideToTray();
+        }
+
+        base.OnClosing(e);
+    }
+
+    private void HideToTray()
+    {
+        ShowInTaskbar = false;
+        Hide();
+    }
+
+    /// <summary>Handle WindowState changes: when minimized + tray enabled, hide to tray.</summary>
+    private void OnWindowStateChanged()
+    {
+        if (WindowState == WindowState.Minimized
+            && DataContext is MainViewModel vm
+            && vm.SettingsVM.MinimizeToTray)
+        {
+            HideToTray();
         }
     }
 

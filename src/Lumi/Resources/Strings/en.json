@@ -260,6 +260,8 @@
   "SettingDesc_LaunchAtStartup": "Start Lumi when you log in to your computer",
   "Setting_StartMinimized": "Start Minimized",
   "SettingDesc_StartMinimized": "Launch minimized instead of showing the window",
+  "Setting_MinimizeToTray": "Minimize to Tray",
+  "SettingDesc_MinimizeToTray": "Keep Lumi in the system tray when minimized or closed",
   "Setting_EnableNotifications": "Enable Notifications",
   "SettingDesc_EnableNotifications": "Show desktop notifications for completed tasks",
   "Setting_DarkMode": "Dark Mode",
@@ -310,5 +312,8 @@
 
   "Button_ClearChats": "Clear Chats",
   "Button_ClearMemories": "Clear Memories",
-  "Button_ResetDefaults": "Reset Defaults"
+  "Button_ResetDefaults": "Reset Defaults",
+
+  "Tray_Show": "Show Lumi",
+  "Tray_Exit": "Exit"
 }
