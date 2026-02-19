@@ -11,7 +11,7 @@
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto" Padding="36,24">
         <StackPanel Spacing="20">
-          <TextBlock Text="Memory Editor" FontSize="15" FontWeight="SemiBold" />
+          <TextBlock Text="Memory Editor" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold" />
 
           <Grid ColumnDefinitions="*,20,160">
             <StackPanel Spacing="4">
@@ -47,7 +47,7 @@
       <StackPanel IsVisible="{Binding !IsEditing}"
                   HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" Opacity="0.4">
         <TextBlock Text="🧠" FontSize="32" HorizontalAlignment="Center" />
-        <TextBlock Text="Select or create a memory" FontSize="13"
+        <TextBlock Text="Select or create a memory" FontSize="{DynamicResource Font.SizeBody}"
                    HorizontalAlignment="Center" />
       </StackPanel>
   </Panel>

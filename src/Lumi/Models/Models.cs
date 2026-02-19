@@ -77,12 +77,34 @@ public class Memory
 
 public class UserSettings
 {
+    // ── General ──
     public string? UserName { get; set; }
-    public bool IsDarkTheme { get; set; } = true;
-    public bool IsCompactDensity { get; set; }
-    public string PreferredModel { get; set; } = "claude-sonnet-4";
     public bool IsOnboarded { get; set; }
     public bool DefaultsSeeded { get; set; }
+    public bool LaunchAtStartup { get; set; }
+    public bool StartMinimized { get; set; }
+    public bool NotificationsEnabled { get; set; } = true;
+
+    // ── Appearance ──
+    public bool IsDarkTheme { get; set; } = true;
+    public bool IsCompactDensity { get; set; }
+    public int FontSize { get; set; } = 14;
+    public bool ShowAnimations { get; set; } = true;
+
+    // ── Chat ──
+    public bool SendWithEnter { get; set; } = true;
+    public bool ShowTimestamps { get; set; } = true;
+    public bool ShowToolCalls { get; set; } = true;
+    public bool ShowReasoning { get; set; } = true;
+    public bool AutoGenerateTitles { get; set; } = true;
+    public int MaxContextMessages { get; set; } = 50;
+
+    // ── AI & Models ──
+    public string PreferredModel { get; set; } = "claude-sonnet-4";
+
+    // ── Privacy & Data ──
+    public bool EnableMemoryAutoSave { get; set; } = true;
+    public bool AutoSaveChats { get; set; } = true;
 }
 
 public class AppData

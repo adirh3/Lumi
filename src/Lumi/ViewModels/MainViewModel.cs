@@ -65,6 +65,23 @@ public partial class MainViewModel : ObservableObject
         MemoriesVM = new MemoriesViewModel(dataStore);
         SettingsVM = new SettingsViewModel(dataStore);
 
+        // Sync settings changes back to MainViewModel
+        SettingsVM.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(SettingsViewModel.IsDarkTheme))
+                IsDarkTheme = SettingsVM.IsDarkTheme;
+            else if (args.PropertyName == nameof(SettingsViewModel.IsCompactDensity))
+                IsCompactDensity = SettingsVM.IsCompactDensity;
+            else if (args.PropertyName == nameof(SettingsViewModel.PreferredModel)
+                     && !string.IsNullOrWhiteSpace(SettingsVM.PreferredModel))
+                ChatVM.SelectedModel = SettingsVM.PreferredModel;
+        };
+
+        SettingsVM.SettingsChanged += () =>
+        {
+            RefreshChatList();
+        };
+
         ChatVM.ChatUpdated += () => RefreshChatList();
         ChatVM.PropertyChanged += (_, args) =>
         {

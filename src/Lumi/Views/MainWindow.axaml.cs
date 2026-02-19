@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -102,6 +104,16 @@ public partial class MainWindow : Window
             // Wire ProjectsVM chat open to navigate to chat tab
             vm.ProjectsVM.ChatOpenRequested += chat => vm.OpenChatFromProjectCommand.Execute(chat);
 
+            // Wire settings for density and font size
+            vm.SettingsVM.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(SettingsViewModel.FontSize))
+                    ApplyFontSize(vm.SettingsVM.FontSize);
+            };
+
+            // Apply initial font size
+            ApplyFontSize(vm.SettingsVM.FontSize);
+
             vm.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(MainViewModel.IsDarkTheme))
@@ -110,6 +122,10 @@ public partial class MainWindow : Window
                         Application.Current.RequestedThemeVariant = vm.IsDarkTheme
                             ? ThemeVariant.Dark
                             : ThemeVariant.Light;
+                }
+                else if (args.PropertyName == nameof(MainViewModel.IsCompactDensity))
+                {
+                    ApplyDensity(vm.IsCompactDensity);
                 }
                 else if (args.PropertyName == nameof(MainViewModel.IsOnboarded))
                 {
@@ -120,11 +136,17 @@ public partial class MainWindow : Window
                     ShowPage(vm.SelectedNavIndex);
                     UpdateNavHighlight(vm.SelectedNavIndex);
 
-                    // Refresh composer catalogs when switching to chat tab
+                    // Refresh composer catalogs and re-attach list handlers when switching to chat tab
                     if (vm.SelectedNavIndex == 0)
                     {
                         var chatView = this.FindControl<ChatView>("PageChat");
                         chatView?.PopulateComposerCatalogs(vm.ChatVM);
+
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            AttachListBoxHandlers();
+                            SyncListBoxSelection(vm.ActiveChatId);
+                        }, DispatcherPriority.Loaded);
                     }
                 }
                 else if (args.PropertyName == nameof(MainViewModel.ActiveChatId))
@@ -197,6 +219,14 @@ public partial class MainWindow : Window
         {
             Dispatcher.UIThread.Post(() => ApplyProjectChatCounts(vm), DispatcherPriority.Loaded);
         }
+
+        // When settings tab is shown, refresh stats
+        if (index == 5 && DataContext is MainViewModel svm)
+        {
+            if (svm.SettingsVM.SelectedPageIndex < 0)
+                svm.SettingsVM.SelectedPageIndex = 0;
+            svm.SettingsVM.RefreshStats();
+        }
     }
 
     private void UpdateNavHighlight(int index)
@@ -217,7 +247,7 @@ public partial class MainWindow : Window
     {
         foreach (var lb in this.GetVisualDescendants().OfType<ListBox>())
         {
-            if (!lb.Classes.Contains("sidebar-list")) continue;
+            if (!lb.Classes.Contains("chat-list")) continue;
             if (lb.Tag is "hooked") continue;
             lb.Tag = "hooked";
             lb.SelectionChanged += OnChatListBoxSelectionChanged;
@@ -269,7 +299,7 @@ public partial class MainWindow : Window
         _suppressSelectionSync = true;
         foreach (var otherLb in this.GetVisualDescendants().OfType<ListBox>())
         {
-            if (!otherLb.Classes.Contains("sidebar-list")) continue;
+            if (!otherLb.Classes.Contains("chat-list")) continue;
             if (otherLb != lb)
                 otherLb.SelectedItem = null;
         }
@@ -285,7 +315,7 @@ public partial class MainWindow : Window
         {
             foreach (var lb in this.GetVisualDescendants().OfType<ListBox>())
             {
-                if (!lb.Classes.Contains("sidebar-list")) continue;
+                if (!lb.Classes.Contains("chat-list")) continue;
 
                 if (lb.Tag is not "hooked")
                 {
@@ -317,6 +347,152 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Swap Strata density resources at runtime.</summary>
+    public static void ApplyDensityStatic(bool compact)
+    {
+        var app = Application.Current;
+        if (app is null) return;
+
+        if (compact)
+        {
+            // Compact density values from Density.Compact.axaml
+            app.Resources["Size.ControlHeightS"] = 24.0;
+            app.Resources["Size.ControlHeightM"] = 30.0;
+            app.Resources["Size.ControlHeightL"] = 36.0;
+            app.Resources["Padding.ControlH"] = new Avalonia.Thickness(8, 0);
+            app.Resources["Padding.Control"] = new Avalonia.Thickness(8, 4);
+            app.Resources["Padding.ControlWide"] = new Avalonia.Thickness(12, 5);
+            app.Resources["Padding.Section"] = new Avalonia.Thickness(12, 8);
+            app.Resources["Padding.Card"] = new Avalonia.Thickness(14, 10);
+            app.Resources["Font.SizeCaption"] = 11.0;
+            app.Resources["Font.SizeBody"] = 13.0;
+            app.Resources["Font.SizeBodyStrong"] = 13.0;
+            app.Resources["Font.SizeSubtitle"] = 14.0;
+            app.Resources["Font.SizeTitle"] = 17.0;
+            app.Resources["Space.S"] = 6.0;
+            app.Resources["Space.M"] = 8.0;
+            app.Resources["Space.L"] = 12.0;
+            app.Resources["Size.DataGridRowHeight"] = 28.0;
+            app.Resources["Size.DataGridHeaderHeight"] = 32.0;
+        }
+        else
+        {
+            // Comfortable density values from Density.Comfortable.axaml
+            app.Resources["Size.ControlHeightS"] = 28.0;
+            app.Resources["Size.ControlHeightM"] = 36.0;
+            app.Resources["Size.ControlHeightL"] = 44.0;
+            app.Resources["Padding.ControlH"] = new Avalonia.Thickness(12, 0);
+            app.Resources["Padding.Control"] = new Avalonia.Thickness(12, 6);
+            app.Resources["Padding.ControlWide"] = new Avalonia.Thickness(16, 8);
+            app.Resources["Padding.Section"] = new Avalonia.Thickness(16, 12);
+            app.Resources["Padding.Card"] = new Avalonia.Thickness(20, 16);
+            app.Resources["Font.SizeCaption"] = 12.0;
+            app.Resources["Font.SizeBody"] = 14.0;
+            app.Resources["Font.SizeBodyStrong"] = 14.0;
+            app.Resources["Font.SizeSubtitle"] = 16.0;
+            app.Resources["Font.SizeTitle"] = 20.0;
+            app.Resources["Space.S"] = 8.0;
+            app.Resources["Space.M"] = 12.0;
+            app.Resources["Space.L"] = 16.0;
+            app.Resources["Size.DataGridRowHeight"] = 36.0;
+            app.Resources["Size.DataGridHeaderHeight"] = 40.0;
+        }
+    }
+
+    private void ApplyDensity(bool compact)
+    {
+        ApplyDensityStatic(compact);
+        // Re-apply font size override only if it was explicitly changed from default
+        if (DataContext is MainViewModel vm && vm.SettingsVM.IsFontSizeModified)
+            ApplyFontSize(vm.SettingsVM.FontSize);
+    }
+
+    /// <summary>Override font size resources proportionally from the base body size.</summary>
+    private void ApplyFontSize(int bodySize)
+    {
+        var app = Application.Current;
+        if (app is null) return;
+
+        // Scale other sizes relative to the body size (default body=14)
+        app.Resources["Font.SizeCaption"] = (double)(bodySize - 2);
+        app.Resources["Font.SizeBody"] = (double)bodySize;
+        app.Resources["Font.SizeBodyStrong"] = (double)bodySize;
+        app.Resources["Font.SizeSubtitle"] = (double)(bodySize + 2);
+        app.Resources["Font.SizeTitle"] = (double)(bodySize + 6);
+    }
+
+    /// <summary>Register/unregister the app for launch at login (cross-platform).</summary>
+    public static void ApplyLaunchAtStartup(bool enable)
+    {
+        try
+        {
+            var exePath = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exePath)) return;
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                    @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", writable: true);
+                if (key is null) return;
+
+                if (enable)
+                    key.SetValue("Lumi", $"\"{exePath}\"");
+                else
+                    key.DeleteValue("Lumi", throwOnMissingValue: false);
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                var autostartDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".config", "autostart");
+                var desktopFile = Path.Combine(autostartDir, "lumi.desktop");
+
+                if (enable)
+                {
+                    Directory.CreateDirectory(autostartDir);
+                    File.WriteAllText(desktopFile,
+                        $"[Desktop Entry]\nType=Application\nName=Lumi\nExec={exePath}\nX-GNOME-Autostart-enabled=true\n");
+                }
+                else if (File.Exists(desktopFile))
+                {
+                    File.Delete(desktopFile);
+                }
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                var launchAgentsDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    "Library", "LaunchAgents");
+                var plistFile = Path.Combine(launchAgentsDir, "com.lumi.app.plist");
+
+                if (enable)
+                {
+                    Directory.CreateDirectory(launchAgentsDir);
+                    File.WriteAllText(plistFile,
+                        $"""
+                        <?xml version="1.0" encoding="UTF-8"?>
+                        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+                        <plist version="1.0">
+                        <dict>
+                            <key>Label</key><string>com.lumi.app</string>
+                            <key>ProgramArguments</key><array><string>{exePath}</string></array>
+                            <key>RunAtLoad</key><true/>
+                        </dict>
+                        </plist>
+                        """);
+                }
+                else if (File.Exists(plistFile))
+                {
+                    File.Delete(plistFile);
+                }
+            }
+        }
+        catch
+        {
+            // Silently ignore — user may not have access
+        }
+    }
+
     private void RebuildProjectFilterBar(MainViewModel vm)
     {
         if (_projectFilterBar is null) return;
@@ -331,11 +507,11 @@ public partial class MainWindow : Window
             Padding = new Thickness(10, 4),
             MinHeight = 0,
             MinWidth = 0,
-            FontSize = 11,
             CornerRadius = new CornerRadius(12),
             BorderThickness = new Thickness(0),
             Focusable = false
         };
+        allBtn[!Avalonia.Controls.Primitives.TemplatedControl.FontSizeProperty] = allBtn.GetResourceObservable("Font.SizeCaption").ToBinding();
         allBtn.Classes.Add(isAll ? "accent" : "subtle");
         allBtn.Click += (_, _) => vm.ClearProjectFilterCommand.Execute(null);
         _projectFilterBar.Children.Add(allBtn);
@@ -350,11 +526,11 @@ public partial class MainWindow : Window
                 Padding = new Thickness(10, 4),
                 MinHeight = 0,
                 MinWidth = 0,
-                FontSize = 11,
                 CornerRadius = new CornerRadius(12),
                 BorderThickness = new Thickness(0),
                 Focusable = false
             };
+            btn[!Avalonia.Controls.Primitives.TemplatedControl.FontSizeProperty] = btn.GetResourceObservable("Font.SizeCaption").ToBinding();
             btn.Classes.Add(isActive ? "accent" : "subtle");
             var p = project; // capture
             btn.Click += (_, _) => vm.SelectProjectFilterCommand.Execute(p);

@@ -2,11 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Diagnostics;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data.Converters;
 using Avalonia.Layout;
@@ -51,10 +53,19 @@ public partial class ChatView : UserControl
 
     // Track if we've already wired up event handlers
     private ChatViewModel? _subscribedVm;
+    private SettingsViewModel? _settingsVm;
 
     public ChatView()
     {
         InitializeComponent();
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        EnsureSettingsSubscription();
+        if (_subscribedVm is not null)
+            ApplyRuntimeSettings(_subscribedVm);
     }
 
     private void InitializeComponent()
@@ -76,8 +87,14 @@ public partial class ChatView : UserControl
         if (DataContext is not ChatViewModel vm) return;
 
         // Guard against duplicate subscriptions from repeated OnDataContextChanged calls
-        if (vm == _subscribedVm) return;
+        if (vm == _subscribedVm)
+        {
+            EnsureSettingsSubscription();
+            return;
+        }
         _subscribedVm = vm;
+        EnsureSettingsSubscription();
+        ApplyRuntimeSettings(vm);
 
         vm.ScrollToEndRequested += () => _chatShell?.ScrollToEnd();
 
@@ -227,6 +244,60 @@ public partial class ChatView : UserControl
         };
     }
 
+    private void EnsureSettingsSubscription()
+    {
+        var mainVm = FindMainViewModel();
+        var nextSettingsVm = mainVm?.SettingsVM;
+
+        if (ReferenceEquals(_settingsVm, nextSettingsVm))
+            return;
+
+        if (_settingsVm is not null)
+            _settingsVm.PropertyChanged -= OnSettingsViewModelPropertyChanged;
+
+        _settingsVm = nextSettingsVm;
+
+        if (_settingsVm is not null)
+            _settingsVm.PropertyChanged += OnSettingsViewModelPropertyChanged;
+    }
+
+    private void OnSettingsViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_subscribedVm is null)
+            return;
+
+        if (e.PropertyName is nameof(SettingsViewModel.SendWithEnter)
+            or nameof(SettingsViewModel.PreferredModel))
+        {
+            ApplyRuntimeSettings(_subscribedVm);
+        }
+
+        if (e.PropertyName is nameof(SettingsViewModel.ShowTimestamps)
+            or nameof(SettingsViewModel.ShowToolCalls)
+            or nameof(SettingsViewModel.ShowReasoning))
+        {
+            RebuildMessageStack(_subscribedVm);
+        }
+    }
+
+    private void ApplyRuntimeSettings(ChatViewModel vm)
+    {
+        var settings = _settingsVm;
+        if (settings is null)
+            return;
+
+        if (_welcomeComposer is not null)
+            _welcomeComposer.SendWithEnter = settings.SendWithEnter;
+        if (_activeComposer is not null)
+            _activeComposer.SendWithEnter = settings.SendWithEnter;
+
+        if (!string.IsNullOrWhiteSpace(settings.PreferredModel)
+            && vm.SelectedModel != settings.PreferredModel)
+        {
+            vm.SelectedModel = settings.PreferredModel;
+        }
+    }
+
     private void RebuildMessageStack(ChatViewModel vm)
     {
         // Replace the transcript content with a StackPanel we control
@@ -266,6 +337,10 @@ public partial class ChatView : UserControl
             _ => StrataChatRole.Assistant
         };
 
+        var showToolCalls = _settingsVm?.ShowToolCalls ?? true;
+        var showReasoning = _settingsVm?.ShowReasoning ?? true;
+        var showTimestamps = _settingsVm?.ShowTimestamps ?? true;
+
         if (msgVm.Role == "tool")
         {
             var toolName = msgVm.ToolName ?? "";
@@ -291,28 +366,34 @@ public partial class ChatView : UserControl
                 {
                     _currentIntentText = intentText;
 
-                    // Start/update the group with the intent label
-                    var isLive = msgVm.ToolStatus is not "Completed" and not "Failed";
-                    if (_currentToolGroup is null)
+                    // Only create UI group if tool calls are visible
+                    if (showToolCalls)
                     {
-                        _currentToolGroupStack = new StackPanel { Spacing = 4 };
-                        _currentToolGroupCount = 0;
-                        _currentToolGroup = new StrataThink
+                        var isLive = msgVm.ToolStatus is not "Completed" and not "Failed";
+                        if (_currentToolGroup is null)
                         {
-                            Label = isLive ? intentText + "\u2026" : intentText,
-                            IsExpanded = false,
-                            IsActive = isLive,
-                            Content = _currentToolGroupStack
-                        };
-                        InsertBeforeTypingIndicator(_currentToolGroup);
-                    }
-                    else
-                    {
-                        _currentToolGroup.Label = isLive ? intentText + "\u2026" : intentText;
+                            _currentToolGroupStack = new StackPanel { Spacing = 4 };
+                            _currentToolGroupCount = 0;
+                            _currentToolGroup = new StrataThink
+                            {
+                                Label = isLive ? intentText + "\u2026" : intentText,
+                                IsExpanded = false,
+                                IsActive = isLive,
+                                Content = _currentToolGroupStack
+                            };
+                            InsertBeforeTypingIndicator(_currentToolGroup);
+                        }
+                        else
+                        {
+                            _currentToolGroup.Label = isLive ? intentText + "\u2026" : intentText;
+                        }
                     }
                 }
                 return;
             }
+
+            if (!showToolCalls)
+                return;
 
             var initialStatus = msgVm.ToolStatus switch
             {
@@ -386,6 +467,9 @@ public partial class ChatView : UserControl
         {
             CloseToolGroup();
 
+            if (!showReasoning)
+                return;
+
             var think = new StrataThink
             {
                 Label = "Reasoning",
@@ -452,7 +536,7 @@ public partial class ChatView : UserControl
             {
                 Role = role,
                 Author = msgVm.Author ?? "",
-                Timestamp = msgVm.TimestampText,
+                Timestamp = showTimestamps ? msgVm.TimestampText : string.Empty,
                 IsStreaming = msgVm.IsStreaming,
                 IsEditable = isUser,
                 Content = msgContent
@@ -518,11 +602,17 @@ public partial class ChatView : UserControl
         if (_currentToolGroup is not null)
         {
             _currentToolGroup.IsActive = false;
-            // Finalize the label — if no tool cards were added, show the intent or "Finished"
-            if (_currentToolGroupCount == 0 && _currentIntentText is not null)
-                _currentToolGroup.Label = _currentIntentText;
+
+            // If the group has no tool cards at all, remove it entirely
+            if (_currentToolGroupCount == 0)
+            {
+                _messageStack?.Children.Remove(_currentToolGroup);
+            }
             else
+            {
                 UpdateToolGroupLabel();
+            }
+
             _currentToolGroup = null;
             _currentToolGroupStack = null;
             _currentToolGroupCount = 0;

@@ -121,6 +121,7 @@ public partial class ChatViewModel : ObservableObject
                     Content = _accumulatedReasoning,
                     IsStreaming = true
                 };
+                CurrentChat?.Messages.Add(_reasoningMessage);
                 Messages.Add(new ChatMessageViewModel(_reasoningMessage));
             }
             else
@@ -205,6 +206,9 @@ public partial class ChatViewModel : ObservableObject
 
         _copilotService.OnTitleChanged += title => Dispatcher.UIThread.Post(() =>
         {
+            if (!_dataStore.Data.Settings.AutoGenerateTitles)
+                return;
+
             if (CurrentChat is not null)
             {
                 CurrentChat.Title = title;
@@ -225,7 +229,7 @@ public partial class ChatViewModel : ObservableObject
     {
         IsLoadingChat = true;
         Messages.Clear();
-        foreach (var msg in chat.Messages.Where(m => m.Role != "reasoning"))
+        foreach (var msg in chat.Messages)
             Messages.Add(new ChatMessageViewModel(msg));
         CurrentChat = chat;
 
@@ -385,7 +389,8 @@ public partial class ChatViewModel : ObservableObject
         if (CurrentChat is not null)
         {
             CurrentChat.UpdatedAt = DateTimeOffset.Now;
-            _dataStore.Save();
+            if (_dataStore.Data.Settings.AutoSaveChats)
+                _dataStore.Save();
         }
     }
 
@@ -486,9 +491,18 @@ public partial class ChatViewModel : ObservableObject
 
     private List<AIFunction> BuildCustomTools()
     {
-        var tools = BuildMemoryTools();
+        var tools = new List<AIFunction>();
+        if (_dataStore.Data.Settings.EnableMemoryAutoSave)
+            tools.AddRange(BuildMemoryTools());
         tools.Add(BuildAnnounceFileTool());
         return tools;
+    }
+
+    partial void OnSelectedModelChanged(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+        _dataStore.Data.Settings.PreferredModel = value;
+        _dataStore.Save();
     }
 
     private AIFunction BuildAnnounceFileTool()

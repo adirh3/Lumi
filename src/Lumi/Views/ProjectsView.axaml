@@ -11,7 +11,7 @@
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto" Padding="36,24">
         <StackPanel Spacing="20">
-          <TextBlock Text="Project Editor" FontSize="15" FontWeight="SemiBold" />
+          <TextBlock Text="Project Editor" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold" />
 
           <StackPanel Spacing="4">
             <TextBlock Text="NAME" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
@@ -41,7 +41,7 @@
                        LetterSpacing="0.8" />
             <StackPanel IsVisible="{Binding !ProjectChats.Count}" Margin="0,4,0,0">
               <TextBlock Text="No chats in this project yet."
-                         FontSize="12" Foreground="{DynamicResource Brush.TextTertiary}" />
+                         FontSize="{DynamicResource Font.SizeCaption}" Foreground="{DynamicResource Brush.TextTertiary}" />
             </StackPanel>
             <ItemsControl ItemsSource="{Binding ProjectChats}">
               <ItemsControl.ItemTemplate>
@@ -53,11 +53,11 @@
                           Command="{Binding $parent[UserControl].DataContext.OpenChatCommand}"
                           CommandParameter="{Binding}">
                     <DockPanel>
-                      <TextBlock DockPanel.Dock="Right" FontSize="11"
+                      <TextBlock DockPanel.Dock="Right" FontSize="{DynamicResource Font.SizeCaption}"
                                  Foreground="{DynamicResource Brush.TextTertiary}"
                                  VerticalAlignment="Center"
                                  Text="{Binding UpdatedAt, StringFormat='{}{0:MMM d}'}" />
-                      <TextBlock Text="{Binding Title}" FontSize="13"
+                      <TextBlock Text="{Binding Title}" FontSize="{DynamicResource Font.SizeBody}"
                                  TextTrimming="CharacterEllipsis"
                                  VerticalAlignment="Center" />
                     </DockPanel>
@@ -73,7 +73,7 @@
       <StackPanel IsVisible="{Binding !IsEditing}"
                   HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" Opacity="0.4">
         <TextBlock Text="📁" FontSize="32" HorizontalAlignment="Center" />
-        <TextBlock Text="Select or create a project" FontSize="13"
+        <TextBlock Text="Select or create a project" FontSize="{DynamicResource Font.SizeBody}"
                    HorizontalAlignment="Center" />
       </StackPanel>
   </Panel>

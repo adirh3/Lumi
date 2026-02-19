@@ -107,7 +107,7 @@
           <Border DockPanel.Dock="Top" IsHitTestVisible="False"
                   Height="38" />
           <DockPanel DockPanel.Dock="Top" Margin="14,0,14,0">
-            <TextBlock Text="Lumi" FontSize="15" FontWeight="SemiBold"
+            <TextBlock Text="Lumi" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
                        VerticalAlignment="Center" Margin="4,0,0,0" />
           </DockPanel>
 
@@ -173,7 +173,7 @@
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
                 <TextBox Watermark="Search…" x:Name="ChatSearchBox"
                          Text="{Binding ChatSearchQuery, Mode=TwoWay}"
-                         Padding="6,5,8,5" FontSize="12">
+                         Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
                     <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
                               Foreground="{DynamicResource Brush.TextTertiary}"
@@ -199,7 +199,7 @@
                         <TextBlock Text="{Binding Label}" FontSize="{DynamicResource Font.SizeCaption}" FontWeight="SemiBold"
                                    Foreground="{DynamicResource Brush.TextTertiary}"
                                    Margin="10,10,0,4" />
-                        <ListBox Classes="sidebar-list"
+                        <ListBox Classes="sidebar-list chat-list"
                                  ItemsSource="{Binding Chats}"
                                  SelectionMode="Single"
                                  SelectedItem="{x:Null}">
@@ -272,13 +272,13 @@
                   <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
                             Foreground="{DynamicResource Brush.TextSecondary}" />
                 </Button>
-                <TextBlock Text="Projects" FontSize="13" FontWeight="SemiBold"
+                <TextBlock Text="Projects" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" />
               </DockPanel>
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
                 <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
-                         Padding="6,5,8,5" FontSize="12">
+                         Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
                     <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
                               Foreground="{DynamicResource Brush.TextTertiary}"
@@ -306,11 +306,11 @@
                       </Panel.ContextMenu>
                       <DockPanel>
                         <TextBlock x:Name="ProjectChatCount" DockPanel.Dock="Right"
-                                   FontSize="10" Foreground="{DynamicResource Brush.TextTertiary}"
+                                   FontSize="{DynamicResource Font.SizeCaption}" Foreground="{DynamicResource Brush.TextTertiary}"
                                    VerticalAlignment="Center" Margin="4,0,0,0" />
                         <StackPanel Spacing="1">
-                          <TextBlock Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis" />
-                          <TextBlock FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}"
+                          <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeBody}" TextTrimming="CharacterEllipsis" />
+                          <TextBlock FontSize="{DynamicResource Font.SizeCaption}" Foreground="{DynamicResource Brush.TextTertiary}"
                                      Text="{Binding CreatedAt, StringFormat='{}{0:MMM d, yyyy}'}" />
                         </StackPanel>
                       </DockPanel>
@@ -331,13 +331,13 @@
                   <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
                             Foreground="{DynamicResource Brush.TextSecondary}" />
                 </Button>
-                <TextBlock Text="Skills" FontSize="13" FontWeight="SemiBold"
+                <TextBlock Text="Skills" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" />
               </DockPanel>
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
                 <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
-                         Padding="6,5,8,5" FontSize="12">
+                         Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
                     <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
                               Foreground="{DynamicResource Brush.TextTertiary}"
@@ -364,8 +364,8 @@
                         </ContextMenu>
                       </Panel.ContextMenu>
                       <StackPanel Spacing="1">
-                        <TextBlock Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding Description}" FontSize="11"
+                        <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeBody}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Description}" FontSize="{DynamicResource Font.SizeCaption}"
                                    Foreground="{DynamicResource Brush.TextTertiary}"
                                    TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
                       </StackPanel>
@@ -386,13 +386,13 @@
                   <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
                             Foreground="{DynamicResource Brush.TextSecondary}" />
                 </Button>
-                <TextBlock Text="Lumis" FontSize="13" FontWeight="SemiBold"
+                <TextBlock Text="Lumis" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" />
               </DockPanel>
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
                 <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
-                         Padding="6,5,8,5" FontSize="12">
+                         Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
                     <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
                               Foreground="{DynamicResource Brush.TextTertiary}"
@@ -419,8 +419,8 @@
                         </ContextMenu>
                       </Panel.ContextMenu>
                       <StackPanel Spacing="1">
-                        <TextBlock Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding Description}" FontSize="11"
+                        <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeBody}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Description}" FontSize="{DynamicResource Font.SizeCaption}"
                                    Foreground="{DynamicResource Brush.TextTertiary}"
                                    TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
                       </StackPanel>
@@ -441,13 +441,13 @@
                   <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
                             Foreground="{DynamicResource Brush.TextSecondary}" />
                 </Button>
-                <TextBlock Text="Memories" FontSize="13" FontWeight="SemiBold"
+                <TextBlock Text="Memories" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" />
               </DockPanel>
               <Border DockPanel.Dock="Top" Margin="14,6,14,0">
                 <TextBox Watermark="Search…" Text="{Binding SearchQuery}"
-                         Padding="6,5,8,5" FontSize="12">
+                         Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
                     <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
                               Foreground="{DynamicResource Brush.TextTertiary}"
@@ -474,8 +474,8 @@
                         </ContextMenu>
                       </Panel.ContextMenu>
                       <StackPanel Spacing="1">
-                        <TextBlock Text="{Binding Key}" FontSize="13" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding Category}" FontSize="11"
+                        <TextBlock Text="{Binding Key}" FontSize="{DynamicResource Font.SizeBody}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Category}" FontSize="{DynamicResource Font.SizeCaption}"
                                    Foreground="{DynamicResource Brush.TextTertiary}"
                                    TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
                       </StackPanel>
@@ -486,11 +486,73 @@
             </DockPanel>
           </Panel>
 
-          <!-- ── 5: Settings sidebar (empty — just a label) ── -->
-          <Panel x:Name="SidebarSettings" IsVisible="False">
-            <TextBlock Text="Settings" FontSize="13" FontWeight="SemiBold"
-                       Foreground="{DynamicResource Brush.TextTertiary}"
-                       Margin="18,10,0,0" />
+          <!-- ── 5: Settings sidebar ── -->
+          <Panel x:Name="SidebarSettings" IsVisible="False" DataContext="{Binding SettingsVM}">
+            <DockPanel>
+              <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
+                <TextBlock Text="Settings" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Brush.TextSecondary}"
+                           VerticalAlignment="Center" />
+              </DockPanel>
+              <ListBox Classes="sidebar-list" Margin="8,8,8,8"
+                       SelectedIndex="{Binding SelectedPageIndex, Mode=TwoWay}"
+                       SelectionMode="Single">
+                <ListBoxItem Padding="12,8">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
+                      <PathIcon.Data>
+                        <StreamGeometry>M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-4 0-8 2-8 4v2h16v-2c0-2-4-4-8-4z</StreamGeometry>
+                      </PathIcon.Data>
+                    </PathIcon>
+                    <TextBlock Text="General" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
+                  </StackPanel>
+                </ListBoxItem>
+                <ListBoxItem Padding="12,8">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
+                      <PathIcon.Data>
+                        <StreamGeometry>M12 3a9 9 0 1 0 0 18c.7 0 1.4-.1 2-.2a1 1 0 0 0 .7-1.5 3 3 0 0 1 2.4-4.8H18a3 3 0 0 0 3-3A9 9 0 0 0 12 3zM7.5 12a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm2-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm2 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z</StreamGeometry>
+                      </PathIcon.Data>
+                    </PathIcon>
+                    <TextBlock Text="Appearance" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
+                  </StackPanel>
+                </ListBoxItem>
+                <ListBoxItem Padding="12,8">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <PathIcon Data="{StaticResource Icon.Chat}" Width="14" Height="14"
+                              Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <TextBlock Text="Chat" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
+                  </StackPanel>
+                </ListBoxItem>
+                <ListBoxItem Padding="12,8">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <PathIcon Data="{StaticResource Icon.Sparkle}" Width="14" Height="14"
+                              Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <TextBlock Text="AI &amp; Models" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
+                  </StackPanel>
+                </ListBoxItem>
+                <ListBoxItem Padding="12,8">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
+                      <PathIcon.Data>
+                        <StreamGeometry>M12 1L3 5v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4zm0 3.2L18 7v4c0 4.2-2.8 8-6 9.2C8.8 19 6 15.2 6 11V7l6-2.8z</StreamGeometry>
+                      </PathIcon.Data>
+                    </PathIcon>
+                    <TextBlock Text="Privacy &amp; Data" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
+                  </StackPanel>
+                </ListBoxItem>
+                <ListBoxItem Padding="12,8">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
+                      <PathIcon.Data>
+                        <StreamGeometry>M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 3a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm2 12h-4v-1h1v-5h-1v-1h3v6h1v1z</StreamGeometry>
+                      </PathIcon.Data>
+                    </PathIcon>
+                    <TextBlock Text="About" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
+                  </StackPanel>
+                </ListBoxItem>
+              </ListBox>
+            </DockPanel>
           </Panel>
 
           </Panel><!-- end sidebar content wrapper -->
@@ -555,10 +617,10 @@
       <Border HorizontalAlignment="Center" VerticalAlignment="Center"
               Classes="strata-dialog" Padding="24,20" MinWidth="320" MaxWidth="400">
         <StackPanel Spacing="14">
-          <TextBlock Text="Rename Chat" FontSize="14" FontWeight="SemiBold" />
+          <TextBlock Text="Rename Chat" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold" />
           <TextBox x:Name="RenameTextBox"
                    Text="{Binding RenamingTitle, Mode=TwoWay}"
-                   Watermark="Chat title" FontSize="13" />
+                   Watermark="Chat title" FontSize="{DynamicResource Font.SizeBody}" />
           <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
             <Button Classes="subtle" Content="Cancel" Padding="14,6" MinHeight="0"
                     Command="{Binding CancelRenameChatCommand}" />

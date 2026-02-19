@@ -5,36 +5,267 @@
              x:Class="Lumi.Views.SettingsView"
              x:CompileBindings="False">
 
-  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-    <StackPanel Spacing="20" Margin="36,24" MaxWidth="520">
+  <Panel>
 
-      <TextBlock Text="Settings" FontSize="15" FontWeight="SemiBold" />
+    <!-- ═══ Restart banner (shown when a restart-required setting changes) ═══ -->
+    <Border x:Name="RestartBanner"
+            IsVisible="{Binding NeedsRestart}"
+            Background="{DynamicResource Brush.WarningSubtle}"
+            CornerRadius="8" Padding="16,10" Margin="36,24,36,0"
+            MaxWidth="560" HorizontalAlignment="Left"
+            VerticalAlignment="Top" ZIndex="10">
+      <DockPanel>
+        <Button DockPanel.Dock="Right" Classes="accent" Content="Restart"
+                Padding="14,6" MinHeight="0" Margin="12,0,0,0"
+                Command="{Binding RestartAppCommand}" />
+        <TextBlock Text="Some changes require a restart to take effect."
+                   VerticalAlignment="Center" FontSize="{DynamicResource Font.SizeCaption}"
+                   Foreground="{DynamicResource Brush.TextPrimary}" />
+      </DockPanel>
+    </Border>
 
-      <sc:StrataSettingGroup Header="Profile">
-        <sc:StrataSetting Header="Your Name" Description="How Lumi addresses you">
-          <TextBox Text="{Binding UserName}" Watermark="Enter your name" Width="220" />
-        </sc:StrataSetting>
-        <sc:StrataSetting Header="Preferred Model" Description="Default language model">
-          <TextBox Text="{Binding PreferredModel}" Watermark="e.g. claude-sonnet-4" Width="220" />
-        </sc:StrataSetting>
-      </sc:StrataSettingGroup>
+    <!-- ═══ Page 0: General ═══ -->
+    <ScrollViewer x:Name="PageGeneral" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="20" Margin="36,24" MaxWidth="560">
+        <StackPanel Spacing="4">
+          <TextBlock Text="General" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
+          <TextBlock Text="Profile and startup preferences" FontSize="{DynamicResource Font.SizeCaption}"
+                     Foreground="{DynamicResource Brush.TextTertiary}" />
+        </StackPanel>
 
-      <Button Classes="accent" Content="Save" Padding="18,7" MinHeight="0"
-              Command="{Binding SaveCommand}" HorizontalAlignment="Left" />
+        <sc:StrataSettingGroup Header="Profile">
+          <sc:StrataSetting Header="Your Name" Description="How Lumi addresses you">
+            <TextBox Text="{Binding UserName}" Watermark="Enter your name" Width="220" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
 
-      <sc:StrataSettingGroup Header="Appearance">
-        <sc:StrataSetting Header="Dark Mode" Description="Switch between light and dark theme">
-          <ToggleSwitch IsChecked="{Binding $parent[Window].DataContext.IsDarkTheme}" />
-        </sc:StrataSetting>
-      </sc:StrataSettingGroup>
+        <sc:StrataSettingGroup Header="Startup">
+          <sc:StrataSetting Header="Launch at Startup" Description="Start Lumi when you log in to your computer"
+                            IsModified="{Binding IsLaunchAtStartupModified}">
+            <ToggleSwitch IsChecked="{Binding LaunchAtStartup}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="Start Minimized" Description="Launch minimized instead of showing the window"
+                            IsModified="{Binding IsStartMinimizedModified}">
+            <ToggleSwitch IsChecked="{Binding StartMinimized}" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
 
-      <sc:StrataSettingGroup Header="About">
-        <sc:StrataSetting Header="Lumi"
-                          Description="Your personal agentic assistant powered by GitHub Copilot. Built with Avalonia and Strata UI.">
-          <TextBlock Text="v0.1.0" FontSize="12" Foreground="{DynamicResource Brush.TextTertiary}" />
-        </sc:StrataSetting>
-      </sc:StrataSettingGroup>
+        <sc:StrataSettingGroup Header="Notifications">
+          <sc:StrataSetting Header="Enable Notifications" Description="Show desktop notifications for completed tasks"
+                            IsModified="{Binding IsNotificationsEnabledModified}">
+            <ToggleSwitch IsChecked="{Binding NotificationsEnabled}" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+      </StackPanel>
+    </ScrollViewer>
 
-    </StackPanel>
-  </ScrollViewer>
+    <!-- ═══ Page 1: Appearance ═══ -->
+    <ScrollViewer x:Name="PageAppearance" IsVisible="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="20" Margin="36,24" MaxWidth="560">
+        <StackPanel Spacing="4">
+          <TextBlock Text="Appearance" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
+          <TextBlock Text="Customize how Lumi looks and feels" FontSize="{DynamicResource Font.SizeCaption}"
+                     Foreground="{DynamicResource Brush.TextTertiary}" />
+        </StackPanel>
+
+        <sc:StrataSettingGroup Header="Theme">
+          <sc:StrataSetting Header="Dark Mode" Description="Switch between light and dark theme"
+                            IsModified="{Binding IsDarkThemeModified}">
+            <ToggleSwitch IsChecked="{Binding IsDarkTheme}" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+
+        <sc:StrataSettingGroup Header="Layout">
+          <sc:StrataSetting Header="Compact Density" Description="Reduce spacing between elements for a denser layout"
+                            IsModified="{Binding IsCompactDensityModified}">
+            <ToggleSwitch IsChecked="{Binding IsCompactDensity}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="Font Size" Description="Base font size for the interface"
+                            IsModified="{Binding IsFontSizeModified}">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <Slider Minimum="11" Maximum="18" Value="{Binding FontSize}"
+                      TickFrequency="1" IsSnapToTickEnabled="True" Width="140" />
+              <TextBlock Text="{Binding FontSize, StringFormat='{}{0}px'}"
+                         VerticalAlignment="Center" FontSize="{DynamicResource Font.SizeCaption}"
+                         Foreground="{DynamicResource Brush.TextSecondary}" MinWidth="32" />
+            </StackPanel>
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+
+        <sc:StrataSettingGroup Header="Motion">
+          <sc:StrataSetting Header="Show Animations" Description="Enable smooth transitions and animations (requires restart)"
+                            IsModified="{Binding IsShowAnimationsModified}">
+            <ToggleSwitch IsChecked="{Binding ShowAnimations}" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- ═══ Page 2: Chat ═══ -->
+    <ScrollViewer x:Name="PageChat" IsVisible="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="20" Margin="36,24" MaxWidth="560">
+        <StackPanel Spacing="4">
+          <TextBlock Text="Chat" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
+          <TextBlock Text="Configure chat behavior and display" FontSize="{DynamicResource Font.SizeCaption}"
+                     Foreground="{DynamicResource Brush.TextTertiary}" />
+        </StackPanel>
+
+        <sc:StrataSettingGroup Header="Input">
+          <sc:StrataSetting Header="Send with Enter" Description="Press Enter to send messages. When off, use Ctrl+Enter instead"
+                            IsModified="{Binding IsSendWithEnterModified}">
+            <ToggleSwitch IsChecked="{Binding SendWithEnter}" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+
+        <sc:StrataSettingGroup Header="Display">
+          <sc:StrataSetting Header="Show Timestamps" Description="Display time next to each message"
+                            IsModified="{Binding IsShowTimestampsModified}">
+            <ToggleSwitch IsChecked="{Binding ShowTimestamps}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="Show Tool Calls" Description="Display tool call details in the conversation"
+                            IsModified="{Binding IsShowToolCallsModified}">
+            <ToggleSwitch IsChecked="{Binding ShowToolCalls}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="Show Reasoning" Description="Display the AI's thinking process when available"
+                            IsModified="{Binding IsShowReasoningModified}">
+            <ToggleSwitch IsChecked="{Binding ShowReasoning}" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+
+        <sc:StrataSettingGroup Header="Behavior">
+          <sc:StrataSetting Header="Auto-Generate Titles" Description="Let the AI automatically name new conversations"
+                            IsModified="{Binding IsAutoGenerateTitlesModified}">
+            <ToggleSwitch IsChecked="{Binding AutoGenerateTitles}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="Max Context Messages" Description="Maximum messages kept per conversation"
+                            IsModified="{Binding IsMaxContextMessagesModified}">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <Slider Minimum="10" Maximum="100" Value="{Binding MaxContextMessages}"
+                      TickFrequency="10" IsSnapToTickEnabled="True" Width="140" />
+              <TextBlock Text="{Binding MaxContextMessages}"
+                         VerticalAlignment="Center" FontSize="{DynamicResource Font.SizeCaption}"
+                         Foreground="{DynamicResource Brush.TextSecondary}" MinWidth="24" />
+            </StackPanel>
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- ═══ Page 3: AI & Models ═══ -->
+    <ScrollViewer x:Name="PageAI" IsVisible="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="20" Margin="36,24" MaxWidth="560">
+        <StackPanel Spacing="4">
+          <TextBlock Text="AI &amp; Models" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
+          <TextBlock Text="Configure AI model and behavior" FontSize="{DynamicResource Font.SizeCaption}"
+                     Foreground="{DynamicResource Brush.TextTertiary}" />
+        </StackPanel>
+
+        <sc:StrataSettingGroup Header="Model">
+          <sc:StrataSetting Header="Preferred Model" Description="Default model used for new conversations"
+                            IsModified="{Binding IsPreferredModelModified}">
+            <TextBox Text="{Binding PreferredModel}" Watermark="e.g. claude-sonnet-4" Width="220" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- ═══ Page 4: Privacy & Data ═══ -->
+    <ScrollViewer x:Name="PagePrivacy" IsVisible="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="20" Margin="36,24" MaxWidth="560">
+        <StackPanel Spacing="4">
+          <TextBlock Text="Privacy &amp; Data" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
+          <TextBlock Text="Manage your data and privacy preferences" FontSize="{DynamicResource Font.SizeCaption}"
+                     Foreground="{DynamicResource Brush.TextTertiary}" />
+        </StackPanel>
+
+        <sc:StrataSettingGroup Header="Memory">
+          <sc:StrataSetting Header="Auto-Save Memories" Description="Allow Lumi to automatically remember important information from conversations"
+                            IsModified="{Binding IsEnableMemoryAutoSaveModified}">
+            <ToggleSwitch IsChecked="{Binding EnableMemoryAutoSave}" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+
+        <sc:StrataSettingGroup Header="Chat History">
+          <sc:StrataSetting Header="Auto-Save Chats" Description="Automatically save conversations to disk"
+                            IsModified="{Binding IsAutoSaveChatsModified}">
+            <ToggleSwitch IsChecked="{Binding AutoSaveChats}" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+
+        <sc:StrataSettingGroup Header="Data Management">
+          <sc:StrataSetting Header="Clear All Chats" Description="Permanently delete all chat history">
+            <Button Classes="subtle" Content="Clear Chats" Padding="14,6" MinHeight="0"
+                    Foreground="{DynamicResource Brush.DangerDefault}"
+                    Command="{Binding ClearAllChatsCommand}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="Clear All Memories" Description="Remove everything Lumi remembers about you">
+            <Button Classes="subtle" Content="Clear Memories" Padding="14,6" MinHeight="0"
+                    Foreground="{DynamicResource Brush.DangerDefault}"
+                    Command="{Binding ClearAllMemoriesCommand}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="Reset All Settings" Description="Restore all settings to their default values">
+            <Button Classes="subtle" Content="Reset Defaults" Padding="14,6" MinHeight="0"
+                    Command="{Binding ResetSettingsCommand}" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- ═══ Page 5: About ═══ -->
+    <ScrollViewer x:Name="PageAbout" IsVisible="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="20" Margin="36,24" MaxWidth="560">
+        <StackPanel Spacing="4">
+          <TextBlock Text="About" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
+          <TextBlock Text="Information about Lumi" FontSize="{DynamicResource Font.SizeCaption}"
+                     Foreground="{DynamicResource Brush.TextTertiary}" />
+        </StackPanel>
+
+        <sc:StrataSettingGroup Header="Lumi">
+          <sc:StrataSetting Header="Version" Description="Your personal agentic assistant">
+            <TextBlock Text="{Binding AppVersion, StringFormat='v{0}'}" FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextTertiary}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header=".NET Runtime">
+            <TextBlock Text="{Binding DotNetVersion}" FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextTertiary}" TextTrimming="CharacterEllipsis" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="Operating System">
+            <TextBlock Text="{Binding OsVersion}" FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextTertiary}" TextTrimming="CharacterEllipsis" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+
+        <sc:StrataSettingGroup Header="Statistics">
+          <sc:StrataSetting Header="Total Chats">
+            <TextBlock Text="{Binding TotalChats}" FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextTertiary}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="Total Memories">
+            <TextBlock Text="{Binding TotalMemories}" FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextTertiary}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="Skills">
+            <TextBlock Text="{Binding TotalSkills}" FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextTertiary}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="Agents">
+            <TextBlock Text="{Binding TotalAgents}" FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextTertiary}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="Projects">
+            <TextBlock Text="{Binding TotalProjects}" FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextTertiary}" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+
+        <sc:StrataSettingGroup Header="Credits">
+          <sc:StrataSetting Header="Built With"
+                            Description="Avalonia UI, Strata Design System, GitHub Copilot SDK, CommunityToolkit.Mvvm">
+            <TextBlock Text="❤️" FontSize="16" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+      </StackPanel>
+    </ScrollViewer>
+
+  </Panel>
 </UserControl>

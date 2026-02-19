@@ -1,3 +1,5 @@
+using System;
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -28,7 +30,19 @@ public partial class App : Application
                 ? ThemeVariant.Dark
                 : ThemeVariant.Light;
 
-            desktop.MainWindow = new MainWindow { DataContext = vm };
+            // Apply saved density
+            MainWindow.ApplyDensityStatic(dataStore.Data.Settings.IsCompactDensity);
+
+            // Sync launch-at-startup registry
+            MainWindow.ApplyLaunchAtStartup(dataStore.Data.Settings.LaunchAtStartup);
+
+            var window = new MainWindow { DataContext = vm };
+
+            // Apply StartMinimized
+            if (dataStore.Data.Settings.StartMinimized)
+                window.WindowState = Avalonia.Controls.WindowState.Minimized;
+
+            desktop.MainWindow = window;
         }
 
         base.OnFrameworkInitializationCompleted();
