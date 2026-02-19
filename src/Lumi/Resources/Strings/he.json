@@ -4,6 +4,12 @@
   "Onboarding_Hello": "!שלום! אני לומי",
   "Onboarding_Subtitle": "העוזר האישי שלך. איך לקרוא לך?",
   "Onboarding_NameWatermark": "השם שלך",
+  "Onboarding_Sex": "אני\u2026",
+  "Onboarding_SexMale": "זכר",
+  "Onboarding_SexFemale": "נקבה",
+  "Onboarding_SexPreferNot": "מעדיף לא לציין",
+  "Onboarding_Language": "לומי מדבר\u2026",
+  "Onboarding_DarkMode": "מצב כהה",
   "Onboarding_LetsGo": "!בואו נתחיל",
 
   "Nav_Chats": "צ׳אטים",

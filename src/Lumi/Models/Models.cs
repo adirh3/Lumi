@@ -79,6 +79,7 @@ public class UserSettings
 {
     // ── General ──
     public string? UserName { get; set; }
+    public string? UserSex { get; set; } // "male", "female", or null (prefer not to say)
     public bool IsOnboarded { get; set; }
     public bool DefaultsSeeded { get; set; }
     public string Language { get; set; } = "en";

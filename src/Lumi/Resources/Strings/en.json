@@ -4,6 +4,12 @@
   "Onboarding_Hello": "Hello! I'm Lumi",
   "Onboarding_Subtitle": "Your personal assistant. What should I call you?",
   "Onboarding_NameWatermark": "Your name",
+  "Onboarding_Sex": "I am\u2026",
+  "Onboarding_SexMale": "Male",
+  "Onboarding_SexFemale": "Female",
+  "Onboarding_SexPreferNot": "Prefer not to say",
+  "Onboarding_Language": "Lumi speaks\u2026",
+  "Onboarding_DarkMode": "Dark mode",
   "Onboarding_LetsGo": "Let's go!",
 
   "Nav_Chats": "Chats",

@@ -30,6 +30,8 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _userName = "";
     [ObservableProperty] private bool _isOnboarded;
     [ObservableProperty] private string _onboardingName = "";
+    [ObservableProperty] private int _onboardingSexIndex; // 0=Male, 1=Female, 2=Prefer not to say
+    [ObservableProperty] private int _onboardingLanguageIndex; // index into Loc.AvailableLanguages
     [ObservableProperty] private Guid? _selectedProjectFilter;
     [ObservableProperty] private string _chatSearchQuery = "";
     [ObservableProperty] private Guid? _activeChatId;
@@ -309,12 +311,34 @@ public partial class MainViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(OnboardingName)) return;
 
-        _dataStore.Data.Settings.UserName = OnboardingName.Trim();
-        _dataStore.Data.Settings.IsOnboarded = true;
+        var settings = _dataStore.Data.Settings;
+        settings.UserName = OnboardingName.Trim();
+        settings.UserSex = OnboardingSexIndex switch
+        {
+            0 => "male",
+            1 => "female",
+            _ => null
+        };
+
+        // Apply selected language
+        var selectedLang = "en";
+        if (OnboardingLanguageIndex >= 0 && OnboardingLanguageIndex < Loc.AvailableLanguages.Length)
+        {
+            selectedLang = Loc.AvailableLanguages[OnboardingLanguageIndex].Code;
+            settings.Language = selectedLang;
+        }
+
+        settings.IsOnboarded = true;
         _dataStore.Save();
 
         UserName = OnboardingName.Trim();
         IsOnboarded = true;
+
+        // If a non-default language was selected, restart so the UI loads in that language
+        if (selectedLang != "en")
+        {
+            SettingsVM.RestartAppCommand.Execute(null);
+        }
     }
 
     partial void OnChatSearchQueryChanged(string value) => RefreshChatList();

@@ -27,6 +27,8 @@ public partial class MainWindow : Window
     private Panel? _renameOverlay;
     private TextBox? _renameTextBox;
     private StackPanel? _projectFilterBar;
+    private ComboBox? _onboardingSexCombo;
+    private ComboBox? _onboardingLanguageCombo;
     private bool _suppressSelectionSync;
 
     public MainWindow()
@@ -82,6 +84,30 @@ public partial class MainWindow : Window
         _renameOverlay = this.FindControl<Panel>("RenameOverlay");
         _renameTextBox = this.FindControl<TextBox>("RenameTextBox");
         _projectFilterBar = this.FindControl<StackPanel>("ProjectFilterBar");
+
+        _onboardingSexCombo = this.FindControl<ComboBox>("OnboardingSexCombo");
+        _onboardingLanguageCombo = this.FindControl<ComboBox>("OnboardingLanguageCombo");
+
+        // Populate onboarding ComboBoxes
+        if (_onboardingSexCombo is not null)
+        {
+            _onboardingSexCombo.ItemsSource = new[]
+            {
+                Loc.Onboarding_SexMale,
+                Loc.Onboarding_SexFemale,
+                Loc.Onboarding_SexPreferNot,
+            };
+            _onboardingSexCombo.PlaceholderText = Loc.Onboarding_Sex;
+            _onboardingSexCombo.SelectedIndex = 0;
+        }
+
+        if (_onboardingLanguageCombo is not null)
+        {
+            _onboardingLanguageCombo.ItemsSource =
+                Loc.AvailableLanguages.Select(l => $"{l.DisplayName} ({l.Code})").ToArray();
+            _onboardingLanguageCombo.PlaceholderText = Loc.Onboarding_Language;
+            _onboardingLanguageCombo.SelectedIndex = 0;
+        }
     }
 
     protected override void OnDataContextChanged(EventArgs e)

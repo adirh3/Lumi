@@ -258,6 +258,7 @@ public partial class SettingsViewModel : ObservableObject
         var defaults = new Models.UserSettings
         {
             UserName = _dataStore.Data.Settings.UserName,
+            UserSex = _dataStore.Data.Settings.UserSex,
             IsOnboarded = _dataStore.Data.Settings.IsOnboarded,
             DefaultsSeeded = _dataStore.Data.Settings.DefaultsSeeded
         };

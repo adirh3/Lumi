@@ -73,26 +73,61 @@
     <Panel x:Name="OnboardingPanel" IsVisible="True">
       <Border Background="{DynamicResource Brush.Background}" Opacity="0.5" />
       <Border HorizontalAlignment="Center" VerticalAlignment="Center"
-              Classes="strata-card" Padding="48,40" MaxWidth="480">
-        <StackPanel Spacing="24" HorizontalAlignment="Center">
-          <Border Width="72" Height="72" CornerRadius="36"
-                  Background="{DynamicResource Brush.AccentGradient}"
-                  HorizontalAlignment="Center">
-            <TextBlock Text="{loc:Str Chat_AvatarLetter}" FontSize="32" FontWeight="Bold"
-                       Foreground="{DynamicResource Brush.TextOnAccent}"
-                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-          </Border>
-          <StackPanel Spacing="6" HorizontalAlignment="Center">
-            <TextBlock Classes="headline" Text="{loc:Str Onboarding_Hello}" HorizontalAlignment="Center" />
+              Classes="strata-card" Padding="52,44" MaxWidth="420" MinWidth="360">
+        <StackPanel Spacing="28" HorizontalAlignment="Stretch">
+
+          <!-- ── Branding ── -->
+          <StackPanel Spacing="10" HorizontalAlignment="Center">
+            <Border Width="64" Height="64" CornerRadius="32"
+                    Background="{DynamicResource Brush.AccentGradient}"
+                    HorizontalAlignment="Center">
+              <Image Source="/Assets/lumi-icon.png" Width="40" Height="40"
+                     RenderOptions.BitmapInterpolationMode="HighQuality"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <TextBlock Classes="headline" Text="{loc:Str Onboarding_Hello}"
+                       HorizontalAlignment="Center" Margin="0,4,0,0" />
             <TextBlock Classes="secondary" Text="{loc:Str Onboarding_Subtitle}"
-                       HorizontalAlignment="Center" TextAlignment="Center" />
+                       HorizontalAlignment="Center" TextAlignment="Center"
+                       TextWrapping="Wrap" MaxWidth="300" />
           </StackPanel>
-          <StackPanel Spacing="12">
-            <TextBox Watermark="{loc:Str Onboarding_NameWatermark}" Text="{Binding OnboardingName}" HorizontalAlignment="Stretch" />
-            <Button Classes="accent" Content="{loc:Str Onboarding_LetsGo}"
-                    Command="{Binding CompleteOnboardingCommand}"
-                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+
+          <!-- ── Form ── -->
+          <StackPanel Spacing="10">
+            <TextBox Watermark="{loc:Str Onboarding_NameWatermark}"
+                     Text="{Binding OnboardingName}" HorizontalAlignment="Stretch" />
+
+            <!-- Sex + Language side by side -->
+            <Grid ColumnDefinitions="*,8,*">
+              <ComboBox x:Name="OnboardingSexCombo" Grid.Column="0"
+                        HorizontalAlignment="Stretch"
+                        SelectedIndex="{Binding OnboardingSexIndex}" />
+              <ComboBox x:Name="OnboardingLanguageCombo" Grid.Column="2"
+                        HorizontalAlignment="Stretch"
+                        SelectedIndex="{Binding OnboardingLanguageIndex}" />
+            </Grid>
+
+            <!-- Dark mode toggle -->
+            <Border CornerRadius="{DynamicResource Radius.Base}"
+                    Background="{DynamicResource Brush.SurfaceSubtle}"
+                    Padding="14,8">
+              <DockPanel>
+                <ToggleSwitch DockPanel.Dock="Right" IsChecked="{Binding IsDarkTheme}"
+                              VerticalAlignment="Center" Margin="12,0,0,0"
+                              OnContent="" OffContent="" />
+                <StackPanel VerticalAlignment="Center">
+                  <TextBlock Text="{loc:Str Onboarding_DarkMode}"
+                             FontWeight="Medium" />
+                </StackPanel>
+              </DockPanel>
+            </Border>
           </StackPanel>
+
+          <!-- ── Go button ── -->
+          <Button Classes="accent" Content="{loc:Str Onboarding_LetsGo}"
+                  Command="{Binding CompleteOnboardingCommand}"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                  Padding="12,10" FontWeight="SemiBold" />
         </StackPanel>
       </Border>
     </Panel>

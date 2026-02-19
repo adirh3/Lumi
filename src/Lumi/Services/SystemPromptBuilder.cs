@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using Lumi.Localization;
 using Lumi.Models;
 
 namespace Lumi.Services;
@@ -18,10 +19,27 @@ public static class SystemPromptBuilder
         var os = RuntimeInformation.OSDescription;
         var machine = Environment.MachineName;
 
+        // Pronouns from user sex
+        var pronounLine = settings.UserSex switch
+        {
+            "male" => "The user is male. Use he/him pronouns when referring to them in third person.",
+            "female" => "The user is female. Use she/her pronouns when referring to them in third person.",
+            _ => "Use they/them pronouns when referring to the user in third person."
+        };
+
+        // Language preference
+        var langName = Loc.AvailableLanguages
+            .Where(l => l.Code == settings.Language)
+            .Select(l => l.DisplayName)
+            .FirstOrDefault() ?? "English";
+        var langLine = $"The app interface language is set to {langName} ({settings.Language}). The user may prefer communicating in this language — respond in the same language the user writes in.";
+
         var prompt = $"""
             You are Lumi, a personal PC assistant that runs directly on the user's computer.
             You have full access to their system through PowerShell, file operations, web search, and browser automation.
             The user's name is {userName}. Address them warmly and naturally.
+            {pronounLine}
+            {langLine}
             It is currently {now:dddd, MMMM d, yyyy} at {now:h:mm tt} ({timeOfDay}).
 
             ## Your PC Environment
