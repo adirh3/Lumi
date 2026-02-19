@@ -19,6 +19,10 @@ public partial class ProjectsViewModel : ObservableObject
     [ObservableProperty] private string _searchQuery = "";
 
     public ObservableCollection<Project> Projects { get; } = [];
+    public ObservableCollection<Chat> ProjectChats { get; } = [];
+
+    /// <summary>Fired when a chat is clicked in the project detail view. MainViewModel navigates to it.</summary>
+    public event Action<Chat>? ChatOpenRequested;
 
     public ProjectsViewModel(DataStore dataStore)
     {
@@ -55,10 +59,38 @@ public partial class ProjectsViewModel : ObservableObject
 
     partial void OnSelectedProjectChanged(Project? value)
     {
-        if (value is null) return;
+        if (value is null)
+        {
+            ProjectChats.Clear();
+            return;
+        }
         EditName = value.Name;
         EditInstructions = value.Instructions;
         IsEditing = true;
+        RefreshProjectChats(value.Id);
+    }
+
+    private void RefreshProjectChats(Guid projectId)
+    {
+        ProjectChats.Clear();
+        foreach (var chat in _dataStore.Data.Chats
+            .Where(c => c.ProjectId == projectId)
+            .OrderByDescending(c => c.UpdatedAt))
+        {
+            ProjectChats.Add(chat);
+        }
+    }
+
+    [RelayCommand]
+    private void OpenChat(Chat chat)
+    {
+        ChatOpenRequested?.Invoke(chat);
+    }
+
+    /// <summary>Returns the number of chats in a project.</summary>
+    public int GetChatCount(Guid projectId)
+    {
+        return _dataStore.Data.Chats.Count(c => c.ProjectId == projectId);
     }
 
     [RelayCommand]
@@ -84,7 +116,11 @@ public partial class ProjectsViewModel : ObservableObject
         _dataStore.Save();
         IsEditing = false;
         RefreshList();
+        ProjectsChanged?.Invoke();
     }
+
+    /// <summary>Fired when the project list changes (add/edit/delete).</summary>
+    public event Action? ProjectsChanged;
 
     [RelayCommand]
     private void CancelEdit()
@@ -95,6 +131,10 @@ public partial class ProjectsViewModel : ObservableObject
     [RelayCommand]
     private void DeleteProject(Project project)
     {
+        // Unassign all chats from this project
+        foreach (var chat in _dataStore.Data.Chats.Where(c => c.ProjectId == project.Id))
+            chat.ProjectId = null;
+
         _dataStore.Data.Projects.Remove(project);
         _dataStore.Save();
         if (SelectedProject == project)
@@ -103,6 +143,7 @@ public partial class ProjectsViewModel : ObservableObject
             IsEditing = false;
         }
         RefreshList();
+        ProjectsChanged?.Invoke();
     }
 
     partial void OnSearchQueryChanged(string value) => RefreshList();

@@ -264,6 +264,7 @@ public partial class ChatViewModel : ObservableObject
         _shownFileChips.Clear();
         ActiveSkillIds.Clear();
         ActiveSkillChips.Clear();
+        _pendingProjectId = null;
         StatusText = "";
     }
 
@@ -292,8 +293,10 @@ public partial class ChatViewModel : ObservableObject
             {
                 Title = prompt.Length > 40 ? prompt[..40].Trim() + "…" : prompt,
                 AgentId = ActiveAgent?.Id,
+                ProjectId = _pendingProjectId,
                 ActiveSkillIds = new List<Guid>(ActiveSkillIds)
             };
+            _pendingProjectId = null;
             _dataStore.Data.Chats.Add(chat);
             CurrentChat = chat;
             SaveChat();
@@ -402,6 +405,23 @@ public partial class ChatViewModel : ObservableObject
         }
         AgentChanged?.Invoke();
     }
+
+    /// <summary>Assigns a project to the current (or next) chat. Called when a project filter is active.</summary>
+    public void SetProjectId(Guid projectId)
+    {
+        if (CurrentChat is not null)
+        {
+            CurrentChat.ProjectId = projectId;
+            SaveChat();
+        }
+        else
+        {
+            // Will be applied when the chat is created in SendMessage
+            _pendingProjectId = projectId;
+        }
+    }
+
+    private Guid? _pendingProjectId;
 
     public void AddSkill(Skill skill)
     {

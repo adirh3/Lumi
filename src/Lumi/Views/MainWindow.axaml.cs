@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -22,6 +23,7 @@ public partial class MainWindow : Window
     private Button?[] _navButtons = [];
     private Panel? _renameOverlay;
     private TextBox? _renameTextBox;
+    private StackPanel? _projectFilterBar;
     private bool _suppressSelectionSync;
 
     public MainWindow()
@@ -76,6 +78,7 @@ public partial class MainWindow : Window
 
         _renameOverlay = this.FindControl<Panel>("RenameOverlay");
         _renameTextBox = this.FindControl<TextBox>("RenameTextBox");
+        _projectFilterBar = this.FindControl<StackPanel>("ProjectFilterBar");
     }
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -93,7 +96,11 @@ public partial class MainWindow : Window
             {
                 AttachListBoxHandlers();
                 SyncListBoxSelection(vm.ActiveChatId);
+                RebuildProjectFilterBar(vm);
             }, DispatcherPriority.Loaded);
+
+            // Wire ProjectsVM chat open to navigate to chat tab
+            vm.ProjectsVM.ChatOpenRequested += chat => vm.OpenChatFromProjectCommand.Execute(chat);
 
             vm.PropertyChanged += (_, args) =>
             {
@@ -138,15 +145,27 @@ public partial class MainWindow : Window
                         }, DispatcherPriority.Input);
                     }
                 }
+                else if (args.PropertyName == nameof(MainViewModel.SelectedProjectFilter))
+                {
+                    RebuildProjectFilterBar(vm);
+                }
             };
 
-            // When chat groups are rebuilt, re-attach ListBox handlers and sync selection
+            // When project list changes, rebuild filter bar
+            vm.Projects.CollectionChanged += (_, _) =>
+            {
+                Dispatcher.UIThread.Post(() => RebuildProjectFilterBar(vm), DispatcherPriority.Loaded);
+            };
+
+            // When chat groups are rebuilt, re-attach ListBox handlers, sync selection, and set project labels
             vm.ChatGroups.CollectionChanged += (_, _) =>
             {
                 Dispatcher.UIThread.Post(() =>
                 {
                     AttachListBoxHandlers();
                     SyncListBoxSelection(vm.ActiveChatId);
+                    ApplyProjectLabelsToChats(vm);
+                    ApplyMoveToProjectMenus(vm);
                 }, DispatcherPriority.Loaded);
             };
         }
@@ -171,6 +190,12 @@ public partial class MainWindow : Window
         {
             if (_sidebarPanels[i] is not null)
                 _sidebarPanels[i]!.IsVisible = i == index;
+        }
+
+        // When projects tab is shown, update chat counts
+        if (index == 1 && DataContext is MainViewModel vm)
+        {
+            Dispatcher.UIThread.Post(() => ApplyProjectChatCounts(vm), DispatcherPriority.Loaded);
         }
     }
 
@@ -289,6 +314,125 @@ public partial class MainWindow : Window
         finally
         {
             _suppressSelectionSync = false;
+        }
+    }
+
+    private void RebuildProjectFilterBar(MainViewModel vm)
+    {
+        if (_projectFilterBar is null) return;
+        _projectFilterBar.Children.Clear();
+
+        var isAll = !vm.SelectedProjectFilter.HasValue;
+
+        // "All" pill
+        var allBtn = new Button
+        {
+            Content = "All",
+            Padding = new Thickness(10, 4),
+            MinHeight = 0,
+            MinWidth = 0,
+            FontSize = 11,
+            CornerRadius = new CornerRadius(12),
+            BorderThickness = new Thickness(0),
+            Focusable = false
+        };
+        allBtn.Classes.Add(isAll ? "accent" : "subtle");
+        allBtn.Click += (_, _) => vm.ClearProjectFilterCommand.Execute(null);
+        _projectFilterBar.Children.Add(allBtn);
+
+        // One pill per project
+        foreach (var project in vm.Projects)
+        {
+            var isActive = vm.SelectedProjectFilter == project.Id;
+            var btn = new Button
+            {
+                Content = project.Name,
+                Padding = new Thickness(10, 4),
+                MinHeight = 0,
+                MinWidth = 0,
+                FontSize = 11,
+                CornerRadius = new CornerRadius(12),
+                BorderThickness = new Thickness(0),
+                Focusable = false
+            };
+            btn.Classes.Add(isActive ? "accent" : "subtle");
+            var p = project; // capture
+            btn.Click += (_, _) => vm.SelectProjectFilterCommand.Execute(p);
+            _projectFilterBar.Children.Add(btn);
+        }
+    }
+
+    /// <summary>Sets the ProjectLabel TextBlock on each chat ListBoxItem to show the project name.</summary>
+    private void ApplyProjectLabelsToChats(MainViewModel vm)
+    {
+        // Only show project labels when NOT filtering by a specific project
+        var showLabels = !vm.SelectedProjectFilter.HasValue;
+
+        foreach (var lb in this.GetVisualDescendants().OfType<ListBox>())
+        {
+            if (!lb.Classes.Contains("sidebar-list")) continue;
+
+            foreach (var item in lb.GetVisualDescendants().OfType<ListBoxItem>())
+            {
+                if (item.DataContext is not Chat chat) continue;
+                var label = item.GetVisualDescendants().OfType<TextBlock>()
+                    .FirstOrDefault(t => t.Name == "ProjectLabel");
+                if (label is null) continue;
+
+                if (showLabels && chat.ProjectId.HasValue)
+                {
+                    var name = vm.GetProjectName(chat.ProjectId);
+                    label.Text = name ?? "";
+                    label.IsVisible = name is not null;
+                }
+                else
+                {
+                    label.IsVisible = false;
+                }
+            }
+        }
+    }
+
+    /// <summary>Populates the "Move to Project" context menu items for each chat.</summary>
+    private void ApplyMoveToProjectMenus(MainViewModel vm)
+    {
+        foreach (var menuItem in this.GetVisualDescendants().OfType<MenuItem>())
+        {
+            if (menuItem.Header is not string header || header != "Move to Project") continue;
+
+            menuItem.Items.Clear();
+            foreach (var project in vm.Projects)
+            {
+                var p = project; // capture
+                var mi = new MenuItem { Header = project.Name };
+                mi.Click += (_, _) =>
+                {
+                    // Find the chat from the context menu's DataContext
+                    var chat = (menuItem.Parent as ContextMenu)?.DataContext as Chat
+                        ?? menuItem.DataContext as Chat;
+                    if (chat is not null)
+                        vm.AssignChatToProjectCommand.Execute(new object[] { chat, p });
+                };
+                menuItem.Items.Add(mi);
+            }
+        }
+    }
+
+    /// <summary>Sets the chat count TextBlock for each project in the sidebar.</summary>
+    private void ApplyProjectChatCounts(MainViewModel vm)
+    {
+        var sidebarProjects = _sidebarPanels.Length > 1 ? _sidebarPanels[1] : null;
+        if (sidebarProjects is null) return;
+
+        foreach (var item in sidebarProjects.GetVisualDescendants().OfType<ListBoxItem>())
+        {
+            if (item.DataContext is not Project project) continue;
+            var countLabel = item.GetVisualDescendants().OfType<TextBlock>()
+                .FirstOrDefault(t => t.Name == "ProjectChatCount");
+            if (countLabel is null) continue;
+
+            var count = vm.ProjectsVM.GetChatCount(project.Id);
+            countLabel.Text = count > 0 ? $"{count} chat{(count == 1 ? "" : "s")}" : "";
         }
     }
 }

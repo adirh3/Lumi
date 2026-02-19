@@ -23,7 +23,7 @@
             <TextBlock Text="INSTRUCTIONS" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                        LetterSpacing="0.8" />
             <TextBox Text="{Binding EditInstructions}" AcceptsReturn="True" TextWrapping="Wrap"
-                     MinHeight="260"
+                     MinHeight="200"
                      Watermark="Special instructions for chats in this project…" />
           </StackPanel>
 
@@ -32,6 +32,39 @@
                     Command="{Binding SaveProjectCommand}" />
             <Button Classes="subtle" Content="Cancel" Padding="18,7" MinHeight="0"
                     Command="{Binding CancelEditCommand}" />
+          </StackPanel>
+
+          <!-- ── Chats in this project ── -->
+          <StackPanel Spacing="8" IsVisible="{Binding SelectedProject, Converter={x:Static ObjectConverters.IsNotNull}}"
+                      Margin="0,12,0,0">
+            <TextBlock Text="CHATS" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+                       LetterSpacing="0.8" />
+            <StackPanel IsVisible="{Binding !ProjectChats.Count}" Margin="0,4,0,0">
+              <TextBlock Text="No chats in this project yet."
+                         FontSize="12" Foreground="{DynamicResource Brush.TextTertiary}" />
+            </StackPanel>
+            <ItemsControl ItemsSource="{Binding ProjectChats}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Button Classes="subtle" HorizontalAlignment="Stretch"
+                          HorizontalContentAlignment="Left"
+                          Padding="12,8" MinHeight="0" Margin="0,1"
+                          CornerRadius="{DynamicResource Radius.Base}"
+                          Command="{Binding $parent[UserControl].DataContext.OpenChatCommand}"
+                          CommandParameter="{Binding}">
+                    <DockPanel>
+                      <TextBlock DockPanel.Dock="Right" FontSize="11"
+                                 Foreground="{DynamicResource Brush.TextTertiary}"
+                                 VerticalAlignment="Center"
+                                 Text="{Binding UpdatedAt, StringFormat='{}{0:MMM d}'}" />
+                      <TextBlock Text="{Binding Title}" FontSize="13"
+                                 TextTrimming="CharacterEllipsis"
+                                 VerticalAlignment="Center" />
+                    </DockPanel>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
           </StackPanel>
         </StackPanel>
       </ScrollViewer>

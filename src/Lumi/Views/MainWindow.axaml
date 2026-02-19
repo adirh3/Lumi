@@ -181,6 +181,15 @@
                   </TextBox.InnerLeftContent>
                 </TextBox>
               </Border>
+              <!-- ── Project filter pills ── -->
+              <Border DockPanel.Dock="Top" Margin="10,6,10,0"
+                      IsVisible="{Binding Projects.Count}">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled"
+                              Classes="scroll-fade">
+                  <StackPanel x:Name="ProjectFilterBar" Orientation="Horizontal" Spacing="4" />
+                </ScrollViewer>
+              </Border>
               <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                             Margin="0,8,0,0">
                 <ItemsControl x:Name="ChatGroupsHost" ItemsSource="{Binding ChatGroups}" Margin="6,0,6,8">
@@ -206,6 +215,19 @@
                                         <PathIcon Data="{StaticResource Icon.Rename}" Width="14" Height="14" />
                                       </MenuItem.Icon>
                                     </MenuItem>
+                                    <MenuItem x:Name="MoveToProjectMenu" Header="Move to Project">
+                                      <MenuItem.Icon>
+                                        <PathIcon Data="{StaticResource Icon.Folder}" Width="14" Height="14" />
+                                      </MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem Header="Remove from Project"
+                                              Command="{Binding $parent[Window].DataContext.RemoveChatFromProjectCommand}"
+                                              CommandParameter="{Binding}"
+                                              IsVisible="{Binding ProjectId, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                      <MenuItem.Icon>
+                                        <PathIcon Data="{StaticResource Icon.Folder}" Width="14" Height="14" />
+                                      </MenuItem.Icon>
+                                    </MenuItem>
                                     <Separator />
                                     <MenuItem Header="Delete"
                                               Command="{Binding $parent[Window].DataContext.DeleteChatCommand}"
@@ -216,9 +238,18 @@
                                     </MenuItem>
                                   </ContextMenu>
                                 </Panel.ContextMenu>
-                                <TextBlock Text="{Binding Title}"
-                                           TextTrimming="CharacterEllipsis"
-                                           VerticalAlignment="Center" />
+                                <DockPanel>
+                                  <TextBlock DockPanel.Dock="Bottom"
+                                             x:Name="ProjectLabel"
+                                             FontSize="10"
+                                             Foreground="{DynamicResource Brush.AccentDefault}"
+                                             Opacity="0.7"
+                                             TextTrimming="CharacterEllipsis"
+                                             IsVisible="False" />
+                                  <TextBlock Text="{Binding Title}"
+                                             TextTrimming="CharacterEllipsis"
+                                             VerticalAlignment="Center" />
+                                </DockPanel>
                               </Panel>
                             </DataTemplate>
                           </ListBox.ItemTemplate>
@@ -273,11 +304,16 @@
                           </MenuItem>
                         </ContextMenu>
                       </Panel.ContextMenu>
-                      <StackPanel Spacing="1">
-                        <TextBlock Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis" />
-                        <TextBlock FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}"
-                                   Text="{Binding CreatedAt, StringFormat='{}{0:MMM d, yyyy}'}" />
-                      </StackPanel>
+                      <DockPanel>
+                        <TextBlock x:Name="ProjectChatCount" DockPanel.Dock="Right"
+                                   FontSize="10" Foreground="{DynamicResource Brush.TextTertiary}"
+                                   VerticalAlignment="Center" Margin="4,0,0,0" />
+                        <StackPanel Spacing="1">
+                          <TextBlock Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis" />
+                          <TextBlock FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}"
+                                     Text="{Binding CreatedAt, StringFormat='{}{0:MMM d, yyyy}'}" />
+                        </StackPanel>
+                      </DockPanel>
                     </Panel>
                   </DataTemplate>
                 </ListBox.ItemTemplate>

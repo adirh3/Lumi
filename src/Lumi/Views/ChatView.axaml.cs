@@ -191,6 +191,9 @@ public partial class ChatView : UserControl
                 // Always rebuild when loading a chat (messages are already populated)
                 RebuildMessageStack(vm);
 
+                // Update project badge
+                UpdateProjectBadge(vm);
+
                 if (hasChat)
                     _chatShell?.ResetAutoScroll();
             }
@@ -729,6 +732,35 @@ public partial class ChatView : UserControl
             if (badgeText is not null && agent is not null)
                 badgeText.Text = $"{agent.IconGlyph} {agent.Name}";
         }
+    }
+
+    private void UpdateProjectBadge(ChatViewModel vm)
+    {
+        var badge = this.FindControl<Avalonia.Controls.Border>("ProjectBadge");
+        var badgeText = this.FindControl<Avalonia.Controls.TextBlock>("ProjectBadgeText");
+        if (badge is null) return;
+
+        var projectId = vm.CurrentChat?.ProjectId;
+        if (projectId.HasValue)
+        {
+            // Walk up to MainViewModel to look up the project name
+            var mainVm = (this.Parent as Control)?.DataContext as MainViewModel
+                ?? FindMainViewModel();
+            var projectName = mainVm?.GetProjectName(projectId);
+            badge.IsVisible = projectName is not null;
+            if (badgeText is not null)
+                badgeText.Text = $"📁 {projectName}";
+        }
+        else
+        {
+            badge.IsVisible = false;
+        }
+    }
+
+    private MainViewModel? FindMainViewModel()
+    {
+        var window = TopLevel.GetTopLevel(this) as Window;
+        return window?.DataContext as MainViewModel;
     }
 
     /// <summary>Called when the composer's AgentName property changes (user selected via autocomplete).</summary>

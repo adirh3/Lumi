@@ -72,6 +72,12 @@ public partial class MainViewModel : ObservableObject
                 ActiveChatId = ChatVM.CurrentChat?.Id;
         };
 
+        ProjectsVM.ProjectsChanged += () =>
+        {
+            LoadProjects();
+            RefreshChatList();
+        };
+
         LoadProjects();
         RefreshChatList();
         _ = InitializeAsync();
@@ -158,6 +164,13 @@ public partial class MainViewModel : ObservableObject
         }
 
         ChatVM.ClearChat();
+
+        // Auto-assign the active project filter to new chats
+        if (SelectedProjectFilter.HasValue)
+        {
+            ChatVM.SetProjectId(SelectedProjectFilter.Value);
+        }
+
         SelectedNavIndex = 0;
     }
 
@@ -229,6 +242,48 @@ public partial class MainViewModel : ObservableObject
     private void SelectProjectFilter(Project project)
     {
         SelectedProjectFilter = project.Id;
+    }
+
+    [RelayCommand]
+    private void AssignChatToProject(object? parameter)
+    {
+        // parameter is a two-element array: [Chat, Project]
+        if (parameter is object[] args && args.Length == 2 && args[0] is Chat chat && args[1] is Project project)
+        {
+            chat.ProjectId = project.Id;
+            chat.UpdatedAt = DateTimeOffset.Now;
+            _dataStore.Save();
+            RefreshChatList();
+        }
+    }
+
+    [RelayCommand]
+    private void RemoveChatFromProject(Chat? chat)
+    {
+        if (chat is null) return;
+        chat.ProjectId = null;
+        chat.UpdatedAt = DateTimeOffset.Now;
+        _dataStore.Save();
+        RefreshChatList();
+    }
+
+    [RelayCommand]
+    private void OpenChatFromProject(Chat chat)
+    {
+        ChatVM.LoadChat(chat);
+        SelectedNavIndex = 0;
+    }
+
+    /// <summary>Returns the project name for a given project ID, or null.</summary>
+    public string? GetProjectName(Guid? projectId)
+    {
+        if (!projectId.HasValue) return null;
+        return _dataStore.Data.Projects.FirstOrDefault(p => p.Id == projectId.Value)?.Name;
+    }
+
+    public void RefreshProjects()
+    {
+        LoadProjects();
     }
 
     [RelayCommand]
