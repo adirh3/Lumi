@@ -22,6 +22,12 @@
       <Button Classes="accent" Content="Save" Padding="18,7" MinHeight="0"
               Command="{Binding SaveCommand}" HorizontalAlignment="Left" />
 
+      <sc:StrataSettingGroup Header="Appearance">
+        <sc:StrataSetting Header="Dark Mode" Description="Switch between light and dark theme">
+          <ToggleSwitch IsChecked="{Binding $parent[Window].DataContext.IsDarkTheme}" />
+        </sc:StrataSetting>
+      </sc:StrataSettingGroup>
+
       <sc:StrataSettingGroup Header="About">
         <sc:StrataSetting Header="Lumi"
                           Description="Your personal agentic assistant powered by GitHub Copilot. Built with Avalonia and Strata UI.">
