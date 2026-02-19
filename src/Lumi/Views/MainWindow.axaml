@@ -62,7 +62,7 @@
 
   <Panel>
     <!-- Semi-transparent background that lets Mica/Acrylic show through -->
-    <Border x:Name="AcrylicFallback">
+    <Border x:Name="AcrylicFallback" IsHitTestVisible="False">
       <Border.Background>
         <SolidColorBrush Color="{DynamicResource Color.Background}" Opacity="0.8" />
       </Border.Background>

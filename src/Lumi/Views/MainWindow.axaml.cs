@@ -29,6 +29,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         ExtendClientAreaToDecorationsHint = true;
         ExtendClientAreaChromeHints = Avalonia.Platform.ExtendClientAreaChromeHints.PreferSystemChrome;
+        ExtendClientAreaTitleBarHeightHint = 38;
 
         // Force transparent background after theme styles are applied
         Background = Avalonia.Media.Brushes.Transparent;
