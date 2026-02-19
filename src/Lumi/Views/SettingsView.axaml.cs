@@ -21,6 +21,7 @@ public partial class SettingsView : UserControl
     private ScrollViewer? _mainScrollViewer;
     private Button? _clearSearchButton;
     private Button? _noResultsClearButton;
+    private Button? _signInButton;
 
     // Page header elements for search mode styling
     private (TextBlock Title, TextBlock Description)[] _pageHeaders = [];
@@ -60,6 +61,10 @@ public partial class SettingsView : UserControl
             _clearSearchButton.Click += (_, _) => ClearSearch();
         if (_noResultsClearButton is not null)
             _noResultsClearButton.Click += (_, _) => ClearSearch();
+
+        _signInButton = this.FindControl<Button>("SignInButton");
+        if (_signInButton is not null)
+            _signInButton.Content = Loc.Button_SignIn;
 
         // Extract page header elements (title + description TextBlocks)
         var headers = new List<(TextBlock, TextBlock)>();
@@ -120,7 +125,11 @@ public partial class SettingsView : UserControl
                     ShowPage(vm.SelectedPageIndex);
                 else if (args.PropertyName == nameof(SettingsViewModel.SearchQuery))
                     ApplySearch(vm.SearchQuery);
+                else if (args.PropertyName == nameof(SettingsViewModel.IsSigningIn))
+                    UpdateSignInButton(vm);
             };
+
+            UpdateSignInButton(vm);
         }
     }
 
@@ -256,5 +265,11 @@ public partial class SettingsView : UserControl
         var desc = setting.Description ?? "";
         return header.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                desc.Contains(query, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void UpdateSignInButton(SettingsViewModel vm)
+    {
+        if (_signInButton is not null)
+            _signInButton.Content = vm.IsSigningIn ? Loc.Button_SigningIn : Loc.Button_SignIn;
     }
 }

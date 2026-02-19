@@ -103,7 +103,7 @@ public class UserSettings
     public int MaxContextMessages { get; set; } = 50;
 
     // ── AI & Models ──
-    public string PreferredModel { get; set; } = "claude-sonnet-4";
+    public string PreferredModel { get; set; } = "";
 
     // ── Privacy & Data ──
     public bool EnableMemoryAutoSave { get; set; } = true;

@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using GitHub.Copilot.SDK;
@@ -206,6 +209,58 @@ public class CopilotService : IAsyncDisposable
                     break;
             }
         });
+    }
+
+    public async Task<GetAuthStatusResponse> GetAuthStatusAsync(CancellationToken ct = default)
+    {
+        if (_client is null) throw new InvalidOperationException("Not connected");
+        return await _client.GetAuthStatusAsync(ct);
+    }
+
+    /// <summary>
+    /// Launches the Copilot CLI login flow (OAuth device flow) and waits for completion.
+    /// </summary>
+    public async Task<bool> SignInAsync(CancellationToken ct = default)
+    {
+        var cliPath = FindCliPath();
+        if (cliPath is null) return false;
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = cliPath,
+            Arguments = "login",
+            UseShellExecute = true, // Opens browser for OAuth
+        };
+
+        using var process = Process.Start(psi);
+        if (process is null) return false;
+
+        await process.WaitForExitAsync(ct);
+        return process.ExitCode == 0;
+    }
+
+    private static string? FindCliPath()
+    {
+        var binary = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "copilot.exe" : "copilot";
+        var appDir = AppContext.BaseDirectory;
+
+        // Check runtimes/{rid}/native/ (standard SDK output location)
+        var rid = RuntimeInformation.RuntimeIdentifier;
+        var runtimePath = Path.Combine(appDir, "runtimes", rid, "native", binary);
+        if (File.Exists(runtimePath)) return runtimePath;
+
+        // Fallback: try portable rid
+        var os = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "win" :
+                 RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "osx" : "linux";
+        var arch = RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "arm64" : "x64";
+        var portablePath = Path.Combine(appDir, "runtimes", $"{os}-{arch}", "native", binary);
+        if (File.Exists(portablePath)) return portablePath;
+
+        // Fallback: check app directory directly
+        var directPath = Path.Combine(appDir, binary);
+        if (File.Exists(directPath)) return directPath;
+
+        return null;
     }
 
     public async Task<List<SessionMetadata>> ListSessionsAsync(CancellationToken ct = default)

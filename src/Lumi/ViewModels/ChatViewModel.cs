@@ -43,7 +43,7 @@ public partial class ChatViewModel : ObservableObject
     [ObservableProperty] private LumiAgent? _activeAgent;
 
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = [];
-    public ObservableCollection<string> AvailableModels { get; set; } = ["claude-sonnet-4", "gpt-4o", "o3"];
+    public ObservableCollection<string> AvailableModels { get; } = [];
     public ObservableCollection<string> PendingAttachments { get; } = [];
 
     /// <summary>Skills currently active for this chat session — shown as chips in the composer.</summary>
@@ -63,6 +63,10 @@ public partial class ChatViewModel : ObservableObject
         _dataStore = dataStore;
         _copilotService = copilotService;
         _selectedModel = dataStore.Data.Settings.PreferredModel;
+
+        // Seed with preferred model so the ComboBox has an initial selection
+        if (!string.IsNullOrWhiteSpace(_selectedModel))
+            AvailableModels.Add(_selectedModel);
 
         _copilotService.OnTurnStart += () => Dispatcher.UIThread.Post(() =>
         {
@@ -679,6 +683,51 @@ public partial class ChatViewModel : ObservableObject
     {
         ".py", ".ps1", ".bat", ".cmd", ".sh", ".bash", ".vbs", ".wsf", ".js", ".mjs", ".ts"
     };
+
+    /// <summary>
+    /// Picks the best model from a list of model IDs using name/version heuristics.
+    /// Prefers: flagship tiers (opus > sonnet > pro > base gpt) with highest version,
+    /// avoids: mini, fast, codex, haiku, preview variants.
+    /// </summary>
+    public static string? PickBestModel(IReadOnlyList<string> models)
+    {
+        if (models.Count == 0) return null;
+
+        return models
+            .OrderByDescending(ScoreModel)
+            .ThenByDescending(m => m) // alphabetical tiebreaker (higher version strings win)
+            .First();
+    }
+
+    private static int ScoreModel(string id)
+    {
+        var m = id.ToLowerInvariant();
+        int score = 0;
+
+        // ── Tier scoring (primary) ──
+        if (m.Contains("opus"))        score += 5000;
+        else if (m.Contains("sonnet")) score += 4000;
+        else if (m.Contains("pro"))    score += 3000;
+        else if (m.Contains("haiku"))  score += 1000;
+        else                           score += 2000; // gpt-N, etc.
+
+        // ── Version extraction: find the first N.N or N pattern ──
+        var versionMatch = System.Text.RegularExpressions.Regex.Match(m, @"(\d+)(?:\.(\d+))?");
+        if (versionMatch.Success)
+        {
+            var major = int.Parse(versionMatch.Groups[1].Value);
+            var minor = versionMatch.Groups[2].Success ? int.Parse(versionMatch.Groups[2].Value) : 0;
+            score += major * 100 + minor * 10;
+        }
+
+        // ── Penalties for specialized/diminished variants ──
+        if (m.Contains("mini"))    score -= 800;
+        if (m.Contains("fast"))    score -= 400;
+        if (m.Contains("codex"))   score -= 300;
+        if (m.Contains("preview")) score -= 200;
+
+        return score;
+    }
 
     /// <summary>Returns true if the file looks like a user-facing deliverable, not a temp script.</summary>
     public static bool IsUserFacingFile(string filePath)

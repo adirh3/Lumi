@@ -192,10 +192,35 @@
                      Foreground="{DynamicResource Brush.TextTertiary}" />
         </StackPanel>
 
+        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_GitHubAccount}">
+          <sc:StrataSetting Header="{loc:Str Setting_GitHubAccount}" Description="{loc:Str SettingDesc_GitHubAccount}">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+              <!-- Signed-in state: green dot + username -->
+              <StackPanel Orientation="Horizontal" Spacing="6"
+                          IsVisible="{Binding IsAuthenticated}">
+                <Border Width="6" Height="6" CornerRadius="3"
+                        Background="{DynamicResource Brush.SuccessDefault}"
+                        VerticalAlignment="Center" />
+                <TextBlock Text="{Binding GitHubLogin}" FontSize="{DynamicResource Font.SizeCaption}"
+                           Foreground="{DynamicResource Brush.TextSecondary}"
+                           VerticalAlignment="Center" />
+              </StackPanel>
+              <!-- Not signed in: sign-in button -->
+              <Button Classes="accent" Padding="14,6" MinHeight="0"
+                      IsVisible="{Binding !IsAuthenticated}"
+                      IsEnabled="{Binding !IsSigningIn}"
+                      Command="{Binding SignInCommand}"
+                      x:Name="SignInButton" />
+            </StackPanel>
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Model}">
           <sc:StrataSetting Header="{loc:Str Setting_PreferredModel}" Description="{loc:Str SettingDesc_PreferredModel}"
                             IsModified="{Binding IsPreferredModelModified}">
-            <TextBox Text="{Binding PreferredModel}" Watermark="{loc:Str Watermark_PreferredModel}" Width="220" />
+            <ComboBox ItemsSource="{Binding AvailableModels}"
+                      SelectedItem="{Binding PreferredModel, Mode=TwoWay}"
+                      Width="220" IsEditable="True" />
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
       </StackPanel>

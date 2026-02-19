@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
@@ -10,6 +11,7 @@ namespace Lumi.ViewModels;
 public partial class SettingsViewModel : ObservableObject
 {
     private readonly DataStore _dataStore;
+    private readonly CopilotService _copilotService;
 
     // ── Page navigation ──
     [ObservableProperty] private int _selectedPageIndex;
@@ -64,6 +66,12 @@ public partial class SettingsViewModel : ObservableObject
 
     // ── AI & Models ──
     [ObservableProperty] private string _preferredModel;
+    public ObservableCollection<string> AvailableModels { get; } = [];
+
+    // ── GitHub Account ──
+    [ObservableProperty] private bool _isAuthenticated;
+    [ObservableProperty] private string _gitHubLogin = "";
+    [ObservableProperty] private bool _isSigningIn;
 
     // ── Privacy & Data ──
     [ObservableProperty] private bool _enableMemoryAutoSave;
@@ -96,9 +104,10 @@ public partial class SettingsViewModel : ObservableObject
     /// <summary>Raised when a setting that affects other ViewModels changes.</summary>
     public event Action? SettingsChanged;
 
-    public SettingsViewModel(DataStore dataStore)
+    public SettingsViewModel(DataStore dataStore, CopilotService copilotService)
     {
         _dataStore = dataStore;
+        _copilotService = copilotService;
         var s = dataStore.Data.Settings;
 
         // General
@@ -124,6 +133,8 @@ public partial class SettingsViewModel : ObservableObject
 
         // AI
         _preferredModel = s.PreferredModel;
+        if (!string.IsNullOrWhiteSpace(_preferredModel))
+            AvailableModels.Add(_preferredModel);
 
         // Privacy
         _enableMemoryAutoSave = s.EnableMemoryAutoSave;
@@ -164,6 +175,41 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnMaxContextMessagesChanged(int value) { _dataStore.Data.Settings.MaxContextMessages = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
 
     partial void OnPreferredModelChanged(string value) { _dataStore.Data.Settings.PreferredModel = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
+
+    public void UpdateAvailableModels(System.Collections.Generic.List<string> models)
+    {
+        AvailableModels.Clear();
+        foreach (var m in models)
+            AvailableModels.Add(m);
+    }
+
+    [RelayCommand]
+    private async Task SignInAsync()
+    {
+        IsSigningIn = true;
+        try
+        {
+            await _copilotService.SignInAsync();
+            await RefreshAuthStatusAsync();
+        }
+        catch { /* login cancelled or failed */ }
+        finally { IsSigningIn = false; }
+    }
+
+    public async Task RefreshAuthStatusAsync()
+    {
+        try
+        {
+            var status = await _copilotService.GetAuthStatusAsync();
+            IsAuthenticated = status.IsAuthenticated == true;
+            GitHubLogin = status.Login ?? "";
+        }
+        catch
+        {
+            IsAuthenticated = false;
+            GitHubLogin = "";
+        }
+    }
 
     partial void OnEnableMemoryAutoSaveChanged(bool value) { _dataStore.Data.Settings.EnableMemoryAutoSave = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnAutoSaveChatsChanged(bool value) { _dataStore.Data.Settings.AutoSaveChats = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }

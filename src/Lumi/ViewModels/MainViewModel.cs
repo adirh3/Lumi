@@ -66,7 +66,7 @@ public partial class MainViewModel : ObservableObject
         AgentsVM = new AgentsViewModel(dataStore);
         ProjectsVM = new ProjectsViewModel(dataStore);
         MemoriesVM = new MemoriesViewModel(dataStore);
-        SettingsVM = new SettingsViewModel(dataStore);
+        SettingsVM = new SettingsViewModel(dataStore, copilotService);
 
         // Sync settings changes back to MainViewModel
         SettingsVM.PropertyChanged += (_, args) =>
@@ -113,9 +113,27 @@ public partial class MainViewModel : ObservableObject
             IsConnected = true;
             ConnectionStatus = Loc.Status_Connected;
 
+            // Check GitHub auth status
+            await SettingsVM.RefreshAuthStatusAsync();
+
             var models = await _copilotService.GetModelsAsync();
-            ChatVM.AvailableModels = new ObservableCollection<string>(
-                models.Select(m => m.Id));
+            var modelIds = models.Select(m => m.Id).ToList();
+
+            // Auto-select best model on clean state (no user preference saved)
+            var selected = ChatVM.SelectedModel;
+            var isCleanState = string.IsNullOrWhiteSpace(selected)
+                || !modelIds.Contains(selected);
+            if (isCleanState)
+                selected = ChatViewModel.PickBestModel(modelIds);
+
+            ChatVM.AvailableModels.Clear();
+            foreach (var id in modelIds)
+                ChatVM.AvailableModels.Add(id);
+            ChatVM.SelectedModel = selected;
+
+            SettingsVM.UpdateAvailableModels(modelIds);
+            if (isCleanState && selected is not null)
+                SettingsVM.PreferredModel = selected;
         }
         catch (Exception ex)
         {
