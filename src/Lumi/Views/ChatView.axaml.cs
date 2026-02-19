@@ -227,7 +227,7 @@ public partial class ChatView : UserControl
     private void RebuildMessageStack(ChatViewModel vm)
     {
         // Replace the transcript content with a StackPanel we control
-        _messageStack = new StackPanel { Spacing = 8 };
+        _messageStack = new StackPanel { Spacing = 12 };
         _currentToolGroup = null;
         _currentToolGroupStack = null;
         _currentToolGroupCount = 0;
@@ -248,7 +248,7 @@ public partial class ChatView : UserControl
     {
         if (_messageStack is null)
         {
-            _messageStack = new StackPanel { Spacing = 8 };
+            _messageStack = new StackPanel { Spacing = 12 };
             if (_chatShell is not null)
                 _chatShell.Transcript = _messageStack;
         }
