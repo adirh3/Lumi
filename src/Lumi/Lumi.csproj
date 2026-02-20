@@ -13,6 +13,7 @@
     <OptimizationPreference>Size</OptimizationPreference>
     <StripSymbols>true</StripSymbols>
     <EventSourceSupport>false</EventSourceSupport>
+    <DebugType>none</DebugType>
   </PropertyGroup>
 
   <!-- Windows: target Windows TFM so WinRT toast types are available in-process -->
