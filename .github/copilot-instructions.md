@@ -113,8 +113,10 @@ src/Lumi/
 
 1. **Use CommunityToolkit.Mvvm patterns** — `[ObservableProperty]` generates properties from fields (e.g., `[ObservableProperty] string _name;` generates `Name`). Use `partial void On<PropertyName>Changed()` for side effects.
 2. **UI thread safety** — All CopilotService event handlers dispatch to UI thread via `Dispatcher.UIThread.Post()`.
-3. **Strata controls** — When adding chat UI elements, use Strata controls. Reference the StrataTheme source at `E:\Git\Strata` for API details.
-4. **Modify StrataTheme when needed** — If a UI change makes more sense as a StrataTheme feature or fix (new control, new property, style tweak, bug fix), go ahead and make the change directly in the StrataTheme project at `E:\Git\Strata`. Don't work around library limitations in Lumi when the right fix belongs in Strata.
+3. **Strata controls** — When adding chat UI elements, use Strata controls. Reference the StrataTheme source for API details.
+4. **Modify StrataTheme when needed** — If a UI change makes more sense as a StrataTheme feature or fix (new control, new property, style tweak, bug fix), go ahead and make the change directly in the StrataTheme project. Don't work around library limitations in Lumi when the right fix belongs in Strata.
+
+> **CRITICAL: StrataTheme file locations** — There are TWO copies of StrataTheme. The csproj resolves `StrataPath` with two conditions: first it checks `../../../Strata/src/StrataTheme/` (a sibling repo next to the Lumi repo root — this is the **primary** copy used by the build), then falls back to `../../Strata/src/StrataTheme/` (a git submodule inside the Lumi repo at `Strata/`). The submodule copy is **stale and may be outdated**. **Always read and edit Strata files in the primary external repo** (the one resolved by the first condition), never in the `Strata/` submodule directory inside this repo. Editing the wrong copy will silently have no effect. To find the active path, check which `StrataPath` condition matches in `src/Lumi/Lumi.csproj`.
 5. **No database** — Data is stored as JSON. Add new persistent collections to `AppData` in `Models.cs`.
 6. **System prompt context** — When adding new context sources, extend `SystemPromptBuilder.Build()`.
 7. **Chat transcript** — The chat view builds controls programmatically in `ChatView.axaml.cs`. New message types need a rendering case in `AddMessageControl()`.
@@ -127,4 +129,4 @@ dotnet build src/Lumi/Lumi.csproj
 cd src/Lumi && dotnet run
 ```
 
-Requires the StrataTheme project at `E:\Git\Strata` (or adjust project reference).
+Requires the StrataTheme project as a sibling repo (see `StrataPath` in `Lumi.csproj`).

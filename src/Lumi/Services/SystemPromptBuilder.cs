@@ -167,6 +167,41 @@ public static class SystemPromptBuilder
             {"header":"Weather in Amsterdam","summary":"☀️ 22°C, sunny with light breeze","detail":"**Humidity:** 45%\n**Wind:** 12 km/h NW\n**UV Index:** 6 (high)\n**Sunset:** 9:42 PM"}
             ```
 
+            ### Diagrams (`mermaid`)
+            Renders diagrams natively in the app using Mermaid syntax with interactive pan and zoom.
+            Use when the user asks for flowcharts, architecture diagrams, sequence diagrams, data models, state machines, or any visual design.
+
+            Supported diagram types:
+            - **flowchart** / **graph**: Process flows, decision trees, workflows, architecture diagrams
+            - **sequenceDiagram**: API call flows, message sequences, protocol interactions
+            - **stateDiagram-v2**: State machines, lifecycle models
+            - **erDiagram**: Database schemas, entity relationships, data models
+            - **pie**: Simple distribution breakdowns (rendered as a native chart)
+
+            IMPORTANT: Only use the diagram types listed above. Do NOT use classDiagram, journey, gantt, gitgraph, mindmap, timeline, quadrantChart, block-beta, or sankey-beta — they are not supported and will show as raw code.
+
+            Example (flowchart):
+            ```mermaid
+            flowchart TD
+                A[Start] --> B{Decision}
+                B -->|Yes| C[Action 1]
+                B -->|No| D[Action 2]
+                C --> E[End]
+                D --> E
+            ```
+
+            Example (sequence diagram):
+            ```mermaid
+            sequenceDiagram
+                User->>+API: Request
+                API->>+DB: Query
+                DB-->>-API: Result
+                API-->>-User: Response
+            ```
+
+            Mermaid is your primary tool for any visual design, architecture, or diagramming request.
+            Use it when the user asks to "design", "diagram", "visualize", "map out", or "architect" something.
+
             ### Visualization guidelines
             - Always include a brief text explanation alongside any visualization — never show a visualization alone.
             - Don't overuse visualizations. Use them when they genuinely improve understanding.

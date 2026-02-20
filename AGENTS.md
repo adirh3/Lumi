@@ -36,7 +36,9 @@ Lumi is a cross-platform Avalonia desktop app — a personal agentic assistant t
 - **Services** (`src/Lumi/Services/`): `CopilotService` (SDK wrapper with streaming events), `DataStore` (JSON persistence to `%AppData%/Lumi/data.json`), `SystemPromptBuilder` (composite system prompt)
 - **ViewModels** (`src/Lumi/ViewModels/`): `MainViewModel` (root), `ChatViewModel` (streaming chat), `AgentsViewModel`, `ProjectsViewModel`, `SkillsViewModel`, `SettingsViewModel` — all CRUD follows same pattern
 - **Views** (`src/Lumi/Views/`): Avalonia XAML + code-behind. `ChatView.axaml.cs` is the heaviest — builds transcript programmatically using Strata controls
-- **External dependency**: StrataTheme UI library at `../../../Strata/src/StrataTheme/` — provides `StrataChatShell`, `StrataChatMessage`, `StrataMarkdown`, `StrataThink`, `StrataAiToolCall`, etc.
+- **External dependency**: StrataTheme UI library referenced via `StrataPath` in `Lumi.csproj` — provides `StrataChatShell`, `StrataChatMessage`, `StrataMarkdown`, `StrataThink`, `StrataAiToolCall`, etc.
+
+> **WARNING**: There are TWO copies of StrataTheme. The csproj first checks `../../../Strata/src/StrataTheme/` (a sibling repo — **primary**, used by build) then falls back to `../../Strata/src/StrataTheme/` (git submodule at `Strata/` — **stale fallback**). **Always edit Strata files in the primary external repo**, not in the `Strata/` submodule inside this repo. Edits to the wrong copy silently have no effect.
 
 ## Code Style
 
@@ -53,7 +55,7 @@ dotnet build src/Lumi/Lumi.csproj
 cd src/Lumi && dotnet run
 ```
 
-No test project exists yet. StrataTheme project must be available at `E:\Git\Strata`.
+No test project exists yet. StrataTheme project must be available as a sibling repo (see `StrataPath` in `Lumi.csproj`).
 
 ## Key Conventions
 
@@ -63,5 +65,5 @@ No test project exists yet. StrataTheme project must be available at `E:\Git\Str
 - **Tool display names** — add friendly mappings in `ChatView.axaml.cs` `GetFriendlyToolDisplay()` and `ChatViewModel.cs` `FormatToolDisplayName()`
 - **CRUD ViewModels** follow identical master-detail pattern — `SelectedX`, `IsEditing`, `EditX` properties, `New/Edit/Save/Cancel/Delete` commands
 - **Strata controls** — always use Strata UI components for chat elements. Inspect the StrataTheme source for API
-- **Modify StrataTheme when needed** — if a UI change makes more sense as a StrataTheme feature or fix (new control, new property, style tweak, bug fix), go ahead and make the change directly in the StrataTheme project at `E:\Git\Strata`. Don't work around library limitations in Lumi when the right fix belongs in Strata.
+- **Modify StrataTheme when needed** — if a UI change makes more sense as a StrataTheme feature or fix (new control, new property, style tweak, bug fix), go ahead and make the change directly in the primary StrataTheme project (sibling repo, not the `Strata/` submodule). Don't work around library limitations in Lumi when the right fix belongs in Strata.
 - **No over-engineering** — this is a personal app, keep implementations simple and direct
