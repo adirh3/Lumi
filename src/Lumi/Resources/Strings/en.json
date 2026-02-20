@@ -157,6 +157,7 @@
   "ToolGroup_FinishedCount": "Finished {0} actions",
   "ToolGroup_FinishedFailed": "Finished ({0} failed)",
   "ToolGroup_FinishedWithFailed": "{0} ({1} failed)",
+  "TurnSummary_ReasonedAndActions": "Reasoned \u00b7 {0} actions",
 
   "Tool_ReasoningLabel": "Reasoning",
 

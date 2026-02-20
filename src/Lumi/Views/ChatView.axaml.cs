@@ -317,6 +317,7 @@ public partial class ChatView : UserControl
             AddMessageControl(msgVm);
 
         CloseToolGroup();
+        CollapseAllCompletedTurns();
     }
 
     private void AddMessageControl(ChatMessageViewModel msgVm)
@@ -582,7 +583,10 @@ public partial class ChatView : UserControl
                     // When assistant streaming ends, check final content for file references
                     // (initial check during streaming only sees partial content)
                     if (!msgVm.IsStreaming && role == StrataChatRole.Assistant)
+                    {
                         AddFileReferencesFromContent(msgVm.Content);
+                        CollapseCompletedTurnBlocks(msg);
+                    }
                 }
             };
 
@@ -619,6 +623,108 @@ public partial class ChatView : UserControl
             _currentToolGroupCount = 0;
             _currentIntentText = null;
         }
+    }
+
+    /// <summary>
+    /// After an assistant message finishes, merges all consecutive StrataThink blocks
+    /// (tool groups and reasoning) preceding it into a single collapsible group.
+    /// </summary>
+    private void CollapseCompletedTurnBlocks(Control assistantMsgControl)
+    {
+        if (_messageStack is null) return;
+
+        var idx = _messageStack.Children.IndexOf(assistantMsgControl);
+        if (idx <= 0) return;
+
+        // Walk backward collecting consecutive StrataThink controls
+        var blocksToMerge = new List<StrataThink>();
+        for (int i = idx - 1; i >= 0; i--)
+        {
+            if (_messageStack.Children[i] is StrataThink think)
+                blocksToMerge.Add(think);
+            else
+                break;
+        }
+
+        if (blocksToMerge.Count < 2) return;
+
+        blocksToMerge.Reverse();
+
+        // Count items for summary label
+        int totalToolCalls = 0;
+        int failedCount = 0;
+        bool hasReasoning = false;
+
+        foreach (var think in blocksToMerge)
+        {
+            if (think.Content is StackPanel toolStack)
+            {
+                foreach (var child in toolStack.Children)
+                {
+                    if (child is StrataAiToolCall tc)
+                    {
+                        totalToolCalls++;
+                        if (tc.Status == StrataAiToolCallStatus.Failed) failedCount++;
+                    }
+                }
+            }
+            else
+            {
+                hasReasoning = true;
+            }
+        }
+
+        // Build summary label
+        string label;
+        if (hasReasoning && totalToolCalls > 0)
+            label = string.Format(Loc.TurnSummary_ReasonedAndActions, totalToolCalls);
+        else if (totalToolCalls > 0)
+            label = totalToolCalls == 1
+                ? Loc.ToolGroup_Finished
+                : string.Format(Loc.ToolGroup_FinishedCount, totalToolCalls);
+        else
+            label = Loc.Tool_ReasoningLabel;
+
+        if (failedCount > 0)
+            label += " " + string.Format(Loc.ToolGroup_FinishedFailed, failedCount);
+
+        // Remove original blocks from message stack
+        int firstIdx = _messageStack.Children.IndexOf(blocksToMerge[0]);
+        foreach (var think in blocksToMerge)
+            _messageStack.Children.Remove(think);
+
+        // Re-insert the original blocks inside a StrataTurnSummary
+        var innerStack = new StackPanel { Spacing = 8 };
+        foreach (var think in blocksToMerge)
+            innerStack.Children.Add(think);
+
+        var summary = new StrataTurnSummary
+        {
+            Label = label,
+            IsExpanded = false,
+            HasFailures = failedCount > 0,
+            Content = innerStack
+        };
+
+        _messageStack.Children.Insert(firstIdx, summary);
+    }
+
+    /// <summary>
+    /// Post-processes the entire message stack to collapse all completed assistant turns.
+    /// Called at the end of RebuildMessageStack when loading from history.
+    /// </summary>
+    private void CollapseAllCompletedTurns()
+    {
+        if (_messageStack is null) return;
+
+        var assistantMessages = _messageStack.Children
+            .OfType<StrataChatMessage>()
+            .Where(m => m.Role == StrataChatRole.Assistant)
+            .ToList();
+
+        // Process last-to-first so index shifts don't affect earlier messages
+        for (int i = assistantMessages.Count - 1; i >= 0; i--)
+            CollapseCompletedTurnBlocks(assistantMessages[i]);
     }
 
     private void UpdateToolGroupLabel()

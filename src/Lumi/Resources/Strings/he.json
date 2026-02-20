@@ -157,6 +157,7 @@
   "ToolGroup_FinishedCount": "{0} פעולות הסתיימו",
   "ToolGroup_FinishedFailed": "הסתיים ({0} נכשלו)",
   "ToolGroup_FinishedWithFailed": "{0} ({1} נכשלו)",
+  "TurnSummary_ReasonedAndActions": "חשיבה \u00b7 {0} פעולות",
 
   "Tool_ReasoningLabel": "חשיבה",
 
