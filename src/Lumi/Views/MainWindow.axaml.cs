@@ -7,6 +7,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Styling;
@@ -437,6 +438,11 @@ public partial class MainWindow : Window
             else
                 btn.Classes.Remove("active");
         }
+    }
+
+    private void NewChatButton_Click(object? sender, RoutedEventArgs e)
+    {
+        Dispatcher.UIThread.Post(() => _chatView?.FocusComposer(), DispatcherPriority.Input);
     }
 
     private void AttachListBoxHandlers()
