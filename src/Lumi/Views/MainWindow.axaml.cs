@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -286,6 +287,13 @@ public partial class MainWindow : Window
                 AttachListBoxHandlers();
                 SyncListBoxSelection(vm.ActiveChatId);
                 RebuildProjectFilterBar(vm);
+                if (vm.IsOnboarded && vm.SelectedNavIndex == 0)
+                {
+                    // Delay so the user sees the textbox focus animation
+                    _ = Task.Delay(350).ContinueWith(_ =>
+                        Dispatcher.UIThread.Post(() => _chatView?.FocusComposer()),
+                        TaskScheduler.Default);
+                }
             }, DispatcherPriority.Loaded);
 
             // Wire ProjectsVM chat open to navigate to chat tab
@@ -333,6 +341,7 @@ public partial class MainWindow : Window
                         {
                             AttachListBoxHandlers();
                             SyncListBoxSelection(vm.ActiveChatId);
+                            _chatView?.FocusComposer();
                         }, DispatcherPriority.Loaded);
                     }
                 }

@@ -132,6 +132,14 @@ public partial class App : Application
         _mainWindow.ShowInTaskbar = true;
         _mainWindow.WindowState = WindowState.Normal;
         _mainWindow.Activate();
+
+        // Focus composer when showing via hotkey/tray and chat tab is active
+        if (_mainWindow.DataContext is ViewModels.MainViewModel vm && vm.SelectedNavIndex == 0)
+        {
+            var chatView = _mainWindow.FindControl<Views.ChatView>("PageChat");
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => chatView?.FocusComposer(),
+                Avalonia.Threading.DispatcherPriority.Input);
+        }
     }
 
     /// <summary>Toggle window visibility. Called by the global hotkey.</summary>
