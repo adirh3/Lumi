@@ -18,6 +18,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Lumi.Localization;
 using Lumi.Models;
+using Lumi.Services;
 using Lumi.ViewModels;
 using StrataTheme.Controls;
 
@@ -58,6 +59,12 @@ public partial class ChatView : UserControl
     // Track if we've already wired up event handlers
     private ChatViewModel? _subscribedVm;
     private SettingsViewModel? _settingsVm;
+
+    // Voice input
+    private readonly VoiceInputService _voiceService = new();
+    private string _textBeforeVoice = "";       // prompt text snapshot before recording started
+    private string _lastHypothesis = "";         // most recent partial text (replaced on each update)
+    private bool _voiceStarting;                  // guard against re-entrant calls while starting
 
     public ChatView()
     {
@@ -144,6 +151,7 @@ public partial class ChatView : UserControl
                 if (args.Property.Name == "AgentName")
                     OnComposerAgentChanged(_welcomeComposer, vm);
             };
+            _welcomeComposer.VoiceRequested += (_, _) => _ = ToggleVoiceAsync(_welcomeComposer, vm);
         }
 
         if (_activeComposer is not null)
@@ -170,6 +178,7 @@ public partial class ChatView : UserControl
                 if (args.Property.Name == "AgentName")
                     OnComposerAgentChanged(_activeComposer, vm);
             };
+            _activeComposer.VoiceRequested += (_, _) => _ = ToggleVoiceAsync(_activeComposer, vm);
         }
 
         // Wire pending attachments list to the observable collection
@@ -1043,6 +1052,102 @@ public partial class ChatView : UserControl
             var composer = _activeComposer ?? _welcomeComposer;
             composer?.FocusInput();
         }
+    }
+
+    // ── Voice input ──────────────────────────────────────────────
+
+    private async Task ToggleVoiceAsync(StrataChatComposer composer, ChatViewModel vm)
+    {
+        if (!_voiceService.IsAvailable || _voiceStarting) return;
+
+        if (_voiceService.IsRecording)
+        {
+            await _voiceService.StopAsync();
+            SetComposersRecording(false);
+            return;
+        }
+
+        _voiceStarting = true;
+
+        // Snapshot current text so we can append voice input
+        _textBeforeVoice = vm.PromptText ?? "";
+        _lastHypothesis = "";
+
+        _voiceService.HypothesisGenerated += OnVoiceHypothesis;
+        _voiceService.ResultGenerated += OnVoiceResult;
+        _voiceService.Stopped += OnVoiceStopped;
+        _voiceService.Error += OnVoiceError;
+
+        // SpeechRecognizer requires a full BCP-47 tag like "en-US", not just "en"
+        var culture = CultureInfo.CurrentUICulture;
+        var lang = culture.Name.Contains('-') ? culture.Name : culture.IetfLanguageTag;
+        if (string.IsNullOrEmpty(lang) || !lang.Contains('-'))
+            lang = "en-US";
+        await _voiceService.StartAsync(lang);
+
+        _voiceStarting = false;
+
+        if (_voiceService.IsRecording)
+            SetComposersRecording(true);
+    }
+
+    private void OnVoiceHypothesis(string text)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_subscribedVm is null) return;
+            // Remove previous hypothesis, add new one
+            var baseText = _textBeforeVoice;
+            if (!string.IsNullOrEmpty(baseText) && !baseText.EndsWith(' '))
+                baseText += " ";
+            _lastHypothesis = text;
+            _subscribedVm.PromptText = baseText + text;
+        });
+    }
+
+    private void OnVoiceResult(string text)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_subscribedVm is null) return;
+            // Commit final text and update the base for the next segment
+            var baseText = _textBeforeVoice;
+            if (!string.IsNullOrEmpty(baseText) && !baseText.EndsWith(' '))
+                baseText += " ";
+            _textBeforeVoice = baseText + text;
+            _lastHypothesis = "";
+            _subscribedVm.PromptText = _textBeforeVoice;
+        });
+    }
+
+    private void OnVoiceError(string message)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_subscribedVm is null) return;
+            if (message == "speech_privacy")
+                _subscribedVm.StatusText = Loc.Voice_SpeechPrivacyRequired;
+            else
+                _subscribedVm.StatusText = $"{Loc.Voice_Error}: {message}";
+        });
+    }
+
+    private void OnVoiceStopped()
+    {
+        _voiceService.HypothesisGenerated -= OnVoiceHypothesis;
+        _voiceService.ResultGenerated -= OnVoiceResult;
+        _voiceService.Stopped -= OnVoiceStopped;
+        _voiceService.Error -= OnVoiceError;
+
+        Dispatcher.UIThread.Post(() => SetComposersRecording(false));
+    }
+
+    private void SetComposersRecording(bool recording)
+    {
+        if (_welcomeComposer is not null)
+            _welcomeComposer.IsRecording = recording;
+        if (_activeComposer is not null)
+            _activeComposer.IsRecording = recording;
     }
 
     private void RebuildPendingAttachmentChips(ChatViewModel vm)

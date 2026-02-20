@@ -335,5 +335,10 @@
   "Notification_ResponseReady": "התגובה מוכנה",
 
   "DragDrop_Hint": "שחרר קבצים לצירוף",
-  "DragDrop_Subhint": "הקבצים יצורפו להודעה שלך"
+  "DragDrop_Subhint": "הקבצים יצורפו להודעה שלך",
+
+  "Voice_Tooltip": "קלט קולי",
+  "Voice_TooltipRecording": "עצור הקלטה",
+  "Voice_Error": "שגיאת קול",
+  "Voice_SpeechPrivacyRequired": "זיהוי קולי דורש הרשאה. אנא הפעל אותו בהגדרות Windows ונסה שוב."
 }

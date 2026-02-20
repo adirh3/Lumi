@@ -335,5 +335,10 @@
   "Notification_ResponseReady": "Response ready",
 
   "DragDrop_Hint": "Drop files to attach",
-  "DragDrop_Subhint": "Files will be added to your message"
+  "DragDrop_Subhint": "Files will be added to your message",
+
+  "Voice_Tooltip": "Voice input",
+  "Voice_TooltipRecording": "Stop recording",
+  "Voice_Error": "Voice error",
+  "Voice_SpeechPrivacyRequired": "Speech recognition requires permission. Please enable it in Windows Settings and try again."
 }
