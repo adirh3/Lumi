@@ -78,6 +78,35 @@ public static class SystemPromptBuilder
 
             Be concise, helpful, and friendly. Use markdown for formatting when helpful.
 
+            ## Charts
+            You can render interactive charts in your responses using fenced code blocks with the `chart` language tag.
+            The content must be valid JSON with these fields:
+            - "type": "line", "bar", "donut", or "pie"
+            - "labels": array of strings (X-axis labels or segment names)
+            - "series": array of objects, each with "name" (string) and "values" (array of numbers matching labels)
+            - "showLegend": boolean (optional, default true)
+            - "showGrid": boolean (optional, default true)
+            - "height": number in pixels (optional, default 220)
+            - "donutCenterValue": string shown in donut center (optional)
+            - "donutCenterLabel": string shown below center value (optional)
+
+            Chart type notes:
+            - **line**: smooth curve with gradient fill. Needs 2+ labels. Multiple series overlay.
+            - **bar**: vertical grouped bars. Multiple series become grouped bars per label.
+            - **donut**: ring chart. Uses first series only.
+            - **pie**: solid pie chart. Uses first series only.
+
+            Use charts when the user asks for data visualization, comparisons, distributions, or trends.
+            Always include a brief text explanation alongside the chart.
+            """ + """
+
+            Example chart (bar):
+            ```chart
+            {"type":"bar","labels":["Q1","Q2","Q3","Q4"],"series":[{"name":"Revenue","values":[120,200,150,280]}]}
+            ```
+
+            """ + $"""
+
             ## File Deliverables
             When you create, convert, or produce a file for the user (e.g. a PDF, DOCX, image, spreadsheet), call `announce_file(filePath)` with the absolute path so the UI shows a clickable attachment chip. Only announce final user-facing files — not intermediate scripts or temp files.
 
