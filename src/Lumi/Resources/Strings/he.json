@@ -154,10 +154,13 @@
   "ToolGroup_Working": "עובד\u2026",
   "ToolGroup_WorkingCount": "עובד ({0} פעולות)\u2026",
   "ToolGroup_Finished": "הסתיים",
-  "ToolGroup_FinishedCount": "{0} פעולות הסתיימו",
+  "ToolGroup_FinishedCount": "{0} פעולות",
+  "ToolGroup_FinishedOne": "פעולה אחת",
   "ToolGroup_FinishedFailed": "הסתיים ({0} נכשלו)",
   "ToolGroup_FinishedWithFailed": "{0} ({1} נכשלו)",
-  "TurnSummary_ReasonedAndActions": "חשיבה \u00b7 {0} פעולות",
+  "TurnSummary_ReasonedAndActions": "חשב \u00b7 {0} פעולות",
+  "TurnSummary_ReasonedAndOneAction": "חשב \u00b7 פעולה אחת",
+  "TurnSummary_Reasoned": "חשב",
 
   "Tool_ReasoningLabel": "חשיבה",
 

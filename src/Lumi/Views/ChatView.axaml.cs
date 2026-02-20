@@ -654,7 +654,7 @@ public partial class ChatView : UserControl
                 break;
         }
 
-        if (blocksToMerge.Count < 2) return;
+        if (blocksToMerge.Count < 1) return;
 
         blocksToMerge.Reverse();
 
@@ -685,13 +685,15 @@ public partial class ChatView : UserControl
         // Build summary label
         string label;
         if (hasReasoning && totalToolCalls > 0)
-            label = string.Format(Loc.TurnSummary_ReasonedAndActions, totalToolCalls);
+            label = totalToolCalls == 1
+                ? Loc.TurnSummary_ReasonedAndOneAction
+                : string.Format(Loc.TurnSummary_ReasonedAndActions, totalToolCalls);
         else if (totalToolCalls > 0)
             label = totalToolCalls == 1
-                ? Loc.ToolGroup_Finished
+                ? Loc.ToolGroup_FinishedOne
                 : string.Format(Loc.ToolGroup_FinishedCount, totalToolCalls);
         else
-            label = Loc.Tool_ReasoningLabel;
+            label = Loc.TurnSummary_ReasonedAndOneAction;
 
         if (failedCount > 0)
             label += " " + string.Format(Loc.ToolGroup_FinishedFailed, failedCount);

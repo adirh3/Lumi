@@ -155,9 +155,12 @@
   "ToolGroup_WorkingCount": "Working ({0} actions)\u2026",
   "ToolGroup_Finished": "Finished",
   "ToolGroup_FinishedCount": "Finished {0} actions",
+  "ToolGroup_FinishedOne": "Finished 1 action",
   "ToolGroup_FinishedFailed": "Finished ({0} failed)",
   "ToolGroup_FinishedWithFailed": "{0} ({1} failed)",
   "TurnSummary_ReasonedAndActions": "Reasoned \u00b7 {0} actions",
+  "TurnSummary_ReasonedAndOneAction": "Reasoned \u00b7 1 action",
+  "TurnSummary_Reasoned": "Reasoned",
 
   "Tool_ReasoningLabel": "Reasoning",
 
