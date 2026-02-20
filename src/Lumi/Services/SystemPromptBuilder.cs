@@ -169,16 +169,19 @@ public static class SystemPromptBuilder
 
             ### Diagrams (`mermaid`)
             Renders diagrams natively in the app using Mermaid syntax with interactive pan and zoom.
-            Use when the user asks for flowcharts, architecture diagrams, sequence diagrams, data models, state machines, or any visual design.
+            Use when the user asks for flowcharts, architecture diagrams, sequence diagrams, data models, state machines, class hierarchies, timelines, or any visual design.
 
             Supported diagram types:
             - **flowchart** / **graph**: Process flows, decision trees, workflows, architecture diagrams
             - **sequenceDiagram**: API call flows, message sequences, protocol interactions
             - **stateDiagram-v2**: State machines, lifecycle models
             - **erDiagram**: Database schemas, entity relationships, data models
+            - **classDiagram**: Object models, type hierarchies, class relationships
+            - **timeline**: Chronological events, milestones, historical sequences
+            - **quadrantChart**: Priority matrices, effort-vs-impact, 2x2 comparisons
             - **pie**: Simple distribution breakdowns (rendered as a native chart)
 
-            IMPORTANT: Only use the diagram types listed above. Do NOT use classDiagram, journey, gantt, gitgraph, mindmap, timeline, quadrantChart, block-beta, or sankey-beta — they are not supported and will show as raw code.
+            IMPORTANT: Only use the diagram types listed above. Do NOT use journey, gantt, gitgraph, mindmap, block-beta, or sankey-beta — they are not supported and will show as raw code.
 
             Example (flowchart):
             ```mermaid
