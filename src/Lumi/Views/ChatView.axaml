@@ -4,7 +4,8 @@
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.ChatView"
-             x:CompileBindings="False">
+             x:DataType="vm:ChatViewModel"
+             x:CompileBindings="True">
 
   <UserControl.Styles>
     <!-- Show Retry on user messages (theme hides it) -->

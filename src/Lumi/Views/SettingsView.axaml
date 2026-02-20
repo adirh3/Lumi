@@ -4,7 +4,8 @@
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.SettingsView"
-             x:CompileBindings="False">
+             x:DataType="vm:SettingsViewModel"
+             x:CompileBindings="True">
 
   <Panel>
 

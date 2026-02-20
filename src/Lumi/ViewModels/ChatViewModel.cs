@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -934,7 +935,7 @@ public partial class ChatViewModel : ObservableObject
         else                           score += 2000; // gpt-N, etc.
 
         // ── Version extraction: find the first N.N or N pattern ──
-        var versionMatch = System.Text.RegularExpressions.Regex.Match(m, @"(\d+)(?:\.(\d+))?");
+        var versionMatch = VersionRegex().Match(m);
         if (versionMatch.Success)
         {
             var major = int.Parse(versionMatch.Groups[1].Value);
@@ -958,15 +959,16 @@ public partial class ChatViewModel : ObservableObject
         return !ScriptExtensions.Contains(ext);
     }
 
-    private static readonly System.Text.RegularExpressions.Regex FilePathRegex = new(
-        @"(?:^|[\s`""'(\[])([A-Za-z]:\\[^\s`""'<>|*?\[\]]+\.\w{1,10})"
-        + @"|(?:^|[\s`""'(\[])((?:/|~/)[^\s`""'<>|*?\[\]]+\.\w{1,10})",
-        System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.Compiled);
+    [GeneratedRegex(@"(?:^|[\s`""'(\[])([A-Za-z]:\\[^\s`""'<>|*?\[\]]+\.\w{1,10})|(?:^|[\s`""'(\[])((?:/|~/)[^\s`""'<>|*?\[\]]+\.\w{1,10})", RegexOptions.Multiline)]
+    private static partial Regex FilePathRegex();
+
+    [GeneratedRegex(@"(\d+)(?:\.(\d+))?")]
+    private static partial Regex VersionRegex();
 
     public static string[] ExtractFilePathsFromContent(string content)
     {
         if (string.IsNullOrWhiteSpace(content)) return [];
-        var matches = FilePathRegex.Matches(content);
+        var matches = FilePathRegex().Matches(content);
         return matches
             .Select(m => !string.IsNullOrEmpty(m.Groups[1].Value) ? m.Groups[1].Value : m.Groups[2].Value)
             .Where(p => !string.IsNullOrEmpty(p))

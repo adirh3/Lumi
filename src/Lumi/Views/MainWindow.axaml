@@ -6,7 +6,8 @@
         xmlns:models="using:Lumi.Models"
         xmlns:loc="using:Lumi.Localization"
         x:Class="Lumi.Views.MainWindow"
-        x:CompileBindings="False"
+        x:DataType="vm:MainViewModel"
+        x:CompileBindings="True"
         Title="Lumi"
         Width="1320" Height="860"
         MinWidth="800" MinHeight="560"
@@ -232,7 +233,7 @@
                 <ItemsControl x:Name="ChatGroupsHost" ItemsSource="{Binding ChatGroups}" Margin="6,0,6,8">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                      <StackPanel Margin="0,0,0,2">
+                      <StackPanel x:DataType="vm:ChatGroup" Margin="0,0,0,2">
                         <TextBlock Text="{Binding Label}" FontSize="{DynamicResource Font.SizeCaption}" FontWeight="SemiBold"
                                    Foreground="{DynamicResource Brush.TextTertiary}"
                                    Margin="10,10,0,4" />
@@ -241,10 +242,10 @@
                                  SelectionMode="Single"
                                  SelectedItem="{x:Null}">
                           <ListBox.ItemTemplate>
-                            <DataTemplate>
+                            <DataTemplate x:DataType="models:Chat">
                               <Panel Background="Transparent">
                                 <Panel.ContextMenu>
-                                  <ContextMenu>
+                                  <ContextMenu x:CompileBindings="False">
                                     <MenuItem Header="{loc:Str Menu_Rename}"
                                               Command="{Binding $parent[Window].DataContext.StartRenameChatCommand}"
                                               CommandParameter="{Binding}">
@@ -300,7 +301,7 @@
           </Panel>
 
           <!-- ── 1: Projects sidebar ── -->
-          <Panel x:Name="SidebarProjects" IsVisible="False" DataContext="{Binding ProjectsVM}">
+          <Panel x:Name="SidebarProjects" IsVisible="False" DataContext="{Binding ProjectsVM}" x:DataType="vm:ProjectsViewModel">
             <DockPanel>
               <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
@@ -328,10 +329,10 @@
                        SelectedItem="{Binding SelectedProject, Mode=TwoWay}"
                        SelectionMode="Single">
                 <ListBox.ItemTemplate>
-                  <DataTemplate>
+                  <DataTemplate x:DataType="models:Project">
                     <Panel Background="Transparent">
                       <Panel.ContextMenu>
-                        <ContextMenu>
+                        <ContextMenu x:CompileBindings="False">
                           <MenuItem Header="{loc:Str Menu_Delete}"
                                     Command="{Binding $parent[Window].DataContext.ProjectsVM.DeleteProjectCommand}"
                                     CommandParameter="{Binding}">
@@ -359,7 +360,7 @@
           </Panel>
 
           <!-- ── 2: Skills sidebar ── -->
-          <Panel x:Name="SidebarSkills" IsVisible="False" DataContext="{Binding SkillsVM}">
+          <Panel x:Name="SidebarSkills" IsVisible="False" DataContext="{Binding SkillsVM}" x:DataType="vm:SkillsViewModel">
             <DockPanel>
               <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
@@ -387,10 +388,10 @@
                        SelectedItem="{Binding SelectedSkill, Mode=TwoWay}"
                        SelectionMode="Single">
                 <ListBox.ItemTemplate>
-                  <DataTemplate>
+                  <DataTemplate x:DataType="models:Skill">
                     <Panel Background="Transparent">
                       <Panel.ContextMenu>
-                        <ContextMenu>
+                        <ContextMenu x:CompileBindings="False">
                           <MenuItem Header="{loc:Str Menu_Delete}"
                                     Command="{Binding $parent[Window].DataContext.SkillsVM.DeleteSkillCommand}"
                                     CommandParameter="{Binding}">
@@ -414,7 +415,7 @@
           </Panel>
 
           <!-- ── 3: Lumis sidebar ── -->
-          <Panel x:Name="SidebarAgents" IsVisible="False" DataContext="{Binding AgentsVM}">
+          <Panel x:Name="SidebarAgents" IsVisible="False" DataContext="{Binding AgentsVM}" x:DataType="vm:AgentsViewModel">
             <DockPanel>
               <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
@@ -442,10 +443,10 @@
                        SelectedItem="{Binding SelectedAgent, Mode=TwoWay}"
                        SelectionMode="Single">
                 <ListBox.ItemTemplate>
-                  <DataTemplate>
+                  <DataTemplate x:DataType="models:LumiAgent">
                     <Panel Background="Transparent">
                       <Panel.ContextMenu>
-                        <ContextMenu>
+                        <ContextMenu x:CompileBindings="False">
                           <MenuItem Header="{loc:Str Menu_Delete}"
                                     Command="{Binding $parent[Window].DataContext.AgentsVM.DeleteAgentCommand}"
                                     CommandParameter="{Binding}">
@@ -469,7 +470,7 @@
           </Panel>
 
           <!-- ── 4: Memories sidebar ── -->
-          <Panel x:Name="SidebarMemories" IsVisible="False" DataContext="{Binding MemoriesVM}">
+          <Panel x:Name="SidebarMemories" IsVisible="False" DataContext="{Binding MemoriesVM}" x:DataType="vm:MemoriesViewModel">
             <DockPanel>
               <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
@@ -497,10 +498,10 @@
                        SelectedItem="{Binding SelectedMemory, Mode=TwoWay}"
                        SelectionMode="Single">
                 <ListBox.ItemTemplate>
-                  <DataTemplate>
+                  <DataTemplate x:DataType="models:Memory">
                     <Panel Background="Transparent">
                       <Panel.ContextMenu>
-                        <ContextMenu>
+                        <ContextMenu x:CompileBindings="False">
                           <MenuItem Header="{loc:Str Menu_Delete}"
                                     Command="{Binding $parent[Window].DataContext.MemoriesVM.DeleteMemoryCommand}"
                                     CommandParameter="{Binding}">
@@ -524,7 +525,7 @@
           </Panel>
 
           <!-- ── 5: Settings sidebar ── -->
-          <Panel x:Name="SidebarSettings" IsVisible="False" DataContext="{Binding SettingsVM}">
+          <Panel x:Name="SidebarSettings" IsVisible="False" DataContext="{Binding SettingsVM}" x:DataType="vm:SettingsViewModel">
             <DockPanel>
               <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
                 <TextBlock Text="{loc:Str Sidebar_Settings}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"

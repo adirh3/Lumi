@@ -4,7 +4,8 @@
              xmlns:models="using:Lumi.Models"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.MemoriesView"
-             x:CompileBindings="False">
+             x:DataType="vm:MemoriesViewModel"
+             x:CompileBindings="True">
 
   <Panel>
       <!-- Editor form -->

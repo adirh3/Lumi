@@ -4,7 +4,8 @@
              xmlns:models="using:Lumi.Models"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.ProjectsView"
-             x:CompileBindings="False">
+             x:DataType="vm:ProjectsViewModel"
+             x:CompileBindings="True">
 
   <Panel>
       <!-- Editor form -->
@@ -46,7 +47,7 @@
             </StackPanel>
             <ItemsControl ItemsSource="{Binding ProjectChats}">
               <ItemsControl.ItemTemplate>
-                <DataTemplate>
+                <DataTemplate x:DataType="models:Chat" x:CompileBindings="False">
                   <Button Classes="subtle" HorizontalAlignment="Stretch"
                           HorizontalContentAlignment="Left"
                           Padding="12,8" MinHeight="0" Margin="0,1"

@@ -1111,7 +1111,7 @@ public partial class ChatView : UserControl
         try
         {
             using var doc = JsonDocument.Parse(argsJson);
-            return JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true });
+            return JsonSerializer.Serialize(doc, AppDataJsonContext.Default.JsonDocument);
         }
         catch
         {

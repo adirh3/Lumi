@@ -6,6 +6,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <ApplicationIcon>Assets\lumi-icon.ico</ApplicationIcon>
+
+    <!-- Native AOT -->
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <StripSymbols>true</StripSymbols>
+    <EventSourceSupport>false</EventSourceSupport>
   </PropertyGroup>
 
   <!-- Windows: target Windows TFM so WinRT toast types are available in-process -->

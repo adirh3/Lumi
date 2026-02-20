@@ -4,7 +4,8 @@
              xmlns:models="using:Lumi.Models"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.SkillsView"
-             x:CompileBindings="False">
+             x:DataType="vm:SkillsViewModel"
+             x:CompileBindings="True">
 
   <Panel>
       <!-- Editor form -->
