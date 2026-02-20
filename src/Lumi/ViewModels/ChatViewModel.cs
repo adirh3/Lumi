@@ -209,6 +209,20 @@ public partial class ChatViewModel : ObservableObject
             SaveChat();
         });
 
+        _copilotService.OnIdle += () => Dispatcher.UIThread.Post(() =>
+        {
+            // Show native notification when the full interaction is complete
+            if (_dataStore.Data.Settings.NotificationsEnabled)
+            {
+                var name = ActiveAgent?.Name ?? Loc.Author_Lumi;
+                var chatTitle = CurrentChat?.Title;
+                var body = string.IsNullOrWhiteSpace(chatTitle)
+                    ? Loc.Notification_ResponseReady
+                    : $"{chatTitle} — {Loc.Notification_ResponseReady}";
+                NotificationService.ShowIfInactive(name, body);
+            }
+        });
+
         _copilotService.OnTitleChanged += title => Dispatcher.UIThread.Post(() =>
         {
             if (!_dataStore.Data.Settings.AutoGenerateTitles)

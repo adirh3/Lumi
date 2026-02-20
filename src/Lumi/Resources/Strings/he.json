@@ -321,5 +321,7 @@
   "Button_ResetDefaults": "איפוס ברירות מחדל",
 
   "Tray_Show": "הצגת לומי",
-  "Tray_Exit": "יציאה"
+  "Tray_Exit": "יציאה",
+
+  "Notification_ResponseReady": "התגובה מוכנה"
 }

@@ -321,5 +321,7 @@
   "Button_ResetDefaults": "Reset Defaults",
 
   "Tray_Show": "Show Lumi",
-  "Tray_Exit": "Exit"
+  "Tray_Exit": "Exit",
+
+  "Notification_ResponseReady": "Response ready"
 }
