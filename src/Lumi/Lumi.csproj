@@ -34,9 +34,15 @@
     <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.3" />
   </ItemGroup>
 
+  <!-- Prefer local sibling Strata repo for development; fall back to submodule -->
+  <PropertyGroup>
+    <StrataPath Condition="Exists('..\..\..\Strata\src\StrataTheme\StrataTheme.csproj')">..\..\..\Strata\src\StrataTheme\StrataTheme.csproj</StrataPath>
+    <StrataPath Condition="'$(StrataPath)' == ''">..\..\Strata\src\StrataTheme\StrataTheme.csproj</StrataPath>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Lumi.Generators\Lumi.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\..\Strata\src\StrataTheme\StrataTheme.csproj" />
+    <ProjectReference Include="$(StrataPath)" />
   </ItemGroup>
 
 </Project>

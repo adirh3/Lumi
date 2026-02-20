@@ -1,0 +1,3 @@
+[submodule "Strata"]
+	path = Strata
+	url = https://github.com/adirh3/Strata.git
