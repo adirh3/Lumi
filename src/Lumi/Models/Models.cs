@@ -86,6 +86,7 @@ public class UserSettings
     public bool LaunchAtStartup { get; set; }
     public bool StartMinimized { get; set; }
     public bool MinimizeToTray { get; set; }
+    public string GlobalHotkey { get; set; } = "";
     public bool NotificationsEnabled { get; set; } = true;
 
     // ── Appearance ──

@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Lumi.Localization;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -16,6 +17,7 @@ public partial class App : Application
 {
     private TrayIcon? _trayIcon;
     private Window? _mainWindow;
+    private GlobalHotkeyService? _hotkeyService;
 
     public override void Initialize()
     {
@@ -59,6 +61,16 @@ public partial class App : Application
             // Set up tray icon if enabled
             if (dataStore.Data.Settings.MinimizeToTray)
                 SetupTrayIcon(true);
+
+            // Set up global hotkey
+            _hotkeyService = new GlobalHotkeyService();
+            _hotkeyService.HotkeyPressed += () => Dispatcher.UIThread.Post(ToggleMainWindow);
+            window.Opened += (_, _) =>
+            {
+                _hotkeyService.Attach(window);
+                if (!string.IsNullOrWhiteSpace(dataStore.Data.Settings.GlobalHotkey))
+                    _hotkeyService.Register(dataStore.Data.Settings.GlobalHotkey);
+            };
 
             desktop.MainWindow = window;
         }
@@ -120,5 +132,41 @@ public partial class App : Application
         _mainWindow.ShowInTaskbar = true;
         _mainWindow.WindowState = WindowState.Normal;
         _mainWindow.Activate();
+    }
+
+    /// <summary>Toggle window visibility. Called by the global hotkey.</summary>
+    public void ToggleMainWindow()
+    {
+        if (_mainWindow is null) return;
+
+        // If visible, focused, and not minimized → hide/minimize
+        if (_mainWindow.IsVisible
+            && _mainWindow.WindowState != WindowState.Minimized
+            && _mainWindow.IsActive)
+        {
+            if (_mainWindow.DataContext is ViewModels.MainViewModel vm && vm.SettingsVM.MinimizeToTray)
+            {
+                _mainWindow.ShowInTaskbar = false;
+                _mainWindow.Hide();
+            }
+            else
+            {
+                _mainWindow.WindowState = WindowState.Minimized;
+            }
+        }
+        else
+        {
+            ShowMainWindow();
+        }
+    }
+
+    /// <summary>Update the global hotkey registration. Called from SettingsViewModel.</summary>
+    public void UpdateGlobalHotkey(string hotkeyString)
+    {
+        if (_hotkeyService is null) return;
+        if (string.IsNullOrWhiteSpace(hotkeyString))
+            _hotkeyService.Unregister();
+        else
+            _hotkeyService.Register(hotkeyString);
     }
 }

@@ -2,9 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using Lumi.Localization;
+using Lumi.Services;
 using Lumi.ViewModels;
 using StrataTheme.Controls;
 
@@ -22,6 +25,12 @@ public partial class SettingsView : UserControl
     private Button? _clearSearchButton;
     private Button? _noResultsClearButton;
     private Button? _signInButton;
+    private Button? _hotkeyRecorderButton;
+    private bool _isRecordingHotkey;
+    private bool _hotkeyRecordingCooldown;
+    private Interactive? _hotkeyEventSource;
+
+    public bool IsRecordingHotkey => _isRecordingHotkey;
 
     // Page header elements for search mode styling
     private (TextBlock Title, TextBlock Description)[] _pageHeaders = [];
@@ -66,6 +75,13 @@ public partial class SettingsView : UserControl
         if (_signInButton is not null)
             _signInButton.Content = Loc.Button_SignIn;
 
+        _hotkeyRecorderButton = this.FindControl<Button>("HotkeyRecorderButton");
+        if (_hotkeyRecorderButton is not null)
+        {
+            _hotkeyRecorderButton.Focusable = false;
+            _hotkeyRecorderButton.Click += OnHotkeyRecorderButtonClick;
+        }
+
         // Extract page header elements (title + description TextBlocks)
         var headers = new List<(TextBlock, TextBlock)>();
         foreach (var page in _pages)
@@ -95,6 +111,8 @@ public partial class SettingsView : UserControl
     {
         [Loc.Setting_LaunchAtStartup] = vm => vm.RevertLaunchAtStartupCommand.Execute(null),
         [Loc.Setting_StartMinimized] = vm => vm.RevertStartMinimizedCommand.Execute(null),
+        [Loc.Setting_MinimizeToTray] = vm => vm.RevertMinimizeToTrayCommand.Execute(null),
+        [Loc.Setting_GlobalHotkey] = vm => vm.RevertGlobalHotkeyCommand.Execute(null),
         [Loc.Setting_EnableNotifications] = vm => vm.RevertNotificationsEnabledCommand.Execute(null),
         [Loc.Setting_DarkMode] = vm => vm.RevertIsDarkThemeCommand.Execute(null),
         [Loc.Setting_CompactDensity] = vm => vm.RevertIsCompactDensityCommand.Execute(null),
@@ -127,9 +145,12 @@ public partial class SettingsView : UserControl
                     ApplySearch(vm.SearchQuery);
                 else if (args.PropertyName == nameof(SettingsViewModel.IsSigningIn))
                     UpdateSignInButton(vm);
+                else if (args.PropertyName == nameof(SettingsViewModel.GlobalHotkey))
+                    UpdateHotkeyButtonText();
             };
 
             UpdateSignInButton(vm);
+            UpdateHotkeyButtonText();
         }
     }
 
@@ -272,4 +293,175 @@ public partial class SettingsView : UserControl
         if (_signInButton is not null)
             _signInButton.Content = vm.IsSigningIn ? Loc.Button_SigningIn : Loc.Button_SignIn;
     }
+
+    private void OnHotkeyRecorderButtonClick(object? sender, RoutedEventArgs e)
+    {
+        if (_isRecordingHotkey)
+            return;
+
+        StartHotkeyRecording();
+    }
+
+    // ── Hotkey recording ──
+
+    private void StartHotkeyRecording()
+    {
+        if (_hotkeyRecorderButton is null || _hotkeyRecordingCooldown) return;
+        _isRecordingHotkey = true;
+        _hotkeyRecorderButton.Content = Loc.Setting_GlobalHotkeyRecording;
+        _hotkeyRecorderButton.Classes.Add("accent");
+        _hotkeyRecorderButton.Focusable = false;
+
+        // Capture from top-level so recording works regardless of focused child control.
+        _hotkeyEventSource = TopLevel.GetTopLevel(this) as Interactive ?? this;
+        _hotkeyEventSource.AddHandler(KeyDownEvent, OnHotkeyKeyDown, RoutingStrategies.Tunnel);
+        _hotkeyEventSource.AddHandler(KeyUpEvent, OnHotkeyKeyUp, RoutingStrategies.Tunnel);
+        _hotkeyEventSource.AddHandler(PointerPressedEvent, OnHotkeyPointerPressed, RoutingStrategies.Tunnel);
+
+        // Move focus off the button so Space release cannot trigger Click.
+        Focusable = true;
+        Focus();
+    }
+
+    private void StopHotkeyRecording()
+    {
+        _isRecordingHotkey = false;
+        var eventSource = _hotkeyEventSource ?? this;
+        eventSource.RemoveHandler(KeyDownEvent, OnHotkeyKeyDown);
+        eventSource.RemoveHandler(KeyUpEvent, OnHotkeyKeyUp);
+        eventSource.RemoveHandler(PointerPressedEvent, OnHotkeyPointerPressed);
+        _hotkeyEventSource = null;
+        _hotkeyRecorderButton?.Classes.Remove("accent");
+
+        // Prevent the pending KeyUp (e.g. Space release) from re-triggering
+        // the button Click → StartHotkeyRecording on the same frame
+        _hotkeyRecordingCooldown = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _hotkeyRecordingCooldown = false;
+        }, DispatcherPriority.Background);
+
+        UpdateHotkeyButtonText();
+    }
+
+    private void OnHotkeyKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (!_isRecordingHotkey || _hotkeyRecorderButton is null) return;
+
+        e.Handled = true;
+
+        // Pure modifier press → show live preview ("Ctrl+…", "Ctrl+Alt+…")
+        if (e.Key is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift
+            or Key.LeftAlt or Key.RightAlt or Key.LWin or Key.RWin)
+        {
+            // e.KeyModifiers may not yet include the just-pressed key, so merge it
+            var mods = e.KeyModifiers | (e.Key switch
+            {
+                Key.LeftCtrl or Key.RightCtrl => KeyModifiers.Control,
+                Key.LeftShift or Key.RightShift => KeyModifiers.Shift,
+                Key.LeftAlt or Key.RightAlt => KeyModifiers.Alt,
+                Key.LWin or Key.RWin => KeyModifiers.Meta,
+                _ => KeyModifiers.None
+            });
+            _hotkeyRecorderButton.Content = BuildModifierPreview(mods);
+            return;
+        }
+
+        // Escape cancels recording
+        if (e.Key == Key.Escape && e.KeyModifiers == KeyModifiers.None)
+        {
+            StopHotkeyRecording();
+            return;
+        }
+
+        // Delete/Backspace without modifiers clears the hotkey
+        if ((e.Key == Key.Delete || e.Key == Key.Back) && e.KeyModifiers == KeyModifiers.None)
+        {
+            if (DataContext is SettingsViewModel vm)
+                vm.GlobalHotkey = "";
+            StopHotkeyRecording();
+            return;
+        }
+
+        // Require at least one modifier
+        if (e.KeyModifiers == KeyModifiers.None) return;
+
+        var parts = new List<string>();
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control)) parts.Add("Ctrl");
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Alt)) parts.Add("Alt");
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) parts.Add("Shift");
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Meta)) parts.Add("Win");
+
+        parts.Add(FormatKeyName(e.Key));
+
+        var hotkey = string.Join("+", parts);
+
+        if (GlobalHotkeyService.TryParseHotkey(hotkey, out _, out _))
+        {
+            if (DataContext is SettingsViewModel vm)
+                vm.GlobalHotkey = hotkey;
+        }
+
+        StopHotkeyRecording();
+    }
+
+    private static string BuildModifierPreview(KeyModifiers mods)
+    {
+        var parts = new List<string>();
+        if (mods.HasFlag(KeyModifiers.Control)) parts.Add("Ctrl");
+        if (mods.HasFlag(KeyModifiers.Alt)) parts.Add("Alt");
+        if (mods.HasFlag(KeyModifiers.Shift)) parts.Add("Shift");
+        if (mods.HasFlag(KeyModifiers.Meta)) parts.Add("Win");
+        return parts.Count > 0 ? string.Join("+", parts) + "+\u2026" : Loc.Setting_GlobalHotkeyRecording;
+    }
+
+    private void OnHotkeyPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (_isRecordingHotkey)
+            StopHotkeyRecording();
+    }
+
+    /// <summary>Suppress KeyUp during recording so the button doesn't fire Click on Space release.</summary>
+    private void OnHotkeyKeyUp(object? sender, KeyEventArgs e)
+    {
+        if (_isRecordingHotkey)
+            e.Handled = true;
+    }
+
+    private void UpdateHotkeyButtonText()
+    {
+        if (_hotkeyRecorderButton is null) return;
+        if (DataContext is SettingsViewModel vm && !string.IsNullOrWhiteSpace(vm.GlobalHotkey))
+            _hotkeyRecorderButton.Content = vm.GlobalHotkey;
+        else
+            _hotkeyRecorderButton.Content = Loc.Setting_GlobalHotkeyNotSet;
+    }
+
+    private static string FormatKeyName(Key key) => key switch
+    {
+        >= Key.A and <= Key.Z => key.ToString(),
+        >= Key.D0 and <= Key.D9 => ((char)('0' + (key - Key.D0))).ToString(),
+        >= Key.F1 and <= Key.F12 => key.ToString(),
+        Key.Space => "Space",
+        Key.Return => "Enter",
+        Key.Tab => "Tab",
+        Key.Escape => "Escape",
+        Key.Back => "Backspace",
+        Key.Delete => "Delete",
+        Key.Insert => "Insert",
+        Key.Home => "Home",
+        Key.End => "End",
+        Key.PageUp => "PageUp",
+        Key.PageDown => "PageDown",
+        Key.Up => "Up",
+        Key.Down => "Down",
+        Key.Left => "Left",
+        Key.Right => "Right",
+        Key.OemTilde => "OemTilde",
+        Key.OemMinus => "OemMinus",
+        Key.OemPlus => "OemPlus",
+        Key.OemPeriod => "OemPeriod",
+        Key.OemComma => "OemComma",
+        _ => key.ToString()
+    };
 }

@@ -87,6 +87,15 @@
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
 
+        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Keyboard}">
+          <sc:StrataSetting Header="{loc:Str Setting_GlobalHotkey}" Description="{loc:Str SettingDesc_GlobalHotkey}"
+                            IsModified="{Binding IsGlobalHotkeyModified}">
+            <Button x:Name="HotkeyRecorderButton" Classes="subtle" Padding="14,6" MinHeight="0"
+                    MinWidth="120" HorizontalContentAlignment="Center"
+                    FontSize="{DynamicResource Font.SizeCaption}" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Language}">
           <sc:StrataSetting Header="{loc:Str Setting_Language}" Description="{loc:Str SettingDesc_Language}">
             <ComboBox ItemsSource="{Binding LanguageOptions}"

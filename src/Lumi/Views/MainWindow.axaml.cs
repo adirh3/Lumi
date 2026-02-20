@@ -142,6 +142,10 @@ public partial class MainWindow : Window
         if (e.Handled) return;
         if (DataContext is not MainViewModel vm || !vm.IsOnboarded) return;
 
+        // Don't intercept shortcuts while recording a global hotkey
+        var settingsPage = _pages.Length > 5 ? _pages[5] as SettingsView : null;
+        if (settingsPage?.IsRecordingHotkey == true) return;
+
         var ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
         var shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
         var noMods = e.KeyModifiers == KeyModifiers.None;
