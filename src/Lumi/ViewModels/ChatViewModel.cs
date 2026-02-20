@@ -163,14 +163,29 @@ public partial class ChatViewModel : ObservableObject
                     {
                         if (streamingMsg is not null)
                         {
-                            streamingMsg.Content = msg.Data.Content;
-                            streamingMsg.IsStreaming = false;
-                            chat.Messages.Add(streamingMsg);
-                            _inProgressMessages.Remove(chat.Id);
-                            if (_activeSession == session)
+                            var finalContent = msg.Data.Content;
+                            if (string.IsNullOrWhiteSpace(finalContent))
                             {
-                                var vm = Messages.LastOrDefault(m => m.Message == streamingMsg);
-                                vm?.NotifyStreamingEnded();
+                                // Empty assistant message (SDK artifact) — discard it so
+                                // preceding reasoning/tool blocks merge with the real reply.
+                                _inProgressMessages.Remove(chat.Id);
+                                if (_activeSession == session)
+                                {
+                                    var vm = Messages.LastOrDefault(m => m.Message == streamingMsg);
+                                    if (vm is not null) Messages.Remove(vm);
+                                }
+                            }
+                            else
+                            {
+                                streamingMsg.Content = finalContent;
+                                streamingMsg.IsStreaming = false;
+                                chat.Messages.Add(streamingMsg);
+                                _inProgressMessages.Remove(chat.Id);
+                                if (_activeSession == session)
+                                {
+                                    var vm = Messages.LastOrDefault(m => m.Message == streamingMsg);
+                                    vm?.NotifyStreamingEnded();
+                                }
                             }
                         }
                         streamingMsg = null;
@@ -395,7 +410,12 @@ public partial class ChatViewModel : ObservableObject
         IsLoadingChat = true;
         Messages.Clear();
         foreach (var msg in chat.Messages)
+        {
+            // Skip empty assistant messages (SDK artifact)
+            if (msg.Role == "assistant" && string.IsNullOrWhiteSpace(msg.Content))
+                continue;
             Messages.Add(new ChatMessageViewModel(msg));
+        }
 
         // If there's an in-progress streaming message not yet committed, show it
         if (_inProgressMessages.TryGetValue(chat.Id, out var inProgress))
@@ -995,7 +1015,9 @@ public partial class ChatViewModel : ObservableObject
 
         // Rebuild the UI without the removed messages
         Messages.Clear();
-        foreach (var msg in CurrentChat.Messages.Where(m => m.Role != "reasoning"))
+        foreach (var msg in CurrentChat.Messages.Where(m =>
+            m.Role != "reasoning"
+            && !(m.Role == "assistant" && string.IsNullOrWhiteSpace(m.Content))))
             Messages.Add(new ChatMessageViewModel(msg));
 
         _shownFileChips.Clear();
