@@ -18,7 +18,43 @@
     </Style>
   </UserControl.Styles>
 
-  <Panel>
+  <Panel DragDrop.AllowDrop="True">
+    <!-- Drop overlay -->
+    <Panel x:Name="DropOverlay" IsVisible="False" IsHitTestVisible="False"
+           ZIndex="100">
+      <!-- Dimming backdrop -->
+      <Border Background="{DynamicResource Brush.Surface0}" Opacity="0.85" />
+      <!-- Accent border inset -->
+      <Border Margin="16" CornerRadius="12" BorderThickness="2"
+              BorderBrush="{DynamicResource Brush.AccentDefault}" />
+      <!-- Centered content -->
+      <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+        <Border Width="56" Height="56" CornerRadius="28"
+                Background="{DynamicResource Brush.AccentSubtle}"
+                HorizontalAlignment="Center">
+          <Viewbox Width="24" Height="24" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Canvas Width="24" Height="24">
+              <!-- Upload/drop arrow icon -->
+              <Path Stroke="{DynamicResource Brush.AccentDefault}"
+                    StrokeThickness="2.2" StrokeLineCap="Round"
+                    Data="M12,2 L12,16 M12,2 L7,7 M12,2 L17,7" />
+              <Path Stroke="{DynamicResource Brush.AccentDefault}"
+                    StrokeThickness="2.2" StrokeLineCap="Round"
+                    Data="M4,17 L4,20 C4,21.1 4.9,22 6,22 L18,22 C19.1,22 20,21.1 20,20 L20,17" />
+            </Canvas>
+          </Viewbox>
+        </Border>
+        <StackPanel Spacing="4" HorizontalAlignment="Center">
+          <TextBlock Text="{loc:Str DragDrop_Hint}" Classes="body-strong" FontSize="15"
+                     Foreground="{DynamicResource Brush.AccentDefault}"
+                     HorizontalAlignment="Center" />
+          <TextBlock Text="{loc:Str DragDrop_Subhint}" Classes="caption"
+                     Foreground="{DynamicResource Brush.TextTertiary}"
+                     HorizontalAlignment="Center" />
+        </StackPanel>
+      </StackPanel>
+    </Panel>
+
     <!-- Welcome state (no active chat) -->
     <Panel x:Name="WelcomePanel">
       <!-- Centered greeting (offset up to leave room for composer) -->

@@ -332,5 +332,8 @@
   "Tray_Show": "הצגת לומי",
   "Tray_Exit": "יציאה",
 
-  "Notification_ResponseReady": "התגובה מוכנה"
+  "Notification_ResponseReady": "התגובה מוכנה",
+
+  "DragDrop_Hint": "שחרר קבצים לצירוף",
+  "DragDrop_Subhint": "הקבצים יצורפו להודעה שלך"
 }

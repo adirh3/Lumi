@@ -332,5 +332,8 @@
   "Tray_Show": "Show Lumi",
   "Tray_Exit": "Exit",
 
-  "Notification_ResponseReady": "Response ready"
+  "Notification_ResponseReady": "Response ready",
+
+  "DragDrop_Hint": "Drop files to attach",
+  "DragDrop_Subhint": "Files will be added to your message"
 }

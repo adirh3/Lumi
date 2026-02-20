@@ -11,6 +11,7 @@ using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data.Converters;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
@@ -32,6 +33,7 @@ public partial class ChatView : UserControl
     private Panel? _welcomePanel;
     private Panel? _chatPanel;
     private StackPanel? _messageStack;
+    private Panel? _dropOverlay;
 
     // Tool grouping state
     private StrataThink? _currentToolGroup;
@@ -80,6 +82,12 @@ public partial class ChatView : UserControl
         _pendingAttachmentList = this.FindControl<StrataAttachmentList>("PendingAttachmentList");
         _welcomePanel = this.FindControl<Panel>("WelcomePanel");
         _chatPanel = this.FindControl<Panel>("ChatPanel");
+        _dropOverlay = this.FindControl<Panel>("DropOverlay");
+
+        AddHandler(DragDrop.DragEnterEvent, OnDragEnter);
+        AddHandler(DragDrop.DragOverEvent, OnDragOver);
+        AddHandler(DragDrop.DragLeaveEvent, OnDragLeave);
+        AddHandler(DragDrop.DropEvent, OnDrop);
     }
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -1095,6 +1103,56 @@ public partial class ChatView : UserControl
         }
         catch { /* ignore if file doesn't exist */ }
     }
+
+    // ── Drag & Drop ──────────────────────────────────────────────
+
+#pragma warning disable CS0618 // DragEventArgs.Data / DataFormats.Files — new IDataTransfer API lacks GetFiles()
+    private void OnDragEnter(object? sender, DragEventArgs e)
+    {
+        if (e.Data.Contains(DataFormats.Files))
+        {
+            e.DragEffects = DragDropEffects.Copy;
+            if (_dropOverlay is not null) _dropOverlay.IsVisible = true;
+        }
+        else
+        {
+            e.DragEffects = DragDropEffects.None;
+        }
+    }
+
+    private void OnDragOver(object? sender, DragEventArgs e)
+    {
+        e.DragEffects = e.Data.Contains(DataFormats.Files)
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
+    }
+
+    private void OnDragLeave(object? sender, DragEventArgs e)
+    {
+        if (_dropOverlay is not null) _dropOverlay.IsVisible = false;
+    }
+
+    private void OnDrop(object? sender, DragEventArgs e)
+    {
+        if (_dropOverlay is not null) _dropOverlay.IsVisible = false;
+
+        if (DataContext is not ChatViewModel vm) return;
+
+        var files = e.Data.GetFiles();
+        if (files is null) return;
+
+        foreach (var item in files)
+        {
+            var path = item.TryGetLocalPath();
+            if (path is not null)
+                vm.AddAttachment(path);
+        }
+
+        // Focus the composer after dropping files
+        var composer = _chatPanel?.IsVisible == true ? _activeComposer : _welcomeComposer;
+        composer?.FocusInput();
+    }
+#pragma warning restore CS0618
 
     private static string FormatFileSize(long bytes)
     {
