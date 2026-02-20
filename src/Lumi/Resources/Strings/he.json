@@ -340,5 +340,8 @@
   "Voice_Tooltip": "קלט קולי",
   "Voice_TooltipRecording": "עצור הקלטה",
   "Voice_Error": "שגיאת קול",
-  "Voice_SpeechPrivacyRequired": "זיהוי קולי דורש הרשאה. אנא הפעל אותו בהגדרות Windows ונסה שוב."
+  "Voice_SpeechPrivacyRequired": "זיהוי קולי דורש הרשאה. אנא הפעל אותו בהגדרות Windows ונסה שוב.",
+
+  "Sources_One": "מקור אחד",
+  "Sources_N": "{0} מקורות"
 }

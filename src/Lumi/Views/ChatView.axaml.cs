@@ -50,6 +50,9 @@ public partial class ChatView : UserControl
     // Files created during tool execution, to be shown after the assistant message
     private readonly List<string> _pendingToolFileChips = [];
 
+    // Search sources collected during tool execution, shown on the next assistant message
+    private readonly List<SearchSource> _pendingSearchSources = [];
+
     // Track tool call start times for duration display
     private readonly Dictionary<string, long> _toolStartTimes = [];
 
@@ -205,6 +208,13 @@ public partial class ChatView : UserControl
                 _pendingToolFileChips.Add(filePath);
         };
 
+        // Collect search results for automatic source citations
+        vm.SearchResultsCollected += results =>
+        {
+            foreach (var r in results)
+                _pendingSearchSources.Add(new SearchSource { Title = r.Title, Snippet = r.Snippet, Url = r.Url });
+        };
+
         // Show/hide typing indicator when agent is busy
         vm.PropertyChanged += (_, args) =>
         {
@@ -263,6 +273,7 @@ public partial class ChatView : UserControl
                 _currentIntentText = null;
                 _shownFilePaths.Clear();
                 _pendingToolFileChips.Clear();
+                _pendingSearchSources.Clear();
                 _toolStartTimes.Clear();
             }
         };
@@ -332,6 +343,7 @@ public partial class ChatView : UserControl
         _currentIntentText = null;
         _shownFilePaths.Clear();
         _pendingToolFileChips.Clear();
+        _pendingSearchSources.Clear();
         _toolStartTimes.Clear();
         if (_chatShell is not null)
             _chatShell.Transcript = _messageStack;
@@ -540,20 +552,37 @@ public partial class ChatView : UserControl
                 contentStack.Children.Add(attachList);
                 msgContent = contentStack;
             }
-            else if (!isUser && _pendingToolFileChips.Count > 0)
+            else if (!isUser && (_pendingToolFileChips.Count > 0 || _pendingSearchSources.Count > 0 || msgVm.Message.Sources.Count > 0))
             {
-                // Attach files created by tools to the assistant message
+                // Attach files and/or search sources to the assistant message
                 var contentStack = new StackPanel { Spacing = 6 };
                 contentStack.Children.Add(md);
 
-                var attachList = new StrataAttachmentList { ShowAddButton = false };
-                foreach (var filePath in _pendingToolFileChips)
+                if (_pendingToolFileChips.Count > 0)
                 {
-                    var chip = CreateFileChip(filePath, isRemovable: false);
-                    attachList.Items.Add(chip);
+                    var attachList = new StrataAttachmentList { ShowAddButton = false };
+                    foreach (var filePath in _pendingToolFileChips)
+                    {
+                        var chip = CreateFileChip(filePath, isRemovable: false);
+                        attachList.Items.Add(chip);
+                    }
+                    contentStack.Children.Add(attachList);
+                    _pendingToolFileChips.Clear();
                 }
-                contentStack.Children.Add(attachList);
-                _pendingToolFileChips.Clear();
+
+                // Collect sources: live pending + persisted on message
+                var allSources = new List<SearchSource>();
+                if (_pendingSearchSources.Count > 0)
+                {
+                    allSources.AddRange(_pendingSearchSources);
+                    _pendingSearchSources.Clear();
+                }
+                if (msgVm.Message.Sources.Count > 0)
+                    allSources.AddRange(msgVm.Message.Sources);
+
+                if (allSources.Count > 0)
+                    contentStack.Children.Add(BuildSourcesSection(allSources));
+
                 msgContent = contentStack;
             }
             else
@@ -1609,6 +1638,82 @@ public partial class ChatView : UserControl
             return doc.RootElement.TryGetProperty(fieldName, out var val) ? val.GetString() : null;
         }
         catch { return null; }
+    }
+
+    private static string ExtractDomain(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return uri.Host.Replace("www.", "");
+        return url;
+    }
+
+    private static Control BuildSourcesSection(List<SearchSource> sources)
+    {
+        // Deduplicate by URL
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var unique = new List<SearchSource>();
+        foreach (var s in sources)
+        {
+            if (seen.Add(s.Url))
+                unique.Add(s);
+        }
+
+        var count = unique.Count;
+        var label = count == 1 ? Loc.Sources_One : string.Format(Loc.Sources_N, count);
+
+        var sourcesList = new StackPanel { Spacing = 2 };
+        foreach (var src in unique)
+        {
+            var domain = ExtractDomain(src.Url);
+
+            var link = new Button
+            {
+                Classes = { "subtle" },
+                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+                Padding = new Thickness(6, 4),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Content = new StackPanel
+                {
+                    Spacing = 2,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = src.Title,
+                            FontSize = 12,
+                            FontWeight = Avalonia.Media.FontWeight.Medium,
+                            TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis,
+                            MaxLines = 1,
+                        },
+                        new TextBlock
+                        {
+                            Text = domain,
+                            FontSize = 11,
+                            Opacity = 0.55,
+                            TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis,
+                        }
+                    }
+                }
+            };
+
+            var url = src.Url;
+            link.Click += (_, _) =>
+            {
+                try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
+                catch { }
+            };
+
+            sourcesList.Children.Add(link);
+        }
+
+        return new StrataThink
+        {
+            Label = label,
+            IsExpanded = false,
+            Content = sourcesList,
+            Margin = new Thickness(0, 4, 0, 0),
+        };
     }
 
     private static string? ExtractToolSummary(string? toolName, string? argsJson)

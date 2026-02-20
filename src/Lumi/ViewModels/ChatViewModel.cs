@@ -27,6 +27,7 @@ public partial class ChatViewModel : ObservableObject
     private readonly CopilotService _copilotService;
     private CancellationTokenSource? _cts;
     private readonly HashSet<string> _shownFileChips = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<SearchSource> _pendingSearchSources = [];
 
     /// <summary>The CopilotSession for the currently displayed chat. Events for this session update the UI.</summary>
     private CopilotSession? _activeSession;
@@ -72,6 +73,7 @@ public partial class ChatViewModel : ObservableObject
     public event Action? UserMessageSent;
     public event Action? ChatUpdated;
     public event Action<string>? FileCreatedByTool;
+    public event Action<List<WebSearchService.SearchResult>>? SearchResultsCollected;
     public event Action? AgentChanged;
 
     public ChatViewModel(DataStore dataStore, CopilotService copilotService)
@@ -179,6 +181,11 @@ public partial class ChatViewModel : ObservableObject
                             {
                                 streamingMsg.Content = finalContent;
                                 streamingMsg.IsStreaming = false;
+                                if (_pendingSearchSources.Count > 0)
+                                {
+                                    streamingMsg.Sources.AddRange(_pendingSearchSources);
+                                    _pendingSearchSources.Clear();
+                                }
                                 chat.Messages.Add(streamingMsg);
                                 _inProgressMessages.Remove(chat.Id);
                                 if (_activeSession == session)
@@ -458,6 +465,7 @@ public partial class ChatViewModel : ObservableObject
         IsBusy = false;
         IsStreaming = false;
         _shownFileChips.Clear();
+        _pendingSearchSources.Clear();
         ActiveSkillIds.Clear();
         ActiveSkillChips.Clear();
         _pendingProjectId = null;
@@ -722,16 +730,26 @@ public partial class ChatViewModel : ObservableObject
         return tools;
     }
 
-    private static List<AIFunction> BuildWebTools()
+    private List<AIFunction> BuildWebTools()
     {
         return
         [
             AIFunctionFactory.Create(
-                ([Description("The search query to look up on the web")] string query,
+                async ([Description("The search query to look up on the web")] string query,
                  [Description("Number of results to return (default 5, max 10)")] int count = 5) =>
                 {
                     count = Math.Clamp(count, 1, 10);
-                    return WebSearchService.SearchAsync(query, count);
+                    var (text, results) = await WebSearchService.SearchWithResultsAsync(query, count);
+                    if (results.Count > 0)
+                    {
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            foreach (var r in results)
+                                _pendingSearchSources.Add(new SearchSource { Title = r.Title, Snippet = r.Snippet, Url = r.Url });
+                            SearchResultsCollected?.Invoke(results);
+                        });
+                    }
+                    return text;
                 },
                 "lumi_search",
                 "Search the web for information. Returns titles, snippets, and URLs from search results. Use this to find current information, answer factual questions, research topics, find product reviews, or discover relevant web pages to fetch."),
@@ -1021,6 +1039,7 @@ public partial class ChatViewModel : ObservableObject
             Messages.Add(new ChatMessageViewModel(msg));
 
         _shownFileChips.Clear();
+        _pendingSearchSources.Clear();
 
         // Re-add the user message as a fresh entry
         var newUserMsg = new ChatMessage

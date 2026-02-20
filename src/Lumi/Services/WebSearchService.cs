@@ -24,6 +24,39 @@ public static partial class WebSearchService
         }
     };
 
+    public static async Task<(string Text, List<SearchResult> Results)> SearchWithResultsAsync(string query, int count = 5)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return ("Error: No search query provided.", []);
+
+        try
+        {
+            var encoded = HttpUtility.UrlEncode(query);
+            var url = $"https://html.duckduckgo.com/html/?q={encoded}";
+            var html = await Http.GetStringAsync(url);
+            var results = ParseResults(html, count);
+
+            if (results.Count == 0)
+                return ($"No results found for: {query}", []);
+
+            var output = $"Search results for: {query}\n\n";
+            for (int i = 0; i < results.Count; i++)
+            {
+                var r = results[i];
+                output += $"{i + 1}. {r.Title}\n   {r.Snippet}\n   {r.Url}\n\n";
+            }
+            return (output.TrimEnd(), results);
+        }
+        catch (TaskCanceledException)
+        {
+            return ("Search timed out. Try a simpler query.", []);
+        }
+        catch (Exception ex)
+        {
+            return ($"Search failed: {ex.Message}", []);
+        }
+    }
+
     public static async Task<string> SearchAsync(string query, int count = 5)
     {
         if (string.IsNullOrWhiteSpace(query))
@@ -133,5 +166,5 @@ public static partial class WebSearchService
     [GeneratedRegex(@"<[^>]+>")]
     private static partial Regex HtmlTagRegex();
 
-    private sealed record SearchResult(string Title, string Snippet, string Url);
+    public sealed record SearchResult(string Title, string Snippet, string Url);
 }

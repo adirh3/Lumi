@@ -16,6 +16,14 @@ public class ChatMessage
     public string? ToolStatus { get; set; } // InProgress, Completed, Failed
     public bool IsStreaming { get; set; }
     public List<string> Attachments { get; set; } = [];
+    public List<SearchSource> Sources { get; set; } = [];
+}
+
+public class SearchSource
+{
+    public string Title { get; set; } = "";
+    public string Snippet { get; set; } = "";
+    public string Url { get; set; } = "";
 }
 
 public class Chat

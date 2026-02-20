@@ -102,9 +102,12 @@ public static class SystemPromptBuilder
 
             Be concise, helpful, and friendly. Use markdown for formatting when helpful.
 
-            ## Charts
-            You can render interactive charts in your responses using fenced code blocks with the `chart` language tag.
-            The content must be valid JSON with these fields:
+            ## Visualizations
+            You can render rich interactive visualizations in your responses using fenced code blocks with special language tags.
+            The content inside each block must be valid JSON.
+
+            ### Charts (`chart`)
+            Renders interactive charts inline.
             - "type": "line", "bar", "donut", or "pie"
             - "labels": array of strings (X-axis labels or segment names)
             - "series": array of objects, each with "name" (string) and "values" (array of numbers matching labels)
@@ -128,6 +131,46 @@ public static class SystemPromptBuilder
             ```chart
             {"type":"bar","labels":["Q1","Q2","Q3","Q4"],"series":[{"name":"Revenue","values":[120,200,150,280]}]}
             ```
+
+            ### Confidence Meter (`confidence`)
+            Renders a horizontal gauge showing how confident you are in your answer.
+            Use when answer certainty varies — especially for research-based, speculative, or partially grounded answers.
+            - "label": string (gauge label, e.g. "Answer confidence")
+            - "value": number 0-100 (confidence percentage)
+            - "explanation": string (optional, brief justification for the score)
+
+            Example:
+            ```confidence
+            {"label":"Answer confidence","value":85,"explanation":"Based on 3 verified sources"}
+            ```
+
+            ### Comparison (`comparison`)
+            Renders a side-by-side A/B view with tabs to switch between two options.
+            Use when the user asks to compare, evaluate, or choose between two alternatives.
+            - "optionA": object with "title" (string) and "content" (markdown string)
+            - "optionB": object with "title" (string) and "content" (markdown string)
+
+            Example:
+            ```comparison
+            {"optionA":{"title":"React","content":"- Component-based\n- Large ecosystem\n- Virtual DOM"},"optionB":{"title":"Svelte","content":"- Compiler-based\n- Smaller bundles\n- No virtual DOM"}}
+            ```
+
+            ### Info Card (`card`)
+            Renders an expandable card with a header, compact summary, and click-to-reveal detail.
+            Use for structured factual answers: weather, definitions, profiles, quick lookups — anything that benefits from a compact summary with expandable depth.
+            - "header": string (card title)
+            - "summary": markdown string (always visible, keep brief)
+            - "detail": markdown string (revealed on click, full details)
+
+            Example:
+            ```card
+            {"header":"Weather in Amsterdam","summary":"☀️ 22°C, sunny with light breeze","detail":"**Humidity:** 45%\n**Wind:** 12 km/h NW\n**UV Index:** 6 (high)\n**Sunset:** 9:42 PM"}
+            ```
+
+            ### Visualization guidelines
+            - Always include a brief text explanation alongside any visualization — never show a visualization alone.
+            - Don't overuse visualizations. Use them when they genuinely improve understanding.
+            - You can use multiple visualization types in a single response when appropriate.
 
             """ + $"""
 
