@@ -11,8 +11,8 @@
     <Style Selector="sc|StrataChatMessage:user /template/ Button#PART_RegenerateButton">
       <Setter Property="IsVisible" Value="True" />
     </Style>
-    <!-- Hide Retry on assistant messages -->
-    <Style Selector="sc|StrataChatMessage:assistant /template/ Button#PART_RegenerateButton">
+    <!-- Hide entire action toolbar on assistant messages -->
+    <Style Selector="sc|StrataChatMessage:assistant /template/ Border#PART_ActionLayer">
       <Setter Property="IsVisible" Value="False" />
     </Style>
   </UserControl.Styles>
