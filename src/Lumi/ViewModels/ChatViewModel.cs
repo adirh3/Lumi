@@ -25,11 +25,25 @@ public partial class ChatViewModel : ObservableObject
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
     private CancellationTokenSource? _cts;
-    private string _accumulatedContent = "";
-    private string _accumulatedReasoning = "";
-    private ChatMessage? _streamingMessage;
-    private ChatMessage? _reasoningMessage;
     private readonly HashSet<string> _shownFileChips = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The CopilotSession for the currently displayed chat. Events for this session update the UI.</summary>
+    private CopilotSession? _activeSession;
+    /// <summary>Maps chat ID → CopilotSession. Sessions survive chat switches.</summary>
+    private readonly Dictionary<Guid, CopilotSession> _sessionCache = new();
+    /// <summary>Maps chat ID → event subscription. Never disposed except on chat delete.</summary>
+    private readonly Dictionary<Guid, IDisposable> _sessionSubs = new();
+    /// <summary>Maps chat ID → in-progress streaming message not yet committed to Chat.Messages.</summary>
+    private readonly Dictionary<Guid, ChatMessage> _inProgressMessages = new();
+    /// <summary>Per-chat runtime state sourced from live session events.</summary>
+    private readonly Dictionary<Guid, ChatRuntimeState> _runtimeStates = new();
+
+    private sealed class ChatRuntimeState
+    {
+        public bool IsBusy { get; set; }
+        public bool IsStreaming { get; set; }
+        public string StatusText { get; set; } = "";
+    }
 
     /// <summary>True while LoadChat is bulk-adding messages. The View skips CollectionChanged.Add during this.</summary>
     public bool IsLoadingChat { get; private set; }
@@ -54,6 +68,7 @@ public partial class ChatViewModel : ObservableObject
 
     // Events for the view to react to
     public event Action? ScrollToEndRequested;
+    public event Action? UserMessageSent;
     public event Action? ChatUpdated;
     public event Action<string>? FileCreatedByTool;
     public event Action? AgentChanged;
@@ -67,189 +82,324 @@ public partial class ChatViewModel : ObservableObject
         // Seed with preferred model so the ComboBox has an initial selection
         if (!string.IsNullOrWhiteSpace(_selectedModel))
             AvailableModels.Add(_selectedModel);
+    }
 
-        _copilotService.OnTurnStart += () => Dispatcher.UIThread.Post(() =>
+    /// <summary>Subscribes to events on a CopilotSession. Each subscription captures its own
+    /// streaming state via closures and always updates the Chat model. UI updates are gated
+    /// on _activeSession so only the displayed chat's events touch the UI.</summary>
+    private void SubscribeToSession(CopilotSession session, Chat chat)
+    {
+        // Dispose previous subscription for this chat (e.g., session was resumed)
+        if (_sessionSubs.TryGetValue(chat.Id, out var oldSub))
+            oldSub.Dispose();
+        _sessionCache[chat.Id] = session;
+
+        // Per-session streaming state — captured by closure, independent per subscription
+        var accContent = "";
+        var accReasoning = "";
+        ChatMessage? streamingMsg = null;
+        ChatMessage? reasoningMsg = null;
+        var agentName = ActiveAgent?.Name ?? Loc.Author_Lumi;
+        var runtime = GetOrCreateRuntimeState(chat.Id);
+
+        _sessionSubs[chat.Id] = session.On(evt =>
         {
-            IsBusy = true;
-            IsStreaming = true;
-            StatusText = Loc.Status_Thinking;
-        });
-
-        _copilotService.OnMessageDelta += delta => Dispatcher.UIThread.Post(() =>
-        {
-            _accumulatedContent += delta;
-            if (_streamingMessage is not null)
+            switch (evt)
             {
-                _streamingMessage.Content = _accumulatedContent;
-                var vm = Messages.LastOrDefault(m => m.Message == _streamingMessage);
-                vm?.NotifyContentChanged();
-            }
-            else
-            {
-                _streamingMessage = new ChatMessage
-                {
-                    Role = "assistant",
-                    Author = ActiveAgent?.Name ?? Loc.Author_Lumi,
-                    Content = _accumulatedContent,
-                    IsStreaming = true
-                };
-                Messages.Add(new ChatMessageViewModel(_streamingMessage));
-            }
-            StatusText = Loc.Status_Generating;
-            ScrollToEndRequested?.Invoke();
-        });
-
-        _copilotService.OnMessageComplete += content => Dispatcher.UIThread.Post(() =>
-        {
-            if (_streamingMessage is not null)
-            {
-                _streamingMessage.Content = content;
-                _streamingMessage.IsStreaming = false;
-                var vm = Messages.LastOrDefault(m => m.Message == _streamingMessage);
-                vm?.NotifyStreamingEnded();
-
-                CurrentChat?.Messages.Add(_streamingMessage);
-            }
-            _streamingMessage = null;
-            _accumulatedContent = "";
-        });
-
-        _copilotService.OnReasoningDelta += (id, delta) => Dispatcher.UIThread.Post(() =>
-        {
-            _accumulatedReasoning += delta;
-            if (_reasoningMessage is null)
-            {
-                _reasoningMessage = new ChatMessage
-                {
-                    Role = "reasoning",
-                    Author = Loc.Author_Thinking,
-                    Content = _accumulatedReasoning,
-                    IsStreaming = true
-                };
-                CurrentChat?.Messages.Add(_reasoningMessage);
-                Messages.Add(new ChatMessageViewModel(_reasoningMessage));
-            }
-            else
-            {
-                _reasoningMessage.Content = _accumulatedReasoning;
-                var vm = Messages.LastOrDefault(m => m.Message == _reasoningMessage);
-                vm?.NotifyContentChanged();
-            }
-            StatusText = Loc.Status_Reasoning;
-            ScrollToEndRequested?.Invoke();
-        });
-
-        _copilotService.OnReasoningComplete += content => Dispatcher.UIThread.Post(() =>
-        {
-            if (_reasoningMessage is not null)
-            {
-                _reasoningMessage.Content = content;
-                _reasoningMessage.IsStreaming = false;
-                var vm = Messages.LastOrDefault(m => m.Message == _reasoningMessage);
-                vm?.NotifyStreamingEnded();
-            }
-            _reasoningMessage = null;
-            _accumulatedReasoning = "";
-        });
-
-        _copilotService.OnToolStart += (callId, name, args) => Dispatcher.UIThread.Post(() =>
-        {
-            var displayName = FormatToolDisplayName(name, args);
-            var toolMsg = new ChatMessage
-            {
-                Role = "tool",
-                ToolCallId = callId,
-                ToolName = name,
-                ToolStatus = "InProgress",
-                Content = args ?? "",
-                Author = displayName
-            };
-            CurrentChat?.Messages.Add(toolMsg);
-            Messages.Add(new ChatMessageViewModel(toolMsg));
-            StatusText = string.Format(Loc.Status_Running, displayName);
-            ScrollToEndRequested?.Invoke();
-        });
-
-        _copilotService.OnToolComplete += (callId, success, result) => Dispatcher.UIThread.Post(() =>
-        {
-            var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == callId);
-            if (vm is not null)
-            {
-                vm.Message.ToolStatus = success ? "Completed" : "Failed";
-                vm.NotifyToolStatusChanged();
-
-                if (success)
-                {
-                    // announce_file tool handles file chips directly via its own callback.
-                    // As a secondary source, check SDK resource links for file-creation tools.
-                    var toolName = vm.Message.ToolName;
-                    if ((IsFileCreationTool(toolName) || toolName == "powershell")
-                        && result?.Contents is { Length: > 0 } contents)
+                case AssistantTurnStartEvent:
+                    Dispatcher.UIThread.Post(() =>
                     {
-                        foreach (var item in contents)
+                        runtime.IsBusy = true;
+                        runtime.IsStreaming = true;
+                        runtime.StatusText = Loc.Status_Thinking;
+                        if (_activeSession == session)
                         {
-                            if (item is ToolExecutionCompleteDataResultContentsItemResourceLink rl
-                                && !string.IsNullOrEmpty(rl.Uri))
+                            IsBusy = runtime.IsBusy;
+                            IsStreaming = runtime.IsStreaming;
+                            StatusText = runtime.StatusText;
+                        }
+                    });
+                    break;
+
+                case AssistantMessageDeltaEvent delta:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        accContent += delta.Data.DeltaContent;
+                        runtime.StatusText = Loc.Status_Generating;
+                        if (streamingMsg is not null)
+                        {
+                            streamingMsg.Content = accContent;
+                            if (_activeSession == session)
                             {
-                                var fp = UriToLocalPath(rl.Uri);
-                                if (fp is not null && File.Exists(fp) && IsUserFacingFile(fp) && _shownFileChips.Add(fp))
-                                    FileCreatedByTool?.Invoke(fp);
+                                var vm = Messages.LastOrDefault(m => m.Message == streamingMsg);
+                                vm?.NotifyContentChanged();
+                                StatusText = runtime.StatusText;
+                                ScrollToEndRequested?.Invoke();
                             }
                         }
-                    }
-                }
+                        else
+                        {
+                            streamingMsg = new ChatMessage
+                            {
+                                Role = "assistant",
+                                Author = agentName,
+                                Content = accContent,
+                                IsStreaming = true
+                            };
+                            _inProgressMessages[chat.Id] = streamingMsg;
+                            if (_activeSession == session)
+                            {
+                                Messages.Add(new ChatMessageViewModel(streamingMsg));
+                                StatusText = runtime.StatusText;
+                                ScrollToEndRequested?.Invoke();
+                            }
+                        }
+                    });
+                    break;
+
+                case AssistantMessageEvent msg:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (streamingMsg is not null)
+                        {
+                            streamingMsg.Content = msg.Data.Content;
+                            streamingMsg.IsStreaming = false;
+                            chat.Messages.Add(streamingMsg);
+                            _inProgressMessages.Remove(chat.Id);
+                            if (_activeSession == session)
+                            {
+                                var vm = Messages.LastOrDefault(m => m.Message == streamingMsg);
+                                vm?.NotifyStreamingEnded();
+                            }
+                        }
+                        streamingMsg = null;
+                        accContent = "";
+                    });
+                    break;
+
+                case AssistantReasoningDeltaEvent rd:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        accReasoning += rd.Data.DeltaContent;
+                        runtime.StatusText = Loc.Status_Reasoning;
+                        if (reasoningMsg is null)
+                        {
+                            reasoningMsg = new ChatMessage
+                            {
+                                Role = "reasoning",
+                                Author = Loc.Author_Thinking,
+                                Content = accReasoning,
+                                IsStreaming = true
+                            };
+                            chat.Messages.Add(reasoningMsg);
+                            if (_activeSession == session)
+                            {
+                                Messages.Add(new ChatMessageViewModel(reasoningMsg));
+                                StatusText = runtime.StatusText;
+                                ScrollToEndRequested?.Invoke();
+                            }
+                        }
+                        else
+                        {
+                            reasoningMsg.Content = accReasoning;
+                            if (_activeSession == session)
+                            {
+                                var vm = Messages.LastOrDefault(m => m.Message == reasoningMsg);
+                                vm?.NotifyContentChanged();
+                                StatusText = runtime.StatusText;
+                                ScrollToEndRequested?.Invoke();
+                            }
+                        }
+                    });
+                    break;
+
+                case AssistantReasoningEvent r:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (reasoningMsg is not null)
+                        {
+                            reasoningMsg.Content = r.Data.Content;
+                            reasoningMsg.IsStreaming = false;
+                            if (_activeSession == session)
+                            {
+                                var vm = Messages.LastOrDefault(m => m.Message == reasoningMsg);
+                                vm?.NotifyStreamingEnded();
+                            }
+                        }
+                        reasoningMsg = null;
+                        accReasoning = "";
+                    });
+                    break;
+
+                case ToolExecutionStartEvent toolStart:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        var displayName = FormatToolDisplayName(toolStart.Data.ToolName, toolStart.Data.Arguments?.ToString());
+                        runtime.StatusText = string.Format(Loc.Status_Running, displayName);
+                        var toolMsg = new ChatMessage
+                        {
+                            Role = "tool",
+                            ToolCallId = toolStart.Data.ToolCallId,
+                            ToolName = toolStart.Data.ToolName,
+                            ToolStatus = "InProgress",
+                            Content = toolStart.Data.Arguments?.ToString() ?? "",
+                            Author = displayName
+                        };
+                        chat.Messages.Add(toolMsg);
+                        if (_activeSession == session)
+                        {
+                            Messages.Add(new ChatMessageViewModel(toolMsg));
+                            StatusText = runtime.StatusText;
+                            ScrollToEndRequested?.Invoke();
+                        }
+                    });
+                    break;
+
+                case ToolExecutionCompleteEvent toolEnd:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        var success = toolEnd.Data.Success == true;
+                        var toolMsg = chat.Messages.LastOrDefault(m => m.ToolCallId == toolEnd.Data.ToolCallId);
+                        if (toolMsg is not null)
+                        {
+                            toolMsg.ToolStatus = success ? "Completed" : "Failed";
+                            if (_activeSession == session)
+                            {
+                                var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == toolEnd.Data.ToolCallId);
+                                vm?.NotifyToolStatusChanged();
+                            }
+                            if (success)
+                            {
+                                var toolName = toolMsg.ToolName;
+                                if ((IsFileCreationTool(toolName) || toolName == "powershell")
+                                    && toolEnd.Data.Result?.Contents is { Length: > 0 } contents)
+                                {
+                                    foreach (var item in contents)
+                                    {
+                                        if (item is ToolExecutionCompleteDataResultContentsItemResourceLink rl
+                                            && !string.IsNullOrEmpty(rl.Uri))
+                                        {
+                                            var fp = UriToLocalPath(rl.Uri);
+                                            if (fp is not null && File.Exists(fp) && IsUserFacingFile(fp) && _shownFileChips.Add(fp))
+                                            {
+                                                if (_activeSession == session)
+                                                    FileCreatedByTool?.Invoke(fp);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    break;
+
+                case AssistantTurnEndEvent:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        runtime.IsBusy = false;
+                        runtime.IsStreaming = false;
+                        runtime.StatusText = "";
+                        if (_activeSession == session)
+                        {
+                            IsBusy = runtime.IsBusy;
+                            IsStreaming = runtime.IsStreaming;
+                            StatusText = runtime.StatusText;
+                        }
+                        chat.UpdatedAt = DateTimeOffset.Now;
+                        if (_dataStore.Data.Settings.AutoSaveChats)
+                            _dataStore.Save();
+                        ChatUpdated?.Invoke();
+                    });
+                    break;
+
+                case SessionIdleEvent:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (_dataStore.Data.Settings.NotificationsEnabled)
+                        {
+                            var chatTitle = chat.Title;
+                            var body = string.IsNullOrWhiteSpace(chatTitle)
+                                ? Loc.Notification_ResponseReady
+                                : $"{chatTitle} — {Loc.Notification_ResponseReady}";
+                            NotificationService.ShowIfInactive(agentName, body);
+                        }
+                    });
+                    break;
+
+                case SessionTitleChangedEvent title:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (!_dataStore.Data.Settings.AutoGenerateTitles) return;
+                        chat.Title = title.Data.Title;
+                        chat.UpdatedAt = DateTimeOffset.Now;
+                        if (_dataStore.Data.Settings.AutoSaveChats)
+                            _dataStore.Save();
+                        ChatUpdated?.Invoke();
+                    });
+                    break;
+
+                case SessionErrorEvent err:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        runtime.IsBusy = false;
+                        runtime.IsStreaming = false;
+                        runtime.StatusText = string.Format(Loc.Status_Error, err.Data.Message);
+                        if (_activeSession == session)
+                        {
+                            StatusText = runtime.StatusText;
+                            IsBusy = runtime.IsBusy;
+                            IsStreaming = runtime.IsStreaming;
+                        }
+                    });
+                    break;
             }
         });
+    }
 
-        _copilotService.OnTurnEnd += () => Dispatcher.UIThread.Post(() =>
+    /// <summary>Cleans up session resources for a chat (e.g., on delete).</summary>
+    public void CleanupSession(Guid chatId)
+    {
+        if (_sessionSubs.TryGetValue(chatId, out var sub))
         {
-            IsBusy = false;
-            IsStreaming = false;
-            StatusText = "";
-            SaveChat();
-        });
+            sub.Dispose();
+            _sessionSubs.Remove(chatId);
+        }
+        _sessionCache.Remove(chatId);
+        _inProgressMessages.Remove(chatId);
+        _runtimeStates.Remove(chatId);
+    }
 
-        _copilotService.OnIdle += () => Dispatcher.UIThread.Post(() =>
+    private ChatRuntimeState GetOrCreateRuntimeState(Guid chatId)
+    {
+        if (!_runtimeStates.TryGetValue(chatId, out var runtime))
         {
-            // Show native notification when the full interaction is complete
-            if (_dataStore.Data.Settings.NotificationsEnabled)
-            {
-                var name = ActiveAgent?.Name ?? Loc.Author_Lumi;
-                var chatTitle = CurrentChat?.Title;
-                var body = string.IsNullOrWhiteSpace(chatTitle)
-                    ? Loc.Notification_ResponseReady
-                    : $"{chatTitle} — {Loc.Notification_ResponseReady}";
-                NotificationService.ShowIfInactive(name, body);
-            }
-        });
-
-        _copilotService.OnTitleChanged += title => Dispatcher.UIThread.Post(() =>
-        {
-            if (!_dataStore.Data.Settings.AutoGenerateTitles)
-                return;
-
-            if (CurrentChat is not null)
-            {
-                CurrentChat.Title = title;
-                SaveChat();
-                ChatUpdated?.Invoke();
-            }
-        });
-
-        _copilotService.OnError += error => Dispatcher.UIThread.Post(() =>
-        {
-            StatusText = string.Format(Loc.Status_Error, error);
-            IsBusy = false;
-            IsStreaming = false;
-        });
+            runtime = new ChatRuntimeState();
+            _runtimeStates[chatId] = runtime;
+        }
+        return runtime;
     }
 
     public void LoadChat(Chat chat)
     {
+        // Set the active session (don't dispose anything — background sessions keep running)
+        _sessionCache.TryGetValue(chat.Id, out var cachedSession);
+        _activeSession = cachedSession;
+
+        // Restore real runtime state for this session/chat
+        var runtime = GetOrCreateRuntimeState(chat.Id);
+        IsBusy = runtime.IsBusy;
+        IsStreaming = runtime.IsStreaming;
+        StatusText = runtime.StatusText;
+
         IsLoadingChat = true;
         Messages.Clear();
         foreach (var msg in chat.Messages)
             Messages.Add(new ChatMessageViewModel(msg));
+
+        // If there's an in-progress streaming message not yet committed, show it
+        if (_inProgressMessages.TryGetValue(chat.Id, out var inProgress))
+            Messages.Add(new ChatMessageViewModel(inProgress));
+
         CurrentChat = chat;
 
         // Restore active skills from chat
@@ -278,12 +428,14 @@ public partial class ChatViewModel : ObservableObject
 
     public void ClearChat()
     {
+        // Detach from current chat without destroying its session.
+        // Sessions are cleaned only when a chat is deleted via CleanupSession(chatId).
+        _activeSession = null;
+
         Messages.Clear();
         CurrentChat = null;
-        _streamingMessage = null;
-        _reasoningMessage = null;
-        _accumulatedContent = "";
-        _accumulatedReasoning = "";
+        IsBusy = false;
+        IsStreaming = false;
         _shownFileChips.Clear();
         ActiveSkillIds.Clear();
         ActiveSkillChips.Clear();
@@ -337,7 +489,7 @@ public partial class ChatViewModel : ObservableObject
         CurrentChat.Messages.Add(userMsg);
         Messages.Add(new ChatMessageViewModel(userMsg));
         SaveChat();
-        ScrollToEndRequested?.Invoke();
+        UserMessageSent?.Invoke();
 
         // Build system prompt with active skills
         var allSkills = _dataStore.Data.Skills;
@@ -376,20 +528,43 @@ public partial class ChatViewModel : ObservableObject
                 var session = await _copilotService.CreateSessionAsync(
                     systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, _cts.Token);
                 CurrentChat.CopilotSessionId = session.SessionId;
+                _activeSession = session;
+                SubscribeToSession(session, CurrentChat);
             }
-            else if (_copilotService.CurrentSessionId != CurrentChat.CopilotSessionId)
+            else if (_activeSession?.SessionId != CurrentChat.CopilotSessionId)
             {
-                await _copilotService.ResumeSessionAsync(
+                var session = await _copilotService.ResumeSessionAsync(
                     CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, _cts.Token);
+                _activeSession = session;
+                SubscribeToSession(session, CurrentChat);
             }
 
-            await _copilotService.SendMessageAsync(prompt, attachments, _cts.Token);
+            var sendOptions = new MessageOptions { Prompt = prompt };
+            if (attachments is { Count: > 0 })
+                sendOptions.Attachments = attachments.Cast<UserMessageDataAttachmentsItem>().ToList();
+
+            var runtime = GetOrCreateRuntimeState(CurrentChat.Id);
+            runtime.IsBusy = true;
+            runtime.IsStreaming = true;
+            runtime.StatusText = Loc.Status_Thinking;
+            IsBusy = runtime.IsBusy;
+            IsStreaming = runtime.IsStreaming;
+            StatusText = runtime.StatusText;
+
+            await _activeSession!.SendAsync(sendOptions, _cts.Token);
         }
         catch (Exception ex)
         {
             StatusText = string.Format(Loc.Status_Error, ex.Message);
             IsBusy = false;
             IsStreaming = false;
+            if (CurrentChat is not null)
+            {
+                var runtime = GetOrCreateRuntimeState(CurrentChat.Id);
+                runtime.IsBusy = false;
+                runtime.IsStreaming = false;
+                runtime.StatusText = StatusText;
+            }
         }
     }
 
@@ -397,7 +572,15 @@ public partial class ChatViewModel : ObservableObject
     private async Task StopGeneration()
     {
         _cts?.Cancel();
-        await _copilotService.AbortAsync();
+        if (_activeSession is not null)
+            await _activeSession.AbortAsync();
+        if (CurrentChat is not null)
+        {
+            var runtime = GetOrCreateRuntimeState(CurrentChat.Id);
+            runtime.IsBusy = false;
+            runtime.IsStreaming = false;
+            runtime.StatusText = Loc.Status_Stopped;
+        }
         IsBusy = false;
         IsStreaming = false;
         StatusText = Loc.Status_Stopped;
@@ -836,16 +1019,18 @@ public partial class ChatViewModel : ObservableObject
             var workDir = GetWorkingDirectory();
             if (CurrentChat.CopilotSessionId is not null)
             {
-                if (_copilotService.CurrentSessionId == CurrentChat.CopilotSessionId)
+                if (_activeSession?.SessionId == CurrentChat.CopilotSessionId)
                 {
                     // Session is still active — just resend
                 }
                 else
                 {
                     // Resume the saved session to restore server-side history
-                    await _copilotService.ResumeSessionAsync(
+                    var session = await _copilotService.ResumeSessionAsync(
                         CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir,
                         skillDirs, customAgents, customTools, _cts.Token);
+                    _activeSession = session;
+                    SubscribeToSession(session, CurrentChat);
                 }
             }
             else
@@ -854,15 +1039,32 @@ public partial class ChatViewModel : ObservableObject
                 var session = await _copilotService.CreateSessionAsync(
                     systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, _cts.Token);
                 CurrentChat.CopilotSessionId = session.SessionId;
+                _activeSession = session;
+                SubscribeToSession(session, CurrentChat);
             }
 
-            await _copilotService.SendMessageAsync(userMessage.Content, null, _cts.Token);
+            var runtime = GetOrCreateRuntimeState(CurrentChat.Id);
+            runtime.IsBusy = true;
+            runtime.IsStreaming = true;
+            runtime.StatusText = Loc.Status_Thinking;
+            IsBusy = runtime.IsBusy;
+            IsStreaming = runtime.IsStreaming;
+            StatusText = runtime.StatusText;
+
+            await _activeSession!.SendAsync(new MessageOptions { Prompt = userMessage.Content }, _cts.Token);
         }
         catch (Exception ex)
         {
             StatusText = string.Format(Loc.Status_Error, ex.Message);
             IsBusy = false;
             IsStreaming = false;
+            if (CurrentChat is not null)
+            {
+                var runtime = GetOrCreateRuntimeState(CurrentChat.Id);
+                runtime.IsBusy = false;
+                runtime.IsStreaming = false;
+                runtime.StatusText = StatusText;
+            }
         }
     }
 

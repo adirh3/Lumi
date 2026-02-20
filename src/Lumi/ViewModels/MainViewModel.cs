@@ -222,6 +222,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void DeleteChat(Chat chat)
     {
+        ChatVM.CleanupSession(chat.Id);
         _dataStore.Data.Chats.Remove(chat);
         _dataStore.Save();
         RefreshChatList();

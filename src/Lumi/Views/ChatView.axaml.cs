@@ -14,6 +14,7 @@ using Avalonia.Data.Converters;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.ViewModels;
@@ -98,6 +99,11 @@ public partial class ChatView : UserControl
         ApplyRuntimeSettings(vm);
 
         vm.ScrollToEndRequested += () => _chatShell?.ScrollToEnd();
+        vm.UserMessageSent += () =>
+        {
+            _chatShell?.ResetAutoScroll();
+            _chatShell?.ScrollToEnd();
+        };
 
         // Populate available agents & skills for autocomplete
         PopulateComposerCatalogs(vm);
@@ -318,6 +324,10 @@ public partial class ChatView : UserControl
 
         CloseToolGroup();
         CollapseAllCompletedTurns();
+
+        // Scroll to bottom after loading chat history
+        if (vm.CurrentChat is not null)
+            Dispatcher.UIThread.Post(() => _chatShell?.ScrollToEnd(), DispatcherPriority.Loaded);
     }
 
     private void AddMessageControl(ChatMessageViewModel msgVm)
@@ -606,8 +616,6 @@ public partial class ChatView : UserControl
     {
         if (_currentToolGroup is not null)
         {
-            _currentToolGroup.IsActive = false;
-
             // If the group has no tool cards at all, remove it entirely
             if (_currentToolGroupCount == 0)
             {
@@ -765,6 +773,7 @@ public partial class ChatView : UserControl
         }
         else
         {
+            _currentToolGroup.IsActive = true;
             if (_currentIntentText is not null)
             {
                 _currentToolGroup.Label = _currentIntentText + "\u2026";
