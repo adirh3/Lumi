@@ -1301,12 +1301,19 @@ public partial class ChatView : UserControl
         switch (toolName)
         {
             case "web_fetch":
+            case "lumi_fetch":
             {
                 var url = ExtractJsonField(argsJson, "url");
                 string? domain = null;
                 if (url is not null && Uri.TryCreate(url, UriKind.Absolute, out var uri))
                     domain = uri.Host;
                 return (Loc.Tool_ReadingWebsite, domain ?? url);
+            }
+
+            case "lumi_search":
+            {
+                var query = ExtractJsonField(argsJson, "query");
+                return (Loc.Tool_SearchingWeb, query);
             }
 
             case "view":

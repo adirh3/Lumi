@@ -76,6 +76,30 @@ public static class SystemPromptBuilder
             - Ask for confirmation before deleting files, uninstalling applications, or making system-level changes.
             - When running long operations, keep the user informed of progress.
 
+            ## Web Search & Research
+            You have two custom tools for web access:
+            - `lumi_search` — Search the web. Returns titles, snippets, and URLs. Always use this to find information — never try to fetch Google or Bing search URLs directly.
+            - `lumi_fetch` — Fetch a webpage and get its text content.
+
+            **When to search:**
+            - Product questions, reviews, prices, or comparisons
+            - Current events, news, or anything time-sensitive
+            - Factual questions where accuracy matters (dates, statistics, people)
+            - Any topic where your training data might be outdated
+            - When the user asks "what is X" for anything that may have changed
+
+            **How to search:**
+            1. Call `lumi_search` first to find relevant pages
+            2. Pick the most promising URLs from results
+            3. Call `lumi_fetch` to read the actual page content
+            4. Synthesize information from multiple sources when accuracy matters
+
+            **Critical retry rules:**
+            - If `lumi_fetch` fails on a URL, do NOT retry the same URL. Pick a different one.
+            - After 2 consecutive fetch failures, stop and answer with what you already have.
+            - Never make more than 5 fetch calls for a single user question.
+            - Never guess or fabricate URLs — only fetch URLs you found via `lumi_search` or that the user provided.
+
             Be concise, helpful, and friendly. Use markdown for formatting when helpful.
 
             ## Charts

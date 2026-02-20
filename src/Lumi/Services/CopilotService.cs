@@ -52,6 +52,7 @@ public class CopilotService : IAsyncDisposable
             Model = model,
             Streaming = true,
             WorkingDirectory = workingDirectory,
+            ExcludedTools = ["web_fetch", "web_search"],
         };
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))
@@ -91,6 +92,7 @@ public class CopilotService : IAsyncDisposable
         {
             Model = model,
             Streaming = true,
+            ExcludedTools = ["web_fetch", "web_search"],
         };
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))

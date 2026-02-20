@@ -697,7 +697,32 @@ public partial class ChatViewModel : ObservableObject
         if (_dataStore.Data.Settings.EnableMemoryAutoSave)
             tools.AddRange(BuildMemoryTools());
         tools.Add(BuildAnnounceFileTool());
+        tools.AddRange(BuildWebTools());
         return tools;
+    }
+
+    private static List<AIFunction> BuildWebTools()
+    {
+        return
+        [
+            AIFunctionFactory.Create(
+                ([Description("The search query to look up on the web")] string query,
+                 [Description("Number of results to return (default 5, max 10)")] int count = 5) =>
+                {
+                    count = Math.Clamp(count, 1, 10);
+                    return WebSearchService.SearchAsync(query, count);
+                },
+                "lumi_search",
+                "Search the web for information. Returns titles, snippets, and URLs from search results. Use this to find current information, answer factual questions, research topics, find product reviews, or discover relevant web pages to fetch."),
+
+            AIFunctionFactory.Create(
+                ([Description("The full URL to fetch (must start with http:// or https://)")] string url) =>
+                {
+                    return WebFetchService.FetchAsync(url);
+                },
+                "lumi_fetch",
+                "Fetch a webpage and return its text content. If this fails, do NOT retry the same URL — try a different source instead. After 2 consecutive failures, stop and answer with what you have."),
+        ];
     }
 
     partial void OnSelectedModelChanged(string? value)
@@ -1093,8 +1118,8 @@ public partial class ChatViewModel : ObservableObject
         var fileName = ExtractShortFileName(argsJson);
         return toolName switch
         {
-            "web_fetch" or "fetch" => Loc.Tool_ReadingWebsite,
-            "web_search" or "search" => Loc.Tool_SearchingWeb,
+            "web_fetch" or "fetch" or "lumi_fetch" => Loc.Tool_ReadingWebsite,
+            "web_search" or "search" or "lumi_search" => Loc.Tool_SearchingWeb,
             "view" or "read_file" or "read" => fileName is not null ? string.Format(Loc.Tool_ReadingNamed, fileName) : Loc.Tool_ReadingFile,
             "create" or "write_file" or "create_file" or "write" or "save_file" => fileName is not null ? string.Format(Loc.Tool_CreatingNamed, fileName) : Loc.Tool_CreatingFile,
             "edit" or "edit_file" or "str_replace_editor" or "str_replace" or "replace_string_in_file" or "insert" => fileName is not null ? string.Format(Loc.Tool_EditingNamed, fileName) : Loc.Tool_EditingFile,
