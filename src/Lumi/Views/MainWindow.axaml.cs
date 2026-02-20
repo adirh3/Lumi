@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     private Panel? _onboardingPanel;
     private DockPanel? _mainPanel;
     private Border? _chatIsland;
+    private Panel? _contentArea;
     private Control?[] _pages = [];
     private Panel?[] _sidebarPanels = [];
     private Button?[] _navButtons = [];
@@ -60,6 +61,7 @@ public partial class MainWindow : Window
         _onboardingPanel = this.FindControl<Panel>("OnboardingPanel");
         _mainPanel = this.FindControl<DockPanel>("MainPanel");
         _chatIsland = this.FindControl<Border>("ChatIsland");
+        _contentArea = this.FindControl<Panel>("ContentArea");
 
         _pages =
         [
@@ -243,7 +245,8 @@ public partial class MainWindow : Window
         Hide();
     }
 
-    /// <summary>Handle WindowState changes: when minimized + tray enabled, hide to tray.</summary>
+    /// <summary>Handle WindowState changes: when minimized + tray enabled, hide to tray.
+    /// When maximized, add extra margin to compensate for the hidden resize border.</summary>
     private void OnWindowStateChanged()
     {
         if (WindowState == WindowState.Minimized
@@ -251,6 +254,15 @@ public partial class MainWindow : Window
             && vm.SettingsVM.MinimizeToTray)
         {
             HideToTray();
+        }
+
+        // On Windows, maximized windows extend ~7px beyond screen edges
+        // to hide resize borders, so add extra margin to compensate.
+        if (_contentArea is not null)
+        {
+            _contentArea.Margin = WindowState == WindowState.Maximized
+                ? new Thickness(4, 38, 6, 6)
+                : new Thickness(0, 32, 0, 0);
         }
     }
 

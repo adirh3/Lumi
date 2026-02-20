@@ -606,7 +606,7 @@
       </Border>
 
       <!-- ═══ CONTENT AREA (full height, inset for title bar) ═══ -->
-      <Panel Margin="0,32,0,0">
+      <Panel x:Name="ContentArea" Margin="0,32,0,0">
         <!-- Chat view (visible on Chat tab) -->
         <Border x:Name="ChatIsland" Margin="4,6,8,8"
                 CornerRadius="{DynamicResource Radius.Overlay}"
