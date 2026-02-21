@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -8,4 +9,5 @@ namespace Lumi.Models;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(AppData))]
 [JsonSerializable(typeof(JsonDocument))]
+[JsonSerializable(typeof(List<ChatMessage>))]
 internal partial class AppDataJsonContext : JsonSerializerContext;

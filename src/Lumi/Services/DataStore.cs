@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using Lumi.Models;
 
 namespace Lumi.Services;
@@ -13,23 +16,162 @@ public class DataStore
     private static readonly string DataFile = Path.Combine(AppDir, "data.json");
 
     public static string SkillsDir { get; } = Path.Combine(AppDir, "skills");
+    public static string ChatsDir { get; } = Path.Combine(AppDir, "chats");
 
     private AppData _data;
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
 
     public DataStore()
     {
         Directory.CreateDirectory(AppDir);
         Directory.CreateDirectory(SkillsDir);
+        Directory.CreateDirectory(ChatsDir);
         _data = Load();
         SeedDefaults();
     }
 
     public AppData Data => _data;
 
+    /// <summary>
+    /// Saves the index file (settings, chat metadata, projects, skills, agents, memories).
+    /// Does NOT save chat messages — use SaveChat() for that.
+    /// </summary>
     public void Save()
     {
-        var json = JsonSerializer.Serialize(_data, AppDataJsonContext.Default.AppData);
-        File.WriteAllText(DataFile, json);
+        SaveAsync().GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Saves the index file (settings, chat metadata, projects, skills, agents, memories).
+    /// Does NOT save chat messages — use SaveChatAsync() for that.
+    /// </summary>
+    public async Task SaveAsync(CancellationToken cancellationToken = default)
+    {
+        var snapshot = AppDataSnapshotFactory.CreateIndexSnapshot(_data);
+
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var stream = new FileStream(
+                DataFile,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                81920,
+                FileOptions.Asynchronous);
+
+            await JsonSerializer.SerializeAsync(
+                stream,
+                snapshot,
+                AppDataJsonContext.Default.AppData,
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    /// <summary>Saves a chat's messages to its per-chat file.</summary>
+    public void SaveChat(Chat chat)
+    {
+        SaveChatAsync(chat).GetAwaiter().GetResult();
+    }
+
+    /// <summary>Saves a chat's messages to its per-chat file.</summary>
+    public async Task SaveChatAsync(Chat chat, CancellationToken cancellationToken = default)
+    {
+        var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
+        var messagesSnapshot = chat.Messages
+            .Select(static m => new ChatMessage
+            {
+                Id = m.Id,
+                Role = m.Role,
+                Content = m.Content,
+                Author = m.Author,
+                Timestamp = m.Timestamp,
+                ToolName = m.ToolName,
+                ToolCallId = m.ToolCallId,
+                ToolStatus = m.ToolStatus,
+                IsStreaming = m.IsStreaming,
+                Attachments = [..m.Attachments],
+                Sources = [..m.Sources.Select(static s => new SearchSource
+                {
+                    Title = s.Title,
+                    Snippet = s.Snippet,
+                    Url = s.Url
+                })]
+            })
+            .ToList();
+
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var stream = new FileStream(
+                chatFile,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                81920,
+                FileOptions.Asynchronous);
+
+            await JsonSerializer.SerializeAsync(
+                stream,
+                messagesSnapshot,
+                AppDataJsonContext.Default.ListChatMessage,
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    /// <summary>Loads messages from a chat's per-chat file into chat.Messages.</summary>
+    public async Task LoadChatMessagesAsync(Chat chat, CancellationToken cancellationToken = default)
+    {
+        if (chat.Messages.Count > 0) return; // Already loaded
+
+        var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
+        if (!File.Exists(chatFile)) return;
+
+        try
+        {
+            await using var stream = File.OpenRead(chatFile);
+            var messages = await JsonSerializer.DeserializeAsync(
+                stream,
+                AppDataJsonContext.Default.ListChatMessage,
+                cancellationToken).ConfigureAwait(false);
+
+            if (messages is not null)
+                chat.Messages.AddRange(messages);
+        }
+        catch (IOException)
+        {
+            // Ignore transient file IO issues; chat will open without history.
+        }
+        catch (JsonException)
+        {
+            // Ignore malformed chat files; chat will open without history.
+        }
+    }
+
+    /// <summary>Deletes the per-chat file for a given chat ID.</summary>
+    public void DeleteChatFile(Guid chatId)
+    {
+        var chatFile = Path.Combine(ChatsDir, $"{chatId}.json");
+        if (File.Exists(chatFile))
+            File.Delete(chatFile);
+    }
+
+    /// <summary>Deletes all per-chat files.</summary>
+    public void DeleteAllChatFiles()
+    {
+        if (Directory.Exists(ChatsDir))
+        {
+            foreach (var file in Directory.GetFiles(ChatsDir, "*.json"))
+                File.Delete(file);
+        }
     }
 
     /// <summary>
@@ -73,6 +215,11 @@ public class DataStore
     /// </summary>
     public string SyncSkillFilesForIds(List<Guid> skillIds)
     {
+        return SyncSkillFilesForIdsAsync(skillIds).GetAwaiter().GetResult();
+    }
+
+    public async Task<string> SyncSkillFilesForIdsAsync(List<Guid> skillIds, CancellationToken cancellationToken = default)
+    {
         var dir = Path.Combine(AppDir, "active-skills");
         Directory.CreateDirectory(dir);
 
@@ -96,7 +243,7 @@ public class DataStore
 
                 {skill.Content}
                 """;
-            File.WriteAllText(filePath, content);
+            await File.WriteAllTextAsync(filePath, content, cancellationToken).ConfigureAwait(false);
         }
 
         return dir;

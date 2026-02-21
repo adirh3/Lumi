@@ -35,6 +35,7 @@ public class Chat
     public string? CopilotSessionId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
+    [JsonIgnore]
     public List<ChatMessage> Messages { get; set; } = [];
     public List<Guid> ActiveSkillIds { get; set; } = [];
 }

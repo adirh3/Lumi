@@ -328,9 +328,7 @@ public partial class ChatViewModel : ObservableObject
                             IsStreaming = runtime.IsStreaming;
                             StatusText = runtime.StatusText;
                         }
-                        chat.UpdatedAt = DateTimeOffset.Now;
-                        if (_dataStore.Data.Settings.AutoSaveChats)
-                            _dataStore.Save();
+                        QueueSaveChat(chat, saveIndex: true);
                         ChatUpdated?.Invoke();
                     });
                     break;
@@ -356,7 +354,7 @@ public partial class ChatViewModel : ObservableObject
                         chat.Title = title.Data.Title;
                         chat.UpdatedAt = DateTimeOffset.Now;
                         if (_dataStore.Data.Settings.AutoSaveChats)
-                            _dataStore.Save();
+                            _ = SaveIndexAsync();
                         ChatUpdated?.Invoke();
                     });
                     break;
@@ -402,56 +400,64 @@ public partial class ChatViewModel : ObservableObject
         return runtime;
     }
 
-    public void LoadChat(Chat chat)
+    public async Task LoadChatAsync(Chat chat)
     {
-        // Set the active session (don't dispose anything — background sessions keep running)
-        _sessionCache.TryGetValue(chat.Id, out var cachedSession);
-        _activeSession = cachedSession;
-
-        // Restore real runtime state for this session/chat
-        var runtime = GetOrCreateRuntimeState(chat.Id);
-        IsBusy = runtime.IsBusy;
-        IsStreaming = runtime.IsStreaming;
-        StatusText = runtime.StatusText;
-
         IsLoadingChat = true;
-        Messages.Clear();
-        foreach (var msg in chat.Messages)
+        try
         {
-            // Skip empty assistant messages (SDK artifact)
-            if (msg.Role == "assistant" && string.IsNullOrWhiteSpace(msg.Content))
-                continue;
-            Messages.Add(new ChatMessageViewModel(msg));
-        }
+            // Load messages from per-chat file if not already in memory
+            await _dataStore.LoadChatMessagesAsync(chat);
 
-        // If there's an in-progress streaming message not yet committed, show it
-        if (_inProgressMessages.TryGetValue(chat.Id, out var inProgress))
-            Messages.Add(new ChatMessageViewModel(inProgress));
+            // Set the active session (don't dispose anything — background sessions keep running)
+            _sessionCache.TryGetValue(chat.Id, out var cachedSession);
+            _activeSession = cachedSession;
 
-        CurrentChat = chat;
+            // Restore real runtime state for this session/chat
+            var runtime = GetOrCreateRuntimeState(chat.Id);
+            IsBusy = runtime.IsBusy;
+            IsStreaming = runtime.IsStreaming;
+            StatusText = runtime.StatusText;
 
-        // Restore active skills from chat
-        ActiveSkillIds.Clear();
-        ActiveSkillChips.Clear();
-        foreach (var skillId in chat.ActiveSkillIds)
-        {
-            var skill = _dataStore.Data.Skills.FirstOrDefault(s => s.Id == skillId);
-            if (skill is not null)
+            Messages.Clear();
+            foreach (var msg in chat.Messages)
             {
-                ActiveSkillIds.Add(skillId);
-                ActiveSkillChips.Add(new StrataTheme.Controls.StrataComposerChip(skill.Name, skill.IconGlyph));
+                // Skip empty assistant messages (SDK artifact)
+                if (msg.Role == "assistant" && string.IsNullOrWhiteSpace(msg.Content))
+                    continue;
+                Messages.Add(new ChatMessageViewModel(msg));
+            }
+
+            // If there's an in-progress streaming message not yet committed, show it
+            if (_inProgressMessages.TryGetValue(chat.Id, out var inProgress))
+                Messages.Add(new ChatMessageViewModel(inProgress));
+
+            CurrentChat = chat;
+
+            // Restore active skills from chat
+            ActiveSkillIds.Clear();
+            ActiveSkillChips.Clear();
+            foreach (var skillId in chat.ActiveSkillIds)
+            {
+                var skill = _dataStore.Data.Skills.FirstOrDefault(s => s.Id == skillId);
+                if (skill is not null)
+                {
+                    ActiveSkillIds.Add(skillId);
+                    ActiveSkillChips.Add(new StrataTheme.Controls.StrataComposerChip(skill.Name, skill.IconGlyph));
+                }
+            }
+
+            // Restore active agent from chat
+            if (chat.AgentId.HasValue)
+            {
+                var agent = _dataStore.Data.Agents.FirstOrDefault(a => a.Id == chat.AgentId.Value);
+                if (agent is not null)
+                    ActiveAgent = agent;
             }
         }
-
-        // Restore active agent from chat
-        if (chat.AgentId.HasValue)
+        finally
         {
-            var agent = _dataStore.Data.Agents.FirstOrDefault(a => a.Id == chat.AgentId.Value);
-            if (agent is not null)
-                ActiveAgent = agent;
+            IsLoadingChat = false;
         }
-
-        IsLoadingChat = false;
     }
 
     public void ClearChat()
@@ -503,7 +509,7 @@ public partial class ChatViewModel : ObservableObject
             _pendingProjectId = null;
             _dataStore.Data.Chats.Add(chat);
             CurrentChat = chat;
-            SaveChat();
+            await SaveCurrentChatAsync();
             ChatUpdated?.Invoke();
         }
 
@@ -517,7 +523,7 @@ public partial class ChatViewModel : ObservableObject
         };
         CurrentChat.Messages.Add(userMsg);
         Messages.Add(new ChatMessageViewModel(userMsg));
-        SaveChat();
+        await SaveCurrentChatAsync();
         UserMessageSent?.Invoke();
 
         // Build system prompt with active skills
@@ -536,7 +542,7 @@ public partial class ChatViewModel : ObservableObject
         var skillDirs = new List<string>();
         if (ActiveSkillIds.Count > 0)
         {
-            var dir = _dataStore.SyncSkillFilesForIds(ActiveSkillIds);
+            var dir = await _dataStore.SyncSkillFilesForIdsAsync(ActiveSkillIds);
             skillDirs.Add(dir);
         }
 
@@ -615,13 +621,43 @@ public partial class ChatViewModel : ObservableObject
         StatusText = Loc.Status_Stopped;
     }
 
-    private void SaveChat()
+    private async Task SaveCurrentChatAsync(bool saveIndex = true)
     {
-        if (CurrentChat is not null)
+        if (CurrentChat is null) return;
+        await SaveChatAsync(CurrentChat, saveIndex);
+    }
+
+    private void QueueSaveChat(Chat chat, bool saveIndex)
+    {
+        _ = SaveChatAsync(chat, saveIndex);
+    }
+
+    private async Task SaveChatAsync(Chat chat, bool saveIndex)
+    {
+        chat.UpdatedAt = DateTimeOffset.Now;
+        if (!_dataStore.Data.Settings.AutoSaveChats) return;
+
+        try
         {
-            CurrentChat.UpdatedAt = DateTimeOffset.Now;
-            if (_dataStore.Data.Settings.AutoSaveChats)
-                _dataStore.Save();
+            await _dataStore.SaveChatAsync(chat);
+            if (saveIndex)
+                await _dataStore.SaveAsync();
+        }
+        catch
+        {
+            // Avoid surfacing persistence races/IO failures as hard UI errors.
+        }
+    }
+
+    private async Task SaveIndexAsync()
+    {
+        try
+        {
+            await _dataStore.SaveAsync();
+        }
+        catch
+        {
+            // Best-effort persistence for UX responsiveness.
         }
     }
 
@@ -637,7 +673,7 @@ public partial class ChatViewModel : ObservableObject
         if (CurrentChat is not null)
         {
             CurrentChat.AgentId = agent?.Id;
-            SaveChat();
+            QueueSaveChat(CurrentChat, saveIndex: true);
         }
         AgentChanged?.Invoke();
     }
@@ -648,7 +684,7 @@ public partial class ChatViewModel : ObservableObject
         if (CurrentChat is not null)
         {
             CurrentChat.ProjectId = projectId;
-            SaveChat();
+            QueueSaveChat(CurrentChat, saveIndex: true);
         }
         else
         {
@@ -681,7 +717,7 @@ public partial class ChatViewModel : ObservableObject
         if (CurrentChat is not null)
         {
             CurrentChat.ActiveSkillIds = new List<Guid>(ActiveSkillIds);
-            SaveChat();
+            QueueSaveChat(CurrentChat, saveIndex: true);
         }
     }
 
@@ -768,7 +804,7 @@ public partial class ChatViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(value)) return;
         _dataStore.Data.Settings.PreferredModel = value;
-        _dataStore.Save();
+        _ = SaveIndexAsync();
     }
 
     private AIFunction BuildAnnounceFileTool()
@@ -795,7 +831,7 @@ public partial class ChatViewModel : ObservableObject
         return
         [
             AIFunctionFactory.Create(
-                ([Description("Brief label for the memory (e.g. Birthday, Dog's name, Prefers dark mode)")] string key,
+                async ([Description("Brief label for the memory (e.g. Birthday, Dog's name, Prefers dark mode)")] string key,
                  [Description("Full memory text with details")] string content,
                  [Description("Category: Personal, Preferences, Work, etc. Default: General")] string? category) =>
                 {
@@ -818,14 +854,14 @@ public partial class ChatViewModel : ObservableObject
                             SourceChatId = CurrentChat?.Id.ToString()
                         });
                     }
-                    _dataStore.Save();
+                    await _dataStore.SaveAsync();
                     return $"Memory saved: {key}";
                 },
                 "save_memory",
                 "Save or update a persistent memory about the user"),
 
             AIFunctionFactory.Create(
-                ([Description("Key of the memory to update")] string key,
+                async ([Description("Key of the memory to update")] string key,
                  [Description("New content text (optional)")] string? content,
                  [Description("New key if renaming (optional)")] string? newKey) =>
                 {
@@ -835,20 +871,20 @@ public partial class ChatViewModel : ObservableObject
                     if (content is not null) memory.Content = content;
                     if (newKey is not null) memory.Key = newKey;
                     memory.UpdatedAt = DateTimeOffset.Now;
-                    _dataStore.Save();
+                    await _dataStore.SaveAsync();
                     return $"Memory updated: {memory.Key}";
                 },
                 "update_memory",
                 "Update an existing memory's content or key"),
 
             AIFunctionFactory.Create(
-                ([Description("Key of the memory to remove")] string key) =>
+                async ([Description("Key of the memory to remove")] string key) =>
                 {
                     var memory = _dataStore.Data.Memories
                         .FirstOrDefault(m => m.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
                     if (memory is null) return $"Memory not found: {key}";
                     _dataStore.Data.Memories.Remove(memory);
-                    _dataStore.Save();
+                    await _dataStore.SaveAsync();
                     return $"Memory deleted: {key}";
                 },
                 "delete_memory",
@@ -1050,7 +1086,7 @@ public partial class ChatViewModel : ObservableObject
         };
         CurrentChat.Messages.Add(newUserMsg);
         Messages.Add(new ChatMessageViewModel(newUserMsg));
-        SaveChat();
+        await SaveCurrentChatAsync();
         ScrollToEndRequested?.Invoke();
 
         // Resend
@@ -1075,7 +1111,7 @@ public partial class ChatViewModel : ObservableObject
         var skillDirs = new List<string>();
         if (ActiveSkillIds.Count > 0)
         {
-            var dir = _dataStore.SyncSkillFilesForIds(ActiveSkillIds);
+            var dir = await _dataStore.SyncSkillFilesForIdsAsync(ActiveSkillIds);
             skillDirs.Add(dir);
         }
         var customAgents = BuildCustomAgents();

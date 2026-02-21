@@ -89,7 +89,7 @@ public partial class MemoriesViewModel : ObservableObject
             _dataStore.Data.Memories.Add(memory);
         }
 
-        _dataStore.Save();
+        _ = _dataStore.SaveAsync();
         IsEditing = false;
         RefreshList();
     }
@@ -104,7 +104,7 @@ public partial class MemoriesViewModel : ObservableObject
     private void DeleteMemory(Memory memory)
     {
         _dataStore.Data.Memories.Remove(memory);
-        _dataStore.Save();
+        _ = _dataStore.SaveAsync();
         if (SelectedMemory == memory)
         {
             SelectedMemory = null;

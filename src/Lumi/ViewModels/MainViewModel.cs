@@ -213,9 +213,9 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void OpenChat(Chat chat)
+    private async Task OpenChat(Chat chat)
     {
-        ChatVM.LoadChat(chat);
+        await ChatVM.LoadChatAsync(chat);
         SelectedNavIndex = 0;
     }
 
@@ -224,7 +224,8 @@ public partial class MainViewModel : ObservableObject
     {
         ChatVM.CleanupSession(chat.Id);
         _dataStore.Data.Chats.Remove(chat);
-        _dataStore.Save();
+        _dataStore.DeleteChatFile(chat.Id);
+        _ = _dataStore.SaveAsync();
         RefreshChatList();
 
         if (ChatVM.CurrentChat?.Id == chat.Id)
@@ -250,7 +251,7 @@ public partial class MainViewModel : ObservableObject
         if (!string.IsNullOrEmpty(newTitle))
         {
             RenamingChat.Title = newTitle;
-            _dataStore.Save();
+            _ = _dataStore.SaveAsync();
             RefreshChatList();
         }
         RenamingChat = null;
@@ -291,7 +292,7 @@ public partial class MainViewModel : ObservableObject
         {
             chat.ProjectId = project.Id;
             chat.UpdatedAt = DateTimeOffset.Now;
-            _dataStore.Save();
+            _ = _dataStore.SaveAsync();
             RefreshChatList();
         }
     }
@@ -302,14 +303,14 @@ public partial class MainViewModel : ObservableObject
         if (chat is null) return;
         chat.ProjectId = null;
         chat.UpdatedAt = DateTimeOffset.Now;
-        _dataStore.Save();
+        _ = _dataStore.SaveAsync();
         RefreshChatList();
     }
 
     [RelayCommand]
-    private void OpenChatFromProject(Chat chat)
+    private async Task OpenChatFromProject(Chat chat)
     {
-        ChatVM.LoadChat(chat);
+        await ChatVM.LoadChatAsync(chat);
         SelectedNavIndex = 0;
     }
 
@@ -326,7 +327,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void CompleteOnboarding()
+    private async Task CompleteOnboarding()
     {
         if (string.IsNullOrWhiteSpace(OnboardingName)) return;
 
@@ -348,7 +349,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         settings.IsOnboarded = true;
-        _dataStore.Save();
+        await _dataStore.SaveAsync();
 
         UserName = OnboardingName.Trim();
         IsOnboarded = true;
@@ -367,12 +368,12 @@ public partial class MainViewModel : ObservableObject
     partial void OnIsDarkThemeChanged(bool value)
     {
         _dataStore.Data.Settings.IsDarkTheme = value;
-        _dataStore.Save();
+        _ = _dataStore.SaveAsync();
     }
 
     partial void OnIsCompactDensityChanged(bool value)
     {
         _dataStore.Data.Settings.IsCompactDensity = value;
-        _dataStore.Save();
+        _ = _dataStore.SaveAsync();
     }
 }

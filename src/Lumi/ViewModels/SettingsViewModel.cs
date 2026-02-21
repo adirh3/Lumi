@@ -306,12 +306,13 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
-    private void Save() => _dataStore.Save();
+    private void Save() => _ = _dataStore.SaveAsync();
 
     [RelayCommand]
     private void ClearAllChats()
     {
         _dataStore.Data.Chats.Clear();
+        _dataStore.DeleteAllChatFiles();
         Save();
         SettingsChanged?.Invoke();
     }

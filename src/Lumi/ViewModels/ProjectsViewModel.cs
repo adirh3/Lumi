@@ -113,7 +113,7 @@ public partial class ProjectsViewModel : ObservableObject
             _dataStore.Data.Projects.Add(project);
         }
 
-        _dataStore.Save();
+        _ = _dataStore.SaveAsync();
         IsEditing = false;
         RefreshList();
         ProjectsChanged?.Invoke();
@@ -136,7 +136,7 @@ public partial class ProjectsViewModel : ObservableObject
             chat.ProjectId = null;
 
         _dataStore.Data.Projects.Remove(project);
-        _dataStore.Save();
+        _ = _dataStore.SaveAsync();
         if (SelectedProject == project)
         {
             SelectedProject = null;

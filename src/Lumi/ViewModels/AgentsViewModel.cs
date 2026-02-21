@@ -114,7 +114,7 @@ public partial class AgentsViewModel : ObservableObject
             _dataStore.Data.Agents.Add(agent);
         }
 
-        _dataStore.Save();
+        _ = _dataStore.SaveAsync();
         IsEditing = false;
         RefreshList();
     }
@@ -129,7 +129,7 @@ public partial class AgentsViewModel : ObservableObject
     private void DeleteAgent(LumiAgent agent)
     {
         _dataStore.Data.Agents.Remove(agent);
-        _dataStore.Save();
+        _ = _dataStore.SaveAsync();
         if (SelectedAgent == agent)
         {
             SelectedAgent = null;

@@ -92,7 +92,7 @@ public partial class SkillsViewModel : ObservableObject
             _dataStore.Data.Skills.Add(skill);
         }
 
-        _dataStore.Save();
+        _ = _dataStore.SaveAsync();
         _dataStore.SyncSkillFiles();
         IsEditing = false;
         RefreshList();
@@ -108,7 +108,7 @@ public partial class SkillsViewModel : ObservableObject
     private void DeleteSkill(Skill skill)
     {
         _dataStore.Data.Skills.Remove(skill);
-        _dataStore.Save();
+        _ = _dataStore.SaveAsync();
         _dataStore.SyncSkillFiles();
         if (SelectedSkill == skill)
         {
