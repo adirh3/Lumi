@@ -38,6 +38,7 @@ public class Chat
     [JsonIgnore]
     public List<ChatMessage> Messages { get; set; } = [];
     public List<Guid> ActiveSkillIds { get; set; } = [];
+    public List<string> ActiveMcpServerNames { get; set; } = [];
 }
 
 public class Project
@@ -70,6 +71,29 @@ public class LumiAgent
     public bool IsLearningAgent { get; set; }
     public List<Guid> SkillIds { get; set; } = [];
     public List<string> ToolNames { get; set; } = [];
+    public List<Guid> McpServerIds { get; set; } = [];
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+}
+
+public class McpServer
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string ServerType { get; set; } = "local"; // "local" or "remote"
+
+    // Local server (stdio) properties
+    public string Command { get; set; } = "";
+    public List<string> Args { get; set; } = [];
+    public Dictionary<string, string> Env { get; set; } = [];
+
+    // Remote server (SSE) properties
+    public string Url { get; set; } = "";
+    public Dictionary<string, string> Headers { get; set; } = [];
+
+    public List<string> Tools { get; set; } = [];
+    public int? Timeout { get; set; }
+    public bool IsEnabled { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
 }
 
@@ -127,5 +151,6 @@ public class AppData
     public List<Project> Projects { get; set; } = [];
     public List<Skill> Skills { get; set; } = [];
     public List<LumiAgent> Agents { get; set; } = [];
+    public List<McpServer> McpServers { get; set; } = [];
     public List<Memory> Memories { get; set; } = [];
 }

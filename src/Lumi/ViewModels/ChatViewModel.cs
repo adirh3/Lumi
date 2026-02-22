@@ -68,6 +68,12 @@ public partial class ChatViewModel : ObservableObject
     /// <summary>Skill IDs active for the current chat.</summary>
     public List<Guid> ActiveSkillIds { get; } = [];
 
+    /// <summary>MCP servers currently active for this chat session — shown as chips in the composer.</summary>
+    public ObservableCollection<object> ActiveMcpChips { get; } = [];
+
+    /// <summary>MCP server names active for the current chat (empty = use all enabled).</summary>
+    public List<string> ActiveMcpServerNames { get; } = [];
+
     // Events for the view to react to
     public event Action? ScrollToEndRequested;
     public event Action? UserMessageSent;
@@ -85,6 +91,9 @@ public partial class ChatViewModel : ObservableObject
         // Seed with preferred model so the ComboBox has an initial selection
         if (!string.IsNullOrWhiteSpace(_selectedModel))
             AvailableModels.Add(_selectedModel);
+
+        // Default all enabled MCPs to active so the MCP picker shows them checked
+        PopulateDefaultMcps();
     }
 
     /// <summary>Subscribes to events on a CopilotSession. Each subscription captures its own
@@ -446,6 +455,31 @@ public partial class ChatViewModel : ObservableObject
                 }
             }
 
+            // Restore active MCP servers from chat (default to all enabled if none saved)
+            ActiveMcpServerNames.Clear();
+            ActiveMcpChips.Clear();
+            if (chat.ActiveMcpServerNames.Count > 0)
+            {
+                foreach (var name in chat.ActiveMcpServerNames)
+                {
+                    var server = _dataStore.Data.McpServers.FirstOrDefault(s => s.Name == name && s.IsEnabled);
+                    if (server is not null)
+                    {
+                        ActiveMcpServerNames.Add(name);
+                        ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name));
+                    }
+                }
+            }
+            else
+            {
+                // No MCPs saved — default to all enabled
+                foreach (var server in _dataStore.Data.McpServers.Where(s => s.IsEnabled))
+                {
+                    ActiveMcpServerNames.Add(server.Name);
+                    ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(server.Name));
+                }
+            }
+
             // Restore active agent from chat
             if (chat.AgentId.HasValue)
             {
@@ -474,8 +508,25 @@ public partial class ChatViewModel : ObservableObject
         _pendingSearchSources.Clear();
         ActiveSkillIds.Clear();
         ActiveSkillChips.Clear();
+        ActiveMcpServerNames.Clear();
+        ActiveMcpChips.Clear();
+        PopulateDefaultMcps();
         _pendingProjectId = null;
         StatusText = "";
+    }
+
+    /// <summary>
+    /// Called when MCP server config changes so the next message creates a fresh session with updated MCP servers.
+    /// </summary>
+    public void InvalidateMcpSession()
+    {
+        if (CurrentChat is not null)
+        {
+            // Remove from session cache so LoadChatAsync doesn't restore the stale session
+            _sessionCache.Remove(CurrentChat.Id);
+            CurrentChat.CopilotSessionId = null;
+            _activeSession = null;
+        }
     }
 
     [RelayCommand]
@@ -552,6 +603,9 @@ public partial class ChatViewModel : ObservableObject
         // Build custom tools (memory + file announcement)
         var customTools = BuildCustomTools();
 
+        // Build MCP servers
+        var mcpServers = BuildMcpServers();
+
         try
         {
             _cts = new CancellationTokenSource();
@@ -561,7 +615,7 @@ public partial class ChatViewModel : ObservableObject
             if (CurrentChat.CopilotSessionId is null)
             {
                 var session = await _copilotService.CreateSessionAsync(
-                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, _cts.Token);
+                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, mcpServers, _cts.Token);
                 CurrentChat.CopilotSessionId = session.SessionId;
                 _activeSession = session;
                 SubscribeToSession(session, CurrentChat);
@@ -569,7 +623,7 @@ public partial class ChatViewModel : ObservableObject
             else if (_activeSession?.SessionId != CurrentChat.CopilotSessionId)
             {
                 var session = await _copilotService.ResumeSessionAsync(
-                    CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, _cts.Token);
+                    CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, mcpServers, _cts.Token);
                 _activeSession = session;
                 SubscribeToSession(session, CurrentChat);
             }
@@ -732,6 +786,64 @@ public partial class ChatViewModel : ObservableObject
         SyncActiveSkillsToChat();
     }
 
+    public void AddMcpServer(string name)
+    {
+        if (ActiveMcpServerNames.Contains(name)) return;
+        var server = _dataStore.Data.McpServers.FirstOrDefault(s => s.Name == name);
+        if (server is null) return;
+        ActiveMcpServerNames.Add(name);
+        ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name));
+        SyncActiveMcpsToChat();
+    }
+
+    /// <summary>Registers an MCP server name without adding a chip (composer already added it).</summary>
+    public void RegisterMcpByName(string name)
+    {
+        if (ActiveMcpServerNames.Contains(name)) return;
+        var server = _dataStore.Data.McpServers.FirstOrDefault(s => s.Name == name);
+        if (server is null) return;
+        ActiveMcpServerNames.Add(name);
+        SyncActiveMcpsToChat();
+    }
+
+    public void RemoveMcpByName(string name)
+    {
+        ActiveMcpServerNames.Remove(name);
+        var chip = ActiveMcpChips.OfType<StrataTheme.Controls.StrataComposerChip>()
+            .FirstOrDefault(c => c.Name == name);
+        if (chip is not null) ActiveMcpChips.Remove(chip);
+        SyncActiveMcpsToChat();
+    }
+
+    public void SyncActiveMcpsToChat()
+    {
+        if (CurrentChat is not null)
+        {
+            CurrentChat.ActiveMcpServerNames = new List<string>(ActiveMcpServerNames);
+            QueueSaveChat(CurrentChat, saveIndex: true);
+        }
+    }
+
+    /// <summary>Populate ActiveMcpChips and ActiveMcpServerNames with all enabled MCP servers (default state).</summary>
+    public void PopulateDefaultMcps()
+    {
+        IsLoadingChat = true;
+        try
+        {
+            ActiveMcpServerNames.Clear();
+            ActiveMcpChips.Clear();
+            foreach (var server in _dataStore.Data.McpServers.Where(s => s.IsEnabled))
+            {
+                ActiveMcpServerNames.Add(server.Name);
+                ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(server.Name));
+            }
+        }
+        finally
+        {
+            IsLoadingChat = false;
+        }
+    }
+
     private List<CustomAgentConfig> BuildCustomAgents()
     {
         var agents = new List<CustomAgentConfig>();
@@ -764,6 +876,60 @@ public partial class ChatViewModel : ObservableObject
         tools.Add(BuildAnnounceFileTool());
         tools.AddRange(BuildWebTools());
         return tools;
+    }
+
+    private Dictionary<string, object>? BuildMcpServers()
+    {
+        var allServers = _dataStore.Data.McpServers.Where(s => s.IsEnabled).ToList();
+
+        // If an active agent has MCP server IDs, use only those
+        if (ActiveAgent is { McpServerIds.Count: > 0 })
+        {
+            var agentServerIds = ActiveAgent.McpServerIds;
+            allServers = allServers.Where(s => agentServerIds.Contains(s.Id)).ToList();
+        }
+        // If the user has selected specific MCP servers via chips, use only those
+        else if (ActiveMcpServerNames.Count > 0)
+        {
+            allServers = allServers.Where(s => ActiveMcpServerNames.Contains(s.Name)).ToList();
+        }
+
+        if (allServers.Count == 0) return null;
+
+        var dict = new Dictionary<string, object>();
+        foreach (var server in allServers)
+        {
+            if (server.ServerType == "remote")
+            {
+                var remote = new McpRemoteServerConfig
+                {
+                    Url = server.Url,
+                    Type = "sse",
+                    Tools = server.Tools.Count > 0 ? server.Tools.ToList() : ["*"]
+                };
+                if (server.Headers.Count > 0)
+                    remote.Headers = new Dictionary<string, string>(server.Headers);
+                if (server.Timeout.HasValue)
+                    remote.Timeout = server.Timeout.Value;
+                dict[server.Name] = remote;
+            }
+            else
+            {
+                var local = new McpLocalServerConfig
+                {
+                    Command = server.Command,
+                    Args = server.Args.ToList(),
+                    Type = "stdio",
+                    Tools = server.Tools.Count > 0 ? server.Tools.ToList() : ["*"]
+                };
+                if (server.Env.Count > 0)
+                    local.Env = new Dictionary<string, string>(server.Env);
+                if (server.Timeout.HasValue)
+                    local.Timeout = server.Timeout.Value;
+                dict[server.Name] = local;
+            }
+        }
+        return dict;
     }
 
     private List<AIFunction> BuildWebTools()
@@ -916,6 +1082,15 @@ public partial class ChatViewModel : ObservableObject
     {
         return _dataStore.Data.Skills
             .Select(s => new StrataTheme.Controls.StrataComposerChip(s.Name, s.IconGlyph))
+            .ToList();
+    }
+
+    /// <summary>Returns StrataComposerChip items for all enabled MCP servers (for composer autocomplete).</summary>
+    public List<StrataTheme.Controls.StrataComposerChip> GetMcpChips()
+    {
+        return _dataStore.Data.McpServers
+            .Where(s => s.IsEnabled)
+            .Select(s => new StrataTheme.Controls.StrataComposerChip(s.Name))
             .ToList();
     }
 
@@ -1116,6 +1291,7 @@ public partial class ChatViewModel : ObservableObject
         }
         var customAgents = BuildCustomAgents();
         var customTools = BuildCustomTools();
+        var mcpServers = BuildMcpServers();
 
         try
         {
@@ -1132,7 +1308,7 @@ public partial class ChatViewModel : ObservableObject
                     // Resume the saved session to restore server-side history
                     var session = await _copilotService.ResumeSessionAsync(
                         CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir,
-                        skillDirs, customAgents, customTools, _cts.Token);
+                        skillDirs, customAgents, customTools, mcpServers, _cts.Token);
                     _activeSession = session;
                     SubscribeToSession(session, CurrentChat);
                 }
@@ -1141,7 +1317,7 @@ public partial class ChatViewModel : ObservableObject
             {
                 // No session at all — create new (first-time edge case)
                 var session = await _copilotService.CreateSessionAsync(
-                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, _cts.Token);
+                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, mcpServers, _cts.Token);
                 CurrentChat.CopilotSessionId = session.SessionId;
                 _activeSession = session;
                 SubscribeToSession(session, CurrentChat);

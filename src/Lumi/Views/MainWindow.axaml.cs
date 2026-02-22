@@ -74,7 +74,8 @@ public partial class MainWindow : Window
             this.FindControl<Control>("PageSkills"),           // 2
             this.FindControl<Control>("PageAgents"),           // 3
             this.FindControl<Control>("PageMemories"),         // 4
-            this.FindControl<Control>("PageSettings"),         // 5
+            this.FindControl<Control>("PageMcpServers"),       // 5
+            this.FindControl<Control>("PageSettings"),         // 6
         ];
 
         _sidebarPanels =
@@ -84,7 +85,8 @@ public partial class MainWindow : Window
             this.FindControl<Panel>("SidebarSkills"),          // 2
             this.FindControl<Panel>("SidebarAgents"),          // 3
             this.FindControl<Panel>("SidebarMemories"),        // 4
-            this.FindControl<Panel>("SidebarSettings"),        // 5
+            this.FindControl<Panel>("SidebarMcpServers"),      // 5
+            this.FindControl<Panel>("SidebarSettings"),        // 6
         ];
 
         _navButtons =
@@ -94,6 +96,7 @@ public partial class MainWindow : Window
             this.FindControl<Button>("NavSkills"),
             this.FindControl<Button>("NavAgents"),
             this.FindControl<Button>("NavMemories"),
+            this.FindControl<Button>("NavMcpServers"),
             this.FindControl<Button>("NavSettings"),
         ];
 
@@ -147,7 +150,7 @@ public partial class MainWindow : Window
         if (DataContext is not MainViewModel vm || !vm.IsOnboarded) return;
 
         // Don't intercept shortcuts while recording a global hotkey
-        var settingsPage = _pages.Length > 5 ? _pages[5] as SettingsView : null;
+        var settingsPage = _pages.Length > 6 ? _pages[6] as SettingsView : null;
         if (settingsPage?.IsRecordingHotkey == true) return;
 
         var ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
@@ -208,12 +211,12 @@ public partial class MainWindow : Window
         // ── Ctrl+, — Settings ──
         if (ctrl && !shift && e.Key == Key.OemComma)
         {
-            vm.SelectedNavIndex = 5;
+            vm.SelectedNavIndex = 6;
             e.Handled = true;
             return;
         }
 
-        // ── Ctrl+1..6 — Tab navigation ──
+        // ── Ctrl+1..7 — Tab navigation ──
         if (ctrl && !shift)
         {
             var tabIndex = e.Key switch
@@ -224,6 +227,7 @@ public partial class MainWindow : Window
                 Key.D4 => 3,
                 Key.D5 => 4,
                 Key.D6 => 5,
+                Key.D7 => 6,
                 _ => -1
             };
             if (tabIndex >= 0)
@@ -307,6 +311,12 @@ public partial class MainWindow : Window
 
             // Wire ProjectsVM chat open to navigate to chat tab
             vm.ProjectsVM.ChatOpenRequested += chat => vm.OpenChatFromProjectCommand.Execute(chat);
+
+            // Refresh composer MCP catalogs when MCP config changes (install/delete/toggle)
+            vm.McpServersVM.McpConfigChanged += () =>
+            {
+                Dispatcher.UIThread.Post(() => _chatView?.PopulateComposerCatalogs(vm.ChatVM));
+            };
 
             // Wire settings for density and font size
             vm.SettingsVM.PropertyChanged += (_, args) =>
@@ -426,11 +436,18 @@ public partial class MainWindow : Window
         }
 
         // When settings tab is shown, refresh stats
-        if (index == 5 && DataContext is MainViewModel svm)
+        if (index == 6 && DataContext is MainViewModel svm)
         {
             if (svm.SettingsVM.SelectedPageIndex < 0)
                 svm.SettingsVM.SelectedPageIndex = 0;
             svm.SettingsVM.RefreshStats();
+        }
+
+        // When MCP tab is shown and no server is selected/editing, auto-open browse catalog
+        if (index == 5 && DataContext is MainViewModel mcpvm)
+        {
+            if (!mcpvm.McpServersVM.IsEditing && mcpvm.McpServersVM.SelectedServer is null)
+                mcpvm.McpServersVM.BrowseCatalogCommand.Execute(null);
         }
     }
 

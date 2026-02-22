@@ -201,6 +201,31 @@ public partial class ChatView : UserControl
             }
         };
 
+        // When an MCP chip is added/removed via the MCP button popup, sync names with the VM
+        vm.ActiveMcpChips.CollectionChanged += (_, args) =>
+        {
+            if (vm.IsLoadingChat) return;
+            if (args.Action == NotifyCollectionChangedAction.Add && args.NewItems is not null)
+            {
+                foreach (var item in args.NewItems)
+                {
+                    if (item is StrataComposerChip chip)
+                        vm.RegisterMcpByName(chip.Name);
+                }
+            }
+            else if (args.Action == NotifyCollectionChangedAction.Remove && args.OldItems is not null)
+            {
+                foreach (var item in args.OldItems)
+                {
+                    if (item is StrataComposerChip chip)
+                    {
+                        vm.ActiveMcpServerNames.Remove(chip.Name);
+                        vm.SyncActiveMcpsToChat();
+                    }
+                }
+            }
+        };
+
         // Wire file-created-by-tool to show attachment chips in the transcript
         vm.FileCreatedByTool += filePath =>
         {
@@ -952,19 +977,22 @@ public partial class ChatView : UserControl
 
     public void PopulateComposerCatalogs(ChatViewModel vm)
     {
-        // Build agent catalog from DataStore (accessed via vm)
+        // Build agent, skill, and MCP catalogs from DataStore (accessed via vm)
         var agentChips = vm.GetAgentChips();
         var skillChips = vm.GetSkillChips();
+        var mcpChips = vm.GetMcpChips();
 
         if (_welcomeComposer is not null)
         {
             _welcomeComposer.AvailableAgents = agentChips;
             _welcomeComposer.AvailableSkills = skillChips;
+            _welcomeComposer.AvailableMcps = mcpChips;
         }
         if (_activeComposer is not null)
         {
             _activeComposer.AvailableAgents = agentChips;
             _activeComposer.AvailableSkills = skillChips;
+            _activeComposer.AvailableMcps = mcpChips;
         }
     }
 

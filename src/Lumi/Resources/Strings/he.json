@@ -17,6 +17,7 @@
   "Nav_Skills": "כישורים (Ctrl+3)",
   "Nav_Lumis": "לומים (Ctrl+4)",
   "Nav_Memories": "זיכרונות (Ctrl+5)",
+  "Nav_McpServers": "שרתי MCP (Ctrl+6)",
   "Nav_Settings": "הגדרות (Ctrl+,)",
 
   "Sidebar_NewChat": "צ׳אט חדש",
@@ -347,5 +348,32 @@
   "Voice_SpeechPrivacyRequired": "זיהוי קולי דורש הרשאה. אנא הפעל אותו בהגדרות Windows ונסה שוב.",
 
   "Sources_One": "מקור אחד",
-  "Sources_N": "{0} מקורות"
+  "Sources_N": "{0} מקורות",
+
+  "Sidebar_McpServers": "שרתי MCP",
+  "Sidebar_NewMcpServerTooltip": "שרת MCP חדש",
+  "Editor_McpServer": "עורך שרת MCP",
+  "Empty_SelectMcpServer": "בחר או צור שרת MCP",
+  "Watermark_McpServerName": "למשל Memory Server",
+  "Watermark_McpServerDescription": "מה השרת הזה מספק?",
+  "Watermark_McpCommand": "למשל npx",
+  "Watermark_McpArgs": "ארגומנט אחד בכל שורה",
+  "Watermark_McpUrl": "https://example.com/mcp",
+  "Field_ServerType": "סוג שרת",
+  "Field_Command": "פקודה",
+  "Field_Arguments": "ארגומנטים",
+  "Field_Url": "כתובת URL",
+  "Field_Environment": "משתני סביבה",
+  "Field_Headers": "כותרות",
+  "Field_Enabled": "מופעל",
+  "McpType_Local": "מקומי (stdio)",
+  "McpType_Remote": "מרוחק (SSE)",
+
+  "Sidebar_BrowseMcpTooltip": "עיין בקטלוג MCP",
+  "Mcp_BrowseCatalog": "עיון בשרתי MCP",
+  "Mcp_SearchCatalog": "חפש בקטלוג...",
+  "Mcp_SearchingNpm": "מחפש ברישום npm...",
+  "Mcp_EnabledTitle": "מופעל",
+  "Mcp_Install": "התקן",
+  "Mcp_Installed": "מותקן"
 }

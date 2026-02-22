@@ -42,6 +42,7 @@ public partial class MainViewModel : ObservableObject
     public AgentsViewModel AgentsVM { get; }
     public ProjectsViewModel ProjectsVM { get; }
     public MemoriesViewModel MemoriesVM { get; }
+    public McpServersViewModel McpServersVM { get; }
     public SettingsViewModel SettingsVM { get; }
 
     // Grouped chat list for sidebar
@@ -66,6 +67,7 @@ public partial class MainViewModel : ObservableObject
         AgentsVM = new AgentsViewModel(dataStore);
         ProjectsVM = new ProjectsViewModel(dataStore);
         MemoriesVM = new MemoriesViewModel(dataStore);
+        McpServersVM = new McpServersViewModel(dataStore);
         SettingsVM = new SettingsViewModel(dataStore, copilotService);
 
         // Sync settings changes back to MainViewModel
@@ -98,6 +100,12 @@ public partial class MainViewModel : ObservableObject
         {
             LoadProjects();
             RefreshChatList();
+        };
+
+        McpServersVM.McpConfigChanged += () =>
+        {
+            ChatVM.InvalidateMcpSession();
+            ChatVM.PopulateDefaultMcps();
         };
 
         LoadProjects();

@@ -83,7 +83,26 @@ internal static class AppDataSnapshotFactory
                     IsLearningAgent = a.IsLearningAgent,
                     SkillIds = [..a.SkillIds],
                     ToolNames = [..a.ToolNames],
+                    McpServerIds = [..a.McpServerIds],
                     CreatedAt = a.CreatedAt
+                })
+                .ToList(),
+            McpServers = source.McpServers
+                .Select(static s => new McpServer
+                {
+                    Id = s.Id,
+                    Name = s.Name,
+                    Description = s.Description,
+                    ServerType = s.ServerType,
+                    Command = s.Command,
+                    Args = [..s.Args],
+                    Env = new(s.Env),
+                    Url = s.Url,
+                    Headers = new(s.Headers),
+                    Tools = [..s.Tools],
+                    Timeout = s.Timeout,
+                    IsEnabled = s.IsEnabled,
+                    CreatedAt = s.CreatedAt
                 })
                 .ToList(),
             Memories = source.Memories

@@ -10,4 +10,5 @@ namespace Lumi.Models;
 [JsonSerializable(typeof(AppData))]
 [JsonSerializable(typeof(JsonDocument))]
 [JsonSerializable(typeof(List<ChatMessage>))]
+[JsonSerializable(typeof(List<McpServer>))]
 internal partial class AppDataJsonContext : JsonSerializerContext;

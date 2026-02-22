@@ -17,6 +17,7 @@
   "Nav_Skills": "Skills (Ctrl+3)",
   "Nav_Lumis": "Lumis (Ctrl+4)",
   "Nav_Memories": "Memories (Ctrl+5)",
+  "Nav_McpServers": "MCP Servers (Ctrl+6)",
   "Nav_Settings": "Settings (Ctrl+,)",
 
   "Sidebar_NewChat": "New Chat",
@@ -347,5 +348,32 @@
   "Voice_SpeechPrivacyRequired": "Speech recognition requires permission. Please enable it in Windows Settings and try again.",
 
   "Sources_One": "1 source",
-  "Sources_N": "{0} sources"
+  "Sources_N": "{0} sources",
+
+  "Sidebar_McpServers": "MCP Servers",
+  "Sidebar_NewMcpServerTooltip": "New MCP server",
+  "Editor_McpServer": "MCP Server Editor",
+  "Empty_SelectMcpServer": "Select or create an MCP server",
+  "Watermark_McpServerName": "e.g. Memory Server",
+  "Watermark_McpServerDescription": "What does this server provide?",
+  "Watermark_McpCommand": "e.g. npx",
+  "Watermark_McpArgs": "One argument per line",
+  "Watermark_McpUrl": "https://example.com/mcp",
+  "Field_ServerType": "SERVER TYPE",
+  "Field_Command": "COMMAND",
+  "Field_Arguments": "ARGUMENTS",
+  "Field_Url": "URL",
+  "Field_Environment": "ENVIRONMENT VARIABLES",
+  "Field_Headers": "HEADERS",
+  "Field_Enabled": "ENABLED",
+  "McpType_Local": "Local (stdio)",
+  "McpType_Remote": "Remote (SSE)",
+
+  "Sidebar_BrowseMcpTooltip": "Browse MCP catalog",
+  "Mcp_BrowseCatalog": "Browse MCP Servers",
+  "Mcp_SearchCatalog": "Search catalog...",
+  "Mcp_SearchingNpm": "Searching npm registry...",
+  "Mcp_EnabledTitle": "Enabled",
+  "Mcp_Install": "Install",
+  "Mcp_Installed": "Installed"
 }

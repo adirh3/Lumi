@@ -43,6 +43,7 @@ public class CopilotService : IAsyncDisposable
         List<string>? skillDirectories = null,
         List<CustomAgentConfig>? customAgents = null,
         List<AIFunction>? tools = null,
+        Dictionary<string, object>? mcpServers = null,
         CancellationToken ct = default)
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
@@ -73,6 +74,9 @@ public class CopilotService : IAsyncDisposable
         if (tools is { Count: > 0 })
             config.Tools = tools;
 
+        if (mcpServers is { Count: > 0 })
+            config.McpServers = mcpServers;
+
         return await _client.CreateSessionAsync(config, ct);
     }
 
@@ -84,6 +88,7 @@ public class CopilotService : IAsyncDisposable
         List<string>? skillDirectories = null,
         List<CustomAgentConfig>? customAgents = null,
         List<AIFunction>? tools = null,
+        Dictionary<string, object>? mcpServers = null,
         CancellationToken ct = default)
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
@@ -112,6 +117,9 @@ public class CopilotService : IAsyncDisposable
 
         if (tools is { Count: > 0 })
             config.Tools = tools;
+
+        if (mcpServers is { Count: > 0 })
+            config.McpServers = mcpServers;
 
         return await _client.ResumeSessionAsync(sessionId, config, ct);
     }

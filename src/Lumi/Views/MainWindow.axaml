@@ -27,7 +27,10 @@
     <StreamGeometry x:Key="Icon.Plus">M12 4a1 1 0 0 1 1 1v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6V5a1 1 0 0 1 1-1z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Trash">M9 3h6a1 1 0 0 1 1 1H7a1 1 0 0 1 1-1zM4 6h16v1H4V6zm2 2h12l-1 13H7L6 8zm4 2v8h1v-8h-1zm3 0v8h1v-8h-1z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Memory">M9.5 2A1.5 1.5 0 0 0 8 3.5V4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-4v-.5A1.5 1.5 0 0 0 14.5 2h-5zM10 4V3.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4h-4zm-2 5a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm5 0a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm-5 4a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm5 0a1 1 0 1 1 2 0 1 1 0 0 1-2 0z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Plug">M17 6.1h3V8h-3v2.1a5 5 0 0 1-4 4.9V18h2v2H9v-2h2v-3a5 5 0 0 1-4-4.9V8H4V6.1h3V4h2v2.1h4V4h2v2.1zM9 8v2.1a3 3 0 0 0 6 0V8H9z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Rename">M4 18h4l10-10a2 2 0 0 0 0-2.83l-1.17-1.17a2 2 0 0 0-2.83 0L4 14v4zm2-3.17L14.59 6.24l1.17 1.17L7.17 16H6v-1.17z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Browse">M4 4h4v4H4V4zm6 0h4v4h-4V4zm6 0h4v4h-4V4zM4 10h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4zM4 16h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Check">M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z</StreamGeometry>
   </Window.Resources>
 
   <Window.Styles>
@@ -45,7 +48,7 @@
     </Style>
     <!-- Nav icon buttons: use subtle as base for reliable hit testing -->
     <Style Selector="Button.nav-icon">
-      <Setter Property="Padding" Value="10" />
+      <Setter Property="Padding" Value="7" />
       <Setter Property="MinWidth" Value="0" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
@@ -177,8 +180,13 @@
                 <PathIcon Data="{StaticResource Icon.Memory}" Width="16" Height="16"
                           Foreground="{DynamicResource Brush.TextSecondary}" />
               </Button>
-              <Button Classes="subtle nav-icon" x:Name="NavSettings" ToolTip.Tip="{loc:Str Nav_Settings}"
+              <Button Classes="subtle nav-icon" x:Name="NavMcpServers" ToolTip.Tip="{loc:Str Nav_McpServers}"
                       Command="{Binding SetNavCommand}" CommandParameter="5">
+                <PathIcon Data="{StaticResource Icon.Plug}" Width="16" Height="16"
+                          Foreground="{DynamicResource Brush.TextSecondary}" />
+              </Button>
+              <Button Classes="subtle nav-icon" x:Name="NavSettings" ToolTip.Tip="{loc:Str Nav_Settings}"
+                      Command="{Binding SetNavCommand}" CommandParameter="6">
                 <PathIcon Data="{StaticResource Icon.Gear}" Width="16" Height="16"
                           Foreground="{DynamicResource Brush.TextSecondary}" />
               </Button>
@@ -524,7 +532,82 @@
             </DockPanel>
           </Panel>
 
-          <!-- ── 5: Settings sidebar ── -->
+          <!-- ── 5: MCP Servers sidebar ── -->
+          <Panel x:Name="SidebarMcpServers" IsVisible="False" DataContext="{Binding McpServersVM}" x:DataType="vm:McpServersViewModel">
+            <DockPanel>
+              <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
+                  <Button Classes="subtle" Padding="7,5" MinHeight="0"
+                          CornerRadius="{DynamicResource Radius.Base}"
+                          Command="{Binding BrowseCatalogCommand}" ToolTip.Tip="{loc:Str Sidebar_BrowseMcpTooltip}">
+                    <PathIcon Data="{StaticResource Icon.Browse}" Width="14" Height="14"
+                              Foreground="{DynamicResource Brush.TextSecondary}" />
+                  </Button>
+                  <Button Classes="subtle" Padding="7,5" MinHeight="0"
+                          CornerRadius="{DynamicResource Radius.Base}"
+                          Command="{Binding NewServerCommand}" ToolTip.Tip="{loc:Str Sidebar_NewMcpServerTooltip}">
+                    <PathIcon Data="{StaticResource Icon.Plus}" Width="14" Height="14"
+                              Foreground="{DynamicResource Brush.TextSecondary}" />
+                  </Button>
+                </StackPanel>
+                <TextBlock Text="{loc:Str Sidebar_McpServers}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Brush.TextSecondary}"
+                           VerticalAlignment="Center" />
+              </DockPanel>
+              <Border DockPanel.Dock="Top" Margin="14,6,14,0">
+                <TextBox Watermark="{loc:Str Sidebar_Search}" Text="{Binding SearchQuery}"
+                         Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
+                  <TextBox.InnerLeftContent>
+                    <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
+                              Foreground="{DynamicResource Brush.TextTertiary}"
+                              Margin="4,0,4,0" />
+                  </TextBox.InnerLeftContent>
+                </TextBox>
+              </Border>
+              <ListBox Classes="sidebar-list" Margin="8,8,8,8"
+                       ItemsSource="{Binding Servers}"
+                       SelectedItem="{Binding SelectedServer, Mode=TwoWay}"
+                       SelectionMode="Single">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="models:McpServer">
+                    <Panel Background="Transparent">
+                      <Panel.ContextMenu>
+                        <ContextMenu x:CompileBindings="False">
+                          <MenuItem Header="{loc:Str Menu_Delete}"
+                                    Command="{Binding $parent[Window].DataContext.McpServersVM.DeleteServerCommand}"
+                                    CommandParameter="{Binding}">
+                            <MenuItem.Icon>
+                              <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14" />
+                            </MenuItem.Icon>
+                          </MenuItem>
+                        </ContextMenu>
+                      </Panel.ContextMenu>
+                      <DockPanel>
+                        <!-- Enabled indicator dot -->
+                        <Ellipse DockPanel.Dock="Left" Width="6" Height="6"
+                                 VerticalAlignment="Center" Margin="0,0,8,0"
+                                 Fill="{DynamicResource Brush.SuccessDefault}"
+                                 IsVisible="{Binding IsEnabled}" />
+                        <Ellipse DockPanel.Dock="Left" Width="6" Height="6"
+                                 VerticalAlignment="Center" Margin="0,0,8,0"
+                                 Fill="{DynamicResource Brush.TextTertiary}" Opacity="0.4"
+                                 IsVisible="{Binding !IsEnabled}" />
+                        <StackPanel Spacing="1">
+                          <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeBody}"
+                                     TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding Description}" FontSize="{DynamicResource Font.SizeCaption}"
+                                     Foreground="{DynamicResource Brush.TextTertiary}"
+                                     TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                        </StackPanel>
+                      </DockPanel>
+                    </Panel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </DockPanel>
+          </Panel>
+
+          <!-- ── 6: Settings sidebar ── -->
           <Panel x:Name="SidebarSettings" IsVisible="False" DataContext="{Binding SettingsVM}" x:DataType="vm:SettingsViewModel">
             <DockPanel>
               <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
@@ -658,6 +741,13 @@
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
                 BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
           <views:MemoriesView DataContext="{Binding MemoriesVM}" />
+        </Border>
+        <Border x:Name="PageMcpServers" IsVisible="False"
+                Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
+                Background="{DynamicResource Brush.SurfaceCard}"
+                BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
+                BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
+          <views:McpServersView DataContext="{Binding McpServersVM}" />
         </Border>
         <Border x:Name="PageSettings" IsVisible="False"
                 Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"

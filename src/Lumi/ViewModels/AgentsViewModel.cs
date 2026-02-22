@@ -25,6 +25,9 @@ public partial class AgentsViewModel : ObservableObject
     /// <summary>All skills available for assignment to agents.</summary>
     public ObservableCollection<SkillToggle> AvailableSkills { get; } = [];
 
+    /// <summary>All MCP servers available for assignment to agents.</summary>
+    public ObservableCollection<McpServerToggle> AvailableMcpServers { get; } = [];
+
     public AgentsViewModel(DataStore dataStore)
     {
         _dataStore = dataStore;
@@ -54,6 +57,16 @@ public partial class AgentsViewModel : ObservableObject
         }
     }
 
+    private void RefreshAvailableMcpServers(LumiAgent? agent)
+    {
+        AvailableMcpServers.Clear();
+        foreach (var server in _dataStore.Data.McpServers.OrderBy(s => s.Name))
+        {
+            var isAssigned = agent?.McpServerIds.Contains(server.Id) == true;
+            AvailableMcpServers.Add(new McpServerToggle(server.Id, server.Name, isAssigned));
+        }
+    }
+
     [RelayCommand]
     private void NewAgent()
     {
@@ -63,6 +76,7 @@ public partial class AgentsViewModel : ObservableObject
         EditSystemPrompt = "";
         EditIconGlyph = "✦";
         RefreshAvailableSkills(null);
+        RefreshAvailableMcpServers(null);
         IsEditing = true;
     }
 
@@ -80,6 +94,7 @@ public partial class AgentsViewModel : ObservableObject
         EditSystemPrompt = value.SystemPrompt;
         EditIconGlyph = value.IconGlyph;
         RefreshAvailableSkills(value);
+        RefreshAvailableMcpServers(value);
         IsEditing = true;
     }
 
@@ -93,6 +108,11 @@ public partial class AgentsViewModel : ObservableObject
             .Select(s => s.SkillId)
             .ToList();
 
+        var selectedMcpServerIds = AvailableMcpServers
+            .Where(s => s.IsSelected)
+            .Select(s => s.McpServerId)
+            .ToList();
+
         if (SelectedAgent is not null)
         {
             SelectedAgent.Name = EditName.Trim();
@@ -100,6 +120,7 @@ public partial class AgentsViewModel : ObservableObject
             SelectedAgent.SystemPrompt = EditSystemPrompt.Trim();
             SelectedAgent.IconGlyph = EditIconGlyph;
             SelectedAgent.SkillIds = selectedSkillIds;
+            SelectedAgent.McpServerIds = selectedMcpServerIds;
         }
         else
         {
@@ -109,7 +130,8 @@ public partial class AgentsViewModel : ObservableObject
                 Description = EditDescription.Trim(),
                 SystemPrompt = EditSystemPrompt.Trim(),
                 IconGlyph = EditIconGlyph,
-                SkillIds = selectedSkillIds
+                SkillIds = selectedSkillIds,
+                McpServerIds = selectedMcpServerIds
             };
             _dataStore.Data.Agents.Add(agent);
         }
@@ -154,6 +176,21 @@ public partial class SkillToggle : ObservableObject
         SkillId = skillId;
         Name = name;
         IconGlyph = iconGlyph;
+        _isSelected = isSelected;
+    }
+}
+
+/// <summary>Tracks an MCP server's selected state in the agent editor.</summary>
+public partial class McpServerToggle : ObservableObject
+{
+    public Guid McpServerId { get; }
+    public string Name { get; }
+    [ObservableProperty] private bool _isSelected;
+
+    public McpServerToggle(Guid mcpServerId, string name, bool isSelected)
+    {
+        McpServerId = mcpServerId;
+        Name = name;
         _isSelected = isSelected;
     }
 }

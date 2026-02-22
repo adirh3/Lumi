@@ -91,7 +91,8 @@
                                SuggestionA="{loc:Str Chat_SuggestionA}"
                                SuggestionB="{loc:Str Chat_SuggestionB}"
                                SuggestionC="{loc:Str Chat_SuggestionC}"
-                               SkillItems="{Binding ActiveSkillChips}" />
+                               SkillItems="{Binding ActiveSkillChips}"
+                               McpItems="{Binding ActiveMcpChips}" />
       </StackPanel>
     </Panel>
 
@@ -149,7 +150,8 @@
                                   Models="{Binding AvailableModels}"
                                   SelectedModel="{Binding SelectedModel, Mode=TwoWay}"
                                   QualityLevels="{x:Null}"
-                                  SkillItems="{Binding ActiveSkillChips}" />
+                                  SkillItems="{Binding ActiveSkillChips}"
+                                  McpItems="{Binding ActiveMcpChips}" />
           </StackPanel>
         </sc:StrataChatShell.Composer>
 
