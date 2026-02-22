@@ -16,6 +16,7 @@ namespace Lumi.Views;
 public partial class SettingsView : UserControl
 {
     private Control?[] _pages = [];
+    private ComboBox? _settingsSexCombo;
     private Control? _searchResultsHeader;
     private TextBlock? _searchCountText;
     private TextBlock? _searchQueryText;
@@ -49,6 +50,7 @@ public partial class SettingsView : UserControl
 
         _pages =
         [
+            this.FindControl<Control>("PageProfile"),
             this.FindControl<Control>("PageGeneral"),
             this.FindControl<Control>("PageAppearance"),
             this.FindControl<Control>("PageChat"),
@@ -80,6 +82,17 @@ public partial class SettingsView : UserControl
         {
             _hotkeyRecorderButton.Focusable = false;
             _hotkeyRecorderButton.Click += OnHotkeyRecorderButtonClick;
+        }
+
+        _settingsSexCombo = this.FindControl<ComboBox>("SettingsSexCombo");
+        if (_settingsSexCombo is not null)
+        {
+            _settingsSexCombo.ItemsSource = new[]
+            {
+                Loc.Onboarding_SexMale,
+                Loc.Onboarding_SexFemale,
+                Loc.Onboarding_SexPreferNot,
+            };
         }
 
         // Extract page header elements (title + description TextBlocks)

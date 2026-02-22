@@ -222,8 +222,10 @@
   "Project_ChatCount": "{0} chat",
   "Project_ChatCounts": "{0} chats",
 
+  "Settings_Profile": "Profile",
+  "Settings_ProfileDesc": "Your personal information and preferences",
   "Settings_General": "General",
-  "Settings_GeneralDesc": "Profile and startup preferences",
+  "Settings_GeneralDesc": "Startup and system preferences",
   "Settings_Appearance": "Appearance",
   "Settings_AppearanceDesc": "Customize how Lumi looks and feels",
   "Settings_Chat": "Chat",
@@ -262,6 +264,8 @@
 
   "Setting_YourName": "Your Name",
   "SettingDesc_YourName": "How Lumi addresses you",
+  "Setting_Sex": "Gender",
+  "SettingDesc_Sex": "Helps Lumi communicate naturally with you",
   "Setting_LaunchAtStartup": "Launch at Startup",
   "SettingDesc_LaunchAtStartup": "Start Lumi when you log in to your computer",
   "Setting_StartMinimized": "Start Minimized",

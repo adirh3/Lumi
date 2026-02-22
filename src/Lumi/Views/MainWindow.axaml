@@ -552,6 +552,16 @@
                         <StreamGeometry>M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-4 0-8 2-8 4v2h16v-2c0-2-4-4-8-4z</StreamGeometry>
                       </PathIcon.Data>
                     </PathIcon>
+                    <TextBlock Text="{loc:Str Settings_Profile}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
+                  </StackPanel>
+                </ListBoxItem>
+                <ListBoxItem Padding="12,8">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
+                      <PathIcon.Data>
+                        <StreamGeometry>M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm-1-8h2l.4 2.2a8 8 0 0 1 2.3 1.3l2.1-.8 1 1.7-1.7 1.4a8 8 0 0 1 0 2.4l1.7 1.4-1 1.7-2.1-.8a8 8 0 0 1-2.3 1.3L13 22h-2l-.4-2.2a8 8 0 0 1-2.3-1.3l-2.1.8-1-1.7 1.7-1.4a8 8 0 0 1 0-2.4L5.2 12.4l1-1.7 2.1.8a8 8 0 0 1 2.3-1.3L11 8z</StreamGeometry>
+                      </PathIcon.Data>
+                    </PathIcon>
                     <TextBlock Text="{loc:Str Settings_General}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
                   </StackPanel>
                 </ListBoxItem>

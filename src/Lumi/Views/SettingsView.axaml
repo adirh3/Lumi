@@ -52,11 +52,11 @@
       </StackPanel>
     </DockPanel>
 
-    <!-- ═══ Page 0: General ═══ -->
-      <StackPanel x:Name="PageGeneral" Spacing="20" Margin="36,24" MaxWidth="560">
+    <!-- ═══ Page 0: Profile ═══ -->
+      <StackPanel x:Name="PageProfile" Spacing="20" Margin="36,24" MaxWidth="560">
         <StackPanel Spacing="4">
-          <TextBlock Text="{loc:Str Settings_General}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
-          <TextBlock Text="{loc:Str Settings_GeneralDesc}" FontSize="{DynamicResource Font.SizeCaption}"
+          <TextBlock Text="{loc:Str Settings_Profile}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
+          <TextBlock Text="{loc:Str Settings_ProfileDesc}" FontSize="{DynamicResource Font.SizeCaption}"
                      Foreground="{DynamicResource Brush.TextTertiary}" />
         </StackPanel>
 
@@ -64,7 +64,28 @@
           <sc:StrataSetting Header="{loc:Str Setting_YourName}" Description="{loc:Str SettingDesc_YourName}">
             <TextBox Text="{Binding UserName}" Watermark="{loc:Str Watermark_EnterName}" Width="220" />
           </sc:StrataSetting>
+          <sc:StrataSetting Header="{loc:Str Setting_Sex}" Description="{loc:Str SettingDesc_Sex}">
+            <ComboBox x:Name="SettingsSexCombo" Width="220"
+                      SelectedIndex="{Binding UserSexIndex}" />
+          </sc:StrataSetting>
         </sc:StrataSettingGroup>
+
+        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Language}">
+          <sc:StrataSetting Header="{loc:Str Setting_Language}" Description="{loc:Str SettingDesc_Language}">
+            <ComboBox ItemsSource="{Binding LanguageOptions}"
+                      SelectedItem="{Binding SelectedLanguage, Mode=TwoWay}"
+                      Width="200" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+      </StackPanel>
+
+    <!-- ═══ Page 1: General ═══ -->
+      <StackPanel x:Name="PageGeneral" IsVisible="False" Spacing="20" Margin="36,24" MaxWidth="560">
+        <StackPanel Spacing="4">
+          <TextBlock Text="{loc:Str Settings_General}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
+          <TextBlock Text="{loc:Str Settings_GeneralDesc}" FontSize="{DynamicResource Font.SizeCaption}"
+                     Foreground="{DynamicResource Brush.TextTertiary}" />
+        </StackPanel>
 
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Startup}">
           <sc:StrataSetting Header="{loc:Str Setting_LaunchAtStartup}" Description="{loc:Str SettingDesc_LaunchAtStartup}"
@@ -96,17 +117,9 @@
                     FontSize="{DynamicResource Font.SizeCaption}" />
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
-
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Language}">
-          <sc:StrataSetting Header="{loc:Str Setting_Language}" Description="{loc:Str SettingDesc_Language}">
-            <ComboBox ItemsSource="{Binding LanguageOptions}"
-                      SelectedItem="{Binding SelectedLanguage, Mode=TwoWay}"
-                      Width="200" />
-          </sc:StrataSetting>
-        </sc:StrataSettingGroup>
       </StackPanel>
 
-    <!-- ═══ Page 1: Appearance ═══ -->
+    <!-- ═══ Page 2: Appearance ═══ -->
       <StackPanel x:Name="PageAppearance" IsVisible="False" Spacing="20" Margin="36,24" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="{loc:Str Settings_Appearance}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
@@ -146,7 +159,7 @@
         </sc:StrataSettingGroup>
       </StackPanel>
 
-    <!-- ═══ Page 2: Chat ═══ -->
+    <!-- ═══ Page 3: Chat ═══ -->
       <StackPanel x:Name="PageChat" IsVisible="False" Spacing="20" Margin="36,24" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="{loc:Str Settings_Chat}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
@@ -194,7 +207,7 @@
         </sc:StrataSettingGroup>
       </StackPanel>
 
-    <!-- ═══ Page 3: AI & Models ═══ -->
+    <!-- ═══ Page 4: AI & Models ═══ -->
       <StackPanel x:Name="PageAI" IsVisible="False" Spacing="20" Margin="36,24" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="{loc:Str Settings_AIModels}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
@@ -235,7 +248,7 @@
         </sc:StrataSettingGroup>
       </StackPanel>
 
-    <!-- ═══ Page 4: Privacy & Data ═══ -->
+    <!-- ═══ Page 5: Privacy & Data ═══ -->
       <StackPanel x:Name="PagePrivacy" IsVisible="False" Spacing="20" Margin="36,24" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="{loc:Str Settings_PrivacyData}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
@@ -275,7 +288,7 @@
         </sc:StrataSettingGroup>
       </StackPanel>
 
-    <!-- ═══ Page 5: About ═══ -->
+    <!-- ═══ Page 6: About ═══ -->
       <StackPanel x:Name="PageAbout" IsVisible="False" Spacing="20" Margin="36,24" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="{loc:Str Settings_About}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />

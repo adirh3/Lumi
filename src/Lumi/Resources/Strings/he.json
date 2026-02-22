@@ -222,8 +222,10 @@
   "Project_ChatCount": "צ׳אט {0}",
   "Project_ChatCounts": "{0} צ׳אטים",
 
+  "Settings_Profile": "פרופיל",
+  "Settings_ProfileDesc": "המידע האישי וההעדפות שלך",
   "Settings_General": "כללי",
-  "Settings_GeneralDesc": "פרופיל והעדפות הפעלה",
+  "Settings_GeneralDesc": "העדפות הפעלה ומערכת",
   "Settings_Appearance": "מראה",
   "Settings_AppearanceDesc": "התאמה אישית של מראה ותחושת לומי",
   "Settings_Chat": "צ׳אט",
@@ -262,6 +264,8 @@
 
   "Setting_YourName": "השם שלך",
   "SettingDesc_YourName": "איך לומי פונה אליך",
+  "Setting_Sex": "מגדר",
+  "SettingDesc_Sex": "עוזר ללומי לתקשר איתך בצורה טבעית",
   "Setting_LaunchAtStartup": "הפעלה בעליית המערכת",
   "SettingDesc_LaunchAtStartup": "הפעלת לומי כשאתה מתחבר למחשב",
   "Setting_StartMinimized": "הפעלה ממוזערת",

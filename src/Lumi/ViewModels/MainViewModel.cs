@@ -78,6 +78,8 @@ public partial class MainViewModel : ObservableObject
             else if (args.PropertyName == nameof(SettingsViewModel.PreferredModel)
                      && !string.IsNullOrWhiteSpace(SettingsVM.PreferredModel))
                 ChatVM.SelectedModel = SettingsVM.PreferredModel;
+            else if (args.PropertyName == nameof(SettingsViewModel.UserName))
+                UserName = SettingsVM.UserName;
         };
 
         SettingsVM.SettingsChanged += () =>

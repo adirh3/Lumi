@@ -35,6 +35,7 @@ public partial class SettingsViewModel : ObservableObject
 
     public ObservableCollection<string> Pages { get; } =
     [
+        Loc.Settings_Profile,
         Loc.Settings_General,
         Loc.Settings_Appearance,
         Loc.Settings_Chat,
@@ -45,6 +46,7 @@ public partial class SettingsViewModel : ObservableObject
 
     // ── General ──
     [ObservableProperty] private string _userName;
+    [ObservableProperty] private int _userSexIndex; // 0=Male, 1=Female, 2=Prefer not to say
     [ObservableProperty] private bool _launchAtStartup;
     [ObservableProperty] private bool _startMinimized;
     [ObservableProperty] private bool _minimizeToTray;
@@ -113,6 +115,7 @@ public partial class SettingsViewModel : ObservableObject
 
         // General
         _userName = s.UserName ?? "";
+        _userSexIndex = s.UserSex switch { "male" => 0, "female" => 1, _ => 2 };
         _launchAtStartup = s.LaunchAtStartup;
         _startMinimized = s.StartMinimized;
         _minimizeToTray = s.MinimizeToTray;
@@ -152,6 +155,7 @@ public partial class SettingsViewModel : ObservableObject
     // ── Auto-save on every property change + notify IsModified ──
 
     partial void OnUserNameChanged(string value) { _dataStore.Data.Settings.UserName = value.Trim(); Save(); }
+    partial void OnUserSexIndexChanged(int value) { _dataStore.Data.Settings.UserSex = value switch { 0 => "male", 1 => "female", _ => null }; Save(); }
     partial void OnLaunchAtStartupChanged(bool value) { _dataStore.Data.Settings.LaunchAtStartup = value; Save(); Views.MainWindow.ApplyLaunchAtStartup(value); NotifyModified(); }
     partial void OnStartMinimizedChanged(bool value) { _dataStore.Data.Settings.StartMinimized = value; Save(); NotifyModified(); }
     partial void OnMinimizeToTrayChanged(bool value)
