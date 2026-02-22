@@ -24,6 +24,7 @@ public partial class MainWindow : Window
     private Panel? _onboardingPanel;
     private DockPanel? _mainPanel;
     private Border? _chatIsland;
+    private Border? _sidebarBorder;
     private Panel? _contentArea;
     private Control?[] _pages = [];
     private Panel?[] _sidebarPanels = [];
@@ -63,6 +64,7 @@ public partial class MainWindow : Window
         _onboardingPanel = this.FindControl<Panel>("OnboardingPanel");
         _mainPanel = this.FindControl<DockPanel>("MainPanel");
         _chatIsland = this.FindControl<Border>("ChatIsland");
+        _sidebarBorder = this.FindControl<Border>("SidebarBorder");
         _contentArea = this.FindControl<Panel>("ContentArea");
 
         _pages =
@@ -269,6 +271,12 @@ public partial class MainWindow : Window
             _contentArea.Margin = WindowState == WindowState.Maximized
                 ? new Thickness(4, 38, 6, 6)
                 : new Thickness(0, 32, 0, 0);
+        }
+        if (_sidebarBorder is not null)
+        {
+            _sidebarBorder.Padding = WindowState == WindowState.Maximized
+                ? new Thickness(6, 6, 0, 6)
+                : new Thickness(0);
         }
     }
 
