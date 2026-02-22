@@ -57,6 +57,44 @@ cd src/Lumi && dotnet run
 
 No test project exists yet. StrataTheme project must be available as a sibling repo (see `StrataPath` in `Lumi.csproj`).
 
+### UI Testing with Avalonia MCP
+
+Lumi has an Avalonia MCP server configured in `.vscode/mcp.json`. This gives you live access to the running app — you can see the UI, click buttons, type text, inspect controls, check bindings, and take screenshots. **Use it.**
+
+**Every time you make a UI change, you must test it with the MCP tools.** Don't just build and hope it works — run the app, poke at it, and confirm your changes look and behave correctly. This is your primary way of verifying UI work since there are no UI tests.
+
+#### Workflow
+
+1. Run `dotnet tool restore` once to ensure the CLI tool is available
+2. Start Lumi: `cd src/Lumi && dotnet run`
+3. Use the MCP tools to verify your work
+
+#### What to test and how
+
+- **Did your control actually render?** Use `find_control` to search by name (`#MyControl`) or type (`Button`). If it's not found, something is wrong.
+- **Are properties set correctly?** Use `get_control_properties` to check values, visibility, enabled state, dimensions — anything you set in XAML or code-behind.
+- **Do bindings work?** Use `get_data_context` to check ViewModel state, and `get_binding_errors` to catch broken bindings. Binding errors are silent failures — always check.
+- **Does interaction work?** Use `click_control` to press buttons, `input_text` to type into text fields, `set_property` to change values at runtime. Verify the app responds correctly.
+- **Does it look right?** Use `take_screenshot` to capture the window or a specific control. Check layout, alignment, and visual appearance.
+- **Is the tree structure correct?** Use `get_visual_tree` or `get_logical_tree` to verify parent-child relationships and nesting.
+- **What's focused?** Use `get_focused_element` to check focus behavior after interactions.
+- **Styles applied?** Use `get_applied_styles` to inspect CSS classes, pseudo-classes, and style setters on a control.
+
+#### Control identifiers
+
+Many tools take a `controlId` parameter. Three formats work:
+- `#Name` — matches by `Name` property (e.g., `#SendButton`)
+- `TypeName` — first control of that type (e.g., `TextBox`)
+- `TypeName[n]` — nth control of that type, 0-indexed (e.g., `Button[2]`)
+
+#### When to use it
+
+- After adding or modifying any XAML or code-behind UI code
+- After changing data bindings or ViewModel properties that affect the UI
+- After styling changes — verify pseudo-classes and setters apply
+- When debugging layout issues — inspect bounds, margins, and visibility
+- When a feature "should work" but you're not sure — take a screenshot and see
+
 ## Key Conventions
 
 - **Single JSON file persistence** — no database. New data collections go in `AppData` class in `Models.cs`
