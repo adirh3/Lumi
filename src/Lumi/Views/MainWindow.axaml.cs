@@ -356,7 +356,7 @@ public partial class MainWindow : Window
                 closeBrowserBtn.Click += (_, _) => { HideBrowserPanel(); vm.ChatVM.IsBrowserOpen = false; };
 
             // Initialize browser view with service and sync initial theme
-            _browserView?.SetBrowserService(vm.BrowserService);
+            _browserView?.SetBrowserService(vm.BrowserService, vm.DataStore);
             vm.BrowserService.SetTheme(vm.IsDarkTheme);
 
             vm.PropertyChanged += (_, args) =>

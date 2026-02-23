@@ -49,6 +49,9 @@ public partial class MainViewModel : ObservableObject
     /// <summary>The shared browser service for embedded WebView2 automation.</summary>
     public BrowserService BrowserService => _browserService;
 
+    /// <summary>The application data store.</summary>
+    public DataStore DataStore => _dataStore;
+
     // Grouped chat list for sidebar
     public ObservableCollection<ChatGroup> ChatGroups { get; } = [];
 

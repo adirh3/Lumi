@@ -1269,6 +1269,16 @@ public sealed class BrowserService : IAsyncDisposable
         return result;
     }
 
+    /// <summary>
+    /// Import cookies from a browser profile into this WebView2 instance.
+    /// Returns the number of cookies imported.
+    /// </summary>
+    public async Task<int> ImportCookiesAsync(BrowserCookieService.BrowserProfile profile)
+    {
+        await EnsureInitializedAsync();
+        return await InvokeOnUiThreadAsync(() => BrowserCookieService.ImportCookiesAsync(profile, _webView!));
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_webView is not null)

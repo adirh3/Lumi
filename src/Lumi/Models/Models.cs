@@ -142,6 +142,9 @@ public class UserSettings
     // ── Privacy & Data ──
     public bool EnableMemoryAutoSave { get; set; } = true;
     public bool AutoSaveChats { get; set; } = true;
+
+    // ── Browser ──
+    public bool HasImportedBrowserCookies { get; set; }
 }
 
 public class AppData

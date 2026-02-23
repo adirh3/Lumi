@@ -14,12 +14,97 @@
       </StackPanel>
     </Border>
 
-    <!-- URL bar overlay at the top -->
+    <!-- Cookie import onboarding overlay -->
+    <Border x:Name="CookieOnboardingOverlay" IsVisible="False"
+            Background="{DynamicResource Brush.SurfaceCard}"
+            ZIndex="10">
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                    Margin="0,37,0,0">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                    MaxWidth="420" Spacing="16" Margin="32">
+
+          <!-- Icon -->
+          <Border Width="56" Height="56" CornerRadius="28"
+                  Background="{DynamicResource Brush.AccentSubtle}"
+                  HorizontalAlignment="Center">
+            <PathIcon Width="28" Height="28" Foreground="{DynamicResource Brush.AccentDefault}">
+              <PathIcon.Data>
+                <StreamGeometry>M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z</StreamGeometry>
+              </PathIcon.Data>
+            </PathIcon>
+          </Border>
+
+          <!-- Title + description -->
+          <StackPanel Spacing="6">
+            <TextBlock Text="Import your browser data" Classes="subtitle"
+                       HorizontalAlignment="Center" TextAlignment="Center" />
+            <TextBlock TextWrapping="Wrap" TextAlignment="Center" Classes="caption"
+                       Foreground="{DynamicResource Brush.TextSecondary}"
+                       Text="Sign into websites without logging in again. Lumi can import your cookies from an installed browser so you're already authenticated." />
+          </StackPanel>
+
+          <!-- Browser/profile picker -->
+          <StackPanel x:Name="ProfilePicker" Spacing="4" />
+
+          <!-- Warning box -->
+          <Border Background="{DynamicResource Brush.SurfaceSubtle}"
+                  CornerRadius="{DynamicResource Radius.Base}"
+                  Padding="12" BorderThickness="1"
+                  BorderBrush="{DynamicResource Brush.BorderSubtle}">
+            <StackPanel Spacing="6">
+              <TextBlock Classes="caption" FontWeight="SemiBold"
+                         Foreground="{DynamicResource Brush.TextSecondary}"
+                         Text="What will happen:" />
+              <StackPanel Spacing="4">
+                <TextBlock Classes="caption" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Brush.TextTertiary}"
+                           Text="• The selected browser will be briefly closed" />
+                <TextBlock Classes="caption" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Brush.TextTertiary}"
+                           Text="• Windows may ask for your password to authorize" />
+                <TextBlock Classes="caption" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Brush.TextTertiary}"
+                           Text="• Your cookies will be copied into Lumi's browser" />
+                <TextBlock Classes="caption" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Brush.TextTertiary}"
+                           Text="• Your original browser data is never modified" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <!-- Progress status (hidden until import starts) -->
+          <StackPanel x:Name="ImportProgressPanel" IsVisible="False" Spacing="8">
+            <ProgressBar IsIndeterminate="True" />
+            <TextBlock x:Name="ImportStatusText" Classes="caption"
+                       Foreground="{DynamicResource Brush.TextSecondary}"
+                       HorizontalAlignment="Center" Text="Preparing…" />
+          </StackPanel>
+
+          <!-- Actions -->
+          <StackPanel x:Name="OnboardingActions" Spacing="8">
+            <Button x:Name="ImportButton" Classes="accent"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    Click="OnImportOnboardingClick"
+                    Content="Import cookies" />
+            <Button x:Name="SkipButton" Classes="subtle"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    Click="OnSkipOnboardingClick"
+                    Content="Skip for now" />
+          </StackPanel>
+
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+
+    <!-- URL bar overlay at the top (ZIndex above onboarding overlay) -->
     <Border x:Name="UrlBar" VerticalAlignment="Top"
             Background="{DynamicResource Brush.SurfaceCard}"
             Padding="12,6" Margin="0,0,0,0"
             BorderBrush="{DynamicResource Brush.BorderSubtle}"
-            BorderThickness="0,0,0,1">
+            BorderThickness="0,0,0,1"
+            ZIndex="20">
       <DockPanel>
         <Button DockPanel.Dock="Left" Classes="subtle" Padding="4" MinHeight="0" MinWidth="0"
                 ToolTip.Tip="Back" x:Name="BackButton" Click="OnBackClick">
@@ -34,6 +119,14 @@
           <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
             <PathIcon.Data>
               <StreamGeometry>M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 8 8h-2a6 6 0 1 1-1.76-4.24L14 10h7V3l-3.35 3.35z</StreamGeometry>
+            </PathIcon.Data>
+          </PathIcon>
+        </Button>
+        <Button DockPanel.Dock="Right" Classes="subtle" Padding="4" MinHeight="0" MinWidth="0"
+                ToolTip.Tip="Import cookies from browser" x:Name="CookieButton" Click="OnCookieImportClick" Margin="8,0,0,0">
+          <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
+            <PathIcon.Data>
+              <StreamGeometry>M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z</StreamGeometry>
             </PathIcon.Data>
           </PathIcon>
         </Button>
