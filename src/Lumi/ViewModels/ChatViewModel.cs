@@ -415,7 +415,10 @@ public partial class ChatViewModel : ObservableObject
     public async Task LoadChatAsync(Chat chat)
     {
         if (CurrentChat?.Id != chat.Id)
+        {
             BrowserHideRequested?.Invoke();
+            HasUsedBrowser = false;
+        }
 
         IsLoadingChat = true;
         try
@@ -503,6 +506,7 @@ public partial class ChatViewModel : ObservableObject
     public void ClearChat()
     {
         BrowserHideRequested?.Invoke();
+        HasUsedBrowser = false;
 
         // Detach from current chat without destroying its session.
         // Sessions are cleaned only when a chat is deleted via CleanupSession(chatId).
@@ -982,7 +986,7 @@ public partial class ChatViewModel : ObservableObject
             AIFunctionFactory.Create(
                 ([Description("The full URL to navigate to (e.g. https://mail.google.com)")] string url) =>
                 {
-                    Dispatcher.UIThread.Post(() => BrowserShowRequested?.Invoke());
+                    Dispatcher.UIThread.Post(() => { HasUsedBrowser = true; BrowserShowRequested?.Invoke(); });
                     return _browserService.OpenAndSnapshotAsync(url);
                 },
                 "browser",
@@ -1014,7 +1018,7 @@ public partial class ChatViewModel : ObservableObject
                 {
                     var act = (action ?? "").Trim().ToLowerInvariant();
                     if (act is "click" or "type" or "press" or "select" or "download" or "back")
-                        Dispatcher.UIThread.Post(() => BrowserShowRequested?.Invoke());
+                        Dispatcher.UIThread.Post(() => { HasUsedBrowser = true; BrowserShowRequested?.Invoke(); });
                     return _browserService.DoAsync(action ?? "", target, value);
                 },
                 "browser_do",
@@ -1032,6 +1036,24 @@ public partial class ChatViewModel : ObservableObject
 
     /// <summary>Raised when a browser tool requests the browser panel to be visible.</summary>
     public event Action? BrowserShowRequested;
+
+    /// <summary>True if browser tools have been used in the current session.</summary>
+    [ObservableProperty] bool _hasUsedBrowser;
+
+    /// <summary>True when the browser panel is currently visible.</summary>
+    [ObservableProperty] bool _isBrowserOpen;
+
+    /// <summary>Allows the view to request the browser panel to be shown.</summary>
+    public void RequestShowBrowser() => BrowserShowRequested?.Invoke();
+
+    /// <summary>Toggles the browser panel visibility.</summary>
+    public void ToggleBrowser()
+    {
+        if (IsBrowserOpen)
+            BrowserHideRequested?.Invoke();
+        else
+            BrowserShowRequested?.Invoke();
+    }
 
     partial void OnSelectedModelChanged(string? value)
     {

@@ -158,6 +158,7 @@
   "Tool_BrowserSelect": "בחירת אפשרות",
   "Tool_BrowserBack": "חזרה אחורה",
   "Tool_BrowserScroll": "גלילת דף",
+  "Browser_ShowBrowser": "הצג דפדפן",
 
   "ToolGroup_Working": "עובד\u2026",
   "ToolGroup_WorkingCount": "עובד ({0} פעולות)\u2026",

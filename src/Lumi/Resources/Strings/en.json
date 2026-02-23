@@ -157,6 +157,7 @@
   "Tool_BrowserSelect": "Selecting option",
   "Tool_BrowserBack": "Going back",
   "Tool_BrowserScroll": "Scrolling page",
+  "Browser_ShowBrowser": "Show browser",
 
   "ToolGroup_Working": "Working\u2026",
   "ToolGroup_WorkingCount": "Working ({0} actions)\u2026",

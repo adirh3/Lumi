@@ -343,17 +343,17 @@ public partial class MainWindow : Window
             // Wire browser panel show/hide
             vm.ChatVM.BrowserShowRequested += () =>
             {
-                Dispatcher.UIThread.Post(ShowBrowserPanel);
+                Dispatcher.UIThread.Post(() => { ShowBrowserPanel(); vm.ChatVM.IsBrowserOpen = IsBrowserOpen; });
             };
             vm.ChatVM.BrowserHideRequested += () =>
             {
-                Dispatcher.UIThread.Post(HideBrowserPanel);
+                Dispatcher.UIThread.Post(() => { HideBrowserPanel(); vm.ChatVM.IsBrowserOpen = IsBrowserOpen; });
             };
 
             // Close browser button
             var closeBrowserBtn = this.FindControl<Button>("CloseBrowserButton");
             if (closeBrowserBtn is not null)
-                closeBrowserBtn.Click += (_, _) => HideBrowserPanel();
+                closeBrowserBtn.Click += (_, _) => { HideBrowserPanel(); vm.ChatVM.IsBrowserOpen = false; };
 
             // Initialize browser view with service and sync initial theme
             _browserView?.SetBrowserService(vm.BrowserService);

@@ -133,6 +133,11 @@ public partial class ChatView : UserControl
         UpdateComposerAgent(vm.ActiveAgent);
         vm.AgentChanged += () => UpdateComposerAgent(vm.ActiveAgent);
 
+        // Wire browser toggle button
+        var browserToggle = this.FindControl<Button>("BrowserToggleButton");
+        if (browserToggle is not null)
+            browserToggle.Click += (_, _) => vm.ToggleBrowser();
+
         if (_welcomeComposer is not null)
         {
             _welcomeComposer.SendRequested += (_, _) =>
@@ -273,8 +278,15 @@ public partial class ChatView : UserControl
                 // Update project badge
                 UpdateProjectBadge(vm);
 
+                // Update browser toggle visibility
+                UpdateBrowserToggle(vm);
+
                 if (hasChat)
                     _chatShell?.ResetAutoScroll();
+            }
+            else if (args.PropertyName is nameof(ChatViewModel.HasUsedBrowser) or nameof(ChatViewModel.IsBrowserOpen))
+            {
+                UpdateBrowserToggle(vm);
             }
             else if (args.PropertyName == nameof(ChatViewModel.SelectedModel))
             {
@@ -531,6 +543,7 @@ public partial class ChatView : UserControl
 
             _currentToolGroupStack!.Children.Add(toolCall);
             _currentToolGroupCount++;
+
             UpdateToolGroupLabel();
         }
         else if (msgVm.Role == "reasoning")
@@ -721,6 +734,7 @@ public partial class ChatView : UserControl
         if (idx <= 0) return;
 
         // Walk backward collecting consecutive StrataThink controls
+        // Skip browser cards so they remain visible after the turn is collapsed
         var blocksToMerge = new List<StrataThink>();
         for (int i = idx - 1; i >= 0; i--)
         {
@@ -1055,6 +1069,32 @@ public partial class ChatView : UserControl
     {
         var window = TopLevel.GetTopLevel(this) as Window;
         return window?.DataContext as MainViewModel;
+    }
+
+    private void UpdateBrowserToggle(ChatViewModel vm)
+    {
+        var btn = this.FindControl<Button>("BrowserToggleButton");
+        if (btn is null) return;
+
+        btn.IsVisible = vm.HasUsedBrowser;
+
+        // Active state: accent pill when browser is open, subtle when closed
+        var text = this.FindControl<TextBlock>("BrowserToggleText");
+        var isOpen = vm.IsBrowserOpen;
+
+        if (isOpen)
+        {
+            if (this.TryFindResource("Brush.AccentSubtle", out var bg) && bg is Avalonia.Media.IBrush bgBrush)
+                btn.Background = bgBrush;
+            if (text is not null && this.TryFindResource("Brush.AccentDefault", out var fg) && fg is Avalonia.Media.IBrush fgBrush)
+                text.Foreground = fgBrush;
+        }
+        else
+        {
+            btn.ClearValue(Button.BackgroundProperty);
+            if (text is not null)
+                text.ClearValue(TextBlock.ForegroundProperty);
+        }
     }
 
     /// <summary>Called when the composer's AgentName property changes (user selected via autocomplete).</summary>
