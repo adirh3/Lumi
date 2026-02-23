@@ -20,6 +20,7 @@ public partial class MainViewModel : ObservableObject
 {
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
+    private readonly BrowserService _browserService;
 
     [ObservableProperty] private int _selectedNavIndex;
     [ObservableProperty] private bool _isDarkTheme = true;
@@ -45,6 +46,9 @@ public partial class MainViewModel : ObservableObject
     public McpServersViewModel McpServersVM { get; }
     public SettingsViewModel SettingsVM { get; }
 
+    /// <summary>The shared browser service for embedded WebView2 automation.</summary>
+    public BrowserService BrowserService => _browserService;
+
     // Grouped chat list for sidebar
     public ObservableCollection<ChatGroup> ChatGroups { get; } = [];
 
@@ -55,6 +59,7 @@ public partial class MainViewModel : ObservableObject
     {
         _dataStore = dataStore;
         _copilotService = copilotService;
+        _browserService = new BrowserService();
 
         var settings = _dataStore.Data.Settings;
         _isDarkTheme = settings.IsDarkTheme;
@@ -62,7 +67,7 @@ public partial class MainViewModel : ObservableObject
         _userName = settings.UserName ?? "";
         _isOnboarded = settings.IsOnboarded;
 
-        ChatVM = new ChatViewModel(dataStore, copilotService);
+        ChatVM = new ChatViewModel(dataStore, copilotService, _browserService);
         SkillsVM = new SkillsViewModel(dataStore);
         AgentsVM = new AgentsViewModel(dataStore);
         ProjectsVM = new ProjectsViewModel(dataStore);

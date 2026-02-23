@@ -36,6 +36,9 @@ public partial class MainWindow : Window
     private ComboBox? _onboardingLanguageCombo;
     private TextBox? _chatSearchBox;
     private ChatView? _chatView;
+    private BrowserView? _browserView;
+    private Border? _browserIsland;
+    private Grid? _chatContentGrid;
     private bool _suppressSelectionSync;
 
     public MainWindow()
@@ -69,7 +72,7 @@ public partial class MainWindow : Window
 
         _pages =
         [
-            _chatIsland,                                       // 0 = Chat
+            this.FindControl<Grid>("ChatContentGrid"),         // 0 = Chat (container grid)
             this.FindControl<Control>("PageProjects"),         // 1
             this.FindControl<Control>("PageSkills"),           // 2
             this.FindControl<Control>("PageAgents"),           // 3
@@ -108,6 +111,9 @@ public partial class MainWindow : Window
         _onboardingLanguageCombo = this.FindControl<ComboBox>("OnboardingLanguageCombo");
         _chatSearchBox = this.FindControl<TextBox>("ChatSearchBox");
         _chatView = this.FindControl<ChatView>("PageChat");
+        _browserView = this.FindControl<BrowserView>("BrowserPanel");
+        _browserIsland = this.FindControl<Border>("BrowserIsland");
+        _chatContentGrid = this.FindControl<Grid>("ChatContentGrid");
 
         // Populate onboarding ComboBoxes
         if (_onboardingSexCombo is not null)
@@ -328,6 +334,24 @@ public partial class MainWindow : Window
             // Apply initial font size
             ApplyFontSize(vm.SettingsVM.FontSize);
 
+            // Wire browser panel show/hide
+            vm.ChatVM.BrowserShowRequested += () =>
+            {
+                Dispatcher.UIThread.Post(ShowBrowserPanel);
+            };
+            vm.ChatVM.BrowserHideRequested += () =>
+            {
+                Dispatcher.UIThread.Post(HideBrowserPanel);
+            };
+
+            // Close browser button
+            var closeBrowserBtn = this.FindControl<Button>("CloseBrowserButton");
+            if (closeBrowserBtn is not null)
+                closeBrowserBtn.Click += (_, _) => HideBrowserPanel();
+
+            // Initialize browser view with service
+            _browserView?.SetBrowserService(vm.BrowserService);
+
             vm.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(MainViewModel.IsDarkTheme))
@@ -366,6 +390,8 @@ public partial class MainWindow : Window
                 }
                 else if (args.PropertyName == nameof(MainViewModel.ActiveChatId))
                 {
+                    // Hide browser when switching chats — each chat starts fresh
+                    HideBrowserPanel();
                     Dispatcher.UIThread.Post(() => SyncListBoxSelection(vm.ActiveChatId),
                         DispatcherPriority.Loaded);
                 }
@@ -427,6 +453,20 @@ public partial class MainWindow : Window
         {
             if (_sidebarPanels[i] is not null)
                 _sidebarPanels[i]!.IsVisible = i == index;
+        }
+
+        // Hide/show browser when navigating away from / back to chat
+        if (index != 0)
+        {
+            // Leaving chat — fully close the browser panel
+            HideBrowserPanel();
+        }
+        else if (_browserIsland is { IsVisible: true })
+        {
+            // Returning to chat with browser open — show the overlay and refresh bounds
+            if (DataContext is MainViewModel vm2 && vm2.BrowserService.Controller is not null)
+                vm2.BrowserService.Controller.IsVisible = true;
+            Dispatcher.UIThread.Post(() => _browserView?.RefreshBounds(), DispatcherPriority.Loaded);
         }
 
         // When projects tab is shown, update chat counts
@@ -837,5 +877,61 @@ public partial class MainWindow : Window
             var count = vm.ProjectsVM.GetChatCount(project.Id);
             countLabel.Text = count > 0 ? (count == 1 ? string.Format(Loc.Project_ChatCount, count) : string.Format(Loc.Project_ChatCounts, count)) : "";
         }
+    }
+
+    /// <summary>Whether the browser panel is currently visible.</summary>
+    private bool IsBrowserOpen => _browserIsland is { IsVisible: true };
+
+    private void ShowBrowserPanel()
+    {
+        if (_browserIsland is null || _chatContentGrid is null || _chatIsland is null) return;
+        if (_browserIsland.IsVisible) return;
+
+        var vm = DataContext as MainViewModel;
+
+        // Ensure we're on the Chat tab
+        if (vm is not null && vm.SelectedNavIndex != 0)
+            vm.SelectedNavIndex = 0;
+
+        // Switch to split layout: chat left (3*) | browser right (2*)
+        if (_chatContentGrid.ColumnDefinitions.Count < 2)
+        {
+            _chatContentGrid.ColumnDefinitions.Clear();
+            _chatContentGrid.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Star));
+            _chatContentGrid.ColumnDefinitions.Add(new ColumnDefinition(0, GridUnitType.Star));
+        }
+        _chatContentGrid.ColumnDefinitions[0].Width = new GridLength(3, GridUnitType.Star);
+        _chatContentGrid.ColumnDefinitions[1].Width = new GridLength(2, GridUnitType.Star);
+        Grid.SetColumn(_chatIsland, 0);
+        Grid.SetColumn(_browserIsland, 1);
+        _browserIsland.IsVisible = true;
+
+        // Show the WebView2 overlay and schedule a bounds refresh after layout
+        if (vm?.BrowserService.Controller is not null)
+            vm.BrowserService.Controller.IsVisible = true;
+        Dispatcher.UIThread.Post(() => _browserView?.RefreshBounds(), DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Hides the browser panel and returns to single-column chat layout.</summary>
+    private void HideBrowserPanel()
+    {
+        if (_browserIsland is null || _chatContentGrid is null) return;
+        if (!_browserIsland.IsVisible) return;
+
+        _browserIsland.IsVisible = false;
+
+        // Hide the WebView2 controller overlay
+        if (DataContext is MainViewModel vm && vm.BrowserService.Controller is not null)
+            vm.BrowserService.Controller.IsVisible = false;
+
+        // Reset to single-column layout (keep right column collapsed)
+        if (_chatContentGrid.ColumnDefinitions.Count < 2)
+        {
+            _chatContentGrid.ColumnDefinitions.Clear();
+            _chatContentGrid.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Star));
+            _chatContentGrid.ColumnDefinitions.Add(new ColumnDefinition(0, GridUnitType.Star));
+        }
+        _chatContentGrid.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
+        _chatContentGrid.ColumnDefinitions[1].Width = new GridLength(0, GridUnitType.Star);
     }
 }

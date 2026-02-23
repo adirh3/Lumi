@@ -151,6 +151,12 @@
   "Tool_ReadingDocument": "Reading document",
   "Tool_StoppingCommand": "Stopping command",
   "Tool_Action": "Action",
+  "Tool_BrowserSnapshot": "Reading page",
+  "Tool_BrowserEvaluate": "Running script",
+  "Tool_BrowserWait": "Waiting for element",
+  "Tool_BrowserSelect": "Selecting option",
+  "Tool_BrowserBack": "Going back",
+  "Tool_BrowserScroll": "Scrolling page",
 
   "ToolGroup_Working": "Working\u2026",
   "ToolGroup_WorkingCount": "Working ({0} actions)\u2026",

@@ -1,0 +1,48 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Lumi.Views.BrowserView">
+
+  <Panel x:Name="BrowserPanel">
+    <!-- Loading overlay shown before WebView2 initializes -->
+    <Border x:Name="LoadingOverlay" IsVisible="True"
+            Background="{DynamicResource Brush.SurfaceCard}">
+      <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+        <ProgressBar IsIndeterminate="True" Width="120" />
+        <TextBlock Text="Initializing browser…" Classes="caption"
+                   Foreground="{DynamicResource Brush.TextTertiary}"
+                   HorizontalAlignment="Center" />
+      </StackPanel>
+    </Border>
+
+    <!-- URL bar overlay at the top -->
+    <Border x:Name="UrlBar" VerticalAlignment="Top"
+            Background="{DynamicResource Brush.SurfaceCard}"
+            Padding="12,6" Margin="0,0,0,0"
+            BorderBrush="{DynamicResource Brush.BorderSubtle}"
+            BorderThickness="0,0,0,1">
+      <DockPanel>
+        <Button DockPanel.Dock="Left" Classes="subtle" Padding="4" MinHeight="0" MinWidth="0"
+                ToolTip.Tip="Back" x:Name="BackButton" Click="OnBackClick">
+          <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
+            <PathIcon.Data>
+              <StreamGeometry>M15 18l-6-6 6-6</StreamGeometry>
+            </PathIcon.Data>
+          </PathIcon>
+        </Button>
+        <Button DockPanel.Dock="Left" Classes="subtle" Padding="4" MinHeight="0" MinWidth="0"
+                ToolTip.Tip="Refresh" x:Name="RefreshButton" Click="OnRefreshClick" Margin="4,0,8,0">
+          <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
+            <PathIcon.Data>
+              <StreamGeometry>M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 8 8h-2a6 6 0 1 1-1.76-4.24L14 10h7V3l-3.35 3.35z</StreamGeometry>
+            </PathIcon.Data>
+          </PathIcon>
+        </Button>
+        <TextBlock x:Name="UrlText" VerticalAlignment="Center"
+                   FontSize="{DynamicResource Font.SizeCaption}"
+                   Foreground="{DynamicResource Brush.TextSecondary}"
+                   TextTrimming="CharacterEllipsis"
+                   Text="about:blank" />
+      </DockPanel>
+    </Border>
+  </Panel>
+</UserControl>

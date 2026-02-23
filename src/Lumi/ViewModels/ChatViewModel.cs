@@ -25,6 +25,7 @@ public partial class ChatViewModel : ObservableObject
 {
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
+    private readonly BrowserService _browserService;
     private CancellationTokenSource? _cts;
     private readonly HashSet<string> _shownFileChips = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<SearchSource> _pendingSearchSources = [];
@@ -81,11 +82,13 @@ public partial class ChatViewModel : ObservableObject
     public event Action<string>? FileCreatedByTool;
     public event Action<List<WebSearchService.SearchResult>>? SearchResultsCollected;
     public event Action? AgentChanged;
+    public event Action? BrowserHideRequested;
 
-    public ChatViewModel(DataStore dataStore, CopilotService copilotService)
+    public ChatViewModel(DataStore dataStore, CopilotService copilotService, BrowserService browserService)
     {
         _dataStore = dataStore;
         _copilotService = copilotService;
+        _browserService = browserService;
         _selectedModel = dataStore.Data.Settings.PreferredModel;
 
         // Seed with preferred model so the ComboBox has an initial selection
@@ -411,6 +414,9 @@ public partial class ChatViewModel : ObservableObject
 
     public async Task LoadChatAsync(Chat chat)
     {
+        if (CurrentChat?.Id != chat.Id)
+            BrowserHideRequested?.Invoke();
+
         IsLoadingChat = true;
         try
         {
@@ -496,6 +502,8 @@ public partial class ChatViewModel : ObservableObject
 
     public void ClearChat()
     {
+        BrowserHideRequested?.Invoke();
+
         // Detach from current chat without destroying its session.
         // Sessions are cleaned only when a chat is deleted via CleanupSession(chatId).
         _activeSession = null;
@@ -875,6 +883,7 @@ public partial class ChatViewModel : ObservableObject
             tools.AddRange(BuildMemoryTools());
         tools.Add(BuildAnnounceFileTool());
         tools.AddRange(BuildWebTools());
+        tools.AddRange(BuildBrowserTools());
         return tools;
     }
 
@@ -965,6 +974,64 @@ public partial class ChatViewModel : ObservableObject
                 "Fetch a webpage and return its text content. If this fails, do NOT retry the same URL — try a different source instead. After 2 consecutive failures, stop and answer with what you have."),
         ];
     }
+
+    private List<AIFunction> BuildBrowserTools()
+    {
+        return
+        [
+            AIFunctionFactory.Create(
+                ([Description("The full URL to navigate to (e.g. https://mail.google.com)")] string url) =>
+                {
+                    Dispatcher.UIThread.Post(() => BrowserShowRequested?.Invoke());
+                    return _browserService.OpenAndSnapshotAsync(url);
+                },
+                "browser",
+                "Open a URL in the browser and return the page with numbered interactive elements and a text preview. The browser has persistent cookies/sessions — the user may already be logged in. Returns element numbers you can use with browser_do. If the URL triggers a file download (e.g. an export URL), the download is detected automatically and reported instead of a page snapshot."),
+
+            AIFunctionFactory.Create(
+                ([Description("Optional text filter to narrow elements (e.g. 'button', 'download', 'search', 'Export'). Omit to see all.")] string? filter = null) =>
+                {
+                    return _browserService.LookAsync(filter);
+                },
+                "browser_look",
+                "Returns the current page state: numbered interactive elements and text preview. Use filter to narrow results."),
+
+            AIFunctionFactory.Create(
+                ([Description("What to find on the page (e.g. 'download', 'export csv', 'save', 'submit').")]
+                    string query,
+                 [Description("Maximum matches to return (1-50).")]
+                    int limit = 12) =>
+                {
+                    return _browserService.FindElementsAsync(query, limit, preferDialog: true);
+                },
+                "browser_find",
+                "Find and rank interactive elements by query. Matches against text, aria-label, tooltip, title, and href. Returns stable element indices usable with browser_do."),
+
+            AIFunctionFactory.Create(
+                ([Description("Action to perform: click, type, press, select, scroll, back, wait, download")] string action,
+                 [Description("Target: element number from browser/browser_look (e.g. '3'), button text (e.g. 'Export'), CSS selector (e.g. '.btn'), key name (for press), direction (for scroll), or file pattern (for download)")] string? target = null,
+                 [Description("Value: text to type (for type action), option text (for select), pixels (for scroll)")] string? value = null) =>
+                {
+                    var act = (action ?? "").Trim().ToLowerInvariant();
+                    if (act is "click" or "type" or "press" or "select" or "download" or "back")
+                        Dispatcher.UIThread.Post(() => BrowserShowRequested?.Invoke());
+                    return _browserService.DoAsync(action ?? "", target, value);
+                },
+                "browser_do",
+                "Interact with the page. Actions: click (target: element #, text, or CSS selector), type (target: element # or selector, value: text), press (target: key name), select (target: element # or selector, value: option text), scroll (target: up/down), back, wait (target: CSS selector), download (target: file glob pattern — checks for a pending download, does NOT trigger one)."),
+
+            AIFunctionFactory.Create(
+                ([Description("JavaScript code to execute in the page context")] string script) =>
+                {
+                    return _browserService.EvaluateAsync(script);
+                },
+                "browser_js",
+                "Run JavaScript in the browser page context."),
+        ];
+    }
+
+    /// <summary>Raised when a browser tool requests the browser panel to be visible.</summary>
+    public event Action? BrowserShowRequested;
 
     partial void OnSelectedModelChanged(string? value)
     {
@@ -1391,10 +1458,10 @@ public partial class ChatViewModel : ObservableObject
             "delete_file" or "delete" or "rm" => fileName is not null ? string.Format(Loc.Tool_DeletingNamed, fileName) : Loc.Tool_DeletingFile,
             "move_file" or "rename_file" or "mv" or "rename" => fileName is not null ? string.Format(Loc.Tool_MovingNamed, fileName) : Loc.Tool_MovingFile,
             "get_errors" or "diagnostics" => fileName is not null ? string.Format(Loc.Tool_CheckingNamed, fileName) : Loc.Tool_CheckingErrors,
-            "browser_navigate" or "navigate" => Loc.Tool_OpeningPage,
-            "browser_click" or "click" => Loc.Tool_ClickingElement,
-            "browser_type" or "type" => Loc.Tool_TypingText,
-            "browser_snapshot" or "screenshot" => Loc.Tool_TakingScreenshot,
+            "browser" => Loc.Tool_OpeningPage,
+            "browser_look" => Loc.Tool_BrowserSnapshot,
+            "browser_do" => Loc.Tool_Action,
+            "browser_js" => Loc.Tool_BrowserEvaluate,
             "save_memory" => Loc.Tool_Remembering,
             "update_memory" => Loc.Tool_UpdatingMemory,
             "delete_memory" => Loc.Tool_Forgetting,

@@ -1595,6 +1595,36 @@ public partial class ChatView : UserControl
             case "recall_memory":
                 return (Loc.Tool_Recalling, ExtractJsonField(argsJson, "key"));
 
+            case "browser":
+            {
+                var url = ExtractJsonField(argsJson, "url");
+                string? domain = null;
+                if (url is not null && Uri.TryCreate(url, UriKind.Absolute, out var navUri))
+                    domain = navUri.Host;
+                return (Loc.Tool_OpeningPage, domain ?? url);
+            }
+            case "browser_look":
+                return (Loc.Tool_BrowserSnapshot, ExtractJsonField(argsJson, "filter"));
+            case "browser_do":
+            {
+                var action = ExtractJsonField(argsJson, "action")?.ToLowerInvariant();
+                var target = ExtractJsonField(argsJson, "target");
+                return action switch
+                {
+                    "click" => (Loc.Tool_ClickingElement, target),
+                    "type" => (Loc.Tool_TypingText, target),
+                    "press" => (Loc.Tool_Action, target),
+                    "scroll" => (Loc.Tool_BrowserScroll, target),
+                    "select" => (Loc.Tool_BrowserSelect, target),
+                    "back" => (Loc.Tool_BrowserBack, null),
+                    "download" => (Loc.Tool_ReadingFile, target),
+                    "wait" => (Loc.Tool_BrowserWait, target),
+                    _ => (Loc.Tool_Action, action)
+                };
+            }
+            case "browser_js":
+                return (Loc.Tool_BrowserEvaluate, null);
+
             default:
                 var displayName = author ?? FormatToolNameFriendly(toolName);
                 var info = ExtractToolSummary(toolName, argsJson);

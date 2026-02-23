@@ -151,6 +151,13 @@
   "Tool_ReadingDocument": "קריאת מסמך",
   "Tool_StoppingCommand": "עצירת פקודה",
   "Tool_Action": "פעולה",
+  "Tool_BrowserSnapshot": "קריאת דף",
+  "Tool_BrowserEvaluate": "הרצת סקריפט",
+
+  "Tool_BrowserWait": "המתנה לאלמנט",
+  "Tool_BrowserSelect": "בחירת אפשרות",
+  "Tool_BrowserBack": "חזרה אחורה",
+  "Tool_BrowserScroll": "גלילת דף",
 
   "ToolGroup_Working": "עובד\u2026",
   "ToolGroup_WorkingCount": "עובד ({0} פעולות)\u2026",
