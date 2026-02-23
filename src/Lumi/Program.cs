@@ -1,5 +1,8 @@
 using Avalonia;
 using System;
+#if DEBUG
+using AvaloniaMcp.Diagnostics;
+#endif
 
 namespace Lumi;
 
@@ -10,7 +13,15 @@ class Program
         .StartWithClassicDesktopLifetime(args);
 
     public static AppBuilder BuildAvaloniaApp()
-        => AppBuilder.Configure<App>()
+    {
+        var builder = AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .LogToTrace();
+
+#if DEBUG
+        builder = builder.UseMcpDiagnostics();
+#endif
+
+        return builder;
+    }
 }
