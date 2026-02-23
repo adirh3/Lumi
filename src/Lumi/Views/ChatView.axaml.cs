@@ -59,6 +59,9 @@ public partial class ChatView : UserControl
     // Track the current intent text from report_intent for friendly group labels
     private string? _currentIntentText;
 
+    // Counter for naming message controls (Avalonia MCP automation)
+    private int _messageCounter;
+
     // Track if we've already wired up event handlers
     private ChatViewModel? _subscribedVm;
     private SettingsViewModel? _settingsVm;
@@ -296,6 +299,7 @@ public partial class ChatView : UserControl
                 _currentToolGroupStack = null;
                 _currentToolGroupCount = 0;
                 _currentIntentText = null;
+                _messageCounter = 0;
                 _shownFilePaths.Clear();
                 _pendingToolFileChips.Clear();
                 _pendingSearchSources.Clear();
@@ -617,6 +621,7 @@ public partial class ChatView : UserControl
 
             var msg = new StrataChatMessage
             {
+                Name = $"msg_{_messageCounter++}",
                 Role = role,
                 Author = msgVm.Author ?? "",
                 Timestamp = showTimestamps ? msgVm.TimestampText : string.Empty,
