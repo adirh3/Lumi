@@ -56,6 +56,8 @@ public sealed class BrowserService : IAsyncDisposable
         }
     }
 
+    private bool _isDark = true;
+
     /// <summary>Store the parent HWND for lazy initialization.</summary>
     private IntPtr _pendingParentHwnd;
 
@@ -73,6 +75,23 @@ public sealed class BrowserService : IAsyncDisposable
 
     /// <summary>Whether the browser has been initialized.</summary>
     public bool IsInitialized => _initialized;
+
+    /// <summary>
+    /// Sets the browser color scheme to match the app theme.
+    /// Safe to call before initialization — the value is stored and applied on init.
+    /// </summary>
+    public void SetTheme(bool isDark)
+    {
+        _isDark = isDark;
+        if (_controller is not null)
+            _controller.DefaultBackgroundColor = isDark
+                ? System.Drawing.Color.FromArgb(255, 30, 30, 30)
+                : System.Drawing.Color.FromArgb(255, 255, 255, 255);
+        if (_webView is not null)
+            _webView.Profile.PreferredColorScheme = isDark
+                ? CoreWebView2PreferredColorScheme.Dark
+                : CoreWebView2PreferredColorScheme.Light;
+    }
 
     /// <summary>The underlying CoreWebView2 (for direct access if needed).</summary>
     public CoreWebView2? WebView => _webView;
@@ -104,6 +123,9 @@ public sealed class BrowserService : IAsyncDisposable
 
             _controller = await _environment.CreateCoreWebView2ControllerAsync(_parentHwnd);
             _webView = _controller.CoreWebView2;
+
+            // Sync theme with app
+            SetTheme(_isDark);
 
             // Configure settings
             _webView.Settings.IsScriptEnabled = true;

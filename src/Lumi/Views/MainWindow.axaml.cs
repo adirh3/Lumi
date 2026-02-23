@@ -2,8 +2,11 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Animation;
+using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
@@ -38,8 +41,10 @@ public partial class MainWindow : Window
     private ChatView? _chatView;
     private BrowserView? _browserView;
     private Border? _browserIsland;
+    private GridSplitter? _browserSplitter;
     private Grid? _chatContentGrid;
     private bool _suppressSelectionSync;
+    private CancellationTokenSource? _browserAnimCts;
 
     public MainWindow()
     {
@@ -113,6 +118,7 @@ public partial class MainWindow : Window
         _chatView = this.FindControl<ChatView>("PageChat");
         _browserView = this.FindControl<BrowserView>("BrowserPanel");
         _browserIsland = this.FindControl<Border>("BrowserIsland");
+        _browserSplitter = this.FindControl<GridSplitter>("BrowserSplitter");
         _chatContentGrid = this.FindControl<Grid>("ChatContentGrid");
 
         // Populate onboarding ComboBoxes
@@ -349,8 +355,9 @@ public partial class MainWindow : Window
             if (closeBrowserBtn is not null)
                 closeBrowserBtn.Click += (_, _) => HideBrowserPanel();
 
-            // Initialize browser view with service
+            // Initialize browser view with service and sync initial theme
             _browserView?.SetBrowserService(vm.BrowserService);
+            vm.BrowserService.SetTheme(vm.IsDarkTheme);
 
             vm.PropertyChanged += (_, args) =>
             {
@@ -360,6 +367,7 @@ public partial class MainWindow : Window
                         Application.Current.RequestedThemeVariant = vm.IsDarkTheme
                             ? ThemeVariant.Dark
                             : ThemeVariant.Light;
+                    vm.BrowserService.SetTheme(vm.IsDarkTheme);
                 }
                 else if (args.PropertyName == nameof(MainViewModel.IsCompactDensity))
                 {
@@ -882,10 +890,15 @@ public partial class MainWindow : Window
     /// <summary>Whether the browser panel is currently visible.</summary>
     private bool IsBrowserOpen => _browserIsland is { IsVisible: true };
 
-    private void ShowBrowserPanel()
+    private async void ShowBrowserPanel()
     {
         if (_browserIsland is null || _chatContentGrid is null || _chatIsland is null) return;
         if (_browserIsland.IsVisible) return;
+
+        // Cancel any in-progress animation
+        _browserAnimCts?.Cancel();
+        _browserAnimCts = new CancellationTokenSource();
+        var ct = _browserAnimCts.Token;
 
         var vm = DataContext as MainViewModel;
 
@@ -893,45 +906,127 @@ public partial class MainWindow : Window
         if (vm is not null && vm.SelectedNavIndex != 0)
             vm.SelectedNavIndex = 0;
 
-        // Switch to split layout: chat left (3*) | browser right (2*)
-        if (_chatContentGrid.ColumnDefinitions.Count < 2)
-        {
-            _chatContentGrid.ColumnDefinitions.Clear();
-            _chatContentGrid.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Star));
-            _chatContentGrid.ColumnDefinitions.Add(new ColumnDefinition(0, GridUnitType.Star));
-        }
-        _chatContentGrid.ColumnDefinitions[0].Width = new GridLength(3, GridUnitType.Star);
-        _chatContentGrid.ColumnDefinitions[1].Width = new GridLength(2, GridUnitType.Star);
+        // Switch to split layout: chat (1*) | splitter (Auto) | browser (1*)
+        var defs = _chatContentGrid.ColumnDefinitions;
+        while (defs.Count < 3)
+            defs.Add(new ColumnDefinition());
+        defs[0].Width = new GridLength(1, GridUnitType.Star);
+        defs[1].Width = GridLength.Auto;
+        defs[2].Width = new GridLength(1, GridUnitType.Star);
         Grid.SetColumn(_chatIsland, 0);
-        Grid.SetColumn(_browserIsland, 1);
-        _browserIsland.IsVisible = true;
+        Grid.SetColumn(_browserIsland, 2);
 
-        // Show the WebView2 overlay and schedule a bounds refresh after layout
+        // Prepare initial state — transparent + shifted right
+        _browserIsland.RenderTransform = new TranslateTransform(40, 0);
+        _browserIsland.Opacity = 0;
+        _browserIsland.IsVisible = true;
+        if (_browserSplitter is not null)
+            _browserSplitter.IsVisible = true;
+
+        // Animate fade-in + slide from right (both on the Border visual)
+        var anim = new Avalonia.Animation.Animation
+        {
+            Duration = TimeSpan.FromMilliseconds(300),
+            Easing = new CubicEaseOut(),
+            FillMode = FillMode.Forward,
+            Children =
+            {
+                new KeyFrame
+                {
+                    Cue = new Cue(0),
+                    Setters =
+                    {
+                        new Setter(OpacityProperty, 0.0),
+                        new Setter(TranslateTransform.XProperty, 40.0),
+                    }
+                },
+                new KeyFrame
+                {
+                    Cue = new Cue(1),
+                    Setters =
+                    {
+                        new Setter(OpacityProperty, 1.0),
+                        new Setter(TranslateTransform.XProperty, 0.0),
+                    }
+                },
+            }
+        };
+
+        try { await anim.RunAsync(_browserIsland, ct); }
+        catch (OperationCanceledException) { return; }
+        if (ct.IsCancellationRequested) return;
+
+        // Finalize — clear transform and show WebView2 overlay after animation
+        _browserIsland.Opacity = 1;
+        _browserIsland.RenderTransform = null;
+
         if (vm?.BrowserService.Controller is not null)
             vm.BrowserService.Controller.IsVisible = true;
         Dispatcher.UIThread.Post(() => _browserView?.RefreshBounds(), DispatcherPriority.Loaded);
     }
 
     /// <summary>Hides the browser panel and returns to single-column chat layout.</summary>
-    private void HideBrowserPanel()
+    private async void HideBrowserPanel()
     {
         if (_browserIsland is null || _chatContentGrid is null) return;
         if (!_browserIsland.IsVisible) return;
 
-        _browserIsland.IsVisible = false;
+        // Cancel any in-progress animation
+        _browserAnimCts?.Cancel();
+        _browserAnimCts = new CancellationTokenSource();
+        var ct = _browserAnimCts.Token;
 
-        // Hide the WebView2 controller overlay
+        // Hide WebView2 overlay immediately so it doesn't float during animation
         if (DataContext is MainViewModel vm && vm.BrowserService.Controller is not null)
             vm.BrowserService.Controller.IsVisible = false;
 
-        // Reset to single-column layout (keep right column collapsed)
-        if (_chatContentGrid.ColumnDefinitions.Count < 2)
+        // Animate fade-out + slide to right
+        _browserIsland.RenderTransform = new TranslateTransform(0, 0);
+
+        var anim = new Avalonia.Animation.Animation
         {
-            _chatContentGrid.ColumnDefinitions.Clear();
-            _chatContentGrid.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Star));
-            _chatContentGrid.ColumnDefinitions.Add(new ColumnDefinition(0, GridUnitType.Star));
-        }
-        _chatContentGrid.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
-        _chatContentGrid.ColumnDefinitions[1].Width = new GridLength(0, GridUnitType.Star);
+            Duration = TimeSpan.FromMilliseconds(200),
+            Easing = new CubicEaseIn(),
+            FillMode = FillMode.Forward,
+            Children =
+            {
+                new KeyFrame
+                {
+                    Cue = new Cue(0),
+                    Setters =
+                    {
+                        new Setter(OpacityProperty, 1.0),
+                        new Setter(TranslateTransform.XProperty, 0.0),
+                    }
+                },
+                new KeyFrame
+                {
+                    Cue = new Cue(1),
+                    Setters =
+                    {
+                        new Setter(OpacityProperty, 0.0),
+                        new Setter(TranslateTransform.XProperty, 40.0),
+                    }
+                },
+            }
+        };
+
+        try { await anim.RunAsync(_browserIsland, ct); }
+        catch (OperationCanceledException) { /* cancelled — cleanup below */ }
+
+        // Collapse regardless of cancellation
+        _browserIsland.IsVisible = false;
+        _browserIsland.Opacity = 1;
+        _browserIsland.RenderTransform = null;
+        if (_browserSplitter is not null)
+            _browserSplitter.IsVisible = false;
+
+        // Reset to single-column layout
+        var defs = _chatContentGrid.ColumnDefinitions;
+        while (defs.Count < 3)
+            defs.Add(new ColumnDefinition());
+        defs[0].Width = new GridLength(1, GridUnitType.Star);
+        defs[1].Width = new GridLength(0);
+        defs[2].Width = new GridLength(0);
     }
 }

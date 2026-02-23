@@ -13,6 +13,7 @@ public partial class BrowserView : UserControl
 {
     private Border? _loadingOverlay;
     private TextBlock? _urlText;
+    private Border? _urlBar;
     private BrowserService? _browserService;
     private bool _isInitialized;
 
@@ -26,6 +27,7 @@ public partial class BrowserView : UserControl
         AvaloniaXamlLoader.Load(this);
         _loadingOverlay = this.FindControl<Border>("LoadingOverlay");
         _urlText = this.FindControl<TextBlock>("UrlText");
+        _urlBar = this.FindControl<Border>("UrlBar");
     }
 
     /// <summary>Binds the BrowserService to this view and initializes WebView2 when attached.</summary>
@@ -174,12 +176,24 @@ public partial class BrowserView : UserControl
         var point = this.TranslatePoint(new Point(0, 0), topLevel);
         if (point is null) return;
 
-        // URL bar height in BrowserView.axaml: Padding="12,6" + text ≈ ~36dp
-        var urlBarHeight = 36.0;
-        var x = (int)(point.Value.X * scaling);
-        var y = (int)((point.Value.Y + urlBarHeight) * scaling);
-        var w = Math.Max(1, (int)(Bounds.Width * scaling));
-        var h = Math.Max(1, (int)((Bounds.Height - urlBarHeight) * scaling));
+        // Measure URL bar height dynamically from the actual control
+        var urlBarHeight = _urlBar?.Bounds.Height ?? 36.0;
+        if (urlBarHeight < 1) urlBarHeight = 36.0; // Guard against unmeasured layout
+
+        // Sync rasterization scale with Avalonia's render scaling for sharp text
+        if (Math.Abs(_browserService.Controller.RasterizationScale - scaling) > 0.01)
+            _browserService.Controller.RasterizationScale = scaling;
+
+        // Small bottom inset so the rectangular WebView2 overlay stays inside
+        // the BrowserIsland's rounded bottom corners (CornerRadius=14).
+        var cornerInset = 2.0;
+
+        // Convert logical coordinates to physical pixels for the WebView2 overlay.
+        // No horizontal inset — the border content area already defines exact bounds.
+        var x = (int)Math.Round(point.Value.X * scaling);
+        var y = (int)Math.Round((point.Value.Y + urlBarHeight) * scaling);
+        var w = Math.Max(1, (int)Math.Round(Bounds.Width * scaling));
+        var h = Math.Max(1, (int)Math.Round((Bounds.Height - urlBarHeight - cornerInset) * scaling));
 
         _browserService.SetBounds(x, y, w, h);
     }
