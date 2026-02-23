@@ -184,18 +184,17 @@ public partial class BrowserView : UserControl
         if (Math.Abs(_browserService.Controller.RasterizationScale - scaling) > 0.01)
             _browserService.Controller.RasterizationScale = scaling;
 
-        // Small bottom inset so the rectangular WebView2 overlay stays inside
-        // the BrowserIsland's rounded bottom corners (CornerRadius=14).
-        var cornerInset = 2.0;
+        // Corner radius in physical pixels matching BrowserIsland's inner CornerRadius
+        // (Radius.Overlay=14 minus BorderThickness=1 = 13 logical pixels)
+        var cornerRadiusPx = (int)Math.Round(13.0 * scaling);
 
         // Convert logical coordinates to physical pixels for the WebView2 overlay.
-        // No horizontal inset — the border content area already defines exact bounds.
         var x = (int)Math.Round(point.Value.X * scaling);
         var y = (int)Math.Round((point.Value.Y + urlBarHeight) * scaling);
         var w = Math.Max(1, (int)Math.Round(Bounds.Width * scaling));
-        var h = Math.Max(1, (int)Math.Round((Bounds.Height - urlBarHeight - cornerInset) * scaling));
+        var h = Math.Max(1, (int)Math.Round((Bounds.Height - urlBarHeight) * scaling));
 
-        _browserService.SetBounds(x, y, w, h);
+        _browserService.SetBounds(x, y, w, h, cornerRadiusPx);
     }
 
     private async void OnBackClick(object? sender, RoutedEventArgs e)

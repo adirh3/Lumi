@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,6 +27,7 @@ public sealed class BrowserService : IAsyncDisposable
     private bool _initialized;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private readonly SemaphoreSlim _actionLock = new(1, 1);
+    private IntPtr _webViewHwnd;
 
     // Navigation completion tracking — deterministic via WebView2 events
     private TaskCompletionSource<bool>? _navigationTcs;
@@ -286,11 +288,45 @@ public sealed class BrowserService : IAsyncDisposable
     }
 
     /// <summary>Updates the bounds of the WebView2 controller to fill the given area.</summary>
-    public void SetBounds(int x, int y, int width, int height)
+    public void SetBounds(int x, int y, int width, int height, int cornerRadiusPx = 0)
     {
         if (_controller is null) return;
         _controller.Bounds = new System.Drawing.Rectangle(x, y, width, height);
+
+        if (cornerRadiusPx > 0)
+            ApplyRoundedRegion(width, height, cornerRadiusPx);
     }
+
+    private void ApplyRoundedRegion(int width, int height, int cornerRadiusPx)
+    {
+        if (_webViewHwnd == IntPtr.Zero)
+        {
+            _webViewHwnd = FindWindowEx(_parentHwnd, IntPtr.Zero, "Chrome_WidgetWin_0", null);
+            if (_webViewHwnd == IntPtr.Zero)
+                _webViewHwnd = FindWindowEx(_parentHwnd, IntPtr.Zero, "Chrome_WidgetWin_1", null);
+        }
+        if (_webViewHwnd == IntPtr.Zero) return;
+
+        // Shift the region upward so only the bottom corners are rounded.
+        var rgn = CreateRoundRectRgn(0, -cornerRadiusPx, width + 1, height + 1, cornerRadiusPx, cornerRadiusPx);
+        if (rgn != IntPtr.Zero)
+        {
+            if (SetWindowRgn(_webViewHwnd, rgn, true) == 0)
+                DeleteObject(rgn);
+        }
+    }
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateRoundRectRgn(int x1, int y1, int x2, int y2, int cx, int cy);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(IntPtr hObject);
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool bRedraw);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string? lpszClass, string? lpszWindow);
 
     // ═══════════════════════════════════════════════════════════════
     // Tool Methods — called by the LLM via AIFunction tools
