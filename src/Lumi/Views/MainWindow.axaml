@@ -293,6 +293,7 @@
                                              TextTrimming="CharacterEllipsis"
                                              IsVisible="False" />
                                   <TextBlock Text="{Binding Title}"
+                                             ToolTip.Tip="{Binding Title}"
                                              TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" />
                                 </DockPanel>

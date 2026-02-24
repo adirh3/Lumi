@@ -324,6 +324,12 @@ public partial class MainWindow : Window
             // Wire ProjectsVM chat open to navigate to chat tab
             vm.ProjectsVM.ChatOpenRequested += chat => vm.OpenChatFromProjectCommand.Execute(chat);
 
+            // Animate sidebar title when chat title changes (no full list rebuild)
+            vm.ChatTitleChanged += (chatId, newTitle) =>
+            {
+                Dispatcher.UIThread.Post(() => AnimateSidebarTitle(chatId, newTitle));
+            };
+
             // Refresh composer MCP catalogs when MCP config changes (install/delete/toggle)
             vm.McpServersVM.McpConfigChanged += () =>
             {
@@ -620,6 +626,47 @@ public partial class MainWindow : Window
         {
             _suppressSelectionSync = false;
         }
+    }
+
+    private CancellationTokenSource? _titleAnimCts;
+
+    private async void AnimateSidebarTitle(Guid chatId, string newTitle)
+    {
+        // Cancel any in-flight title animation
+        _titleAnimCts?.Cancel();
+        var cts = _titleAnimCts = new CancellationTokenSource();
+
+        TextBlock? titleBlock = null;
+        foreach (var lb in this.GetVisualDescendants().OfType<ListBox>())
+        {
+            if (!lb.Classes.Contains("chat-list")) continue;
+            foreach (var container in lb.GetVisualDescendants().OfType<ListBoxItem>())
+            {
+                if (container.DataContext is Chat chat && chat.Id == chatId)
+                {
+                    titleBlock = container.GetVisualDescendants().OfType<TextBlock>()
+                        .FirstOrDefault(tb => tb.Name != "ProjectLabel" &&
+                                             tb.GetValue(DockPanel.DockProperty) != Dock.Bottom);
+                    break;
+                }
+            }
+            if (titleBlock is not null) break;
+        }
+
+        if (titleBlock is null) return;
+
+        ToolTip.SetTip(titleBlock, newTitle);
+
+        // Typewriter: reveal characters one by one
+        for (int i = 1; i <= newTitle.Length; i++)
+        {
+            if (cts.Token.IsCancellationRequested) break;
+            titleBlock.Text = newTitle[..i];
+            await Task.Delay(30, CancellationToken.None);
+        }
+
+        // Ensure final text is complete
+        titleBlock.Text = newTitle;
     }
 
     /// <summary>Swap Strata density resources at runtime.</summary>

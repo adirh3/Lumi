@@ -98,6 +98,7 @@ public partial class MainViewModel : ObservableObject
         };
 
         ChatVM.ChatUpdated += () => RefreshChatList();
+        ChatVM.ChatTitleChanged += OnChatTitleChanged;
         ChatVM.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName == nameof(ChatViewModel.CurrentChat))
@@ -171,6 +172,8 @@ public partial class MainViewModel : ObservableObject
             Projects.Add(p);
     }
 
+    public event Action<Guid, string>? ChatTitleChanged;
+
     public void RefreshChatList()
     {
         var query = ChatSearchQuery?.Trim();
@@ -207,6 +210,12 @@ public partial class MainViewModel : ObservableObject
             ChatGroups.Add(new ChatGroup { Label = Loc.ChatGroup_Previous7Days, Chats = new(weekChats) });
         if (olderChats.Count > 0)
             ChatGroups.Add(new ChatGroup { Label = Loc.ChatGroup_Older, Chats = new(olderChats) });
+    }
+
+    private void OnChatTitleChanged(Guid chatId, string newTitle)
+    {
+        // Update in-place without rebuilding the entire list
+        ChatTitleChanged?.Invoke(chatId, newTitle);
     }
 
     [RelayCommand]

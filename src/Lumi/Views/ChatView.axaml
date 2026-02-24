@@ -142,7 +142,8 @@
                          Foreground="{DynamicResource Brush.TextOnAccent}"
                          HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
-            <TextBlock Classes="body-strong" Text="{Binding CurrentChat.Title}"
+            <TextBlock Classes="body-strong" Text="{Binding CurrentChatTitle}"
+                       ToolTip.Tip="{Binding CurrentChatTitle}"
                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
           </DockPanel>
         </sc:StrataChatShell.Header>

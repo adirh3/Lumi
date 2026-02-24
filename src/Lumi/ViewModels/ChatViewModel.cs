@@ -41,6 +41,8 @@ public partial class ChatViewModel : ObservableObject
     private readonly Dictionary<Guid, ChatMessage> _inProgressMessages = new();
     /// <summary>Per-chat runtime state sourced from live session events.</summary>
     private readonly Dictionary<Guid, ChatRuntimeState> _runtimeStates = new();
+    /// <summary>Chats awaiting title generation after the first assistant turn.</summary>
+    private readonly HashSet<Guid> _pendingTitleChats = new();
 
     private sealed class ChatRuntimeState
     {
@@ -52,7 +54,13 @@ public partial class ChatViewModel : ObservableObject
     /// <summary>True while LoadChat is bulk-adding messages. The View skips CollectionChanged.Add during this.</summary>
     public bool IsLoadingChat { get; private set; }
 
-    [ObservableProperty] private Chat? _currentChat;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CurrentChatTitle))]
+    private Chat? _currentChat;
+
+    /// <summary>Exposes CurrentChat.Title so the header binding updates without toggling CurrentChat.</summary>
+    public string? CurrentChatTitle => CurrentChat?.Title;
+
     [ObservableProperty] private string? _promptText;
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private bool _isStreaming;
@@ -80,6 +88,7 @@ public partial class ChatViewModel : ObservableObject
     public event Action? ScrollToEndRequested;
     public event Action? UserMessageSent;
     public event Action? ChatUpdated;
+    public event Action<Guid, string>? ChatTitleChanged;
     public event Action<string>? FileCreatedByTool;
     public event Action<List<WebSearchService.SearchResult>>? SearchResultsCollected;
     public event Action? AgentChanged;
@@ -342,7 +351,6 @@ public partial class ChatViewModel : ObservableObject
                             StatusText = runtime.StatusText;
                         }
                         QueueSaveChat(chat, saveIndex: true);
-                        ChatUpdated?.Invoke();
                     });
                     break;
 
@@ -363,12 +371,15 @@ public partial class ChatViewModel : ObservableObject
                 case SessionTitleChangedEvent title:
                     Dispatcher.UIThread.Post(() =>
                     {
+                        _pendingTitleChats.Remove(chat.Id); // SDK handled it
                         if (!_dataStore.Data.Settings.AutoGenerateTitles) return;
                         chat.Title = title.Data.Title;
                         chat.UpdatedAt = DateTimeOffset.Now;
+                        if (CurrentChat?.Id == chat.Id)
+                            OnPropertyChanged(nameof(CurrentChatTitle));
                         if (_dataStore.Data.Settings.AutoSaveChats)
                             _ = SaveIndexAsync();
-                        ChatUpdated?.Invoke();
+                        ChatTitleChanged?.Invoke(chat.Id, chat.Title);
                     });
                     break;
 
@@ -573,6 +584,11 @@ public partial class ChatViewModel : ObservableObject
             _pendingProjectId = null;
             _dataStore.Data.Chats.Add(chat);
             CurrentChat = chat;
+            if (_dataStore.Data.Settings.AutoGenerateTitles)
+            {
+                _pendingTitleChats.Add(chat.Id);
+                _ = GenerateChatTitleAsync(chat, prompt);
+            }
             await SaveCurrentChatAsync();
             ChatUpdated?.Invoke();
         }
@@ -697,6 +713,29 @@ public partial class ChatViewModel : ObservableObject
     private void QueueSaveChat(Chat chat, bool saveIndex)
     {
         _ = SaveChatAsync(chat, saveIndex);
+    }
+
+    private async Task GenerateChatTitleAsync(Chat chat, string userMessage)
+    {
+        try
+        {
+            var title = await _copilotService.GenerateTitleAsync(userMessage);
+            if (string.IsNullOrWhiteSpace(title)) return;
+
+            await Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                chat.Title = title.Trim();
+                chat.UpdatedAt = DateTimeOffset.Now;
+                if (CurrentChat?.Id == chat.Id)
+                    OnPropertyChanged(nameof(CurrentChatTitle));
+                await SaveIndexAsync();
+                ChatTitleChanged?.Invoke(chat.Id, chat.Title);
+            });
+        }
+        catch
+        {
+            // Silently fail — the default truncated title is already set
+        }
     }
 
     private async Task SaveChatAsync(Chat chat, bool saveIndex)

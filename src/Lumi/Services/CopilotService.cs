@@ -176,6 +176,34 @@ public class CopilotService : IAsyncDisposable
         return null;
     }
 
+    public async Task<string?> GenerateTitleAsync(string userMessage, CancellationToken ct = default)
+    {
+        if (_client is null) return null;
+
+        var session = await _client.CreateSessionAsync(new SessionConfig
+        {
+            Streaming = true,
+            SystemMessage = new SystemMessageConfig
+            {
+                Content = "You are a title generator. Generate a concise title (3-6 words) for a chat conversation that started with the user message below. Respond with ONLY the title text, nothing else. No quotes, no punctuation at the end. Do not refuse or explain — just output the title.",
+                Mode = SystemMessageMode.Replace
+            },
+            AvailableTools = []
+        }, ct);
+
+        try
+        {
+            var result = await session.SendAndWaitAsync(
+                new MessageOptions { Prompt = userMessage },
+                TimeSpan.FromSeconds(30), ct);
+            return result?.Data?.Content?.Trim();
+        }
+        finally
+        {
+            await session.DisposeAsync();
+        }
+    }
+
     public async Task<List<SessionMetadata>> ListSessionsAsync(CancellationToken ct = default)
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
