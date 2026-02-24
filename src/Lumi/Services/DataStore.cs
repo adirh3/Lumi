@@ -366,6 +366,78 @@ public class DataStore
 
                     Adapt writing style to the user's preferences as you learn them.
                     """
+            },
+            new Skill
+            {
+                Name = "Website Creator",
+                Description = "Creates beautiful interactive websites from chat content and opens them in Lumi's browser",
+                IconGlyph = "🌐",
+                IsBuiltIn = true,
+                Content = """
+                    # Website Creator
+
+                    Transform any content from the conversation into a beautiful, modern, interactive single-page website and present it in Lumi's built-in browser.
+
+                    ## When to Use
+                    Use this skill whenever the user asks you to visualize, present, or turn conversation content into a website or webpage. This works for any content type: itineraries, reports, plans, guides, comparisons, portfolios, dashboards, timelines, recipes, study notes, or anything else.
+
+                    ## How to Create the Website
+
+                    1. **Gather the content** — Use the information already discussed in the conversation. If important details are missing, ask the user before proceeding.
+
+                    2. **Generate a single self-contained HTML file** — The entire website must be in ONE `.html` file with all CSS and JavaScript inlined (no external dependencies except CDN links for fonts/icons). Use modern web standards:
+                       - **Clean semantic HTML5** structure
+                       - **Modern CSS** with gradients, shadows, smooth transitions, and animations
+                       - **Responsive layout** that works at any window size
+                       - **Dark/light theme** — detect system preference with `prefers-color-scheme` and include a toggle button
+                       - **Smooth scrolling** and scroll-triggered reveal animations
+                       - **Interactive elements** — collapsible sections, tabs, hover effects, modals, tooltips, or cards as appropriate for the content
+                       - **Visual hierarchy** — use color, spacing, typography, and layout to make information scannable and beautiful
+                       - **Icons** — use inline SVG icons or a CDN icon library (e.g., Lucide, Heroicons, or Font Awesome via CDN) to add visual polish
+                       - **Images** — when the content involves places, items, or concepts that benefit from imagery, use placeholder images from Lorem Picsum (`https://picsum.photos/WIDTH/HEIGHT?random=N` where N is a unique number per image) or generate CSS gradient/pattern backgrounds as decorative visuals. Always provide meaningful alt text.
+
+                    3. **Design principles**:
+                       - Use a harmonious color palette (2-3 primary colors with neutrals)
+                       - Typography: use Google Fonts via CDN for headings (e.g., Inter, Poppins, or Playfair Display) and system font stack for body
+                       - Generous whitespace and padding
+                       - Card-based layouts for grouped content
+                       - Subtle micro-animations (fade-in, slide-up on scroll via IntersectionObserver)
+                       - Professional, polished look — as if designed by a UI designer
+                       - Ensure text contrast meets accessibility standards (WCAG AA)
+
+                    4. **Content-specific patterns** — adapt the layout to the content type:
+                       - **Itineraries/timelines**: Day-by-day cards or a vertical timeline with icons and images for each stop
+                       - **Reports/analysis**: Dashboard-style with stat cards, charts (use Chart.js from CDN if needed), and sections
+                       - **Guides/how-tos**: Step-by-step layout with numbered sections, progress indicator, and collapsible details
+                       - **Comparisons**: Side-by-side cards or a comparison table with highlighted differences
+                       - **Lists/collections**: Filterable/searchable grid of cards with images and descriptions
+                       - **Plans/projects**: Kanban-style or milestone timeline with status indicators
+                       - **Recipes**: Ingredient sidebar + step-by-step instructions with timers
+                       - **Profiles/portfolios**: Hero banner with bio, grid of work/projects
+                       - **Study notes/knowledge**: Table of contents sidebar, collapsible sections, highlight boxes for key concepts
+
+                    5. **Save the file** — Use the `create` tool to write the HTML file. Use this exact path format:
+                       - Path: `C:\Users\<username>\Documents\lumi-website-<short-slug>.html`
+                       - Use the user's Documents folder (resolve from `$env:USERPROFILE` if needed via a quick PowerShell call).
+                       - Use a short descriptive slug (e.g., `lumi-website-tokyo-itinerary.html`).
+
+                    6. **Open in Lumi's browser** — Use the `browser` tool to navigate to the local file URL:
+                       - Convert the file path to a `file:///` URL: replace backslashes with forward slashes and prefix with `file:///`.
+                       - Example: `C:\Users\John\Documents\lumi-website-tokyo.html` → `file:///C:/Users/John/Documents/lumi-website-tokyo.html`
+                       - This opens the website inside Lumi's built-in browser panel so the user sees it immediately.
+
+                    7. **Announce it** — Call `announce_file(filePath)` with the HTML file path so the user gets a clickable attachment. Then tell the user the website is ready and summarize what it contains.
+
+                    ## Important Rules
+                    - The HTML file MUST be fully self-contained and valid. All styles and scripts are inlined or loaded from CDNs.
+                    - Never use `localhost` or start a web server. Just save an `.html` file and open it with the `browser` tool.
+                    - Make the website genuinely impressive — not a basic page with plain text. Use modern CSS, animations, and interactivity.
+                    - If the conversation content is long, organize it into navigable sections with a sticky navigation bar or sidebar.
+                    - Always include a header/hero section with a title and brief description.
+                    - Include a small footer with "Created with Lumi ✦" branding.
+                    - If any external CDN resources fail to load (e.g., Google Fonts), the page should still look good with fallback system fonts.
+                    - Use `charset="UTF-8"` in the HTML head to support all languages and special characters.
+                    """
             }
         ]);
 
