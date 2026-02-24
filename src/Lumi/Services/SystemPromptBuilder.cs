@@ -327,7 +327,7 @@ public static class SystemPromptBuilder
                 """;
         }
 
-        // Active skills selected by the user for this chat (full content)
+        // Active skills selected by the user for this chat (full content in system prompt)
         if (activeSkills.Count > 0)
         {
             prompt += "\n\n--- Active Skills (use these to help the user) ---\n";
@@ -337,10 +337,23 @@ public static class SystemPromptBuilder
             }
         }
 
-        // All available skills (summary only, so LLM knows what's available)
+        // All available skills (short descriptions for implicit discovery)
         if (allSkills.Count > 0)
         {
-            prompt += "\n\n--- All Available Skills (user can activate these with /skill) ---\n";
+            prompt += """
+
+
+                --- Available Skills ---
+                You have access to a library of skills — reusable capability definitions that teach you how to do specific tasks.
+                Below are all available skills with short descriptions. You can retrieve the full content of any skill using the `fetch_skill` tool.
+
+                **When to use skills:**
+                - If the user explicitly asks to use a skill by name → fetch it immediately and follow its instructions.
+                - If the user's request closely matches a skill's description → fetch and apply it without asking.
+                - If the user's request is somewhat related to a skill → ask the user if they'd like you to use that skill before fetching it.
+                - Skills marked with ✓ are already active — their full content is loaded above, no need to fetch them again.
+
+                """;
             foreach (var skill in allSkills)
             {
                 var activeMarker = activeSkills.Any(s => s.Id == skill.Id) ? " ✓" : "";

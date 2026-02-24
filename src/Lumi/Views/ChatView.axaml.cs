@@ -15,6 +15,7 @@ using Avalonia.Data.Converters;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Lumi.Localization;
@@ -62,6 +63,9 @@ public partial class ChatView : UserControl
 
     // Search sources collected during tool execution, shown on the next assistant message
     private readonly List<SearchSource> _pendingSearchSources = [];
+
+    // Skills fetched via fetch_skill tool, shown on the next assistant message
+    private readonly List<SkillReference> _pendingFetchedSkills = [];
 
     // Track tool call start times for duration display
     private readonly Dictionary<string, long> _toolStartTimes = [];
@@ -337,6 +341,7 @@ public partial class ChatView : UserControl
                 _shownFilePaths.Clear();
                 _pendingToolFileChips.Clear();
                 _pendingSearchSources.Clear();
+                _pendingFetchedSkills.Clear();
                 _toolStartTimes.Clear();
             }
         };
@@ -415,6 +420,7 @@ public partial class ChatView : UserControl
         _shownFilePaths.Clear();
         _pendingToolFileChips.Clear();
         _pendingSearchSources.Clear();
+        _pendingFetchedSkills.Clear();
         _toolStartTimes.Clear();
         _deferredMessages = null;
         _isLoadingOlder = false;
@@ -622,6 +628,23 @@ public partial class ChatView : UserControl
                 return;
             }
 
+            // fetch_skill: collect the skill reference for display on the assistant message
+            if (toolName == "fetch_skill")
+            {
+                var skillName = ExtractJsonField(msgVm.Content, "name");
+                if (!string.IsNullOrEmpty(skillName))
+                {
+                    var glyph = "\u26A1";
+                    if (DataContext is ChatViewModel chatVm)
+                    {
+                        var skill = chatVm.FindSkillByName(skillName);
+                        if (skill is not null) glyph = skill.IconGlyph;
+                    }
+                    _pendingFetchedSkills.Add(new SkillReference { Name = skillName, Glyph = glyph });
+                }
+                return;
+            }
+
             // report_intent: don't show a tool card — capture intent text for group label
             if (toolName == "report_intent")
             {
@@ -760,27 +783,49 @@ public partial class ChatView : UserControl
 
             var isUser = role == StrataChatRole.User;
 
-            // For user messages with attachments, wrap content + attachments in a StackPanel
+            // For user messages with attachments or skills, wrap content + extras in a StackPanel
+            var hasAttachments = isUser && msgVm.Message.Attachments.Count > 0;
+            var hasSkills = isUser && msgVm.Message.ActiveSkills.Count > 0;
             object msgContent;
-            if (isUser && msgVm.Message.Attachments.Count > 0)
+            if (hasAttachments || hasSkills)
             {
                 var contentStack = new StackPanel { Spacing = 6 };
                 contentStack.Children.Add(md);
 
-                var attachList = new StrataAttachmentList { ShowAddButton = false };
-                foreach (var filePath in msgVm.Message.Attachments)
+                if (hasAttachments)
                 {
-                    var chip = CreateFileChip(filePath, isRemovable: false);
-                    attachList.Items.Add(chip);
+                    var attachList = new StrataAttachmentList { ShowAddButton = false };
+                    foreach (var filePath in msgVm.Message.Attachments)
+                    {
+                        var chip = CreateFileChip(filePath, isRemovable: false);
+                        attachList.Items.Add(chip);
+                    }
+                    contentStack.Children.Add(attachList);
                 }
-                contentStack.Children.Add(attachList);
+
+                if (hasSkills)
+                    contentStack.Children.Add(BuildSkillChips(msgVm.Message.ActiveSkills));
+
                 msgContent = contentStack;
             }
-            else if (!isUser && (_pendingToolFileChips.Count > 0 || _pendingSearchSources.Count > 0 || msgVm.Message.Sources.Count > 0))
+            else if (!isUser && (_pendingToolFileChips.Count > 0 || _pendingSearchSources.Count > 0 || _pendingFetchedSkills.Count > 0 || msgVm.Message.Sources.Count > 0 || msgVm.Message.ActiveSkills.Count > 0))
             {
-                // Attach files and/or search sources to the assistant message
+                // Attach files, search sources, and fetched skills to the assistant message
                 var contentStack = new StackPanel { Spacing = 6 };
                 contentStack.Children.Add(md);
+
+                // Collect fetched skills: live pending + persisted on message
+                var allSkills = new List<SkillReference>();
+                if (_pendingFetchedSkills.Count > 0)
+                {
+                    allSkills.AddRange(_pendingFetchedSkills);
+                    _pendingFetchedSkills.Clear();
+                }
+                if (msgVm.Message.ActiveSkills.Count > 0)
+                    allSkills.AddRange(msgVm.Message.ActiveSkills);
+
+                if (allSkills.Count > 0)
+                    contentStack.Children.Add(BuildSkillChips(allSkills));
 
                 if (_pendingToolFileChips.Count > 0)
                 {
@@ -1822,6 +1867,9 @@ public partial class ChatView : UserControl
             case "recall_memory":
                 return (Loc.Tool_Recalling, ExtractJsonField(argsJson, "key"));
 
+            case "fetch_skill":
+                return (Loc.Tool_FetchingSkill, ExtractJsonField(argsJson, "name"));
+
             case "browser":
             {
                 var url = ExtractJsonField(argsJson, "url");
@@ -1945,6 +1993,50 @@ public partial class ChatView : UserControl
         if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
             return uri.Host.Replace("www.", "");
         return url;
+    }
+
+    private static Control BuildSkillChips(List<SkillReference> skills)
+    {
+        var app = Application.Current;
+        var wrap = new WrapPanel { Orientation = Avalonia.Layout.Orientation.Horizontal };
+        foreach (var skill in skills)
+        {
+            var chip = new Border
+            {
+                CornerRadius = new Avalonia.CornerRadius(10),
+                Padding = new Avalonia.Thickness(8, 3, 10, 3),
+                Margin = new Avalonia.Thickness(0, 0, 4, 0),
+                Background = app?.FindResource("Brush.Surface2") as IBrush
+                    ?? Brushes.Transparent,
+                BorderBrush = app?.FindResource("Brush.BorderSubtle") as IBrush
+                    ?? Brushes.Transparent,
+                BorderThickness = new Avalonia.Thickness(1),
+                Child = new StackPanel
+                {
+                    Orientation = Avalonia.Layout.Orientation.Horizontal,
+                    Spacing = 4,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = skill.Glyph,
+                            FontSize = 11,
+                            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+                        },
+                        new TextBlock
+                        {
+                            Text = skill.Name,
+                            FontSize = 11,
+                            Foreground = app?.FindResource("Brush.TextSecondary") as IBrush
+                                ?? Brushes.Gray,
+                            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+                        }
+                    }
+                }
+            };
+            wrap.Children.Add(chip);
+        }
+        return wrap;
     }
 
     private static Control BuildSourcesSection(List<SearchSource> sources)

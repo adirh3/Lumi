@@ -95,6 +95,7 @@ public class DataStore
                 ToolStatus = m.ToolStatus,
                 IsStreaming = m.IsStreaming,
                 Attachments = [..m.Attachments],
+                ActiveSkills = [..m.ActiveSkills.Select(static s => new SkillReference { Name = s.Name, Glyph = s.Glyph })],
                 Sources = [..m.Sources.Select(static s => new SearchSource
                 {
                     Title = s.Title,

@@ -30,6 +30,7 @@ public partial class ChatViewModel : ObservableObject
     private CancellationTokenSource? _cts;
     private readonly HashSet<string> _shownFileChips = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<SearchSource> _pendingSearchSources = [];
+    private readonly List<SkillReference> _pendingFetchedSkillRefs = [];
 
     /// <summary>The CopilotSession for the currently displayed chat. Events for this session update the UI.</summary>
     private CopilotSession? _activeSession;
@@ -43,6 +44,8 @@ public partial class ChatViewModel : ObservableObject
     private readonly Dictionary<Guid, ChatRuntimeState> _runtimeStates = new();
     /// <summary>Chats awaiting title generation after the first assistant turn.</summary>
     private readonly HashSet<Guid> _pendingTitleChats = new();
+    /// <summary>Skills activated mid-chat (after session exists). Consumed on next SendMessage to inject into prompt.</summary>
+    private readonly List<Guid> _pendingSkillInjections = new();
 
     private sealed class ChatRuntimeState
     {
@@ -208,6 +211,11 @@ public partial class ChatViewModel : ObservableObject
                                     streamingMsg.Sources.AddRange(_pendingSearchSources);
                                     _pendingSearchSources.Clear();
                                 }
+                                if (_pendingFetchedSkillRefs.Count > 0)
+                                {
+                                    streamingMsg.ActiveSkills.AddRange(_pendingFetchedSkillRefs);
+                                    _pendingFetchedSkillRefs.Clear();
+                                }
                                 chat.Messages.Add(streamingMsg);
                                 _inProgressMessages.Remove(chat.Id);
                                 if (_activeSession == session)
@@ -316,6 +324,29 @@ public partial class ChatViewModel : ObservableObject
                             if (success)
                             {
                                 var toolName = toolMsg.ToolName;
+
+                                // Track fetched skills for attachment to the assistant message
+                                if (toolName == "fetch_skill")
+                                {
+                                    string? skillName = null;
+                                    try
+                                    {
+                                        using var doc = JsonDocument.Parse(toolMsg.Content);
+                                        if (doc.RootElement.TryGetProperty("name", out var nameProp))
+                                            skillName = nameProp.GetString();
+                                    }
+                                    catch { }
+                                    if (!string.IsNullOrEmpty(skillName))
+                                    {
+                                        var skill = FindSkillByName(skillName);
+                                        _pendingFetchedSkillRefs.Add(new SkillReference
+                                        {
+                                            Name = skillName,
+                                            Glyph = skill?.IconGlyph ?? "\u26A1"
+                                        });
+                                    }
+                                }
+
                                 if ((IsFileCreationTool(toolName) || toolName == "powershell")
                                     && toolEnd.Data.Result?.Contents is { Length: > 0 } contents)
                                 {
@@ -442,6 +473,9 @@ public partial class ChatViewModel : ObservableObject
             _sessionCache.TryGetValue(chat.Id, out var cachedSession);
             _activeSession = cachedSession;
 
+            // Clear pending skill injections from any previous chat
+            _pendingSkillInjections.Clear();
+
             // Restore real runtime state for this session/chat
             var runtime = GetOrCreateRuntimeState(chat.Id);
             IsBusy = runtime.IsBusy;
@@ -530,12 +564,14 @@ public partial class ChatViewModel : ObservableObject
         IsStreaming = false;
         _shownFileChips.Clear();
         _pendingSearchSources.Clear();
+        _pendingFetchedSkillRefs.Clear();
         ActiveSkillIds.Clear();
         ActiveSkillChips.Clear();
         ActiveMcpServerNames.Clear();
         ActiveMcpChips.Clear();
         PopulateDefaultMcps();
         _pendingProjectId = null;
+        _pendingSkillInjections.Clear();
         StatusText = "";
     }
 
@@ -550,6 +586,9 @@ public partial class ChatViewModel : ObservableObject
             _sessionCache.Remove(CurrentChat.Id);
             CurrentChat.CopilotSessionId = null;
             _activeSession = null;
+            // New session will include all active skills in the system prompt,
+            // so clear pending injections to avoid duplication
+            _pendingSkillInjections.Clear();
         }
     }
 
@@ -599,7 +638,12 @@ public partial class ChatViewModel : ObservableObject
             Role = "user",
             Content = prompt,
             Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
-            Attachments = attachments?.Select(a => a.Path).ToList() ?? []
+            Attachments = attachments?.Select(a => a.Path).ToList() ?? [],
+            ActiveSkills = ActiveSkillIds
+                .Select(id => _dataStore.Data.Skills.FirstOrDefault(s => s.Id == id))
+                .Where(s => s is not null)
+                .Select(s => new SkillReference { Name = s!.Name, Glyph = s.IconGlyph })
+                .ToList()
         };
         CurrentChat.Messages.Add(userMsg);
         Messages.Add(new ChatMessageViewModel(userMsg));
@@ -658,6 +702,25 @@ public partial class ChatViewModel : ObservableObject
             }
 
             var sendOptions = new MessageOptions { Prompt = prompt };
+
+            // Inject newly activated skills as context in the message (explicit activation in existing chat)
+            if (_pendingSkillInjections.Count > 0)
+            {
+                var injectedSkills = _pendingSkillInjections
+                    .Select(id => allSkills.FirstOrDefault(s => s.Id == id))
+                    .Where(s => s is not null)
+                    .ToList();
+                _pendingSkillInjections.Clear();
+
+                if (injectedSkills.Count > 0)
+                {
+                    var skillContext = "\n\n--- Activated Skills (apply these to help with the request) ---\n";
+                    foreach (var skill in injectedSkills)
+                        skillContext += $"\n### {skill!.Name}\n{skill.Content}\n";
+                    sendOptions.Prompt = prompt + skillContext;
+                }
+            }
+
             if (attachments is { Count: > 0 })
                 sendOptions.Attachments = attachments.Cast<UserMessageDataAttachmentsItem>().ToList();
 
@@ -806,6 +869,9 @@ public partial class ChatViewModel : ObservableObject
         if (ActiveSkillIds.Contains(skill.Id)) return;
         ActiveSkillIds.Add(skill.Id);
         ActiveSkillChips.Add(new StrataTheme.Controls.StrataComposerChip(skill.Name, skill.IconGlyph));
+        // If added to an existing chat with a session, inject via next message instead of system prompt
+        if (CurrentChat?.CopilotSessionId is not null)
+            _pendingSkillInjections.Add(skill.Id);
         SyncActiveSkillsToChat();
     }
 
@@ -815,6 +881,9 @@ public partial class ChatViewModel : ObservableObject
         var skill = _dataStore.Data.Skills.FirstOrDefault(s => s.Name == name);
         if (skill is null || ActiveSkillIds.Contains(skill.Id)) return;
         ActiveSkillIds.Add(skill.Id);
+        // If added to an existing chat with a session, inject via next message
+        if (CurrentChat?.CopilotSessionId is not null)
+            _pendingSkillInjections.Add(skill.Id);
         SyncActiveSkillsToChat();
     }
 
@@ -926,6 +995,7 @@ public partial class ChatViewModel : ObservableObject
         if (_dataStore.Data.Settings.EnableMemoryAutoSave)
             tools.AddRange(BuildMemoryTools());
         tools.Add(BuildAnnounceFileTool());
+        tools.Add(BuildFetchSkillTool());
         tools.AddRange(BuildWebTools());
         tools.AddRange(BuildBrowserTools());
         if (OperatingSystem.IsWindows())
@@ -1177,6 +1247,21 @@ public partial class ChatViewModel : ObservableObject
             "Show a file attachment chip to the user for a file you created or produced. Call this ONCE for each final deliverable file (e.g. the PDF, DOCX, PPTX, image, etc.). Do NOT call for intermediate/temporary files like scripts.");
     }
 
+    private AIFunction BuildFetchSkillTool()
+    {
+        return AIFunctionFactory.Create(
+            ([Description("The exact name of the skill to retrieve (as listed in Available Skills)")] string name) =>
+            {
+                var skill = _dataStore.Data.Skills
+                    .FirstOrDefault(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (skill is null)
+                    return $"Skill not found: {name}. Check the Available Skills list for exact names.";
+                return $"# {skill.Name}\n\n{skill.Content}";
+            },
+            "fetch_skill",
+            "Retrieve the full content of a skill by name. Use this when the user asks to use a skill, or when their request closely matches a skill's description. The skill content contains detailed instructions on how to perform the task.");
+    }
+
     private List<AIFunction> BuildMemoryTools()
     {
         return
@@ -1291,6 +1376,12 @@ public partial class ChatViewModel : ObservableObject
     {
         var skill = _dataStore.Data.Skills.FirstOrDefault(s => s.Name == name);
         if (skill is not null) AddSkill(skill);
+    }
+
+    /// <summary>Finds a skill by name for display purposes (e.g. fetching icon glyph).</summary>
+    public Skill? FindSkillByName(string name)
+    {
+        return _dataStore.Data.Skills.FirstOrDefault(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
     }
 
     public void AddAttachment(string filePath)
@@ -1436,6 +1527,7 @@ public partial class ChatViewModel : ObservableObject
 
         _shownFileChips.Clear();
         _pendingSearchSources.Clear();
+        _pendingFetchedSkillRefs.Clear();
 
         // Re-add the user message as a fresh entry
         var newUserMsg = new ChatMessage
@@ -1585,6 +1677,7 @@ public partial class ChatViewModel : ObservableObject
             "delete_memory" => Loc.Tool_Forgetting,
             "recall_memory" => Loc.Tool_Recalling,
             "announce_file" => Loc.Tool_SharingFile,
+            "fetch_skill" => Loc.Tool_FetchingSkill,
             "ui_list_windows" => Loc.Tool_ListingWindows,
             "ui_press_keys" => Loc.Tool_PressingKeys,
             "ui_inspect" => Loc.Tool_InspectingWindow,

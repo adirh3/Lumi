@@ -147,6 +147,7 @@
   "Tool_Forgetting": "Forgetting",
   "Tool_Recalling": "Recalling",
   "Tool_SharingFile": "Sharing file",
+  "Tool_FetchingSkill": "Loading skill",
   "Tool_BrowsingFolder": "Browsing folder",
   "Tool_ReadingDocument": "Reading document",
   "Tool_StoppingCommand": "Stopping command",

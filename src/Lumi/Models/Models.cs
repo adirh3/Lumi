@@ -17,6 +17,13 @@ public class ChatMessage
     public bool IsStreaming { get; set; }
     public List<string> Attachments { get; set; } = [];
     public List<SearchSource> Sources { get; set; } = [];
+    public List<SkillReference> ActiveSkills { get; set; } = [];
+}
+
+public class SkillReference
+{
+    public string Name { get; set; } = "";
+    public string Glyph { get; set; } = "\u26A1";
 }
 
 public class SearchSource
