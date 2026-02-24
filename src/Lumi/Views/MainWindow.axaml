@@ -706,6 +706,7 @@
         <Grid x:Name="ChatContentGrid" ColumnDefinitions="1*,Auto,0" FlowDirection="LeftToRight">
           <Border x:Name="ChatIsland" Grid.Column="0" Margin="4,6,4,8"
                   MinWidth="300"
+                  FlowDirection="{Binding FlowDirection, RelativeSource={RelativeSource AncestorType=Window}}"
                   CornerRadius="{DynamicResource Radius.Overlay}"
                   Background="{DynamicResource Brush.SurfaceCard}"
                   BorderBrush="{DynamicResource Brush.BorderSubtle}"
