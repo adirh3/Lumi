@@ -160,6 +160,14 @@
   "Tool_BrowserScroll": "גלילת דף",
   "Browser_ShowBrowser": "הצג דפדפן",
 
+  "Tool_ListingWindows": "רשימת חלונות",
+  "Tool_PressingKeys": "לוחץ על מקשים",
+  "Tool_InspectingWindow": "בודק חלון",
+  "Tool_FindingElement": "מחפש רכיב",
+  "Tool_ClickingControl": "לוחץ על פקד",
+  "Tool_TypingInControl": "מקליד בפקד",
+  "Tool_ReadingControl": "קורא פקד",
+
   "ToolGroup_Working": "עובד\u2026",
   "ToolGroup_WorkingCount": "עובד ({0} פעולות)\u2026",
   "ToolGroup_Finished": "הסתיים",

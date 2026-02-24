@@ -26,6 +26,7 @@ public partial class ChatViewModel : ObservableObject
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
     private readonly BrowserService _browserService;
+    private readonly UIAutomationService _uiAutomation = new();
     private CancellationTokenSource? _cts;
     private readonly HashSet<string> _shownFileChips = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<SearchSource> _pendingSearchSources = [];
@@ -888,6 +889,8 @@ public partial class ChatViewModel : ObservableObject
         tools.Add(BuildAnnounceFileTool());
         tools.AddRange(BuildWebTools());
         tools.AddRange(BuildBrowserTools());
+        if (OperatingSystem.IsWindows())
+            tools.AddRange(BuildUIAutomationTools());
         return tools;
     }
 
@@ -1060,6 +1063,60 @@ public partial class ChatViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(value)) return;
         _dataStore.Data.Settings.PreferredModel = value;
         _ = SaveIndexAsync();
+    }
+
+    private List<AIFunction> BuildUIAutomationTools()
+    {
+        return
+        [
+            AIFunctionFactory.Create(
+                () => _uiAutomation.ListWindows(),
+                "ui_list_windows",
+                "List all visible windows on the user's desktop. Returns window titles, process names, and PIDs. Call this first to find which window to target."),
+
+            AIFunctionFactory.Create(
+                ([Description("Window title (partial match) to inspect. The window will be auto-focused.")] string title,
+                 [Description("How deep to walk the UI tree (1-5, default 3). Use 2 for overview, 3-4 for detail.")] int depth = 3) =>
+                {
+                    depth = Math.Clamp(depth, 1, 5);
+                    return _uiAutomation.InspectWindow(title, depth);
+                },
+                "ui_inspect",
+                "Inspect the UI element tree of a window (auto-focuses it). Returns numbered elements tagged with [clickable], [editable], [toggleable] etc. Use element numbers with ui_click, ui_type, ui_press_keys, and ui_read. Prefer this over ui_find for first contact with a window."),
+
+            AIFunctionFactory.Create(
+                ([Description("Window title (partial match) to search in")] string title,
+                 [Description("Search query — matches against element name, automation ID, control type, class name, and help text")] string query) =>
+                    _uiAutomation.FindElements(title, query),
+                "ui_find",
+                "Find UI elements in a window matching a search query. Returns numbered elements you can interact with. Use when you know what you're looking for (e.g. 'Save', 'OK', 'Edit') instead of browsing the whole tree."),
+
+            AIFunctionFactory.Create(
+                ([Description("Element number from ui_inspect or ui_find")] int elementId) =>
+                    _uiAutomation.ClickElement(elementId),
+                "ui_click",
+                "Click a UI element by its number. Uses the best interaction pattern: Invoke for buttons, Toggle for checkboxes, Select for list items/tabs, Expand for combo boxes, or mouse click as fallback. After clicking, the UI may change — re-run ui_inspect to get fresh element numbers if needed."),
+
+            AIFunctionFactory.Create(
+                ([Description("Element number from ui_inspect or ui_find")] int elementId,
+                 [Description("Text to type or set in the element")] string text) =>
+                    _uiAutomation.TypeText(elementId, text),
+                "ui_type",
+                "Type or set text in a UI element by its number. Uses the Value pattern for text fields, or falls back to keyboard input."),
+
+            AIFunctionFactory.Create(
+                ([Description("Key combination to send, e.g. 'Ctrl+N', 'Ctrl+S', 'Alt+F4', 'Enter', 'Tab', 'Ctrl+Shift+T'. Single keys: A-Z, 0-9, F1-F12, Enter, Tab, Escape, Delete, Home, End, PageUp, PageDown, Up, Down, Left, Right, Space.")] string keys,
+                 [Description("Optional: element number to focus before sending keys. If omitted, keys go to the currently focused window.")] int? elementId = null) =>
+                    _uiAutomation.SendKeys(keys, elementId),
+                "ui_press_keys",
+                "Send keyboard shortcuts or key presses to the focused window. Use for shortcuts like Ctrl+N (new), Ctrl+S (save), Ctrl+Z (undo), Alt+F4 (close), Tab/Enter (navigate forms), arrow keys, etc. Optionally target a specific element by number."),
+
+            AIFunctionFactory.Create(
+                ([Description("Element number from ui_inspect or ui_find")] int elementId) =>
+                    _uiAutomation.ReadElement(elementId),
+                "ui_read",
+                "Read detailed information about a UI element: type, name, value, toggle state, selection state, supported interactions, bounds, and more."),
+        ];
     }
 
     private AIFunction BuildAnnounceFileTool()
@@ -1489,6 +1546,13 @@ public partial class ChatViewModel : ObservableObject
             "delete_memory" => Loc.Tool_Forgetting,
             "recall_memory" => Loc.Tool_Recalling,
             "announce_file" => Loc.Tool_SharingFile,
+            "ui_list_windows" => Loc.Tool_ListingWindows,
+            "ui_press_keys" => Loc.Tool_PressingKeys,
+            "ui_inspect" => Loc.Tool_InspectingWindow,
+            "ui_find" => Loc.Tool_FindingElement,
+            "ui_click" => Loc.Tool_ClickingControl,
+            "ui_type" => Loc.Tool_TypingInControl,
+            "ui_read" => Loc.Tool_ReadingControl,
             _ => FormatSnakeCaseToTitle(toolName)
         };
     }

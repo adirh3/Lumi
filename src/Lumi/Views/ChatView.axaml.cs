@@ -1852,6 +1852,21 @@ public partial class ChatView : UserControl
             case "browser_js":
                 return (Loc.Tool_BrowserEvaluate, null);
 
+            case "ui_list_windows":
+                return (Loc.Tool_ListingWindows, null);
+            case "ui_inspect":
+                return (Loc.Tool_InspectingWindow, ExtractJsonField(argsJson, "title"));
+            case "ui_find":
+                return (Loc.Tool_FindingElement, ExtractJsonField(argsJson, "query"));
+            case "ui_click":
+                return (Loc.Tool_ClickingControl, ExtractJsonField(argsJson, "elementId"));
+            case "ui_type":
+                return (Loc.Tool_TypingInControl, ExtractJsonField(argsJson, "elementId"));
+            case "ui_press_keys":
+                return (Loc.Tool_PressingKeys, ExtractJsonField(argsJson, "keys"));
+            case "ui_read":
+                return (Loc.Tool_ReadingControl, ExtractJsonField(argsJson, "elementId"));
+
             default:
                 var displayName = author ?? FormatToolNameFriendly(toolName);
                 var info = ExtractToolSummary(toolName, argsJson);

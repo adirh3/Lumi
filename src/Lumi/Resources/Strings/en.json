@@ -159,6 +159,14 @@
   "Tool_BrowserScroll": "Scrolling page",
   "Browser_ShowBrowser": "Show browser",
 
+  "Tool_ListingWindows": "Listing windows",
+  "Tool_PressingKeys": "Pressing keys",
+  "Tool_InspectingWindow": "Inspecting window",
+  "Tool_FindingElement": "Finding element",
+  "Tool_ClickingControl": "Clicking control",
+  "Tool_TypingInControl": "Typing in control",
+  "Tool_ReadingControl": "Reading control",
+
   "ToolGroup_Working": "Working\u2026",
   "ToolGroup_WorkingCount": "Working ({0} actions)\u2026",
   "ToolGroup_Finished": "Finished",
