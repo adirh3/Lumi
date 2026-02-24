@@ -383,5 +383,7 @@
   "Mcp_SearchingNpm": "מחפש ברישום npm...",
   "Mcp_EnabledTitle": "מופעל",
   "Mcp_Install": "התקן",
-  "Mcp_Installed": "מותקן"
+  "Mcp_Installed": "מותקן",
+
+  "Chat_Loading": "טוען צ׳אט\u2026"
 }

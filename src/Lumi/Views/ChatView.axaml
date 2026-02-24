@@ -98,6 +98,15 @@
 
     <!-- Active chat -->
     <Panel x:Name="ChatPanel" IsVisible="False">
+      <!-- Loading overlay shown while chat history is being rebuilt -->
+      <Panel x:Name="LoadingOverlay" IsVisible="False" ZIndex="50">
+        <Border Background="{DynamicResource Brush.Surface0}" Opacity="0.85" />
+        <sc:StrataTypingIndicator x:Name="LoadingIndicator"
+                                  Label="{loc:Str Chat_Loading}"
+                                  IsActive="True"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center" />
+      </Panel>
       <sc:StrataChatShell x:Name="ChatShell" IsOnline="True">
 
         <sc:StrataChatShell.Header>

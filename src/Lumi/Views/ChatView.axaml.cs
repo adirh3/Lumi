@@ -10,6 +10,7 @@ using System.Text;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Data.Converters;
 using Avalonia.Input;
 using Avalonia.Layout;
@@ -35,6 +36,15 @@ public partial class ChatView : UserControl
     private Panel? _chatPanel;
     private StackPanel? _messageStack;
     private Panel? _dropOverlay;
+    private Panel? _loadingOverlay;
+
+    // Cancellation for in-progress async rebuilds (allows fast chat switching)
+    private CancellationTokenSource? _rebuildCts;
+
+    // Incremental loading: older messages not yet rendered
+    private List<ChatMessageViewModel>? _deferredMessages;
+    private bool _isLoadingOlder;
+    private ScrollViewer? _transcriptScrollViewer;
 
     // Tool grouping state
     private StrataThink? _currentToolGroup;
@@ -96,6 +106,18 @@ public partial class ChatView : UserControl
         _welcomePanel = this.FindControl<Panel>("WelcomePanel");
         _chatPanel = this.FindControl<Panel>("ChatPanel");
         _dropOverlay = this.FindControl<Panel>("DropOverlay");
+        _loadingOverlay = this.FindControl<Panel>("LoadingOverlay");
+
+        // Hook scroll-near-top for incremental loading of older messages
+        if (_chatShell is not null)
+        {
+            _chatShell.TemplateApplied += (_, te) =>
+            {
+                _transcriptScrollViewer = te.NameScope.Find<ScrollViewer>("PART_TranscriptScroll");
+                if (_transcriptScrollViewer is not null)
+                    _transcriptScrollViewer.ScrollChanged += OnTranscriptScrollChanged;
+            };
+        }
 
         AddHandler(DragDrop.DragEnterEvent, OnDragEnter);
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
@@ -273,7 +295,7 @@ public partial class ChatView : UserControl
                 if (_chatPanel is not null) _chatPanel.IsVisible = hasChat;
 
                 // Always rebuild when loading a chat (messages are already populated)
-                RebuildMessageStack(vm);
+                _ = RebuildMessageStackAsync(vm);
 
                 // Update project badge
                 UpdateProjectBadge(vm);
@@ -352,7 +374,7 @@ public partial class ChatView : UserControl
             or nameof(SettingsViewModel.ShowToolCalls)
             or nameof(SettingsViewModel.ShowReasoning))
         {
-            RebuildMessageStack(_subscribedVm);
+            _ = RebuildMessageStackAsync(_subscribedVm);
         }
     }
 
@@ -374,9 +396,17 @@ public partial class ChatView : UserControl
         }
     }
 
-    private void RebuildMessageStack(ChatViewModel vm)
+    private async Task RebuildMessageStackAsync(ChatViewModel vm)
     {
-        // Replace the transcript content with a StackPanel we control
+        // Cancel any in-progress rebuild (e.g. user switching chats rapidly)
+        _rebuildCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _rebuildCts = cts;
+        var token = cts.Token;
+
+        // Build controls into a DETACHED StackPanel (not in the visual tree).
+        // This avoids expensive per-control layout/measure/scroll passes.
+        // We only attach it to the shell after all controls are built.
         _messageStack = new StackPanel { Spacing = 12 };
         _currentToolGroup = null;
         _currentToolGroupStack = null;
@@ -386,18 +416,170 @@ public partial class ChatView : UserControl
         _pendingToolFileChips.Clear();
         _pendingSearchSources.Clear();
         _toolStartTimes.Clear();
+        _deferredMessages = null;
+        _isLoadingOlder = false;
+
+        // Clear the transcript immediately so the old chat disappears
         if (_chatShell is not null)
-            _chatShell.Transcript = _messageStack;
+            _chatShell.Transcript = null;
 
-        foreach (var msgVm in vm.Messages)
-            AddMessageControl(msgVm);
+        var messages = vm.Messages.ToList();
+        var count = messages.Count;
 
-        CloseToolGroup();
-        CollapseAllCompletedTurns();
+        // For large chats, only render the most recent messages initially.
+        // Older messages are deferred and loaded when the user scrolls to top.
+        const int initialRenderMax = 20;
 
-        // Scroll to bottom after loading chat history
-        if (vm.CurrentChat is not null)
-            Dispatcher.UIThread.Post(() => _chatShell?.ScrollToEnd(), DispatcherPriority.Loaded);
+        int startIndex = 0;
+        if (count > initialRenderMax)
+        {
+            startIndex = count - initialRenderMax;
+            // Snap to a user message (turn boundary)
+            while (startIndex < count && messages[startIndex].Role != "user")
+                startIndex++;
+            if (startIndex >= count)
+                startIndex = count - initialRenderMax;
+
+            _deferredMessages = messages.GetRange(0, startIndex);
+        }
+
+        int renderCount = count - startIndex;
+
+        // Show loading overlay for non-trivial chats and yield a full frame
+        if (renderCount > 6 && _loadingOverlay is not null)
+        {
+            _loadingOverlay.IsVisible = true;
+            await Task.Delay(16);
+        }
+
+        if (token.IsCancellationRequested) return;
+
+        try
+        {
+            // Build all controls into the detached stack (no layout cost per-add)
+            for (int i = startIndex; i < count; i++)
+            {
+                if (token.IsCancellationRequested) return;
+                AddMessageControl(messages[i]);
+            }
+
+            if (token.IsCancellationRequested) return;
+
+            CloseToolGroup();
+            CollapseAllCompletedTurns();
+
+            // NOW attach the fully-built stack to the visual tree (single layout pass)
+            if (_chatShell is not null)
+                _chatShell.Transcript = _messageStack;
+
+            // Scroll to bottom after loading chat history
+            if (vm.CurrentChat is not null)
+                Dispatcher.UIThread.Post(() => _chatShell?.ScrollToEnd(), DispatcherPriority.Loaded);
+        }
+        finally
+        {
+            if (_loadingOverlay is not null)
+                _loadingOverlay.IsVisible = false;
+        }
+    }
+
+    /// <summary>
+    /// Detects when the user scrolls near the top of the transcript and loads older
+    /// deferred messages incrementally.
+    /// </summary>
+    private void OnTranscriptScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (_transcriptScrollViewer is null || _deferredMessages is null || _deferredMessages.Count == 0)
+            return;
+        if (_isLoadingOlder)
+            return;
+
+        // Trigger when scroll offset is near the top
+        if (_transcriptScrollViewer.Offset.Y < 100)
+            _ = LoadOlderMessagesAsync();
+    }
+
+    /// <summary>
+    /// Prepends a batch of older (deferred) messages to the top of the transcript,
+    /// preserving the user's current scroll position.
+    /// </summary>
+    private async Task LoadOlderMessagesAsync()
+    {
+        if (_deferredMessages is null || _deferredMessages.Count == 0 || _messageStack is null)
+            return;
+
+        _isLoadingOlder = true;
+
+        try
+        {
+            // Take the last N deferred messages (most recent of the older set)
+            const int batchSize = 15;
+            int takeFrom = Math.Max(0, _deferredMessages.Count - batchSize);
+
+            // Find turn boundary: snap to a user message
+            while (takeFrom > 0 && _deferredMessages[takeFrom].Role != "user")
+                takeFrom--;
+
+            var batch = _deferredMessages.GetRange(takeFrom, _deferredMessages.Count - takeFrom);
+            _deferredMessages = takeFrom > 0 ? _deferredMessages.GetRange(0, takeFrom) : null;
+
+            // Record current scroll extent so we can preserve position after prepending
+            var scrollBefore = _transcriptScrollViewer?.Extent.Height ?? 0;
+
+            // Build controls for the batch into a temporary stack, then prepend
+            var tempStack = new StackPanel { Spacing = 12 };
+            var savedMessageStack = _messageStack;
+            var savedToolGroup = _currentToolGroup;
+            var savedToolGroupStack = _currentToolGroupStack;
+            var savedToolGroupCount = _currentToolGroupCount;
+            var savedIntentText = _currentIntentText;
+
+            _messageStack = tempStack;
+            _currentToolGroup = null;
+            _currentToolGroupStack = null;
+            _currentToolGroupCount = 0;
+            _currentIntentText = null;
+
+            foreach (var msgVm in batch)
+                AddMessageControl(msgVm);
+
+            CloseToolGroup();
+
+            // Collapse completed turns in the prepended batch
+            CollapseAllCompletedTurns();
+
+            // Restore state
+            _messageStack = savedMessageStack;
+            _currentToolGroup = savedToolGroup;
+            _currentToolGroupStack = savedToolGroupStack;
+            _currentToolGroupCount = savedToolGroupCount;
+            _currentIntentText = savedIntentText;
+
+            // Prepend the batch controls to the real message stack
+            var children = tempStack.Children.ToList();
+            for (int i = children.Count - 1; i >= 0; i--)
+            {
+                tempStack.Children.RemoveAt(i);
+                _messageStack.Children.Insert(0, children[i]);
+            }
+
+            // Yield to let layout update
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+
+            // Restore scroll position: new content was prepended, so offset by the height difference
+            if (_transcriptScrollViewer is not null)
+            {
+                var scrollAfter = _transcriptScrollViewer.Extent.Height;
+                var heightAdded = scrollAfter - scrollBefore;
+                if (heightAdded > 0)
+                    _transcriptScrollViewer.Offset = new Vector(_transcriptScrollViewer.Offset.X,
+                        _transcriptScrollViewer.Offset.Y + heightAdded);
+            }
+        }
+        finally
+        {
+            _isLoadingOlder = false;
+        }
     }
 
     private void AddMessageControl(ChatMessageViewModel msgVm)

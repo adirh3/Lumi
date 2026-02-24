@@ -382,5 +382,7 @@
   "Mcp_SearchingNpm": "Searching npm registry...",
   "Mcp_EnabledTitle": "Enabled",
   "Mcp_Install": "Install",
-  "Mcp_Installed": "Installed"
+  "Mcp_Installed": "Installed",
+
+  "Chat_Loading": "Loading chat\u2026"
 }
