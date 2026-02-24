@@ -11,8 +11,8 @@
       <!-- Editor form -->
       <ScrollViewer IsVisible="{Binding IsEditing}"
                     HorizontalScrollBarVisibility="Disabled"
-                    VerticalScrollBarVisibility="Auto" Padding="36,24">
-        <StackPanel Spacing="20">
+                    VerticalScrollBarVisibility="Auto" Padding="36,24,36,36">
+        <StackPanel Spacing="20" MaxWidth="560">
           <TextBlock Text="{loc:Str Editor_Project}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold" />
 
           <StackPanel Spacing="4">
