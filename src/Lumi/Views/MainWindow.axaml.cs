@@ -954,23 +954,29 @@ public partial class MainWindow : Window
             vm.SelectedNavIndex = 0;
 
         // Switch to split layout: chat (1*) | splitter (Auto) | browser (1*)
+        var isRtl = FlowDirection == FlowDirection.RightToLeft;
+        var browserOffsetX = isRtl ? -40.0 : 40.0;
+
         var defs = _chatContentGrid.ColumnDefinitions;
         while (defs.Count < 3)
             defs.Add(new ColumnDefinition());
         defs[0].Width = new GridLength(1, GridUnitType.Star);
         defs[1].Width = GridLength.Auto;
         defs[2].Width = new GridLength(1, GridUnitType.Star);
-        Grid.SetColumn(_chatIsland, 0);
-        Grid.SetColumn(_browserIsland, 2);
+        Grid.SetColumn(_chatIsland, isRtl ? 2 : 0);
+        Grid.SetColumn(_browserIsland, isRtl ? 0 : 2);
+        _browserIsland.Margin = isRtl
+            ? new Thickness(8, 6, 0, 8)
+            : new Thickness(0, 6, 8, 8);
 
-        // Prepare initial state — transparent + shifted right
-        _browserIsland.RenderTransform = new TranslateTransform(40, 0);
+        // Prepare initial state — transparent + shifted from the outer edge
+        _browserIsland.RenderTransform = new TranslateTransform(browserOffsetX, 0);
         _browserIsland.Opacity = 0;
         _browserIsland.IsVisible = true;
         if (_browserSplitter is not null)
             _browserSplitter.IsVisible = true;
 
-        // Animate fade-in + slide from right (both on the Border visual)
+        // Animate fade-in + slide from the outer edge (both on the Border visual)
         var anim = new Avalonia.Animation.Animation
         {
             Duration = TimeSpan.FromMilliseconds(300),
@@ -984,7 +990,7 @@ public partial class MainWindow : Window
                     Setters =
                     {
                         new Setter(OpacityProperty, 0.0),
-                        new Setter(TranslateTransform.XProperty, 40.0),
+                        new Setter(TranslateTransform.XProperty, browserOffsetX),
                     }
                 },
                 new KeyFrame
@@ -1027,7 +1033,10 @@ public partial class MainWindow : Window
         if (DataContext is MainViewModel vm && vm.BrowserService.Controller is not null)
             vm.BrowserService.Controller.IsVisible = false;
 
-        // Animate fade-out + slide to right
+        var isRtl = FlowDirection == FlowDirection.RightToLeft;
+        var browserOffsetX = isRtl ? -40.0 : 40.0;
+
+        // Animate fade-out + slide to the outer edge
         _browserIsland.RenderTransform = new TranslateTransform(0, 0);
 
         var anim = new Avalonia.Animation.Animation
@@ -1052,7 +1061,7 @@ public partial class MainWindow : Window
                     Setters =
                     {
                         new Setter(OpacityProperty, 0.0),
-                        new Setter(TranslateTransform.XProperty, 40.0),
+                        new Setter(TranslateTransform.XProperty, browserOffsetX),
                     }
                 },
             }
@@ -1075,5 +1084,10 @@ public partial class MainWindow : Window
         defs[0].Width = new GridLength(1, GridUnitType.Star);
         defs[1].Width = new GridLength(0);
         defs[2].Width = new GridLength(0);
+
+        if (_chatIsland is not null)
+            Grid.SetColumn(_chatIsland, 0);
+        Grid.SetColumn(_browserIsland, 2);
+        _browserIsland.Margin = new Thickness(0, 6, 8, 8);
     }
 }
