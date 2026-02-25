@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
@@ -25,6 +26,23 @@ public sealed class BrowserCookieService
     public record BrowserProfile(string Name, string Path, BrowserInfo Browser);
 
     private static readonly BrowserInfo[] KnownBrowsers = GetKnownBrowsers();
+    private static readonly HashSet<string> GoogleAuthCookieNames =
+    [
+        "SID",
+        "HSID",
+        "SSID",
+        "APISID",
+        "SAPISID",
+        "LSID",
+        "__Secure-1PSID",
+        "__Secure-3PSID",
+        "__Secure-1PSIDTS",
+        "__Secure-3PSIDTS",
+        "__Host-GAPS",
+    ];
+    private const int CdpCookiesRequestId = 1;
+    private static readonly TimeSpan CdpStartupTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan CdpMessageTimeout = TimeSpan.FromSeconds(10);
 
     private static BrowserInfo[] GetKnownBrowsers()
     {
@@ -84,6 +102,77 @@ public sealed class BrowserCookieService
         return profiles;
     }
 
+    public static int GetGoogleSessionCookieScore(BrowserProfile profile)
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            return 0;
+
+        var profileDir = Path.Combine(profile.Browser.UserDataPath, profile.Path);
+        var cookieFile = FindCookieFile(profileDir);
+        if (cookieFile is null)
+            return 0;
+
+        var tempFile = Path.Combine(Path.GetTempPath(), $"lumi_cookie_score_{Guid.NewGuid():N}.db");
+        try
+        {
+            CopyLockedFileAsync(cookieFile, tempFile, profile.Browser.Name).GetAwaiter().GetResult();
+            return CountGoogleSessionCookies(tempFile);
+        }
+        catch
+        {
+            return 0;
+        }
+        finally
+        {
+            try { File.Delete(tempFile); }
+            catch { }
+        }
+    }
+
+    private static int CountGoogleSessionCookies(string dbPath)
+    {
+        try
+        {
+            var score = 0;
+            using var connection = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly");
+            connection.Open();
+
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT DISTINCT name
+                FROM cookies
+                WHERE host_key LIKE '%google.%'
+                """;
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                if (reader.IsDBNull(0))
+                    continue;
+
+                var name = reader.GetString(0);
+                if (GoogleAuthCookieNames.Contains(name))
+                {
+                    score += 10;
+                    continue;
+                }
+
+                if (name.Contains("PSID", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("SAPISID", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("SID", StringComparison.OrdinalIgnoreCase))
+                {
+                    score += 2;
+                }
+            }
+
+            return score;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
     private static string? FindCookieFile(string profileDir)
     {
         // Chrome 96+ stores cookies under Network/Cookies
@@ -134,52 +223,130 @@ public sealed class BrowserCookieService
         if (cookieFile is null)
             return 0;
 
-        // Try direct SQLite decryption first (works for v10 cookies — Chrome, older Edge)
-        var cookies = await TryDirectDecryptAsync(cookieFile, profile);
+        var cookies = await Task.Run(() => TryDirectDecryptAsync(cookieFile, profile));
 
-        // If direct decryption yielded nothing, use CDP to extract cookies via the browser itself
-        // (required for v20 App-Bound Encryption in newer Edge/Chrome)
         if (cookies.Count == 0)
-            cookies = await ExtractCookiesViaCdpAsync(profile);
+            cookies = await Task.Run(() => ExtractCookiesViaCdpAsync(profile));
 
         if (cookies.Count == 0)
             return 0;
 
-        return ImportCookieRecords(cookies, webView);
+        return await ImportCookieRecordsAsync(cookies, webView);
     }
 
     /// <summary>Imports a list of cookie records into a WebView2 instance.</summary>
-    private static int ImportCookieRecords(List<CookieRecord> cookies, CoreWebView2 webView)
+    private static async Task<int> ImportCookieRecordsAsync(List<CookieRecord> cookies, CoreWebView2 webView)
     {
         var manager = webView.CookieManager;
         var count = 0;
 
+        try
+        {
+            await webView.CallDevToolsProtocolMethodAsync("Network.enable", "{}");
+        }
+        catch
+        {
+        }
+
         foreach (var c in cookies)
         {
-            try
+            if (string.IsNullOrEmpty(c.Name))
+                continue;
+
+            var hostCandidates = GetCookieHostCandidates(c.Host);
+            if (hostCandidates.Count == 0)
+                continue;
+
+            var path = string.IsNullOrWhiteSpace(c.Path) ? "/" : c.Path;
+            if (!path.StartsWith('/'))
+                path = "/" + path;
+
+            var imported = false;
+            foreach (var host in hostCandidates)
             {
-                var cookie = manager.CreateCookie(c.Name, c.Value, c.Host, c.Path);
-                cookie.IsSecure = c.IsSecure;
-                cookie.IsHttpOnly = c.IsHttpOnly;
-                cookie.SameSite = c.SameSite switch
+                if (await TrySetCookieViaDevToolsAsync(webView, c, host, path))
                 {
-                    -1 => CoreWebView2CookieSameSiteKind.None,
-                    0 => CoreWebView2CookieSameSiteKind.None,
-                    1 => CoreWebView2CookieSameSiteKind.Lax,
-                    2 => CoreWebView2CookieSameSiteKind.Strict,
-                    _ => CoreWebView2CookieSameSiteKind.Lax
-                };
+                    imported = true;
+                    break;
+                }
 
-                if (c.ExpiresUtc > DateTime.UtcNow)
-                    cookie.Expires = c.ExpiresUtc.ToLocalTime();
+                try
+                {
+                    var cookie = manager.CreateCookie(c.Name, c.Value, host, path);
+                    cookie.IsSecure = c.IsSecure;
+                    cookie.IsHttpOnly = c.IsHttpOnly;
 
-                manager.AddOrUpdateCookie(cookie);
-                count++;
+                    var sameSite = c.SameSite switch
+                    {
+                        -1 => CoreWebView2CookieSameSiteKind.None,
+                        0 => CoreWebView2CookieSameSiteKind.None,
+                        1 => CoreWebView2CookieSameSiteKind.Lax,
+                        2 => CoreWebView2CookieSameSiteKind.Strict,
+                        _ => CoreWebView2CookieSameSiteKind.Lax
+                    };
+
+                    if (sameSite == CoreWebView2CookieSameSiteKind.None && !cookie.IsSecure)
+                        sameSite = CoreWebView2CookieSameSiteKind.Lax;
+
+                    cookie.SameSite = sameSite;
+
+                    if (c.ExpiresUtc > DateTime.UtcNow)
+                        cookie.Expires = c.ExpiresUtc.ToLocalTime();
+
+                    manager.AddOrUpdateCookie(cookie);
+                    imported = true;
+                    break;
+                }
+                catch
+                {
+                }
             }
-            catch { /* skip invalid cookies */ }
+
+            if (imported)
+                count++;
         }
 
         return count;
+    }
+
+    private static async Task<bool> TrySetCookieViaDevToolsAsync(
+        CoreWebView2 webView,
+        CookieRecord cookie,
+        string host,
+        string path)
+    {
+        try
+        {
+            var payload = new JsonObject
+            {
+                ["name"] = cookie.Name,
+                ["value"] = cookie.Value,
+                ["domain"] = host,
+                ["path"] = path,
+                ["secure"] = cookie.IsSecure,
+                ["httpOnly"] = cookie.IsHttpOnly,
+                ["sameSite"] = cookie.SameSite switch
+                {
+                    2 => "Strict",
+                    1 => "Lax",
+                    _ => "None"
+                }
+            };
+
+            if (cookie.ExpiresUtc != DateTime.MaxValue && cookie.ExpiresUtc > DateTime.UnixEpoch)
+            {
+                payload["expires"] = new DateTimeOffset(cookie.ExpiresUtc).ToUnixTimeSeconds();
+            }
+
+            var response = await webView.CallDevToolsProtocolMethodAsync("Network.setCookie", payload.ToJsonString());
+            using var responseDoc = JsonDocument.Parse(response);
+            return responseDoc.RootElement.TryGetProperty("success", out var success)
+                && success.GetBoolean();
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -218,8 +385,7 @@ public sealed class BrowserCookieService
         if (exePath is null)
             return [];
 
-        // Kill background browser processes so we can open the profile
-        KillBackgroundBrowserProcesses(profile.Browser.Name);
+        KillBrowserProcesses(profile.Browser.Name, includeVisibleWindows: true);
         await Task.Delay(500);
 
         var port = Random.Shared.Next(10000, 60000);
@@ -246,16 +412,17 @@ public sealed class BrowserCookieService
             process = Process.Start(psi);
             if (process is null) return [];
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            using var cts = new CancellationTokenSource(CdpStartupTimeout);
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
 
-            // Wait for CDP to be ready and get a page-level WebSocket URL
-            // (Network.getAllCookies is only available on page targets, not browser-level)
             string? wsUrl = null;
             for (var i = 0; i < 50 && !cts.Token.IsCancellationRequested; i++)
             {
                 try
                 {
+                    if (process.HasExited)
+                        return [];
+
                     var json = await http.GetStringAsync($"http://127.0.0.1:{port}/json", cts.Token);
                     using var doc = JsonDocument.Parse(json);
                     foreach (var target in doc.RootElement.EnumerateArray())
@@ -282,24 +449,16 @@ public sealed class BrowserCookieService
 
             if (wsUrl is null) return [];
 
-            // Connect via WebSocket and request all cookies
             using var client = new ClientWebSocket();
             await client.ConnectAsync(new Uri(wsUrl), cts.Token);
 
             var request = """{"id":1,"method":"Network.getAllCookies"}"""u8;
             await client.SendAsync(request.ToArray(), WebSocketMessageType.Text, true, cts.Token);
 
-            // Receive (response can be large)
-            using var ms = new MemoryStream();
-            var buffer = new byte[64 * 1024];
-            while (true)
-            {
-                var result = await client.ReceiveAsync(buffer, cts.Token);
-                ms.Write(buffer, 0, result.Count);
-                if (result.EndOfMessage) break;
-            }
+            var responseJson = await ReceiveCdpMessageByIdAsync(client, CdpCookiesRequestId, cts.Token);
+            if (string.IsNullOrWhiteSpace(responseJson))
+                return [];
 
-            var responseJson = Encoding.UTF8.GetString(ms.ToArray());
             return ParseCdpCookies(responseJson);
         }
         catch
@@ -316,6 +475,48 @@ public sealed class BrowserCookieService
         }
     }
 
+    private static async Task<string?> ReceiveCdpMessageByIdAsync(ClientWebSocket client, int id, CancellationToken cancellationToken)
+    {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(CdpMessageTimeout);
+
+        var token = timeoutCts.Token;
+        var buffer = new byte[64 * 1024];
+
+        while (!token.IsCancellationRequested)
+        {
+            using var ms = new MemoryStream();
+            while (true)
+            {
+                var result = await client.ReceiveAsync(buffer, token);
+
+                if (result.MessageType == WebSocketMessageType.Close)
+                    return null;
+
+                ms.Write(buffer, 0, result.Count);
+                if (result.EndOfMessage)
+                    break;
+            }
+
+            var json = Encoding.UTF8.GetString(ms.ToArray());
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("id", out var msgId)
+                    && msgId.TryGetInt32(out var value)
+                    && value == id)
+                {
+                    return json;
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Parses cookies from a CDP Network.getAllCookies response.</summary>
     private static List<CookieRecord> ParseCdpCookies(string responseJson)
     {
@@ -328,9 +529,9 @@ public sealed class BrowserCookieService
         var cookies = new List<CookieRecord>();
         foreach (var c in cookiesArr.EnumerateArray())
         {
-            var name = c.GetProperty("name").GetString() ?? "";
-            var value = c.GetProperty("value").GetString() ?? "";
-            var domain = c.GetProperty("domain").GetString() ?? "";
+            var name = c.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+            var value = c.TryGetProperty("value", out var v) ? v.GetString() ?? "" : "";
+            var domain = c.TryGetProperty("domain", out var d) ? d.GetString() ?? "" : "";
             var path = c.TryGetProperty("path", out var p) ? p.GetString() ?? "/" : "/";
             var secure = c.TryGetProperty("secure", out var sec) && sec.GetBoolean();
             var httpOnly = c.TryGetProperty("httpOnly", out var ho) && ho.GetBoolean();
@@ -342,7 +543,7 @@ public sealed class BrowserCookieService
                 ? DateTimeOffset.FromUnixTimeSeconds((long)expVal).UtcDateTime
                 : DateTime.MaxValue;
 
-            if (!string.IsNullOrEmpty(name))
+            if (!string.IsNullOrEmpty(name) && !string.IsNullOrWhiteSpace(domain))
                 cookies.Add(new CookieRecord(domain, name, value, path, secure, httpOnly, sameSite, expires));
         }
 
@@ -392,9 +593,41 @@ public sealed class BrowserCookieService
     }
 
     /// <summary>Kills background-only browser processes (no visible window).</summary>
-    private static void KillBackgroundBrowserProcesses(string browserName)
+    private static void KillBrowserProcesses(string browserName, bool includeVisibleWindows = false)
     {
-        var processName = browserName switch
+        var processName = GetBrowserProcessName(browserName);
+
+        if (processName is null) return;
+
+        foreach (var p in Process.GetProcessesByName(processName))
+        {
+            try
+            {
+                if (p.HasExited)
+                    continue;
+
+                var isBackground = p.MainWindowHandle == IntPtr.Zero;
+                if (!isBackground && !includeVisibleWindows)
+                    continue;
+
+                if (!isBackground)
+                {
+                    p.CloseMainWindow();
+                    if (!p.WaitForExit(1500))
+                        p.Kill(entireProcessTree: true);
+                }
+                else
+                {
+                    p.Kill(entireProcessTree: true);
+                }
+            }
+            catch { /* may have already exited or deny access */ }
+        }
+    }
+
+    private static string? GetBrowserProcessName(string browserName)
+    {
+        return browserName switch
         {
             "Google Chrome" => "chrome",
             "Microsoft Edge" => "msedge",
@@ -403,17 +636,6 @@ public sealed class BrowserCookieService
             "Opera" => "opera",
             _ => null,
         };
-
-        if (processName is null) return;
-
-        foreach (var p in Process.GetProcessesByName(processName))
-        {
-            if (p.MainWindowHandle == IntPtr.Zero)
-            {
-                try { p.Kill(); }
-                catch { /* may have already exited */ }
-            }
-        }
     }
 
     /// <summary>
@@ -429,7 +651,7 @@ public sealed class BrowserCookieService
         }
         catch (IOException) { /* file locked — fall through to kill background processes */ }
 
-        KillBackgroundBrowserProcesses(browserName);
+        KillBrowserProcesses(browserName);
         await Task.Delay(500);
 
         await CopyWithSharingAsync(sourceFile, destFile);
@@ -446,6 +668,50 @@ public sealed class BrowserCookieService
         string Host, string Name, string Value, string Path,
         bool IsSecure, bool IsHttpOnly, int SameSite, DateTime ExpiresUtc);
 
+    private static List<string> GetCookieHostCandidates(string host)
+    {
+        var candidates = new List<string>(2);
+
+        if (string.IsNullOrWhiteSpace(host))
+            return candidates;
+
+        var normalized = host.Trim();
+        if (normalized.Length == 0)
+            return candidates;
+
+        if (normalized.StartsWith('['))
+        {
+            var closing = normalized.IndexOf(']');
+            if (closing > 0)
+            {
+                normalized = normalized[..(closing + 1)];
+            }
+        }
+        else
+        {
+            var colonIndex = normalized.IndexOf(':');
+            if (colonIndex > 0)
+                normalized = normalized[..colonIndex];
+        }
+
+        if (normalized.Length == 0)
+            return candidates;
+
+        var withoutLeadingDot = normalized.TrimStart('.');
+        if (withoutLeadingDot.Length == 0)
+            return candidates;
+
+        if (normalized.StartsWith('.'))
+        {
+            candidates.Add('.' + withoutLeadingDot);
+            candidates.Add(withoutLeadingDot);
+            return candidates;
+        }
+
+        candidates.Add(withoutLeadingDot);
+        return candidates;
+    }
+
     private static List<CookieRecord> ReadCookiesFromDb(string dbPath, byte[]? masterKey)
     {
         var cookies = new List<CookieRecord>();
@@ -455,7 +721,7 @@ public sealed class BrowserCookieService
 
         using var cmd = connection.CreateCommand();
         cmd.CommandText = """
-            SELECT host_key, name, encrypted_value, path,
+            SELECT host_key, name, encrypted_value, value, path,
                    is_secure, is_httponly, samesite,
                    expires_utc
             FROM cookies
@@ -466,28 +732,42 @@ public sealed class BrowserCookieService
         {
             var host = reader.GetString(0);
             var name = reader.GetString(1);
-            var rawValue = reader.GetValue(2);
-            var path = reader.GetString(3);
-            var isSecure = reader.GetInt64(4) != 0;
-            var isHttpOnly = reader.GetInt64(5) != 0;
-            var sameSite = (int)reader.GetInt64(6);
-            var expiresChrome = reader.GetInt64(7);
+            var rawEncryptedValue = reader.GetValue(2);
+            var plainValue = reader.IsDBNull(3) ? null : reader.GetString(3);
+            var path = reader.GetString(4);
+            var isSecure = reader.GetInt64(5) != 0;
+            var isHttpOnly = reader.GetInt64(6) != 0;
+            var sameSite = (int)reader.GetInt64(7);
+            var expiresChrome = reader.GetInt64(8);
 
-            // encrypted_value can be a BLOB (byte[]) or a string (empty/unencrypted)
             string? value;
-            if (rawValue is byte[] encryptedValue && encryptedValue.Length > 0)
+            if (rawEncryptedValue is byte[] encryptedValue && encryptedValue.Length > 0)
                 value = DecryptCookieValue(encryptedValue, masterKey);
-            else if (rawValue is string s)
+            else if (!string.IsNullOrEmpty(plainValue))
+                value = plainValue;
+            else if (rawEncryptedValue is string s && !string.IsNullOrEmpty(s))
                 value = s;
             else
                 continue;
             if (value is null)
                 continue;
 
-            // Chrome timestamps are microseconds since 1601-01-01
-            var expiresUtc = expiresChrome > 0
-                ? DateTime.FromFileTimeUtc(expiresChrome * 10)
-                : DateTime.MaxValue;
+            DateTime expiresUtc;
+            if (expiresChrome <= 0)
+            {
+                expiresUtc = DateTime.MaxValue;
+            }
+            else
+            {
+                try
+                {
+                    expiresUtc = DateTime.FromFileTimeUtc(expiresChrome * 10);
+                }
+                catch
+                {
+                    expiresUtc = DateTime.MaxValue;
+                }
+            }
 
             cookies.Add(new CookieRecord(host, name, value, path,
                 isSecure, isHttpOnly, sameSite, expiresUtc));

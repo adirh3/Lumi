@@ -76,7 +76,7 @@ public partial class MainViewModel : ObservableObject
         ProjectsVM = new ProjectsViewModel(dataStore);
         MemoriesVM = new MemoriesViewModel(dataStore);
         McpServersVM = new McpServersViewModel(dataStore);
-        SettingsVM = new SettingsViewModel(dataStore, copilotService);
+        SettingsVM = new SettingsViewModel(dataStore, copilotService, _browserService);
 
         // Sync settings changes back to MainViewModel
         SettingsVM.PropertyChanged += (_, args) =>

@@ -78,6 +78,10 @@ public sealed class BrowserService : IAsyncDisposable
     /// <summary>Whether the browser has been initialized.</summary>
     public bool IsInitialized => _initialized;
 
+    private static string GetUserDataFolder() => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Lumi", "browser-data");
+
     /// <summary>
     /// Sets the browser color scheme to match the app theme.
     /// Safe to call before initialization — the value is stored and applied on init.
@@ -114,9 +118,7 @@ public sealed class BrowserService : IAsyncDisposable
             if (_initialized) return;
             _parentHwnd = parentHwnd;
 
-            var userDataFolder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Lumi", "browser-data");
+            var userDataFolder = GetUserDataFolder();
             Directory.CreateDirectory(userDataFolder);
 
             _environment = await CoreWebView2Environment.CreateAsync(
@@ -1177,6 +1179,58 @@ public sealed class BrowserService : IAsyncDisposable
     {
         if (string.IsNullOrWhiteSpace(input)) return false;
         return input.Any(ch => ch is '#' or '.' or '[' or ']' or '>' or ':' or '*' or '+' or '~');
+    }
+
+    /// <summary>Clears all cookies used by Lumi's embedded browser profile.</summary>
+    public async Task ClearCookiesAsync()
+    {
+        if (_initialized && _webView is not null)
+        {
+            await InvokeOnUiThreadAsync(() => _webView!.CookieManager.DeleteAllCookies());
+            return;
+        }
+
+        var userDataFolder = GetUserDataFolder();
+        DeleteCookieFiles(userDataFolder);
+    }
+
+    private static void DeleteCookieFiles(string userDataFolder)
+    {
+        if (!Directory.Exists(userDataFolder))
+            return;
+
+        static void DeleteFromProfile(string profileDir)
+        {
+            var files = new[]
+            {
+                Path.Combine(profileDir, "Network", "Cookies"),
+                Path.Combine(profileDir, "Network", "Cookies-journal"),
+                Path.Combine(profileDir, "Cookies"),
+                Path.Combine(profileDir, "Cookies-journal"),
+            };
+
+            foreach (var file in files)
+            {
+                try
+                {
+                    if (File.Exists(file))
+                        File.Delete(file);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        try
+        {
+            DeleteFromProfile(Path.Combine(userDataFolder, "Default"));
+            foreach (var profileDir in Directory.GetDirectories(userDataFolder, "Profile *"))
+                DeleteFromProfile(profileDir);
+        }
+        catch
+        {
+        }
     }
 
     private static Task InvokeOnUiThreadAsync(Action action)
