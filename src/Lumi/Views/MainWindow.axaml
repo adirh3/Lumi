@@ -12,7 +12,7 @@
         Width="1320" Height="860"
         MinWidth="800" MinHeight="560"
         WindowStartupLocation="CenterScreen"
-        TransparencyLevelHint="AcrylicBlur"
+        TransparencyLevelHint="AcrylicBlur,Blur"
         Background="Transparent">
 
   <Window.Resources>
@@ -752,7 +752,7 @@
                   <TextBlock Text="Browser" Classes="body-strong" FontWeight="SemiBold" />
                 </StackPanel>
               </DockPanel>
-              <views:BrowserView x:Name="BrowserPanel" />
+              <ContentControl x:Name="BrowserHost" />
             </DockPanel>
           </Border>
         </Grid>
@@ -763,42 +763,42 @@
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
                 BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
-          <views:ProjectsView DataContext="{Binding ProjectsVM}" />
+          <ContentControl x:Name="PageProjectsHost" />
         </Border>
         <Border x:Name="PageSkills" IsVisible="False"
                 Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
                 BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
-          <views:SkillsView DataContext="{Binding SkillsVM}" />
+          <ContentControl x:Name="PageSkillsHost" />
         </Border>
         <Border x:Name="PageAgents" IsVisible="False"
                 Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
                 BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
-          <views:AgentsView DataContext="{Binding AgentsVM}" />
+          <ContentControl x:Name="PageAgentsHost" />
         </Border>
         <Border x:Name="PageMemories" IsVisible="False"
                 Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
                 BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
-          <views:MemoriesView DataContext="{Binding MemoriesVM}" />
+          <ContentControl x:Name="PageMemoriesHost" />
         </Border>
         <Border x:Name="PageMcpServers" IsVisible="False"
                 Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
                 BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
-          <views:McpServersView DataContext="{Binding McpServersVM}" />
+          <ContentControl x:Name="PageMcpServersHost" />
         </Border>
         <Border x:Name="PageSettings" IsVisible="False"
                 Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
                 BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
-          <views:SettingsView DataContext="{Binding SettingsVM}" />
+          <ContentControl x:Name="PageSettingsHost" />
         </Border>
       </Panel>
     </DockPanel>

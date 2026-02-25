@@ -309,6 +309,14 @@
             <TextBlock Text="{Binding OsVersion}" FontSize="{DynamicResource Font.SizeCaption}"
                        Foreground="{DynamicResource Brush.TextTertiary}" TextTrimming="CharacterEllipsis" />
           </sc:StrataSetting>
+          <sc:StrataSetting x:Name="DebugTransparencySetting"
+                            Header="Window Transparency (Debug)"
+                            IsVisible="False">
+            <TextBlock x:Name="DebugTransparencyValue"
+                       FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextTertiary}"
+                       Text="Unavailable" />
+          </sc:StrataSetting>
         </sc:StrataSettingGroup>
 
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Statistics}">

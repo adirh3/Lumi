@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -27,6 +28,9 @@ public partial class SettingsView : UserControl
     private Button? _noResultsClearButton;
     private Button? _signInButton;
     private Button? _hotkeyRecorderButton;
+    private StrataSetting? _debugTransparencySetting;
+    private TextBlock? _debugTransparencyValue;
+    private TopLevel? _topLevel;
     private bool _isRecordingHotkey;
     private bool _hotkeyRecordingCooldown;
     private Interactive? _hotkeyEventSource;
@@ -84,6 +88,9 @@ public partial class SettingsView : UserControl
             _hotkeyRecorderButton.Click += OnHotkeyRecorderButtonClick;
         }
 
+        _debugTransparencySetting = this.FindControl<StrataSetting>("DebugTransparencySetting");
+        _debugTransparencyValue = this.FindControl<TextBlock>("DebugTransparencyValue");
+
         _settingsSexCombo = this.FindControl<ComboBox>("SettingsSexCombo");
         if (_settingsSexCombo is not null)
         {
@@ -108,6 +115,72 @@ public partial class SettingsView : UserControl
             }
         }
         _pageHeaders = headers.ToArray();
+
+        InitializeDebugTransparencyInfo();
+    }
+
+    protected override void OnAttachedToVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+
+#if DEBUG
+        _topLevel = TopLevel.GetTopLevel(this);
+        if (_topLevel is not null)
+            _topLevel.PropertyChanged += OnTopLevelPropertyChanged;
+        UpdateDebugTransparencyInfo();
+#endif
+    }
+
+    protected override void OnDetachedFromVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
+    {
+#if DEBUG
+        if (_topLevel is not null)
+            _topLevel.PropertyChanged -= OnTopLevelPropertyChanged;
+        _topLevel = null;
+#endif
+
+        base.OnDetachedFromVisualTree(e);
+    }
+
+    private void InitializeDebugTransparencyInfo()
+    {
+#if DEBUG
+        if (_debugTransparencySetting is not null)
+            _debugTransparencySetting.IsVisible = true;
+        UpdateDebugTransparencyInfo();
+#else
+        if (_debugTransparencySetting is not null)
+            _debugTransparencySetting.IsVisible = false;
+#endif
+    }
+
+#if DEBUG
+    private void OnTopLevelPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == TopLevel.ActualTransparencyLevelProperty)
+            UpdateDebugTransparencyInfo();
+    }
+#endif
+
+    private void UpdateDebugTransparencyInfo()
+    {
+#if DEBUG
+        if (_debugTransparencyValue is null) return;
+
+        var topLevel = _topLevel ?? TopLevel.GetTopLevel(this);
+        if (topLevel is not Window window)
+        {
+            _debugTransparencyValue.Text = "Unavailable";
+            return;
+        }
+
+        var hints = window.TransparencyLevelHint;
+        var hintText = hints is { Count: > 0 }
+            ? string.Join(", ", hints.Select(static x => x.ToString()))
+            : "None";
+
+        _debugTransparencyValue.Text = $"Actual: {window.ActualTransparencyLevel} | Hint: {hintText}";
+#endif
     }
 
     private void OnSettingReverted(object? sender, RoutedEventArgs e)
@@ -153,7 +226,10 @@ public partial class SettingsView : UserControl
             vm.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(SettingsViewModel.SelectedPageIndex))
+                {
                     ShowPage(vm.SelectedPageIndex);
+                    UpdateDebugTransparencyInfo();
+                }
                 else if (args.PropertyName == nameof(SettingsViewModel.SearchQuery))
                     ApplySearch(vm.SearchQuery);
                 else if (args.PropertyName == nameof(SettingsViewModel.IsSigningIn))

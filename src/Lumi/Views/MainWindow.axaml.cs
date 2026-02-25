@@ -26,6 +26,7 @@ public partial class MainWindow : Window
 {
     private Panel? _onboardingPanel;
     private DockPanel? _mainPanel;
+    private Border? _acrylicFallback;
     private Border? _chatIsland;
     private Border? _sidebarBorder;
     private Panel? _contentArea;
@@ -40,6 +41,14 @@ public partial class MainWindow : Window
     private TextBox? _chatSearchBox;
     private ChatView? _chatView;
     private BrowserView? _browserView;
+    private ContentControl? _browserHost;
+    private ContentControl? _projectsHost;
+    private ContentControl? _skillsHost;
+    private ContentControl? _agentsHost;
+    private ContentControl? _memoriesHost;
+    private ContentControl? _mcpServersHost;
+    private ContentControl? _settingsHost;
+    private SettingsView? _settingsView;
     private Border? _browserIsland;
     private GridSplitter? _browserSplitter;
     private Grid? _chatContentGrid;
@@ -62,7 +71,11 @@ public partial class MainWindow : Window
         {
             if (e.Property == WindowStateProperty)
                 OnWindowStateChanged();
+            else if (e.Property == TopLevel.ActualTransparencyLevelProperty)
+                UpdateAcrylicFallbackOpacity();
         };
+
+        Opened += (_, _) => UpdateAcrylicFallbackOpacity();
     }
 
     private void InitializeComponent()
@@ -71,6 +84,7 @@ public partial class MainWindow : Window
 
         _onboardingPanel = this.FindControl<Panel>("OnboardingPanel");
         _mainPanel = this.FindControl<DockPanel>("MainPanel");
+        _acrylicFallback = this.FindControl<Border>("AcrylicFallback");
         _chatIsland = this.FindControl<Border>("ChatIsland");
         _sidebarBorder = this.FindControl<Border>("SidebarBorder");
         _contentArea = this.FindControl<Panel>("ContentArea");
@@ -116,7 +130,13 @@ public partial class MainWindow : Window
         _onboardingLanguageCombo = this.FindControl<ComboBox>("OnboardingLanguageCombo");
         _chatSearchBox = this.FindControl<TextBox>("ChatSearchBox");
         _chatView = this.FindControl<ChatView>("PageChat");
-        _browserView = this.FindControl<BrowserView>("BrowserPanel");
+        _browserHost = this.FindControl<ContentControl>("BrowserHost");
+        _projectsHost = this.FindControl<ContentControl>("PageProjectsHost");
+        _skillsHost = this.FindControl<ContentControl>("PageSkillsHost");
+        _agentsHost = this.FindControl<ContentControl>("PageAgentsHost");
+        _memoriesHost = this.FindControl<ContentControl>("PageMemoriesHost");
+        _mcpServersHost = this.FindControl<ContentControl>("PageMcpServersHost");
+        _settingsHost = this.FindControl<ContentControl>("PageSettingsHost");
         _browserIsland = this.FindControl<Border>("BrowserIsland");
         _browserSplitter = this.FindControl<GridSplitter>("BrowserSplitter");
         _chatContentGrid = this.FindControl<Grid>("ChatContentGrid");
@@ -162,7 +182,7 @@ public partial class MainWindow : Window
         if (DataContext is not MainViewModel vm || !vm.IsOnboarded) return;
 
         // Don't intercept shortcuts while recording a global hotkey
-        var settingsPage = _pages.Length > 6 ? _pages[6] as SettingsView : null;
+        var settingsPage = _settingsView;
         if (settingsPage?.IsRecordingHotkey == true) return;
 
         var ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
@@ -361,8 +381,7 @@ public partial class MainWindow : Window
             if (closeBrowserBtn is not null)
                 closeBrowserBtn.Click += (_, _) => { HideBrowserPanel(); vm.ChatVM.IsBrowserOpen = false; };
 
-            // Initialize browser view with service and sync initial theme
-            _browserView?.SetBrowserService(vm.BrowserService, vm.DataStore);
+            // Sync initial browser theme
             vm.BrowserService.SetTheme(vm.IsDarkTheme);
 
             vm.PropertyChanged += (_, args) =>
@@ -456,6 +475,8 @@ public partial class MainWindow : Window
 
     private void ShowPage(int index)
     {
+        EnsurePageViewLoaded(index);
+
         for (int i = 0; i < _pages.Length; i++)
         {
             if (_pages[i] is not null)
@@ -934,8 +955,67 @@ public partial class MainWindow : Window
         }
     }
 
+    private void UpdateAcrylicFallbackOpacity()
+    {
+        if (_acrylicFallback is null) return;
+
+        _acrylicFallback.Opacity = ActualTransparencyLevel == WindowTransparencyLevel.None
+            ? 0.88
+            : 0.8;
+    }
+
     /// <summary>Whether the browser panel is currently visible.</summary>
     private bool IsBrowserOpen => _browserIsland is { IsVisible: true };
+
+    private void EnsurePageViewLoaded(int index)
+    {
+        if (DataContext is not MainViewModel vm) return;
+
+        switch (index)
+        {
+            case 1:
+                if (_projectsHost is not null && _projectsHost.Content is null)
+                    _projectsHost.Content = new ProjectsView { DataContext = vm.ProjectsVM };
+                break;
+            case 2:
+                if (_skillsHost is not null && _skillsHost.Content is null)
+                    _skillsHost.Content = new SkillsView { DataContext = vm.SkillsVM };
+                break;
+            case 3:
+                if (_agentsHost is not null && _agentsHost.Content is null)
+                    _agentsHost.Content = new AgentsView { DataContext = vm.AgentsVM };
+                break;
+            case 4:
+                if (_memoriesHost is not null && _memoriesHost.Content is null)
+                    _memoriesHost.Content = new MemoriesView { DataContext = vm.MemoriesVM };
+                break;
+            case 5:
+                if (_mcpServersHost is not null && _mcpServersHost.Content is null)
+                    _mcpServersHost.Content = new McpServersView { DataContext = vm.McpServersVM };
+                break;
+            case 6:
+                if (_settingsHost is not null && _settingsHost.Content is null)
+                {
+                    _settingsView = new SettingsView { DataContext = vm.SettingsVM };
+                    _settingsHost.Content = _settingsView;
+                }
+                else if (_settingsHost is not null)
+                {
+                    _settingsView = _settingsHost.Content as SettingsView;
+                }
+                break;
+        }
+    }
+
+    private void EnsureBrowserViewLoaded(MainViewModel vm)
+    {
+        if (_browserView is not null) return;
+        if (_browserHost is null) return;
+
+        _browserView = new BrowserView();
+        _browserHost.Content = _browserView;
+        _browserView.SetBrowserService(vm.BrowserService, vm.DataStore);
+    }
 
     private async void ShowBrowserPanel()
     {
@@ -952,6 +1032,9 @@ public partial class MainWindow : Window
         // Ensure we're on the Chat tab
         if (vm is not null && vm.SelectedNavIndex != 0)
             vm.SelectedNavIndex = 0;
+
+        if (vm is not null)
+            EnsureBrowserViewLoaded(vm);
 
         // Switch to split layout: chat (1*) | splitter (Auto) | browser (1*)
         var isRtl = FlowDirection == FlowDirection.RightToLeft;

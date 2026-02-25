@@ -18,6 +18,28 @@ class Program
             .UsePlatformDetect()
             .LogToTrace();
 
+        if (OperatingSystem.IsWindows())
+        {
+            builder = builder.With(new Win32PlatformOptions
+            {
+                CompositionMode =
+                [
+                    Win32CompositionMode.WinUIComposition,
+                    Win32CompositionMode.LowLatencyDxgiSwapChain,
+                    Win32CompositionMode.DirectComposition,
+                    Win32CompositionMode.RedirectionSurface,
+                ],
+                RenderingMode =
+                [
+                    Win32RenderingMode.AngleEgl,
+                    Win32RenderingMode.Vulkan,
+                    Win32RenderingMode.Wgl,
+                    Win32RenderingMode.Software,
+                ],
+                OverlayPopups = true,
+            });
+        }
+
 #if DEBUG
         builder = builder.UseMcpDiagnostics();
 #endif

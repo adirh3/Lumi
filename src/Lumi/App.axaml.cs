@@ -44,9 +44,6 @@ public partial class App : Application
             // Apply saved density
             MainWindow.ApplyDensityStatic(dataStore.Data.Settings.IsCompactDensity);
 
-            // Sync launch-at-startup registry
-            MainWindow.ApplyLaunchAtStartup(dataStore.Data.Settings.LaunchAtStartup);
-
             var window = new MainWindow { DataContext = vm };
             _mainWindow = window;
 
@@ -58,24 +55,39 @@ public partial class App : Application
             if (dataStore.Data.Settings.StartMinimized)
                 window.WindowState = Avalonia.Controls.WindowState.Minimized;
 
-            // Set up tray icon if enabled
-            if (dataStore.Data.Settings.MinimizeToTray)
-                SetupTrayIcon(true);
+            var launchAtStartup = dataStore.Data.Settings.LaunchAtStartup;
+            var minimizeToTray = dataStore.Data.Settings.MinimizeToTray;
+            var globalHotkey = dataStore.Data.Settings.GlobalHotkey;
 
-            // Set up global hotkey
-            _hotkeyService = new GlobalHotkeyService();
-            _hotkeyService.HotkeyPressed += () => Dispatcher.UIThread.Post(ToggleMainWindow);
             window.Opened += (_, _) =>
             {
-                _hotkeyService.Attach(window);
-                if (!string.IsNullOrWhiteSpace(dataStore.Data.Settings.GlobalHotkey))
-                    _hotkeyService.Register(dataStore.Data.Settings.GlobalHotkey);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    // Defer non-critical setup until first frame is shown.
+                    MainWindow.ApplyLaunchAtStartup(launchAtStartup);
+
+                    if (minimizeToTray)
+                        SetupTrayIcon(true);
+
+                    _hotkeyService ??= new GlobalHotkeyService();
+                    _hotkeyService.HotkeyPressed -= OnGlobalHotkeyPressed;
+                    _hotkeyService.HotkeyPressed += OnGlobalHotkeyPressed;
+                    _hotkeyService.Attach(window);
+
+                    if (!string.IsNullOrWhiteSpace(globalHotkey))
+                        _hotkeyService.Register(globalHotkey);
+                }, DispatcherPriority.Background);
             };
 
             desktop.MainWindow = window;
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private void OnGlobalHotkeyPressed()
+    {
+        Dispatcher.UIThread.Post(ToggleMainWindow);
     }
 
     /// <summary>Create or remove the system tray icon.</summary>
