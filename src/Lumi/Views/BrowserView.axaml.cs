@@ -2,11 +2,8 @@ using System;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
-using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
-using Avalonia.Media;
 using Avalonia.Threading;
 using Lumi.Services;
 
@@ -25,6 +22,7 @@ public partial class BrowserView : UserControl
     private BrowserService? _browserService;
     private DataStore? _dataStore;
     private bool _isInitialized;
+    private bool _isImportInProgress;
     private BrowserCookieService.BrowserProfile? _selectedProfile;
 
     public BrowserView()
@@ -231,12 +229,26 @@ public partial class BrowserView : UserControl
 
         if (profilesByBrowser.Count == 0) return; // no browsers to import from
 
+        // Mark as handled when shown the first time so it won't appear on every open.
+        if (_dataStore is not null && !_dataStore.Data.Settings.HasImportedBrowserCookies)
+        {
+            _dataStore.Data.Settings.HasImportedBrowserCookies = true;
+            _dataStore.Save();
+        }
+
         // Hide WebView2 while onboarding is visible
         if (_browserService?.Controller is not null)
             _browserService.Controller.IsVisible = false;
 
         _profilePicker.Children.Clear();
         _selectedProfile = null;
+        _isImportInProgress = false;
+
+        if (_onboardingActions is not null)
+            _onboardingActions.IsVisible = true;
+        if (_importProgressPanel is not null)
+            _importProgressPanel.IsVisible = false;
+        SetImportStatus("Preparing…");
 
         foreach (var (browser, profiles) in profilesByBrowser)
         {
@@ -256,7 +268,6 @@ public partial class BrowserView : UserControl
                         _selectedProfile = (BrowserCookieService.BrowserProfile)rb.Tag!;
                 };
 
-                // Auto-select Edge if available, otherwise first profile
                 if (_selectedProfile is null ||
                     (browser.Name.Contains("Edge", StringComparison.OrdinalIgnoreCase) && _selectedProfile.Browser.Name != browser.Name))
                 {
@@ -284,7 +295,9 @@ public partial class BrowserView : UserControl
 
     private async void OnImportOnboardingClick(object? sender, RoutedEventArgs e)
     {
-        if (_selectedProfile is null || _browserService is null) return;
+        if (_selectedProfile is null || _browserService is null || _isImportInProgress) return;
+
+        _isImportInProgress = true;
 
         // Show progress, hide actions
         if (_onboardingActions is not null) _onboardingActions.IsVisible = false;
@@ -293,7 +306,18 @@ public partial class BrowserView : UserControl
 
         try
         {
-            var count = await _browserService.ImportCookiesAsync(_selectedProfile);
+            var count = await _browserService
+                .ImportCookiesAsync(_selectedProfile)
+                .WaitAsync(TimeSpan.FromSeconds(45));
+
+            if (count <= 0)
+            {
+                SetImportStatus("No cookies imported. Close the selected browser and try again.");
+                await System.Threading.Tasks.Task.Delay(2200);
+                if (_onboardingActions is not null) _onboardingActions.IsVisible = true;
+                if (_importProgressPanel is not null) _importProgressPanel.IsVisible = false;
+                return;
+            }
 
             SetImportStatus($"Imported {count:N0} cookies!");
             await System.Threading.Tasks.Task.Delay(1000);
@@ -305,8 +329,17 @@ public partial class BrowserView : UserControl
                 _dataStore.Save();
             }
 
+            if (_importProgressPanel is not null) _importProgressPanel.IsVisible = false;
             HideCookieOnboarding();
             _browserService.WebView?.Reload();
+        }
+        catch (TimeoutException)
+        {
+            SetImportStatus("Cookie import timed out. Close the browser and try again.");
+            await System.Threading.Tasks.Task.Delay(2200);
+
+            if (_onboardingActions is not null) _onboardingActions.IsVisible = true;
+            if (_importProgressPanel is not null) _importProgressPanel.IsVisible = false;
         }
         catch (Exception ex)
         {
@@ -316,6 +349,10 @@ public partial class BrowserView : UserControl
             // Reset UI so user can try again
             if (_onboardingActions is not null) _onboardingActions.IsVisible = true;
             if (_importProgressPanel is not null) _importProgressPanel.IsVisible = false;
+        }
+        finally
+        {
+            _isImportInProgress = false;
         }
     }
 
@@ -348,134 +385,5 @@ public partial class BrowserView : UserControl
     private void OnRefreshClick(object? sender, RoutedEventArgs e)
     {
         _browserService?.WebView?.Reload();
-    }
-
-    private async void OnCookieImportClick(object? sender, RoutedEventArgs e)
-    {
-        if (sender is not Button button) return;
-
-        var browsers = BrowserCookieService.GetInstalledBrowsers();
-        if (browsers.Count == 0)
-        {
-            ShowCookieFlyout(button, "No supported browsers found.");
-            return;
-        }
-
-        var allProfiles = browsers.SelectMany(BrowserCookieService.GetProfiles).ToList();
-
-        // Quick-import: if only one profile available, skip the flyout
-        if (allProfiles.Count == 1)
-        {
-            await ImportFromProfileAsync(allProfiles[0]);
-            return;
-        }
-
-        var flyout = new Flyout
-        {
-            Placement = PlacementMode.BottomEdgeAlignedRight,
-            ShowMode = FlyoutShowMode.Transient
-        };
-
-        var panel = new StackPanel { Spacing = 2, MinWidth = 240 };
-
-        var header = new TextBlock
-        {
-            Text = "Import cookies from:",
-            FontSize = 13,
-            FontWeight = FontWeight.SemiBold,
-            Margin = new Thickness(8, 6, 8, 8)
-        };
-        panel.Children.Add(header);
-
-        foreach (var browser in browsers)
-        {
-            var profiles = BrowserCookieService.GetProfiles(browser);
-            if (profiles.Count == 0) continue;
-
-            var browserHeader = new TextBlock
-            {
-                Text = browser.Name,
-                FontSize = 12,
-                FontWeight = FontWeight.SemiBold,
-                Margin = new Thickness(8, 8, 8, 2)
-            };
-            if (this.TryFindResource("Brush.TextSecondary", this.ActualThemeVariant, out var brush) && brush is IBrush b)
-                browserHeader.Foreground = b;
-            panel.Children.Add(browserHeader);
-
-            foreach (var profile in profiles)
-            {
-                var profileBtn = new Button
-                {
-                    Content = profile.Name,
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    HorizontalContentAlignment = HorizontalAlignment.Left,
-                    Padding = new Thickness(12, 6),
-                    MinHeight = 0,
-                    Classes = { "subtle" }
-                };
-                var capturedProfile = profile;
-                var capturedFlyout = flyout;
-                profileBtn.Click += async (_, _) =>
-                {
-                    capturedFlyout.Hide();
-                    await ImportFromProfileAsync(capturedProfile);
-                };
-                panel.Children.Add(profileBtn);
-            }
-        }
-
-        flyout.Content = new ScrollViewer
-        {
-            MaxHeight = 400,
-            Content = panel
-        };
-        flyout.ShowAt(button);
-    }
-
-    private async Task ImportFromProfileAsync(BrowserCookieService.BrowserProfile profile)
-    {
-        if (_browserService is null) return;
-
-        try
-        {
-            var count = await _browserService.ImportCookiesAsync(profile);
-            ShowCookieNotification($"Imported {count:N0} cookies from {profile.Browser.Name} ({profile.Name})");
-            // Refresh the current page to apply cookies
-            _browserService.WebView?.Reload();
-        }
-        catch (Exception ex)
-        {
-            ShowCookieNotification(ex.Message);
-        }
-    }
-
-    private void ShowCookieNotification(string message)
-    {
-        if (_urlText is not null)
-        {
-            var originalText = _urlText.Text;
-            _urlText.Text = message;
-            DispatcherTimer.RunOnce(() =>
-            {
-                if (_urlText is not null)
-                    _urlText.Text = _browserService?.CurrentUrl ?? originalText;
-            }, TimeSpan.FromSeconds(3));
-        }
-    }
-
-    private void ShowCookieFlyout(Button button, string message)
-    {
-        var flyout = new Flyout
-        {
-            Content = new TextBlock
-            {
-                Text = message,
-                FontSize = 13,
-                Margin = new Thickness(8)
-            },
-            Placement = PlacementMode.BottomEdgeAlignedRight
-        };
-        flyout.ShowAt(button);
     }
 }

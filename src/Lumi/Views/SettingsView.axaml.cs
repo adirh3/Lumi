@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -34,6 +35,17 @@ public partial class SettingsView : UserControl
     private bool _isRecordingHotkey;
     private bool _hotkeyRecordingCooldown;
     private Interactive? _hotkeyEventSource;
+
+    // Cookie import dialog
+    private StrataDialog? _cookieImportDialog;
+    private StackPanel? _cookieProfilePicker;
+    private StackPanel? _cookieImportProgress;
+    private TextBlock? _cookieImportStatusText;
+    private StackPanel? _cookieImportActions;
+    private Button? _cookieImportButton;
+    private Button? _cookieImportCancelButton;
+    private BrowserCookieService.BrowserProfile? _selectedCookieProfile;
+    private bool _isCookieImportInProgress;
 
     public bool IsRecordingHotkey => _isRecordingHotkey;
 
@@ -90,6 +102,20 @@ public partial class SettingsView : UserControl
 
         _debugTransparencySetting = this.FindControl<StrataSetting>("DebugTransparencySetting");
         _debugTransparencyValue = this.FindControl<TextBlock>("DebugTransparencyValue");
+
+        // Cookie import dialog
+        _cookieImportDialog = this.FindControl<StrataDialog>("CookieImportDialog");
+        _cookieProfilePicker = this.FindControl<StackPanel>("CookieProfilePicker");
+        _cookieImportProgress = this.FindControl<StackPanel>("CookieImportProgress");
+        _cookieImportStatusText = this.FindControl<TextBlock>("CookieImportStatusText");
+        _cookieImportActions = this.FindControl<StackPanel>("CookieImportActions");
+        _cookieImportButton = this.FindControl<Button>("CookieImportButton");
+        _cookieImportCancelButton = this.FindControl<Button>("CookieImportCancelButton");
+
+        if (_cookieImportButton is not null)
+            _cookieImportButton.Click += OnCookieImportClick;
+        if (_cookieImportCancelButton is not null)
+            _cookieImportCancelButton.Click += (_, _) => CloseCookieDialog();
 
         _settingsSexCombo = this.FindControl<ComboBox>("SettingsSexCombo");
         if (_settingsSexCombo is not null)
@@ -240,6 +266,9 @@ public partial class SettingsView : UserControl
 
             UpdateSignInButton(vm);
             UpdateHotkeyButtonText();
+
+            vm.CookieImportDialogRequested += () =>
+                Dispatcher.UIThread.Post(OpenCookieDialog);
         }
     }
 
@@ -553,4 +582,120 @@ public partial class SettingsView : UserControl
         Key.OemComma => "OemComma",
         _ => key.ToString()
     };
+
+    // ── Cookie import dialog ──
+
+    private void OpenCookieDialog()
+    {
+        if (_cookieImportDialog is null || _cookieProfilePicker is null) return;
+
+        var browsers = BrowserCookieService.GetInstalledBrowsers();
+        var profilesByBrowser = browsers
+            .Select(b => (Browser: b, Profiles: BrowserCookieService.GetProfiles(b)))
+            .Where(x => x.Profiles.Count > 0)
+            .ToList();
+
+        if (profilesByBrowser.Count == 0) return;
+
+        _cookieProfilePicker.Children.Clear();
+        _selectedCookieProfile = null;
+        _isCookieImportInProgress = false;
+
+        if (_cookieImportActions is not null) _cookieImportActions.IsVisible = true;
+        if (_cookieImportProgress is not null) _cookieImportProgress.IsVisible = false;
+        if (_cookieImportStatusText is not null) _cookieImportStatusText.Text = "Preparing…";
+
+        foreach (var (browser, profiles) in profilesByBrowser)
+        {
+            foreach (var profile in profiles)
+            {
+                var rb = new RadioButton
+                {
+                    Content = $"{browser.Name} — {profile.Name}",
+                    GroupName = "CookieProfile",
+                    Padding = new Thickness(8, 8),
+                    Tag = profile,
+                };
+                rb.IsCheckedChanged += (_, _) =>
+                {
+                    if (rb.IsChecked == true)
+                        _selectedCookieProfile = (BrowserCookieService.BrowserProfile)rb.Tag!;
+                };
+
+                if (_selectedCookieProfile is null ||
+                    (browser.Name.Contains("Edge", StringComparison.OrdinalIgnoreCase)
+                     && _selectedCookieProfile.Browser.Name != browser.Name))
+                {
+                    rb.IsChecked = true;
+                    _selectedCookieProfile = profile;
+                }
+
+                _cookieProfilePicker.Children.Add(rb);
+            }
+        }
+
+        _cookieImportDialog.IsDialogOpen = true;
+    }
+
+    private void CloseCookieDialog()
+    {
+        if (_cookieImportDialog is not null)
+            _cookieImportDialog.IsDialogOpen = false;
+    }
+
+    private async void OnCookieImportClick(object? sender, RoutedEventArgs e)
+    {
+        if (_selectedCookieProfile is null || _isCookieImportInProgress) return;
+        if (DataContext is not SettingsViewModel vm) return;
+
+        _isCookieImportInProgress = true;
+
+        if (_cookieImportActions is not null) _cookieImportActions.IsVisible = false;
+        if (_cookieImportProgress is not null) _cookieImportProgress.IsVisible = true;
+        if (_cookieImportStatusText is not null) _cookieImportStatusText.Text = "Importing cookies…";
+
+        try
+        {
+            var count = await vm.BrowserService
+                .ImportCookiesAsync(_selectedCookieProfile)
+                .WaitAsync(TimeSpan.FromSeconds(45));
+
+            if (count <= 0)
+            {
+                if (_cookieImportStatusText is not null)
+                    _cookieImportStatusText.Text = "No cookies imported. Close the selected browser and try again.";
+                await Task.Delay(2200);
+                if (_cookieImportActions is not null) _cookieImportActions.IsVisible = true;
+                if (_cookieImportProgress is not null) _cookieImportProgress.IsVisible = false;
+                return;
+            }
+
+            if (_cookieImportStatusText is not null)
+                _cookieImportStatusText.Text = $"Imported {count:N0} cookies!";
+            await Task.Delay(1000);
+
+            vm.MarkCookiesImported();
+            CloseCookieDialog();
+        }
+        catch (TimeoutException)
+        {
+            if (_cookieImportStatusText is not null)
+                _cookieImportStatusText.Text = "Cookie import timed out. Close the browser and try again.";
+            await Task.Delay(2200);
+            if (_cookieImportActions is not null) _cookieImportActions.IsVisible = true;
+            if (_cookieImportProgress is not null) _cookieImportProgress.IsVisible = false;
+        }
+        catch (Exception ex)
+        {
+            if (_cookieImportStatusText is not null)
+                _cookieImportStatusText.Text = $"Error: {ex.Message}";
+            await Task.Delay(2000);
+            if (_cookieImportActions is not null) _cookieImportActions.IsVisible = true;
+            if (_cookieImportProgress is not null) _cookieImportProgress.IsVisible = false;
+        }
+        finally
+        {
+            _isCookieImportInProgress = false;
+        }
+    }
 }

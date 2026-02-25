@@ -12,6 +12,7 @@ public partial class SettingsViewModel : ObservableObject
 {
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
+    private readonly BrowserService _browserService;
 
     // ── Page navigation ──
     [ObservableProperty] private int _selectedPageIndex;
@@ -79,6 +80,7 @@ public partial class SettingsViewModel : ObservableObject
     // ── Privacy & Data ──
     [ObservableProperty] private bool _enableMemoryAutoSave;
     [ObservableProperty] private bool _autoSaveChats;
+    [ObservableProperty] private string _browserCookieStatus = "";
 
     // ── Language ──
     public ObservableCollection<string> LanguageOptions { get; } = new(
@@ -106,11 +108,15 @@ public partial class SettingsViewModel : ObservableObject
 
     /// <summary>Raised when a setting that affects other ViewModels changes.</summary>
     public event Action? SettingsChanged;
+    public event Action? CookieImportDialogRequested;
 
-    public SettingsViewModel(DataStore dataStore, CopilotService copilotService)
+    public BrowserService BrowserService => _browserService;
+
+    public SettingsViewModel(DataStore dataStore, CopilotService copilotService, BrowserService browserService)
     {
         _dataStore = dataStore;
         _copilotService = copilotService;
+        _browserService = browserService;
         var s = dataStore.Data.Settings;
 
         // General
@@ -144,6 +150,7 @@ public partial class SettingsViewModel : ObservableObject
         // Privacy
         _enableMemoryAutoSave = s.EnableMemoryAutoSave;
         _autoSaveChats = s.AutoSaveChats;
+        RefreshBrowserCookieStatus();
 
         // Language
         var langEntry = Loc.AvailableLanguages.FirstOrDefault(l => l.Code == s.Language);
@@ -327,6 +334,42 @@ public partial class SettingsViewModel : ObservableObject
         _dataStore.Data.Memories.Clear();
         Save();
         SettingsChanged?.Invoke();
+    }
+
+    [RelayCommand]
+    private void ImportBrowserCookiesAgain()
+    {
+        CookieImportDialogRequested?.Invoke();
+    }
+
+    public void MarkCookiesImported()
+    {
+        _dataStore.Data.Settings.HasImportedBrowserCookies = true;
+        Save();
+        RefreshBrowserCookieStatus();
+    }
+
+    [RelayCommand]
+    private async Task ResetBrowserCookiesAsync()
+    {
+        try
+        {
+            await _browserService.ClearCookiesAsync();
+            _dataStore.Data.Settings.HasImportedBrowserCookies = false;
+            Save();
+            RefreshBrowserCookieStatus();
+        }
+        catch (Exception ex)
+        {
+            BrowserCookieStatus = $"Could not reset browser cookies: {ex.Message}";
+        }
+    }
+
+    public void RefreshBrowserCookieStatus()
+    {
+        BrowserCookieStatus = _dataStore.Data.Settings.HasImportedBrowserCookies
+            ? "Cookies are imported for Lumi browser."
+            : "Cookies are not imported yet.";
     }
 
     [RelayCommand]

@@ -270,6 +270,20 @@
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
 
+        <sc:StrataSettingGroup Header="Browser">
+          <sc:StrataSetting Header="Import browser cookies"
+                            Description="{Binding BrowserCookieStatus}">
+            <Button Classes="subtle" Content="Import cookies" Padding="14,6" MinHeight="0"
+                    Command="{Binding ImportBrowserCookiesAgainCommand}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="Reset embedded browser cookies"
+                            Description="Clear all Lumi browser cookies and start fresh.">
+            <Button Classes="subtle" Content="Reset cookies" Padding="14,6" MinHeight="0"
+                    Foreground="{DynamicResource Brush.DangerDefault}"
+                    Command="{Binding ResetBrowserCookiesCommand}" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_DataManagement}">
           <sc:StrataSetting Header="{loc:Str Setting_ClearAllChats}" Description="{loc:Str SettingDesc_ClearAllChats}">
             <Button Classes="subtle" Content="{loc:Str Button_ClearChats}" Padding="14,6" MinHeight="0"
@@ -372,6 +386,77 @@
               Padding="12,6" MinHeight="0" HorizontalAlignment="Center"
               Foreground="{DynamicResource Brush.AccentDefault}" />
     </StackPanel>
+
+    <!-- ═══ Cookie Import Dialog ═══ -->
+    <sc:StrataDialog x:Name="CookieImportDialog"
+                     Title="Import browser cookies"
+                     MaxDialogWidth="460">
+      <sc:StrataDialog.DialogContent>
+        <StackPanel Spacing="16">
+
+          <!-- Icon -->
+          <Border Width="48" Height="48" CornerRadius="24"
+                  Background="{DynamicResource Brush.AccentSubtle}"
+                  HorizontalAlignment="Center">
+            <PathIcon Width="24" Height="24" Foreground="{DynamicResource Brush.AccentDefault}">
+              <PathIcon.Data>
+                <StreamGeometry>M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z</StreamGeometry>
+              </PathIcon.Data>
+            </PathIcon>
+          </Border>
+
+          <!-- Description -->
+          <TextBlock TextWrapping="Wrap" TextAlignment="Center" Classes="caption"
+                     Foreground="{DynamicResource Brush.TextSecondary}"
+                     Text="Sign into websites without logging in again. Lumi can import your cookies from an installed browser so you're already authenticated." />
+
+          <!-- Browser/profile picker (populated in code-behind) -->
+          <StackPanel x:Name="CookieProfilePicker" Spacing="4" />
+
+          <!-- Info box -->
+          <Border Background="{DynamicResource Brush.SurfaceSubtle}"
+                  CornerRadius="{DynamicResource Radius.Base}"
+                  Padding="12" BorderThickness="1"
+                  BorderBrush="{DynamicResource Brush.BorderSubtle}">
+            <StackPanel Spacing="4">
+              <TextBlock Classes="caption" TextWrapping="Wrap"
+                         Foreground="{DynamicResource Brush.TextTertiary}"
+                         Text="• The selected browser will be briefly closed" />
+              <TextBlock Classes="caption" TextWrapping="Wrap"
+                         Foreground="{DynamicResource Brush.TextTertiary}"
+                         Text="• Windows may ask for your password to authorize" />
+              <TextBlock Classes="caption" TextWrapping="Wrap"
+                         Foreground="{DynamicResource Brush.TextTertiary}"
+                         Text="• Your cookies will be copied into Lumi's browser" />
+              <TextBlock Classes="caption" TextWrapping="Wrap"
+                         Foreground="{DynamicResource Brush.TextTertiary}"
+                         Text="• Your original browser data is never modified" />
+            </StackPanel>
+          </Border>
+
+          <!-- Progress (hidden until import starts) -->
+          <StackPanel x:Name="CookieImportProgress" IsVisible="False" Spacing="8">
+            <ProgressBar IsIndeterminate="True" />
+            <TextBlock x:Name="CookieImportStatusText" Classes="caption"
+                       Foreground="{DynamicResource Brush.TextSecondary}"
+                       HorizontalAlignment="Center" Text="Preparing…" />
+          </StackPanel>
+
+          <!-- Actions -->
+          <StackPanel x:Name="CookieImportActions" Spacing="8">
+            <Button x:Name="CookieImportButton" Classes="accent"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    Content="Import cookies" />
+            <Button x:Name="CookieImportCancelButton" Classes="subtle"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    Content="Cancel" />
+          </StackPanel>
+
+        </StackPanel>
+      </sc:StrataDialog.DialogContent>
+    </sc:StrataDialog>
 
   </Panel>
 </UserControl>
