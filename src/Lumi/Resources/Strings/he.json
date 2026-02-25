@@ -326,8 +326,6 @@
   "SettingDesc_ShowReasoning": "הצגת תהליך החשיבה של הבינה המלאכותית כשזמין",
   "Setting_AutoGenerateTitles": "יצירת כותרות אוטומטית",
   "SettingDesc_AutoGenerateTitles": "לאפשר לבינה המלאכותית לתת שם אוטומטי לשיחות חדשות",
-  "Setting_MaxContextMessages": "מקסימום הודעות הקשר",
-  "SettingDesc_MaxContextMessages": "מקסימום הודעות שנשמרות לכל שיחה",
   "Setting_PreferredModel": "מודל מועדף",
   "SettingDesc_PreferredModel": "מודל ברירת מחדל לשיחות חדשות",
   "Setting_GitHubAccount": "GitHub Copilot",

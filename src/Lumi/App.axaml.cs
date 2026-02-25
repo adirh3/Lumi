@@ -36,6 +36,12 @@ public partial class App : Application
             var copilotService = new CopilotService();
             var vm = new MainViewModel(dataStore, copilotService);
 
+            // Dispose CopilotService (stops the CLI process) on app shutdown
+            desktop.ShutdownRequested += async (_, _) =>
+            {
+                await copilotService.DisposeAsync();
+            };
+
             // Apply saved theme before showing the window
             RequestedThemeVariant = dataStore.Data.Settings.IsDarkTheme
                 ? ThemeVariant.Dark

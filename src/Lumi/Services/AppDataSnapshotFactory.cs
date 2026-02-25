@@ -32,10 +32,10 @@ internal static class AppDataSnapshotFactory
                 ShowToolCalls = settings.ShowToolCalls,
                 ShowReasoning = settings.ShowReasoning,
                 AutoGenerateTitles = settings.AutoGenerateTitles,
-                MaxContextMessages = settings.MaxContextMessages,
                 PreferredModel = settings.PreferredModel,
                 EnableMemoryAutoSave = settings.EnableMemoryAutoSave,
                 AutoSaveChats = settings.AutoSaveChats,
+                HasImportedBrowserCookies = settings.HasImportedBrowserCookies,
             },
             Chats = source.Chats
                 .Select(static c => new Chat
@@ -47,7 +47,8 @@ internal static class AppDataSnapshotFactory
                     CopilotSessionId = c.CopilotSessionId,
                     CreatedAt = c.CreatedAt,
                     UpdatedAt = c.UpdatedAt,
-                    ActiveSkillIds = [..c.ActiveSkillIds]
+                    ActiveSkillIds = [..c.ActiveSkillIds],
+                    ActiveMcpServerNames = [..c.ActiveMcpServerNames]
                 })
                 .ToList(),
             Projects = source.Projects

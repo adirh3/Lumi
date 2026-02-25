@@ -141,7 +141,6 @@ public class UserSettings
     public bool ShowToolCalls { get; set; } = true;
     public bool ShowReasoning { get; set; } = true;
     public bool AutoGenerateTitles { get; set; } = true;
-    public int MaxContextMessages { get; set; } = 50;
 
     // ── AI & Models ──
     public string PreferredModel { get; set; } = "";

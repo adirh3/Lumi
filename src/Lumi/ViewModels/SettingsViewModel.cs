@@ -66,7 +66,6 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _showToolCalls;
     [ObservableProperty] private bool _showReasoning;
     [ObservableProperty] private bool _autoGenerateTitles;
-    [ObservableProperty] private int _maxContextMessages;
 
     // ── AI & Models ──
     [ObservableProperty] private string _preferredModel;
@@ -140,7 +139,6 @@ public partial class SettingsViewModel : ObservableObject
         _showToolCalls = s.ShowToolCalls;
         _showReasoning = s.ShowReasoning;
         _autoGenerateTitles = s.AutoGenerateTitles;
-        _maxContextMessages = s.MaxContextMessages;
 
         // AI
         _preferredModel = s.PreferredModel;
@@ -193,7 +191,6 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnShowToolCallsChanged(bool value) { _dataStore.Data.Settings.ShowToolCalls = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnShowReasoningChanged(bool value) { _dataStore.Data.Settings.ShowReasoning = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnAutoGenerateTitlesChanged(bool value) { _dataStore.Data.Settings.AutoGenerateTitles = value; Save(); NotifyModified(); }
-    partial void OnMaxContextMessagesChanged(int value) { _dataStore.Data.Settings.MaxContextMessages = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
 
     partial void OnPreferredModelChanged(string value) { _dataStore.Data.Settings.PreferredModel = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
 
@@ -252,7 +249,6 @@ public partial class SettingsViewModel : ObservableObject
     public bool IsShowToolCallsModified => ShowToolCalls != _defaults.ShowToolCalls;
     public bool IsShowReasoningModified => ShowReasoning != _defaults.ShowReasoning;
     public bool IsAutoGenerateTitlesModified => AutoGenerateTitles != _defaults.AutoGenerateTitles;
-    public bool IsMaxContextMessagesModified => MaxContextMessages != _defaults.MaxContextMessages;
     public bool IsPreferredModelModified => PreferredModel != _defaults.PreferredModel;
     public bool IsEnableMemoryAutoSaveModified => EnableMemoryAutoSave != _defaults.EnableMemoryAutoSave;
     public bool IsAutoSaveChatsModified => AutoSaveChats != _defaults.AutoSaveChats;
@@ -273,7 +269,6 @@ public partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(IsShowToolCallsModified));
         OnPropertyChanged(nameof(IsShowReasoningModified));
         OnPropertyChanged(nameof(IsAutoGenerateTitlesModified));
-        OnPropertyChanged(nameof(IsMaxContextMessagesModified));
         OnPropertyChanged(nameof(IsPreferredModelModified));
         OnPropertyChanged(nameof(IsEnableMemoryAutoSaveModified));
         OnPropertyChanged(nameof(IsAutoSaveChatsModified));
@@ -294,7 +289,6 @@ public partial class SettingsViewModel : ObservableObject
     [RelayCommand] private void RevertShowToolCalls() => ShowToolCalls = _defaults.ShowToolCalls;
     [RelayCommand] private void RevertShowReasoning() => ShowReasoning = _defaults.ShowReasoning;
     [RelayCommand] private void RevertAutoGenerateTitles() => AutoGenerateTitles = _defaults.AutoGenerateTitles;
-    [RelayCommand] private void RevertMaxContextMessages() => MaxContextMessages = _defaults.MaxContextMessages;
     [RelayCommand] private void RevertPreferredModel() => PreferredModel = _defaults.PreferredModel;
     [RelayCommand] private void RevertEnableMemoryAutoSave() => EnableMemoryAutoSave = _defaults.EnableMemoryAutoSave;
     [RelayCommand] private void RevertAutoSaveChats() => AutoSaveChats = _defaults.AutoSaveChats;
@@ -398,7 +392,6 @@ public partial class SettingsViewModel : ObservableObject
         ShowToolCalls = defaults.ShowToolCalls;
         ShowReasoning = defaults.ShowReasoning;
         AutoGenerateTitles = defaults.AutoGenerateTitles;
-        MaxContextMessages = defaults.MaxContextMessages;
         PreferredModel = defaults.PreferredModel;
         EnableMemoryAutoSave = defaults.EnableMemoryAutoSave;
         AutoSaveChats = defaults.AutoSaveChats;

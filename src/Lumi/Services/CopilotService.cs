@@ -54,6 +54,10 @@ public class CopilotService : IAsyncDisposable
             Streaming = true,
             WorkingDirectory = workingDirectory,
             ExcludedTools = ["web_fetch", "web_search"],
+            InfiniteSessions = new InfiniteSessionConfig
+            {
+                Enabled = true,
+            }
         };
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))
@@ -97,7 +101,12 @@ public class CopilotService : IAsyncDisposable
         {
             Model = model,
             Streaming = true,
+            WorkingDirectory = workingDirectory,
             ExcludedTools = ["web_fetch", "web_search"],
+            InfiniteSessions = new InfiniteSessionConfig
+            {
+                Enabled = true,
+            }
         };
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))
@@ -208,6 +217,13 @@ public class CopilotService : IAsyncDisposable
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
         return await _client.ListSessionsAsync(cancellationToken: ct);
+    }
+
+    public async Task DeleteSessionAsync(string sessionId, CancellationToken ct = default)
+    {
+        if (_client is null) return;
+        try { await _client.DeleteSessionAsync(sessionId, ct); }
+        catch { /* Best-effort cleanup */ }
     }
 
     public async ValueTask DisposeAsync()

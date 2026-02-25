@@ -325,8 +325,6 @@
   "SettingDesc_ShowReasoning": "Display the AI's thinking process when available",
   "Setting_AutoGenerateTitles": "Auto-Generate Titles",
   "SettingDesc_AutoGenerateTitles": "Let the AI automatically name new conversations",
-  "Setting_MaxContextMessages": "Max Context Messages",
-  "SettingDesc_MaxContextMessages": "Maximum messages kept per conversation",
   "Setting_PreferredModel": "Preferred Model",
   "SettingDesc_PreferredModel": "Default model used for new conversations",
   "Setting_GitHubAccount": "GitHub Copilot",

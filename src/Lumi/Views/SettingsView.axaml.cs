@@ -235,7 +235,6 @@ public partial class SettingsView : UserControl
         [Loc.Setting_ShowToolCalls] = vm => vm.RevertShowToolCallsCommand.Execute(null),
         [Loc.Setting_ShowReasoning] = vm => vm.RevertShowReasoningCommand.Execute(null),
         [Loc.Setting_AutoGenerateTitles] = vm => vm.RevertAutoGenerateTitlesCommand.Execute(null),
-        [Loc.Setting_MaxContextMessages] = vm => vm.RevertMaxContextMessagesCommand.Execute(null),
         [Loc.Setting_PreferredModel] = vm => vm.RevertPreferredModelCommand.Execute(null),
         [Loc.Setting_AutoSaveMemories] = vm => vm.RevertEnableMemoryAutoSaveCommand.Execute(null),
         [Loc.Setting_AutoSaveChats] = vm => vm.RevertAutoSaveChatsCommand.Execute(null),

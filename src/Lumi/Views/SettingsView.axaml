@@ -194,16 +194,6 @@
                             IsModified="{Binding IsAutoGenerateTitlesModified}">
             <ToggleSwitch IsChecked="{Binding AutoGenerateTitles}" />
           </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_MaxContextMessages}" Description="{loc:Str SettingDesc_MaxContextMessages}"
-                            IsModified="{Binding IsMaxContextMessagesModified}">
-            <StackPanel Orientation="Horizontal" Spacing="12">
-              <Slider Minimum="10" Maximum="100" Value="{Binding MaxContextMessages}"
-                      TickFrequency="10" IsSnapToTickEnabled="True" Width="140" />
-              <TextBlock Text="{Binding MaxContextMessages}"
-                         VerticalAlignment="Center" FontSize="{DynamicResource Font.SizeCaption}"
-                         Foreground="{DynamicResource Brush.TextSecondary}" MinWidth="24" />
-            </StackPanel>
-          </sc:StrataSetting>
         </sc:StrataSettingGroup>
       </StackPanel>
 

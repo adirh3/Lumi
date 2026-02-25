@@ -27,7 +27,8 @@ public partial class ChatViewModel : ObservableObject
     private readonly CopilotService _copilotService;
     private readonly BrowserService _browserService;
     private readonly UIAutomationService _uiAutomation = new();
-    private CancellationTokenSource? _cts;
+    /// <summary>Maps chat ID → CancellationTokenSource for per-chat cancellation.</summary>
+    private readonly Dictionary<Guid, CancellationTokenSource> _ctsSources = new();
     private readonly HashSet<string> _shownFileChips = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<SearchSource> _pendingSearchSources = [];
     private readonly List<SkillReference> _pendingFetchedSkillRefs = [];
@@ -417,6 +418,30 @@ public partial class ChatViewModel : ObservableObject
                 case SessionErrorEvent err:
                     Dispatcher.UIThread.Post(() =>
                     {
+                        // Clean up any in-progress streaming message
+                        if (streamingMsg is not null)
+                        {
+                            _inProgressMessages.Remove(chat.Id);
+                            if (_activeSession == session)
+                            {
+                                var vm = Messages.LastOrDefault(m => m.Message == streamingMsg);
+                                if (vm is not null) Messages.Remove(vm);
+                            }
+                            streamingMsg = null;
+                            accContent = "";
+                        }
+                        if (reasoningMsg is not null)
+                        {
+                            reasoningMsg.IsStreaming = false;
+                            if (_activeSession == session)
+                            {
+                                var vm = Messages.LastOrDefault(m => m.Message == reasoningMsg);
+                                vm?.NotifyStreamingEnded();
+                            }
+                            reasoningMsg = null;
+                            accReasoning = "";
+                        }
+
                         runtime.IsBusy = false;
                         runtime.IsStreaming = false;
                         runtime.StatusText = string.Format(Loc.Status_Error, err.Data.Message);
@@ -475,6 +500,79 @@ public partial class ChatViewModel : ObservableObject
                             StatusText = runtime.StatusText;
                     });
                     break;
+
+                case AbortEvent abort:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        // SDK-initiated abort — clean up streaming state
+                        if (streamingMsg is not null)
+                        {
+                            streamingMsg.IsStreaming = false;
+                            if (!string.IsNullOrWhiteSpace(streamingMsg.Content))
+                            {
+                                chat.Messages.Add(streamingMsg);
+                                if (_activeSession == session)
+                                {
+                                    var vm = Messages.LastOrDefault(m => m.Message == streamingMsg);
+                                    vm?.NotifyStreamingEnded();
+                                }
+                            }
+                            else
+                            {
+                                _inProgressMessages.Remove(chat.Id);
+                                if (_activeSession == session)
+                                {
+                                    var vm = Messages.LastOrDefault(m => m.Message == streamingMsg);
+                                    if (vm is not null) Messages.Remove(vm);
+                                }
+                            }
+                            streamingMsg = null;
+                            accContent = "";
+                        }
+                        if (reasoningMsg is not null)
+                        {
+                            reasoningMsg.IsStreaming = false;
+                            if (_activeSession == session)
+                            {
+                                var vm = Messages.LastOrDefault(m => m.Message == reasoningMsg);
+                                vm?.NotifyStreamingEnded();
+                            }
+                            reasoningMsg = null;
+                            accReasoning = "";
+                        }
+                        runtime.IsBusy = false;
+                        runtime.IsStreaming = false;
+                        runtime.StatusText = Loc.Status_Stopped;
+                        if (_activeSession == session)
+                        {
+                            IsBusy = false;
+                            IsStreaming = false;
+                            StatusText = runtime.StatusText;
+                        }
+                    });
+                    break;
+
+                case SessionShutdownEvent shutdown:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        // Session terminated server-side — invalidate cached session
+                        _sessionCache.Remove(chat.Id);
+                        chat.CopilotSessionId = null;
+                        var wasActive = _activeSession == session;
+                        if (wasActive)
+                            _activeSession = null;
+
+                        runtime.IsBusy = false;
+                        runtime.IsStreaming = false;
+                        runtime.StatusText = "";
+                        if (wasActive)
+                        {
+                            IsBusy = false;
+                            IsStreaming = false;
+                            StatusText = "";
+                        }
+                    });
+                    break;
             }
         });
     }
@@ -482,14 +580,26 @@ public partial class ChatViewModel : ObservableObject
     /// <summary>Cleans up session resources for a chat (e.g., on delete).</summary>
     public void CleanupSession(Guid chatId)
     {
+        if (_ctsSources.TryGetValue(chatId, out var cts))
+        {
+            cts.Cancel();
+            cts.Dispose();
+            _ctsSources.Remove(chatId);
+        }
         if (_sessionSubs.TryGetValue(chatId, out var sub))
         {
             sub.Dispose();
             _sessionSubs.Remove(chatId);
         }
-        _sessionCache.Remove(chatId);
+        // Delete the server-side session so they don't accumulate
+        if (_sessionCache.TryGetValue(chatId, out var session))
+        {
+            _ = _copilotService.DeleteSessionAsync(session.SessionId);
+            _sessionCache.Remove(chatId);
+        }
         _inProgressMessages.Remove(chatId);
         _runtimeStates.Remove(chatId);
+        _pendingTitleChats.Remove(chatId);
     }
 
     private ChatRuntimeState GetOrCreateRuntimeState(Guid chatId)
@@ -500,6 +610,64 @@ public partial class ChatViewModel : ObservableObject
             _runtimeStates[chatId] = runtime;
         }
         return runtime;
+    }
+
+    /// <summary>Creates or resumes a Copilot session for the given chat, building
+    /// system prompt, tools, agents, skill dirs, and MCP servers as needed.</summary>
+    private async Task EnsureSessionAsync(Chat chat, CancellationToken ct)
+    {
+        var allSkills = _dataStore.Data.Skills;
+        var activeSkills = ActiveSkillIds.Count > 0
+            ? allSkills.Where(s => ActiveSkillIds.Contains(s.Id)).ToList()
+            : new List<Skill>();
+        var memories = _dataStore.Data.Memories;
+        var project = chat.ProjectId.HasValue
+            ? _dataStore.Data.Projects.FirstOrDefault(p => p.Id == chat.ProjectId)
+            : null;
+        var systemPrompt = SystemPromptBuilder.Build(
+            _dataStore.Data.Settings, ActiveAgent, project, allSkills, activeSkills, memories);
+
+        var skillDirs = new List<string>();
+        if (ActiveSkillIds.Count > 0)
+        {
+            var dir = await _dataStore.SyncSkillFilesForIdsAsync(ActiveSkillIds);
+            skillDirs.Add(dir);
+        }
+
+        var customAgents = BuildCustomAgents();
+        var customTools = BuildCustomTools();
+        var mcpServers = BuildMcpServers();
+        var workDir = GetWorkingDirectory();
+
+        if (chat.CopilotSessionId is null)
+        {
+            var session = await _copilotService.CreateSessionAsync(
+                systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, mcpServers, ct);
+            chat.CopilotSessionId = session.SessionId;
+            _activeSession = session;
+            SubscribeToSession(session, chat);
+        }
+        else
+        {
+            try
+            {
+                var session = await _copilotService.ResumeSessionAsync(
+                    chat.CopilotSessionId, systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, mcpServers, ct);
+                _activeSession = session;
+                SubscribeToSession(session, chat);
+            }
+            catch
+            {
+                // Session expired or broken — fall back to a fresh session
+                StatusText = Loc.Status_SessionExpired;
+                var session = await _copilotService.CreateSessionAsync(
+                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, mcpServers, ct);
+                chat.CopilotSessionId = session.SessionId;
+                _activeSession = session;
+                SubscribeToSession(session, chat);
+                await SaveCurrentChatAsync();
+            }
+        }
     }
 
     public async Task LoadChatAsync(Chat chat)
@@ -697,76 +865,30 @@ public partial class ChatViewModel : ObservableObject
         await SaveCurrentChatAsync();
         UserMessageSent?.Invoke();
 
-        // Build system prompt with active skills
-        var allSkills = _dataStore.Data.Skills;
-        var activeSkills = ActiveSkillIds.Count > 0
-            ? allSkills.Where(s => ActiveSkillIds.Contains(s.Id)).ToList()
-            : new List<Skill>();
-        var memories = _dataStore.Data.Memories;
-        var project = CurrentChat.ProjectId.HasValue
-            ? _dataStore.Data.Projects.FirstOrDefault(p => p.Id == CurrentChat.ProjectId)
-            : null;
-        var systemPrompt = SystemPromptBuilder.Build(
-            _dataStore.Data.Settings, ActiveAgent, project, allSkills, activeSkills, memories);
-
-        // Build skill directories for SDK
-        var skillDirs = new List<string>();
-        if (ActiveSkillIds.Count > 0)
-        {
-            var dir = await _dataStore.SyncSkillFilesForIdsAsync(ActiveSkillIds);
-            skillDirs.Add(dir);
-        }
-
-        // Build custom agents for SDK (register all agents as subagents)
-        var customAgents = BuildCustomAgents();
-
-        // Build custom tools (memory + file announcement)
-        var customTools = BuildCustomTools();
-
-        // Build MCP servers
-        var mcpServers = BuildMcpServers();
-
         try
         {
-            _cts = new CancellationTokenSource();
+            // Cancel any previous in-flight request for this chat
+            var chatId = CurrentChat.Id;
+            if (_ctsSources.TryGetValue(chatId, out var oldCts))
+            {
+                oldCts.Cancel();
+                oldCts.Dispose();
+            }
+            var cts = new CancellationTokenSource();
+            _ctsSources[chatId] = cts;
 
-            // Create or resume session
-            var workDir = GetWorkingDirectory();
-            if (CurrentChat.CopilotSessionId is null)
-            {
-                var session = await _copilotService.CreateSessionAsync(
-                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, mcpServers, _cts.Token);
-                CurrentChat.CopilotSessionId = session.SessionId;
-                _activeSession = session;
-                SubscribeToSession(session, CurrentChat);
-            }
-            else if (_activeSession?.SessionId != CurrentChat.CopilotSessionId)
-            {
-                try
-                {
-                    var session = await _copilotService.ResumeSessionAsync(
-                        CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, mcpServers, _cts.Token);
-                    _activeSession = session;
-                    SubscribeToSession(session, CurrentChat);
-                }
-                catch
-                {
-                    // Session expired or broken — fall back to a fresh session
-                    StatusText = Loc.Status_SessionExpired;
-                    var session = await _copilotService.CreateSessionAsync(
-                        systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, mcpServers, _cts.Token);
-                    CurrentChat.CopilotSessionId = session.SessionId;
-                    _activeSession = session;
-                    SubscribeToSession(session, CurrentChat);
-                    await SaveCurrentChatAsync();
-                }
-            }
+            var needsSessionSetup = _activeSession?.SessionId != CurrentChat.CopilotSessionId
+                                    || CurrentChat.CopilotSessionId is null;
+
+            if (needsSessionSetup)
+                await EnsureSessionAsync(CurrentChat, cts.Token);
 
             var sendOptions = new MessageOptions { Prompt = prompt };
 
             // Inject newly activated skills as context in the message (explicit activation in existing chat)
             if (_pendingSkillInjections.Count > 0)
             {
+                var allSkills = _dataStore.Data.Skills;
                 var injectedSkills = _pendingSkillInjections
                     .Select(id => allSkills.FirstOrDefault(s => s.Id == id))
                     .Where(s => s is not null)
@@ -793,7 +915,11 @@ public partial class ChatViewModel : ObservableObject
             IsStreaming = runtime.IsStreaming;
             StatusText = runtime.StatusText;
 
-            await _activeSession!.SendAsync(sendOptions, _cts.Token);
+            await _activeSession!.SendAsync(sendOptions, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelled by StopGeneration — expected, no error to surface
         }
         catch (Exception ex)
         {
@@ -813,19 +939,35 @@ public partial class ChatViewModel : ObservableObject
     [RelayCommand]
     private async Task StopGeneration()
     {
-        _cts?.Cancel();
-        if (_activeSession is not null)
-            await _activeSession.AbortAsync();
-        if (CurrentChat is not null)
+        if (CurrentChat is null) return;
+
+        var chatId = CurrentChat.Id;
+        if (_ctsSources.TryGetValue(chatId, out var cts))
         {
-            var runtime = GetOrCreateRuntimeState(CurrentChat.Id);
-            runtime.IsBusy = false;
-            runtime.IsStreaming = false;
-            runtime.StatusText = Loc.Status_Stopped;
+            cts.Cancel();
+            cts.Dispose();
+            _ctsSources.Remove(chatId);
         }
-        IsBusy = false;
-        IsStreaming = false;
-        StatusText = Loc.Status_Stopped;
+
+        // Get the session for this specific chat (not _activeSession which may differ)
+        if (_sessionCache.TryGetValue(chatId, out var session))
+        {
+            try { await session.AbortAsync(); }
+            catch { /* Best-effort abort */ }
+        }
+
+        var runtime = GetOrCreateRuntimeState(chatId);
+        runtime.IsBusy = false;
+        runtime.IsStreaming = false;
+        runtime.StatusText = Loc.Status_Stopped;
+
+        // Only update UI properties if this is still the displayed chat
+        if (CurrentChat?.Id == chatId)
+        {
+            IsBusy = false;
+            IsStreaming = false;
+            StatusText = Loc.Status_Stopped;
+        }
     }
 
     private async Task SaveCurrentChatAsync(bool saveIndex = true)
@@ -844,7 +986,7 @@ public partial class ChatViewModel : ObservableObject
         try
         {
             var title = await _copilotService.GenerateTitleAsync(userMessage);
-            if (string.IsNullOrWhiteSpace(title)) return;
+            if (string.IsNullOrWhiteSpace(title)) { _pendingTitleChats.Remove(chat.Id); return; }
 
             await Dispatcher.UIThread.InvokeAsync(async () =>
             {
@@ -859,6 +1001,7 @@ public partial class ChatViewModel : ObservableObject
         catch
         {
             // Silently fail — the default truncated title is already set
+            _pendingTitleChats.Remove(chat.Id);
         }
     }
 
@@ -1568,7 +1711,11 @@ public partial class ChatViewModel : ObservableObject
     /// </summary>
     public async Task ResendFromMessageAsync(ChatMessage userMessage)
     {
-        if (CurrentChat is null || IsBusy) return;
+        if (CurrentChat is null) return;
+
+        // Stop any active generation first
+        if (IsBusy)
+            await StopGeneration();
 
         var idx = CurrentChat.Messages.IndexOf(userMessage);
         if (idx < 0) return;
@@ -1590,6 +1737,12 @@ public partial class ChatViewModel : ObservableObject
         _pendingSearchSources.Clear();
         _pendingFetchedSkillRefs.Clear();
 
+        // Invalidate the session — the server-side history contains the unedited exchange.
+        // TODO: replay prior history once SDK supports seeding sessions with messages.
+        _sessionCache.Remove(CurrentChat.Id);
+        CurrentChat.CopilotSessionId = null;
+        _activeSession = null;
+
         // Re-add the user message as a fresh entry
         var newUserMsg = new ChatMessage
         {
@@ -1610,70 +1763,22 @@ public partial class ChatViewModel : ObservableObject
             catch { StatusText = Loc.Status_ConnectionFailedShort; return; }
         }
 
-        var allSkills = _dataStore.Data.Skills;
-        var activeSkills = ActiveSkillIds.Count > 0
-            ? allSkills.Where(s => ActiveSkillIds.Contains(s.Id)).ToList()
-            : new List<Skill>();
-        var memories = _dataStore.Data.Memories;
-        var project = CurrentChat.ProjectId.HasValue
-            ? _dataStore.Data.Projects.FirstOrDefault(p => p.Id == CurrentChat.ProjectId)
-            : null;
-        var systemPrompt = SystemPromptBuilder.Build(
-            _dataStore.Data.Settings, ActiveAgent, project, allSkills, activeSkills, memories);
-
-        var skillDirs = new List<string>();
-        if (ActiveSkillIds.Count > 0)
-        {
-            var dir = await _dataStore.SyncSkillFilesForIdsAsync(ActiveSkillIds);
-            skillDirs.Add(dir);
-        }
-        var customAgents = BuildCustomAgents();
-        var customTools = BuildCustomTools();
-        var mcpServers = BuildMcpServers();
-
         try
         {
-            _cts = new CancellationTokenSource();
-            var workDir = GetWorkingDirectory();
-            if (CurrentChat.CopilotSessionId is not null)
+            // Cancel any previous in-flight request for this chat
+            var chatId = CurrentChat.Id;
+            if (_ctsSources.TryGetValue(chatId, out var oldCts))
             {
-                if (_activeSession?.SessionId == CurrentChat.CopilotSessionId)
-                {
-                    // Session is still active — just resend
-                }
-                else
-                {
-                    // Resume the saved session to restore server-side history
-                    try
-                    {
-                        var session = await _copilotService.ResumeSessionAsync(
-                            CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir,
-                            skillDirs, customAgents, customTools, mcpServers, _cts.Token);
-                        _activeSession = session;
-                        SubscribeToSession(session, CurrentChat);
-                    }
-                    catch
-                    {
-                        // Session expired or broken — fall back to a fresh session
-                        StatusText = Loc.Status_SessionExpired;
-                        var session = await _copilotService.CreateSessionAsync(
-                            systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, mcpServers, _cts.Token);
-                        CurrentChat.CopilotSessionId = session.SessionId;
-                        _activeSession = session;
-                        SubscribeToSession(session, CurrentChat);
-                        await SaveCurrentChatAsync();
-                    }
-                }
+                oldCts.Cancel();
+                oldCts.Dispose();
             }
-            else
-            {
-                // No session at all — create new (first-time edge case)
-                var session = await _copilotService.CreateSessionAsync(
-                    systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, mcpServers, _cts.Token);
-                CurrentChat.CopilotSessionId = session.SessionId;
-                _activeSession = session;
-                SubscribeToSession(session, CurrentChat);
-            }
+            var cts = new CancellationTokenSource();
+            _ctsSources[chatId] = cts;
+
+            var needsSessionSetup = _activeSession?.SessionId != CurrentChat.CopilotSessionId
+                                    || CurrentChat.CopilotSessionId is null;
+            if (needsSessionSetup)
+                await EnsureSessionAsync(CurrentChat, cts.Token);
 
             var runtime = GetOrCreateRuntimeState(CurrentChat.Id);
             runtime.IsBusy = true;
@@ -1683,7 +1788,11 @@ public partial class ChatViewModel : ObservableObject
             IsStreaming = runtime.IsStreaming;
             StatusText = runtime.StatusText;
 
-            await _activeSession!.SendAsync(new MessageOptions { Prompt = userMessage.Content }, _cts.Token);
+            await _activeSession!.SendAsync(new MessageOptions { Prompt = prompt }, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelled by StopGeneration — expected
         }
         catch (Exception ex)
         {
@@ -1702,17 +1811,6 @@ public partial class ChatViewModel : ObservableObject
 
     private string GetWorkingDirectory()
     {
-        // If a project is selected and has a path, use it
-        if (CurrentChat?.ProjectId.HasValue == true)
-        {
-            var project = _dataStore.Data.Projects
-                .FirstOrDefault(p => p.Id == CurrentChat.ProjectId);
-            if (project is not null && !string.IsNullOrWhiteSpace(project.Instructions))
-            {
-                // Check if instructions contain a directory hint (first line may be a path)
-            }
-        }
-
         // Default to user's home/Documents folder
         var docs = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var lumiDir = Path.Combine(docs, "Lumi");
