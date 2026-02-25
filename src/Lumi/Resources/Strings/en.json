@@ -175,11 +175,19 @@
   "ToolGroup_FinishedOne": "Finished 1 action",
   "ToolGroup_FinishedFailed": "Finished ({0} failed)",
   "ToolGroup_FinishedWithFailed": "{0} ({1} failed)",
+  "ToolGroup_MetaRunning": "{0}/{1} done \u00b7 {2} running",
+  "ToolGroup_MetaDone": "{0}/{1} done",
+  "ToolGroup_MetaFailed": "{0}/{1} done \u00b7 {2} failed",
   "TurnSummary_ReasonedAndActions": "Reasoned \u00b7 {0} actions",
   "TurnSummary_ReasonedAndOneAction": "Reasoned \u00b7 1 action",
   "TurnSummary_Reasoned": "Reasoned",
 
   "Tool_ReasoningLabel": "Reasoning",
+  "ToolTodo_Title": "Task plan",
+  "ToolTodo_Meta": "{0}/{1} completed",
+  "ToolTodo_MetaWithFailed": "{0}/{1} completed \u00b7 {2} failed",
+  "ToolTodo_More": "+{0} more tasks",
+  "ToolTodo_Updates": "{0} updates",
 
   "FilePicker_AttachFiles": "Attach files",
 

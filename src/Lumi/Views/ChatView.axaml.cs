@@ -46,11 +46,17 @@ public partial class ChatView : UserControl
     private List<ChatMessageViewModel>? _deferredMessages;
     private bool _isLoadingOlder;
     private ScrollViewer? _transcriptScrollViewer;
+    private int _transcriptBuildDepth;
+
+    private bool IsTranscriptBuilding => _transcriptBuildDepth > 0;
 
     // Tool grouping state
     private StrataThink? _currentToolGroup;
     private StackPanel? _currentToolGroupStack;
     private int _currentToolGroupCount;
+    private StrataAiToolCall? _currentTodoToolCall;
+    private TodoProgressState? _currentTodoProgress;
+    private int _todoUpdateCount;
 
     // Typing indicator
     private StrataTypingIndicator? _typingIndicator;
@@ -75,6 +81,21 @@ public partial class ChatView : UserControl
 
     // Counter for naming message controls (Avalonia MCP automation)
     private int _messageCounter;
+
+    private sealed class TodoStepSnapshot
+    {
+        public int Id { get; init; }
+        public string Title { get; init; } = string.Empty;
+        public string Status { get; init; } = "not-started";
+    }
+
+    private sealed class TodoProgressState
+    {
+        public string ToolStatus { get; set; } = "InProgress";
+        public int Total { get; set; }
+        public int Completed { get; set; }
+        public int Failed { get; set; }
+    }
 
     // Track if we've already wired up event handlers
     private ChatViewModel? _subscribedVm;
@@ -336,6 +357,9 @@ public partial class ChatView : UserControl
                 _currentToolGroup = null;
                 _currentToolGroupStack = null;
                 _currentToolGroupCount = 0;
+                _currentTodoToolCall = null;
+                _currentTodoProgress = null;
+                _todoUpdateCount = 0;
                 _currentIntentText = null;
                 _messageCounter = 0;
                 _shownFilePaths.Clear();
@@ -409,6 +433,8 @@ public partial class ChatView : UserControl
         _rebuildCts = cts;
         var token = cts.Token;
 
+        _transcriptBuildDepth++;
+
         // Build controls into a DETACHED StackPanel (not in the visual tree).
         // This avoids expensive per-control layout/measure/scroll passes.
         // We only attach it to the shell after all controls are built.
@@ -416,6 +442,9 @@ public partial class ChatView : UserControl
         _currentToolGroup = null;
         _currentToolGroupStack = null;
         _currentToolGroupCount = 0;
+        _currentTodoToolCall = null;
+        _currentTodoProgress = null;
+        _todoUpdateCount = 0;
         _currentIntentText = null;
         _shownFilePaths.Clear();
         _pendingToolFileChips.Clear();
@@ -458,7 +487,12 @@ public partial class ChatView : UserControl
             await Task.Delay(16);
         }
 
-        if (token.IsCancellationRequested) return;
+        if (token.IsCancellationRequested)
+        {
+            if (_transcriptBuildDepth > 0)
+                _transcriptBuildDepth--;
+            return;
+        }
 
         try
         {
@@ -484,6 +518,9 @@ public partial class ChatView : UserControl
         }
         finally
         {
+            if (_transcriptBuildDepth > 0)
+                _transcriptBuildDepth--;
+
             if (_loadingOverlay is not null)
                 _loadingOverlay.IsVisible = false;
         }
@@ -515,6 +552,7 @@ public partial class ChatView : UserControl
             return;
 
         _isLoadingOlder = true;
+        _transcriptBuildDepth++;
 
         try
         {
@@ -538,12 +576,18 @@ public partial class ChatView : UserControl
             var savedToolGroup = _currentToolGroup;
             var savedToolGroupStack = _currentToolGroupStack;
             var savedToolGroupCount = _currentToolGroupCount;
+            var savedTodoToolCall = _currentTodoToolCall;
+            var savedTodoProgress = _currentTodoProgress;
+            var savedTodoUpdateCount = _todoUpdateCount;
             var savedIntentText = _currentIntentText;
 
             _messageStack = tempStack;
             _currentToolGroup = null;
             _currentToolGroupStack = null;
             _currentToolGroupCount = 0;
+            _currentTodoToolCall = null;
+            _currentTodoProgress = null;
+            _todoUpdateCount = 0;
             _currentIntentText = null;
 
             foreach (var msgVm in batch)
@@ -559,6 +603,9 @@ public partial class ChatView : UserControl
             _currentToolGroup = savedToolGroup;
             _currentToolGroupStack = savedToolGroupStack;
             _currentToolGroupCount = savedToolGroupCount;
+            _currentTodoToolCall = savedTodoToolCall;
+            _currentTodoProgress = savedTodoProgress;
+            _todoUpdateCount = savedTodoUpdateCount;
             _currentIntentText = savedIntentText;
 
             // Prepend the batch controls to the real message stack
@@ -584,6 +631,9 @@ public partial class ChatView : UserControl
         }
         finally
         {
+            if (_transcriptBuildDepth > 0)
+                _transcriptBuildDepth--;
+
             _isLoadingOlder = false;
         }
     }
@@ -614,6 +664,12 @@ public partial class ChatView : UserControl
         if (msgVm.Role == "tool")
         {
             var toolName = msgVm.ToolName ?? "";
+            var initialStatus = msgVm.ToolStatus switch
+            {
+                "Completed" => StrataAiToolCallStatus.Completed,
+                "Failed" => StrataAiToolCallStatus.Failed,
+                _ => StrataAiToolCallStatus.InProgress
+            };
 
             // Skip internal polling/control tools — they clutter the UI
             if (toolName is "read_powershell" or "stop_powershell")
@@ -656,40 +712,59 @@ public partial class ChatView : UserControl
                     // Only create UI group if tool calls are visible
                     if (showToolCalls)
                     {
-                        var isLive = msgVm.ToolStatus is not "Completed" and not "Failed";
-                        if (_currentToolGroup is null)
-                        {
-                            _currentToolGroupStack = new StackPanel { Spacing = 4 };
-                            _currentToolGroupCount = 0;
-                            _currentToolGroup = new StrataThink
-                            {
-                                Label = isLive ? intentText + "\u2026" : intentText,
-                                IsExpanded = false,
-                                IsActive = isLive,
-                                Content = _currentToolGroupStack
-                            };
-                            InsertBeforeTypingIndicator(_currentToolGroup);
-                        }
-                        else
-                        {
-                            _currentToolGroup.Label = isLive ? intentText + "\u2026" : intentText;
-                        }
+                        EnsureCurrentToolGroup(initialStatus);
+                        UpdateToolGroupLabel();
                     }
                 }
+                return;
+            }
+
+            if (toolName is "update_todo" or "manage_todo_list")
+            {
+                if (!showToolCalls)
+                    return;
+
+                var steps = ParseTodoSteps(msgVm.Content);
+                if (steps.Count == 0)
+                    return;
+
+                EnsureCurrentToolGroup(initialStatus);
+                _todoUpdateCount++;
+                UpsertTodoProgressToolCall(steps, msgVm.ToolStatus ?? "InProgress");
+                if (_currentToolGroup is not null
+                    && initialStatus == StrataAiToolCallStatus.InProgress
+                    && !IsTranscriptBuilding)
+                {
+                    _currentToolGroup.IsExpanded = true;
+                }
+                UpdateToolGroupLabel();
+
+                msgVm.PropertyChanged += (_, args) =>
+                {
+                    if (args.PropertyName == nameof(ChatMessageViewModel.ToolStatus)
+                        && _currentTodoProgress is not null)
+                    {
+                        _currentTodoProgress.ToolStatus = msgVm.ToolStatus ?? "InProgress";
+                        if (_currentTodoToolCall is not null)
+                        {
+                            _currentTodoToolCall.Status = msgVm.ToolStatus switch
+                            {
+                                "Completed" => StrataAiToolCallStatus.Completed,
+                                "Failed" => StrataAiToolCallStatus.Failed,
+                                _ => StrataAiToolCallStatus.InProgress
+                            };
+                        }
+                        UpdateToolGroupLabel();
+                    }
+                };
                 return;
             }
 
             if (!showToolCalls)
                 return;
 
-            var initialStatus = msgVm.ToolStatus switch
-            {
-                "Completed" => StrataAiToolCallStatus.Completed,
-                "Failed" => StrataAiToolCallStatus.Failed,
-                _ => StrataAiToolCallStatus.InProgress
-            };
-
             var (friendlyName, friendlyInfo) = GetFriendlyToolDisplay(toolName, msgVm.Author, msgVm.Content);
+            friendlyName = $"{GetToolGlyph(toolName)} {friendlyName}";
 
             var toolCall = new StrataAiToolCall
             {
@@ -730,21 +805,7 @@ public partial class ChatView : UserControl
             };
 
             // Group consecutive tool calls inside a StrataThink
-            if (_currentToolGroup is null)
-            {
-                _currentToolGroupStack = new StackPanel { Spacing = 4 };
-                _currentToolGroupCount = 0;
-                _currentToolGroup = new StrataThink
-                {
-                    Label = _currentIntentText is not null
-                        ? _currentIntentText + "\u2026"
-                        : Loc.ToolGroup_Working,
-                    IsExpanded = false,
-                    IsActive = initialStatus == StrataAiToolCallStatus.InProgress,
-                    Content = _currentToolGroupStack
-                };
-                InsertBeforeTypingIndicator(_currentToolGroup);
-            }
+            EnsureCurrentToolGroup(initialStatus);
 
             _currentToolGroupStack!.Children.Add(toolCall);
             _currentToolGroupCount++;
@@ -928,6 +989,31 @@ public partial class ChatView : UserControl
         _chatShell?.ScrollToEnd();
     }
 
+    private void EnsureCurrentToolGroup(StrataAiToolCallStatus initialStatus)
+    {
+        if (_currentToolGroup is not null)
+            return;
+
+        _currentToolGroupStack = new StackPanel { Spacing = 4 };
+        _currentToolGroupCount = 0;
+        _currentTodoToolCall = null;
+        _currentTodoProgress = null;
+
+        _currentToolGroup = new StrataThink
+        {
+            Label = _currentIntentText is not null
+                ? _currentIntentText + "\u2026"
+                : Loc.ToolGroup_Working,
+            IsExpanded = false,
+            IsActive = initialStatus == StrataAiToolCallStatus.InProgress,
+            Meta = null,
+            ProgressValue = -1,
+            Content = _currentToolGroupStack
+        };
+
+        InsertBeforeTypingIndicator(_currentToolGroup);
+    }
+
     private void CloseToolGroup()
     {
         if (_currentToolGroup is not null)
@@ -945,6 +1031,9 @@ public partial class ChatView : UserControl
             _currentToolGroup = null;
             _currentToolGroupStack = null;
             _currentToolGroupCount = 0;
+            _currentTodoToolCall = null;
+            _currentTodoProgress = null;
+            _todoUpdateCount = 0;
             _currentIntentText = null;
         }
     }
@@ -971,7 +1060,9 @@ public partial class ChatView : UserControl
                 break;
         }
 
-        if (blocksToMerge.Count < 1) return;
+        // A single StrataThink is already a collapsible unit.
+        // Wrapping it again creates a nested "click to expand" UX.
+        if (blocksToMerge.Count < 2) return;
 
         blocksToMerge.Reverse();
 
@@ -979,6 +1070,8 @@ public partial class ChatView : UserControl
         int totalToolCalls = 0;
         int failedCount = 0;
         bool hasReasoning = false;
+        bool hasTodoProgress = false;
+        string? todoMeta = null;
 
         foreach (var think in blocksToMerge)
         {
@@ -990,6 +1083,16 @@ public partial class ChatView : UserControl
                     {
                         totalToolCalls++;
                         if (tc.Status == StrataAiToolCallStatus.Failed) failedCount++;
+
+                        if (!string.IsNullOrWhiteSpace(tc.ToolName)
+                            && tc.ToolName.Contains(Loc.ToolTodo_Title, StringComparison.CurrentCultureIgnoreCase))
+                        {
+                            hasTodoProgress = true;
+                            if (!string.IsNullOrWhiteSpace(think.Meta))
+                                todoMeta = think.Meta;
+                            else if (!string.IsNullOrWhiteSpace(tc.MoreInfo))
+                                todoMeta = tc.MoreInfo;
+                        }
                     }
                 }
             }
@@ -1001,7 +1104,13 @@ public partial class ChatView : UserControl
 
         // Build summary label
         string label;
-        if (hasReasoning && totalToolCalls > 0)
+        if (hasTodoProgress)
+        {
+            label = !string.IsNullOrWhiteSpace(todoMeta)
+                ? $"{Loc.ToolTodo_Title} · {todoMeta}"
+                : Loc.ToolTodo_Title;
+        }
+        else if (hasReasoning && totalToolCalls > 0)
             label = totalToolCalls == 1
                 ? Loc.TurnSummary_ReasonedAndOneAction
                 : string.Format(Loc.TurnSummary_ReasonedAndActions, totalToolCalls);
@@ -1028,7 +1137,7 @@ public partial class ChatView : UserControl
         var summary = new StrataTurnSummary
         {
             Label = label,
-            IsExpanded = false,
+            IsExpanded = hasTodoProgress && !IsTranscriptBuilding,
             HasFailures = failedCount > 0,
             Content = innerStack
         };
@@ -1058,6 +1167,31 @@ public partial class ChatView : UserControl
     {
         if (_currentToolGroup is null) return;
 
+        var isHistoricalRender = IsTranscriptBuilding;
+
+        if (_currentTodoProgress is not null && _currentTodoProgress.Total > 0)
+        {
+            var todoDone = _currentTodoProgress.Completed + _currentTodoProgress.Failed;
+            var running = Math.Max(0, _currentTodoProgress.Total - todoDone);
+
+            _currentToolGroup.Label = Loc.ToolTodo_Title;
+            _currentToolGroup.Meta = _currentTodoProgress.Failed > 0
+                ? string.Format(Loc.ToolTodo_MetaWithFailed, _currentTodoProgress.Completed, _currentTodoProgress.Total, _currentTodoProgress.Failed)
+                : string.Format(Loc.ToolTodo_Meta, _currentTodoProgress.Completed, _currentTodoProgress.Total);
+
+            if (_todoUpdateCount > 1)
+                _currentToolGroup.Meta += " · " + string.Format(Loc.ToolTodo_Updates, _todoUpdateCount);
+
+            var progress = Math.Clamp((todoDone * 100d) / _currentTodoProgress.Total, 0d, 100d);
+            _currentToolGroup.ProgressValue = isHistoricalRender ? -1 : progress;
+            _currentToolGroup.IsActive = running > 0 && _currentTodoProgress.ToolStatus != "Failed";
+
+            if (!_currentToolGroup.IsActive || isHistoricalRender)
+                _currentToolGroup.IsExpanded = false;
+
+            return;
+        }
+
         var completedCount = 0;
         var failedCount = 0;
         if (_currentToolGroupStack is not null)
@@ -1071,6 +1205,19 @@ public partial class ChatView : UserControl
                 }
             }
         }
+
+        if (_currentToolGroupCount <= 0)
+        {
+            _currentToolGroup.Meta = null;
+            _currentToolGroup.ProgressValue = -1;
+            _currentToolGroup.IsActive = true;
+            _currentToolGroup.Label = _currentIntentText is not null
+                ? _currentIntentText + "\u2026"
+                : Loc.ToolGroup_Working;
+            return;
+        }
+
+        var runningCount = Math.Max(0, _currentToolGroupCount - completedCount - failedCount);
 
         var allDone = completedCount + failedCount == _currentToolGroupCount && _currentToolGroupCount > 0;
         if (allDone)
@@ -1089,6 +1236,13 @@ public partial class ChatView : UserControl
                     : _currentToolGroupCount == 1 ? Loc.ToolGroup_Finished : string.Format(Loc.ToolGroup_FinishedCount, _currentToolGroupCount);
             }
             _currentToolGroup.IsActive = false;
+
+            _currentToolGroup.Meta = failedCount > 0
+                ? string.Format(Loc.ToolGroup_MetaFailed, completedCount, _currentToolGroupCount, failedCount)
+                : string.Format(Loc.ToolGroup_MetaDone, completedCount, _currentToolGroupCount);
+
+            if (isHistoricalRender)
+                _currentToolGroup.IsExpanded = false;
         }
         else
         {
@@ -1103,7 +1257,19 @@ public partial class ChatView : UserControl
                     ? Loc.ToolGroup_Working
                     : string.Format(Loc.ToolGroup_WorkingCount, _currentToolGroupCount);
             }
+
+            _currentToolGroup.Meta = runningCount > 0
+                ? string.Format(Loc.ToolGroup_MetaRunning, completedCount, _currentToolGroupCount, runningCount)
+                : string.Format(Loc.ToolGroup_MetaDone, completedCount, _currentToolGroupCount);
+
+            if (isHistoricalRender)
+                _currentToolGroup.IsExpanded = false;
         }
+
+        var genericProgress = _currentToolGroupCount > 0
+            ? Math.Clamp(((completedCount + failedCount) * 100d) / _currentToolGroupCount, 0d, 100d)
+            : -1;
+        _currentToolGroup.ProgressValue = isHistoricalRender ? -1 : genericProgress;
     }
 
     private static void SyncModelFromComposer(StrataChatComposer composer, ChatViewModel vm)
@@ -1587,6 +1753,220 @@ public partial class ChatView : UserControl
         composer?.FocusInput();
     }
 #pragma warning restore CS0618
+
+    private static string GetToolGlyph(string toolName)
+    {
+        return toolName switch
+        {
+            "powershell" or "run_in_terminal" or "bash" or "shell" => "⌨",
+            "create" or "write_file" or "create_file" or "edit" or "edit_file" or "str_replace" or "insert" => "📝",
+            "view" or "read_file" or "read" => "📄",
+            "browser" or "browser_navigate" or "browser_do" or "browser_look" or "browser_js" => "🌐",
+            "lumi_search" or "web_search" or "search" => "🔎",
+            "web_fetch" or "lumi_fetch" => "📚",
+            "ui_inspect" or "ui_find" or "ui_click" or "ui_type" or "ui_read" => "🖥",
+            "save_memory" or "update_memory" or "recall_memory" or "delete_memory" => "🧠",
+            "update_todo" or "manage_todo_list" => "✅",
+            _ => "⚙"
+        };
+    }
+
+    private static List<TodoStepSnapshot> ParseTodoSteps(string? argsJson)
+    {
+        var result = new List<TodoStepSnapshot>();
+        if (string.IsNullOrWhiteSpace(argsJson))
+            return result;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(argsJson);
+            var root = doc.RootElement;
+
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                if (root.TryGetProperty("todos", out var todosText)
+                    && todosText.ValueKind == JsonValueKind.String)
+                {
+                    var parsed = ParseTodoChecklist(todosText.GetString());
+                    if (parsed.Count > 0)
+                        return parsed;
+                }
+            }
+
+            JsonElement list = default;
+            var hasList = (root.ValueKind == JsonValueKind.Object
+                           && (root.TryGetProperty("todoList", out list)
+                               || root.TryGetProperty("todo", out list)
+                               || root.TryGetProperty("items", out list)
+                               || root.TryGetProperty("tasks", out list)
+                               || root.TryGetProperty("todos", out list)))
+                          || root.ValueKind == JsonValueKind.Array;
+
+            if (!hasList)
+                return result;
+
+            if (root.ValueKind == JsonValueKind.Array)
+                list = root;
+
+            if (list.ValueKind != JsonValueKind.Array)
+                return result;
+
+            foreach (var item in list.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                var title = GetString(item, "title")
+                            ?? GetString(item, "step")
+                            ?? GetString(item, "name")
+                            ?? GetString(item, "label")
+                            ?? string.Empty;
+
+                if (string.IsNullOrWhiteSpace(title))
+                    continue;
+
+                var status = GetString(item, "status")
+                             ?? GetString(item, "state")
+                             ?? "not-started";
+
+                var id = 0;
+                if (item.TryGetProperty("id", out var idEl))
+                {
+                    if (idEl.ValueKind == JsonValueKind.Number)
+                        id = idEl.GetInt32();
+                    else if (idEl.ValueKind == JsonValueKind.String)
+                        _ = int.TryParse(idEl.GetString(), out id);
+                }
+
+                result.Add(new TodoStepSnapshot
+                {
+                    Id = id,
+                    Title = title,
+                    Status = status
+                });
+            }
+        }
+        catch
+        {
+            // ignore invalid todo payload
+        }
+
+        return result;
+    }
+
+    private static List<TodoStepSnapshot> ParseTodoChecklist(string? checklist)
+    {
+        var result = new List<TodoStepSnapshot>();
+        if (string.IsNullOrWhiteSpace(checklist))
+            return result;
+
+        var lines = checklist.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        var index = 1;
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0)
+                continue;
+
+            bool isDone;
+            string title;
+
+            if (line.StartsWith("- [x]", StringComparison.OrdinalIgnoreCase))
+            {
+                isDone = true;
+                title = line[5..].Trim();
+            }
+            else if (line.StartsWith("- [ ]", StringComparison.OrdinalIgnoreCase))
+            {
+                isDone = false;
+                title = line[5..].Trim();
+            }
+            else
+            {
+                // Fallback: treat non-checkbox line as a pending task
+                isDone = false;
+                title = line.TrimStart('-', '*', ' ').Trim();
+            }
+
+            if (string.IsNullOrWhiteSpace(title))
+                continue;
+
+            result.Add(new TodoStepSnapshot
+            {
+                Id = index++,
+                Title = title,
+                Status = isDone ? "completed" : "in-progress"
+            });
+        }
+
+        return result;
+    }
+
+    private void UpsertTodoProgressToolCall(IReadOnlyList<TodoStepSnapshot> steps, string toolStatus)
+    {
+        if (_currentToolGroupStack is null)
+            return;
+
+        var total = steps.Count;
+        var completed = steps.Count(static s => string.Equals(s.Status, "completed", StringComparison.OrdinalIgnoreCase));
+        var failed = steps.Count(static s => string.Equals(s.Status, "failed", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(s.Status, "blocked", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(s.Status, "cancelled", StringComparison.OrdinalIgnoreCase));
+
+        _currentTodoProgress = new TodoProgressState
+        {
+            Total = total,
+            Completed = completed,
+            Failed = failed,
+            ToolStatus = toolStatus
+        };
+
+        if (_currentTodoToolCall is null)
+        {
+            _currentTodoToolCall = new StrataAiToolCall
+            {
+                ToolName = $"{GetToolGlyph("update_todo")} {Loc.ToolTodo_Title}",
+                Status = toolStatus switch
+                {
+                    "Completed" => StrataAiToolCallStatus.Completed,
+                    "Failed" => StrataAiToolCallStatus.Failed,
+                    _ => StrataAiToolCallStatus.InProgress
+                },
+                IsExpanded = false,
+                InputParameters = BuildTodoDetailsMarkdown(steps),
+                MoreInfo = null
+            };
+            _currentToolGroupStack.Children.Add(_currentTodoToolCall);
+            _currentToolGroupCount++;
+            return;
+        }
+
+        _currentTodoToolCall.Status = toolStatus switch
+        {
+            "Completed" => StrataAiToolCallStatus.Completed,
+            "Failed" => StrataAiToolCallStatus.Failed,
+            _ => StrataAiToolCallStatus.InProgress
+        };
+        _currentTodoToolCall.InputParameters = BuildTodoDetailsMarkdown(steps);
+        _currentTodoToolCall.MoreInfo = null;
+    }
+
+    private static string BuildTodoDetailsMarkdown(IReadOnlyList<TodoStepSnapshot> steps)
+    {
+        if (steps.Count == 0)
+            return string.Empty;
+
+        var sb = new StringBuilder();
+        foreach (var step in steps)
+        {
+            var isDone = string.Equals(step.Status, "completed", StringComparison.OrdinalIgnoreCase);
+            sb.Append("- ")
+              .Append(isDone ? "[x] " : "[ ] ")
+              .AppendLine(step.Title);
+        }
+
+        return sb.ToString().TrimEnd();
+    }
 
     private static string FormatFileSize(long bytes)
     {

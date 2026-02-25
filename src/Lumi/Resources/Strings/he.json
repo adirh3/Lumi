@@ -176,11 +176,19 @@
   "ToolGroup_FinishedOne": "פעולה אחת",
   "ToolGroup_FinishedFailed": "הסתיים ({0} נכשלו)",
   "ToolGroup_FinishedWithFailed": "{0} ({1} נכשלו)",
+  "ToolGroup_MetaRunning": "{0}/{1} הושלמו \u00b7 {2} בריצה",
+  "ToolGroup_MetaDone": "{0}/{1} הושלמו",
+  "ToolGroup_MetaFailed": "{0}/{1} הושלמו \u00b7 {2} נכשלו",
   "TurnSummary_ReasonedAndActions": "חשב \u00b7 {0} פעולות",
   "TurnSummary_ReasonedAndOneAction": "חשב \u00b7 פעולה אחת",
   "TurnSummary_Reasoned": "חשב",
 
   "Tool_ReasoningLabel": "חשיבה",
+  "ToolTodo_Title": "תוכנית עבודה",
+  "ToolTodo_Meta": "{0}/{1} הושלמו",
+  "ToolTodo_MetaWithFailed": "{0}/{1} הושלמו \u00b7 {2} נכשלו",
+  "ToolTodo_More": "+{0} משימות נוספות",
+  "ToolTodo_Updates": "{0} עדכונים",
 
   "FilePicker_AttachFiles": "צירוף קבצים",
 
