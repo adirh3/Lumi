@@ -109,6 +109,10 @@
   "Status_CheckAccess": "Connection failed. Check your GitHub Copilot access.",
   "Status_ConnectionFailedShort": "Connection failed.",
   "Status_Error": "Error: {0}",
+  "Status_Compacting": "Compacting context\u2026",
+  "Status_Truncated": "Context trimmed",
+  "Status_Warning": "Warning: {0}",
+  "Status_SessionExpired": "Session expired, starting fresh\u2026",
 
   "Author_Lumi": "Lumi",
   "Author_Thinking": "Thinking",

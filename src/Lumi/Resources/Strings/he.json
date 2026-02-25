@@ -109,6 +109,10 @@
   "Status_CheckAccess": "החיבור נכשל. בדוק את הגישה שלך ל-GitHub Copilot.",
   "Status_ConnectionFailedShort": "החיבור נכשל.",
   "Status_Error": "שגיאה: {0}",
+  "Status_Compacting": "דוחס הקשר\u2026",
+  "Status_Truncated": "ההקשר קוצץ",
+  "Status_Warning": "אזהרה: {0}",
+  "Status_SessionExpired": "הפעלה פגה, מתחיל מחדש\u2026",
 
   "Author_Lumi": "לומי",
   "Author_Thinking": "חשיבה",

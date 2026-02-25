@@ -425,7 +425,54 @@ public partial class ChatViewModel : ObservableObject
                             StatusText = runtime.StatusText;
                             IsBusy = runtime.IsBusy;
                             IsStreaming = runtime.IsStreaming;
+
+                            // Surface the error as a visible chat message
+                            var errorMsg = new ChatMessage
+                            {
+                                Role = "system",
+                                Author = Loc.Author_Lumi,
+                                Content = string.Format(Loc.Status_Error, err.Data.Message)
+                            };
+                            chat.Messages.Add(errorMsg);
+                            Messages.Add(new ChatMessageViewModel(errorMsg));
+                            ScrollToEndRequested?.Invoke();
                         }
+                    });
+                    break;
+
+                case SessionCompactionStartEvent:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        runtime.StatusText = Loc.Status_Compacting;
+                        if (_activeSession == session)
+                            StatusText = runtime.StatusText;
+                    });
+                    break;
+
+                case SessionCompactionCompleteEvent:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        runtime.StatusText = "";
+                        if (_activeSession == session)
+                            StatusText = runtime.StatusText;
+                    });
+                    break;
+
+                case SessionTruncationEvent:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        runtime.StatusText = Loc.Status_Truncated;
+                        if (_activeSession == session)
+                            StatusText = runtime.StatusText;
+                    });
+                    break;
+
+                case SessionWarningEvent warn:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        runtime.StatusText = string.Format(Loc.Status_Warning, warn.Data.WarningType);
+                        if (_activeSession == session)
+                            StatusText = runtime.StatusText;
                     });
                     break;
             }
@@ -695,10 +742,24 @@ public partial class ChatViewModel : ObservableObject
             }
             else if (_activeSession?.SessionId != CurrentChat.CopilotSessionId)
             {
-                var session = await _copilotService.ResumeSessionAsync(
-                    CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, mcpServers, _cts.Token);
-                _activeSession = session;
-                SubscribeToSession(session, CurrentChat);
+                try
+                {
+                    var session = await _copilotService.ResumeSessionAsync(
+                        CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, mcpServers, _cts.Token);
+                    _activeSession = session;
+                    SubscribeToSession(session, CurrentChat);
+                }
+                catch
+                {
+                    // Session expired or broken — fall back to a fresh session
+                    StatusText = Loc.Status_SessionExpired;
+                    var session = await _copilotService.CreateSessionAsync(
+                        systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, mcpServers, _cts.Token);
+                    CurrentChat.CopilotSessionId = session.SessionId;
+                    _activeSession = session;
+                    SubscribeToSession(session, CurrentChat);
+                    await SaveCurrentChatAsync();
+                }
             }
 
             var sendOptions = new MessageOptions { Prompt = prompt };
@@ -1583,11 +1644,25 @@ public partial class ChatViewModel : ObservableObject
                 else
                 {
                     // Resume the saved session to restore server-side history
-                    var session = await _copilotService.ResumeSessionAsync(
-                        CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir,
-                        skillDirs, customAgents, customTools, mcpServers, _cts.Token);
-                    _activeSession = session;
-                    SubscribeToSession(session, CurrentChat);
+                    try
+                    {
+                        var session = await _copilotService.ResumeSessionAsync(
+                            CurrentChat.CopilotSessionId, systemPrompt, SelectedModel, workDir,
+                            skillDirs, customAgents, customTools, mcpServers, _cts.Token);
+                        _activeSession = session;
+                        SubscribeToSession(session, CurrentChat);
+                    }
+                    catch
+                    {
+                        // Session expired or broken — fall back to a fresh session
+                        StatusText = Loc.Status_SessionExpired;
+                        var session = await _copilotService.CreateSessionAsync(
+                            systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools, mcpServers, _cts.Token);
+                        CurrentChat.CopilotSessionId = session.SessionId;
+                        _activeSession = session;
+                        SubscribeToSession(session, CurrentChat);
+                        await SaveCurrentChatAsync();
+                    }
                 }
             }
             else
