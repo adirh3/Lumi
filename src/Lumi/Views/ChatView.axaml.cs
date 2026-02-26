@@ -941,21 +941,23 @@ public partial class ChatView : UserControl
                         Content = new StackPanel
                         {
                             Orientation = Orientation.Horizontal,
-                            Spacing = 4,
+                            Spacing = 3,
                             Children =
                             {
                                 new TextBlock
                                 {
                                     Text = "\uE8A7", // diff icon
                                     FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
-                                    FontSize = 10,
+                                    FontSize = 9,
                                     VerticalAlignment = VerticalAlignment.Center,
                                 },
-                                new TextBlock { Text = Loc.ShowDiff, FontSize = 10, VerticalAlignment = VerticalAlignment.Center }
+                                new TextBlock { Text = Loc.ShowDiff, FontSize = 9, VerticalAlignment = VerticalAlignment.Center }
                             }
                         },
                         Classes = { "subtle" },
-                        Padding = new Thickness(6, 1),
+                        Padding = new Thickness(5, 0),
+                        MinHeight = 0,
+                        Height = 18,
                         Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
                     };
                     showDiffBtn.Click += (_, e) =>
