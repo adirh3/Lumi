@@ -97,6 +97,8 @@ public partial class ChatViewModel : ObservableObject
     public event Action<List<WebSearchService.SearchResult>>? SearchResultsCollected;
     public event Action? AgentChanged;
     public event Action? BrowserHideRequested;
+    /// <summary>Fires terminal output updates (rootToolCallId, output, replaceExistingOutput).</summary>
+    public event Action<string, string, bool>? TerminalOutputReceived;
 
     public ChatViewModel(DataStore dataStore, CopilotService copilotService, BrowserService browserService)
     {
@@ -130,6 +132,8 @@ public partial class ChatViewModel : ObservableObject
         ChatMessage? reasoningMsg = null;
         var agentName = ActiveAgent?.Name ?? Loc.Author_Lumi;
         var runtime = GetOrCreateRuntimeState(chat.Id);
+        var toolParentById = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var terminalRootByToolCallId = new Dictionary<string, string>(StringComparer.Ordinal);
 
         _sessionSubs[chat.Id] = session.On(evt =>
         {
@@ -288,12 +292,25 @@ public partial class ChatViewModel : ObservableObject
                 case ToolExecutionStartEvent toolStart:
                     Dispatcher.UIThread.Post(() =>
                     {
+                        var startToolCallId = toolStart.Data.ToolCallId;
+                        toolParentById[startToolCallId] = toolStart.Data.ParentToolCallId;
+                        if (toolStart.Data.ToolName == "powershell")
+                        {
+                            terminalRootByToolCallId[startToolCallId] = startToolCallId;
+                        }
+                        else if (IsTerminalStreamingTool(toolStart.Data.ToolName)
+                                 && !string.IsNullOrWhiteSpace(toolStart.Data.ParentToolCallId))
+                        {
+                            terminalRootByToolCallId[startToolCallId] = ResolveRootTerminalToolCallId(
+                                toolStart.Data.ParentToolCallId!, toolParentById, terminalRootByToolCallId);
+                        }
+
                         var displayName = FormatToolDisplayName(toolStart.Data.ToolName, toolStart.Data.Arguments?.ToString());
                         runtime.StatusText = string.Format(Loc.Status_Running, displayName);
                         var toolMsg = new ChatMessage
                         {
                             Role = "tool",
-                            ToolCallId = toolStart.Data.ToolCallId,
+                            ToolCallId = startToolCallId,
                             ToolName = toolStart.Data.ToolName,
                             ToolStatus = "InProgress",
                             Content = toolStart.Data.Arguments?.ToString() ?? "",
@@ -309,9 +326,49 @@ public partial class ChatViewModel : ObservableObject
                     });
                     break;
 
+                case ToolExecutionPartialResultEvent partial:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (_activeSession != session)
+                            return;
+
+                        var partialToolCallId = partial.Data.ToolCallId;
+                        var partialToolName = chat.Messages.LastOrDefault(m => m.ToolCallId == partialToolCallId)?.ToolName;
+                        if (!IsTerminalStreamingTool(partialToolName)
+                            && !terminalRootByToolCallId.ContainsKey(partialToolCallId))
+                            return;
+
+                        var rootToolCallId = ResolveRootTerminalToolCallId(partialToolCallId, toolParentById, terminalRootByToolCallId);
+                        var output = CleanTerminalOutput(partial.Data.PartialOutput);
+                        if (!string.IsNullOrWhiteSpace(output))
+                            TerminalOutputReceived?.Invoke(rootToolCallId, output, false);
+                    });
+                    break;
+
+                case ToolExecutionProgressEvent progress:
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (_activeSession != session)
+                            return;
+
+                        var progressToolCallId = progress.Data.ToolCallId;
+                        var progressToolName = chat.Messages.LastOrDefault(m => m.ToolCallId == progressToolCallId)?.ToolName;
+                        if (!IsTerminalStreamingTool(progressToolName)
+                            && !terminalRootByToolCallId.ContainsKey(progressToolCallId))
+                            return;
+
+                        var rootToolCallId = ResolveRootTerminalToolCallId(progressToolCallId, toolParentById, terminalRootByToolCallId);
+                        var output = CleanTerminalOutput(progress.Data.ProgressMessage);
+                        if (!string.IsNullOrWhiteSpace(output))
+                            TerminalOutputReceived?.Invoke(rootToolCallId, output, false);
+                    });
+                    break;
+
                 case ToolExecutionCompleteEvent toolEnd:
                     Dispatcher.UIThread.Post(() =>
                     {
+                        toolParentById[toolEnd.Data.ToolCallId] = toolEnd.Data.ParentToolCallId;
+
                         var success = toolEnd.Data.Success == true;
                         var toolMsg = chat.Messages.LastOrDefault(m => m.ToolCallId == toolEnd.Data.ToolCallId);
                         if (toolMsg is not null)
@@ -322,10 +379,11 @@ public partial class ChatViewModel : ObservableObject
                                 var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == toolEnd.Data.ToolCallId);
                                 vm?.NotifyToolStatusChanged();
                             }
+
+                            var toolName = toolMsg.ToolName;
+
                             if (success)
                             {
-                                var toolName = toolMsg.ToolName;
-
                                 // Track fetched skills for attachment to the assistant message
                                 if (toolName == "fetch_skill")
                                 {
@@ -365,6 +423,15 @@ public partial class ChatViewModel : ObservableObject
                                         }
                                     }
                                 }
+                            }
+
+                            if (IsTerminalStreamingTool(toolName) && _activeSession == session)
+                            {
+                                var rootToolCallId = ResolveRootTerminalToolCallId(
+                                    toolEnd.Data.ToolCallId, toolParentById, terminalRootByToolCallId);
+                                var output = ExtractTerminalOutput(toolEnd.Data.Result);
+                                if (!string.IsNullOrWhiteSpace(output))
+                                    TerminalOutputReceived?.Invoke(rootToolCallId, output, true);
                             }
                         }
                     });
@@ -1619,6 +1686,38 @@ public partial class ChatViewModel : ObservableObject
             or "insert" or "write" or "save_file";
     }
 
+    private static bool IsTerminalStreamingTool(string? toolName)
+    {
+        return toolName is "powershell" or "read_powershell" or "write_powershell" or "stop_powershell";
+    }
+
+    private static string ResolveRootTerminalToolCallId(
+        string toolCallId,
+        Dictionary<string, string?> toolParentById,
+        Dictionary<string, string> terminalRootByToolCallId)
+    {
+        if (terminalRootByToolCallId.TryGetValue(toolCallId, out var knownRoot))
+            return knownRoot;
+
+        var current = toolCallId;
+        for (var depth = 0; depth < 24; depth++)
+        {
+            if (terminalRootByToolCallId.TryGetValue(current, out var mappedRoot))
+            {
+                terminalRootByToolCallId[toolCallId] = mappedRoot;
+                return mappedRoot;
+            }
+
+            if (!toolParentById.TryGetValue(current, out var parent) || string.IsNullOrWhiteSpace(parent))
+                break;
+
+            current = parent;
+        }
+
+        terminalRootByToolCallId[toolCallId] = current;
+        return current;
+    }
+
     /// <summary>Converts a file:// URI or plain path to a local filesystem path.</summary>
     private static string? UriToLocalPath(string uri)
     {
@@ -1628,6 +1727,57 @@ public partial class ChatViewModel : ObservableObject
         if (Path.IsPathRooted(uri))
             return uri;
         return null;
+    }
+
+    /// <summary>Extracts terminal/text output from SDK tool result fields.</summary>
+    private static string? ExtractTerminalOutput(ToolExecutionCompleteDataResult? result)
+    {
+        if (result is null)
+            return null;
+
+        var detailed = CleanTerminalOutput(result.DetailedContent);
+        if (!string.IsNullOrWhiteSpace(detailed))
+            return detailed;
+
+        var contentsText = ExtractTerminalOutput(result.Contents);
+        if (!string.IsNullOrWhiteSpace(contentsText))
+            return CleanTerminalOutput(contentsText);
+
+        return CleanTerminalOutput(result.Content);
+    }
+
+    /// <summary>Extracts terminal/text output from tool execution result contents.</summary>
+    private static string? ExtractTerminalOutput(ToolExecutionCompleteDataResultContentsItem[]? contents)
+    {
+        if (contents is not { Length: > 0 })
+            return null;
+
+        var chunks = new List<string>();
+        foreach (var item in contents)
+        {
+            if (item is ToolExecutionCompleteDataResultContentsItemTerminal terminal)
+            {
+                if (!string.IsNullOrWhiteSpace(terminal.Text))
+                    chunks.Add(terminal.Text);
+                continue;
+            }
+
+            if (item is ToolExecutionCompleteDataResultContentsItemText text
+                && !string.IsNullOrWhiteSpace(text.Text))
+            {
+                chunks.Add(text.Text);
+            }
+        }
+
+        return chunks.Count > 0 ? string.Join(Environment.NewLine, chunks) : null;
+    }
+
+    /// <summary>Strips SDK metadata lines (e.g. exit code markers) from terminal output.</summary>
+    private static string? CleanTerminalOutput(string? output)
+    {
+        if (string.IsNullOrEmpty(output)) return output;
+        // Remove trailing "<exited with exit code N>" lines
+        return Regex.Replace(output, @"\s*<exited with exit code \d+>\s*$", "", RegexOptions.IgnoreCase).TrimEnd();
     }
 
     /// <summary>Extensions for intermediary/script files that shouldn't appear as attachment chips.</summary>

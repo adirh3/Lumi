@@ -79,6 +79,10 @@ public partial class ChatView : UserControl
     // Track the current intent text from report_intent for friendly group labels
     private string? _currentIntentText;
 
+    // Track the active terminal preview for powershell tool output
+    private StrataTerminalPreview? _activeTerminalPreview;
+    private readonly Dictionary<string, StrataTerminalPreview> _terminalPreviewsByToolCallId = new(StringComparer.Ordinal);
+
     // Counter for naming message controls (Avalonia MCP automation)
     private int _messageCounter;
 
@@ -288,6 +292,32 @@ public partial class ChatView : UserControl
                 _pendingToolFileChips.Add(filePath);
         };
 
+        // Feed terminal output into terminal preview cards
+        vm.TerminalOutputReceived += (toolCallId, output, replaceExistingOutput) =>
+        {
+            if (string.IsNullOrEmpty(output))
+                return;
+
+            StrataTerminalPreview? target = null;
+            if (!string.IsNullOrWhiteSpace(toolCallId))
+                _terminalPreviewsByToolCallId.TryGetValue(toolCallId, out target);
+
+            target ??= _activeTerminalPreview;
+            if (target is null)
+                return;
+
+            if (replaceExistingOutput || string.IsNullOrEmpty(target.Output))
+            {
+                target.Output = output;
+                return;
+            }
+
+            if (output.StartsWith(target.Output, StringComparison.Ordinal))
+                target.Output = output;
+            else if (!target.Output.EndsWith(output, StringComparison.Ordinal))
+                target.Output = target.Output + "\n" + output;
+        };
+
         // Collect search results for automatic source citations
         vm.SearchResultsCollected += results =>
         {
@@ -361,6 +391,8 @@ public partial class ChatView : UserControl
                 _currentTodoProgress = null;
                 _todoUpdateCount = 0;
                 _currentIntentText = null;
+                _activeTerminalPreview = null;
+                _terminalPreviewsByToolCallId.Clear();
                 _messageCounter = 0;
                 _shownFilePaths.Clear();
                 _pendingToolFileChips.Clear();
@@ -446,6 +478,8 @@ public partial class ChatView : UserControl
         _currentTodoProgress = null;
         _todoUpdateCount = 0;
         _currentIntentText = null;
+        _activeTerminalPreview = null;
+        _terminalPreviewsByToolCallId.Clear();
         _shownFilePaths.Clear();
         _pendingToolFileChips.Clear();
         _pendingSearchSources.Clear();
@@ -580,6 +614,8 @@ public partial class ChatView : UserControl
             var savedTodoProgress = _currentTodoProgress;
             var savedTodoUpdateCount = _todoUpdateCount;
             var savedIntentText = _currentIntentText;
+            var savedTerminalPreview = _activeTerminalPreview;
+            var savedTerminalPreviewMap = new Dictionary<string, StrataTerminalPreview>(_terminalPreviewsByToolCallId, StringComparer.Ordinal);
 
             _messageStack = tempStack;
             _currentToolGroup = null;
@@ -589,6 +625,8 @@ public partial class ChatView : UserControl
             _currentTodoProgress = null;
             _todoUpdateCount = 0;
             _currentIntentText = null;
+            _activeTerminalPreview = null;
+            _terminalPreviewsByToolCallId.Clear();
 
             foreach (var msgVm in batch)
                 AddMessageControl(msgVm);
@@ -607,6 +645,10 @@ public partial class ChatView : UserControl
             _currentTodoProgress = savedTodoProgress;
             _todoUpdateCount = savedTodoUpdateCount;
             _currentIntentText = savedIntentText;
+            _activeTerminalPreview = savedTerminalPreview;
+            _terminalPreviewsByToolCallId.Clear();
+            foreach (var kv in savedTerminalPreviewMap)
+                _terminalPreviewsByToolCallId[kv.Key] = kv.Value;
 
             // Prepend the batch controls to the real message stack
             var children = tempStack.Children.ToList();
@@ -671,8 +713,12 @@ public partial class ChatView : UserControl
                 _ => StrataAiToolCallStatus.InProgress
             };
 
-            // Skip internal polling/control tools — they clutter the UI
-            if (toolName is "read_powershell" or "stop_powershell")
+            // stop_powershell/write_powershell: skip in UI
+            if (toolName is "stop_powershell" or "write_powershell")
+                return;
+
+            // read_powershell: skip UI card but handled via TerminalOutputReceived event
+            if (toolName is "read_powershell")
                 return;
 
             // announce_file: don't show a tool card — collect the file for attachment chip
@@ -766,6 +812,64 @@ public partial class ChatView : UserControl
             var (friendlyName, friendlyInfo) = GetFriendlyToolDisplay(toolName, msgVm.Author, msgVm.Content);
             friendlyName = $"{GetToolGlyph(toolName)} {friendlyName}";
 
+            // Track start time for duration calculation (live sessions only)
+            var toolCallId = msgVm.Message.ToolCallId;
+            if (toolCallId is not null && initialStatus == StrataAiToolCallStatus.InProgress)
+                _toolStartTimes[toolCallId] = Stopwatch.GetTimestamp();
+
+            // Powershell tool: show a terminal preview instead of a plain tool card
+            if (toolName == "powershell")
+            {
+                var command = ExtractJsonField(msgVm.Content, "command") ?? "";
+                var termPreview = new StrataTerminalPreview
+                {
+                    ToolName = friendlyName,
+                    Command = command,
+                    Status = initialStatus,
+                    IsExpanded = !IsTranscriptBuilding,
+                };
+                _activeTerminalPreview = termPreview;
+                if (toolCallId is not null)
+                    _terminalPreviewsByToolCallId[toolCallId] = termPreview;
+
+                msgVm.PropertyChanged += (_, args) =>
+                {
+                    if (args.PropertyName == nameof(ChatMessageViewModel.ToolStatus))
+                    {
+                        termPreview.Status = msgVm.ToolStatus switch
+                        {
+                            "Completed" => StrataAiToolCallStatus.Completed,
+                            "Failed" => StrataAiToolCallStatus.Failed,
+                            _ => StrataAiToolCallStatus.InProgress
+                        };
+
+                        if (toolCallId is not null && termPreview.Status is not StrataAiToolCallStatus.InProgress
+                            && _toolStartTimes.TryGetValue(toolCallId, out var startTick))
+                        {
+                            var elapsed = Stopwatch.GetElapsedTime(startTick);
+                            termPreview.DurationMs = elapsed.TotalMilliseconds;
+                            _toolStartTimes.Remove(toolCallId);
+                        }
+
+                        UpdateToolGroupLabel();
+                    }
+                };
+
+                EnsureCurrentToolGroup(initialStatus);
+                _currentToolGroupStack!.Children.Add(termPreview);
+                _currentToolGroupCount++;
+
+                if (_currentToolGroup is not null
+                    && initialStatus == StrataAiToolCallStatus.InProgress
+                    && !IsTranscriptBuilding)
+                {
+                    _currentToolGroup.IsExpanded = true;
+                }
+
+                UpdateToolGroupLabel();
+                return;
+            }
+
             var toolCall = new StrataAiToolCall
             {
                 ToolName = friendlyName,
@@ -774,11 +878,6 @@ public partial class ChatView : UserControl
                 InputParameters = FormatToolArgsFriendly(toolName, msgVm.Content),
                 MoreInfo = friendlyInfo
             };
-
-            // Track start time for duration calculation (live sessions only)
-            var toolCallId = msgVm.Message.ToolCallId;
-            if (toolCallId is not null && initialStatus == StrataAiToolCallStatus.InProgress)
-                _toolStartTimes[toolCallId] = Stopwatch.GetTimestamp();
 
             msgVm.PropertyChanged += (_, args) =>
             {
@@ -1035,6 +1134,8 @@ public partial class ChatView : UserControl
             _currentTodoProgress = null;
             _todoUpdateCount = 0;
             _currentIntentText = null;
+            _activeTerminalPreview = null;
+            _terminalPreviewsByToolCallId.Clear();
         }
     }
 
@@ -1202,6 +1303,11 @@ public partial class ChatView : UserControl
                 {
                     if (tc.Status == StrataAiToolCallStatus.Completed) completedCount++;
                     else if (tc.Status == StrataAiToolCallStatus.Failed) failedCount++;
+                }
+                else if (child is StrataTerminalPreview tp)
+                {
+                    if (tp.Status == StrataAiToolCallStatus.Completed) completedCount++;
+                    else if (tp.Status == StrataAiToolCallStatus.Failed) failedCount++;
                 }
             }
         }
