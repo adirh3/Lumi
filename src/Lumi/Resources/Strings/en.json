@@ -377,6 +377,12 @@
   "Sources_One": "1 source",
   "Sources_N": "{0} sources",
 
+  "ShowDiff": "Show diff",
+  "FileChanges_One": "1 file changed",
+  "FileChanges_N": "{0} files changed",
+  "FileChange_Created": "Created",
+  "FileChange_Modified": "Modified",
+
   "Sidebar_McpServers": "MCP Servers",
   "Sidebar_NewMcpServerTooltip": "New MCP server",
   "Editor_McpServer": "MCP Server Editor",

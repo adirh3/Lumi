@@ -97,6 +97,10 @@ public partial class ChatViewModel : ObservableObject
     public event Action<List<WebSearchService.SearchResult>>? SearchResultsCollected;
     public event Action? AgentChanged;
     public event Action? BrowserHideRequested;
+    /// <summary>Raised when a file-edit tool wants to show a diff in the preview island. Args: filePath, oldText, newText.</summary>
+    public event Action<string, string?, string?>? DiffShowRequested;
+    /// <summary>Raised to hide the diff preview island.</summary>
+    public event Action? DiffHideRequested;
     /// <summary>Fires terminal output updates (rootToolCallId, output, replaceExistingOutput).</summary>
     public event Action<string, string, bool>? TerminalOutputReceived;
 
@@ -758,6 +762,7 @@ public partial class ChatViewModel : ObservableObject
         if (CurrentChat?.Id != chat.Id)
         {
             BrowserHideRequested?.Invoke();
+            DiffHideRequested?.Invoke();
             HasUsedBrowser = false;
         }
 
@@ -850,6 +855,7 @@ public partial class ChatViewModel : ObservableObject
     public void ClearChat()
     {
         BrowserHideRequested?.Invoke();
+        DiffHideRequested?.Invoke();
         HasUsedBrowser = false;
 
         // Detach from current chat without destroying its session.
@@ -1454,6 +1460,16 @@ public partial class ChatViewModel : ObservableObject
         else
             BrowserShowRequested?.Invoke();
     }
+
+    /// <summary>True when the diff preview panel is currently visible.</summary>
+    [ObservableProperty] bool _isDiffOpen;
+
+    /// <summary>Shows a file diff in the preview island.</summary>
+    public void ShowDiff(string filePath, string? oldText, string? newText)
+        => DiffShowRequested?.Invoke(filePath, oldText, newText);
+
+    /// <summary>Hides the diff preview island.</summary>
+    public void HideDiff() => DiffHideRequested?.Invoke();
 
     partial void OnSelectedModelChanged(string? value)
     {

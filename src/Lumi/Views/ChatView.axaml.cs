@@ -73,6 +73,9 @@ public partial class ChatView : UserControl
     // Skills fetched via fetch_skill tool, shown on the next assistant message
     private readonly List<SkillReference> _pendingFetchedSkills = [];
 
+    // File edits collected during tool execution, shown as "Changes" section on the next assistant message
+    private readonly List<(string FilePath, string ToolName, string? OldText, string? NewText)> _pendingFileEdits = [];
+
     // Track tool call start times for duration display
     private readonly Dictionary<string, long> _toolStartTimes = [];
 
@@ -404,6 +407,7 @@ public partial class ChatView : UserControl
                 _pendingToolFileChips.Clear();
                 _pendingSearchSources.Clear();
                 _pendingFetchedSkills.Clear();
+                _pendingFileEdits.Clear();
                 _toolStartTimes.Clear();
             }
         };
@@ -490,6 +494,7 @@ public partial class ChatView : UserControl
         _pendingToolFileChips.Clear();
         _pendingSearchSources.Clear();
         _pendingFetchedSkills.Clear();
+        _pendingFileEdits.Clear();
         _toolStartTimes.Clear();
         _deferredMessages = null;
         _isLoadingOlder = false;
@@ -917,6 +922,53 @@ public partial class ChatView : UserControl
                 MoreInfo = friendlyInfo
             };
 
+            // For file-edit tools, collect diff data and add a "Show diff" button below the tool call
+            Button? showDiffBtn = null;
+            if (IsFileEditTool(toolName))
+            {
+                var argsJson = msgVm.Content;
+
+                // Collect all file edits for the file changes section
+                var allDiffs = ExtractAllDiffs(toolName, argsJson);
+                foreach (var d in allDiffs)
+                    _pendingFileEdits.Add((d.FilePath, toolName, d.OldText, d.NewText));
+
+                // Show diff button uses the first diff as the entry point
+                if (allDiffs.Count > 0)
+                {
+                    var capturedDiff = allDiffs[0];
+                    showDiffBtn = new Button
+                    {
+                        Content = new StackPanel
+                        {
+                            Orientation = Orientation.Horizontal,
+                            Spacing = 5,
+                            Children =
+                            {
+                                new TextBlock
+                                {
+                                    Text = "\uE8A7", // diff icon
+                                    FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+                                    FontSize = 11,
+                                    VerticalAlignment = VerticalAlignment.Center,
+                                },
+                                new TextBlock { Text = Loc.ShowDiff, FontSize = 11, VerticalAlignment = VerticalAlignment.Center }
+                            }
+                        },
+                        Classes = { "subtle" },
+                        Padding = new Thickness(8, 2),
+                        Margin = new Thickness(0, -2, 0, 0),
+                        Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                    };
+                    showDiffBtn.Click += (_, _) =>
+                    {
+                        if (DataContext is ChatViewModel chatVm)
+                            chatVm.ShowDiff(capturedDiff.FilePath, capturedDiff.OldText, capturedDiff.NewText);
+                    };
+                }
+            }
+
             msgVm.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(ChatMessageViewModel.ToolStatus))
@@ -945,6 +997,8 @@ public partial class ChatView : UserControl
             EnsureCurrentToolGroup(initialStatus);
 
             _currentToolGroupStack!.Children.Add(toolCall);
+            if (showDiffBtn is not null)
+                _currentToolGroupStack.Children.Add(showDiffBtn);
             _currentToolGroupCount++;
 
             UpdateToolGroupLabel();
@@ -1006,7 +1060,7 @@ public partial class ChatView : UserControl
 
                 msgContent = contentStack;
             }
-            else if (!isUser && (_pendingToolFileChips.Count > 0 || _pendingSearchSources.Count > 0 || _pendingFetchedSkills.Count > 0 || msgVm.Message.Sources.Count > 0 || msgVm.Message.ActiveSkills.Count > 0))
+            else if (!isUser && (_pendingToolFileChips.Count > 0 || _pendingSearchSources.Count > 0 || _pendingFetchedSkills.Count > 0 || _pendingFileEdits.Count > 0 || msgVm.Message.Sources.Count > 0 || msgVm.Message.ActiveSkills.Count > 0))
             {
                 // Attach files, search sources, and fetched skills to the assistant message
                 var contentStack = new StackPanel { Spacing = 6 };
@@ -1049,6 +1103,12 @@ public partial class ChatView : UserControl
 
                 if (allSources.Count > 0)
                     contentStack.Children.Add(BuildSourcesSection(allSources));
+
+                if (_pendingFileEdits.Count > 0)
+                {
+                    contentStack.Children.Add(BuildFileChangesSection(_pendingFileEdits));
+                    _pendingFileEdits.Clear();
+                }
 
                 msgContent = contentStack;
             }
@@ -1928,7 +1988,8 @@ public partial class ChatView : UserControl
         return toolName switch
         {
             "powershell" or "run_in_terminal" or "bash" or "shell" => "⌨",
-            "create" or "write_file" or "create_file" or "edit" or "edit_file" or "str_replace" or "insert" => "📝",
+            "create" or "write_file" or "create_file" or "edit" or "edit_file" or "str_replace" or "insert"
+                or "replace_string_in_file" or "multi_replace_string_in_file" or "str_replace_editor" => "📝",
             "view" or "read_file" or "read" => "📄",
             "browser" or "browser_navigate" or "browser_do" or "browser_look" or "browser_js" => "🌐",
             "lumi_search" or "web_search" or "search" => "🔎",
@@ -1938,6 +1999,100 @@ public partial class ChatView : UserControl
             "update_todo" or "manage_todo_list" => "✅",
             _ => "⚙"
         };
+    }
+
+    /// <summary>Returns true if the tool is a file-edit tool that can show a diff.</summary>
+    private static bool IsFileEditTool(string toolName)
+        => toolName is "edit" or "edit_file" or "str_replace" or "str_replace_editor"
+            or "replace_string_in_file" or "insert" or "create" or "write_file"
+            or "create_file" or "create_and_write_file" or "write" or "save_file"
+            or "multi_replace_string_in_file";
+
+    /// <summary>Extracts diff data (filePath, oldText, newText) from tool call args JSON.</summary>
+    private static (string FilePath, string? OldText, string? NewText)? ExtractDiffData(string toolName, string? argsJson)
+    {
+        if (string.IsNullOrWhiteSpace(argsJson)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(argsJson);
+            var root = doc.RootElement;
+
+            if (toolName is "multi_replace_string_in_file")
+            {
+                // For multi-replace, extract the first replacement as the primary diff
+                if (root.TryGetProperty("replacements", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in arr.EnumerateArray())
+                    {
+                        var fp = item.TryGetProperty("filePath", out var fpVal) ? fpVal.GetString()
+                            : item.TryGetProperty("path", out var pVal) ? pVal.GetString() : null;
+                        var old = item.TryGetProperty("oldString", out var osVal) ? osVal.GetString() : null;
+                        var nw = item.TryGetProperty("newString", out var nsVal) ? nsVal.GetString() : null;
+                        if (fp is not null) return (fp, old, nw);
+                    }
+                }
+                return null;
+            }
+
+            // Standard edit tools: filePath/path + oldString + newString
+            var filePath = root.TryGetProperty("filePath", out var f) ? f.GetString()
+                : root.TryGetProperty("path", out var p) ? p.GetString()
+                : root.TryGetProperty("file", out var fi) ? fi.GetString() : null;
+
+            if (filePath is null) return null;
+
+            var oldText = root.TryGetProperty("oldString", out var o) ? o.GetString()
+                : root.TryGetProperty("old_str", out var os) ? os.GetString() : null;
+            var newText = root.TryGetProperty("newString", out var n) ? n.GetString()
+                : root.TryGetProperty("new_str", out var ns) ? ns.GetString()
+                : root.TryGetProperty("content", out var c) ? c.GetString()
+                : root.TryGetProperty("insert_text", out var it) ? it.GetString() : null;
+
+            return (filePath, oldText, newText);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Extracts all file diffs from tool call args JSON.
+    /// For multi_replace_string_in_file, returns one entry per replacement.
+    /// For standard edit tools, returns a single entry.
+    /// </summary>
+    private static List<(string FilePath, string? OldText, string? NewText)> ExtractAllDiffs(string toolName, string? argsJson)
+    {
+        var results = new List<(string FilePath, string? OldText, string? NewText)>();
+        if (string.IsNullOrWhiteSpace(argsJson)) return results;
+        try
+        {
+            using var doc = JsonDocument.Parse(argsJson);
+            var root = doc.RootElement;
+
+            if (toolName is "multi_replace_string_in_file")
+            {
+                if (root.TryGetProperty("replacements", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in arr.EnumerateArray())
+                    {
+                        var fp = item.TryGetProperty("filePath", out var fpVal) ? fpVal.GetString()
+                            : item.TryGetProperty("path", out var pVal) ? pVal.GetString() : null;
+                        if (fp is null) continue;
+                        var old = item.TryGetProperty("oldString", out var osVal) ? osVal.GetString() : null;
+                        var nw = item.TryGetProperty("newString", out var nsVal) ? nsVal.GetString() : null;
+                        results.Add((fp, old, nw));
+                    }
+                }
+                return results;
+            }
+
+            // Single edit: use ExtractDiffData
+            var diff = ExtractDiffData(toolName, argsJson);
+            if (diff is not null) results.Add(diff.Value);
+        }
+        catch { }
+        return results;
     }
 
     private static List<TodoStepSnapshot> ParseTodoSteps(string? argsJson)
@@ -2229,6 +2384,44 @@ public partial class ChatView : UserControl
                     return sb.ToString().TrimEnd();
                 }
 
+                case "edit":
+                case "edit_file":
+                case "str_replace":
+                case "str_replace_editor":
+                case "replace_string_in_file":
+                case "insert":
+                {
+                    var path = GetString(root, "filePath") ?? GetString(root, "path");
+                    if (path is null) break;
+                    var fileName = Path.GetFileName(path);
+                    var dir = Path.GetDirectoryName(path);
+                    var sb = new StringBuilder();
+                    sb.AppendLine($"**File:** `{fileName}`");
+                    if (!string.IsNullOrEmpty(dir))
+                        sb.AppendLine($"**Location:** `{dir}`");
+                    return sb.ToString().TrimEnd();
+                }
+
+                case "multi_replace_string_in_file":
+                {
+                    if (root.TryGetProperty("replacements", out var arr)
+                        && arr.ValueKind == JsonValueKind.Array)
+                    {
+                        var count = arr.GetArrayLength();
+                        string? firstFile = null;
+                        foreach (var item in arr.EnumerateArray())
+                        {
+                            if (item.TryGetProperty("filePath", out var fpVal))
+                            { firstFile = Path.GetFileName(fpVal.GetString()); break; }
+                        }
+                        if (firstFile is not null)
+                            return count > 1
+                                ? $"**File:** `{firstFile}` (+{count - 1} more)"
+                                : $"**File:** `{firstFile}`";
+                    }
+                    break;
+                }
+
                 case "save_memory":
                 {
                     var key = GetString(root, "key");
@@ -2405,6 +2598,43 @@ public partial class ChatView : UserControl
                 var path = ExtractJsonField(argsJson, "path");
                 var fileName = path is not null ? Path.GetFileName(path) : null;
                 return (Loc.Tool_CreatingFile, fileName);
+            }
+
+            case "edit":
+            case "edit_file":
+            case "str_replace":
+            case "str_replace_editor":
+            case "replace_string_in_file":
+            case "insert":
+            {
+                var path = ExtractJsonField(argsJson, "filePath")
+                    ?? ExtractJsonField(argsJson, "path");
+                var fileName = path is not null ? Path.GetFileName(path) : null;
+                return (Loc.Tool_EditingFile, fileName);
+            }
+
+            case "multi_replace_string_in_file":
+            {
+                // Try to extract file name from first replacement
+                string? fileName = null;
+                try
+                {
+                    if (argsJson is not null)
+                    {
+                        using var doc = JsonDocument.Parse(argsJson);
+                        if (doc.RootElement.TryGetProperty("replacements", out var arr)
+                            && arr.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var item in arr.EnumerateArray())
+                            {
+                                var fp = item.TryGetProperty("filePath", out var fpVal) ? fpVal.GetString() : null;
+                                if (fp is not null) { fileName = Path.GetFileName(fp); break; }
+                            }
+                        }
+                    }
+                }
+                catch { }
+                return (Loc.Tool_EditingFile, fileName);
             }
 
             case "save_memory":
@@ -2658,6 +2888,99 @@ public partial class ChatView : UserControl
             Content = sourcesList,
             Margin = new Thickness(0, 4, 0, 0),
         };
+    }
+
+    /// <summary>Builds a "Changes" section shown at the bottom of an assistant message, similar to sources.</summary>
+    private Control BuildFileChangesSection(List<(string FilePath, string ToolName, string? OldText, string? NewText)> edits)
+    {
+        // Deduplicate by file path (keep last edit per file)
+        var seen = new Dictionary<string, (string FilePath, string ToolName, string? OldText, string? NewText)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var edit in edits)
+            seen[edit.FilePath] = edit;
+
+        var unique = seen.Values.ToList();
+        var count = unique.Count;
+        var label = count == 1 ? Loc.FileChanges_One : string.Format(Loc.FileChanges_N, count);
+
+        var changesList = new StackPanel { Spacing = 2 };
+        foreach (var edit in unique)
+        {
+            var fileName = System.IO.Path.GetFileName(edit.FilePath);
+            var dir = System.IO.Path.GetDirectoryName(edit.FilePath);
+
+            var isCreate = edit.ToolName is "create" or "write_file" or "create_file" or "write" or "save_file" or "create_and_write_file";
+            var actionIcon = isCreate ? "📄" : "📝";
+            var actionLabel = isCreate ? Loc.FileChange_Created : Loc.FileChange_Modified;
+
+            var chip = new Button
+            {
+                Classes = { "subtle" },
+                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+                Padding = new Thickness(6, 4),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Content = new Grid
+                {
+                    ColumnDefinitions = new ColumnDefinitions("Auto,6,*"),
+                    Children =
+                    {
+                        SetColumn(new TextBlock
+                        {
+                            Text = actionIcon,
+                            FontSize = 13,
+                            VerticalAlignment = VerticalAlignment.Center,
+                        }, 0),
+                        SetColumn(new StackPanel
+                        {
+                            Spacing = 1,
+                            Children =
+                            {
+                                new TextBlock
+                                {
+                                    Text = fileName,
+                                    FontSize = 12,
+                                    FontWeight = Avalonia.Media.FontWeight.Medium,
+                                    TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis,
+                                    MaxLines = 1,
+                                },
+                                new TextBlock
+                                {
+                                    Text = actionLabel + (dir is not null ? $" · {dir}" : ""),
+                                    FontSize = 11,
+                                    Opacity = 0.55,
+                                    TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis,
+                                    MaxLines = 1,
+                                }
+                            }
+                        }, 2)
+                    }
+                }
+            };
+
+            var capturedEdit = edit;
+            chip.Click += (_, _) =>
+            {
+                if (DataContext is ChatViewModel chatVm)
+                    chatVm.ShowDiff(capturedEdit.FilePath, capturedEdit.OldText, capturedEdit.NewText);
+            };
+
+            changesList.Children.Add(chip);
+        }
+
+        return new StrataThink
+        {
+            Label = label,
+            IsExpanded = false,
+            Content = changesList,
+            Margin = new Thickness(0, 4, 0, 0),
+        };
+    }
+
+    /// <summary>Helper to set Grid.Column and return the control for fluent use in initializers.</summary>
+    private static T SetColumn<T>(T control, int column) where T : Control
+    {
+        Grid.SetColumn(control, column);
+        return control;
     }
 
     private static string? ExtractToolSummary(string? toolName, string? argsJson)

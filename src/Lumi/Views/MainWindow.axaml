@@ -774,6 +774,40 @@
               <ContentControl x:Name="BrowserHost" />
             </DockPanel>
           </Border>
+
+          <!-- Diff preview panel (hidden by default, shown when clicking file-edit tool calls) -->
+            <Border x:Name="DiffIsland" Grid.Column="2" IsVisible="False"
+              MinWidth="{StaticResource MainLayout.SplitIslandMinWidth}"
+              MaxWidth="{Binding Bounds.Width, RelativeSource={RelativeSource AncestorType=Grid}}"
+                  CornerRadius="{DynamicResource Radius.Overlay}"
+                  Background="{DynamicResource Brush.SurfaceCard}"
+                  BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                  BorderThickness="1"
+                  BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000"
+                  ClipToBounds="True">
+            <DockPanel>
+              <!-- Diff header bar -->
+              <DockPanel DockPanel.Dock="Top" Margin="12,8,12,0">
+                <Button DockPanel.Dock="Right" Classes="subtle" Padding="6" MinHeight="0" MinWidth="0"
+                        ToolTip.Tip="Close diff" x:Name="CloseDiffButton">
+                  <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextPrimary}">
+                    <PathIcon.Data>
+                      <StreamGeometry>M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z</StreamGeometry>
+                    </PathIcon.Data>
+                  </PathIcon>
+                </Button>
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                  <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.AccentDefault}">
+                    <PathIcon.Data>
+                      <StreamGeometry>M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z</StreamGeometry>
+                    </PathIcon.Data>
+                  </PathIcon>
+                  <TextBlock x:Name="DiffFileNameText" Text="Changes" Classes="body-strong" FontWeight="SemiBold" />
+                </StackPanel>
+              </DockPanel>
+              <ContentControl x:Name="DiffHost" />
+            </DockPanel>
+          </Border>
         </Grid>
 
         <!-- ── Full-width pages with island treatment (visible when not on Chat tab) ── -->

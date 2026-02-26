@@ -51,6 +51,11 @@ public partial class MainWindow : Window
     private Border? _browserIsland;
     private GridSplitter? _browserSplitter;
     private Grid? _chatContentGrid;
+    private Border? _diffIsland;
+    private ContentControl? _diffHost;
+    private DiffView? _diffView;
+    private TextBlock? _diffFileNameText;
+    private CancellationTokenSource? _previewAnimCts;
     private bool _suppressSelectionSync;
     private CancellationTokenSource? _browserAnimCts;
 
@@ -142,6 +147,9 @@ public partial class MainWindow : Window
         _browserIsland = this.FindControl<Border>("BrowserIsland");
         _browserSplitter = this.FindControl<GridSplitter>("BrowserSplitter");
         _chatContentGrid = this.FindControl<Grid>("ChatContentGrid");
+        _diffIsland = this.FindControl<Border>("DiffIsland");
+        _diffHost = this.FindControl<ContentControl>("DiffHost");
+        _diffFileNameText = this.FindControl<TextBlock>("DiffFileNameText");
 
         // Populate onboarding ComboBoxes
         if (_onboardingSexCombo is not null)
@@ -379,6 +387,21 @@ public partial class MainWindow : Window
             if (closeBrowserBtn is not null)
                 closeBrowserBtn.Click += (_, _) => { HideBrowserPanel(); vm.ChatVM.IsBrowserOpen = false; };
 
+            // Wire diff panel show/hide
+            vm.ChatVM.DiffShowRequested += (filePath, oldText, newText) =>
+            {
+                Dispatcher.UIThread.Post(() => ShowDiffPanel(filePath, oldText, newText));
+            };
+            vm.ChatVM.DiffHideRequested += () =>
+            {
+                Dispatcher.UIThread.Post(() => HideDiffPanel());
+            };
+
+            // Close diff button
+            var closeDiffBtn = this.FindControl<Button>("CloseDiffButton");
+            if (closeDiffBtn is not null)
+                closeDiffBtn.Click += (_, _) => { HideDiffPanel(); if (DataContext is MainViewModel m) m.ChatVM.IsDiffOpen = false; };
+
             // Sync initial browser theme
             vm.BrowserService.SetTheme(vm.IsDarkTheme);
 
@@ -421,8 +444,9 @@ public partial class MainWindow : Window
                 }
                 else if (args.PropertyName == nameof(MainViewModel.ActiveChatId))
                 {
-                    // Hide browser when switching chats — each chat starts fresh
+                    // Hide browser/diff when switching chats — each chat starts fresh
                     HideBrowserPanel();
+                    HideDiffPanel();
                     Dispatcher.UIThread.Post(() => SyncListBoxSelection(vm.ActiveChatId),
                         DispatcherPriority.Loaded);
                 }
@@ -488,11 +512,12 @@ public partial class MainWindow : Window
                 _sidebarPanels[i]!.IsVisible = i == index;
         }
 
-        // Hide/show browser when navigating away from / back to chat
+        // Hide/show browser/diff when navigating away from / back to chat
         if (index != 0)
         {
-            // Leaving chat — fully close the browser panel
+            // Leaving chat — fully close preview panels
             HideBrowserPanel();
+            HideDiffPanel();
         }
         else if (_browserIsland is { IsVisible: true })
         {
@@ -1010,6 +1035,15 @@ public partial class MainWindow : Window
         if (_browserIsland is null || _chatContentGrid is null || _chatIsland is null) return;
         if (_browserIsland.IsVisible) return;
 
+        // Hide diff panel if open (they share column 2)
+        if (_diffIsland is { IsVisible: true })
+        {
+            _diffIsland.IsVisible = false;
+            _diffIsland.Opacity = 1;
+            _diffIsland.RenderTransform = null;
+            if (DataContext is MainViewModel vmd) vmd.ChatVM.IsDiffOpen = false;
+        }
+
         // Cancel any in-progress animation
         _browserAnimCts?.Cancel();
         _browserAnimCts = new CancellationTokenSource();
@@ -1154,5 +1188,140 @@ public partial class MainWindow : Window
         if (_chatIsland is not null)
             Grid.SetColumn(_chatIsland, 0);
         Grid.SetColumn(_browserIsland, 2);
+    }
+
+    /// <summary>Whether the diff panel is currently visible.</summary>
+    private bool IsDiffOpen => _diffIsland is { IsVisible: true };
+
+    private void EnsureDiffViewLoaded()
+    {
+        if (_diffView is not null) return;
+        if (_diffHost is null) return;
+
+        _diffView = new DiffView();
+        _diffHost.Content = _diffView;
+    }
+
+    private async void ShowDiffPanel(string filePath, string? oldText, string? newText)
+    {
+        if (_diffIsland is null || _chatContentGrid is null || _chatIsland is null) return;
+
+        // Hide browser panel if it's open (they share column 2)
+        if (_browserIsland is { IsVisible: true })
+        {
+            _browserIsland.IsVisible = false;
+            _browserIsland.Opacity = 1;
+            _browserIsland.RenderTransform = null;
+            if (_browserSplitter is not null) _browserSplitter.IsVisible = false;
+            if (DataContext is MainViewModel vmb)
+            {
+                if (vmb.BrowserService.Controller is not null)
+                    vmb.BrowserService.Controller.IsVisible = false;
+                vmb.ChatVM.IsBrowserOpen = false;
+            }
+        }
+
+        // Cancel any in-progress animation
+        _previewAnimCts?.Cancel();
+        _previewAnimCts = new CancellationTokenSource();
+        var ct = _previewAnimCts.Token;
+
+        var vm = DataContext as MainViewModel;
+
+        // Ensure we're on the Chat tab
+        if (vm is not null && vm.SelectedNavIndex != 0)
+            vm.SelectedNavIndex = 0;
+
+        EnsureDiffViewLoaded();
+
+        // Update header text
+        if (_diffFileNameText is not null)
+            _diffFileNameText.Text = System.IO.Path.GetFileName(filePath);
+
+        // Set diff content
+        _diffView?.SetDiff(filePath, oldText, newText);
+
+        // Switch to split layout
+        const double offsetX = 40.0;
+        var defs = _chatContentGrid.ColumnDefinitions;
+        while (defs.Count < 3) defs.Add(new ColumnDefinition());
+        defs[0].Width = new GridLength(1, GridUnitType.Star);
+        defs[1].Width = GridLength.Auto;
+        defs[2].Width = new GridLength(1, GridUnitType.Star);
+        Grid.SetColumn(_chatIsland, 0);
+        Grid.SetColumn(_diffIsland, 2);
+
+        _diffIsland.RenderTransform = new TranslateTransform(offsetX, 0);
+        _diffIsland.Opacity = 0;
+        _diffIsland.IsVisible = true;
+        if (_browserSplitter is not null) _browserSplitter.IsVisible = true;
+
+        var anim = new Avalonia.Animation.Animation
+        {
+            Duration = TimeSpan.FromMilliseconds(300),
+            Easing = new CubicEaseOut(),
+            FillMode = FillMode.Forward,
+            Children =
+            {
+                new KeyFrame { Cue = new Cue(0), Setters = { new Setter(OpacityProperty, 0.0), new Setter(TranslateTransform.XProperty, offsetX) } },
+                new KeyFrame { Cue = new Cue(1), Setters = { new Setter(OpacityProperty, 1.0), new Setter(TranslateTransform.XProperty, 0.0) } },
+            }
+        };
+
+        try { await anim.RunAsync(_diffIsland, ct); }
+        catch (OperationCanceledException) { return; }
+        if (ct.IsCancellationRequested) return;
+
+        _diffIsland.Opacity = 1;
+        _diffIsland.RenderTransform = null;
+
+        if (vm is not null) vm.ChatVM.IsDiffOpen = true;
+    }
+
+    private async void HideDiffPanel()
+    {
+        if (_diffIsland is null || _chatContentGrid is null) return;
+        if (!_diffIsland.IsVisible) return;
+
+        _previewAnimCts?.Cancel();
+        _previewAnimCts = new CancellationTokenSource();
+        var ct = _previewAnimCts.Token;
+
+        const double offsetX = 40.0;
+        _diffIsland.RenderTransform = new TranslateTransform(0, 0);
+
+        var anim = new Avalonia.Animation.Animation
+        {
+            Duration = TimeSpan.FromMilliseconds(200),
+            Easing = new CubicEaseIn(),
+            FillMode = FillMode.Forward,
+            Children =
+            {
+                new KeyFrame { Cue = new Cue(0), Setters = { new Setter(OpacityProperty, 1.0), new Setter(TranslateTransform.XProperty, 0.0) } },
+                new KeyFrame { Cue = new Cue(1), Setters = { new Setter(OpacityProperty, 0.0), new Setter(TranslateTransform.XProperty, offsetX) } },
+            }
+        };
+
+        try { await anim.RunAsync(_diffIsland, ct); }
+        catch (OperationCanceledException) { }
+
+        _diffIsland.IsVisible = false;
+        _diffIsland.Opacity = 1;
+        _diffIsland.RenderTransform = null;
+        if (_browserSplitter is not null && !(_browserIsland?.IsVisible ?? false))
+            _browserSplitter.IsVisible = false;
+
+        // Reset to single-column if browser isn't open either
+        if (!(_browserIsland?.IsVisible ?? false))
+        {
+            var defs = _chatContentGrid.ColumnDefinitions;
+            while (defs.Count < 3) defs.Add(new ColumnDefinition());
+            defs[0].Width = new GridLength(1, GridUnitType.Star);
+            defs[1].Width = new GridLength(0);
+            defs[2].Width = new GridLength(0);
+            if (_chatIsland is not null) Grid.SetColumn(_chatIsland, 0);
+        }
+
+        if (DataContext is MainViewModel vm) vm.ChatVM.IsDiffOpen = false;
     }
 }

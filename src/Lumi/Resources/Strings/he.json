@@ -378,6 +378,12 @@
   "Sources_One": "מקור אחד",
   "Sources_N": "{0} מקורות",
 
+  "ShowDiff": "הצג שינויים",
+  "FileChanges_One": "קובץ אחד שונה",
+  "FileChanges_N": "{0} קבצים שונו",
+  "FileChange_Created": "נוצר",
+  "FileChange_Modified": "שונה",
+
   "Sidebar_McpServers": "שרתי MCP",
   "Sidebar_NewMcpServerTooltip": "שרת MCP חדש",
   "Editor_McpServer": "עורך שרת MCP",
