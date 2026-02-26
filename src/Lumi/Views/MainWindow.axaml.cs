@@ -28,8 +28,7 @@ public partial class MainWindow : Window
     private DockPanel? _mainPanel;
     private Border? _acrylicFallback;
     private Border? _chatIsland;
-    private Border? _sidebarBorder;
-    private Panel? _contentArea;
+    private Border? _windowContentRoot;
     private Control?[] _pages = [];
     private Panel?[] _sidebarPanels = [];
     private Button?[] _navButtons = [];
@@ -75,7 +74,11 @@ public partial class MainWindow : Window
                 UpdateAcrylicFallbackOpacity();
         };
 
-        Opened += (_, _) => UpdateAcrylicFallbackOpacity();
+        Opened += (_, _) =>
+        {
+            UpdateAcrylicFallbackOpacity();
+            ApplyWindowContentPaddingForState();
+        };
     }
 
     private void InitializeComponent()
@@ -86,8 +89,7 @@ public partial class MainWindow : Window
         _mainPanel = this.FindControl<DockPanel>("MainPanel");
         _acrylicFallback = this.FindControl<Border>("AcrylicFallback");
         _chatIsland = this.FindControl<Border>("ChatIsland");
-        _sidebarBorder = this.FindControl<Border>("SidebarBorder");
-        _contentArea = this.FindControl<Panel>("ContentArea");
+        _windowContentRoot = this.FindControl<Border>("WindowContentRoot");
 
         _pages =
         [
@@ -289,31 +291,27 @@ public partial class MainWindow : Window
         Hide();
     }
 
-    /// <summary>Handle WindowState changes: when minimized + tray enabled, hide to tray.
-    /// When maximized, add extra margin to compensate for the hidden resize border.</summary>
+    /// <summary>Handle WindowState changes: when minimized + tray enabled, hide to tray.</summary>
     private void OnWindowStateChanged()
     {
+        ApplyWindowContentPaddingForState();
+
         if (WindowState == WindowState.Minimized
             && DataContext is MainViewModel vm
             && vm.SettingsVM.MinimizeToTray)
         {
             HideToTray();
         }
+    }
 
-        // On Windows, maximized windows extend ~7px beyond screen edges
-        // to hide resize borders, so add extra margin to compensate.
-        if (_contentArea is not null)
-        {
-            _contentArea.Margin = WindowState == WindowState.Maximized
-                ? new Thickness(4, 38, 6, 6)
-                : new Thickness(0, 32, 0, 0);
-        }
-        if (_sidebarBorder is not null)
-        {
-            _sidebarBorder.Padding = WindowState == WindowState.Maximized
-                ? new Thickness(6, 6, 0, 6)
-                : new Thickness(0);
-        }
+    private void ApplyWindowContentPaddingForState()
+    {
+        if (_windowContentRoot is null)
+            return;
+
+        _windowContentRoot.Padding = WindowState == WindowState.Maximized
+            ? new Thickness(6)
+            : new Thickness(0);
     }
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -847,13 +845,8 @@ public partial class MainWindow : Window
         var allBtn = new Button
         {
             Content = Loc.Sidebar_All,
-            Padding = new Thickness(10, 4),
-            MinHeight = 0,
-            MinWidth = 0,
-            CornerRadius = new CornerRadius(12),
-            BorderThickness = new Thickness(0),
-            Focusable = false
         };
+        allBtn.Classes.Add("project-pill");
         allBtn[!Avalonia.Controls.Primitives.TemplatedControl.FontSizeProperty] = allBtn.GetResourceObservable("Font.SizeCaption").ToBinding();
         allBtn.Classes.Add(isAll ? "accent" : "subtle");
         allBtn.Click += (_, _) => vm.ClearProjectFilterCommand.Execute(null);
@@ -866,13 +859,8 @@ public partial class MainWindow : Window
             var btn = new Button
             {
                 Content = project.Name,
-                Padding = new Thickness(10, 4),
-                MinHeight = 0,
-                MinWidth = 0,
-                CornerRadius = new CornerRadius(12),
-                BorderThickness = new Thickness(0),
-                Focusable = false
             };
+            btn.Classes.Add("project-pill");
             btn[!Avalonia.Controls.Primitives.TemplatedControl.FontSizeProperty] = btn.GetResourceObservable("Font.SizeCaption").ToBinding();
             btn.Classes.Add(isActive ? "accent" : "subtle");
             var p = project; // capture
@@ -1037,8 +1025,7 @@ public partial class MainWindow : Window
             EnsureBrowserViewLoaded(vm);
 
         // Switch to split layout: chat (1*) | splitter (Auto) | browser (1*)
-        var isRtl = FlowDirection == FlowDirection.RightToLeft;
-        var browserOffsetX = isRtl ? -40.0 : 40.0;
+        const double browserOffsetX = 40.0;
 
         var defs = _chatContentGrid.ColumnDefinitions;
         while (defs.Count < 3)
@@ -1046,11 +1033,8 @@ public partial class MainWindow : Window
         defs[0].Width = new GridLength(1, GridUnitType.Star);
         defs[1].Width = GridLength.Auto;
         defs[2].Width = new GridLength(1, GridUnitType.Star);
-        Grid.SetColumn(_chatIsland, isRtl ? 2 : 0);
-        Grid.SetColumn(_browserIsland, isRtl ? 0 : 2);
-        _browserIsland.Margin = isRtl
-            ? new Thickness(8, 6, 0, 8)
-            : new Thickness(0, 6, 8, 8);
+        Grid.SetColumn(_chatIsland, 0);
+        Grid.SetColumn(_browserIsland, 2);
 
         // Prepare initial state — transparent + shifted from the outer edge
         _browserIsland.RenderTransform = new TranslateTransform(browserOffsetX, 0);
@@ -1116,8 +1100,7 @@ public partial class MainWindow : Window
         if (DataContext is MainViewModel vm && vm.BrowserService.Controller is not null)
             vm.BrowserService.Controller.IsVisible = false;
 
-        var isRtl = FlowDirection == FlowDirection.RightToLeft;
-        var browserOffsetX = isRtl ? -40.0 : 40.0;
+        const double browserOffsetX = 40.0;
 
         // Animate fade-out + slide to the outer edge
         _browserIsland.RenderTransform = new TranslateTransform(0, 0);
@@ -1171,6 +1154,5 @@ public partial class MainWindow : Window
         if (_chatIsland is not null)
             Grid.SetColumn(_chatIsland, 0);
         Grid.SetColumn(_browserIsland, 2);
-        _browserIsland.Margin = new Thickness(0, 6, 8, 8);
     }
 }

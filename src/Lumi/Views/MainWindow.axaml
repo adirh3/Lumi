@@ -13,9 +13,13 @@
         MinWidth="800" MinHeight="560"
         WindowStartupLocation="CenterScreen"
         TransparencyLevelHint="AcrylicBlur,Blur"
+        UseLayoutRounding="True"
         Background="Transparent">
 
   <Window.Resources>
+    <Thickness x:Key="MainLayout.IslandOuterMargin">8,38,6,6</Thickness>
+    <x:Double x:Key="MainLayout.SplitIslandMinWidth">220</x:Double>
+
     <!-- ── SVG Icon Paths ── -->
     <StreamGeometry x:Key="Icon.Chat">M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7l-4 3V6a2 2 0 0 1 2-2z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Folder">M2 6a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z</StreamGeometry>
@@ -63,8 +67,19 @@
     <Style Selector="Button.nav-icon.active:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
     </Style>
+
+    <Style Selector="Button.project-pill">
+      <Setter Property="Padding" Value="10,4" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Focusable" Value="False" />
+    </Style>
+
   </Window.Styles>
 
+  <Border x:Name="WindowContentRoot">
   <Panel>
     <!-- Semi-transparent background that lets Mica/Acrylic show through -->
     <Border x:Name="AcrylicFallback" IsHitTestVisible="False">
@@ -704,17 +719,19 @@
       </Border>
 
       <!-- ═══ CONTENT AREA (full height, inset for title bar) ═══ -->
-      <Panel x:Name="ContentArea" Margin="0,32,0,0">
+      <Border x:Name="ContentArea" Margin="0,0,6,6" Padding="{StaticResource MainLayout.IslandOuterMargin}">
+      <Grid>
         <!-- Chat view (visible on Chat tab) — wrapped in Grid for browser split -->
-        <Grid x:Name="ChatContentGrid" ColumnDefinitions="1*,Auto,0" FlowDirection="LeftToRight">
-          <Border x:Name="ChatIsland" Grid.Column="0" Margin="4,6,8,8"
-                  MinWidth="300"
+        <Grid x:Name="ChatContentGrid" ColumnDefinitions="1*,Auto,0">
+            <Border x:Name="ChatIsland" Grid.Column="0"
+              MinWidth="{StaticResource MainLayout.SplitIslandMinWidth}"
+              MaxWidth="{Binding Bounds.Width, RelativeSource={RelativeSource AncestorType=Grid}}"
                   FlowDirection="{Binding FlowDirection, RelativeSource={RelativeSource AncestorType=Window}}"
                   CornerRadius="{DynamicResource Radius.Overlay}"
                   Background="{DynamicResource Brush.SurfaceCard}"
                   BorderBrush="{DynamicResource Brush.BorderSubtle}"
                   BorderThickness="1"
-                  BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000"
+                  BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000"
                   ClipToBounds="True">
             <views:ChatView x:Name="PageChat" DataContext="{Binding ChatVM}" />
           </Border>
@@ -725,14 +742,14 @@
                         ResizeDirection="Columns" />
 
           <!-- Browser panel (hidden by default, shown when browser tools are active) -->
-          <Border x:Name="BrowserIsland" Grid.Column="2" IsVisible="False"
-                  Margin="0,6,8,8"
-                  MinWidth="300"
+            <Border x:Name="BrowserIsland" Grid.Column="2" IsVisible="False"
+              MinWidth="{StaticResource MainLayout.SplitIslandMinWidth}"
+              MaxWidth="{Binding Bounds.Width, RelativeSource={RelativeSource AncestorType=Grid}}"
                   CornerRadius="{DynamicResource Radius.Overlay}"
                   Background="{DynamicResource Brush.SurfaceCard}"
                   BorderBrush="{DynamicResource Brush.BorderSubtle}"
                   BorderThickness="1"
-                  BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000"
+                  BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000"
                   ClipToBounds="True">
             <DockPanel>
               <!-- Browser header bar -->
@@ -761,48 +778,49 @@
 
         <!-- ── Full-width pages with island treatment (visible when not on Chat tab) ── -->
         <Border x:Name="PageProjects" IsVisible="False"
-                Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
+                CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
-                BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
+                BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000" ClipToBounds="True">
           <ContentControl x:Name="PageProjectsHost" />
         </Border>
         <Border x:Name="PageSkills" IsVisible="False"
-                Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
+                CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
-                BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
+                BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000" ClipToBounds="True">
           <ContentControl x:Name="PageSkillsHost" />
         </Border>
         <Border x:Name="PageAgents" IsVisible="False"
-                Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
+                CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
-                BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
+                BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000" ClipToBounds="True">
           <ContentControl x:Name="PageAgentsHost" />
         </Border>
         <Border x:Name="PageMemories" IsVisible="False"
-                Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
+                CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
-                BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
+                BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000" ClipToBounds="True">
           <ContentControl x:Name="PageMemoriesHost" />
         </Border>
         <Border x:Name="PageMcpServers" IsVisible="False"
-                Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
+                CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
-                BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
+                BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000" ClipToBounds="True">
           <ContentControl x:Name="PageMcpServersHost" />
         </Border>
         <Border x:Name="PageSettings" IsVisible="False"
-                Margin="4,6,8,8" CornerRadius="{DynamicResource Radius.Overlay}"
+                CornerRadius="{DynamicResource Radius.Overlay}"
                 Background="{DynamicResource Brush.SurfaceCard}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
-                BoxShadow="0 4 24 0 #1A000000, 0 1 4 0 #08000000" ClipToBounds="True">
+                BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000" ClipToBounds="True">
           <ContentControl x:Name="PageSettingsHost" />
         </Border>
-      </Panel>
+      </Grid>
+      </Border>
     </DockPanel>
 
     <!-- ═══ Rename Dialog Overlay ═══ -->
@@ -825,4 +843,5 @@
       </Border>
     </Panel>
   </Panel>
+  </Border>
 </Window>
