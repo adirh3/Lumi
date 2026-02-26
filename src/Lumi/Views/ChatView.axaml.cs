@@ -922,8 +922,7 @@ public partial class ChatView : UserControl
                 MoreInfo = friendlyInfo
             };
 
-            // For file-edit tools, collect diff data and add a "Show diff" button below the tool call
-            Button? showDiffBtn = null;
+            // For file-edit tools, collect diff data and set a "Show diff" action on the header
             if (IsFileEditTool(toolName))
             {
                 var argsJson = msgVm.Content;
@@ -933,39 +932,39 @@ public partial class ChatView : UserControl
                 foreach (var d in allDiffs)
                     _pendingFileEdits.Add((d.FilePath, toolName, d.OldText, d.NewText));
 
-                // Show diff button uses the first diff as the entry point
+                // Show diff button in the tool call header
                 if (allDiffs.Count > 0)
                 {
                     var capturedDiff = allDiffs[0];
-                    showDiffBtn = new Button
+                    var showDiffBtn = new Button
                     {
                         Content = new StackPanel
                         {
                             Orientation = Orientation.Horizontal,
-                            Spacing = 5,
+                            Spacing = 4,
                             Children =
                             {
                                 new TextBlock
                                 {
                                     Text = "\uE8A7", // diff icon
                                     FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
-                                    FontSize = 11,
+                                    FontSize = 10,
                                     VerticalAlignment = VerticalAlignment.Center,
                                 },
-                                new TextBlock { Text = Loc.ShowDiff, FontSize = 11, VerticalAlignment = VerticalAlignment.Center }
+                                new TextBlock { Text = Loc.ShowDiff, FontSize = 10, VerticalAlignment = VerticalAlignment.Center }
                             }
                         },
                         Classes = { "subtle" },
-                        Padding = new Thickness(8, 2),
-                        Margin = new Thickness(0, -2, 0, 0),
+                        Padding = new Thickness(6, 1),
                         Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
-                        HorizontalAlignment = HorizontalAlignment.Left,
                     };
-                    showDiffBtn.Click += (_, _) =>
+                    showDiffBtn.Click += (_, e) =>
                     {
+                        e.Handled = true; // prevent header toggle
                         if (DataContext is ChatViewModel chatVm)
                             chatVm.ShowDiff(capturedDiff.FilePath, capturedDiff.OldText, capturedDiff.NewText);
                     };
+                    toolCall.HeaderAction = showDiffBtn;
                 }
             }
 
@@ -997,8 +996,6 @@ public partial class ChatView : UserControl
             EnsureCurrentToolGroup(initialStatus);
 
             _currentToolGroupStack!.Children.Add(toolCall);
-            if (showDiffBtn is not null)
-                _currentToolGroupStack.Children.Add(showDiffBtn);
             _currentToolGroupCount++;
 
             UpdateToolGroupLabel();
