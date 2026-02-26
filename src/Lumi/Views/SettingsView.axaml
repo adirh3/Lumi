@@ -321,6 +321,12 @@
                        Foreground="{DynamicResource Brush.TextTertiary}"
                        Text="Unavailable" />
           </sc:StrataSetting>
+          <sc:StrataSetting x:Name="DebugFpsOverlaySetting"
+                            Header="FPS Overlay (Debug)"
+                            Description="Show Avalonia's debug FPS counter overlay."
+                            IsVisible="False">
+            <ToggleSwitch x:Name="DebugFpsOverlayToggle" />
+          </sc:StrataSetting>
         </sc:StrataSettingGroup>
 
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Statistics}">

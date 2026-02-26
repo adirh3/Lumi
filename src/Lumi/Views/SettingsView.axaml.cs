@@ -31,6 +31,8 @@ public partial class SettingsView : UserControl
     private Button? _hotkeyRecorderButton;
     private StrataSetting? _debugTransparencySetting;
     private TextBlock? _debugTransparencyValue;
+    private StrataSetting? _debugFpsOverlaySetting;
+    private ToggleSwitch? _debugFpsOverlayToggle;
     private TopLevel? _topLevel;
     private bool _isRecordingHotkey;
     private bool _hotkeyRecordingCooldown;
@@ -102,6 +104,8 @@ public partial class SettingsView : UserControl
 
         _debugTransparencySetting = this.FindControl<StrataSetting>("DebugTransparencySetting");
         _debugTransparencyValue = this.FindControl<TextBlock>("DebugTransparencyValue");
+        _debugFpsOverlaySetting = this.FindControl<StrataSetting>("DebugFpsOverlaySetting");
+        _debugFpsOverlayToggle = this.FindControl<ToggleSwitch>("DebugFpsOverlayToggle");
 
         // Cookie import dialog
         _cookieImportDialog = this.FindControl<StrataDialog>("CookieImportDialog");
@@ -143,6 +147,7 @@ public partial class SettingsView : UserControl
         _pageHeaders = headers.ToArray();
 
         InitializeDebugTransparencyInfo();
+        InitializeDebugFpsOverlay();
     }
 
     protected override void OnAttachedToVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
@@ -177,6 +182,31 @@ public partial class SettingsView : UserControl
 #else
         if (_debugTransparencySetting is not null)
             _debugTransparencySetting.IsVisible = false;
+#endif
+    }
+
+    private void InitializeDebugFpsOverlay()
+    {
+#if DEBUG
+        if (_debugFpsOverlaySetting is not null)
+            _debugFpsOverlaySetting.IsVisible = true;
+        if (_debugFpsOverlayToggle is not null)
+            _debugFpsOverlayToggle.IsCheckedChanged += OnDebugFpsOverlayToggled;
+#else
+        if (_debugFpsOverlaySetting is not null)
+            _debugFpsOverlaySetting.IsVisible = false;
+#endif
+    }
+
+    private void OnDebugFpsOverlayToggled(object? sender, RoutedEventArgs e)
+    {
+#if DEBUG
+        var topLevel = _topLevel ?? TopLevel.GetTopLevel(this);
+        if (topLevel is not Window window) return;
+        var enabled = _debugFpsOverlayToggle?.IsChecked == true;
+        window.RendererDiagnostics.DebugOverlays = enabled
+            ? Avalonia.Rendering.RendererDebugOverlays.Fps
+            : Avalonia.Rendering.RendererDebugOverlays.None;
 #endif
     }
 
