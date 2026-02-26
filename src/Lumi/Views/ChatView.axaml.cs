@@ -325,6 +325,12 @@ public partial class ChatView : UserControl
                 _pendingSearchSources.Add(new SearchSource { Title = r.Title, Snippet = r.Snippet, Url = r.Url });
         };
 
+        // Render question cards when the LLM asks a question
+        vm.QuestionAsked += (questionId, question, options, allowFreeText) =>
+        {
+            AddQuestionCard(vm, questionId, question, options, allowFreeText);
+        };
+
         // Show/hide typing indicator when agent is busy
         vm.PropertyChanged += (_, args) =>
         {
@@ -721,6 +727,37 @@ public partial class ChatView : UserControl
             if (toolName is "read_powershell")
                 return;
 
+            // ask_question: during replay, render static pre-answered card; during live, rendered via QuestionAsked event
+            if (toolName is "ask_question")
+            {
+                if (IsTranscriptBuilding)
+                {
+                    var question = ExtractJsonField(msgVm.Content, "question") ?? "";
+                    var opts = ExtractJsonField(msgVm.Content, "options") ?? "";
+                    var answer = msgVm.Message.ToolOutput;
+                    if (!string.IsNullOrEmpty(answer) && answer.StartsWith("User answered: "))
+                        answer = answer["User answered: ".Length..];
+
+                    CloseToolGroup();
+                    var card = new StrataQuestionCard
+                    {
+                        Question = question,
+                        Options = opts,
+                        AllowFreeText = false,
+                        Margin = new Thickness(0, 4, 0, 4),
+                        Name = $"QuestionCard_{_messageCounter++}",
+                    };
+                    if (!string.IsNullOrEmpty(answer))
+                    {
+                        card.SelectedAnswer = answer;
+                        card.IsAnswered = true;
+                    }
+
+                    _messageStack?.Children.Add(card);
+                }
+                return;
+            }
+
             // announce_file: don't show a tool card — collect the file for attachment chip
             if (toolName == "announce_file")
             {
@@ -825,6 +862,7 @@ public partial class ChatView : UserControl
                 {
                     ToolName = friendlyName,
                     Command = command,
+                    Output = msgVm.Message.ToolOutput ?? string.Empty,
                     Status = initialStatus,
                     IsExpanded = !IsTranscriptBuilding,
                 };
@@ -1383,6 +1421,31 @@ public partial class ChatView : UserControl
         var selected = composer.SelectedModel?.ToString();
         if (!string.IsNullOrEmpty(selected) && selected != vm.SelectedModel)
             vm.SelectedModel = selected;
+    }
+
+    private void AddQuestionCard(ChatViewModel vm, string questionId, string question, string options, bool allowFreeText)
+    {
+        if (_messageStack is null) return;
+
+        // Close any pending tool group so the question card appears standalone
+        CloseToolGroup();
+
+        var card = new StrataQuestionCard
+        {
+            Question = question,
+            Options = options,
+            AllowFreeText = allowFreeText,
+            Margin = new Thickness(0, 4, 0, 4),
+            Name = $"QuestionCard_{_messageCounter++}",
+        };
+
+        card.AnswerSubmitted += (_, answer) =>
+        {
+            vm.SubmitQuestionAnswer(questionId, answer);
+        };
+
+        _messageStack.Children.Add(card);
+        _chatShell?.ScrollToEnd();
     }
 
     private void ShowTypingIndicator(string? label)
@@ -2355,6 +2418,9 @@ public partial class ChatView : UserControl
 
             case "fetch_skill":
                 return (Loc.Tool_FetchingSkill, ExtractJsonField(argsJson, "name"));
+
+            case "ask_question":
+                return (Loc.Tool_AskingQuestion, ExtractJsonField(argsJson, "question"));
 
             case "browser":
             {

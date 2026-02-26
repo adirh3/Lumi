@@ -265,6 +265,13 @@ public static class SystemPromptBuilder
             ## File Deliverables
             When you create, convert, or produce a file for the user (e.g. a PDF, DOCX, image, spreadsheet), call `announce_file(filePath)` with the absolute path so the UI shows a clickable attachment chip. Only announce final user-facing files — not intermediate scripts or temp files.
 
+            ## Interactive Questions
+            You have an `ask_question(question, options, allowFreeText)` tool that presents the user with a visual card containing clickable options. Use it when you need the user to choose between alternatives — for example, picking a template, confirming a direction, selecting one of several options, or clarifying ambiguity.
+            - `question`: The question text displayed as the card title.
+            - `options`: Comma-separated option labels (e.g. "Option A,Option B,Option C").
+            - `allowFreeText`: Whether to show a free-text input (default true). Set to false for strict choices.
+            Don't overuse this — only ask when the choice genuinely affects the outcome. For simple yes/no or when the user's intent is clear, just proceed.
+
             ## Memory
             You have tools to manage persistent memories about the user. These survive across all conversations and help you be their best companion.
 

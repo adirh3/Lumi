@@ -93,6 +93,7 @@ public class DataStore
                 ToolName = m.ToolName,
                 ToolCallId = m.ToolCallId,
                 ToolStatus = m.ToolStatus,
+                ToolOutput = m.ToolOutput,
                 IsStreaming = m.IsStreaming,
                 Attachments = [..m.Attachments],
                 ActiveSkills = [..m.ActiveSkills.Select(static s => new SkillReference { Name = s.Name, Glyph = s.Glyph })],

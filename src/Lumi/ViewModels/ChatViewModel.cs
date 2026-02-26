@@ -100,6 +100,12 @@ public partial class ChatViewModel : ObservableObject
     /// <summary>Fires terminal output updates (rootToolCallId, output, replaceExistingOutput).</summary>
     public event Action<string, string, bool>? TerminalOutputReceived;
 
+    /// <summary>Raised when the LLM calls ask_question. Args: questionId, question, options (comma-separated), allowFreeText.</summary>
+    public event Action<string, string, string, bool>? QuestionAsked;
+
+    /// <summary>Pending question completions keyed by question ID.</summary>
+    private readonly Dictionary<string, TaskCompletionSource<string>> _pendingQuestions = new();
+
     public ChatViewModel(DataStore dataStore, CopilotService copilotService, BrowserService browserService)
     {
         _dataStore = dataStore;
@@ -341,7 +347,10 @@ public partial class ChatViewModel : ObservableObject
                         var rootToolCallId = ResolveRootTerminalToolCallId(partialToolCallId, toolParentById, terminalRootByToolCallId);
                         var output = CleanTerminalOutput(partial.Data.PartialOutput);
                         if (!string.IsNullOrWhiteSpace(output))
+                        {
+                            ApplyTerminalOutput(chat, rootToolCallId, output, replaceExistingOutput: false);
                             TerminalOutputReceived?.Invoke(rootToolCallId, output, false);
+                        }
                     });
                     break;
 
@@ -360,7 +369,10 @@ public partial class ChatViewModel : ObservableObject
                         var rootToolCallId = ResolveRootTerminalToolCallId(progressToolCallId, toolParentById, terminalRootByToolCallId);
                         var output = CleanTerminalOutput(progress.Data.ProgressMessage);
                         if (!string.IsNullOrWhiteSpace(output))
+                        {
+                            ApplyTerminalOutput(chat, rootToolCallId, output, replaceExistingOutput: false);
                             TerminalOutputReceived?.Invoke(rootToolCallId, output, false);
+                        }
                     });
                     break;
 
@@ -431,7 +443,11 @@ public partial class ChatViewModel : ObservableObject
                                     toolEnd.Data.ToolCallId, toolParentById, terminalRootByToolCallId);
                                 var output = ExtractTerminalOutput(toolEnd.Data.Result);
                                 if (!string.IsNullOrWhiteSpace(output))
+                                {
+                                    ApplyTerminalOutput(chat, rootToolCallId, output, replaceExistingOutput: true);
                                     TerminalOutputReceived?.Invoke(rootToolCallId, output, true);
+                                    QueueSaveChat(chat, saveIndex: false);
+                                }
                             }
                         }
                     });
@@ -1267,6 +1283,7 @@ public partial class ChatViewModel : ObservableObject
             tools.AddRange(BuildMemoryTools());
         tools.Add(BuildAnnounceFileTool());
         tools.Add(BuildFetchSkillTool());
+        tools.Add(BuildAskQuestionTool());
         tools.AddRange(BuildWebTools());
         tools.AddRange(BuildBrowserTools());
         if (OperatingSystem.IsWindows())
@@ -1533,6 +1550,54 @@ public partial class ChatViewModel : ObservableObject
             "Retrieve the full content of a skill by name. Use this when the user asks to use a skill, or when their request closely matches a skill's description. The skill content contains detailed instructions on how to perform the task.");
     }
 
+    private AIFunction BuildAskQuestionTool()
+    {
+        return AIFunctionFactory.Create(
+            async ([Description("The question to ask the user")] string question,
+             [Description("Comma-separated list of option labels for the user to choose from")] string options,
+             [Description("Whether to allow the user to type a free-text answer in addition to the options. Default: true")] bool? allowFreeText) =>
+            {
+                var freeText = allowFreeText ?? true;
+                var questionId = Guid.NewGuid().ToString("N");
+                var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _pendingQuestions[questionId] = tcs;
+
+                Dispatcher.UIThread.Post(() =>
+                {
+                    QuestionAsked?.Invoke(questionId, question, options, freeText);
+                    ScrollToEndRequested?.Invoke();
+                });
+
+                var answer = await tcs.Task;
+                _pendingQuestions.Remove(questionId);
+
+                // Persist the answer on the tool message so it survives reload
+                var resultText = $"User answered: {answer}";
+                Dispatcher.UIThread.Post(() =>
+                {
+                    var chat = CurrentChat;
+                    if (chat is not null)
+                    {
+                        var toolMsg = chat.Messages.LastOrDefault(m =>
+                            m.ToolName == "ask_question" && m.ToolStatus == "InProgress");
+                        if (toolMsg is not null)
+                            toolMsg.ToolOutput = resultText;
+                    }
+                });
+
+                return resultText;
+            },
+            "ask_question",
+            "Ask the user a question with predefined options to choose from. Use this when you need the user to pick from a set of choices (e.g. selecting a template, confirming a direction, choosing between alternatives). The answer will be returned as text. Only use this for genuinely useful choices — don't ask unnecessary questions.");
+    }
+
+    /// <summary>Called by the View when the user selects an answer on a question card.</summary>
+    public void SubmitQuestionAnswer(string questionId, string answer)
+    {
+        if (_pendingQuestions.TryGetValue(questionId, out var tcs))
+            tcs.TrySetResult(answer);
+    }
+
     private List<AIFunction> BuildMemoryTools()
     {
         return
@@ -1716,6 +1781,35 @@ public partial class ChatViewModel : ObservableObject
 
         terminalRootByToolCallId[toolCallId] = current;
         return current;
+    }
+
+    private static void ApplyTerminalOutput(Chat chat, string rootToolCallId, string output, bool replaceExistingOutput)
+    {
+        if (string.IsNullOrWhiteSpace(rootToolCallId) || string.IsNullOrWhiteSpace(output))
+            return;
+
+        var rootToolMessage = chat.Messages.LastOrDefault(m => m.ToolCallId == rootToolCallId);
+        if (rootToolMessage is null)
+            return;
+
+        rootToolMessage.ToolOutput = MergeTerminalOutput(rootToolMessage.ToolOutput, output, replaceExistingOutput);
+    }
+
+    private static string MergeTerminalOutput(string? existingOutput, string incomingOutput, bool replaceExistingOutput)
+    {
+        if (string.IsNullOrWhiteSpace(incomingOutput))
+            return existingOutput ?? string.Empty;
+
+        if (replaceExistingOutput || string.IsNullOrWhiteSpace(existingOutput))
+            return incomingOutput;
+
+        if (incomingOutput.StartsWith(existingOutput, StringComparison.Ordinal))
+            return incomingOutput;
+
+        if (existingOutput.EndsWith(incomingOutput, StringComparison.Ordinal))
+            return existingOutput;
+
+        return existingOutput + Environment.NewLine + incomingOutput;
     }
 
     /// <summary>Converts a file:// URI or plain path to a local filesystem path.</summary>
@@ -2001,6 +2095,7 @@ public partial class ChatViewModel : ObservableObject
             "recall_memory" => Loc.Tool_Recalling,
             "announce_file" => Loc.Tool_SharingFile,
             "fetch_skill" => Loc.Tool_FetchingSkill,
+            "ask_question" => Loc.Tool_AskingQuestion,
             "ui_list_windows" => Loc.Tool_ListingWindows,
             "ui_press_keys" => Loc.Tool_PressingKeys,
             "ui_inspect" => Loc.Tool_InspectingWindow,

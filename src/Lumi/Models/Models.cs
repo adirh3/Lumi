@@ -14,6 +14,7 @@ public class ChatMessage
     public string? ToolName { get; set; }
     public string? ToolCallId { get; set; }
     public string? ToolStatus { get; set; } // InProgress, Completed, Failed
+    public string? ToolOutput { get; set; }
     public bool IsStreaming { get; set; }
     public List<string> Attachments { get; set; } = [];
     public List<SearchSource> Sources { get; set; } = [];
