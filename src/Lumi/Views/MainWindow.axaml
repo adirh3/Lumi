@@ -248,7 +248,9 @@
                         <ListBox Classes="sidebar-list chat-list"
                                  ItemsSource="{Binding Chats}"
                                  SelectionMode="Single"
-                                 SelectedItem="{x:Null}">
+                                 SelectedItem="{x:Null}"
+                                 ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                           <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="models:Chat">
                               <Panel Background="Transparent">
