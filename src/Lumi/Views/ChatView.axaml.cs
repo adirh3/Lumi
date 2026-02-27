@@ -1151,7 +1151,7 @@ public partial class ChatView : UserControl
         if (_currentToolGroup is not null)
             return;
 
-        _currentToolGroupStack = new StackPanel { Spacing = 4 };
+        _currentToolGroupStack = new StackPanel { Spacing = 4, Width = 440 };
         _currentToolGroupCount = 0;
         _currentTodoToolCall = null;
         _currentTodoProgress = null;
