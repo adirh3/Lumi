@@ -77,6 +77,18 @@
       <Setter Property="Focusable" Value="False" />
     </Style>
 
+    <Style Selector="ScrollViewer.hover-scroll ScrollBar">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.2" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="ScrollViewer.hover-scroll:pointerover ScrollBar">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+
   </Window.Styles>
 
   <Border x:Name="WindowContentRoot">
@@ -252,7 +264,7 @@
                 </ScrollViewer>
               </Border>
               <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                            Margin="0,8,0,0">
+                            Classes="hover-scroll" Margin="0,8,0,0">
                 <ItemsControl x:Name="ChatGroupsHost" ItemsSource="{Binding ChatGroups}" Margin="6,0,6,8">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
