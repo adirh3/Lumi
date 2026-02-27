@@ -1059,57 +1059,11 @@ public partial class ChatView : UserControl
 
                 msgContent = contentStack;
             }
-            else if (!isUser && (_pendingToolFileChips.Count > 0 || _pendingSearchSources.Count > 0 || _pendingFetchedSkills.Count > 0 || _pendingFileEdits.Count > 0 || msgVm.Message.Sources.Count > 0 || msgVm.Message.ActiveSkills.Count > 0))
+            else if (!isUser && !msgVm.IsStreaming && (_pendingToolFileChips.Count > 0 || _pendingSearchSources.Count > 0 || _pendingFetchedSkills.Count > 0 || _pendingFileEdits.Count > 0 || msgVm.Message.Sources.Count > 0 || msgVm.Message.ActiveSkills.Count > 0))
             {
-                // Attach files, search sources, and fetched skills to the assistant message
-                var contentStack = new StackPanel { Spacing = 6 };
-                contentStack.Children.Add(md);
-
-                // Collect fetched skills: live pending + persisted on message
-                var allSkills = new List<SkillReference>();
-                if (_pendingFetchedSkills.Count > 0)
-                {
-                    allSkills.AddRange(_pendingFetchedSkills);
-                    _pendingFetchedSkills.Clear();
-                }
-                if (msgVm.Message.ActiveSkills.Count > 0)
-                    allSkills.AddRange(msgVm.Message.ActiveSkills);
-
-                if (allSkills.Count > 0)
-                    contentStack.Children.Add(BuildSkillChips(allSkills));
-
-                if (_pendingToolFileChips.Count > 0)
-                {
-                    var attachList = new StrataAttachmentList { ShowAddButton = false };
-                    foreach (var filePath in _pendingToolFileChips)
-                    {
-                        var chip = CreateFileChip(filePath, isRemovable: false);
-                        attachList.Items.Add(chip);
-                    }
-                    contentStack.Children.Add(attachList);
-                    _pendingToolFileChips.Clear();
-                }
-
-                // Collect sources: live pending + persisted on message
-                var allSources = new List<SearchSource>();
-                if (_pendingSearchSources.Count > 0)
-                {
-                    allSources.AddRange(_pendingSearchSources);
-                    _pendingSearchSources.Clear();
-                }
-                if (msgVm.Message.Sources.Count > 0)
-                    allSources.AddRange(msgVm.Message.Sources);
-
-                if (allSources.Count > 0)
-                    contentStack.Children.Add(BuildSourcesSection(allSources));
-
-                if (_pendingFileEdits.Count > 0)
-                {
-                    contentStack.Children.Add(BuildFileChangesSection(_pendingFileEdits));
-                    _pendingFileEdits.Clear();
-                }
-
-                msgContent = contentStack;
+                // Attach files, search sources, and fetched skills to a completed assistant message
+                // (during transcript rebuild; live streaming is handled in the IsStreaming handler below)
+                msgContent = BuildAssistantExtrasContent(md, msgVm);
             }
             else
             {
@@ -1163,10 +1117,17 @@ public partial class ChatView : UserControl
                 if (args.PropertyName == nameof(ChatMessageViewModel.IsStreaming))
                 {
                     msg.IsStreaming = msgVm.IsStreaming;
-                    // When assistant streaming ends, check final content for file references
-                    // (initial check during streaming only sees partial content)
+                    // When assistant streaming ends, attach extras and finalize
                     if (!msgVm.IsStreaming && role == StrataChatRole.Assistant)
                     {
+                        // Attach sources, file chips, skills, file edits now that the turn is complete
+                        if (_pendingToolFileChips.Count > 0 || _pendingSearchSources.Count > 0 || _pendingFetchedSkills.Count > 0 || _pendingFileEdits.Count > 0 || msgVm.Message.Sources.Count > 0 || msgVm.Message.ActiveSkills.Count > 0)
+                        {
+                            // Release md from its current parent before reparenting
+                            msg.Content = null;
+                            msg.Content = BuildAssistantExtrasContent(md, msgVm);
+                        }
+
                         AddFileReferencesFromContent(msgVm.Content);
                         CollapseCompletedTurnBlocks(msg);
                     }
@@ -1234,6 +1195,49 @@ public partial class ChatView : UserControl
             _activeTerminalPreview = null;
             _terminalPreviewsByToolCallId.Clear();
         }
+    }
+
+    /// <summary>
+    /// Builds a StackPanel with the markdown content plus any pending extras
+    /// (skills, file chips, sources, file edits) for an assistant message.
+    /// Consumes and clears all pending lists.
+    /// </summary>
+    private StackPanel BuildAssistantExtrasContent(StrataMarkdown md, ChatMessageViewModel msgVm)
+    {
+        var contentStack = new StackPanel { Spacing = 6 };
+        contentStack.Children.Add(md);
+
+        // Collect skills from model (ViewModel copies them before NotifyStreamingEnded)
+        // Clear View's pending list to stay in sync — the model is authoritative
+        _pendingFetchedSkills.Clear();
+        if (msgVm.Message.ActiveSkills.Count > 0)
+            contentStack.Children.Add(BuildSkillChips(msgVm.Message.ActiveSkills));
+
+        if (_pendingToolFileChips.Count > 0)
+        {
+            var attachList = new StrataAttachmentList { ShowAddButton = false };
+            foreach (var filePath in _pendingToolFileChips)
+            {
+                var chip = CreateFileChip(filePath, isRemovable: false);
+                attachList.Items.Add(chip);
+            }
+            contentStack.Children.Add(attachList);
+            _pendingToolFileChips.Clear();
+        }
+
+        // Collect sources from model (ViewModel copies them in AssistantMessageEvent before NotifyStreamingEnded)
+        // Clear View's pending list to stay in sync — the model is authoritative
+        _pendingSearchSources.Clear();
+        if (msgVm.Message.Sources.Count > 0)
+            contentStack.Children.Add(BuildSourcesSection(msgVm.Message.Sources.ToList()));
+
+        if (_pendingFileEdits.Count > 0)
+        {
+            contentStack.Children.Add(BuildFileChangesSection(_pendingFileEdits));
+            _pendingFileEdits.Clear();
+        }
+
+        return contentStack;
     }
 
     /// <summary>
