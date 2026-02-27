@@ -490,7 +490,7 @@ public partial class ChatViewModel : ObservableObject
                 case SessionTitleChangedEvent title:
                     Dispatcher.UIThread.Post(() =>
                     {
-                        _pendingTitleChats.Remove(chat.Id); // SDK handled it
+                        var wasFirstTitle = _pendingTitleChats.Remove(chat.Id);
                         if (!_dataStore.Data.Settings.AutoGenerateTitles) return;
                         chat.Title = title.Data.Title;
                         chat.UpdatedAt = DateTimeOffset.Now;
@@ -498,7 +498,8 @@ public partial class ChatViewModel : ObservableObject
                             OnPropertyChanged(nameof(CurrentChatTitle));
                         if (_dataStore.Data.Settings.AutoSaveChats)
                             _ = SaveIndexAsync();
-                        ChatTitleChanged?.Invoke(chat.Id, chat.Title);
+                        if (wasFirstTitle)
+                            ChatTitleChanged?.Invoke(chat.Id, chat.Title);
                     });
                     break;
 
@@ -1079,6 +1080,7 @@ public partial class ChatViewModel : ObservableObject
 
             await Dispatcher.UIThread.InvokeAsync(async () =>
             {
+                _pendingTitleChats.Remove(chat.Id);
                 chat.Title = title.Trim();
                 chat.UpdatedAt = DateTimeOffset.Now;
                 if (CurrentChat?.Id == chat.Id)
