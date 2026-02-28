@@ -42,6 +42,7 @@ public partial class ChatView : UserControl
 
     // Cancellation for in-progress async rebuilds (allows fast chat switching)
     private CancellationTokenSource? _rebuildCts;
+    private long _rebuildRequestId;
 
     // Incremental loading: older messages not yet rendered
     private List<ChatMessageViewModel>? _deferredMessages;
@@ -50,6 +51,27 @@ public partial class ChatView : UserControl
     private int _transcriptBuildDepth;
 
     private bool IsTranscriptBuilding => _transcriptBuildDepth > 0;
+
+    private (long RequestId, CancellationTokenSource Source) BeginTranscriptRebuild()
+    {
+        var previous = _rebuildCts;
+        CancellationTokenSource current;
+        long requestId;
+
+        current = new CancellationTokenSource();
+        _rebuildCts = current;
+        requestId = ++_rebuildRequestId;
+
+        try { previous?.Cancel(); }
+        catch (ObjectDisposedException) { }
+
+        return (requestId, current);
+    }
+
+    private bool IsCurrentTranscriptRebuild(long requestId, CancellationTokenSource source)
+    {
+        return requestId == _rebuildRequestId && ReferenceEquals(_rebuildCts, source);
+    }
 
     // Tool grouping state
     private StrataThink? _currentToolGroup;
@@ -471,9 +493,7 @@ public partial class ChatView : UserControl
     private async Task RebuildMessageStackAsync(ChatViewModel vm)
     {
         // Cancel any in-progress rebuild (e.g. user switching chats rapidly)
-        _rebuildCts?.Cancel();
-        var cts = new CancellationTokenSource();
-        _rebuildCts = cts;
+        var (requestId, cts) = BeginTranscriptRebuild();
         var token = cts.Token;
 
         _transcriptBuildDepth++;
@@ -533,10 +553,11 @@ public partial class ChatView : UserControl
             await Task.Delay(16);
         }
 
-        if (token.IsCancellationRequested)
+        if (token.IsCancellationRequested || !IsCurrentTranscriptRebuild(requestId, cts))
         {
             if (_transcriptBuildDepth > 0)
                 _transcriptBuildDepth--;
+            cts.Dispose();
             return;
         }
 
@@ -545,21 +566,21 @@ public partial class ChatView : UserControl
             // Build all controls into the detached stack (no layout cost per-add)
             for (int i = startIndex; i < count; i++)
             {
-                if (token.IsCancellationRequested) return;
+                if (token.IsCancellationRequested || !IsCurrentTranscriptRebuild(requestId, cts)) return;
                 AddMessageControl(messages[i]);
             }
 
-            if (token.IsCancellationRequested) return;
+            if (token.IsCancellationRequested || !IsCurrentTranscriptRebuild(requestId, cts)) return;
 
             CloseToolGroup();
             CollapseAllCompletedTurns();
 
             // NOW attach the fully-built stack to the visual tree (single layout pass)
-            if (_chatShell is not null)
+            if (_chatShell is not null && IsCurrentTranscriptRebuild(requestId, cts))
                 _chatShell.Transcript = _messageStack;
 
             // Scroll to bottom after loading chat history
-            if (vm.CurrentChat is not null)
+            if (vm.CurrentChat is not null && IsCurrentTranscriptRebuild(requestId, cts))
                 Dispatcher.UIThread.Post(() => _chatShell?.ScrollToEnd(), DispatcherPriority.Loaded);
         }
         finally
@@ -567,8 +588,14 @@ public partial class ChatView : UserControl
             if (_transcriptBuildDepth > 0)
                 _transcriptBuildDepth--;
 
-            if (_loadingOverlay is not null)
-                _loadingOverlay.IsVisible = false;
+            if (IsCurrentTranscriptRebuild(requestId, cts))
+            {
+                _rebuildCts = null;
+                if (_loadingOverlay is not null)
+                    _loadingOverlay.IsVisible = false;
+            }
+
+            cts.Dispose();
         }
     }
 

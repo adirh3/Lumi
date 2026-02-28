@@ -27,6 +27,9 @@ public partial class ChatViewModel : ObservableObject
     private readonly CopilotService _copilotService;
     private readonly BrowserService _browserService;
     private readonly UIAutomationService _uiAutomation = new();
+    private readonly object _chatLoadSync = new();
+    private CancellationTokenSource? _chatLoadCts;
+    private long _chatLoadRequestId;
     /// <summary>Maps chat ID → CancellationTokenSource for per-chat cancellation.</summary>
     private readonly Dictionary<Guid, CancellationTokenSource> _ctsSources = new();
     private readonly HashSet<string> _shownFileChips = new(StringComparer.OrdinalIgnoreCase);
@@ -700,6 +703,31 @@ public partial class ChatViewModel : ObservableObject
         return runtime;
     }
 
+    private (long RequestId, CancellationTokenSource Source) BeginChatLoad(CancellationToken outerCancellationToken)
+    {
+        CancellationTokenSource? previous;
+        CancellationTokenSource current;
+        long requestId;
+
+        lock (_chatLoadSync)
+        {
+            previous = _chatLoadCts;
+            current = CancellationTokenSource.CreateLinkedTokenSource(outerCancellationToken);
+            _chatLoadCts = current;
+            requestId = ++_chatLoadRequestId;
+        }
+
+        try { previous?.Cancel(); }
+        catch (ObjectDisposedException) { }
+        return (requestId, current);
+    }
+
+    private bool IsCurrentChatLoad(long requestId, CancellationTokenSource source)
+    {
+        lock (_chatLoadSync)
+            return requestId == _chatLoadRequestId && ReferenceEquals(_chatLoadCts, source);
+    }
+
     /// <summary>Creates or resumes a Copilot session for the given chat, building
     /// system prompt, tools, agents, skill dirs, and MCP servers as needed.</summary>
     private async Task EnsureSessionAsync(Chat chat, CancellationToken ct)
@@ -758,8 +786,25 @@ public partial class ChatViewModel : ObservableObject
         }
     }
 
-    public async Task LoadChatAsync(Chat chat)
+    public async Task LoadChatAsync(Chat chat, CancellationToken cancellationToken = default)
     {
+        var (requestId, loadCts) = BeginChatLoad(cancellationToken);
+        var loadToken = loadCts.Token;
+
+        if (CurrentChat?.Id == chat.Id && chat.Messages.Count > 0)
+        {
+            lock (_chatLoadSync)
+            {
+                if (ReferenceEquals(_chatLoadCts, loadCts))
+                {
+                    _chatLoadCts = null;
+                    IsLoadingChat = false;
+                }
+            }
+            loadCts.Dispose();
+            return;
+        }
+
         if (CurrentChat?.Id != chat.Id)
         {
             BrowserHideRequested?.Invoke();
@@ -771,7 +816,10 @@ public partial class ChatViewModel : ObservableObject
         try
         {
             // Load messages from per-chat file if not already in memory
-            await _dataStore.LoadChatMessagesAsync(chat);
+            await _dataStore.LoadChatMessagesAsync(chat, loadToken);
+
+            if (loadToken.IsCancellationRequested || !IsCurrentChatLoad(requestId, loadCts))
+                return;
 
             // Set the active session (don't dispose anything — background sessions keep running)
             _sessionCache.TryGetValue(chat.Id, out var cachedSession);
@@ -804,10 +852,15 @@ public partial class ChatViewModel : ObservableObject
             // Restore active skills from chat
             ActiveSkillIds.Clear();
             ActiveSkillChips.Clear();
+            var skillsById = new Dictionary<Guid, Skill>();
+            foreach (var skill in _dataStore.Data.Skills)
+            {
+                if (!skillsById.ContainsKey(skill.Id))
+                    skillsById[skill.Id] = skill;
+            }
             foreach (var skillId in chat.ActiveSkillIds)
             {
-                var skill = _dataStore.Data.Skills.FirstOrDefault(s => s.Id == skillId);
-                if (skill is not null)
+                if (skillsById.TryGetValue(skillId, out var skill))
                 {
                     ActiveSkillIds.Add(skillId);
                     ActiveSkillChips.Add(new StrataTheme.Controls.StrataComposerChip(skill.Name, skill.IconGlyph));
@@ -817,12 +870,18 @@ public partial class ChatViewModel : ObservableObject
             // Restore active MCP servers from chat (default to all enabled if none saved)
             ActiveMcpServerNames.Clear();
             ActiveMcpChips.Clear();
+            var enabledServersByName = new Dictionary<string, McpServer>(StringComparer.Ordinal);
+            foreach (var server in _dataStore.Data.McpServers)
+            {
+                if (server.IsEnabled && !enabledServersByName.ContainsKey(server.Name))
+                    enabledServersByName[server.Name] = server;
+            }
+
             if (chat.ActiveMcpServerNames.Count > 0)
             {
                 foreach (var name in chat.ActiveMcpServerNames)
                 {
-                    var server = _dataStore.Data.McpServers.FirstOrDefault(s => s.Name == name && s.IsEnabled);
-                    if (server is not null)
+                    if (enabledServersByName.ContainsKey(name))
                     {
                         ActiveMcpServerNames.Add(name);
                         ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name));
@@ -832,7 +891,7 @@ public partial class ChatViewModel : ObservableObject
             else
             {
                 // No MCPs saved — default to all enabled
-                foreach (var server in _dataStore.Data.McpServers.Where(s => s.IsEnabled))
+                foreach (var server in enabledServersByName.Values)
                 {
                     ActiveMcpServerNames.Add(server.Name);
                     ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(server.Name));
@@ -840,21 +899,37 @@ public partial class ChatViewModel : ObservableObject
             }
 
             // Restore active agent from chat
-            if (chat.AgentId.HasValue)
-            {
-                var agent = _dataStore.Data.Agents.FirstOrDefault(a => a.Id == chat.AgentId.Value);
-                if (agent is not null)
-                    ActiveAgent = agent;
-            }
+            ActiveAgent = chat.AgentId.HasValue
+                ? _dataStore.Data.Agents.FirstOrDefault(a => a.Id == chat.AgentId.Value)
+                : null;
+        }
+        catch (OperationCanceledException) when (loadToken.IsCancellationRequested)
+        {
+            // A newer chat selection superseded this load.
         }
         finally
         {
-            IsLoadingChat = false;
+            lock (_chatLoadSync)
+            {
+                if (ReferenceEquals(_chatLoadCts, loadCts))
+                {
+                    _chatLoadCts = null;
+                    IsLoadingChat = false;
+                }
+            }
+            loadCts.Dispose();
         }
     }
 
     public void ClearChat()
     {
+        lock (_chatLoadSync)
+        {
+            _chatLoadRequestId++;
+            try { _chatLoadCts?.Cancel(); }
+            catch (ObjectDisposedException) { }
+        }
+
         BrowserHideRequested?.Invoke();
         DiffHideRequested?.Invoke();
         HasUsedBrowser = false;

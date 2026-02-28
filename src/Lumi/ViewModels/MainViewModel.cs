@@ -239,11 +239,19 @@ public partial class MainViewModel : ObservableObject
         SelectedNavIndex = 0;
     }
 
-    [RelayCommand]
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task OpenChat(Chat chat)
     {
-        await ChatVM.LoadChatAsync(chat);
-        SelectedNavIndex = 0;
+        try
+        {
+            await ChatVM.LoadChatAsync(chat);
+            if (ChatVM.CurrentChat?.Id == chat.Id)
+                SelectedNavIndex = 0;
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer chat selection superseded this open request.
+        }
     }
 
     [RelayCommand]
@@ -334,11 +342,19 @@ public partial class MainViewModel : ObservableObject
         RefreshChatList();
     }
 
-    [RelayCommand]
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task OpenChatFromProject(Chat chat)
     {
-        await ChatVM.LoadChatAsync(chat);
-        SelectedNavIndex = 0;
+        try
+        {
+            await ChatVM.LoadChatAsync(chat);
+            if (ChatVM.CurrentChat?.Id == chat.Id)
+                SelectedNavIndex = 0;
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer chat selection superseded this open request.
+        }
     }
 
     /// <summary>Returns the project name for a given project ID, or null.</summary>

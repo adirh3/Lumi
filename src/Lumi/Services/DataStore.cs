@@ -20,6 +20,8 @@ public class DataStore
 
     private AppData _data;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
+    private readonly object _chatLoadLocksSync = new();
+    private readonly Dictionary<Guid, SemaphoreSlim> _chatLoadLocks = new();
 
     public DataStore()
     {
@@ -134,27 +136,74 @@ public class DataStore
     {
         if (chat.Messages.Count > 0) return; // Already loaded
 
-        var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
-        if (!File.Exists(chatFile)) return;
+        var loadLock = GetChatLoadLock(chat.Id);
+        await loadLock.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {
-            await using var stream = File.OpenRead(chatFile);
-            var messages = await JsonSerializer.DeserializeAsync(
-                stream,
-                AppDataJsonContext.Default.ListChatMessage,
-                cancellationToken).ConfigureAwait(false);
+            // Another concurrent caller may have loaded this chat while we awaited the lock.
+            if (chat.Messages.Count > 0) return;
 
-            if (messages is not null)
-                chat.Messages.AddRange(messages);
+            var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
+            if (!File.Exists(chatFile)) return;
+
+            const int maxReadAttempts = 3;
+            const int retryDelayMs = 35;
+
+            for (var attempt = 1; attempt <= maxReadAttempts; attempt++)
+            {
+                try
+                {
+                    await using var stream = new FileStream(
+                        chatFile,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.Read,
+                        81920,
+                        FileOptions.Asynchronous | FileOptions.SequentialScan);
+
+                    var messages = await JsonSerializer.DeserializeAsync(
+                        stream,
+                        AppDataJsonContext.Default.ListChatMessage,
+                        cancellationToken).ConfigureAwait(false);
+
+                    if (messages is not null)
+                        chat.Messages.AddRange(messages);
+                    break;
+                }
+                catch (IOException) when (attempt < maxReadAttempts)
+                {
+                    // Save operations can momentarily lock the chat file. Retry briefly.
+                    await Task.Delay(retryDelayMs, cancellationToken).ConfigureAwait(false);
+                }
+                catch (IOException)
+                {
+                    // Ignore persistent file IO issues; chat will open without history.
+                    break;
+                }
+                catch (JsonException)
+                {
+                    // Ignore malformed chat files; chat will open without history.
+                    break;
+                }
+            }
         }
-        catch (IOException)
+        finally
         {
-            // Ignore transient file IO issues; chat will open without history.
+            loadLock.Release();
         }
-        catch (JsonException)
+    }
+
+    private SemaphoreSlim GetChatLoadLock(Guid chatId)
+    {
+        lock (_chatLoadLocksSync)
         {
-            // Ignore malformed chat files; chat will open without history.
+            if (_chatLoadLocks.TryGetValue(chatId, out var existing))
+                return existing;
+
+            var created = new SemaphoreSlim(1, 1);
+            _chatLoadLocks[chatId] = created;
+            return created;
         }
     }
 
