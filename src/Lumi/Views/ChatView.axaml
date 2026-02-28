@@ -58,7 +58,7 @@
     <!-- Welcome state (no active chat) -->
     <Panel x:Name="WelcomePanel">
       <!-- Centered greeting (offset up to leave room for composer) -->
-      <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16"
+      <StackPanel x:Name="WelcomeGreeting" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16"
                   MaxWidth="480" Margin="0,0,0,120">
         <Border x:Name="WelcomeOrb" Width="64" Height="64" CornerRadius="14"
                 HorizontalAlignment="Center" Opacity="0.9" ClipToBounds="True">

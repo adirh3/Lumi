@@ -9,6 +9,8 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using Avalonia;
+using Avalonia.Animation;
+using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Data;
@@ -20,6 +22,8 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
+using Avalonia.Rendering.Composition;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Lumi.Localization;
 using Lumi.Models;
@@ -33,6 +37,7 @@ public partial class ChatView : UserControl
 {
     private StrataChatShell? _chatShell;
     private StrataChatComposer? _welcomeComposer;
+    private StackPanel? _welcomeGreeting;
     private StrataChatComposer? _activeComposer;
     private StrataAttachmentList? _welcomePendingAttachmentList;
     private StrataAttachmentList? _pendingAttachmentList;
@@ -162,6 +167,7 @@ public partial class ChatView : UserControl
         AvaloniaXamlLoader.Load(this);
         _chatShell = this.FindControl<StrataChatShell>("ChatShell");
         _welcomeComposer = this.FindControl<StrataChatComposer>("WelcomeComposer");
+        _welcomeGreeting = this.FindControl<StackPanel>("WelcomeGreeting");
         _activeComposer = this.FindControl<StrataChatComposer>("ActiveComposer");
         _welcomePendingAttachmentList = this.FindControl<StrataAttachmentList>("WelcomePendingAttachmentList");
         _pendingAttachmentList = this.FindControl<StrataAttachmentList>("PendingAttachmentList");
@@ -387,8 +393,42 @@ public partial class ChatView : UserControl
             if (args.PropertyName == nameof(ChatViewModel.CurrentChat))
             {
                 var hasChat = vm.CurrentChat is not null;
+                var fromWelcome = _welcomePanel?.IsVisible == true && hasChat;
+                var toWelcome = _chatPanel?.IsVisible == true && !hasChat;
+
                 if (_welcomePanel is not null) _welcomePanel.IsVisible = !hasChat;
                 if (_chatPanel is not null) _chatPanel.IsVisible = hasChat;
+
+                // Animate the active composer expanding from welcome width
+                // (deferred so layout runs first and Bounds are valid)
+                if (fromWelcome && _activeComposer is not null)
+                {
+                    // Pre-set the narrower scale synchronously so the first
+                    // rendered frame already shows the narrow width.
+                    var v = ElementComposition.GetElementVisual(_activeComposer);
+                    if (v is not null)
+                        v.Scale = new System.Numerics.Vector3(0.92f, 1f, 1f);
+                    Dispatcher.UIThread.Post(AnimateComposerExpand, DispatcherPriority.Loaded);
+                }
+
+                // Reverse: animate welcome composer contracting from chat width
+                if (toWelcome && _welcomeComposer is not null && _activeComposer is not null)
+                {
+                    var chatWidth = _activeComposer.Bounds.Width;
+                    var welcomeMax = 680.0;
+                    var startScaleX = chatWidth > 0 ? (float)Math.Min(chatWidth / welcomeMax, 1.5) : 1.1f;
+                    // Pre-set the wider scale synchronously so the first frame
+                    // shows the composer at the wider (chat) width.
+                    var v = ElementComposition.GetElementVisual(_welcomeComposer);
+                    if (v is not null)
+                        v.Scale = new System.Numerics.Vector3(startScaleX, 1f, 1f);
+                    var capturedScale = startScaleX;
+                    Dispatcher.UIThread.Post(() => AnimateComposerContract(capturedScale), DispatcherPriority.Loaded);
+                }
+
+                // Fade + slide the welcome greeting in when returning to welcome
+                if (toWelcome && _welcomeGreeting is not null)
+                    AnimateControlEntrance(_welcomeGreeting);
 
                 // Always rebuild when loading a chat (messages are already populated)
                 _ = RebuildMessageStackAsync(vm);
@@ -1545,6 +1585,7 @@ public partial class ChatView : UserControl
         };
 
         _messageStack.Children.Add(card);
+        AnimateControlEntrance(card);
         _chatShell?.ScrollToEnd();
     }
 
@@ -1560,6 +1601,7 @@ public partial class ChatView : UserControl
                 IsActive = true
             };
             _messageStack.Children.Add(_typingIndicator);
+            AnimateControlEntrance(_typingIndicator);
         }
         else
         {
@@ -1602,6 +1644,110 @@ public partial class ChatView : UserControl
         {
             _messageStack.Children.Add(control);
         }
+
+        AnimateControlEntrance(control);
+    }
+
+    /// <summary>
+    /// Applies a slide-up + fade-in entrance animation to a control.
+    /// Skipped during transcript rebuild.
+    /// </summary>
+    private async void AnimateControlEntrance(Control control)
+    {
+        if (IsTranscriptBuilding) return;
+
+        control.Opacity = 0;
+        control.RenderTransform = new TranslateTransform(0, 20);
+
+        var anim = new Avalonia.Animation.Animation
+        {
+            Duration = TimeSpan.FromMilliseconds(350),
+            Easing = new CubicEaseOut(),
+            FillMode = FillMode.Forward,
+            Children =
+            {
+                new KeyFrame
+                {
+                    Cue = new Cue(0),
+                    Setters =
+                    {
+                        new Setter(OpacityProperty, 0.0),
+                        new Setter(TranslateTransform.YProperty, 20.0),
+                    }
+                },
+                new KeyFrame
+                {
+                    Cue = new Cue(1),
+                    Setters =
+                    {
+                        new Setter(OpacityProperty, 1.0),
+                        new Setter(TranslateTransform.YProperty, 0.0),
+                    }
+                },
+            }
+        };
+
+        try { await anim.RunAsync(control); }
+        catch { }
+
+        control.Opacity = 1;
+        control.RenderTransform = null;
+    }
+
+    /// <summary>
+    /// Animates the active composer expanding horizontally from the welcome
+    /// composer width (680px centered) to full chat width.
+    /// </summary>
+    private void AnimateComposerExpand()
+    {
+        if (_activeComposer is null) return;
+
+        var visual = ElementComposition.GetElementVisual(_activeComposer);
+        if (visual is null) return;
+
+        var comp = visual.Compositor;
+        var chatWidth = _activeComposer.Bounds.Width;
+        var scaleX = chatWidth > 0 ? (float)Math.Min(680.0 / chatWidth, 1.0) : 0.92f;
+
+        // Scale from center so the composer grows outward
+        visual.CenterPoint = new Avalonia.Vector3D(
+            chatWidth / 2, _activeComposer.Bounds.Height / 2, 0);
+
+        var scaleAnim = comp.CreateVector3KeyFrameAnimation();
+        scaleAnim.Target = "Scale";
+        scaleAnim.InsertKeyFrame(0f, new System.Numerics.Vector3(scaleX, 1f, 1f));
+        scaleAnim.InsertKeyFrame(0.7f, new System.Numerics.Vector3(1.006f, 1f, 1f));
+        scaleAnim.InsertKeyFrame(1f, new System.Numerics.Vector3(1f, 1f, 1f));
+        scaleAnim.Duration = TimeSpan.FromMilliseconds(380);
+
+        visual.StartAnimation("Scale", scaleAnim);
+    }
+
+    /// <summary>
+    /// Animates the welcome composer contracting horizontally from the
+    /// chat width back to the natural welcome width (reverse of expand).
+    /// </summary>
+    private void AnimateComposerContract(float startScaleX)
+    {
+        if (_welcomeComposer is null) return;
+
+        var visual = ElementComposition.GetElementVisual(_welcomeComposer);
+        if (visual is null) return;
+
+        var comp = visual.Compositor;
+        var w = _welcomeComposer.Bounds.Width;
+
+        visual.CenterPoint = new Avalonia.Vector3D(
+            w / 2, _welcomeComposer.Bounds.Height / 2, 0);
+
+        var scaleAnim = comp.CreateVector3KeyFrameAnimation();
+        scaleAnim.Target = "Scale";
+        scaleAnim.InsertKeyFrame(0f, new System.Numerics.Vector3(startScaleX, 1f, 1f));
+        scaleAnim.InsertKeyFrame(0.7f, new System.Numerics.Vector3(0.996f, 1f, 1f));
+        scaleAnim.InsertKeyFrame(1f, new System.Numerics.Vector3(1f, 1f, 1f));
+        scaleAnim.Duration = TimeSpan.FromMilliseconds(380);
+
+        visual.StartAnimation("Scale", scaleAnim);
     }
 
     private void AddFileReferencesFromContent(string content)
