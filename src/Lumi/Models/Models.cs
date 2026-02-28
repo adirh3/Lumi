@@ -112,6 +112,7 @@ public class Memory
     public string Content { get; set; } = "";
     public string Category { get; set; } = "General";
     public string? SourceChatId { get; set; }
+    public string Source { get; set; } = "chat";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
 }

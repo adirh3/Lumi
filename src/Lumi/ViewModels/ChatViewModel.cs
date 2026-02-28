@@ -26,6 +26,7 @@ public partial class ChatViewModel : ObservableObject
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
     private readonly BrowserService _browserService;
+    private readonly MemoryAgentService _memoryAgentService;
     private readonly UIAutomationService _uiAutomation = new();
     private readonly object _chatLoadSync = new();
     private CancellationTokenSource? _chatLoadCts;
@@ -118,6 +119,7 @@ public partial class ChatViewModel : ObservableObject
         _dataStore = dataStore;
         _copilotService = copilotService;
         _browserService = browserService;
+        _memoryAgentService = new MemoryAgentService(dataStore, copilotService);
         _selectedModel = dataStore.Data.Settings.PreferredModel;
 
         // Seed with preferred model so the ComboBox has an initial selection
@@ -473,6 +475,7 @@ public partial class ChatViewModel : ObservableObject
                             StatusText = runtime.StatusText;
                         }
                         QueueSaveChat(chat, saveIndex: true);
+                        QueueAutonomousMemoryCheckpoint(chat);
                     });
                     break;
 
@@ -1146,6 +1149,81 @@ public partial class ChatViewModel : ObservableObject
         _ = SaveChatAsync(chat, saveIndex);
     }
 
+    private void QueueAutonomousMemoryCheckpoint(Chat chat)
+    {
+        if (!_dataStore.Data.Settings.EnableMemoryAutoSave)
+            return;
+
+        var checkpoint = CreateMemoryCheckpoint(chat);
+        if (checkpoint is null)
+            return;
+
+        _ = _memoryAgentService.ProcessCheckpointAsync(checkpoint);
+    }
+
+    private MemoryAgentCheckpoint? CreateMemoryCheckpoint(Chat chat)
+    {
+        var assistantIndex = -1;
+        for (var i = chat.Messages.Count - 1; i >= 0; i--)
+        {
+            var message = chat.Messages[i];
+            if (message.Role == "assistant" && !string.IsNullOrWhiteSpace(message.Content))
+            {
+                assistantIndex = i;
+                break;
+            }
+        }
+
+        if (assistantIndex <= 0)
+            return null;
+
+        var userIndex = -1;
+        for (var i = assistantIndex - 1; i >= 0; i--)
+        {
+            var message = chat.Messages[i];
+            if (message.Role == "user" && !string.IsNullOrWhiteSpace(message.Content))
+            {
+                userIndex = i;
+                break;
+            }
+        }
+
+        if (userIndex < 0)
+            return null;
+
+        var userMessage = chat.Messages[userIndex];
+        var assistantMessage = chat.Messages[assistantIndex];
+        var recentConversation = chat.Messages
+            .Where(m => (m.Role == "user" || m.Role == "assistant") && !string.IsNullOrWhiteSpace(m.Content))
+            .TakeLast(8)
+            .Select(m => new MemoryAgentConversationItem
+            {
+                Role = m.Role,
+                Content = m.Content
+            })
+            .ToList();
+
+        var memories = _dataStore.Data.Memories
+            .Select(m => new MemoryAgentSnapshot
+            {
+                Key = m.Key,
+                Content = m.Content,
+                Category = m.Category
+            })
+            .ToList();
+
+        return new MemoryAgentCheckpoint
+        {
+            ChatId = chat.Id,
+            InteractionSignature = $"{userMessage.Id:N}:{assistantMessage.Id:N}",
+            UserMessage = userMessage.Content,
+            AssistantMessage = assistantMessage.Content,
+            UserName = _dataStore.Data.Settings.UserName,
+            ExistingMemories = memories,
+            RecentConversation = recentConversation
+        };
+    }
+
     private async Task GenerateChatTitleAsync(Chat chat, string userMessage)
     {
         try
@@ -1362,8 +1440,7 @@ public partial class ChatViewModel : ObservableObject
     private List<AIFunction> BuildCustomTools()
     {
         var tools = new List<AIFunction>();
-        if (_dataStore.Data.Settings.EnableMemoryAutoSave)
-            tools.AddRange(BuildMemoryTools());
+        tools.AddRange(BuildMemoryTools());
         tools.Add(BuildAnnounceFileTool());
         tools.Add(BuildFetchSkillTool());
         tools.Add(BuildAskQuestionTool());
@@ -1693,79 +1770,7 @@ public partial class ChatViewModel : ObservableObject
 
     private List<AIFunction> BuildMemoryTools()
     {
-        return
-        [
-            AIFunctionFactory.Create(
-                async ([Description("Brief label for the memory (e.g. Birthday, Dog's name, Prefers dark mode)")] string key,
-                 [Description("Full memory text with details")] string content,
-                 [Description("Category: Personal, Preferences, Work, etc. Default: General")] string? category) =>
-                {
-                    category ??= "General";
-                    var memories = _dataStore.Data.Memories;
-                    var existing = memories.FirstOrDefault(m => m.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
-                    if (existing is not null)
-                    {
-                        existing.Content = content;
-                        existing.Category = category;
-                        existing.UpdatedAt = DateTimeOffset.Now;
-                    }
-                    else
-                    {
-                        memories.Add(new Memory
-                        {
-                            Key = key,
-                            Content = content,
-                            Category = category,
-                            SourceChatId = CurrentChat?.Id.ToString()
-                        });
-                    }
-                    await _dataStore.SaveAsync();
-                    return $"Memory saved: {key}";
-                },
-                "save_memory",
-                "Save or update a persistent memory about the user"),
-
-            AIFunctionFactory.Create(
-                async ([Description("Key of the memory to update")] string key,
-                 [Description("New content text (optional)")] string? content,
-                 [Description("New key if renaming (optional)")] string? newKey) =>
-                {
-                    var memory = _dataStore.Data.Memories
-                        .FirstOrDefault(m => m.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
-                    if (memory is null) return $"Memory not found: {key}";
-                    if (content is not null) memory.Content = content;
-                    if (newKey is not null) memory.Key = newKey;
-                    memory.UpdatedAt = DateTimeOffset.Now;
-                    await _dataStore.SaveAsync();
-                    return $"Memory updated: {memory.Key}";
-                },
-                "update_memory",
-                "Update an existing memory's content or key"),
-
-            AIFunctionFactory.Create(
-                async ([Description("Key of the memory to remove")] string key) =>
-                {
-                    var memory = _dataStore.Data.Memories
-                        .FirstOrDefault(m => m.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
-                    if (memory is null) return $"Memory not found: {key}";
-                    _dataStore.Data.Memories.Remove(memory);
-                    await _dataStore.SaveAsync();
-                    return $"Memory deleted: {key}";
-                },
-                "delete_memory",
-                "Remove a memory that is no longer relevant"),
-
-            AIFunctionFactory.Create(
-                ([Description("Key of the memory to retrieve full content for")] string key) =>
-                {
-                    var memory = _dataStore.Data.Memories
-                        .FirstOrDefault(m => m.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
-                    if (memory is null) return $"Memory not found: {key}";
-                    return memory.Content;
-                },
-                "recall_memory",
-                "Fetch the full content of a memory by its key"),
-        ];
+        return _memoryAgentService.BuildRecallMemoryTools();
     }
 
     /// <summary>Returns StrataComposerChip items for all agents (for composer autocomplete).</summary>

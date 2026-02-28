@@ -219,6 +219,41 @@ public class CopilotService : IAsyncDisposable
         return await _client.ListSessionsAsync(cancellationToken: ct);
     }
 
+    /// <summary>
+    /// Creates a lightweight session with only the provided custom tools and a fully replaced
+    /// system prompt. InfiniteSessions and skill directories are off. Built-in tools that could
+    /// distract the model are excluded.
+    /// </summary>
+    public async Task<CopilotSession> CreateLightweightSessionAsync(
+        string systemPrompt,
+        string? model,
+        List<AIFunction> tools,
+        CancellationToken ct = default)
+    {
+        if (_client is null) throw new InvalidOperationException("Not connected");
+
+        var config = new SessionConfig
+        {
+            Model = model,
+            Streaming = true,
+            SystemMessage = new SystemMessageConfig
+            {
+                Content = systemPrompt,
+                Mode = SystemMessageMode.Replace
+            },
+            Tools = tools,
+            ExcludedTools =
+            [
+                "web_fetch", "web_search",
+                "editFile", "readFile", "listDirectory", "createFile", "deleteFile",
+                "runTerminalCommand", "getTerminalOutput",
+                "searchFiles", "getFileInfo",
+            ]
+        };
+
+        return await _client.CreateSessionAsync(config, ct);
+    }
+
     public async Task DeleteSessionAsync(string sessionId, CancellationToken ct = default)
     {
         if (_client is null) return;

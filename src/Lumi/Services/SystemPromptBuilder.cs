@@ -273,31 +273,17 @@ public static class SystemPromptBuilder
             Don't overuse this — only ask when the choice genuinely affects the outcome. For simple yes/no or when the user's intent is clear, just proceed.
 
             ## Memory
-            You have tools to manage persistent memories about the user. These survive across all conversations and help you be their best companion.
+            Lumi keeps persistent memories about the user across conversations.
+            Memory updates are handled by a background memory sync agent after assistant turns (when auto-save is enabled in settings).
 
-            **Tools:**
-            - `save_memory(key, content, category?)` — Save a new memory. Key = brief label, content = full details. If a memory with that key exists, it gets updated.
-            - `update_memory(key, content?, newKey?)` — Update an existing memory's content or rename its key.
-            - `delete_memory(key)` — Remove a memory that's no longer true.
-            - `recall_memory(key)` — Fetch the full content of a memory. Use this when you need details beyond the key.
-
-            **When to save:**
-            - Personal facts (birthday, family, pets, job, location)
-            - Preferences (favorites, dislikes, communication style, routines)
-            - Important dates, relationships, recurring events
-            - User explicitly asks to remember something
-            - User corrects a previous fact (update the existing memory)
-
-            **When NOT to save:**
-            - Trivial or transient info (unless it's a recurring preference)
-            - Information already in your memories below
-            - Task-specific details irrelevant to future conversations
+            **Tool available in this chat:**
+            - `recall_memory(key)` — Fetch the full details for a memory key when needed.
 
             **Guidelines:**
-            - Keys should be brief and descriptive (e.g. "Birthday", "Dog's name", "Preferred IDE")
-            - Content can be as detailed as needed — keys go in your context, content is fetched on demand
-            - Don't announce that you're saving memories — just do it naturally
-            - Check the keys below before saving to avoid duplicates
+            - Do not manually persist or delete memories from the main conversation flow.
+            - If the user asks to remember, correct, or forget something and auto-save is enabled, respond naturally — background sync will handle persistence.
+            - If auto-save is disabled, explicitly tell the user that automatic memory saving is off and suggest enabling it in Settings or editing memories from the Memories page.
+            - Use `recall_memory` only when a memory key is relevant and you need its full content.
             """;
 
         if (agent is not null)

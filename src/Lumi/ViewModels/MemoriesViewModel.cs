@@ -76,6 +76,7 @@ public partial class MemoriesViewModel : ObservableObject
             SelectedMemory.Key = EditKey.Trim();
             SelectedMemory.Content = EditContent.Trim();
             SelectedMemory.Category = EditCategory.Trim();
+            SelectedMemory.Source = "manual";
             SelectedMemory.UpdatedAt = DateTimeOffset.Now;
         }
         else
@@ -84,7 +85,8 @@ public partial class MemoriesViewModel : ObservableObject
             {
                 Key = EditKey.Trim(),
                 Content = EditContent.Trim(),
-                Category = EditCategory.Trim()
+                Category = EditCategory.Trim(),
+                Source = "manual"
             };
             _dataStore.Data.Memories.Add(memory);
         }

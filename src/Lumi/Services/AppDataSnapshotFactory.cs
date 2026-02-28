@@ -113,6 +113,7 @@ internal static class AppDataSnapshotFactory
                     Key = m.Key,
                     Content = m.Content,
                     Category = m.Category,
+                    Source = m.Source,
                     SourceChatId = m.SourceChatId,
                     CreatedAt = m.CreatedAt,
                     UpdatedAt = m.UpdatedAt
