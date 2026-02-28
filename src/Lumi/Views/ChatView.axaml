@@ -170,6 +170,10 @@
                                   Models="{Binding AvailableModels}"
                                   SelectedModel="{Binding SelectedModel, Mode=TwoWay}"
                                   QualityLevels="{x:Null}"
+                                  SuggestionA="{Binding SuggestionA}"
+                                  SuggestionB="{Binding SuggestionB}"
+                                  SuggestionC="{Binding SuggestionC}"
+                                  IsSuggestionsGenerating="{Binding IsSuggestionsGenerating}"
                                   SkillItems="{Binding ActiveSkillChips}"
                                   McpItems="{Binding ActiveMcpChips}" />
           </StackPanel>

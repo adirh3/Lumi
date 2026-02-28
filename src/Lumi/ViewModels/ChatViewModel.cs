@@ -51,6 +51,10 @@ public partial class ChatViewModel : ObservableObject
     private readonly HashSet<Guid> _pendingTitleChats = new();
     /// <summary>Skills activated mid-chat (after session exists). Consumed on next SendMessage to inject into prompt.</summary>
     private readonly List<Guid> _pendingSkillInjections = new();
+    /// <summary>Per-chat guard so suggestion generation is queued at most once concurrently.</summary>
+    private readonly HashSet<Guid> _suggestionGenerationInFlightChats = new();
+    /// <summary>Tracks the last assistant message ID that already produced suggestions per chat.</summary>
+    private readonly Dictionary<Guid, Guid> _lastSuggestedAssistantMessageByChat = new();
 
     private sealed class ChatRuntimeState
     {
@@ -91,6 +95,11 @@ public partial class ChatViewModel : ObservableObject
 
     /// <summary>MCP server names active for the current chat (empty = use all enabled).</summary>
     public List<string> ActiveMcpServerNames { get; } = [];
+
+    [ObservableProperty] private string _suggestionA = "";
+    [ObservableProperty] private string _suggestionB = "";
+    [ObservableProperty] private string _suggestionC = "";
+    [ObservableProperty] private bool _isSuggestionsGenerating;
 
     // Events for the view to react to
     public event Action? ScrollToEndRequested;
@@ -490,6 +499,10 @@ public partial class ChatViewModel : ObservableObject
                                 : $"{chatTitle} — {Loc.Notification_ResponseReady}";
                             NotificationService.ShowIfInactive(agentName, body);
                         }
+
+                        // Generate follow-up suggestions once the full assistant response is done.
+                        if (_activeSession == session && CurrentChat?.Id == chat.Id)
+                            QueueSuggestionGenerationForLatestAssistant(chat);
                     });
                     break;
 
@@ -694,6 +707,8 @@ public partial class ChatViewModel : ObservableObject
         _inProgressMessages.Remove(chatId);
         _runtimeStates.Remove(chatId);
         _pendingTitleChats.Remove(chatId);
+        _suggestionGenerationInFlightChats.Remove(chatId);
+        _lastSuggestedAssistantMessageByChat.Remove(chatId);
     }
 
     private ChatRuntimeState GetOrCreateRuntimeState(Guid chatId)
@@ -813,6 +828,7 @@ public partial class ChatViewModel : ObservableObject
             BrowserHideRequested?.Invoke();
             DiffHideRequested?.Invoke();
             HasUsedBrowser = false;
+            ClearSuggestions();
         }
 
         IsLoadingChat = true;
@@ -990,6 +1006,7 @@ public partial class ChatViewModel : ObservableObject
 
         var prompt = PromptText!.Trim();
         PromptText = "";
+        ClearSuggestions();
 
         var attachments = TakePendingAttachments();
 
@@ -1247,6 +1264,95 @@ public partial class ChatViewModel : ObservableObject
             // Silently fail — the default truncated title is already set
             _pendingTitleChats.Remove(chat.Id);
         }
+    }
+
+    private void QueueSuggestionGenerationForLatestAssistant(Chat chat)
+    {
+        if (_suggestionGenerationInFlightChats.Contains(chat.Id))
+            return;
+
+        var lastAssistant = chat.Messages.LastOrDefault(m =>
+            m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content));
+        if (lastAssistant is null)
+            return;
+
+        if (_lastSuggestedAssistantMessageByChat.TryGetValue(chat.Id, out var lastSuggestedId)
+            && lastSuggestedId == lastAssistant.Id)
+            return;
+
+        _suggestionGenerationInFlightChats.Add(chat.Id);
+        _ = GenerateSuggestionsAsync(chat, lastAssistant.Id);
+    }
+
+    private async Task GenerateSuggestionsAsync(Chat chat, Guid assistantMessageId)
+    {
+        var hasTargetAssistant = false;
+        try
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (CurrentChat?.Id == chat.Id)
+                    IsSuggestionsGenerating = true;
+            });
+
+            // Resolve the specific assistant message that completed on idle.
+            var assistantIndex = chat.Messages.FindIndex(m => m.Id == assistantMessageId);
+            if (assistantIndex < 0)
+                return;
+
+            var assistantMessage = chat.Messages[assistantIndex];
+            if (assistantMessage.Role != "assistant" || string.IsNullOrWhiteSpace(assistantMessage.Content))
+                return;
+
+            hasTargetAssistant = true;
+
+            // Use the user message that led to this assistant reply for tighter context.
+            var lastUser = chat.Messages
+                .Take(assistantIndex)
+                .LastOrDefault(m => m.Role == "user" && !string.IsNullOrWhiteSpace(m.Content));
+
+            var suggestions = await _copilotService.GenerateSuggestionsAsync(
+                assistantMessage.Content, lastUser?.Content);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (CurrentChat?.Id != chat.Id) return;
+
+                // If another assistant message arrived, don't overwrite with stale suggestions.
+                var latestAssistantId = chat.Messages
+                    .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content))?.Id;
+                if (latestAssistantId != assistantMessageId)
+                    return;
+
+                SuggestionA = suggestions?.ElementAtOrDefault(0) ?? "";
+                SuggestionB = suggestions?.ElementAtOrDefault(1) ?? "";
+                SuggestionC = suggestions?.ElementAtOrDefault(2) ?? "";
+            });
+        }
+        catch
+        {
+            // Silently fail — suggestions are non-critical
+        }
+        finally
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (CurrentChat?.Id == chat.Id)
+                    IsSuggestionsGenerating = false;
+
+                _suggestionGenerationInFlightChats.Remove(chat.Id);
+                if (hasTargetAssistant)
+                    _lastSuggestedAssistantMessageByChat[chat.Id] = assistantMessageId;
+            });
+        }
+    }
+
+    private void ClearSuggestions()
+    {
+        SuggestionA = "";
+        SuggestionB = "";
+        SuggestionC = "";
+        IsSuggestionsGenerating = false;
     }
 
     private async Task SaveChatAsync(Chat chat, bool saveIndex)

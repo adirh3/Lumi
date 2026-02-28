@@ -254,6 +254,57 @@ public class CopilotService : IAsyncDisposable
         return await _client.CreateSessionAsync(config, ct);
     }
 
+    public async Task<List<string>?> GenerateSuggestionsAsync(string assistantMessage, string? userMessage, CancellationToken ct = default)
+    {
+        if (_client is null) return null;
+
+        var context = string.IsNullOrWhiteSpace(userMessage)
+            ? assistantMessage
+            : $"User: {userMessage}\n\nAssistant: {assistantMessage}";
+
+        // Truncate to keep the request lightweight
+        if (context.Length > 2000)
+            context = context[..2000];
+
+        var session = await _client.CreateSessionAsync(new SessionConfig
+        {
+            Streaming = true,
+            SystemMessage = new SystemMessageConfig
+            {
+                Content = "You generate follow-up suggestions for a chat assistant. Given the conversation below, produce exactly 3 short follow-up messages the user might want to send next. Each suggestion must be concise (under 60 characters) and contextually relevant. Output ONLY a JSON array of 3 strings, nothing else. Example: [\"Tell me more\", \"How do I implement this?\", \"What are the alternatives?\"]",
+                Mode = SystemMessageMode.Replace
+            },
+            AvailableTools = []
+        }, ct);
+
+        try
+        {
+            var result = await session.SendAndWaitAsync(
+                new MessageOptions { Prompt = context },
+                TimeSpan.FromSeconds(15), ct);
+            var raw = result?.Data?.Content?.Trim();
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+
+            // Strip markdown code fences if present (e.g., ```json ... ```)
+            if (raw.StartsWith("```"))
+            {
+                var firstNewline = raw.IndexOf('\n');
+                if (firstNewline > 0) raw = raw[(firstNewline + 1)..];
+                if (raw.EndsWith("```")) raw = raw[..^3];
+                raw = raw.Trim();
+            }
+
+            // Parse the JSON array
+            var suggestions = System.Text.Json.JsonSerializer.Deserialize(
+                raw, Lumi.Models.AppDataJsonContext.Default.ListString);
+            return suggestions?.Count > 0 ? suggestions : null;
+        }
+        finally
+        {
+            await session.DisposeAsync();
+        }
+    }
+
     public async Task DeleteSessionAsync(string sessionId, CancellationToken ct = default)
     {
         if (_client is null) return;
