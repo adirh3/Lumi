@@ -14,9 +14,11 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Data;
 using Avalonia.Data.Converters;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Lumi.Localization;
@@ -39,6 +41,11 @@ public partial class ChatView : UserControl
     private StackPanel? _messageStack;
     private Panel? _dropOverlay;
     private Panel? _loadingOverlay;
+
+    private static readonly string ClipboardImagesDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Lumi",
+        "clipboard-images");
 
     // Cancellation for in-progress async rebuilds (allows fast chat switching)
     private CancellationTokenSource? _rebuildCts;
@@ -240,6 +247,7 @@ public partial class ChatView : UserControl
                     OnComposerAgentChanged(_welcomeComposer, vm);
             };
             _welcomeComposer.VoiceRequested += (_, _) => _ = ToggleVoiceAsync(_welcomeComposer, vm);
+            WireClipboardImagePaste(_welcomeComposer, vm);
         }
 
         if (_activeComposer is not null)
@@ -267,6 +275,7 @@ public partial class ChatView : UserControl
                     OnComposerAgentChanged(_activeComposer, vm);
             };
             _activeComposer.VoiceRequested += (_, _) => _ = ToggleVoiceAsync(_activeComposer, vm);
+            WireClipboardImagePaste(_activeComposer, vm);
         }
 
         // Wire pending attachments list to the observable collection
@@ -1807,6 +1816,48 @@ public partial class ChatView : UserControl
             var composer = _activeComposer ?? _welcomeComposer;
             composer?.FocusInput();
         }
+    }
+
+    private void WireClipboardImagePaste(StrataChatComposer composer, ChatViewModel vm)
+    {
+        // Strata may be loaded from a sibling repo that the design-time compiler does not always index.
+        var eventInfo = typeof(StrataChatComposer).GetEvent("ClipboardImagePasteRequested");
+        if (eventInfo is null) return;
+
+        EventHandler<RoutedEventArgs> handler = (_, _) => _ = PasteClipboardImageAsync(vm, composer);
+        eventInfo.AddEventHandler(composer, handler);
+    }
+
+    private async Task PasteClipboardImageAsync(ChatViewModel vm, StrataChatComposer? composer)
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null) return;
+
+        try
+        {
+            var dataTransfer = await clipboard.TryGetDataAsync();
+            if (dataTransfer is null) return;
+
+            using var bitmap = await dataTransfer.TryGetBitmapAsync();
+            if (bitmap is null) return;
+
+            var filePath = SaveClipboardImage(bitmap);
+            vm.AddAttachment(filePath);
+            composer?.FocusInput();
+        }
+        catch
+        {
+            // Clipboard reads can fail transiently; ignore and keep typing flow uninterrupted.
+        }
+    }
+
+    private static string SaveClipboardImage(Bitmap bitmap)
+    {
+        Directory.CreateDirectory(ClipboardImagesDir);
+        var fileName = $"clipboard-{DateTime.UtcNow:yyyyMMdd-HHmmssfff}-{Guid.NewGuid():N}.png";
+        var filePath = Path.Combine(ClipboardImagesDir, fileName);
+        bitmap.Save(filePath);
+        return filePath;
     }
 
     // ── Voice input ──────────────────────────────────────────────
