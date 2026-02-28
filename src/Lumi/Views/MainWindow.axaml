@@ -17,7 +17,7 @@
         Background="Transparent">
 
   <Window.Resources>
-    <Thickness x:Key="MainLayout.IslandOuterMargin">8,38,6,6</Thickness>
+    <Thickness x:Key="MainLayout.IslandOuterMargin">8,30,6,6</Thickness>
     <x:Double x:Key="MainLayout.SplitIslandMinWidth">220</x:Double>
 
     <!-- ── SVG Icon Paths ── -->
@@ -170,18 +170,13 @@
       <Border x:Name="SidebarBorder" DockPanel.Dock="Left" Width="240">
         <DockPanel>
 
-          <!-- ── Top: Title bar inset (respects window chrome buttons) ── -->
-          <Border DockPanel.Dock="Top" IsHitTestVisible="False"
-                  Height="38" />
-          <DockPanel DockPanel.Dock="Top" Margin="14,0,14,0">
-            <TextBlock Text="{loc:Str App_Name}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
-                       VerticalAlignment="Center" Margin="4,0,0,0" />
-          </DockPanel>
+          <!-- ── Top: Title bar inset (respects window chrome) ── -->
+          <Border DockPanel.Dock="Top" IsHitTestVisible="False" Height="30" />
 
           <!-- ── Bottom: Nav row ── -->
           <Border DockPanel.Dock="Bottom">
             <StackPanel x:Name="NavRow" Orientation="Horizontal" Spacing="0"
-                        Margin="14,6,14,10">
+                        Margin="14,6,14,8">
               <Button Classes="subtle nav-icon" x:Name="NavChat" ToolTip.Tip="{loc:Str Nav_Chats}"
                       Command="{Binding SetNavCommand}" CommandParameter="0">
                 <PathIcon Data="{StaticResource Icon.Chat}" Width="16" Height="16"
@@ -226,7 +221,7 @@
           <!-- ── 0: Chat sidebar ── -->
           <Panel x:Name="SidebarChat">
             <DockPanel>
-              <Border DockPanel.Dock="Top" Margin="14,10,14,0">
+              <Border DockPanel.Dock="Top" Margin="16,4,16,0">
                 <Button Classes="subtle" HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Left"
                         CornerRadius="{DynamicResource Radius.Base}"
@@ -243,7 +238,7 @@
                   </StackPanel>
                 </Button>
               </Border>
-              <Border DockPanel.Dock="Top" Margin="14,6,14,0">
+              <Border DockPanel.Dock="Top" Margin="16,6,16,0">
                 <TextBox Watermark="{loc:Str Sidebar_Search}" x:Name="ChatSearchBox"
                          Text="{Binding ChatSearchQuery, Mode=TwoWay}"
                          Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
@@ -341,7 +336,7 @@
           <!-- ── 1: Projects sidebar ── -->
           <Panel x:Name="SidebarProjects" IsVisible="False" DataContext="{Binding ProjectsVM}" x:DataType="vm:ProjectsViewModel">
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
+              <DockPanel DockPanel.Dock="Top" Margin="16,4,16,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
                         CornerRadius="{DynamicResource Radius.Base}"
                         Command="{Binding NewProjectCommand}" ToolTip.Tip="{loc:Str Sidebar_NewProjectTooltip}">
@@ -350,9 +345,9 @@
                 </Button>
                 <TextBlock Text="{loc:Str Sidebar_Projects}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
-                           VerticalAlignment="Center" />
+                           VerticalAlignment="Center" Margin="6,0,0,0" />
               </DockPanel>
-              <Border DockPanel.Dock="Top" Margin="14,6,14,0">
+              <Border DockPanel.Dock="Top" Margin="16,6,16,0">
                 <TextBox Watermark="{loc:Str Sidebar_Search}" Text="{Binding SearchQuery}"
                          Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
@@ -400,7 +395,7 @@
           <!-- ── 2: Skills sidebar ── -->
           <Panel x:Name="SidebarSkills" IsVisible="False" DataContext="{Binding SkillsVM}" x:DataType="vm:SkillsViewModel">
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
+              <DockPanel DockPanel.Dock="Top" Margin="16,4,16,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
                         CornerRadius="{DynamicResource Radius.Base}"
                         Command="{Binding NewSkillCommand}" ToolTip.Tip="{loc:Str Sidebar_NewSkillTooltip}">
@@ -409,9 +404,9 @@
                 </Button>
                 <TextBlock Text="{loc:Str Sidebar_Skills}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
-                           VerticalAlignment="Center" />
+                           VerticalAlignment="Center" Margin="6,0,0,0" />
               </DockPanel>
-              <Border DockPanel.Dock="Top" Margin="14,6,14,0">
+              <Border DockPanel.Dock="Top" Margin="16,6,16,0">
                 <TextBox Watermark="{loc:Str Sidebar_Search}" Text="{Binding SearchQuery}"
                          Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
@@ -455,7 +450,7 @@
           <!-- ── 3: Lumis sidebar ── -->
           <Panel x:Name="SidebarAgents" IsVisible="False" DataContext="{Binding AgentsVM}" x:DataType="vm:AgentsViewModel">
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
+              <DockPanel DockPanel.Dock="Top" Margin="16,4,16,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
                         CornerRadius="{DynamicResource Radius.Base}"
                         Command="{Binding NewAgentCommand}" ToolTip.Tip="{loc:Str Sidebar_NewLumiTooltip}">
@@ -464,9 +459,9 @@
                 </Button>
                 <TextBlock Text="{loc:Str Sidebar_Lumis}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
-                           VerticalAlignment="Center" />
+                           VerticalAlignment="Center" Margin="6,0,0,0" />
               </DockPanel>
-              <Border DockPanel.Dock="Top" Margin="14,6,14,0">
+              <Border DockPanel.Dock="Top" Margin="16,6,16,0">
                 <TextBox Watermark="{loc:Str Sidebar_Search}" Text="{Binding SearchQuery}"
                          Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
@@ -510,7 +505,7 @@
           <!-- ── 4: Memories sidebar ── -->
           <Panel x:Name="SidebarMemories" IsVisible="False" DataContext="{Binding MemoriesVM}" x:DataType="vm:MemoriesViewModel">
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
+              <DockPanel DockPanel.Dock="Top" Margin="16,4,16,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
                         CornerRadius="{DynamicResource Radius.Base}"
                         Command="{Binding NewMemoryCommand}" ToolTip.Tip="{loc:Str Sidebar_NewMemoryTooltip}">
@@ -519,9 +514,9 @@
                 </Button>
                 <TextBlock Text="{loc:Str Sidebar_Memories}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
-                           VerticalAlignment="Center" />
+                           VerticalAlignment="Center" Margin="6,0,0,0" />
               </DockPanel>
-              <Border DockPanel.Dock="Top" Margin="14,6,14,0">
+              <Border DockPanel.Dock="Top" Margin="16,6,16,0">
                 <TextBox Watermark="{loc:Str Sidebar_Search}" Text="{Binding SearchQuery}"
                          Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
@@ -565,7 +560,7 @@
           <!-- ── 5: MCP Servers sidebar ── -->
           <Panel x:Name="SidebarMcpServers" IsVisible="False" DataContext="{Binding McpServersVM}" x:DataType="vm:McpServersViewModel">
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
+              <DockPanel DockPanel.Dock="Top" Margin="16,4,16,0">
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
                   <Button Classes="subtle" Padding="7,5" MinHeight="0"
                           CornerRadius="{DynamicResource Radius.Base}"
@@ -582,9 +577,9 @@
                 </StackPanel>
                 <TextBlock Text="{loc:Str Sidebar_McpServers}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
-                           VerticalAlignment="Center" />
+                           VerticalAlignment="Center" Margin="6,0,0,0" />
               </DockPanel>
-              <Border DockPanel.Dock="Top" Margin="14,6,14,0">
+              <Border DockPanel.Dock="Top" Margin="16,6,16,0">
                 <TextBox Watermark="{loc:Str Sidebar_Search}" Text="{Binding SearchQuery}"
                          Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
@@ -640,14 +635,14 @@
           <!-- ── 6: Settings sidebar ── -->
           <Panel x:Name="SidebarSettings" IsVisible="False" DataContext="{Binding SettingsVM}" x:DataType="vm:SettingsViewModel">
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="14,10,14,0">
+              <DockPanel DockPanel.Dock="Top" Margin="16,4,16,0">
                 <TextBlock Text="{loc:Str Sidebar_Settings}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
-                           VerticalAlignment="Center" />
+                           VerticalAlignment="Center" Margin="6,0,0,0" />
               </DockPanel>
-              <Border DockPanel.Dock="Top" Margin="14,6,14,0">
+              <Border DockPanel.Dock="Top" Margin="16,6,16,0">
                 <TextBox Watermark="{loc:Str Sidebar_SearchSettings}" Text="{Binding SearchQuery}"
-                         Padding="6,5,8,5" FontSize="12">
+                         Padding="6,5,8,5" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
                     <PathIcon Data="{StaticResource Icon.Search}" Width="12" Height="12"
                               Foreground="{DynamicResource Brush.TextTertiary}"
@@ -655,10 +650,10 @@
                   </TextBox.InnerLeftContent>
                 </TextBox>
               </Border>
-              <ListBox Classes="sidebar-list" Margin="8,8,8,8"
+              <ListBox Classes="sidebar-list" Margin="14,12,14,8"
                        SelectedIndex="{Binding SelectedPageIndex, Mode=TwoWay}"
                        SelectionMode="Single">
-                <ListBoxItem Padding="12,8">
+                <ListBoxItem>
                   <StackPanel Orientation="Horizontal" Spacing="10">
                     <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
                       <PathIcon.Data>
@@ -668,7 +663,7 @@
                     <TextBlock Text="{loc:Str Settings_Profile}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
                   </StackPanel>
                 </ListBoxItem>
-                <ListBoxItem Padding="12,8">
+                <ListBoxItem>
                   <StackPanel Orientation="Horizontal" Spacing="10">
                     <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
                       <PathIcon.Data>
@@ -678,7 +673,7 @@
                     <TextBlock Text="{loc:Str Settings_General}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
                   </StackPanel>
                 </ListBoxItem>
-                <ListBoxItem Padding="12,8">
+                <ListBoxItem>
                   <StackPanel Orientation="Horizontal" Spacing="10">
                     <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
                       <PathIcon.Data>
@@ -688,21 +683,21 @@
                     <TextBlock Text="{loc:Str Settings_Appearance}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
                   </StackPanel>
                 </ListBoxItem>
-                <ListBoxItem Padding="12,8">
+                <ListBoxItem>
                   <StackPanel Orientation="Horizontal" Spacing="10">
                     <PathIcon Data="{StaticResource Icon.Chat}" Width="14" Height="14"
                               Foreground="{DynamicResource Brush.TextSecondary}" />
                     <TextBlock Text="{loc:Str Settings_Chat}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
                   </StackPanel>
                 </ListBoxItem>
-                <ListBoxItem Padding="12,8">
+                <ListBoxItem>
                   <StackPanel Orientation="Horizontal" Spacing="10">
                     <PathIcon Data="{StaticResource Icon.Sparkle}" Width="14" Height="14"
                               Foreground="{DynamicResource Brush.TextSecondary}" />
                     <TextBlock Text="{loc:Str Settings_AIModels}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
                   </StackPanel>
                 </ListBoxItem>
-                <ListBoxItem Padding="12,8">
+                <ListBoxItem>
                   <StackPanel Orientation="Horizontal" Spacing="10">
                     <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
                       <PathIcon.Data>
@@ -712,7 +707,7 @@
                     <TextBlock Text="{loc:Str Settings_PrivacyData}" FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
                   </StackPanel>
                 </ListBoxItem>
-                <ListBoxItem Padding="12,8">
+                <ListBoxItem>
                   <StackPanel Orientation="Horizontal" Spacing="10">
                     <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.TextSecondary}">
                       <PathIcon.Data>
