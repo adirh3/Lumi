@@ -17,6 +17,7 @@ internal static class AppDataSnapshotFactory
                 UserSex = settings.UserSex,
                 IsOnboarded = settings.IsOnboarded,
                 DefaultsSeeded = settings.DefaultsSeeded,
+                CodingLumiSeeded = settings.CodingLumiSeeded,
                 Language = settings.Language,
                 LaunchAtStartup = settings.LaunchAtStartup,
                 StartMinimized = settings.StartMinimized,
