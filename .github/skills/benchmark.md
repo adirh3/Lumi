@@ -45,6 +45,8 @@ The first and last 250ms of all sample streams are discarded before computing st
 ### Other metrics
 - **Render frame time percentiles** — P50/P90/P99 of actual compositor frame intervals.
 - **Update time percentiles** — P50/P90/P95/P99 of dispatcher update intervals.
+- **Allocations (MB)** — UI-thread-only managed heap allocations via `GC.GetAllocatedBytesForCurrentThread()`. Tracks layout/rendering allocations without background thread noise. Both `Start()` and `Stop()` run on the UI thread.
+- **GC collections** — Process-wide gen0/gen1/gen2 collection counts. GC pauses affect all threads, so process-wide is the right scope. Gen2 collections during scrolling are a red flag for jank.
 
 ## Scenarios
 

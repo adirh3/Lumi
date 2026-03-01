@@ -36,6 +36,14 @@ internal sealed class FrameMonitor : IDisposable
     private TopLevel? _topLevel;
     private int _renderFrameCount;
     private TimeSpan _lastRenderElapsed;
+    private long _allocatedBytesAtStart;
+    private long _allocatedBytesAtStop;
+    private int _gen0CollectionsAtStart;
+    private int _gen1CollectionsAtStart;
+    private int _gen2CollectionsAtStart;
+    private int _gen0CollectionsAtStop;
+    private int _gen1CollectionsAtStop;
+    private int _gen2CollectionsAtStop;
 
     /// <summary>Total elapsed time since monitoring started.</summary>
     public TimeSpan Elapsed => _stopwatch.Elapsed;
@@ -62,6 +70,13 @@ internal sealed class FrameMonitor : IDisposable
         _lastScrollOffset = _getScrollOffset?.Invoke() ?? 0;
         _renderFrameCount = 0;
         _lastRenderElapsed = TimeSpan.Zero;
+        // Capture UI-thread-only allocations (not process-wide) so we measure
+        // layout/rendering allocations without background thread noise.
+        // Both Start() and Stop() are called on the UI thread.
+        _allocatedBytesAtStart = GC.GetAllocatedBytesForCurrentThread();
+        _gen0CollectionsAtStart = GC.CollectionCount(0);
+        _gen1CollectionsAtStart = GC.CollectionCount(1);
+        _gen2CollectionsAtStart = GC.CollectionCount(2);
 
         _stopwatch.Restart();
 
@@ -82,6 +97,10 @@ internal sealed class FrameMonitor : IDisposable
     {
         if (!_isRunning) return;
         _isRunning = false;
+        _allocatedBytesAtStop = GC.GetAllocatedBytesForCurrentThread();
+        _gen0CollectionsAtStop = GC.CollectionCount(0);
+        _gen1CollectionsAtStop = GC.CollectionCount(1);
+        _gen2CollectionsAtStop = GC.CollectionCount(2);
         _stopwatch.Stop();
         _updateTimer?.Stop();
         _updateTimer = null;
@@ -144,6 +163,10 @@ internal sealed class FrameMonitor : IDisposable
     public FrameStatistics GetStatistics(string scenarioName)
     {
         var durationMs = _stopwatch.Elapsed.TotalMilliseconds;
+        var allocatedBytes = _allocatedBytesAtStop - _allocatedBytesAtStart;
+        var gen0Collections = _gen0CollectionsAtStop - _gen0CollectionsAtStart;
+        var gen1Collections = _gen1CollectionsAtStop - _gen1CollectionsAtStart;
+        var gen2Collections = _gen2CollectionsAtStop - _gen2CollectionsAtStart;
 
         // --- Edge trimming ---
         // Discard the first and last 250ms of samples to remove startup/teardown artifacts.
@@ -260,6 +283,12 @@ internal sealed class FrameMonitor : IDisposable
             // Scroll velocity (px/s, normalized by time)
             AvgScrollVelocityPxPerSec = avgScrollVelPxPerSec,
             MaxScrollVelocityPxPerSec = maxScrollVelPxPerSec,
+
+            // Allocations (UI thread only) and GC collections (process-wide)
+            AllocatedMb = allocatedBytes / (1024.0 * 1024.0),
+            Gen0Collections = gen0Collections,
+            Gen1Collections = gen1Collections,
+            Gen2Collections = gen2Collections,
         };
     }
 
@@ -419,6 +448,17 @@ internal sealed class FrameStatistics
     public double AvgScrollVelocityPxPerSec { get; init; }
     public double MaxScrollVelocityPxPerSec { get; init; }
 
+    // Managed heap allocations on the UI thread during the scenario.
+    // Uses GC.GetAllocatedBytesForCurrentThread() — tracks only the thread
+    // where layout, rendering, and scroll offset changes happen.
+    // Does NOT include background thread allocations.
+    public double AllocatedMb { get; init; }
+
+    // GC collections are process-wide (GC pauses affect all threads).
+    public int Gen0Collections { get; init; }
+    public int Gen1Collections { get; init; }
+    public int Gen2Collections { get; init; }
+
     public void WriteTo(BenchmarkOutput output, bool verbose = false, IReadOnlyList<double>? rawUpdateDeltas = null)
     {
         output.WriteLine();
@@ -433,6 +473,7 @@ internal sealed class FrameStatistics
         output.WriteLine($"  Update time:  avg {AvgUpdateTimeMs:F2}ms  P50={P50UpdateTimeMs:F2}ms  P90={P90UpdateTimeMs:F2}ms  P99={P99UpdateTimeMs:F2}ms");
         output.WriteLine($"  Std dev:      {UpdateTimeStdDev:F2}ms");
         output.WriteLine($"  Scroll vel:   avg {AvgScrollVelocityPxPerSec:F0} px/s  max(P99) {MaxScrollVelocityPxPerSec:F0} px/s");
+        output.WriteLine($"  Allocations:  {AllocatedMb:F1} MB (UI thread)  GC: gen0={Gen0Collections} gen1={Gen1Collections} gen2={Gen2Collections}");
 
         if (verbose && rawUpdateDeltas is { Count: > 0 })
         {
@@ -494,6 +535,8 @@ internal sealed class BenchmarkReport
             output.WriteLine($"  Worst jank %:       {Scenarios.Max(s => s.JankPercentage):F1}%");
             output.WriteLine($"  Total jank frames:  {Scenarios.Sum(s => s.JankFrames)}");
             output.WriteLine($"  Total dropped:      {Scenarios.Sum(s => s.DroppedFrames)}");
+            output.WriteLine($"  Total allocated:    {Scenarios.Sum(s => s.AllocatedMb):F1} MB (UI thread)");
+            output.WriteLine($"  Total GC:           gen0={Scenarios.Sum(s => s.Gen0Collections)} gen1={Scenarios.Sum(s => s.Gen1Collections)} gen2={Scenarios.Sum(s => s.Gen2Collections)}");
         }
     }
 
