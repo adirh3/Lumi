@@ -2384,10 +2384,12 @@ public partial class ChatView : UserControl
 
     // ── Drag & Drop ──────────────────────────────────────────────
 
-#pragma warning disable CS0618 // DragEventArgs.Data / DataFormats.Files — new IDataTransfer API lacks GetFiles()
+    private static bool HasFiles(DragEventArgs e) =>
+        e.DataTransfer.Formats.Contains(DataFormat.File);
+
     private void OnDragEnter(object? sender, DragEventArgs e)
     {
-        if (e.Data.Contains(DataFormats.Files))
+        if (HasFiles(e))
         {
             e.DragEffects = DragDropEffects.Copy;
             if (_dropOverlay is not null) _dropOverlay.IsVisible = true;
@@ -2400,7 +2402,7 @@ public partial class ChatView : UserControl
 
     private void OnDragOver(object? sender, DragEventArgs e)
     {
-        e.DragEffects = e.Data.Contains(DataFormats.Files)
+        e.DragEffects = HasFiles(e)
             ? DragDropEffects.Copy
             : DragDropEffects.None;
     }
@@ -2416,21 +2418,20 @@ public partial class ChatView : UserControl
 
         if (DataContext is not ChatViewModel vm) return;
 
-        var files = e.Data.GetFiles();
-        if (files is null) return;
-
-        foreach (var item in files)
+        foreach (var item in e.DataTransfer.Items)
         {
-            var path = item.TryGetLocalPath();
-            if (path is not null)
-                vm.AddAttachment(path);
+            if (item.TryGetRaw(DataFormat.File) is IStorageItem storageItem)
+            {
+                var path = storageItem.TryGetLocalPath();
+                if (path is not null)
+                    vm.AddAttachment(path);
+            }
         }
 
         // Focus the composer after dropping files
         var composer = _chatPanel?.IsVisible == true ? _activeComposer : _welcomeComposer;
         composer?.FocusInput();
     }
-#pragma warning restore CS0618
 
     private static string GetToolGlyph(string toolName)
     {
