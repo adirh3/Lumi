@@ -6,6 +6,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Lumi.Benchmark;
 using Lumi.Localization;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -67,6 +68,14 @@ public partial class App : Application
 
             window.Opened += (_, _) =>
             {
+                // If benchmark mode, launch the runner and skip normal deferred setup
+                if (Program.BenchmarkConfig is { } benchArgs)
+                {
+                    var runner = new BenchmarkRunner(benchArgs);
+                    _ = runner.RunAsync(window);
+                    return;
+                }
+
                 Dispatcher.UIThread.Post(() =>
                 {
                     // Defer non-critical setup until first frame is shown.

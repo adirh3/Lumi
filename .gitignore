@@ -28,5 +28,8 @@ Thumbs.db
 ## App data (local runtime state)
 data.json
 
+## Benchmark output
+benchmark-*.json
+
 ## Local MCP test harness (temporary)
 test-mcp/
