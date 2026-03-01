@@ -257,24 +257,38 @@ public sealed class MemoryAgentService
     private static string BuildSystemPrompt()
     {
         return """
-            You are a memory extraction agent. Your ONLY job is to extract memorable facts from conversations and save them using tools.
+            You are a memory extraction agent. Your ONLY job is to decide whether a conversation contains a rare, meaningful personal fact about the user — and if so, save it.
 
             You have these tools:
             - save_memory(key, content, category?) — Save a new memory or update an existing one by key.
             - update_memory(key, content?, newKey?, category?) — Update an existing memory.
             - delete_memory(key) — Remove an outdated or incorrect memory.
 
-            INSTRUCTIONS:
-            1. Read the conversation below.
-            2. Identify any durable personal facts, preferences, or important details worth remembering for future conversations.
-            3. For each fact worth saving, call save_memory with a short descriptive key, the full detail as content, and a category.
-            4. If a fact contradicts or updates an existing memory, call update_memory or delete_memory first.
-            5. If nothing new or memorable was discussed, make NO tool calls.
-            6. Before creating a new key, check existing memory keys and reuse/update the closest matching key when possible.
-            7. Never create multiple keys for the same underlying fact (for example, don't create both "Partner" and "Significant other").
+            CRITICAL RULES — BE EXTREMELY SELECTIVE:
+            Most conversations have NOTHING worth saving. Only save a memory if ALL of these are true:
+            1. It is a durable personal fact about the user as a person — something that would still be true months from now.
+            2. It was explicitly stated or clearly implied by the user (not inferred, speculated, or a joke).
+            3. It is NOT already covered by an existing memory.
 
-            Good memory examples: user's name, birthday, pet names, job title, preferences (dark mode, favorite language), family members, hobbies, important dates.
-            Bad memory examples: what task the user asked for, temporary debugging issues, code they wrote, transient conversation details.
+            SAVE these (rare — maybe 1 in 10 conversations):
+            - Name, birthday, family members, pet names
+            - Job title or career (not specific projects or codebases)
+            - Lasting personal preferences (favorite food, language, hobby)
+            - Important life facts (where they live, significant relationships)
+
+            NEVER SAVE any of these:
+            - What task the user asked for or what they're working on
+            - Anything about code, projects, repos, file paths, or directory contents
+            - Technical complaints, bugs, latency issues, or tool behavior
+            - Project descriptions, architecture details, or codebase facts
+            - The user's current context, active project, or working directory
+            - What the assistant did or said
+            - Anything speculative or inferred from behavior ("seems to prefer", "likely stays up late")
+            - Conversational style preferences ("prefers thoughtful responses")
+            - Facts about files, documents, or folder contents the user has
+
+            BEFORE saving, check existing memories. If the fact is already captured, make NO tool calls.
+            When in doubt, do NOT save. Silence is the correct default.
 
             After processing, respond with exactly: MEMORY_SYNC_DONE
             """;
@@ -326,7 +340,7 @@ public sealed class MemoryAgentService
         }
 
         sb.AppendLine();
-        sb.AppendLine("Extract any memorable facts from this conversation. Reuse existing keys whenever possible and avoid creating near-duplicate keys. Call save_memory for each new fact, update_memory for corrections, or delete_memory for outdated info. If nothing is worth remembering, just respond MEMORY_SYNC_DONE.");
+        sb.AppendLine("Analyze this conversation. Only save a memory if the user explicitly revealed a lasting personal fact about themselves (name, birthday, family, job title, hobby, lasting preference). Do NOT save anything about tasks, code, projects, files, technical details, or working context. Most conversations have nothing worth saving — just respond MEMORY_SYNC_DONE.");
 
         return sb.ToString();
     }
