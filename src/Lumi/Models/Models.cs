@@ -124,6 +124,7 @@ public class UserSettings
     public string? UserSex { get; set; } // "male", "female", or null (prefer not to say)
     public bool IsOnboarded { get; set; }
     public bool DefaultsSeeded { get; set; }
+    public bool CodingLumiSeeded { get; set; }
     public string Language { get; set; } = "en";
     public bool LaunchAtStartup { get; set; }
     public bool StartMinimized { get; set; }

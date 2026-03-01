@@ -2393,6 +2393,10 @@ public partial class ChatView : UserControl
             "web_fetch" or "lumi_fetch" => "📚",
             "ui_inspect" or "ui_find" or "ui_click" or "ui_type" or "ui_read" => "🖥",
             "save_memory" or "update_memory" or "recall_memory" or "delete_memory" => "🧠",
+            "code_review" => "🔍",
+            "generate_tests" => "🧪",
+            "explain_code" => "📖",
+            "analyze_project" => "🏗",
             "update_todo" or "manage_todo_list" => "✅",
             _ => "⚙"
         };
@@ -3093,6 +3097,19 @@ public partial class ChatView : UserControl
                 return (Loc.Tool_PressingKeys, ExtractJsonField(argsJson, "keys"));
             case "ui_read":
                 return (Loc.Tool_ReadingControl, ExtractJsonField(argsJson, "elementId"));
+
+            case "code_review":
+                return (Loc.Tool_ReviewingCode, ExtractJsonField(argsJson, "language"));
+            case "generate_tests":
+            {
+                var lang = ExtractJsonField(argsJson, "language");
+                var fw = ExtractJsonField(argsJson, "framework");
+                return (Loc.Tool_GeneratingTests, fw is not null ? $"{lang} ({fw})" : lang);
+            }
+            case "explain_code":
+                return (Loc.Tool_ExplainingCode, ExtractJsonField(argsJson, "language"));
+            case "analyze_project":
+                return (Loc.Tool_AnalyzingProject, null);
 
             default:
                 var displayName = author ?? FormatToolNameFriendly(toolName);

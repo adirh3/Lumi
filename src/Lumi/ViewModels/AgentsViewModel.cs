@@ -90,6 +90,10 @@ public partial class AgentsViewModel : ObservableObject
         ("fetch_skill", "Fetch Skill", "Utility", "Retrieve the full content of a skill by name."),
         ("ask_question", "Ask Question", "Utility", "Ask the user a question with predefined options."),
         ("recall_memory", "Recall Memory", "Utility", "Search and recall stored memories about the user."),
+        ("code_review", "Code Review", "Coding", "Expert code review for bugs, security, performance, and best practices."),
+        ("generate_tests", "Generate Tests", "Coding", "Generate comprehensive unit tests for source code."),
+        ("explain_code", "Explain Code", "Coding", "Deep code explanation with call flow and pattern identification."),
+        ("analyze_project", "Analyze Project", "Coding", "Analyze project architecture, tech stack, and structure."),
     ];
 
     private void RefreshAvailableTools(LumiAgent? agent)

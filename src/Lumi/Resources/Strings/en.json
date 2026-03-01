@@ -181,6 +181,10 @@
   "Tool_ClickingControl": "Clicking control",
   "Tool_TypingInControl": "Typing in control",
   "Tool_ReadingControl": "Reading control",
+  "Tool_ReviewingCode": "Reviewing code",
+  "Tool_GeneratingTests": "Generating tests",
+  "Tool_ExplainingCode": "Explaining code",
+  "Tool_AnalyzingProject": "Analyzing project",
 
   "ToolGroup_Working": "Working\u2026",
   "ToolGroup_WorkingCount": "Working ({0} actions)\u2026",

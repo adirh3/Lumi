@@ -182,6 +182,10 @@
   "Tool_ClickingControl": "לוחץ על פקד",
   "Tool_TypingInControl": "מקליד בפקד",
   "Tool_ReadingControl": "קורא פקד",
+  "Tool_ReviewingCode": "סוקר קוד",
+  "Tool_GeneratingTests": "מייצר בדיקות",
+  "Tool_ExplainingCode": "מסביר קוד",
+  "Tool_AnalyzingProject": "מנתח פרויקט",
 
   "ToolGroup_Working": "עובד\u2026",
   "ToolGroup_WorkingCount": "עובד ({0} פעולות)\u2026",

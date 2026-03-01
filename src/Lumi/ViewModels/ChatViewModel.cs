@@ -27,6 +27,7 @@ public partial class ChatViewModel : ObservableObject
     private readonly CopilotService _copilotService;
     private readonly BrowserService _browserService;
     private readonly MemoryAgentService _memoryAgentService;
+    private readonly CodingToolService _codingToolService;
     private readonly UIAutomationService _uiAutomation = new();
     private readonly object _chatLoadSync = new();
     private CancellationTokenSource? _chatLoadCts;
@@ -129,6 +130,7 @@ public partial class ChatViewModel : ObservableObject
         _copilotService = copilotService;
         _browserService = browserService;
         _memoryAgentService = new MemoryAgentService(dataStore, copilotService);
+        _codingToolService = new CodingToolService(copilotService, GetCurrentCancellationToken);
         _selectedModel = dataStore.Data.Settings.PreferredModel;
 
         // Seed with preferred model so the ComboBox has an initial selection
@@ -1543,6 +1545,24 @@ public partial class ChatViewModel : ObservableObject
         return agents;
     }
 
+    private static readonly HashSet<string> CodingToolNames = ["code_review", "generate_tests", "explain_code", "analyze_project"];
+    private static readonly HashSet<string> BrowserToolNames = ["browser", "browser_look", "browser_find", "browser_do", "browser_js"];
+    private static readonly HashSet<string> UIToolNames = ["ui_list_windows", "ui_inspect", "ui_find", "ui_click", "ui_type", "ui_press_keys", "ui_read"];
+
+    private CancellationToken GetCurrentCancellationToken()
+    {
+        if (CurrentChat is { } chat && _ctsSources.TryGetValue(chat.Id, out var cts))
+            return cts.Token;
+        return CancellationToken.None;
+    }
+
+    private bool ActiveAgentAllows(HashSet<string> toolGroup)
+    {
+        // No active agent or no restrictions → allow everything
+        if (ActiveAgent is not { ToolNames.Count: > 0 } agent) return true;
+        return agent.ToolNames.Exists(toolGroup.Contains);
+    }
+
     private List<AIFunction> BuildCustomTools()
     {
         var tools = new List<AIFunction>();
@@ -1551,8 +1571,11 @@ public partial class ChatViewModel : ObservableObject
         tools.Add(BuildFetchSkillTool());
         tools.Add(BuildAskQuestionTool());
         tools.AddRange(BuildWebTools());
-        tools.AddRange(BuildBrowserTools());
-        if (OperatingSystem.IsWindows())
+        if (ActiveAgentAllows(BrowserToolNames))
+            tools.AddRange(BuildBrowserTools());
+        if (ActiveAgentAllows(CodingToolNames))
+            tools.AddRange(_codingToolService.BuildCodingTools());
+        if (OperatingSystem.IsWindows() && ActiveAgentAllows(UIToolNames))
             tools.AddRange(BuildUIAutomationTools());
         return tools;
     }
@@ -2300,6 +2323,10 @@ public partial class ChatViewModel : ObservableObject
             "announce_file" => Loc.Tool_SharingFile,
             "fetch_skill" => Loc.Tool_FetchingSkill,
             "ask_question" => Loc.Tool_AskingQuestion,
+            "code_review" => Loc.Tool_ReviewingCode,
+            "generate_tests" => Loc.Tool_GeneratingTests,
+            "explain_code" => Loc.Tool_ExplainingCode,
+            "analyze_project" => Loc.Tool_AnalyzingProject,
             "ui_list_windows" => Loc.Tool_ListingWindows,
             "ui_press_keys" => Loc.Tool_PressingKeys,
             "ui_inspect" => Loc.Tool_InspectingWindow,
