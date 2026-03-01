@@ -149,13 +149,7 @@
         </sc:StrataChatShell.Header>
 
         <sc:StrataChatShell.Transcript>
-          <ItemsControl ItemsSource="{Binding Messages}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate>
-                <Panel Margin="0,4" />
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
+          <sc:StrataChatTranscript />
         </sc:StrataChatShell.Transcript>
 
         <sc:StrataChatShell.Composer>

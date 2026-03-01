@@ -43,7 +43,7 @@ public partial class ChatView : UserControl
     private StrataAttachmentList? _pendingAttachmentList;
     private Panel? _welcomePanel;
     private Panel? _chatPanel;
-    private StackPanel? _messageStack;
+    private StrataChatTranscript? _messageStack;
     private Panel? _dropOverlay;
     private Panel? _loadingOverlay;
 
@@ -503,7 +503,7 @@ public partial class ChatView : UserControl
             }
             else if (args.Action == NotifyCollectionChangedAction.Reset)
             {
-                _messageStack?.Children.Clear();
+                _messageStack?.Items.Clear();
                 _currentToolGroup = null;
                 _currentToolGroupStack = null;
                 _currentToolGroupCount = 0;
@@ -593,7 +593,7 @@ public partial class ChatView : UserControl
         // Build controls into a DETACHED StackPanel (not in the visual tree).
         // This avoids expensive per-control layout/measure/scroll passes.
         // We only attach it to the shell after all controls are built.
-        _messageStack = new StackPanel { Spacing = 12 };
+        _messageStack = new StrataChatTranscript();
         _currentToolGroup = null;
         _currentToolGroupStack = null;
         _currentToolGroupCount = 0;
@@ -739,7 +739,7 @@ public partial class ChatView : UserControl
             var scrollBefore = _transcriptScrollViewer?.Extent.Height ?? 0;
 
             // Build controls for the batch into a temporary stack, then prepend
-            var tempStack = new StackPanel { Spacing = 12 };
+            var tempStack = new StrataChatTranscript();
             var savedMessageStack = _messageStack;
             var savedToolGroup = _currentToolGroup;
             var savedToolGroupStack = _currentToolGroupStack;
@@ -785,12 +785,10 @@ public partial class ChatView : UserControl
                 _terminalPreviewsByToolCallId[kv.Key] = kv.Value;
 
             // Prepend the batch controls to the real message stack
-            var children = tempStack.Children.ToList();
-            for (int i = children.Count - 1; i >= 0; i--)
-            {
-                tempStack.Children.RemoveAt(i);
-                _messageStack.Children.Insert(0, children[i]);
-            }
+            var items = tempStack.Items.Cast<object>().ToList();
+            tempStack.Items.Clear();
+            for (int i = items.Count - 1; i >= 0; i--)
+                _messageStack.Items.Insert(0, items[i]);
 
             // Yield to let layout update
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
@@ -855,7 +853,7 @@ public partial class ChatView : UserControl
     {
         if (_messageStack is null)
         {
-            _messageStack = new StackPanel { Spacing = 12 };
+            _messageStack = new StrataChatTranscript();
             if (_chatShell is not null)
                 _chatShell.Transcript = _messageStack;
         }
@@ -918,7 +916,7 @@ public partial class ChatView : UserControl
                         card.IsAnswered = true;
                     }
 
-                    _messageStack?.Children.Add(card);
+                    _messageStack?.Items.Add(card);
                 }
                 return;
             }
@@ -1253,16 +1251,6 @@ public partial class ChatView : UserControl
                 Content = msgContent
             };
 
-            msg.Transitions = new Transitions
-            {
-                new DoubleTransition
-                {
-                    Property = OpacityProperty,
-                    Duration = TimeSpan.FromMilliseconds(180),
-                    Easing = new CubicEaseOut()
-                }
-            };
-
             // For user messages: wire edit to extract markdown, and retry to resend
             if (isUser)
             {
@@ -1300,7 +1288,7 @@ public partial class ChatView : UserControl
                 {
                     msg.IsStreaming = msgVm.IsStreaming;
                     if (isAssistant)
-                        msg.Opacity = msgVm.IsStreaming ? StreamingMessageOpacity : 1.0;
+                        AnimateSurfaceOpacity(msg, msgVm.IsStreaming ? (float)StreamingMessageOpacity : 1f, 180);
 
                     // When assistant streaming ends, attach extras and finalize
                     if (!msgVm.IsStreaming && isAssistant)
@@ -1363,7 +1351,7 @@ public partial class ChatView : UserControl
             // If the group has no tool cards at all, remove it entirely
             if (_currentToolGroupCount == 0)
             {
-                _messageStack?.Children.Remove(_currentToolGroup);
+                _messageStack?.Items.Remove(_currentToolGroup);
             }
             else
             {
@@ -1433,7 +1421,7 @@ public partial class ChatView : UserControl
     {
         if (_messageStack is null) return;
 
-        var idx = _messageStack.Children.IndexOf(assistantMsgControl);
+        var idx = _messageStack.Items.IndexOf(assistantMsgControl);
         if (idx <= 0) return;
 
         // Walk backward collecting consecutive StrataThink controls
@@ -1441,7 +1429,7 @@ public partial class ChatView : UserControl
         var blocksToMerge = new List<StrataThink>();
         for (int i = idx - 1; i >= 0; i--)
         {
-            if (_messageStack.Children[i] is StrataThink think)
+            if (_messageStack.Items[i] is StrataThink think)
                 blocksToMerge.Add(think);
             else
                 break;
@@ -1512,9 +1500,9 @@ public partial class ChatView : UserControl
             label += " " + string.Format(Loc.ToolGroup_FinishedFailed, failedCount);
 
         // Remove original blocks from message stack
-        int firstIdx = _messageStack.Children.IndexOf(blocksToMerge[0]);
+        int firstIdx = _messageStack.Items.IndexOf(blocksToMerge[0]);
         foreach (var think in blocksToMerge)
-            _messageStack.Children.Remove(think);
+            _messageStack.Items.Remove(think);
 
         // Re-insert the original blocks inside a StrataTurnSummary
         var innerStack = new StackPanel { Spacing = 8 };
@@ -1529,7 +1517,7 @@ public partial class ChatView : UserControl
             Content = innerStack
         };
 
-        _messageStack.Children.Insert(firstIdx, summary);
+        _messageStack.Items.Insert(firstIdx, summary);
     }
 
     /// <summary>
@@ -1540,10 +1528,15 @@ public partial class ChatView : UserControl
     {
         if (_messageStack is null) return;
 
-        var assistantMessages = _messageStack.Children
-            .OfType<StrataChatMessage>()
-            .Where(m => m.Role == StrataChatRole.Assistant)
-            .ToList();
+        // Single-pass collection to avoid LINQ allocations
+        var items = _messageStack.Items;
+        var count = items.Count;
+        var assistantMessages = new List<StrataChatMessage>();
+        for (int i = 0; i < count; i++)
+        {
+            if (items[i] is StrataChatMessage m && m.Role == StrataChatRole.Assistant)
+                assistantMessages.Add(m);
+        }
 
         // Process last-to-first so index shifts don't affect earlier messages
         for (int i = assistantMessages.Count - 1; i >= 0; i--)
@@ -1692,7 +1685,7 @@ public partial class ChatView : UserControl
             vm.SubmitQuestionAnswer(questionId, answer);
         };
 
-        _messageStack.Children.Add(card);
+        _messageStack.Items.Add(card);
         AnimateControlEntrance(card);
         _chatShell?.ScrollToEnd();
     }
@@ -1739,7 +1732,7 @@ public partial class ChatView : UserControl
                 Label = label ?? Loc.Status_Thinking,
                 IsActive = true
             };
-            _messageStack.Children.Add(_typingIndicator);
+            _messageStack.Items.Add(_typingIndicator);
             AnimateControlEntrance(_typingIndicator);
         }
         else
@@ -1747,9 +1740,9 @@ public partial class ChatView : UserControl
             _typingIndicator.Label = label ?? Loc.Status_Thinking;
             _typingIndicator.IsActive = true;
             // Ensure it's at the bottom
-            if (_messageStack.Children.Contains(_typingIndicator))
-                _messageStack.Children.Remove(_typingIndicator);
-            _messageStack.Children.Add(_typingIndicator);
+            if (_messageStack.Items.Contains(_typingIndicator))
+                _messageStack.Items.Remove(_typingIndicator);
+            _messageStack.Items.Add(_typingIndicator);
         }
 
         _chatShell?.ScrollToEnd();
@@ -1759,7 +1752,7 @@ public partial class ChatView : UserControl
     {
         if (_typingIndicator is not null && _messageStack is not null)
         {
-            _messageStack.Children.Remove(_typingIndicator);
+            _messageStack.Items.Remove(_typingIndicator);
             _typingIndicator = null;
         }
     }
@@ -1774,14 +1767,14 @@ public partial class ChatView : UserControl
     {
         if (_messageStack is null) return;
 
-        if (_typingIndicator is not null && _messageStack.Children.Contains(_typingIndicator))
+        if (_typingIndicator is not null && _messageStack.Items.Contains(_typingIndicator))
         {
-            var idx = _messageStack.Children.IndexOf(_typingIndicator);
-            _messageStack.Children.Insert(idx, control);
+            var idx = _messageStack.Items.IndexOf(_typingIndicator);
+            _messageStack.Items.Insert(idx, control);
         }
         else
         {
-            _messageStack.Children.Add(control);
+            _messageStack.Items.Add(control);
         }
 
         if (IsTranscriptBuilding)
@@ -1810,8 +1803,7 @@ public partial class ChatView : UserControl
         // Composition Offset animation can shift it from center in some layouts.
         var allowCompositionEntrance =
             !preferTransformFallback
-            && !ReferenceEquals(control, _welcomeGreeting)
-            && control is not StrataChatMessage;
+            && !ReferenceEquals(control, _welcomeGreeting);
         if (allowCompositionEntrance && TryStartCompositionEntranceAnimation(control))
             return;
 
