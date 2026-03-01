@@ -70,6 +70,9 @@
   "Field_Category": "CATEGORY",
   "Field_Content": "CONTENT",
   "Field_Chats": "CHATS",
+  "Field_Skills": "SKILLS",
+  "Field_McpServers": "MCP SERVERS",
+  "Field_Tools": "TOOLS",
 
   "Watermark_AgentName": "e.g. Daily Planner",
   "Watermark_AgentDescription": "What does this Lumi do?",
@@ -85,6 +88,12 @@
   "Watermark_EnterName": "Enter your name",
   "Watermark_PreferredModel": "e.g. claude-sonnet-4",
 
+  "Agent_SkillsHint": "Skills linked to this Lumi are included in its system prompt.",
+  "Agent_McpServersHint": "Only these MCP servers will be available when chatting with this Lumi.",
+  "Agent_NoSkills": "No skills created yet.",
+  "Agent_NoMcpServers": "No MCP servers configured yet.",
+  "Agent_ToolsHint": "Uncheck tools to restrict what this Lumi can do. All enabled by default.",
+  "Agent_DeleteConfirm": "Delete this Lumi?",
   "Empty_SelectLumi": "Select or create a Lumi",
   "Empty_SelectProject": "Select or create a project",
   "Empty_SelectSkill": "Select or create a skill",

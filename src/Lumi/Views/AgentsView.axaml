@@ -28,6 +28,39 @@
         </Transitions>
       </Setter>
     </Style>
+
+    <!-- Toggle pill: base -->
+    <Style Selector="ToggleButton.pill">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Padding" Value="10,4,10,5" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Background" Duration="0:0:0.15" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.15" />
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="ToggleButton.pill:pointerover">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
+    </Style>
+    <Style Selector="ToggleButton.pill:checked">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="ToggleButton.pill:checked:pointerover">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
   </UserControl.Styles>
 
   <Panel>
@@ -36,44 +69,144 @@
                     IsVisible="{Binding IsEditing}"
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto" Padding="36,24,36,36">
-        <StackPanel Spacing="20" MaxWidth="560">
-          <TextBlock Text="{loc:Str Editor_Lumi}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold" />
+        <StackPanel Spacing="20" MaxWidth="920">
 
-          <StackPanel Spacing="4">
-            <TextBlock Text="{loc:Str Field_Name}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                       LetterSpacing="0.8" />
-            <TextBox Text="{Binding EditName}" Watermark="{loc:Str Watermark_AgentName}" />
-          </StackPanel>
-
-          <Grid ColumnDefinitions="72,20,*">
-            <StackPanel Spacing="4">
-              <TextBlock Text="{loc:Str Field_Icon}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                         LetterSpacing="0.8" />
-              <TextBox Text="{Binding EditIconGlyph}" Watermark="✦"
-                       HorizontalContentAlignment="Center" />
+          <!-- Header + actions row -->
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+              <Button Classes="accent motion-action" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
+                      Command="{Binding SaveAgentCommand}" />
+              <Button Classes="subtle motion-action" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
+                      Command="{Binding CancelEditCommand}" />
+              <Button Classes="subtle motion-action" Padding="10,7" MinHeight="0"
+                      Command="{Binding DeleteSelectedAgentCommand}"
+                      IsVisible="{Binding SelectedAgent, Converter={x:Static ObjectConverters.IsNotNull}}"
+                      ToolTip.Tip="{loc:Str Menu_Delete}">
+                <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14"
+                          Foreground="{DynamicResource Brush.TextTertiary}" />
+              </Button>
             </StackPanel>
-            <StackPanel Grid.Column="2" Spacing="4">
-              <TextBlock Text="{loc:Str Field_Description}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                         LetterSpacing="0.8" />
-              <TextBox Text="{Binding EditDescription}"
-                       Watermark="{loc:Str Watermark_AgentDescription}" />
+            <TextBlock Text="{loc:Str Editor_Lumi}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+          </DockPanel>
+
+          <!-- Two-column layout -->
+          <Grid ColumnDefinitions="*,32,*" RowDefinitions="Auto">
+
+            <!-- ── Left column: identity + system prompt ── -->
+            <StackPanel Grid.Column="0" Spacing="16">
+
+              <StackPanel Spacing="4">
+                <TextBlock Text="{loc:Str Field_Name}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+                           LetterSpacing="0.8" />
+                <TextBox Text="{Binding EditName}" Watermark="{loc:Str Watermark_AgentName}" />
+              </StackPanel>
+
+              <Grid ColumnDefinitions="72,16,*">
+                <StackPanel Spacing="4">
+                  <TextBlock Text="{loc:Str Field_Icon}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+                             LetterSpacing="0.8" />
+                  <TextBox Text="{Binding EditIconGlyph}" Watermark="✦"
+                           HorizontalContentAlignment="Center" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="4">
+                  <TextBlock Text="{loc:Str Field_Description}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+                             LetterSpacing="0.8" />
+                  <TextBox Text="{Binding EditDescription}"
+                           Watermark="{loc:Str Watermark_AgentDescription}" />
+                </StackPanel>
+              </Grid>
+
+              <StackPanel Spacing="4">
+                <TextBlock Text="{loc:Str Field_SystemPrompt}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+                           LetterSpacing="0.8" />
+                <TextBox Text="{Binding EditSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap"
+                         MinHeight="200" MaxHeight="420"
+                         VerticalContentAlignment="Top"
+                         Watermark="{loc:Str Watermark_AgentSystemPrompt}" />
+              </StackPanel>
+            </StackPanel>
+
+            <!-- ── Right column: skills + MCP servers + tools ── -->
+            <StackPanel Grid.Column="2" Spacing="20">
+
+              <!-- Skills assignment -->
+              <StackPanel Spacing="6">
+                <TextBlock Text="{loc:Str Field_Skills}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+                           LetterSpacing="0.8" />
+                <ItemsControl ItemsSource="{Binding AvailableSkills}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SkillToggle">
+                      <ToggleButton Classes="pill" IsChecked="{Binding IsSelected}"
+                                    ToolTip.Tip="{Binding Description}" Margin="0,0,6,6">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                          <TextBlock Text="{Binding IconGlyph}" FontSize="12" VerticalAlignment="Center" />
+                          <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeCaption}"
+                                     VerticalAlignment="Center" />
+                        </StackPanel>
+                      </ToggleButton>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="{loc:Str Agent_NoSkills}"
+                           FontSize="{DynamicResource Font.SizeCaption}"
+                           Foreground="{DynamicResource Brush.TextTertiary}"
+                           IsVisible="{Binding !AvailableSkills.Count}" />
+              </StackPanel>
+
+              <!-- MCP servers assignment -->
+              <StackPanel Spacing="6">
+                <TextBlock Text="{loc:Str Field_McpServers}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+                           LetterSpacing="0.8" />
+                <ItemsControl ItemsSource="{Binding AvailableMcpServers}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:McpServerToggle">
+                      <ToggleButton Classes="pill" IsChecked="{Binding IsSelected}" Margin="0,0,6,6">
+                        <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeCaption}"
+                                   VerticalAlignment="Center" />
+                      </ToggleButton>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="{loc:Str Agent_NoMcpServers}"
+                           FontSize="{DynamicResource Font.SizeCaption}"
+                           Foreground="{DynamicResource Brush.TextTertiary}"
+                           IsVisible="{Binding !AvailableMcpServers.Count}" />
+              </StackPanel>
+
+              <!-- Tools assignment -->
+              <StackPanel Spacing="6">
+                <TextBlock Text="{loc:Str Field_Tools}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
+                           LetterSpacing="0.8" />
+                <ItemsControl ItemsSource="{Binding AvailableTools}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ToolToggle">
+                      <ToggleButton Classes="pill" IsChecked="{Binding IsSelected}"
+                                    ToolTip.Tip="{Binding Description}" Margin="0,0,6,6">
+                        <TextBlock Text="{Binding DisplayName}" FontSize="{DynamicResource Font.SizeCaption}"
+                                   VerticalAlignment="Center" />
+                      </ToggleButton>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
             </StackPanel>
           </Grid>
-
-          <StackPanel Spacing="4">
-            <TextBlock Text="{loc:Str Field_SystemPrompt}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                       LetterSpacing="0.8" />
-            <TextBox Text="{Binding EditSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap"
-                     MinHeight="260"
-                     Watermark="{loc:Str Watermark_AgentSystemPrompt}" />
-          </StackPanel>
-
-          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-            <Button Classes="accent motion-action" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
-                    Command="{Binding SaveAgentCommand}" />
-            <Button Classes="subtle motion-action" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
-                    Command="{Binding CancelEditCommand}" />
-          </StackPanel>
         </StackPanel>
       </ScrollViewer>
 

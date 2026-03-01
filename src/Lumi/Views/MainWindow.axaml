@@ -528,7 +528,11 @@
                         </ContextMenu>
                       </Panel.ContextMenu>
                       <StackPanel Spacing="1">
-                        <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeBody}" TextTrimming="CharacterEllipsis" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <TextBlock Text="{Binding IconGlyph}" FontSize="{DynamicResource Font.SizeBody}"
+                                     Foreground="{DynamicResource Brush.TextSecondary}" />
+                          <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeBody}" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
                         <TextBlock Text="{Binding Description}" FontSize="{DynamicResource Font.SizeCaption}"
                                    Foreground="{DynamicResource Brush.TextTertiary}"
                                    TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />

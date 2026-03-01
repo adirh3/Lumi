@@ -70,6 +70,9 @@
   "Field_Category": "קטגוריה",
   "Field_Content": "תוכן",
   "Field_Chats": "צ׳אטים",
+  "Field_Skills": "כישורים",
+  "Field_McpServers": "שרתי MCP",
+  "Field_Tools": "כלים",
 
   "Watermark_AgentName": "לדוגמה: מתכנן יומי",
   "Watermark_AgentDescription": "מה הלומי הזה עושה?",
@@ -85,6 +88,12 @@
   "Watermark_EnterName": "הזן את שמך",
   "Watermark_PreferredModel": "e.g. claude-sonnet-4",
 
+  "Agent_SkillsHint": "כישורים המקושרים ללומי זה נכללים בהנחיית המערכת שלו.",
+  "Agent_McpServersHint": "רק שרתי MCP אלה יהיו זמינים בשיחה עם לומי זה.",
+  "Agent_NoSkills": "לא נוצרו כישורים עדיין.",
+  "Agent_NoMcpServers": "לא הוגדרו שרתי MCP עדיין.",
+  "Agent_ToolsHint": "בטל סימון כלים כדי להגביל את מה שהלומי יכול לעשות. הכל מופעל כברירת מחדל.",
+  "Agent_DeleteConfirm": "למחוק את הלומי הזה?",
   "Empty_SelectLumi": "בחר או צור לומי",
   "Empty_SelectProject": "בחר או צור פרויקט",
   "Empty_SelectSkill": "בחר או צור כישור",
