@@ -1150,10 +1150,14 @@ public partial class ChatView : UserControl
             if (!showReasoning)
                 return;
 
+            var expandWhileStreaming = _settingsVm?.ExpandReasoningWhileStreaming ?? true;
+            var isStreaming = msgVm.IsStreaming;
+
             var think = new StrataThink
             {
                 Label = Loc.Tool_ReasoningLabel,
-                IsExpanded = false
+                IsExpanded = expandWhileStreaming && isStreaming,
+                IsActive = isStreaming
             };
 
             var md = new StrataMarkdown { Markdown = msgVm.Content, IsInline = true };
@@ -1163,6 +1167,12 @@ public partial class ChatView : UserControl
             {
                 if (args.PropertyName == nameof(ChatMessageViewModel.Content))
                     md.Markdown = msgVm.Content;
+                if (args.PropertyName == nameof(ChatMessageViewModel.IsStreaming) && !msgVm.IsStreaming)
+                {
+                    think.IsActive = false;
+                    if (expandWhileStreaming)
+                        think.IsExpanded = false;
+                }
             };
 
             InsertBeforeTypingIndicator(think);

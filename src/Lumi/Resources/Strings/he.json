@@ -325,6 +325,8 @@
   "SettingDesc_ShowToolCalls": "הצגת פרטי קריאות כלים בשיחה",
   "Setting_ShowReasoning": "הצגת חשיבה",
   "SettingDesc_ShowReasoning": "הצגת תהליך החשיבה של הבינה המלאכותית כשזמין",
+  "Setting_ExpandReasoningWhileStreaming": "הרחבת חשיבה בזמן סטרימינג",
+  "SettingDesc_ExpandReasoningWhileStreaming": "הרחבה אוטומטית של בלוקי חשיבה בזמן שהבינה המלאכותית חושבת, וכיווץ בסיום",
   "Setting_AutoGenerateTitles": "יצירת כותרות אוטומטית",
   "SettingDesc_AutoGenerateTitles": "לאפשר לבינה המלאכותית לתת שם אוטומטי לשיחות חדשות",
   "Setting_PreferredModel": "מודל מועדף",

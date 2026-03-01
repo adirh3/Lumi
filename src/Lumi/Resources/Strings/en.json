@@ -324,6 +324,8 @@
   "SettingDesc_ShowToolCalls": "Display tool call details in the conversation",
   "Setting_ShowReasoning": "Show Reasoning",
   "SettingDesc_ShowReasoning": "Display the AI's thinking process when available",
+  "Setting_ExpandReasoningWhileStreaming": "Expand Reasoning While Streaming",
+  "SettingDesc_ExpandReasoningWhileStreaming": "Automatically expand reasoning blocks while the AI is thinking, then collapse when done",
   "Setting_AutoGenerateTitles": "Auto-Generate Titles",
   "SettingDesc_AutoGenerateTitles": "Let the AI automatically name new conversations",
   "Setting_PreferredModel": "Preferred Model",

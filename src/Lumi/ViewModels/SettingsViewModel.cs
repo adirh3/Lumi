@@ -65,6 +65,7 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _showTimestamps;
     [ObservableProperty] private bool _showToolCalls;
     [ObservableProperty] private bool _showReasoning;
+    [ObservableProperty] private bool _expandReasoningWhileStreaming;
     [ObservableProperty] private bool _autoGenerateTitles;
 
     // ── AI & Models ──
@@ -138,6 +139,7 @@ public partial class SettingsViewModel : ObservableObject
         _showTimestamps = s.ShowTimestamps;
         _showToolCalls = s.ShowToolCalls;
         _showReasoning = s.ShowReasoning;
+        _expandReasoningWhileStreaming = s.ExpandReasoningWhileStreaming;
         _autoGenerateTitles = s.AutoGenerateTitles;
 
         // AI
@@ -190,6 +192,7 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnShowTimestampsChanged(bool value) { _dataStore.Data.Settings.ShowTimestamps = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnShowToolCallsChanged(bool value) { _dataStore.Data.Settings.ShowToolCalls = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnShowReasoningChanged(bool value) { _dataStore.Data.Settings.ShowReasoning = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
+    partial void OnExpandReasoningWhileStreamingChanged(bool value) { _dataStore.Data.Settings.ExpandReasoningWhileStreaming = value; Save(); NotifyModified(); }
     partial void OnAutoGenerateTitlesChanged(bool value) { _dataStore.Data.Settings.AutoGenerateTitles = value; Save(); NotifyModified(); }
 
     partial void OnPreferredModelChanged(string value) { _dataStore.Data.Settings.PreferredModel = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
@@ -248,6 +251,7 @@ public partial class SettingsViewModel : ObservableObject
     public bool IsShowTimestampsModified => ShowTimestamps != _defaults.ShowTimestamps;
     public bool IsShowToolCallsModified => ShowToolCalls != _defaults.ShowToolCalls;
     public bool IsShowReasoningModified => ShowReasoning != _defaults.ShowReasoning;
+    public bool IsExpandReasoningWhileStreamingModified => ExpandReasoningWhileStreaming != _defaults.ExpandReasoningWhileStreaming;
     public bool IsAutoGenerateTitlesModified => AutoGenerateTitles != _defaults.AutoGenerateTitles;
     public bool IsPreferredModelModified => PreferredModel != _defaults.PreferredModel;
     public bool IsEnableMemoryAutoSaveModified => EnableMemoryAutoSave != _defaults.EnableMemoryAutoSave;
@@ -268,6 +272,7 @@ public partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(IsShowTimestampsModified));
         OnPropertyChanged(nameof(IsShowToolCallsModified));
         OnPropertyChanged(nameof(IsShowReasoningModified));
+        OnPropertyChanged(nameof(IsExpandReasoningWhileStreamingModified));
         OnPropertyChanged(nameof(IsAutoGenerateTitlesModified));
         OnPropertyChanged(nameof(IsPreferredModelModified));
         OnPropertyChanged(nameof(IsEnableMemoryAutoSaveModified));
@@ -288,6 +293,7 @@ public partial class SettingsViewModel : ObservableObject
     [RelayCommand] private void RevertShowTimestamps() => ShowTimestamps = _defaults.ShowTimestamps;
     [RelayCommand] private void RevertShowToolCalls() => ShowToolCalls = _defaults.ShowToolCalls;
     [RelayCommand] private void RevertShowReasoning() => ShowReasoning = _defaults.ShowReasoning;
+    [RelayCommand] private void RevertExpandReasoningWhileStreaming() => ExpandReasoningWhileStreaming = _defaults.ExpandReasoningWhileStreaming;
     [RelayCommand] private void RevertAutoGenerateTitles() => AutoGenerateTitles = _defaults.AutoGenerateTitles;
     [RelayCommand] private void RevertPreferredModel() => PreferredModel = _defaults.PreferredModel;
     [RelayCommand] private void RevertEnableMemoryAutoSave() => EnableMemoryAutoSave = _defaults.EnableMemoryAutoSave;

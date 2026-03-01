@@ -142,6 +142,7 @@ public class UserSettings
     public bool ShowTimestamps { get; set; } = true;
     public bool ShowToolCalls { get; set; } = true;
     public bool ShowReasoning { get; set; } = true;
+    public bool ExpandReasoningWhileStreaming { get; set; } = true;
     public bool AutoGenerateTitles { get; set; } = true;
 
     // ── AI & Models ──
