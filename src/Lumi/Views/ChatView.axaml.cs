@@ -244,6 +244,13 @@ public partial class ChatView : UserControl
             _welcomeComposer.StopRequested += (_, _) => vm.StopGenerationCommand.Execute(null);
             _welcomeComposer.AttachRequested += (_, _) => _ = PickAndAttachFilesAsync(vm);
             _welcomeComposer.AgentRemoved += (_, _) => vm.SetActiveAgent(null);
+            _welcomeComposer.ProjectRemoved += (_, _) =>
+            {
+                vm.ClearProjectId();
+                UpdateComposerProject(vm);
+                if (FindMainViewModel() is { } mainVm)
+                    mainVm.ClearProjectFilterCommand.Execute(null);
+            };
             _welcomeComposer.SkillRemoved += (_, args) =>
             {
                 if (args is ComposerChipRemovedEventArgs chipArgs)
@@ -252,11 +259,13 @@ public partial class ChatView : UserControl
                     vm.RemoveSkillByName(name);
                 }
             };
-            // Watch for agent selection via autocomplete
+            // Watch for agent/project selection via autocomplete
             _welcomeComposer.PropertyChanged += (_, args) =>
             {
                 if (args.Property.Name == "AgentName")
                     OnComposerAgentChanged(_welcomeComposer, vm);
+                else if (args.Property.Name == "ProjectName")
+                    OnComposerProjectChanged(_welcomeComposer, vm);
             };
             _welcomeComposer.VoiceRequested += (_, _) => _ = ToggleVoiceAsync(_welcomeComposer, vm);
             WireClipboardImagePaste(_welcomeComposer, vm);
@@ -272,6 +281,13 @@ public partial class ChatView : UserControl
             _activeComposer.StopRequested += (_, _) => vm.StopGenerationCommand.Execute(null);
             _activeComposer.AttachRequested += (_, _) => _ = PickAndAttachFilesAsync(vm);
             _activeComposer.AgentRemoved += (_, _) => vm.SetActiveAgent(null);
+            _activeComposer.ProjectRemoved += (_, _) =>
+            {
+                vm.ClearProjectId();
+                UpdateComposerProject(vm);
+                if (FindMainViewModel() is { } mainVm)
+                    mainVm.ClearProjectFilterCommand.Execute(null);
+            };
             _activeComposer.SkillRemoved += (_, args) =>
             {
                 if (args is ComposerChipRemovedEventArgs chipArgs)
@@ -280,11 +296,13 @@ public partial class ChatView : UserControl
                     vm.RemoveSkillByName(name);
                 }
             };
-            // Watch for agent selection via autocomplete
+            // Watch for agent/project selection via autocomplete
             _activeComposer.PropertyChanged += (_, args) =>
             {
                 if (args.Property.Name == "AgentName")
                     OnComposerAgentChanged(_activeComposer, vm);
+                else if (args.Property.Name == "ProjectName")
+                    OnComposerProjectChanged(_activeComposer, vm);
             };
             _activeComposer.VoiceRequested += (_, _) => _ = ToggleVoiceAsync(_activeComposer, vm);
             WireClipboardImagePaste(_activeComposer, vm);
@@ -442,8 +460,9 @@ public partial class ChatView : UserControl
                 // Always rebuild when loading a chat (messages are already populated)
                 _ = RebuildMessageStackAsync(vm);
 
-                // Update project badge
+                // Update project badge and composer chip
                 UpdateProjectBadge(vm);
+                UpdateComposerProject(vm);
 
                 // Update browser toggle visibility
                 UpdateBrowserToggle(vm);
@@ -1973,22 +1992,25 @@ public partial class ChatView : UserControl
 
     public void PopulateComposerCatalogs(ChatViewModel vm)
     {
-        // Build agent, skill, and MCP catalogs from DataStore (accessed via vm)
+        // Build agent, skill, MCP, and project catalogs from DataStore (accessed via vm)
         var agentChips = vm.GetAgentChips();
         var skillChips = vm.GetSkillChips();
         var mcpChips = vm.GetMcpChips();
+        var projectChips = vm.GetProjectChips();
 
         if (_welcomeComposer is not null)
         {
             _welcomeComposer.AvailableAgents = agentChips;
             _welcomeComposer.AvailableSkills = skillChips;
             _welcomeComposer.AvailableMcps = mcpChips;
+            _welcomeComposer.AvailableProjects = projectChips;
         }
         if (_activeComposer is not null)
         {
             _activeComposer.AvailableAgents = agentChips;
             _activeComposer.AvailableSkills = skillChips;
             _activeComposer.AvailableMcps = mcpChips;
+            _activeComposer.AvailableProjects = projectChips;
         }
     }
 
@@ -2106,6 +2128,44 @@ public partial class ChatView : UserControl
                 other.AgentGlyph = composer.AgentGlyph;
             }
         }
+    }
+
+    /// <summary>Called when the composer's ProjectName property changes (user selected via $ autocomplete).</summary>
+    private void OnComposerProjectChanged(StrataChatComposer composer, ChatViewModel vm)
+    {
+        var projectName = composer.ProjectName;
+        if (string.IsNullOrEmpty(projectName))
+        {
+            vm.ClearProjectId();
+            // Also clear the sidebar project filter
+            if (FindMainViewModel() is { } mainVm)
+                mainVm.ClearProjectFilterCommand.Execute(null);
+        }
+        else
+        {
+            vm.SelectProjectByName(projectName);
+            // Sync the other composer
+            var other = composer == _welcomeComposer ? _activeComposer : _welcomeComposer;
+            if (other is not null)
+                other.ProjectName = projectName;
+
+            // Also switch sidebar project filter to match
+            if (FindMainViewModel() is { } mainVm)
+            {
+                var project = mainVm.DataStore.Data.Projects.FirstOrDefault(p => p.Name == projectName);
+                if (project is not null)
+                    mainVm.SelectProjectFilterCommand.Execute(project);
+            }
+        }
+        UpdateProjectBadge(vm);
+    }
+
+    /// <summary>Syncs the project chip on both composers to match the current project.</summary>
+    private void UpdateComposerProject(ChatViewModel vm)
+    {
+        var name = vm.GetCurrentProjectName();
+        if (_welcomeComposer is not null) _welcomeComposer.ProjectName = name;
+        if (_activeComposer is not null) _activeComposer.ProjectName = name;
     }
 
     private async Task PickAndAttachFilesAsync(ChatViewModel vm)

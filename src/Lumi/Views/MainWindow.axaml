@@ -395,7 +395,7 @@
                   </TextBox.InnerLeftContent>
                 </TextBox>
               </Border>
-              <ListBox Classes="sidebar-list" Margin="8,8,8,8"
+              <ListBox x:Name="ProjectsListBox" Classes="sidebar-list" Margin="8,8,8,8"
                        ItemsSource="{Binding Projects}"
                        SelectedItem="{Binding SelectedProject, Mode=TwoWay}"
                        SelectionMode="Single">

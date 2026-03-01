@@ -224,6 +224,12 @@ public partial class MainViewModel : ObservableObject
         // If the current chat is empty (no messages), just reuse it
         if (ChatVM.CurrentChat is not null && ChatVM.CurrentChat.Messages.Count == 0)
         {
+            // Still update the project assignment if a filter is active
+            if (SelectedProjectFilter.HasValue)
+                ChatVM.SetProjectId(SelectedProjectFilter.Value);
+            else if (ChatVM.CurrentChat.ProjectId.HasValue)
+                ChatVM.ClearProjectId();
+
             SelectedNavIndex = 0;
             return;
         }
@@ -311,12 +317,19 @@ public partial class MainViewModel : ObservableObject
     private void ClearProjectFilter()
     {
         SelectedProjectFilter = null;
+        ChatVM.ActiveProjectFilterId = null;
+
+        // Also clear draft/new-chat project context immediately, even if
+        // SelectedProjectFilter was already null (no PropertyChanged event).
+        if (ChatVM.CurrentChat is null || ChatVM.CurrentChat.Messages.Count == 0)
+            ChatVM.ClearProjectId();
     }
 
     [RelayCommand]
     private void SelectProjectFilter(Project project)
     {
         SelectedProjectFilter = project.Id;
+        ChatVM.ActiveProjectFilterId = project.Id;
     }
 
     [RelayCommand]
@@ -406,7 +419,34 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnChatSearchQueryChanged(string value) => RefreshChatList();
 
-    partial void OnSelectedProjectFilterChanged(Guid? value) => RefreshChatList();
+    partial void OnSelectedProjectFilterChanged(Guid? value)
+    {
+        RefreshChatList();
+        ChatVM.ActiveProjectFilterId = value;
+
+        // If the current chat already belongs to the target project, keep it.
+        if (ChatVM.CurrentChat is not null
+            && ChatVM.CurrentChat.Messages.Count > 0
+            && ChatVM.CurrentChat.ProjectId == value)
+            return;
+
+        // Try to open the most recent chat in the new project.
+        if (value.HasValue)
+        {
+            var recent = _dataStore.Data.Chats
+                .Where(c => c.ProjectId == value.Value && c.Messages.Count > 0)
+                .OrderByDescending(c => c.UpdatedAt)
+                .FirstOrDefault();
+            if (recent is not null)
+            {
+                _ = OpenChat(recent);
+                return;
+            }
+        }
+
+        // No existing chat for this project (or clearing filter) — start a new chat.
+        NewChat();
+    }
 
     partial void OnIsDarkThemeChanged(bool value)
     {

@@ -560,9 +560,10 @@ public partial class MainWindow : Window
             Dispatcher.UIThread.Post(() => _browserView?.RefreshBounds(), DispatcherPriority.Loaded);
         }
 
-        // When projects tab is shown, update chat counts
+        // When projects tab is shown, update chat counts and refresh selected project chats
         if (index == 1 && DataContext is MainViewModel vm)
         {
+            vm.ProjectsVM.RefreshSelectedProjectChats();
             Dispatcher.UIThread.Post(() => ApplyProjectChatCounts(vm), DispatcherPriority.Loaded);
         }
 

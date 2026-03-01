@@ -54,6 +54,7 @@ public class Project
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
     public string Instructions { get; set; } = "";
+    public string? WorkingDirectory { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
 }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Lumi.Localization;
@@ -310,15 +311,20 @@ public static class SystemPromptBuilder
             }
         }
 
-        if (project is not null && !string.IsNullOrWhiteSpace(project.Instructions))
+        if (project is not null)
         {
-            prompt += $"""
+            prompt += string.IsNullOrWhiteSpace(project.Instructions)
+                ? $"\n\n--- Active Project: {project.Name} ---\n"
+                : $"""
 
 
-                --- Project: {project.Name} ---
-                {project.Instructions}
-                """;
+                    --- Active Project: {project.Name} ---
+                    {project.Instructions}
+                    """;
         }
+
+        // Note: copilot-instructions.md / AGENTS.md injection is handled by the Copilot SDK
+        // via the WorkingDirectory in SessionConfig — no need to manually inject them here.
 
         // Active skills selected by the user for this chat (full content in system prompt)
         if (activeSkills.Count > 0)
@@ -380,5 +386,40 @@ public static class SystemPromptBuilder
             < 21 => "evening",
             _ => "night"
         };
+    }
+
+    /// <summary>
+    /// Detects whether a directory looks like a coding project by checking for common project files.
+    /// </summary>
+    public static bool IsCodingProject(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+            return false;
+
+        string[] markers =
+        [
+            ".git", ".sln", "*.csproj", "*.fsproj",
+            "package.json", "Cargo.toml", "go.mod",
+            "pyproject.toml", "requirements.txt", "setup.py",
+            "pom.xml", "build.gradle", "CMakeLists.txt",
+            ".github", ".vscode", "Makefile",
+        ];
+
+        foreach (var marker in markers)
+        {
+            if (marker.Contains('*'))
+            {
+                if (Directory.GetFiles(path, marker, SearchOption.TopDirectoryOnly).Length > 0)
+                    return true;
+            }
+            else
+            {
+                var full = Path.Combine(path, marker);
+                if (File.Exists(full) || Directory.Exists(full))
+                    return true;
+            }
+        }
+
+        return false;
     }
 }

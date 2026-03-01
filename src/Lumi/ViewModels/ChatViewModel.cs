@@ -1019,7 +1019,7 @@ public partial class ChatViewModel : ObservableObject
             {
                 Title = prompt.Length > 40 ? prompt[..40].Trim() + "…" : prompt,
                 AgentId = ActiveAgent?.Id,
-                ProjectId = _pendingProjectId,
+                ProjectId = _pendingProjectId ?? ActiveProjectFilterId,
                 ActiveSkillIds = new List<Guid>(ActiveSkillIds)
             };
             _pendingProjectId = null;
@@ -1408,17 +1408,63 @@ public partial class ChatViewModel : ObservableObject
     {
         if (CurrentChat is not null)
         {
+            var changed = CurrentChat.ProjectId != projectId;
             CurrentChat.ProjectId = projectId;
             QueueSaveChat(CurrentChat, saveIndex: true);
+            if (changed)
+                OnPropertyChanged(nameof(CurrentChat));
+
+            // If project context changed on an existing chat, force a fresh Copilot session
+            // so the next turn uses the updated project system prompt.
+            if (changed && CurrentChat.CopilotSessionId is not null)
+            {
+                _sessionCache.Remove(CurrentChat.Id);
+                CurrentChat.CopilotSessionId = null;
+                _activeSession = null;
+                _pendingSkillInjections.Clear();
+            }
         }
         else
         {
             // Will be applied when the chat is created in SendMessage
             _pendingProjectId = projectId;
+            OnPropertyChanged(nameof(CurrentChat));
         }
     }
 
     private Guid? _pendingProjectId;
+
+    /// <summary>
+    /// Current project filter from the shell sidebar. Used as a fallback when creating a new chat
+    /// to avoid losing project context due UI timing or unchanged filter selections.
+    /// </summary>
+    public Guid? ActiveProjectFilterId { get; set; }
+
+    /// <summary>Removes the project assignment from the current chat.</summary>
+    public void ClearProjectId()
+    {
+        if (CurrentChat is not null)
+        {
+            var changed = CurrentChat.ProjectId is not null;
+            CurrentChat.ProjectId = null;
+            QueueSaveChat(CurrentChat, saveIndex: true);
+            if (changed)
+                OnPropertyChanged(nameof(CurrentChat));
+
+            if (changed && CurrentChat.CopilotSessionId is not null)
+            {
+                _sessionCache.Remove(CurrentChat.Id);
+                CurrentChat.CopilotSessionId = null;
+                _activeSession = null;
+                _pendingSkillInjections.Clear();
+            }
+        }
+        else
+        {
+            _pendingProjectId = null;
+            OnPropertyChanged(nameof(CurrentChat));
+        }
+    }
 
     public void AddSkill(Skill skill)
     {
@@ -1927,6 +1973,30 @@ public partial class ChatViewModel : ObservableObject
             .ToList();
     }
 
+    /// <summary>Returns StrataComposerChip items for all projects (for composer autocomplete).</summary>
+    public List<StrataTheme.Controls.StrataComposerChip> GetProjectChips()
+    {
+        return _dataStore.Data.Projects
+            .Select(p => new StrataTheme.Controls.StrataComposerChip(p.Name, "📁"))
+            .ToList();
+    }
+
+    /// <summary>Selects a project by name (called from composer autocomplete).</summary>
+    public void SelectProjectByName(string name)
+    {
+        var project = _dataStore.Data.Projects.FirstOrDefault(p => p.Name == name);
+        if (project is not null)
+            SetProjectId(project.Id);
+    }
+
+    /// <summary>Returns the display name of the current project, or null.</summary>
+    public string? GetCurrentProjectName()
+    {
+        var pid = CurrentChat?.ProjectId ?? _pendingProjectId ?? ActiveProjectFilterId;
+        if (!pid.HasValue) return null;
+        return _dataStore.Data.Projects.FirstOrDefault(p => p.Id == pid.Value)?.Name;
+    }
+
     /// <summary>Selects an agent by name (called from composer autocomplete).</summary>
     public void SelectAgentByName(string name)
     {
@@ -2282,11 +2352,17 @@ public partial class ChatViewModel : ObservableObject
 
     private string GetWorkingDirectory()
     {
-        // Default to user's home/Documents folder
-        var docs = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var lumiDir = Path.Combine(docs, "Lumi");
-        Directory.CreateDirectory(lumiDir);
-        return lumiDir;
+        // Use project working directory if set
+        if (CurrentChat?.ProjectId is { } pid)
+        {
+            var project = _dataStore.Data.Projects.FirstOrDefault(p => p.Id == pid);
+            if (project is { WorkingDirectory: { Length: > 0 } dir } && Directory.Exists(dir))
+                return dir;
+        }
+
+        // Default to user home — avoid ~/Lumi so the SDK doesn't inject
+        // a confusing "Lumi" workspace name into the LLM context.
+        return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     }
 
     private static string FormatToolDisplayName(string toolName, string? argsJson = null)

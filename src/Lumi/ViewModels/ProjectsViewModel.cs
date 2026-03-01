@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -16,6 +17,8 @@ public partial class ProjectsViewModel : ObservableObject
     [ObservableProperty] private bool _isEditing;
     [ObservableProperty] private string _editName = "";
     [ObservableProperty] private string _editInstructions = "";
+    [ObservableProperty] private string _editWorkingDirectory = "";
+    [ObservableProperty] private bool _isCodingProject;
     [ObservableProperty] private string _searchQuery = "";
 
     public ObservableCollection<Project> Projects { get; } = [];
@@ -48,6 +51,8 @@ public partial class ProjectsViewModel : ObservableObject
         SelectedProject = null;
         EditName = "";
         EditInstructions = "";
+        EditWorkingDirectory = "";
+        IsCodingProject = false;
         IsEditing = true;
     }
 
@@ -66,8 +71,17 @@ public partial class ProjectsViewModel : ObservableObject
         }
         EditName = value.Name;
         EditInstructions = value.Instructions;
+        EditWorkingDirectory = value.WorkingDirectory ?? "";
+        IsCodingProject = SystemPromptBuilder.IsCodingProject(value.WorkingDirectory);
         IsEditing = true;
         RefreshProjectChats(value.Id);
+    }
+
+    /// <summary>Refreshes the chat list for the currently selected project. Called on tab navigation.</summary>
+    public void RefreshSelectedProjectChats()
+    {
+        if (SelectedProject is { } p)
+            RefreshProjectChats(p.Id);
     }
 
     private void RefreshProjectChats(Guid projectId)
@@ -98,17 +112,21 @@ public partial class ProjectsViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(EditName)) return;
 
+        var workDir = string.IsNullOrWhiteSpace(EditWorkingDirectory) ? null : EditWorkingDirectory.Trim();
+
         if (SelectedProject is not null)
         {
             SelectedProject.Name = EditName.Trim();
             SelectedProject.Instructions = EditInstructions.Trim();
+            SelectedProject.WorkingDirectory = workDir;
         }
         else
         {
             var project = new Project
             {
                 Name = EditName.Trim(),
-                Instructions = EditInstructions.Trim()
+                Instructions = EditInstructions.Trim(),
+                WorkingDirectory = workDir
             };
             _dataStore.Data.Projects.Add(project);
         }
@@ -147,4 +165,15 @@ public partial class ProjectsViewModel : ObservableObject
     }
 
     partial void OnSearchQueryChanged(string value) => RefreshList();
+
+    partial void OnEditWorkingDirectoryChanged(string value)
+    {
+        IsCodingProject = SystemPromptBuilder.IsCodingProject(value);
+    }
+
+    [RelayCommand]
+    private void ClearWorkingDirectory()
+    {
+        EditWorkingDirectory = "";
+    }
 }
