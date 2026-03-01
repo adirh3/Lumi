@@ -58,6 +58,8 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _previewAnimCts;
     private bool _suppressSelectionSync;
     private CancellationTokenSource? _browserAnimCts;
+    private CancellationTokenSource? _shellAnimCts;
+    private int _currentShellIndex = -1;
 
     public MainWindow()
     {
@@ -84,6 +86,34 @@ public partial class MainWindow : Window
             UpdateAcrylicFallbackOpacity();
             ApplyWindowContentPaddingForState();
         };
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnDetachedFromVisualTree(e);
+        DisposeCancellationTokenSource(ref _shellAnimCts);
+        DisposeCancellationTokenSource(ref _titleAnimCts);
+        DisposeCancellationTokenSource(ref _browserAnimCts);
+        DisposeCancellationTokenSource(ref _previewAnimCts);
+    }
+
+    private static CancellationTokenSource ReplaceCancellationTokenSource(ref CancellationTokenSource? source)
+    {
+        DisposeCancellationTokenSource(ref source);
+        source = new CancellationTokenSource();
+        return source;
+    }
+
+    private static void DisposeCancellationTokenSource(ref CancellationTokenSource? source)
+    {
+        var previous = source;
+        source = null;
+        if (previous is null)
+            return;
+
+        try { previous.Cancel(); }
+        catch (ObjectDisposedException) { }
+        previous.Dispose();
     }
 
     private void InitializeComponent()
@@ -499,6 +529,9 @@ public partial class MainWindow : Window
     {
         EnsurePageViewLoaded(index);
 
+        var sectionChanged = _currentShellIndex != index;
+        _currentShellIndex = index;
+
         for (int i = 0; i < _pages.Length; i++)
         {
             if (_pages[i] is not null)
@@ -547,6 +580,79 @@ public partial class MainWindow : Window
             if (!mcpvm.McpServersVM.IsEditing && mcpvm.McpServersVM.SelectedServer is null)
                 mcpvm.McpServersVM.BrowseCatalogCommand.Execute(null);
         }
+
+        if (sectionChanged && _mainPanel?.IsVisible == true)
+        {
+            var shellCt = ReplaceCancellationTokenSource(ref _shellAnimCts).Token;
+            AnimateShellSectionChange(_pages[index], _sidebarPanels[index], shellCt);
+        }
+    }
+
+    private async void AnimateShellSectionChange(Control? page, Control? sidebar, CancellationToken ct)
+    {
+        await Task.WhenAll(
+            AnimateShellEntranceAsync(page, 10.0, TimeSpan.FromMilliseconds(240), ct),
+            AnimateShellEntranceAsync(sidebar, 6.0, TimeSpan.FromMilliseconds(190), ct));
+    }
+
+    private static async Task AnimateShellEntranceAsync(
+        Control? control,
+        double offsetY,
+        TimeSpan duration,
+        CancellationToken ct)
+    {
+        if (control is null || !control.IsVisible) return;
+
+        control.RenderTransform = new TranslateTransform(0, offsetY);
+        control.Opacity = 0;
+
+        var anim = new Avalonia.Animation.Animation
+        {
+            Duration = duration,
+            Easing = new SplineEasing(0.24, 0.08, 0.24, 1.0),
+            FillMode = FillMode.Forward,
+            Children =
+            {
+                new KeyFrame
+                {
+                    Cue = new Cue(0),
+                    Setters =
+                    {
+                        new Setter(OpacityProperty, 0.0),
+                        new Setter(TranslateTransform.YProperty, offsetY),
+                    }
+                },
+                new KeyFrame
+                {
+                    Cue = new Cue(1),
+                    Setters =
+                    {
+                        new Setter(OpacityProperty, 1.0),
+                        new Setter(TranslateTransform.YProperty, 0.0),
+                    }
+                },
+            }
+        };
+
+        try
+        {
+            await anim.RunAsync(control, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // Ignore; next navigation animation takes over.
+        }
+        catch (ObjectDisposedException)
+        {
+            // Ignore; control was disposed during a rapid section transition.
+        }
+        catch (InvalidOperationException)
+        {
+            // Ignore; visual tree changed while the animation was running.
+        }
+
+        control.Opacity = 1;
+        control.RenderTransform = null;
     }
 
     private void UpdateNavHighlight(int index)
@@ -677,8 +783,7 @@ public partial class MainWindow : Window
     private async void AnimateSidebarTitle(Guid chatId, string newTitle)
     {
         // Cancel any in-flight title animation
-        _titleAnimCts?.Cancel();
-        var cts = _titleAnimCts = new CancellationTokenSource();
+        var cts = ReplaceCancellationTokenSource(ref _titleAnimCts);
 
         TextBlock? titleBlock = null;
         foreach (var lb in this.GetVisualDescendants().OfType<ListBox>())
@@ -1045,9 +1150,7 @@ public partial class MainWindow : Window
         }
 
         // Cancel any in-progress animation
-        _browserAnimCts?.Cancel();
-        _browserAnimCts = new CancellationTokenSource();
-        var ct = _browserAnimCts.Token;
+        var ct = ReplaceCancellationTokenSource(ref _browserAnimCts).Token;
 
         var vm = DataContext as MainViewModel;
 
@@ -1126,9 +1229,7 @@ public partial class MainWindow : Window
         if (!_browserIsland.IsVisible) return;
 
         // Cancel any in-progress animation
-        _browserAnimCts?.Cancel();
-        _browserAnimCts = new CancellationTokenSource();
-        var ct = _browserAnimCts.Token;
+        var ct = ReplaceCancellationTokenSource(ref _browserAnimCts).Token;
 
         // Hide WebView2 overlay immediately so it doesn't float during animation
         if (DataContext is MainViewModel vm && vm.BrowserService.Controller is not null)
@@ -1222,9 +1323,7 @@ public partial class MainWindow : Window
         }
 
         // Cancel any in-progress animation
-        _previewAnimCts?.Cancel();
-        _previewAnimCts = new CancellationTokenSource();
-        var ct = _previewAnimCts.Token;
+        var ct = ReplaceCancellationTokenSource(ref _previewAnimCts).Token;
 
         var vm = DataContext as MainViewModel;
 
@@ -1283,9 +1382,7 @@ public partial class MainWindow : Window
         if (_diffIsland is null || _chatContentGrid is null) return;
         if (!_diffIsland.IsVisible) return;
 
-        _previewAnimCts?.Cancel();
-        _previewAnimCts = new CancellationTokenSource();
-        var ct = _previewAnimCts.Token;
+        var ct = ReplaceCancellationTokenSource(ref _previewAnimCts).Token;
 
         const double offsetX = 40.0;
         _diffIsland.RenderTransform = new TranslateTransform(0, 0);

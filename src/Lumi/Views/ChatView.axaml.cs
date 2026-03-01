@@ -58,6 +58,10 @@ public partial class ChatView : UserControl
 
     // Incremental loading: older messages not yet rendered
     private List<ChatMessageViewModel>? _deferredMessages;
+    private readonly List<ChatMessageViewModel> _deferredLiveAdds = [];
+    private readonly HashSet<Guid> _deferredLiveAddIds = [];
+    private readonly List<Control> _deferredTranscriptEntrances = [];
+    private bool _animateDeferredTranscriptEntrances;
     private bool _isLoadingOlder;
     private ScrollViewer? _transcriptScrollViewer;
     private int _transcriptBuildDepth;
@@ -95,6 +99,8 @@ public partial class ChatView : UserControl
 
     // Typing indicator
     private StrataTypingIndicator? _typingIndicator;
+    private const float BusySurfaceOpacity = 0.965f;
+    private const double StreamingMessageOpacity = 0.985;
 
     // Track files already shown as chips to avoid duplicates
     private readonly HashSet<string> _shownFilePaths = new(StringComparer.OrdinalIgnoreCase);
@@ -377,6 +383,7 @@ public partial class ChatView : UserControl
         {
             if (args.PropertyName == nameof(ChatViewModel.IsBusy))
             {
+                ApplyInteractionSurfaceBusyState(vm.IsBusy);
                 if (vm.IsBusy)
                     ShowTypingIndicator(vm.StatusText);
                 else
@@ -395,6 +402,8 @@ public partial class ChatView : UserControl
                 var hasChat = vm.CurrentChat is not null;
                 var fromWelcome = _welcomePanel?.IsVisible == true && hasChat;
                 var toWelcome = _chatPanel?.IsVisible == true && !hasChat;
+                _animateDeferredTranscriptEntrances = fromWelcome && vm.Messages.Count <= 2;
+                _deferredTranscriptEntrances.Clear();
 
                 if (_welcomePanel is not null) _welcomePanel.IsVisible = !hasChat;
                 if (_chatPanel is not null) _chatPanel.IsVisible = hasChat;
@@ -452,6 +461,8 @@ public partial class ChatView : UserControl
             }
         };
 
+        ApplyInteractionSurfaceBusyState(vm.IsBusy);
+
         vm.Messages.CollectionChanged += (_, args) =>
         {
             if (args.Action == NotifyCollectionChangedAction.Add && args.NewItems is not null)
@@ -460,7 +471,16 @@ public partial class ChatView : UserControl
                 if (vm.IsLoadingChat) return;
 
                 foreach (ChatMessageViewModel msgVm in args.NewItems)
+                {
+                    if (IsTranscriptBuilding)
+                    {
+                        if (_deferredLiveAddIds.Add(msgVm.Message.Id))
+                            _deferredLiveAdds.Add(msgVm);
+                        continue;
+                    }
+
                     AddMessageControl(msgVm);
+                }
             }
             else if (args.Action == NotifyCollectionChangedAction.Reset)
             {
@@ -481,6 +501,10 @@ public partial class ChatView : UserControl
                 _pendingFetchedSkills.Clear();
                 _pendingFileEdits.Clear();
                 _toolStartTimes.Clear();
+                _deferredLiveAdds.Clear();
+                _deferredLiveAddIds.Clear();
+                _deferredTranscriptEntrances.Clear();
+                _animateDeferredTranscriptEntrances = false;
             }
         };
     }
@@ -642,6 +666,9 @@ public partial class ChatView : UserControl
                 _rebuildCts = null;
                 if (_loadingOverlay is not null)
                     _loadingOverlay.IsVisible = false;
+
+                FlushDeferredTranscriptEntrances();
+                FlushDeferredLiveAdds();
             }
 
             cts.Dispose();
@@ -765,7 +792,44 @@ public partial class ChatView : UserControl
                 _transcriptBuildDepth--;
 
             _isLoadingOlder = false;
+            FlushDeferredLiveAdds();
         }
+    }
+
+    private void FlushDeferredLiveAdds()
+    {
+        if (IsTranscriptBuilding || _deferredLiveAdds.Count == 0)
+            return;
+
+        var pending = _deferredLiveAdds.ToList();
+        _deferredLiveAdds.Clear();
+        _deferredLiveAddIds.Clear();
+
+        foreach (var msgVm in pending)
+            AddMessageControl(msgVm);
+    }
+
+    private void FlushDeferredTranscriptEntrances()
+    {
+        if (IsTranscriptBuilding || !_animateDeferredTranscriptEntrances)
+            return;
+
+        _animateDeferredTranscriptEntrances = false;
+        if (_deferredTranscriptEntrances.Count == 0)
+            return;
+
+        var pending = _deferredTranscriptEntrances
+            .Distinct()
+            .ToList();
+        _deferredTranscriptEntrances.Clear();
+        if (pending.Count == 0)
+            return;
+
+        DispatcherTimer.RunOnce(() =>
+        {
+            foreach (var control in pending)
+                AnimateControlEntrance(control, preferTransformFallback: true, startOffsetY: 26, durationMs: 360);
+        }, TimeSpan.FromMilliseconds(140));
     }
 
     private void AddMessageControl(ChatMessageViewModel msgVm)
@@ -1110,6 +1174,7 @@ public partial class ChatView : UserControl
             var md = new StrataMarkdown { Markdown = msgVm.Content, IsInline = true };
 
             var isUser = role == StrataChatRole.User;
+            var isAssistant = role == StrataChatRole.Assistant;
 
             // For user messages with attachments or skills, wrap content + extras in a StackPanel
             var hasAttachments = isUser && msgVm.Message.Attachments.Count > 0;
@@ -1155,7 +1220,18 @@ public partial class ChatView : UserControl
                 Timestamp = showTimestamps ? msgVm.TimestampText : string.Empty,
                 IsStreaming = msgVm.IsStreaming,
                 IsEditable = isUser,
+                Opacity = isAssistant && msgVm.IsStreaming ? StreamingMessageOpacity : 1.0,
                 Content = msgContent
+            };
+
+            msg.Transitions = new Transitions
+            {
+                new DoubleTransition
+                {
+                    Property = OpacityProperty,
+                    Duration = TimeSpan.FromMilliseconds(180),
+                    Easing = new CubicEaseOut()
+                }
             };
 
             // For user messages: wire edit to extract markdown, and retry to resend
@@ -1194,8 +1270,11 @@ public partial class ChatView : UserControl
                 if (args.PropertyName == nameof(ChatMessageViewModel.IsStreaming))
                 {
                     msg.IsStreaming = msgVm.IsStreaming;
+                    if (isAssistant)
+                        msg.Opacity = msgVm.IsStreaming ? StreamingMessageOpacity : 1.0;
+
                     // When assistant streaming ends, attach extras and finalize
-                    if (!msgVm.IsStreaming && role == StrataChatRole.Assistant)
+                    if (!msgVm.IsStreaming && isAssistant)
                     {
                         // Attach sources, file chips, skills, file edits now that the turn is complete
                         if (_pendingToolFileChips.Count > 0 || _pendingSearchSources.Count > 0 || _pendingFetchedSkills.Count > 0 || _pendingFileEdits.Count > 0 || msgVm.Message.Sources.Count > 0 || msgVm.Message.ActiveSkills.Count > 0)
@@ -1589,6 +1668,37 @@ public partial class ChatView : UserControl
         _chatShell?.ScrollToEnd();
     }
 
+    private void ApplyInteractionSurfaceBusyState(bool isBusy)
+    {
+        var targetOpacity = isBusy ? BusySurfaceOpacity : 1f;
+        var durationMs = isBusy ? 140 : 200;
+
+        AnimateSurfaceOpacity(_welcomeComposer, targetOpacity, durationMs);
+        AnimateSurfaceOpacity(_activeComposer, targetOpacity, durationMs);
+        AnimateSurfaceOpacity(_welcomePendingAttachmentList, targetOpacity, durationMs);
+        AnimateSurfaceOpacity(_pendingAttachmentList, targetOpacity, durationMs);
+    }
+
+    private static void AnimateSurfaceOpacity(Control? control, float targetOpacity, int durationMs)
+    {
+        if (control is null)
+            return;
+
+        var visual = ElementComposition.GetElementVisual(control);
+        var compositor = visual?.Compositor;
+        if (visual is null || compositor is null)
+        {
+            control.Opacity = targetOpacity;
+            return;
+        }
+
+        var opacityAnim = compositor.CreateScalarKeyFrameAnimation();
+        opacityAnim.Target = "Opacity";
+        opacityAnim.InsertKeyFrame(1f, targetOpacity);
+        opacityAnim.Duration = TimeSpan.FromMilliseconds(durationMs);
+        visual.StartAnimation("Opacity", opacityAnim);
+    }
+
     private void ShowTypingIndicator(string? label)
     {
         if (_messageStack is null) return;
@@ -1645,6 +1755,13 @@ public partial class ChatView : UserControl
             _messageStack.Children.Add(control);
         }
 
+        if (IsTranscriptBuilding)
+        {
+            if (_animateDeferredTranscriptEntrances)
+                _deferredTranscriptEntrances.Add(control);
+            return;
+        }
+
         AnimateControlEntrance(control);
     }
 
@@ -1652,16 +1769,29 @@ public partial class ChatView : UserControl
     /// Applies a slide-up + fade-in entrance animation to a control.
     /// Skipped during transcript rebuild.
     /// </summary>
-    private async void AnimateControlEntrance(Control control)
+    private async void AnimateControlEntrance(
+        Control control,
+        bool preferTransformFallback = false,
+        double startOffsetY = 16,
+        int durationMs = 300)
     {
         if (IsTranscriptBuilding) return;
 
+        // Keep centered welcome heading anchored to layout center.
+        // Composition Offset animation can shift it from center in some layouts.
+        var allowCompositionEntrance =
+            !preferTransformFallback
+            && !ReferenceEquals(control, _welcomeGreeting)
+            && control is not StrataChatMessage;
+        if (allowCompositionEntrance && TryStartCompositionEntranceAnimation(control))
+            return;
+
         control.Opacity = 0;
-        control.RenderTransform = new TranslateTransform(0, 20);
+        control.RenderTransform = new TranslateTransform(0, startOffsetY);
 
         var anim = new Avalonia.Animation.Animation
         {
-            Duration = TimeSpan.FromMilliseconds(350),
+            Duration = TimeSpan.FromMilliseconds(durationMs),
             Easing = new CubicEaseOut(),
             FillMode = FillMode.Forward,
             Children =
@@ -1672,7 +1802,7 @@ public partial class ChatView : UserControl
                     Setters =
                     {
                         new Setter(OpacityProperty, 0.0),
-                        new Setter(TranslateTransform.YProperty, 20.0),
+                        new Setter(TranslateTransform.YProperty, startOffsetY),
                     }
                 },
                 new KeyFrame
@@ -1692,6 +1822,35 @@ public partial class ChatView : UserControl
 
         control.Opacity = 1;
         control.RenderTransform = null;
+    }
+
+    private static bool TryStartCompositionEntranceAnimation(Control control)
+    {
+        var visual = ElementComposition.GetElementVisual(control);
+        var compositor = visual?.Compositor;
+        if (visual is null || compositor is null)
+            return false;
+
+        var startOffset = new System.Numerics.Vector3(0f, 16f, 0f);
+        visual.Opacity = 0f;
+        visual.Offset = startOffset;
+
+        var opacityAnim = compositor.CreateScalarKeyFrameAnimation();
+        opacityAnim.Target = "Opacity";
+        opacityAnim.InsertKeyFrame(0f, 0f);
+        opacityAnim.InsertKeyFrame(1f, 1f);
+        opacityAnim.Duration = TimeSpan.FromMilliseconds(190);
+
+        var offsetAnim = compositor.CreateVector3KeyFrameAnimation();
+        offsetAnim.Target = "Offset";
+        offsetAnim.InsertKeyFrame(0f, startOffset);
+        offsetAnim.InsertKeyFrame(0.82f, new System.Numerics.Vector3(0f, -1.2f, 0f));
+        offsetAnim.InsertKeyFrame(1f, System.Numerics.Vector3.Zero);
+        offsetAnim.Duration = TimeSpan.FromMilliseconds(280);
+
+        visual.StartAnimation("Opacity", opacityAnim);
+        visual.StartAnimation("Offset", offsetAnim);
+        return true;
     }
 
     /// <summary>

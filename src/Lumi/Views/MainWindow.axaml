@@ -58,14 +58,52 @@
       <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="Focusable" Value="False" />
+      <Setter Property="Opacity" Value="0.9" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+        </Transitions>
+      </Setter>
       <Setter Property="ToolTip.Placement" Value="Top" />
       <Setter Property="ToolTip.VerticalOffset" Value="-4" />
     </Style>
+    <Style Selector="Button.nav-icon:pointerover">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.nav-icon:pressed">
+      <Setter Property="Opacity" Value="0.84" />
+    </Style>
     <Style Selector="Button.nav-icon.active">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="Opacity" Value="1" />
     </Style>
     <Style Selector="Button.nav-icon.active:pointerover /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
+    </Style>
+    <Style Selector="Button.nav-icon PathIcon">
+      <Setter Property="Opacity" Value="0.78" />
+      <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
+      <Setter Property="RenderTransform" Value="translateY(0px)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.16" />
+          <BrushTransition Property="Foreground" Duration="0:0:0.16" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="0.2,0 0,1" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.nav-icon:pointerover PathIcon">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="RenderTransform" Value="translateY(-1px)" />
+    </Style>
+    <Style Selector="Button.nav-icon:pressed PathIcon">
+      <Setter Property="Opacity" Value="0.82" />
+      <Setter Property="RenderTransform" Value="translateY(0px)" />
+    </Style>
+    <Style Selector="Button.nav-icon.active PathIcon">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
 
     <Style Selector="Button.project-pill">

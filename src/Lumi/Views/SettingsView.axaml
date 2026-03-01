@@ -7,17 +7,41 @@
              x:DataType="vm:SettingsViewModel"
              x:CompileBindings="True">
 
+  <UserControl.Styles>
+    <Style Selector="Border.motion-surface, DockPanel.motion-surface, StackPanel.motion-surface">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.2" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.motion-surface[IsVisible=true], DockPanel.motion-surface[IsVisible=true], StackPanel.motion-surface[IsVisible=true]">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.motion-action">
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+          <BrushTransition Property="Background" Duration="0:0:0.12" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
+        </Transitions>
+      </Setter>
+    </Style>
+  </UserControl.Styles>
+
   <Panel>
 
     <!-- ═══ Restart banner (shown when a restart-required setting changes) ═══ -->
     <Border x:Name="RestartBanner"
+            Classes="motion-surface"
             IsVisible="{Binding NeedsRestart}"
             Background="{DynamicResource Brush.WarningSubtle}"
             CornerRadius="8" Padding="16,10" Margin="36,24,36,0"
             MaxWidth="560" HorizontalAlignment="Left"
             VerticalAlignment="Top" ZIndex="10">
       <DockPanel>
-        <Button DockPanel.Dock="Right" Classes="accent" Content="{loc:Str Settings_Restart}"
+        <Button DockPanel.Dock="Right" Classes="accent motion-action" Content="{loc:Str Settings_Restart}"
                 Padding="14,6" MinHeight="0" Margin="12,0,0,0"
                 Command="{Binding RestartAppCommand}" />
         <TextBlock Text="{loc:Str Settings_RestartBanner}"
@@ -30,9 +54,9 @@
     <StackPanel x:Name="AllPagesStack" Spacing="0">
 
     <!-- Search results header (shown during search) -->
-    <DockPanel x:Name="SearchResultsHeader" IsVisible="False"
+    <DockPanel x:Name="SearchResultsHeader" Classes="motion-surface" IsVisible="False"
               Margin="36,24,36,4" MaxWidth="560" HorizontalAlignment="Left">
-      <Button x:Name="ClearSearchButton" DockPanel.Dock="Right" Classes="subtle"
+      <Button x:Name="ClearSearchButton" DockPanel.Dock="Right" Classes="subtle motion-action"
               Content="{loc:Str Common_Clear}" Padding="8,4" MinHeight="0" MinWidth="0"
               FontSize="{DynamicResource Font.SizeCaption}"
               Foreground="{DynamicResource Brush.AccentDefault}"
@@ -53,7 +77,7 @@
     </DockPanel>
 
     <!-- ═══ Page 0: Profile ═══ -->
-      <StackPanel x:Name="PageProfile" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
+      <StackPanel x:Name="PageProfile" Classes="motion-surface" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="{loc:Str Settings_Profile}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
           <TextBlock Text="{loc:Str Settings_ProfileDesc}" FontSize="{DynamicResource Font.SizeCaption}"
@@ -80,7 +104,7 @@
       </StackPanel>
 
     <!-- ═══ Page 1: General ═══ -->
-      <StackPanel x:Name="PageGeneral" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
+      <StackPanel x:Name="PageGeneral" Classes="motion-surface" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="{loc:Str Settings_General}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
           <TextBlock Text="{loc:Str Settings_GeneralDesc}" FontSize="{DynamicResource Font.SizeCaption}"
@@ -112,7 +136,7 @@
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Keyboard}">
           <sc:StrataSetting Header="{loc:Str Setting_GlobalHotkey}" Description="{loc:Str SettingDesc_GlobalHotkey}"
                             IsModified="{Binding IsGlobalHotkeyModified}">
-            <Button x:Name="HotkeyRecorderButton" Classes="subtle" Padding="14,6" MinHeight="0"
+            <Button x:Name="HotkeyRecorderButton" Classes="subtle motion-action" Padding="14,6" MinHeight="0"
                     MinWidth="120" HorizontalContentAlignment="Center"
                     FontSize="{DynamicResource Font.SizeCaption}" />
           </sc:StrataSetting>
@@ -120,7 +144,7 @@
       </StackPanel>
 
     <!-- ═══ Page 2: Appearance ═══ -->
-      <StackPanel x:Name="PageAppearance" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
+      <StackPanel x:Name="PageAppearance" Classes="motion-surface" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="{loc:Str Settings_Appearance}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
           <TextBlock Text="{loc:Str Settings_AppearanceDesc}" FontSize="{DynamicResource Font.SizeCaption}"
@@ -160,7 +184,7 @@
       </StackPanel>
 
     <!-- ═══ Page 3: Chat ═══ -->
-      <StackPanel x:Name="PageChat" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
+      <StackPanel x:Name="PageChat" Classes="motion-surface" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="{loc:Str Settings_Chat}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
           <TextBlock Text="{loc:Str Settings_ChatDesc}" FontSize="{DynamicResource Font.SizeCaption}"
@@ -198,7 +222,7 @@
       </StackPanel>
 
     <!-- ═══ Page 4: AI & Models ═══ -->
-      <StackPanel x:Name="PageAI" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
+      <StackPanel x:Name="PageAI" Classes="motion-surface" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="{loc:Str Settings_AIModels}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
           <TextBlock Text="{loc:Str Settings_AIModelsDesc}" FontSize="{DynamicResource Font.SizeCaption}"
@@ -219,7 +243,7 @@
                            VerticalAlignment="Center" />
               </StackPanel>
               <!-- Not signed in: sign-in button -->
-              <Button Classes="accent" Padding="14,6" MinHeight="0"
+              <Button Classes="accent motion-action" Padding="14,6" MinHeight="0"
                       IsVisible="{Binding !IsAuthenticated}"
                       IsEnabled="{Binding !IsSigningIn}"
                       Command="{Binding SignInCommand}"
@@ -239,7 +263,7 @@
       </StackPanel>
 
     <!-- ═══ Page 5: Privacy & Data ═══ -->
-      <StackPanel x:Name="PagePrivacy" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
+      <StackPanel x:Name="PagePrivacy" Classes="motion-surface" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="{loc:Str Settings_PrivacyData}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
           <TextBlock Text="{loc:Str Settings_PrivacyDataDesc}" FontSize="{DynamicResource Font.SizeCaption}"
@@ -263,12 +287,12 @@
         <sc:StrataSettingGroup Header="Browser">
           <sc:StrataSetting Header="Import browser cookies"
                             Description="{Binding BrowserCookieStatus}">
-            <Button Classes="subtle" Content="Import cookies" Padding="14,6" MinHeight="0"
+            <Button Classes="subtle motion-action" Content="Import cookies" Padding="14,6" MinHeight="0"
                     Command="{Binding ImportBrowserCookiesAgainCommand}" />
           </sc:StrataSetting>
           <sc:StrataSetting Header="Reset embedded browser cookies"
                             Description="Clear all Lumi browser cookies and start fresh.">
-            <Button Classes="subtle" Content="Reset cookies" Padding="14,6" MinHeight="0"
+            <Button Classes="subtle motion-action" Content="Reset cookies" Padding="14,6" MinHeight="0"
                     Foreground="{DynamicResource Brush.DangerDefault}"
                     Command="{Binding ResetBrowserCookiesCommand}" />
           </sc:StrataSetting>
@@ -276,24 +300,24 @@
 
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_DataManagement}">
           <sc:StrataSetting Header="{loc:Str Setting_ClearAllChats}" Description="{loc:Str SettingDesc_ClearAllChats}">
-            <Button Classes="subtle" Content="{loc:Str Button_ClearChats}" Padding="14,6" MinHeight="0"
+            <Button Classes="subtle motion-action" Content="{loc:Str Button_ClearChats}" Padding="14,6" MinHeight="0"
                     Foreground="{DynamicResource Brush.DangerDefault}"
                     Command="{Binding ClearAllChatsCommand}" />
           </sc:StrataSetting>
           <sc:StrataSetting Header="{loc:Str Setting_ClearAllMemories}" Description="{loc:Str SettingDesc_ClearAllMemories}">
-            <Button Classes="subtle" Content="{loc:Str Button_ClearMemories}" Padding="14,6" MinHeight="0"
+            <Button Classes="subtle motion-action" Content="{loc:Str Button_ClearMemories}" Padding="14,6" MinHeight="0"
                     Foreground="{DynamicResource Brush.DangerDefault}"
                     Command="{Binding ClearAllMemoriesCommand}" />
           </sc:StrataSetting>
           <sc:StrataSetting Header="{loc:Str Setting_ResetAllSettings}" Description="{loc:Str SettingDesc_ResetAllSettings}">
-            <Button Classes="subtle" Content="{loc:Str Button_ResetDefaults}" Padding="14,6" MinHeight="0"
+            <Button Classes="subtle motion-action" Content="{loc:Str Button_ResetDefaults}" Padding="14,6" MinHeight="0"
                     Command="{Binding ResetSettingsCommand}" />
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
       </StackPanel>
 
     <!-- ═══ Page 6: About ═══ -->
-      <StackPanel x:Name="PageAbout" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
+      <StackPanel x:Name="PageAbout" Classes="motion-surface" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
         <StackPanel Spacing="4">
           <TextBlock Text="{loc:Str Settings_About}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
           <TextBlock Text="{loc:Str Settings_AboutDesc}" FontSize="{DynamicResource Font.SizeCaption}"
@@ -364,7 +388,7 @@
     </ScrollViewer>
 
     <!-- No results indicator -->
-    <StackPanel x:Name="NoResultsPanel" IsVisible="False"
+    <StackPanel x:Name="NoResultsPanel" Classes="motion-surface" IsVisible="False"
                 VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
       <PathIcon Width="40" Height="40" Foreground="{DynamicResource Brush.TextTertiary}"
                 HorizontalAlignment="Center">
@@ -378,7 +402,7 @@
         <TextBlock Text="{loc:Str Settings_TryDifferentSearch}" FontSize="{DynamicResource Font.SizeCaption}"
                    Foreground="{DynamicResource Brush.TextTertiary}" HorizontalAlignment="Center" />
       </StackPanel>
-      <Button x:Name="NoResultsClearButton" Classes="subtle" Content="{loc:Str Settings_ClearSearch}"
+      <Button x:Name="NoResultsClearButton" Classes="subtle motion-action" Content="{loc:Str Settings_ClearSearch}"
               Padding="12,6" MinHeight="0" HorizontalAlignment="Center"
               Foreground="{DynamicResource Brush.AccentDefault}" />
     </StackPanel>
@@ -440,11 +464,11 @@
 
           <!-- Actions -->
           <StackPanel x:Name="CookieImportActions" Spacing="8">
-            <Button x:Name="CookieImportButton" Classes="accent"
+            <Button x:Name="CookieImportButton" Classes="accent motion-action"
                     HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Center"
                     Content="Import cookies" />
-            <Button x:Name="CookieImportCancelButton" Classes="subtle"
+            <Button x:Name="CookieImportCancelButton" Classes="subtle motion-action"
                     HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Center"
                     Content="Cancel" />

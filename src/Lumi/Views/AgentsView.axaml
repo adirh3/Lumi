@@ -7,9 +7,33 @@
              x:DataType="vm:AgentsViewModel"
              x:CompileBindings="True">
 
+  <UserControl.Styles>
+    <Style Selector="ScrollViewer.motion-surface, StackPanel.motion-surface">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="ScrollViewer.motion-surface[IsVisible=true], StackPanel.motion-surface[IsVisible=true]">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.motion-action">
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+          <BrushTransition Property="Background" Duration="0:0:0.12" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
+        </Transitions>
+      </Setter>
+    </Style>
+  </UserControl.Styles>
+
   <Panel>
       <!-- Editor form -->
-      <ScrollViewer IsVisible="{Binding IsEditing}"
+      <ScrollViewer Classes="motion-surface"
+                    IsVisible="{Binding IsEditing}"
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto" Padding="36,24,36,36">
         <StackPanel Spacing="20" MaxWidth="560">
@@ -45,16 +69,17 @@
           </StackPanel>
 
           <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-            <Button Classes="accent" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
+            <Button Classes="accent motion-action" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
                     Command="{Binding SaveAgentCommand}" />
-            <Button Classes="subtle" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
+            <Button Classes="subtle motion-action" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
                     Command="{Binding CancelEditCommand}" />
           </StackPanel>
         </StackPanel>
       </ScrollViewer>
 
       <!-- Empty state -->
-      <StackPanel IsVisible="{Binding !IsEditing}"
+      <StackPanel Classes="motion-surface"
+                  IsVisible="{Binding !IsEditing}"
                   HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" Opacity="0.4">
         <TextBlock Text="✦" FontSize="32" HorizontalAlignment="Center" />
         <TextBlock Text="{loc:Str Empty_SelectLumi}" FontSize="{DynamicResource Font.SizeBody}"

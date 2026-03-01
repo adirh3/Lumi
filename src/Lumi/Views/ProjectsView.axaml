@@ -7,9 +7,46 @@
              x:DataType="vm:ProjectsViewModel"
              x:CompileBindings="True">
 
+  <UserControl.Styles>
+    <Style Selector="ScrollViewer.motion-surface, StackPanel.motion-surface">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="ScrollViewer.motion-surface[IsVisible=true], StackPanel.motion-surface[IsVisible=true]">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.motion-action">
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+          <BrushTransition Property="Background" Duration="0:0:0.12" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.motion-list-row">
+      <Setter Property="Opacity" Value="0.95" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+          <BrushTransition Property="Background" Duration="0:0:0.12" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.motion-list-row:pointerover">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+  </UserControl.Styles>
+
   <Panel>
       <!-- Editor form -->
-      <ScrollViewer IsVisible="{Binding IsEditing}"
+      <ScrollViewer Classes="motion-surface"
+                    IsVisible="{Binding IsEditing}"
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto" Padding="36,24,36,36">
         <StackPanel Spacing="20" MaxWidth="560">
@@ -30,14 +67,15 @@
           </StackPanel>
 
           <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-            <Button Classes="accent" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
+            <Button Classes="accent motion-action" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
                     Command="{Binding SaveProjectCommand}" />
-            <Button Classes="subtle" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
+            <Button Classes="subtle motion-action" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
                     Command="{Binding CancelEditCommand}" />
           </StackPanel>
 
           <!-- ── Chats in this project ── -->
-          <StackPanel Spacing="8" IsVisible="{Binding SelectedProject, Converter={x:Static ObjectConverters.IsNotNull}}"
+          <StackPanel Classes="motion-surface"
+                      Spacing="8" IsVisible="{Binding SelectedProject, Converter={x:Static ObjectConverters.IsNotNull}}"
                       Margin="0,12,0,0">
             <TextBlock Text="{loc:Str Field_Chats}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                        LetterSpacing="0.8" />
@@ -48,7 +86,7 @@
             <ItemsControl ItemsSource="{Binding ProjectChats}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="models:Chat" x:CompileBindings="False">
-                  <Button Classes="subtle" HorizontalAlignment="Stretch"
+                  <Button Classes="subtle motion-list-row" HorizontalAlignment="Stretch"
                           HorizontalContentAlignment="Left"
                           Padding="12,8" MinHeight="0" Margin="0,1"
                           CornerRadius="{DynamicResource Radius.Base}"
@@ -72,7 +110,8 @@
       </ScrollViewer>
 
       <!-- Empty state -->
-      <StackPanel IsVisible="{Binding !IsEditing}"
+      <StackPanel Classes="motion-surface"
+                  IsVisible="{Binding !IsEditing}"
                   HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6" Opacity="0.4">
         <TextBlock Text="📁" FontSize="32" HorizontalAlignment="Center" />
         <TextBlock Text="{loc:Str Empty_SelectProject}" FontSize="{DynamicResource Font.SizeBody}"
