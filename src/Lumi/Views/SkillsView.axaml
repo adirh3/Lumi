@@ -37,7 +37,26 @@
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto" Padding="36,24,36,36">
         <StackPanel Spacing="20" MaxWidth="560">
-          <TextBlock Text="{loc:Str Editor_Skill}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold" />
+
+          <!-- Header + actions row -->
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+              <Button Classes="accent motion-action" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
+                      Command="{Binding SaveSkillCommand}" />
+              <Button Classes="subtle motion-action" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
+                      Command="{Binding CancelEditCommand}" />
+              <Button Classes="subtle motion-action" Padding="10,7" MinHeight="0"
+                      Command="{Binding DeleteSkillCommand}"
+                      CommandParameter="{Binding SelectedSkill}"
+                      IsVisible="{Binding SelectedSkill, Converter={x:Static ObjectConverters.IsNotNull}}"
+                      ToolTip.Tip="{loc:Str Menu_Delete}">
+                <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14"
+                          Foreground="{DynamicResource Brush.TextTertiary}" />
+              </Button>
+            </StackPanel>
+            <TextBlock Text="{loc:Str Editor_Skill}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+          </DockPanel>
 
           <StackPanel Spacing="4">
             <TextBlock Text="{loc:Str Field_Name}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
@@ -64,16 +83,12 @@
             <TextBlock Text="{loc:Str Field_Instructions}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                        LetterSpacing="0.8" />
             <TextBox Text="{Binding EditContent}" AcceptsReturn="True" TextWrapping="Wrap"
-                     MinHeight="260"
+                     MinHeight="260" MaxHeight="480"
+                     VerticalContentAlignment="Top"
                      Watermark="{loc:Str Watermark_SkillInstructions}" />
           </StackPanel>
 
-          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-            <Button Classes="accent motion-action" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
-                    Command="{Binding SaveSkillCommand}" />
-            <Button Classes="subtle motion-action" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
-                    Command="{Binding CancelEditCommand}" />
-          </StackPanel>
+
         </StackPanel>
       </ScrollViewer>
 

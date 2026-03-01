@@ -115,7 +115,7 @@
             <TextBlock Text="{loc:Str Field_Instructions}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                        LetterSpacing="0.8" />
             <TextBox Text="{Binding EditInstructions}" AcceptsReturn="True" TextWrapping="Wrap"
-                     MinHeight="180" VerticalContentAlignment="Top"
+                     MinHeight="180" MaxHeight="420" VerticalContentAlignment="Top"
                      Watermark="{loc:Str Watermark_ProjectInstructions}" />
           </StackPanel>
 

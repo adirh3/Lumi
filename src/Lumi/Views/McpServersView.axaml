@@ -7,15 +7,56 @@
              x:DataType="vm:McpServersViewModel"
              x:CompileBindings="True">
 
+  <UserControl.Styles>
+    <Style Selector="ScrollViewer.motion-surface, StackPanel.motion-surface">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="ScrollViewer.motion-surface[IsVisible=true], StackPanel.motion-surface[IsVisible=true]">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.motion-action">
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+          <BrushTransition Property="Background" Duration="0:0:0.12" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
+        </Transitions>
+      </Setter>
+    </Style>
+  </UserControl.Styles>
+
   <Panel>
       <!-- Editor form -->
-      <ScrollViewer IsVisible="{Binding IsEditing}"
+      <ScrollViewer Classes="motion-surface"
+                    IsVisible="{Binding IsEditing}"
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto" Padding="36,24,36,36">
         <StackPanel Spacing="16" MaxWidth="560">
 
-          <!-- Header -->
-          <TextBlock Text="{loc:Str Editor_McpServer}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold" />
+          <!-- Header + actions row -->
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+              <Button Classes="accent motion-action" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
+                      Command="{Binding SaveServerCommand}" />
+              <Button Classes="subtle motion-action" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
+                      Command="{Binding CancelEditCommand}" />
+              <Button Classes="subtle motion-action" Padding="10,7" MinHeight="0"
+                      Command="{Binding DeleteServerCommand}"
+                      CommandParameter="{Binding SelectedServer}"
+                      IsVisible="{Binding SelectedServer, Converter={x:Static ObjectConverters.IsNotNull}}"
+                      ToolTip.Tip="{loc:Str Menu_Delete}">
+                <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14"
+                          Foreground="{DynamicResource Brush.TextTertiary}" />
+              </Button>
+            </StackPanel>
+            <TextBlock Text="{loc:Str Editor_McpServer}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+          </DockPanel>
 
           <StackPanel Spacing="4">
             <TextBlock Text="{loc:Str Field_Name}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
@@ -64,8 +105,7 @@
                     </StackPanel>
                   </Button>
                   <TextBox Text="{Binding EditNpxPackage}"
-                           Watermark="@modelcontextprotocol/server-filesystem"
-                           FontFamily="Consolas,Menlo,monospace" FontSize="12" />
+                           Watermark="@modelcontextprotocol/server-filesystem" />
                 </DockPanel>
               </StackPanel>
 
@@ -73,9 +113,9 @@
                 <TextBlock Text="SERVER ARGUMENTS" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                            LetterSpacing="0.8" />
                 <TextBox Text="{Binding EditServerArgs}" AcceptsReturn="True" TextWrapping="Wrap"
-                         MinHeight="72"
-                         Watermark="Paths, connection strings, or other config — one per line"
-                         FontFamily="Consolas,Menlo,monospace" FontSize="12" />
+                         MinHeight="72" MaxHeight="200"
+                         VerticalContentAlignment="Top"
+                         Watermark="Paths, connection strings, or other config — one per line" />
                 <TextBlock Text="These arguments are passed to the MCP server after the package name. Check the Docs button above for what this server expects."
                            FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}"
                            TextWrapping="Wrap" Margin="0,1,0,0" />
@@ -87,16 +127,18 @@
               <TextBlock Text="{loc:Str Field_Arguments}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                          LetterSpacing="0.8" />
               <TextBox Text="{Binding EditArgs}" AcceptsReturn="True" TextWrapping="Wrap"
-                       MinHeight="72" Watermark="{loc:Str Watermark_McpArgs}"
-                       FontFamily="Consolas,Menlo,monospace" FontSize="12" />
+                       MinHeight="72" MaxHeight="200"
+                       VerticalContentAlignment="Top"
+                       Watermark="{loc:Str Watermark_McpArgs}" />
             </StackPanel>
 
             <StackPanel Spacing="4">
               <TextBlock Text="{loc:Str Field_Environment}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                          LetterSpacing="0.8" />
               <TextBox Text="{Binding EditEnvVars}" AcceptsReturn="True" TextWrapping="Wrap"
-                       MinHeight="56" Watermark="API_KEY=your-key  (one per line)"
-                       FontFamily="Consolas,Menlo,monospace" FontSize="12" />
+                       MinHeight="56" MaxHeight="200"
+                       VerticalContentAlignment="Top"
+                       Watermark="API_KEY=your-key  (one per line)" />
             </StackPanel>
           </StackPanel>
 
@@ -105,15 +147,15 @@
             <StackPanel Spacing="4">
               <TextBlock Text="{loc:Str Field_Url}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                          LetterSpacing="0.8" />
-              <TextBox Text="{Binding EditUrl}" Watermark="{loc:Str Watermark_McpUrl}"
-                       FontFamily="Consolas,Menlo,monospace" FontSize="12" />
+              <TextBox Text="{Binding EditUrl}" Watermark="{loc:Str Watermark_McpUrl}" />
             </StackPanel>
             <StackPanel Spacing="4">
               <TextBlock Text="{loc:Str Field_Headers}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
                          LetterSpacing="0.8" />
               <TextBox Text="{Binding EditHeaders}" AcceptsReturn="True" TextWrapping="Wrap"
-                       MinHeight="56" Watermark="Authorization=Bearer token"
-                       FontFamily="Consolas,Menlo,monospace" FontSize="12" />
+                       MinHeight="56" MaxHeight="200"
+                       VerticalContentAlignment="Top"
+                       Watermark="Authorization=Bearer token" />
             </StackPanel>
           </StackPanel>
 
@@ -130,13 +172,6 @@
             </StackPanel>
           </DockPanel>
 
-          <!-- Actions -->
-          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-            <Button Classes="accent" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
-                    Command="{Binding SaveServerCommand}" />
-            <Button Classes="subtle" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
-                    Command="{Binding CancelEditCommand}" />
-          </StackPanel>
         </StackPanel>
       </ScrollViewer>
 
@@ -270,7 +305,8 @@
       </DockPanel>
 
       <!-- Empty state (only shown when not editing or browsing) -->
-      <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Opacity="0.35">
+      <StackPanel Classes="motion-surface"
+                  HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Opacity="0.35">
         <StackPanel.IsVisible>
           <MultiBinding Converter="{x:Static BoolConverters.And}">
             <Binding Path="!IsEditing" />
