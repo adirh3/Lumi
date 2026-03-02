@@ -375,7 +375,8 @@
               <sc:StrataFileAttachment FileName="{Binding FileName}"
                                        FileSize="{Binding FileSize}"
                                        Status="Completed"
-                                       IsRemovable="{Binding IsRemovable}" />
+                                       IsRemovable="{Binding IsRemovable}"
+                                       RemoveCommand="{Binding RemoveCommand}" />
             </DataTemplate>
           </sc:StrataAttachmentList.ItemTemplate>
         </sc:StrataAttachmentList>
@@ -488,7 +489,8 @@
                   <sc:StrataFileAttachment FileName="{Binding FileName}"
                                            FileSize="{Binding FileSize}"
                                            Status="Completed"
-                                           IsRemovable="{Binding IsRemovable}" />
+                                           IsRemovable="{Binding IsRemovable}"
+                                           RemoveCommand="{Binding RemoveCommand}" />
                 </DataTemplate>
               </sc:StrataAttachmentList.ItemTemplate>
             </sc:StrataAttachmentList>
