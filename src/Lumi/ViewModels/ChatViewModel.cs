@@ -61,7 +61,14 @@ public partial class ChatViewModel : ObservableObject
 
     private sealed class ChatRuntimeState
     {
-        public bool IsBusy { get; set; }
+        private bool _isBusy;
+        public Guid ChatId { get; init; }
+        public Action<Guid, bool>? BusyChanged { get; init; }
+        public bool IsBusy
+        {
+            get => _isBusy;
+            set { if (_isBusy == value) return; _isBusy = value; BusyChanged?.Invoke(ChatId, value); }
+        }
         public bool IsStreaming { get; set; }
         public string StatusText { get; set; } = "";
     }
@@ -119,6 +126,8 @@ public partial class ChatViewModel : ObservableObject
     public event Action<string, string?, string?>? DiffShowRequested;
     /// <summary>Raised to hide the diff preview island.</summary>
     public event Action? DiffHideRequested;
+    /// <summary>Raised when any chat's busy state changes. Args: chatId, isBusy.</summary>
+    public event Action<Guid, bool>? ChatBusyStateChanged;
 
 
     /// <summary>Raised when the LLM calls ask_question. Args: questionId, question, options (comma-separated), allowFreeText.</summary>
@@ -1494,7 +1503,11 @@ public partial class ChatViewModel : ObservableObject
     {
         if (!_runtimeStates.TryGetValue(chatId, out var runtime))
         {
-            runtime = new ChatRuntimeState();
+            runtime = new ChatRuntimeState
+            {
+                ChatId = chatId,
+                BusyChanged = (id, busy) => ChatBusyStateChanged?.Invoke(id, busy)
+            };
             _runtimeStates[chatId] = runtime;
         }
         return runtime;
@@ -1625,8 +1638,10 @@ public partial class ChatViewModel : ObservableObject
             _sessionCache.TryGetValue(chat.Id, out var cachedSession);
             _activeSession = cachedSession;
 
-            // Clear pending skill injections from any previous chat
+            // Clear pending state from any previous chat
             _pendingSkillInjections.Clear();
+            _pendingSearchSources.Clear();
+            _pendingFetchedSkillRefs.Clear();
 
             // Restore real runtime state for this session/chat
             var runtime = GetOrCreateRuntimeState(chat.Id);

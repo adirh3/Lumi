@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 
 namespace Lumi.Models;
@@ -34,8 +36,10 @@ public class SearchSource
     public string Url { get; set; } = "";
 }
 
-public class Chat
+public class Chat : INotifyPropertyChanged
 {
+    private bool _isRunning;
+
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Title { get; set; } = "New Chat";
     public Guid? ProjectId { get; set; }
@@ -47,6 +51,16 @@ public class Chat
     public List<ChatMessage> Messages { get; set; } = [];
     public List<Guid> ActiveSkillIds { get; set; } = [];
     public List<string> ActiveMcpServerNames { get; set; } = [];
+
+    /// <summary>Runtime-only flag indicating this chat is actively generating a response.</summary>
+    [JsonIgnore]
+    public bool IsRunning
+    {
+        get => _isRunning;
+        set { if (_isRunning == value) return; _isRunning = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRunning))); }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 public class Project

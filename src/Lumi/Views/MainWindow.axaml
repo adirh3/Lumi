@@ -354,6 +354,22 @@
                                              Opacity="0.7"
                                              TextTrimming="CharacterEllipsis"
                                              IsVisible="False" />
+                                  <Border x:Name="BusyIndicator" DockPanel.Dock="Left"
+                                          Width="6" Height="6" CornerRadius="3"
+                                          Background="{DynamicResource Brush.AccentDefault}"
+                                          VerticalAlignment="Center" Margin="0,0,7,0"
+                                          IsVisible="False">
+                                    <Border.Styles>
+                                      <Style Selector="Border#BusyIndicator">
+                                        <Style.Animations>
+                                          <Animation Duration="0:0:1.2" IterationCount="INFINITE" PlaybackDirection="Alternate">
+                                            <KeyFrame Cue="0%"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
+                                            <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.3"/></KeyFrame>
+                                          </Animation>
+                                        </Style.Animations>
+                                      </Style>
+                                    </Border.Styles>
+                                  </Border>
                                   <TextBlock Text="{Binding Title}"
                                              ToolTip.Tip="{Binding Title}"
                                              TextTrimming="CharacterEllipsis"
