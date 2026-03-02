@@ -62,12 +62,11 @@ public partial class ChatViewModel : ObservableObject
     private sealed class ChatRuntimeState
     {
         private bool _isBusy;
-        public Guid ChatId { get; init; }
-        public Action<Guid, bool>? BusyChanged { get; init; }
+        public Chat? Chat { get; init; }
         public bool IsBusy
         {
             get => _isBusy;
-            set { if (_isBusy == value) return; _isBusy = value; BusyChanged?.Invoke(ChatId, value); }
+            set { if (_isBusy == value) return; _isBusy = value; if (Chat is not null) Chat.IsRunning = value; }
         }
         public bool IsStreaming { get; set; }
         public string StatusText { get; set; } = "";
@@ -126,8 +125,6 @@ public partial class ChatViewModel : ObservableObject
     public event Action<string, string?, string?>? DiffShowRequested;
     /// <summary>Raised to hide the diff preview island.</summary>
     public event Action? DiffHideRequested;
-    /// <summary>Raised when any chat's busy state changes. Args: chatId, isBusy.</summary>
-    public event Action<Guid, bool>? ChatBusyStateChanged;
 
 
     /// <summary>Raised when the LLM calls ask_question. Args: questionId, question, options (comma-separated), allowFreeText.</summary>
@@ -1503,11 +1500,8 @@ public partial class ChatViewModel : ObservableObject
     {
         if (!_runtimeStates.TryGetValue(chatId, out var runtime))
         {
-            runtime = new ChatRuntimeState
-            {
-                ChatId = chatId,
-                BusyChanged = (id, busy) => ChatBusyStateChanged?.Invoke(id, busy)
-            };
+            var chat = _dataStore.Data.Chats.Find(c => c.Id == chatId);
+            runtime = new ChatRuntimeState { Chat = chat };
             _runtimeStates[chatId] = runtime;
         }
         return runtime;

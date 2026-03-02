@@ -387,12 +387,6 @@ public partial class MainWindow : Window
                 Dispatcher.UIThread.Post(() => AnimateSidebarTitle(chatId, newTitle));
             };
 
-            // Toggle busy indicator on sidebar chats
-            vm.ChatVM.ChatBusyStateChanged += (chatId, isBusy) =>
-            {
-                Dispatcher.UIThread.Post(() => UpdateChatBusyIndicator(chatId, isBusy));
-            };
-
             // Wire settings for density and font size
             vm.SettingsVM.PropertyChanged += (_, args) =>
             {
@@ -1029,26 +1023,6 @@ public partial class MainWindow : Window
                 else
                 {
                     label.IsVisible = false;
-                }
-            }
-        }
-    }
-
-    /// <summary>Shows or hides the pulsing busy indicator on a sidebar chat item.</summary>
-    private void UpdateChatBusyIndicator(Guid chatId, bool isBusy)
-    {
-        foreach (var lb in this.GetVisualDescendants().OfType<ListBox>())
-        {
-            if (!lb.Classes.Contains("chat-list")) continue;
-            foreach (var container in lb.GetVisualDescendants().OfType<ListBoxItem>())
-            {
-                if (container.DataContext is Chat chat && chat.Id == chatId)
-                {
-                    var indicator = container.GetVisualDescendants().OfType<Border>()
-                        .FirstOrDefault(b => b.Name == "BusyIndicator");
-                    if (indicator is not null)
-                        indicator.IsVisible = isBusy;
-                    return;
                 }
             }
         }

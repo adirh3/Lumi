@@ -358,7 +358,7 @@
                                           Width="6" Height="6" CornerRadius="3"
                                           Background="{DynamicResource Brush.AccentDefault}"
                                           VerticalAlignment="Center" Margin="0,0,7,0"
-                                          IsVisible="False">
+                                          IsVisible="{Binding IsRunning}">
                                     <Border.Styles>
                                       <Style Selector="Border#BusyIndicator">
                                         <Style.Animations>
