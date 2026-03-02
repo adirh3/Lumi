@@ -63,6 +63,7 @@ public partial class ChatView : UserControl
     private readonly List<Control> _deferredTranscriptEntrances = [];
     private bool _animateDeferredTranscriptEntrances;
     private bool _isLoadingOlder;
+    private bool _suppressProjectFilterSync;
     private ScrollViewer? _transcriptScrollViewer;
     private int _transcriptBuildDepth;
 
@@ -2125,6 +2126,8 @@ public partial class ChatView : UserControl
     /// <summary>Called when the composer's ProjectName property changes (user selected via $ autocomplete).</summary>
     private void OnComposerProjectChanged(StrataChatComposer composer, ChatViewModel vm)
     {
+        if (_suppressProjectFilterSync) return;
+
         var projectName = composer.ProjectName;
         if (string.IsNullOrEmpty(projectName))
         {
@@ -2135,11 +2138,21 @@ public partial class ChatView : UserControl
         }
         else
         {
-            vm.SelectProjectByName(projectName);
+            var isExistingChat = vm.CurrentChat is not null && vm.CurrentChat.Messages.Count > 0;
+
+            // For draft/new chats, assign the project directly.
+            // For existing chats, let the filter handler decide (it will create a new chat).
+            if (!isExistingChat)
+                vm.SelectProjectByName(projectName);
+
             // Sync the other composer
             var other = composer == _welcomeComposer ? _activeComposer : _welcomeComposer;
             if (other is not null)
+            {
+                _suppressProjectFilterSync = true;
                 other.ProjectName = projectName;
+                _suppressProjectFilterSync = false;
+            }
 
             // Also switch sidebar project filter to match
             if (FindMainViewModel() is { } mainVm)
@@ -2148,16 +2161,28 @@ public partial class ChatView : UserControl
                 if (project is not null)
                     mainVm.SelectProjectFilterCommand.Execute(project);
             }
+
+            // Re-focus the composer after the project switch rebuilds the UI
+            Dispatcher.UIThread.Post(() => composer.FocusInput(), DispatcherPriority.Input);
         }
         UpdateProjectBadge(vm);
     }
 
-    /// <summary>Syncs the project chip on both composers to match the current project.</summary>
+    /// <summary>Syncs the project chip on both composers to match the current project.
+    /// Suppresses sidebar project filter sync so loading a chat doesn't switch the active folder.</summary>
     private void UpdateComposerProject(ChatViewModel vm)
     {
-        var name = vm.GetCurrentProjectName();
-        if (_welcomeComposer is not null) _welcomeComposer.ProjectName = name;
-        if (_activeComposer is not null) _activeComposer.ProjectName = name;
+        _suppressProjectFilterSync = true;
+        try
+        {
+            var name = vm.GetCurrentProjectName();
+            if (_welcomeComposer is not null) _welcomeComposer.ProjectName = name;
+            if (_activeComposer is not null) _activeComposer.ProjectName = name;
+        }
+        finally
+        {
+            _suppressProjectFilterSync = false;
+        }
     }
 
     private async Task PickAndAttachFilesAsync(ChatViewModel vm)

@@ -368,6 +368,7 @@ public partial class MainWindow : Window
                 AttachListBoxHandlers();
                 SyncListBoxSelection(vm.ActiveChatId);
                 RebuildProjectFilterBar(vm);
+                ApplyProjectLabelsToChats(vm);
                 if (vm.IsOnboarded && vm.SelectedNavIndex == 0)
                 {
                     // Delay so the user sees the textbox focus animation

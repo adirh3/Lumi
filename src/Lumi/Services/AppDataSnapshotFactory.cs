@@ -58,6 +58,7 @@ internal static class AppDataSnapshotFactory
                     Id = p.Id,
                     Name = p.Name,
                     Instructions = p.Instructions,
+                    WorkingDirectory = p.WorkingDirectory,
                     CreatedAt = p.CreatedAt
                 })
                 .ToList(),

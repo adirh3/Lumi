@@ -430,6 +430,17 @@ public partial class MainViewModel : ObservableObject
             && ChatVM.CurrentChat.ProjectId == value)
             return;
 
+        // If we're in a new/empty chat (draft), stay in new-chat mode —
+        // just update the project assignment without navigating away.
+        if (ChatVM.CurrentChat is null || ChatVM.CurrentChat.Messages.Count == 0)
+        {
+            if (value.HasValue)
+                ChatVM.SetProjectId(value.Value);
+            else
+                ChatVM.ClearProjectId();
+            return;
+        }
+
         // Try to open the most recent chat in the new project.
         if (value.HasValue)
         {
