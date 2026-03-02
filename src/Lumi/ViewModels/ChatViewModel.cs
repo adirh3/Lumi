@@ -622,6 +622,10 @@ public partial class ChatViewModel : ObservableObject
                         runtime.StatusText = string.Format(Loc.Status_Error, err.Data.Message);
                         if (_activeSession == session)
                         {
+                            // Clean up typing indicator and tool groups
+                            HideTypingIndicator();
+                            CloseCurrentToolGroup();
+
                             StatusText = runtime.StatusText;
                             IsBusy = runtime.IsBusy;
                             IsStreaming = runtime.IsStreaming;
@@ -629,12 +633,13 @@ public partial class ChatViewModel : ObservableObject
                             // Surface the error as a visible chat message
                             var errorMsg = new ChatMessage
                             {
-                                Role = "system",
+                                Role = "error",
                                 Author = Loc.Author_Lumi,
                                 Content = string.Format(Loc.Status_Error, err.Data.Message)
                             };
                             chat.Messages.Add(errorMsg);
                             Messages.Add(new ChatMessageViewModel(errorMsg));
+                            ProcessMessageToTranscript(Messages[^1]);
                             ScrollToEndRequested?.Invoke();
                         }
                     });
@@ -1092,6 +1097,11 @@ public partial class ChatViewModel : ObservableObject
         if (msgVm.Role == "user")
         {
             var item = new UserMessageItem(msgVm, showTimestamps, msg => _ = ResendFromMessageAsync(msg));
+            InsertBeforeTypingIndicator(item);
+        }
+        else if (msgVm.Role == "error")
+        {
+            var item = new ErrorMessageItem(msgVm, showTimestamps);
             InsertBeforeTypingIndicator(item);
         }
         else // assistant or system
@@ -1911,15 +1921,34 @@ public partial class ChatViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusText = string.Format(Loc.Status_Error, ex.Message);
+            var errorText = string.Format(Loc.Status_Error, ex.Message);
+            StatusText = errorText;
             IsBusy = false;
             IsStreaming = false;
+
+            // Clean up typing indicator and tool groups
+            HideTypingIndicator();
+            CloseCurrentToolGroup();
+
             if (CurrentChat is not null)
             {
                 var runtime = GetOrCreateRuntimeState(CurrentChat.Id);
                 runtime.IsBusy = false;
                 runtime.IsStreaming = false;
                 runtime.StatusText = StatusText;
+
+                // Surface the error as a visible chat message
+                var errorMsg = new ChatMessage
+                {
+                    Role = "error",
+                    Author = Loc.Author_Lumi,
+                    Content = errorText
+                };
+                CurrentChat.Messages.Add(errorMsg);
+                var msgVm = new ChatMessageViewModel(errorMsg);
+                Messages.Add(msgVm);
+                ProcessMessageToTranscript(msgVm);
+                ScrollToEndRequested?.Invoke();
             }
         }
     }
@@ -3172,7 +3201,22 @@ public partial class ChatViewModel : ObservableObject
         {
             StatusText = Loc.Status_NotConnected;
             try { await _copilotService.ConnectAsync(); }
-            catch { StatusText = Loc.Status_ConnectionFailedShort; return; }
+            catch
+            {
+                StatusText = Loc.Status_ConnectionFailedShort;
+                var connErrorMsg = new ChatMessage
+                {
+                    Role = "error",
+                    Author = Loc.Author_Lumi,
+                    Content = Loc.Status_ConnectionFailedShort
+                };
+                CurrentChat.Messages.Add(connErrorMsg);
+                var connVm = new ChatMessageViewModel(connErrorMsg);
+                Messages.Add(connVm);
+                ProcessMessageToTranscript(connVm);
+                ScrollToEndRequested?.Invoke();
+                return;
+            }
         }
 
         try
@@ -3208,15 +3252,34 @@ public partial class ChatViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            StatusText = string.Format(Loc.Status_Error, ex.Message);
+            var errorText = string.Format(Loc.Status_Error, ex.Message);
+            StatusText = errorText;
             IsBusy = false;
             IsStreaming = false;
+
+            // Clean up typing indicator and tool groups
+            HideTypingIndicator();
+            CloseCurrentToolGroup();
+
             if (CurrentChat is not null)
             {
                 var runtime = GetOrCreateRuntimeState(CurrentChat.Id);
                 runtime.IsBusy = false;
                 runtime.IsStreaming = false;
                 runtime.StatusText = StatusText;
+
+                // Surface the error as a visible chat message
+                var errorMsg = new ChatMessage
+                {
+                    Role = "error",
+                    Author = Loc.Author_Lumi,
+                    Content = errorText
+                };
+                CurrentChat.Messages.Add(errorMsg);
+                var msgVm = new ChatMessageViewModel(errorMsg);
+                Messages.Add(msgVm);
+                ProcessMessageToTranscript(msgVm);
+                ScrollToEndRequested?.Invoke();
             }
         }
     }

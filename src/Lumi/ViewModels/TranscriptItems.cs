@@ -159,6 +159,30 @@ public partial class AssistantMessageItem : TranscriptItem
     }
 }
 
+// ── Error message ────────────────────────────────────
+
+public partial class ErrorMessageItem : TranscriptItem
+{
+    [ObservableProperty] private string _content;
+    [ObservableProperty] private string _timestampText;
+
+    public string? Author { get; }
+
+    public ErrorMessageItem(ChatMessageViewModel source, bool showTimestamps)
+    {
+        Author = source.Author;
+        _content = source.Content;
+        _timestampText = showTimestamps ? source.TimestampText : "";
+    }
+
+    public ErrorMessageItem(string content, string? author = null)
+    {
+        Author = author;
+        _content = content;
+        _timestampText = "";
+    }
+}
+
 // ── Reasoning block ──────────────────────────────────
 
 public partial class ReasoningItem : TranscriptItem

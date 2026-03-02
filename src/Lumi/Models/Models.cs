@@ -8,7 +8,7 @@ namespace Lumi.Models;
 public class ChatMessage
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-    public string Role { get; set; } = "user"; // user, assistant, system, tool, reasoning
+    public string Role { get; set; } = "user"; // user, assistant, system, tool, reasoning, error
     public string Content { get; set; } = "";
     public string? Author { get; set; }
     public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.Now;

@@ -188,6 +188,22 @@
       </sc:StrataChatMessage>
     </DataTemplate>
 
+    <!-- ── Error message ─────────────────────────────── -->
+    <DataTemplate DataType="vm:ErrorMessageItem">
+      <Border Background="{DynamicResource Brush.DangerSubtle}"
+              CornerRadius="12" Padding="14,12" Margin="0,4">
+        <StackPanel Spacing="6">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBlock Text="⚠" FontSize="14" VerticalAlignment="Center"
+                       Foreground="{DynamicResource Brush.DangerDefault}" />
+            <TextBlock Text="{Binding Content}" TextWrapping="Wrap"
+                       Foreground="{DynamicResource Brush.DangerDefault}"
+                       FontWeight="SemiBold" FontSize="13" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+
     <!-- ── Reasoning block ──────────────────────────── -->
     <DataTemplate DataType="vm:ReasoningItem">
       <sc:StrataThink Label="{loc:Str Tool_ReasoningLabel}"
