@@ -20,11 +20,32 @@ namespace Lumi.Services;
 /// </summary>
 public sealed class UIAutomationService : IDisposable
 {
-    private readonly UIA3Automation _automation = new();
+    private UIA3Automation? _automation;
+    private bool _automationFailed;
     private readonly Dictionary<int, AutomationElement> _elementCache = new();
     private int _nextElementId;
     /// <summary>The window handle from the most recent inspect/find call.</summary>
     private IntPtr _lastWindowHandle;
+
+    /// <summary>
+    /// Lazily initializes UIA3Automation. Returns null when FlaUI COM interop is
+    /// unavailable (e.g. AOT-published builds where the COM stub IL is invalid).
+    /// </summary>
+    private UIA3Automation? GetAutomation()
+    {
+        if (_automation is not null) return _automation;
+        if (_automationFailed) return null;
+        try
+        {
+            _automation = new UIA3Automation();
+            return _automation;
+        }
+        catch (Exception ex) when (ex is InvalidProgramException or TypeInitializationException or COMException)
+        {
+            _automationFailed = true;
+            return null;
+        }
+    }
 
     // ── Window Listing ──────────────────────────────────────────────────────
 
@@ -82,7 +103,11 @@ public sealed class UIAutomationService : IDisposable
         _nextElementId = 1;
         _lastWindowHandle = hwnd;
 
-        var element = _automation.FromHandle(hwnd);
+        var automation = GetAutomation();
+        if (automation is null)
+            return "UI Automation is not available in this build.";
+
+        var element = automation.FromHandle(hwnd);
         if (element is null)
             return "Could not access the window's UI tree.";
 
@@ -114,7 +139,11 @@ public sealed class UIAutomationService : IDisposable
         _nextElementId = 1;
         _lastWindowHandle = hwnd;
 
-        var root = _automation.FromHandle(hwnd);
+        var automation = GetAutomation();
+        if (automation is null)
+            return "UI Automation is not available in this build.";
+
+        var root = automation.FromHandle(hwnd);
         if (root is null)
             return "Could not access the window's UI tree.";
 
@@ -623,7 +652,7 @@ public sealed class UIAutomationService : IDisposable
     public void Dispose()
     {
         _elementCache.Clear();
-        _automation.Dispose();
+        _automation?.Dispose();
     }
 
     // ── P/Invoke ────────────────────────────────────────────────────────────
