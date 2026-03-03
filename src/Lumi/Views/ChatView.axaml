@@ -35,6 +35,7 @@
                             Author="{Binding Author}"
                             Timestamp="{Binding TimestampText}"
                             IsEditable="True"
+                            EditText="{Binding Content, Mode=OneWay}"
                             EditCommand="{Binding BeginEditCommand}"
                             EditConfirmedCommand="{Binding ConfirmEditCommand}"
                             RegenerateCommand="{Binding ResendCommand}">
