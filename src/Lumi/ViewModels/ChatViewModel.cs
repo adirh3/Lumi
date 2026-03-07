@@ -90,10 +90,21 @@ public partial class ChatViewModel : ObservableObject
 
     public bool HasTokenUsage => TotalInputTokens > 0 || TotalOutputTokens > 0;
     public string TokenUsageSummary => FormatTokenCount(TotalInputTokens + TotalOutputTokens);
-    public string TokenUsageTooltip => $"Input: {TotalInputTokens:N0} tokens\nOutput: {TotalOutputTokens:N0} tokens\nTotal: {TotalInputTokens + TotalOutputTokens:N0} tokens";
+    public string TokenInputDisplay => $"{TotalInputTokens:N0}";
+    public string TokenOutputDisplay => $"{TotalOutputTokens:N0}";
+    public string TokenTotalDisplay => $"{TotalInputTokens + TotalOutputTokens:N0}";
 
-    partial void OnTotalInputTokensChanged(long value) { OnPropertyChanged(nameof(HasTokenUsage)); OnPropertyChanged(nameof(TokenUsageSummary)); OnPropertyChanged(nameof(TokenUsageTooltip)); }
-    partial void OnTotalOutputTokensChanged(long value) { OnPropertyChanged(nameof(HasTokenUsage)); OnPropertyChanged(nameof(TokenUsageSummary)); OnPropertyChanged(nameof(TokenUsageTooltip)); }
+    partial void OnTotalInputTokensChanged(long value) { NotifyTokenPropertiesChanged(); }
+    partial void OnTotalOutputTokensChanged(long value) { NotifyTokenPropertiesChanged(); }
+
+    private void NotifyTokenPropertiesChanged()
+    {
+        OnPropertyChanged(nameof(HasTokenUsage));
+        OnPropertyChanged(nameof(TokenUsageSummary));
+        OnPropertyChanged(nameof(TokenInputDisplay));
+        OnPropertyChanged(nameof(TokenOutputDisplay));
+        OnPropertyChanged(nameof(TokenTotalDisplay));
+    }
 
     private static string FormatTokenCount(long tokens) => tokens switch
     {
@@ -899,6 +910,9 @@ public partial class ChatViewModel : ObservableObject
                         var d = usage.Data;
                         runtime.TotalInputTokens += (long)(d.InputTokens ?? 0);
                         runtime.TotalOutputTokens += (long)(d.OutputTokens ?? 0);
+                        // Persist token counts to the Chat model so they survive restarts.
+                        chat.TotalInputTokens = runtime.TotalInputTokens;
+                        chat.TotalOutputTokens = runtime.TotalOutputTokens;
                         if (_activeSession == session)
                         {
                             TotalInputTokens = runtime.TotalInputTokens;
@@ -1073,7 +1087,12 @@ public partial class ChatViewModel : ObservableObject
         if (!_runtimeStates.TryGetValue(chatId, out var runtime))
         {
             var chat = _dataStore.Data.Chats.Find(c => c.Id == chatId);
-            runtime = new ChatRuntimeState { Chat = chat };
+            runtime = new ChatRuntimeState
+            {
+                Chat = chat,
+                TotalInputTokens = chat?.TotalInputTokens ?? 0,
+                TotalOutputTokens = chat?.TotalOutputTokens ?? 0,
+            };
             _runtimeStates[chatId] = runtime;
         }
         return runtime;

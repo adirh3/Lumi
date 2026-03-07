@@ -60,6 +60,12 @@ public class Chat : INotifyPropertyChanged
     /// <summary>Git worktree path when this chat operates in worktree mode. Null means local mode.</summary>
     public string? WorktreePath { get; set; }
 
+    /// <summary>Cumulative input tokens consumed across all turns of this chat.</summary>
+    public long TotalInputTokens { get; set; }
+
+    /// <summary>Cumulative output tokens consumed across all turns of this chat.</summary>
+    public long TotalOutputTokens { get; set; }
+
     /// <summary>Runtime-only flag indicating this chat is actively generating a response.</summary>
     [JsonIgnore]
     public bool IsRunning
