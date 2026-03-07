@@ -135,9 +135,10 @@ public static class GitService
     public static async Task<string?> CreateWorktreeAsync(string repoDir, string branchName)
     {
         // Place worktree as sibling: E:\Git\Lumi → E:\Git\Lumi-worktree-abc123
-        var repoName = Path.GetFileName(repoDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var trimmedRepoDir = repoDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var repoName = Path.GetFileName(trimmedRepoDir);
         var safeBranch = branchName.Replace('/', '-').Replace('\\', '-');
-        var parentDir = Path.GetDirectoryName(repoDir);
+        var parentDir = Path.GetDirectoryName(trimmedRepoDir);
         if (parentDir is null) return null;
 
         var worktreePath = Path.Combine(parentDir, $"{repoName}-wt-{safeBranch}");
