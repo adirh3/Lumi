@@ -28,6 +28,7 @@ public static partial class ToolDisplayHelper
         {
             "web_fetch" or "fetch" or "lumi_fetch" => Loc.Tool_ReadingWebsite,
             "web_search" or "search" or "lumi_search" => Loc.Tool_SearchingWeb,
+            "lumi_research" => "Researching",
             "view" or "read_file" or "read" => fileName is not null ? string.Format(Loc.Tool_ReadingNamed, fileName) : Loc.Tool_ReadingFile,
             "create" or "write_file" or "create_file" or "write" or "save_file" => fileName is not null ? string.Format(Loc.Tool_CreatingNamed, fileName) : Loc.Tool_CreatingFile,
             "edit" or "edit_file" or "str_replace_editor" or "str_replace" or "replace_string_in_file" or "insert" => fileName is not null ? string.Format(Loc.Tool_EditingNamed, fileName) : Loc.Tool_EditingFile,

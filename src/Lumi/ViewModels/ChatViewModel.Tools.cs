@@ -209,7 +209,7 @@ public partial class ChatViewModel
                     return text;
                 },
                 "lumi_search",
-                "Search the web for information. Returns titles, snippets, and URLs from search results. Use this to find current information, answer factual questions, research topics, find product reviews, or discover relevant web pages to fetch."),
+                "Search the web for information. Returns titles, snippets, and URLs from search results. Use this when you only need to discover URLs or see search snippets — for full research, prefer lumi_research instead."),
 
             AIFunctionFactory.Create(
                 ([Description("The full URL to fetch (must start with http:// or https://)")] string url) =>
@@ -217,7 +217,61 @@ public partial class ChatViewModel
                     return WebFetchService.FetchAsync(url);
                 },
                 "lumi_fetch",
-                "Fetch a webpage and return its text content. If this fails, do NOT retry the same URL — try a different source instead. After 2 consecutive failures, stop and answer with what you have."),
+                "Fetch a webpage and return its text content. For long pages, returns a preview and saves the full content to a temp file you can read with Get-Content. If this fails, do NOT retry the same URL — try a different source instead."),
+
+            AIFunctionFactory.Create(
+                async ([Description("The search query to research")] string query,
+                 [Description("Number of top results to automatically fetch (default 3, max 5)")] int maxPages = 3) =>
+                {
+                    maxPages = Math.Clamp(maxPages, 1, 5);
+
+                    // Search for more results than needed so we have fallbacks for failed fetches
+                    var (searchText, results) = await WebSearchService.SearchWithResultsAsync(query, maxPages + 4);
+                    if (results.Count == 0)
+                        return searchText;
+
+                    // Post search sources to UI
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        foreach (var r in results)
+                            _pendingSearchSources.Add(new SearchSource { Title = r.Title, Snippet = r.Snippet, Url = r.Url });
+                    });
+
+                    // Fetch pages, skipping failures and trying next results until we have enough
+                    var fetchedPages = new List<(WebSearchService.SearchResult Result, string Content)>();
+                    var fetchTasks = results.Select(async r =>
+                    {
+                        var content = await WebFetchService.FetchAsync(r.Url);
+                        return (Result: r, Content: content);
+                    }).ToList();
+
+                    foreach (var task in fetchTasks)
+                    {
+                        if (fetchedPages.Count >= maxPages) break;
+                        var (result, content) = await task;
+                        // Skip failed fetches (errors start with "Failed" or "Timed out" or "Error")
+                        if (content.StartsWith("Failed") || content.StartsWith("Timed out") || content.StartsWith("Error") || content.StartsWith("Could not"))
+                            continue;
+                        fetchedPages.Add((result, content));
+                    }
+
+                    // Combine search results + fetched content
+                    var output = searchText + "\n\n" + new string('—', 40) + "\n";
+                    for (int i = 0; i < fetchedPages.Count; i++)
+                    {
+                        var (r, content) = fetchedPages[i];
+                        output += $"\n## Content from: {r.Title} ({new Uri(r.Url).Host})\n";
+                        output += $"Source: {r.Url}\n\n";
+                        output += content + "\n\n" + new string('—', 40) + "\n";
+                    }
+
+                    if (fetchedPages.Count == 0)
+                        output += "\n[All page fetches failed. Use the URLs above with lumi_fetch or browser to read them manually.]\n";
+
+                    return output.TrimEnd();
+                },
+                "lumi_research",
+                "Search the web AND automatically fetch the top results — all in one call. Use this as your primary research tool. Returns search results plus the full content of the top pages. For long pages, content is saved to temp files you can read with Get-Content."),
         ];
     }
 

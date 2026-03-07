@@ -76,6 +76,7 @@ public partial class AgentsViewModel : ObservableObject
     [
         ("lumi_search", "Web Search", "Web", "Search the web for information and return results."),
         ("lumi_fetch", "Fetch Webpage", "Web", "Fetch a webpage and return its text content."),
+        ("lumi_research", "Web Research", "Web", "Search the web and automatically fetch top results in one call."),
         ("browser", "Open Browser", "Browser", "Open a URL in the browser with persistent cookies/sessions."),
         ("browser_look", "Browser Look", "Browser", "Get the current page state with interactive elements."),
         ("browser_find", "Browser Find", "Browser", "Find and rank interactive elements by query."),
