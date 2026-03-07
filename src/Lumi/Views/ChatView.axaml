@@ -102,6 +102,17 @@
       <Setter Property="MaxWidth" Value="680" />
       <Setter Property="Margin" Value="24,0,24,20" />
     </Style>
+    <!-- Worktree toggle label transitions -->
+    <Style Selector="TextBlock.wt-label">
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="TextBlock.wt-label.inactive">
+      <Setter Property="Opacity" Value="0.45" />
+    </Style>
   </UserControl.Styles>
 
   <UserControl.DataTemplates>
@@ -723,40 +734,41 @@
           </Button>
           <!-- Local / Worktree toggle -->
           <Border Background="{DynamicResource Brush.Surface2}" CornerRadius="4" Padding="1">
-            <StackPanel Orientation="Horizontal" Spacing="1">
-              <Button Classes="subtle" Padding="5,1" MinHeight="0" Height="20" CornerRadius="3"
-                      Command="{Binding ToggleWorktreePreChatCommand}"
-                      IsEnabled="{Binding !IsWorktreeLocked}"
-                      ToolTip.Tip="{loc:Str Git_LocalTooltip}"
-                      Classes.active="{Binding !IsWorktreeMode}" Cursor="Hand">
-                <Button.Styles>
-                  <Style Selector="Button.active">
-                    <Setter Property="Background" Value="{DynamicResource Brush.Surface0}" />
-                    <Setter Property="Opacity" Value="1" />
-                  </Style>
-                  <Style Selector="Button:not(.active)">
-                    <Setter Property="Opacity" Value="0.45" />
-                  </Style>
-                </Button.Styles>
-                <TextBlock Text="{loc:Str Git_Local}" FontSize="10" />
-              </Button>
-              <Button Classes="subtle" Padding="5,1" MinHeight="0" Height="20" CornerRadius="3"
-                      Command="{Binding ToggleWorktreePreChatCommand}"
-                      IsEnabled="{Binding !IsWorktreeLocked}"
-                      ToolTip.Tip="{loc:Str Git_WorktreeTooltip}"
-                      Classes.active="{Binding IsWorktreeMode}" Cursor="Hand">
-                <Button.Styles>
-                  <Style Selector="Button.active">
-                    <Setter Property="Background" Value="{DynamicResource Brush.Surface0}" />
-                    <Setter Property="Opacity" Value="1" />
-                  </Style>
-                  <Style Selector="Button:not(.active)">
-                    <Setter Property="Opacity" Value="0.45" />
-                  </Style>
-                </Button.Styles>
-                <TextBlock Text="{loc:Str Git_Worktree}" FontSize="10" />
-              </Button>
-            </StackPanel>
+            <Panel>
+              <!-- Sliding highlight pill -->
+              <Border x:Name="WorktreeToggleHighlight"
+                      Background="{DynamicResource Brush.Surface0}"
+                      CornerRadius="3"
+                      HorizontalAlignment="Left"
+                      VerticalAlignment="Stretch"
+                      IsHitTestVisible="False">
+                <Border.Transitions>
+                  <Transitions>
+                    <DoubleTransition Property="Width" Duration="0:0:0.2" Easing="CubicEaseOut" />
+                    <ThicknessTransition Property="Margin" Duration="0:0:0.2" Easing="CubicEaseOut" />
+                  </Transitions>
+                </Border.Transitions>
+              </Border>
+              <!-- Toggle buttons -->
+              <StackPanel x:Name="WorktreeTogglePanel" Orientation="Horizontal" Spacing="1">
+                <Button x:Name="LocalToggleBtn" Classes="subtle" Padding="5,1" MinHeight="0" Height="20" CornerRadius="3"
+                        Command="{Binding ToggleWorktreePreChatCommand}"
+                        IsEnabled="{Binding !IsWorktreeLocked}"
+                        ToolTip.Tip="{loc:Str Git_LocalTooltip}"
+                        Background="Transparent" Cursor="Hand">
+                  <TextBlock Text="{loc:Str Git_Local}" FontSize="10"
+                             Classes="wt-label" Classes.inactive="{Binding IsWorktreeMode}" />
+                </Button>
+                <Button x:Name="WorktreeToggleBtn" Classes="subtle" Padding="5,1" MinHeight="0" Height="20" CornerRadius="3"
+                        Command="{Binding ToggleWorktreePreChatCommand}"
+                        IsEnabled="{Binding !IsWorktreeLocked}"
+                        ToolTip.Tip="{loc:Str Git_WorktreeTooltip}"
+                        Background="Transparent" Cursor="Hand">
+                  <TextBlock Text="{loc:Str Git_Worktree}" FontSize="10"
+                             Classes="wt-label" Classes.inactive="{Binding !IsWorktreeMode}" />
+                </Button>
+              </StackPanel>
+            </Panel>
           </Border>
         <Button Classes="subtle" Padding="5,1" MinHeight="0" Height="20" CornerRadius="4"
                 Command="{Binding ShowGitChangesCommand}" IsVisible="{Binding HasGitChanges}"

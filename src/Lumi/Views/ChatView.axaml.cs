@@ -24,6 +24,9 @@ public partial class ChatView : UserControl
     private Panel? _dropOverlay;
 
     private ChatViewModel? _subscribedVm;
+    private Border? _worktreeHighlight;
+    private Button? _localToggleBtn;
+    private Button? _worktreeToggleBtn;
 
     private static readonly string ClipboardImagesDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -62,6 +65,15 @@ public partial class ChatView : UserControl
             composerContainer.SizeChanged += (_, _) =>
                 _composerSpacer.Height = composerContainer.Bounds.Height;
         }
+
+        // Worktree toggle sliding highlight
+        _worktreeHighlight = this.FindControl<Border>("WorktreeToggleHighlight");
+        _localToggleBtn = this.FindControl<Button>("LocalToggleBtn");
+        _worktreeToggleBtn = this.FindControl<Button>("WorktreeToggleBtn");
+
+        var togglePanel = this.FindControl<StackPanel>("WorktreeTogglePanel");
+        if (togglePanel is not null)
+            togglePanel.SizeChanged += (_, _) => UpdateWorktreeToggleHighlight();
 
         AddHandler(DragDrop.DragEnterEvent, OnDragEnter);
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
@@ -140,6 +152,9 @@ public partial class ChatView : UserControl
     {
         if (e.PropertyName == nameof(ChatViewModel.CurrentChat) && _subscribedVm?.CurrentChat is not null)
             _chatShell?.ResetAutoScroll();
+
+        if (e.PropertyName == nameof(ChatViewModel.IsWorktreeMode))
+            UpdateWorktreeToggleHighlight();
     }
 
     // ── File picker (requires View-level StorageProvider) ──
@@ -284,5 +299,19 @@ public partial class ChatView : UserControl
         try { await anim.RunAsync(target); } catch { }
         target.Opacity = 1;
         target.RenderTransform = null;
+    }
+
+    private void UpdateWorktreeToggleHighlight()
+    {
+        if (_worktreeHighlight is null || _localToggleBtn is null || _worktreeToggleBtn is null)
+            return;
+
+        var isWorktree = _subscribedVm?.IsWorktreeMode ?? false;
+        var target = isWorktree ? _worktreeToggleBtn : _localToggleBtn;
+
+        if (target.Bounds.Width <= 0) return;
+
+        _worktreeHighlight.Width = target.Bounds.Width;
+        _worktreeHighlight.Margin = new Thickness(target.Bounds.Left, 0, 0, 0);
     }
 }
