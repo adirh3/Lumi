@@ -1672,9 +1672,6 @@ public partial class MainWindow : Window
         // Build the diff view
         if (file.Change.Kind is GitChangeKind.Added or GitChangeKind.Untracked)
         {
-            // New file — highlight all lines
-            diffView.SetFileDiffWithChangedLines(file.Change.FullPath, null!);
-            // null signals "all lines" — but we need a proper set. Load line count.
             _ = HighlightAllLinesAsync(file.Change.FullPath, diffView);
         }
         else

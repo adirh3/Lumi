@@ -28,8 +28,9 @@ public partial class DiffView : UserControl
     private Button? _nextBtn;
     private Panel? _loadingOverlay;
 
-    private readonly List<double> _changeOffsets = [];
+    private readonly List<Border> _changeRegionControls = [];
     private int _currentChangeIndex = -1;
+    private EventHandler? _pendingScrollHandler;
 
     public DiffView()
     {
@@ -54,8 +55,9 @@ public partial class DiffView : UserControl
     {
         if (_diffContent is null) return;
         _diffContent.Children.Clear();
-        _changeOffsets.Clear();
+        _changeRegionControls.Clear();
         _currentChangeIndex = -1;
+        CancelPendingScroll();
 
         // Show centered loading overlay
         if (_loadingOverlay is not null) _loadingOverlay.IsVisible = true;
@@ -116,16 +118,7 @@ public partial class DiffView : UserControl
         UpdateStats(fileChange.LinesAdded, fileChange.LinesRemoved);
         UpdateNavigation();
 
-        // Auto-scroll to first change
-        if (_changeOffsets.Count > 0)
-        {
-            Dispatcher.UIThread.Post(() =>
-            {
-                _currentChangeIndex = 0;
-                if (_diffScroller is not null)
-                    _diffScroller.Offset = new Vector(0, Math.Max(0, _changeOffsets[0] - 40));
-            }, DispatcherPriority.Loaded);
-        }
+        ScheduleScrollToFirstChange();
     }
 
     /// <summary>Pre-tokenized line data produced on background thread.</summary>
@@ -204,57 +197,31 @@ public partial class DiffView : UserControl
     /// <summary>Finds which line indices contain the given newText and adds them to changedLines.</summary>
     private static void MarkChangedLines(string fullContent, string[] lines, string newText, HashSet<int> changedLines)
     {
-        // Try exact match first, then normalized (handle \r\n vs \n mismatch)
-        var idx = fullContent.IndexOf(newText, StringComparison.Ordinal);
-        if (idx < 0)
-        {
-            var normalizedContent = fullContent.Replace("\r\n", "\n");
-            var normalizedNew = newText.Replace("\r\n", "\n");
-            idx = normalizedContent.IndexOf(normalizedNew, StringComparison.Ordinal);
-            if (idx < 0) return;
-            // Remap idx from normalized to original
-            idx = RemapIndex(fullContent, normalizedContent, idx);
-            if (idx < 0) return;
-        }
+        // Normalize to \n for consistent matching regardless of line ending style
+        var normalizedContent = fullContent.Replace("\r\n", "\n");
+        var normalizedNew = newText.Replace("\r\n", "\n");
 
-        // Convert character offset to line index
+        var idx = normalizedContent.IndexOf(normalizedNew, StringComparison.Ordinal);
+        if (idx < 0) return;
+
+        // Convert character offset to line indices (all in normalized space)
         int charPos = 0;
         for (int lineIdx = 0; lineIdx < lines.Length; lineIdx++)
         {
-            int lineLen = lines[lineIdx].Length + 1; // +1 for \n
+            int lineLen = lines[lineIdx].TrimEnd('\r').Length + 1; // +1 for \n
             if (charPos + lineLen > idx)
             {
-                int endIdx = idx + newText.Length;
+                int endIdx = idx + normalizedNew.Length;
                 for (int j = lineIdx; j < lines.Length; j++)
                 {
                     changedLines.Add(j);
-                    charPos += lines[j].Length + 1;
+                    charPos += lines[j].TrimEnd('\r').Length + 1;
                     if (charPos >= endIdx) break;
                 }
                 return;
             }
             charPos += lineLen;
         }
-    }
-
-    /// <summary>Remaps a character index from normalized content back to original content.</summary>
-    private static int RemapIndex(string original, string normalized, int normalizedIdx)
-    {
-        int origIdx = 0, normIdx = 0;
-        while (normIdx < normalizedIdx && origIdx < original.Length)
-        {
-            if (original[origIdx] == '\r' && origIdx + 1 < original.Length && original[origIdx + 1] == '\n')
-            {
-                origIdx += 2;
-                normIdx++;
-            }
-            else
-            {
-                origIdx++;
-                normIdx++;
-            }
-        }
-        return normIdx == normalizedIdx ? origIdx : -1;
     }
 
     /// <summary>
@@ -265,8 +232,9 @@ public partial class DiffView : UserControl
     {
         if (_diffContent is null) return;
         _diffContent.Children.Clear();
-        _changeOffsets.Clear();
+        _changeRegionControls.Clear();
         _currentChangeIndex = -1;
+        CancelPendingScroll();
 
         if (_loadingOverlay is not null) _loadingOverlay.IsVisible = true;
 
@@ -303,16 +271,7 @@ public partial class DiffView : UserControl
         UpdateStats(changedLineNumbers.Count, 0);
         UpdateNavigation();
 
-        if (_changeOffsets.Count > 0)
-        {
-            Dispatcher.UIThread.Post(async () =>
-            {
-                await Task.Delay(50);
-                _currentChangeIndex = 0;
-                if (_diffScroller is not null)
-                    _diffScroller.Offset = new Vector(0, Math.Max(0, _changeOffsets[0] - 40));
-            }, DispatcherPriority.Loaded);
-        }
+        ScheduleScrollToFirstChange();
     }
 
     private async Task BuildFileViewAsync(string[] lines, bool isDark, HashSet<int> changedLines, TokenizedLine[] tokenizedLines)
@@ -350,17 +309,6 @@ public partial class DiffView : UserControl
             var lineText = lines[i].TrimEnd('\r');
             bool isChanged = changedLines.Contains(i);
 
-            // Track change regions for navigation
-            if (isChanged && !inChangeRegion)
-            {
-                _changeOffsets.Add(EstimateYOffset(i, fontSize));
-                inChangeRegion = true;
-            }
-            else if (!isChanged)
-            {
-                inChangeRegion = false;
-            }
-
             var tokenized = i < tokenizedLines.Length ? tokenizedLines[i] : new TokenizedLine([]);
             var row = BuildHighlightedLine(
                 lineText, i + 1, tokenized, theme, brushMap,
@@ -370,6 +318,17 @@ public partial class DiffView : UserControl
                 isChanged ? changeGutterFg : gutterFg,
                 isDark);
             _diffContent.Children.Add(row);
+
+            // Track change regions for navigation (after row is created for Bounds access)
+            if (isChanged && !inChangeRegion)
+            {
+                _changeRegionControls.Add(row);
+                inChangeRegion = true;
+            }
+            else if (!isChanged)
+            {
+                inChangeRegion = false;
+            }
 
             // Yield every batch to keep loading animation alive
             if ((i + 1) % batchSize == 0)
@@ -386,21 +345,54 @@ public partial class DiffView : UserControl
     private void UpdateNavigation()
     {
         if (_changeCountText is null) return;
-        _changeCountText.Text = _changeOffsets.Count > 0
-            ? $"{_changeOffsets.Count} changes"
+        _changeCountText.Text = _changeRegionControls.Count > 0
+            ? $"{_changeRegionControls.Count} changes"
             : "";
     }
 
     private void NavigateChange(int direction)
     {
-        if (_changeOffsets.Count == 0 || _diffScroller is null) return;
+        if (_changeRegionControls.Count == 0 || _diffScroller is null) return;
         _currentChangeIndex += direction;
-        if (_currentChangeIndex >= _changeOffsets.Count) _currentChangeIndex = 0;
-        if (_currentChangeIndex < 0) _currentChangeIndex = _changeOffsets.Count - 1;
-        _diffScroller.Offset = new Vector(_diffScroller.Offset.X, Math.Max(0, _changeOffsets[_currentChangeIndex] - 40));
+        if (_currentChangeIndex >= _changeRegionControls.Count) _currentChangeIndex = 0;
+        if (_currentChangeIndex < 0) _currentChangeIndex = _changeRegionControls.Count - 1;
+        ScrollToCurrentChange();
     }
 
-    private static double EstimateYOffset(int lineIndex, double fontSize) => lineIndex * (fontSize + 6);
+    private void ScrollToCurrentChange()
+    {
+        if (_changeRegionControls.Count == 0 || _diffScroller is null) return;
+        if (_currentChangeIndex < 0 || _currentChangeIndex >= _changeRegionControls.Count) return;
+        var control = _changeRegionControls[_currentChangeIndex];
+        if (control.Bounds.Height > 0)
+            _diffScroller.Offset = new Vector(_diffScroller.Offset.X, Math.Max(0, control.Bounds.Y - 40));
+    }
+
+    private void ScheduleScrollToFirstChange()
+    {
+        CancelPendingScroll();
+        if (_changeRegionControls.Count == 0 || _diffContent is null || _diffScroller is null) return;
+
+        _pendingScrollHandler = (_, _) =>
+        {
+            if (_changeRegionControls.Count == 0) { CancelPendingScroll(); return; }
+            var first = _changeRegionControls[0];
+            if (first.Bounds.Height <= 0) return; // Not laid out yet
+            CancelPendingScroll();
+            _currentChangeIndex = 0;
+            ScrollToCurrentChange();
+        };
+        _diffContent.LayoutUpdated += _pendingScrollHandler;
+    }
+
+    private void CancelPendingScroll()
+    {
+        if (_pendingScrollHandler is not null && _diffContent is not null)
+        {
+            _diffContent.LayoutUpdated -= _pendingScrollHandler;
+            _pendingScrollHandler = null;
+        }
+    }
 
     private static Border BuildHighlightedLine(
         string text, int lineNumber,
