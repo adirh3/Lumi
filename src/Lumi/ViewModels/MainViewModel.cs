@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -118,12 +119,14 @@ public partial class MainViewModel : ObservableObject
             RefreshChatList();
         };
 
-        ChatVM.ChatUpdated += () => RefreshChatList();
+        ChatVM.ChatUpdated += () => { SubscribeChatRunningState(); RefreshChatList(); };
         ChatVM.ChatTitleChanged += OnChatTitleChanged;
         ChatVM.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName == nameof(ChatViewModel.CurrentChat))
                 ActiveChatId = ChatVM.CurrentChat?.Id;
+            else if (args.PropertyName == nameof(ChatViewModel.IsBusy))
+                RefreshProjectRunningState();
         };
 
         ProjectsVM.ProjectsChanged += () =>
@@ -157,6 +160,7 @@ public partial class MainViewModel : ObservableObject
         };
 
         LoadProjects();
+        SubscribeChatRunningState();
         RefreshChatList();
         ChatVM.RefreshComposerCatalogs();
         _ = InitializeAsync();
@@ -230,6 +234,34 @@ public partial class MainViewModel : ObservableObject
         foreach (var p in _dataStore.Data.Projects.OrderBy(p => p.Name))
             Projects.Add(p);
     }
+
+    private void SubscribeChatRunningState()
+    {
+        foreach (var chat in _dataStore.Data.Chats)
+        {
+            chat.PropertyChanged -= OnChatRunningChanged;
+            chat.PropertyChanged += OnChatRunningChanged;
+        }
+    }
+
+    private void OnChatRunningChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(Chat.IsRunning))
+            RefreshProjectRunningState();
+    }
+
+    /// <summary>Recalculates IsRunning for all projects based on current chat states.</summary>
+    public void RefreshProjectRunningState()
+    {
+        var chats = _dataStore.Data.Chats;
+        foreach (var project in Projects)
+            project.IsRunning = chats.Any(c => c.ProjectId == project.Id && c.IsRunning);
+
+        ProjectRunningStateChanged?.Invoke();
+    }
+
+    /// <summary>Fired when any project's IsRunning state may have changed.</summary>
+    public event Action? ProjectRunningStateChanged;
 
     public event Action<Guid, string>? ChatTitleChanged;
 

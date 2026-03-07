@@ -68,13 +68,25 @@ public class Chat : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
-public class Project
+public class Project : INotifyPropertyChanged
 {
+    private bool _isRunning;
+
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
     public string Instructions { get; set; } = "";
     public string? WorkingDirectory { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+
+    /// <summary>Runtime-only flag indicating at least one chat in this project is actively generating a response.</summary>
+    [JsonIgnore]
+    public bool IsRunning
+    {
+        get => _isRunning;
+        set { if (_isRunning == value) return; _isRunning = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRunning))); }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 public class Skill

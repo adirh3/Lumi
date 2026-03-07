@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -1000,9 +1001,38 @@ public partial class MainWindow : Window
         foreach (var project in vm.Projects)
         {
             var isActive = vm.SelectedProjectFilter == project.Id;
+
+            // Build pill content with busy indicator dot
+            var dot = new Border
+            {
+                Name = "PillBusyDot",
+                Width = 6, Height = 6,
+                CornerRadius = new CornerRadius(3),
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 5, 0),
+                IsVisible = project.IsRunning && !isActive,
+            };
+            dot[!Border.BackgroundProperty] = dot.GetResourceObservable("Brush.AccentDefault").ToBinding();
+
+            // Listen for project running state changes
+            var capturedDot = dot;
+            var capturedProject = project;
+            var capturedIsActive = isActive;
+            PropertyChangedEventHandler handler = (_, args) =>
+            {
+                if (args.PropertyName == nameof(Project.IsRunning))
+                    Dispatcher.UIThread.Post(() => capturedDot.IsVisible = capturedProject.IsRunning && !capturedIsActive);
+            };
+            project.PropertyChanged += handler;
+
+            var nameText = new TextBlock { Text = project.Name, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+            var panel = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal };
+            panel.Children.Add(dot);
+            panel.Children.Add(nameText);
+
             var btn = new Button
             {
-                Content = project.Name,
+                Content = panel,
             };
             btn.Classes.Add("project-pill");
             btn[!Avalonia.Controls.Primitives.TemplatedControl.FontSizeProperty] = btn.GetResourceObservable("Font.SizeCaption").ToBinding();
