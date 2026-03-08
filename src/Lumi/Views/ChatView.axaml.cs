@@ -9,6 +9,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Lumi.Localization;
 using Lumi.ViewModels;
 using StrataTheme.Controls;
@@ -80,6 +81,7 @@ public partial class ChatView : UserControl
         AddHandler(DragDrop.DragLeaveEvent, OnDragLeave);
         AddHandler(DragDrop.DropEvent, OnDrop);
         AddHandler(StrataFileAttachment.OpenRequestedEvent, OnFileAttachmentOpenRequested);
+        AddHandler(StrataChatMessage.CopyTurnRequestedEvent, OnCopyTurnRequested);
     }
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -224,6 +226,51 @@ public partial class ChatView : UserControl
         {
             var data = new Avalonia.Input.DataTransfer();
             data.Add(Avalonia.Input.DataTransferItem.CreateText(text));
+            await clipboard.SetDataAsync(data);
+        }
+        catch { /* ignore */ }
+    }
+
+    // ── Copy turn (context menu on assistant messages) ───
+
+    private async void OnCopyTurnRequested(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        e.Handled = true;
+
+        // Walk up from the event source to find the parent TranscriptTurnControl
+        TranscriptTurnControl? turn = null;
+        if (e.Source is Avalonia.Visual visual)
+        {
+            var current = visual.GetVisualParent();
+            while (current is not null)
+            {
+                if (current is TranscriptTurnControl ttc) { turn = ttc; break; }
+                current = (current as Avalonia.Visual)?.GetVisualParent();
+            }
+        }
+
+        if (turn is null) return;
+
+        var sb = new System.Text.StringBuilder();
+        foreach (var item in turn.Items)
+        {
+            if (item is AssistantMessageItem assistantMsg)
+            {
+                var text = assistantMsg.Content;
+                if (string.IsNullOrWhiteSpace(text)) continue;
+                if (sb.Length > 0) sb.Append(Environment.NewLine).Append(Environment.NewLine);
+                sb.Append(text);
+            }
+        }
+
+        if (sb.Length == 0) return;
+
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null) return;
+        try
+        {
+            var data = new Avalonia.Input.DataTransfer();
+            data.Add(Avalonia.Input.DataTransferItem.CreateText(sb.ToString()));
             await clipboard.SetDataAsync(data);
         }
         catch { /* ignore */ }
