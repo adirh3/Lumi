@@ -47,17 +47,7 @@ public partial class BrowserView : UserControl
     /// <summary>Binds a BrowserService and DataStore to this view. Can be called multiple times to switch between per-chat services.</summary>
     public void SetBrowserService(BrowserService browserService, DataStore dataStore)
     {
-        // Unsub from old service
-        if (_browserService is not null)
-        {
-            _browserService.BrowserReady -= OnBrowserReady;
-            if (_browserService.Controller is not null)
-                _browserService.Controller.IsVisible = false;
-            if (_browserService.WebView is not null && _sourceChangedHandler is not null)
-                _browserService.WebView.SourceChanged -= _sourceChangedHandler;
-            _sourceChangedHandler = null;
-        }
-
+        ClearBrowserService();
         _browserService = browserService;
         _dataStore = dataStore;
         _isInitialized = false;
@@ -87,6 +77,23 @@ public partial class BrowserView : UserControl
                 _urlText.Text = "about:blank";
             TryInitialize();
         }
+    }
+
+    public void ClearBrowserService()
+    {
+        if (_browserService is not null)
+        {
+            _browserService.BrowserReady -= OnBrowserReady;
+            if (_browserService.Controller is not null)
+                _browserService.Controller.IsVisible = false;
+            if (_browserService.WebView is not null && _sourceChangedHandler is not null)
+                _browserService.WebView.SourceChanged -= _sourceChangedHandler;
+        }
+
+        _sourceChangedHandler = null;
+        _browserService = null;
+        _dataStore = null;
+        _isInitialized = false;
     }
 
     /// <summary>Hides the current browser service's controller overlay.</summary>

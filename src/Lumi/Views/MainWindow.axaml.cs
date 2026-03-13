@@ -1324,7 +1324,7 @@ public partial class MainWindow : Window
         var ct = ReplaceCancellationTokenSource(ref _browserAnimCts).Token;
 
         // Hide WebView2 overlay immediately so it doesn't float during animation
-        _browserView?.HideCurrentController();
+        _browserView?.ClearBrowserService();
 
         const double browserOffsetX = 40.0;
 
@@ -1409,7 +1409,7 @@ public partial class MainWindow : Window
             _browserIsland.Opacity = 1;
             _browserIsland.RenderTransform = null;
             if (_browserSplitter is not null) _browserSplitter.IsVisible = false;
-            _browserView?.HideCurrentController();
+            _browserView?.ClearBrowserService();
             if (DataContext is MainViewModel vmb)
                 vmb.ChatVM.IsBrowserOpen = false;
         }
@@ -1785,7 +1785,7 @@ public partial class MainWindow : Window
             _browserIsland.Opacity = 1;
             _browserIsland.RenderTransform = null;
             if (_browserSplitter is not null) _browserSplitter.IsVisible = false;
-            _browserView?.HideCurrentController();
+            _browserView?.ClearBrowserService();
             if (DataContext is MainViewModel vmb)
                 vmb.ChatVM.IsBrowserOpen = false;
         }
@@ -1852,7 +1852,7 @@ public partial class MainWindow : Window
             _browserIsland.Opacity = 1;
             _browserIsland.RenderTransform = null;
             if (_browserSplitter is not null) _browserSplitter.IsVisible = false;
-            _browserView?.HideCurrentController();
+            _browserView?.ClearBrowserService();
             if (DataContext is MainViewModel vmb)
                 vmb.ChatVM.IsBrowserOpen = false;
         }

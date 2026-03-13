@@ -930,6 +930,9 @@ public partial class ChatViewModel
                     // Generate follow-up suggestions once the full assistant response is done.
                     if (_activeSession == session && CurrentChat?.Id == chat.Id)
                         QueueSuggestionGenerationForLatestAssistant(chat);
+
+                    if (CurrentChat?.Id != chat.Id)
+                        QueueSaveChat(chat, saveIndex: false, releaseIfInactive: true);
                     });
                     break;
 
@@ -1003,6 +1006,7 @@ public partial class ChatViewModel
                         _transcriptBuilder.ProcessMessageToTranscript(Messages[^1]);
                         ScrollToEndRequested?.Invoke();
                     }
+                    QueueSaveChat(chat, saveIndex: false, releaseIfInactive: CurrentChat?.Id != chat.Id);
                     });
                     break;
 
@@ -1107,7 +1111,7 @@ public partial class ChatViewModel
                     }
                     // SDK session already records the aborted turn in its event log,
                     // so the LLM will see the partial content on the next turn automatically.
-                    QueueSaveChat(chat, saveIndex: false);
+                    QueueSaveChat(chat, saveIndex: false, releaseIfInactive: CurrentChat?.Id != chat.Id);
                     });
                     break;
 
@@ -1118,6 +1122,7 @@ public partial class ChatViewModel
                     Dispatcher.UIThread.Post(() =>
                     {
                     // Session terminated server-side — invalidate cached session
+                    DisposeSessionSubscription(chat.Id);
                     _sessionCache.Remove(chat.Id);
                     chat.CopilotSessionId = null;
                     var wasActive = _activeSession == session;
@@ -1135,6 +1140,7 @@ public partial class ChatViewModel
                     }
                     assistantStream.Clear();
                     reasoningStream.Clear();
+                    QueueSaveChat(chat, saveIndex: false, releaseIfInactive: CurrentChat?.Id != chat.Id);
                     });
                     break;
 
@@ -1412,34 +1418,14 @@ public partial class ChatViewModel
     /// <summary>Cleans up session resources for a chat (e.g., on delete).</summary>
     public void CleanupSession(Guid chatId)
     {
-        if (_ctsSources.TryGetValue(chatId, out var cts))
-        {
-            cts.Cancel();
-            cts.Dispose();
-            _ctsSources.Remove(chatId);
-        }
-        if (_sessionSubs.TryGetValue(chatId, out var sub))
-        {
-            sub.Dispose();
-            _sessionSubs.Remove(chatId);
-        }
-        // Delete the server-side session so they don't accumulate
-        if (_sessionCache.TryGetValue(chatId, out var session))
-        {
-            _ = _copilotService.DeleteSessionAsync(session.SessionId);
-            _sessionCache.Remove(chatId);
-        }
-        _inProgressMessages.Remove(chatId);
-        _runtimeStates.Remove(chatId);
-        _suggestionGenerationInFlightChats.Remove(chatId);
-        _lastSuggestedAssistantMessageByChat.Remove(chatId);
+        var chat = _dataStore.Data.Chats.FirstOrDefault(c => c.Id == chatId);
+        if (chat is not null)
+            CancelPendingQuestions(chat);
 
-        // Dispose per-chat browser service
-        if (_chatBrowserServices.TryGetValue(chatId, out var browserSvc))
-        {
-            _ = browserSvc.DisposeAsync();
-            _chatBrowserServices.Remove(chatId);
-        }
+        ReleaseSessionResources(chatId, cancelActiveRequest: true, deleteServerSession: true);
+        _runtimeStates.Remove(chatId);
+        RemoveSuggestionTracking(chatId);
+        DisposeBrowserService(chatId);
     }
 
     /// <summary>Called when the CopilotService reconnects (new CLI process).

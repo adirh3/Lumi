@@ -49,9 +49,9 @@ public partial class ChatViewModel : ObservableObject
 
     /// <summary>The CopilotSession for the currently displayed chat. Events for this session update the UI.</summary>
     private CopilotSession? _activeSession;
-    /// <summary>Maps chat ID → CopilotSession. Sessions survive chat switches.</summary>
+    /// <summary>Maps chat ID → locally attached CopilotSession objects for active or running chats.</summary>
     private readonly Dictionary<Guid, CopilotSession> _sessionCache = new();
-    /// <summary>Maps chat ID → event subscription. Never disposed except on chat delete.</summary>
+    /// <summary>Maps chat ID → live event subscriptions for locally attached sessions.</summary>
     private readonly Dictionary<Guid, IDisposable> _sessionSubs = new();
     /// <summary>Maps chat ID → in-progress streaming message not yet committed to Chat.Messages.</summary>
     private readonly Dictionary<Guid, ChatMessage> _inProgressMessages = new();
@@ -482,9 +482,15 @@ public partial class ChatViewModel : ObservableObject
                 }
             });
 
-            var answer = await tcs.Task;
-            _pendingQuestions.Remove(questionId);
-            return new GitHub.Copilot.SDK.UserInputResponse { Answer = answer, WasFreeform = true };
+            try
+            {
+                var answer = await tcs.Task;
+                return new GitHub.Copilot.SDK.UserInputResponse { Answer = answer, WasFreeform = true };
+            }
+            finally
+            {
+                _pendingQuestions.Remove(questionId);
+            }
         };
 
         // Session hooks for lifecycle events
@@ -600,6 +606,7 @@ public partial class ChatViewModel : ObservableObject
     {
         var (requestId, loadCts) = BeginChatLoad(cancellationToken);
         var loadToken = loadCts.Token;
+        var previousChat = CurrentChat?.Id != chat.Id ? CurrentChat : null;
 
         if (CurrentChat?.Id == chat.Id && chat.Messages.Count > 0)
         {
@@ -635,7 +642,7 @@ public partial class ChatViewModel : ObservableObject
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
 
             // Reuse the cached session only while the current CLI connection can still talk to it.
-            // AutoRestart revives the process, but cached CopilotSession objects can still go stale.
+            // Inactive chats are evicted separately, and AutoRestart can still leave stale session handles.
             _activeSession = await TryGetReusableCachedSessionAsync(chat, loadToken);
 
             // Clear pending state from any previous chat
@@ -670,6 +677,12 @@ public partial class ChatViewModel : ObservableObject
                     Messages.Add(new ChatMessageViewModel(inProgress));
 
                 CurrentChat = chat;
+                if (previousChat is not null)
+                {
+                    var previousRuntime = GetOrCreateRuntimeState(previousChat.Id);
+                    if (!previousRuntime.IsBusy && !previousRuntime.IsStreaming)
+                        QueueSaveChat(previousChat, saveIndex: false, releaseIfInactive: true);
+                }
 
                 // If this chat has an active browser, show its panel (after CurrentChat is set
                 // so ActiveChatId is already updated when the MainWindow handler runs)
@@ -819,8 +832,7 @@ public partial class ChatViewModel : ObservableObject
         PlanHideRequested?.Invoke();
         HasUsedBrowser = false;
 
-        // Detach from current chat without destroying its session.
-        // Sessions are cleaned only when a chat is deleted via CleanupSession(chatId).
+        // Detach from the visible chat; inactive chat state is released later when it is safe.
         _activeSession = null;
 
         Messages.Clear();
@@ -880,11 +892,9 @@ public partial class ChatViewModel : ObservableObject
         if (CurrentChat is null) return;
         var chatId = CurrentChat.Id;
 
-        if (_sessionCache.TryGetValue(chatId, out var session))
-        {
-            _ = _copilotService.DeleteSessionAsync(session.SessionId);
-            _sessionCache.Remove(chatId);
-        }
+        CancelPendingQuestions(CurrentChat);
+        ReleaseSessionResources(chatId, cancelActiveRequest: true, deleteServerSession: true);
+        RemoveSuggestionTracking(chatId);
         CurrentChat.CopilotSessionId = null;
         _activeSession = null;
     }
@@ -1255,9 +1265,9 @@ public partial class ChatViewModel : ObservableObject
         await SaveChatAsync(CurrentChat, saveIndex);
     }
 
-    private void QueueSaveChat(Chat chat, bool saveIndex)
+    private void QueueSaveChat(Chat chat, bool saveIndex, bool releaseIfInactive = false)
     {
-        _ = SaveChatAsync(chat, saveIndex);
+        _ = SaveChatAsync(chat, saveIndex, releaseIfInactive);
     }
 
     private void QueueAutonomousMemoryCheckpoint(Chat chat)
@@ -1445,20 +1455,35 @@ public partial class ChatViewModel : ObservableObject
         IsSuggestionsGenerating = false;
     }
 
-    private async Task SaveChatAsync(Chat chat, bool saveIndex)
+    private async Task SaveChatAsync(Chat chat, bool saveIndex, bool releaseIfInactive = false, CancellationToken cancellationToken = default)
     {
         chat.UpdatedAt = DateTimeOffset.Now;
-        if (!_dataStore.Data.Settings.AutoSaveChats) return;
-
+        var canEvictMessages = false;
         try
         {
-            await _dataStore.SaveChatAsync(chat);
-            if (saveIndex)
-                await _dataStore.SaveAsync();
+            if (_dataStore.Data.Settings.AutoSaveChats)
+            {
+                await _dataStore.SaveChatAsync(chat, cancellationToken);
+                if (saveIndex)
+                    await _dataStore.SaveAsync(cancellationToken);
+                canEvictMessages = true;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
             // Avoid surfacing persistence races/IO failures as hard UI errors.
+        }
+
+        if (releaseIfInactive)
+        {
+            if (Dispatcher.UIThread.CheckAccess())
+                ReleaseInactiveChatState(chat, canEvictMessages);
+            else
+                Dispatcher.UIThread.Post(() => ReleaseInactiveChatState(chat, canEvictMessages));
         }
     }
 

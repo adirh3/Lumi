@@ -534,24 +534,30 @@ public partial class ChatViewModel
                     }
                 });
 
-                var answer = await tcs.Task;
-                _pendingQuestions.Remove(questionId);
-
-                // Persist the answer on the tool message so it survives reload
-                var resultText = $"User answered: {answer}";
-                Dispatcher.UIThread.Post(() =>
+                try
                 {
-                    var chat = CurrentChat;
-                    if (chat is not null)
-                    {
-                        var toolMsg = chat.Messages.LastOrDefault(m =>
-                            m.ToolName == "ask_question" && m.QuestionId == questionId);
-                        if (toolMsg is not null)
-                            toolMsg.ToolOutput = resultText;
-                    }
-                });
+                    var answer = await tcs.Task;
 
-                return resultText;
+                    // Persist the answer on the tool message so it survives reload
+                    var resultText = $"User answered: {answer}";
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        var chat = CurrentChat;
+                        if (chat is not null)
+                        {
+                            var toolMsg = chat.Messages.LastOrDefault(m =>
+                                m.ToolName == "ask_question" && m.QuestionId == questionId);
+                            if (toolMsg is not null)
+                                toolMsg.ToolOutput = resultText;
+                        }
+                    });
+
+                    return resultText;
+                }
+                finally
+                {
+                    _pendingQuestions.Remove(questionId);
+                }
             },
             "ask_question",
             "Ask the user a question with predefined options to choose from. Use this when you need the user to pick from a set of choices (e.g. selecting a template, confirming a direction, choosing between alternatives). The answer will be returned as text. Only use this for genuinely useful choices — don't ask unnecessary questions.");

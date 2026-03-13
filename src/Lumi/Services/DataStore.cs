@@ -36,6 +36,11 @@ public class DataStore
         SeedCodingLumi();
     }
 
+    internal DataStore(AppData data)
+    {
+        _data = data ?? new AppData();
+    }
+
     public AppData Data => _data;
 
     /// <summary>
