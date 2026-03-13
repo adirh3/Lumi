@@ -739,6 +739,14 @@ public partial class ChatViewModel : ObservableObject
             // Restore SDK agent selection
             SelectedSdkAgentName = chat.SdkAgentName;
 
+            // Restore per-chat model selection (falls back to global preferred model)
+            if (!string.IsNullOrWhiteSpace(chat.LastModelUsed))
+            {
+                if (!AvailableModels.Contains(chat.LastModelUsed))
+                    AvailableModels.Add(chat.LastModelUsed);
+                SelectedModel = chat.LastModelUsed;
+            }
+
             // Git status can be slow in large repos/worktrees. Do not keep the chat
             // loading overlay up after the transcript is already interactive.
             _ = RefreshCodingProjectState();
@@ -1463,6 +1471,36 @@ public partial class ChatViewModel : ObservableObject
     [GeneratedRegex(@"(\d+)(?:\.(\d+))?")]
     private static partial Regex VersionRegex();
 
+    /// <summary>Formats a model ID into a short display name (e.g. "claude-sonnet-4.5" → "Sonnet 4.5").</summary>
+    internal static string? FormatModelDisplay(string? modelId)
+    {
+        if (string.IsNullOrWhiteSpace(modelId)) return null;
+
+        var m = modelId.ToLowerInvariant();
+
+        // Known model families — extract tier + version
+        string? tier = null;
+        if (m.Contains("opus"))        tier = "Opus";
+        else if (m.Contains("sonnet")) tier = "Sonnet";
+        else if (m.Contains("haiku"))  tier = "Haiku";
+        else if (m.Contains("gpt"))    tier = "GPT";
+        else if (m.Contains("gemini")) tier = "Gemini";
+
+        if (tier is null) return modelId; // Unknown family, show raw ID
+
+        // Reuse the same generated regex as ScoreModel
+        var versionMatch = VersionRegex().Match(m);
+        var version = versionMatch.Success ? versionMatch.Value : "";
+
+        var suffix = "";
+        if (m.Contains("codex")) suffix = " Codex";
+        else if (m.Contains("mini")) suffix = " Mini";
+        else if (m.Contains("pro"))  suffix = " Pro";
+        if (m.Contains("preview")) suffix += " Preview";
+
+        return $"{tier} {version}{suffix}".Trim();
+    }
+
     /// <summary>
     /// Removes the user message and its response, then resends.
     /// The message content may have been edited before calling this.
@@ -1687,6 +1725,7 @@ public partial class ChatMessageViewModel : ObservableObject
 
     public string Role => Message.Role;
     public string? Author => Message.Author;
+    public string? ModelName => ChatViewModel.FormatModelDisplay(Message.Model);
     public string TimestampText => Message.Timestamp.ToString("HH:mm");
     public string? ToolName => Message.ToolName;
 

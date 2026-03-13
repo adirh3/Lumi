@@ -293,7 +293,8 @@ public partial class ChatViewModel
                     Role = "assistant",
                     Author = agentName,
                     Content = currentContent,
-                    IsStreaming = true
+                    IsStreaming = true,
+                    Model = SelectedModel
                 };
                 _inProgressMessages[chat.Id] = streamingMsg;
                 if (_activeSession == session)
@@ -459,7 +460,8 @@ public partial class ChatViewModel
                                 Role = "assistant",
                                 Author = agentName,
                                 Content = finalContent,
-                                IsStreaming = false
+                                IsStreaming = false,
+                                Model = SelectedModel
                             };
                             if (_pendingSearchSources.Count > 0)
                             {
@@ -884,6 +886,10 @@ public partial class ChatViewModel
                     ResetSubagentOutputState();
                     Dispatcher.UIThread.Post(() =>
                     {
+                    // Persist the model used for this turn on the chat
+                    if (!string.IsNullOrWhiteSpace(SelectedModel))
+                        chat.LastModelUsed = SelectedModel;
+
                     runtime.IsBusy = false;
                     runtime.IsStreaming = false;
                     runtime.StatusText = "";
@@ -1329,6 +1335,9 @@ public partial class ChatViewModel
                         if (!AvailableModels.Contains(modelChange.Data.NewModel))
                             AvailableModels.Add(modelChange.Data.NewModel);
                         SelectedModel = modelChange.Data.NewModel;
+                        // Update in-flight streaming message with the actual model used
+                        if (streamingMsg is not null)
+                            streamingMsg.Model = modelChange.Data.NewModel;
                     }
                     });
                     break;

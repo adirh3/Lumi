@@ -19,6 +19,7 @@ public class ChatMessage
     public string? ToolOutput { get; set; }
     public string? QuestionId { get; set; }
     public bool IsStreaming { get; set; }
+    public string? Model { get; set; }
     public List<string> Attachments { get; set; } = [];
     public List<SearchSource> Sources { get; set; } = [];
     public List<SkillReference> ActiveSkills { get; set; } = [];
@@ -61,6 +62,9 @@ public class Chat : INotifyPropertyChanged
 
     /// <summary>Git worktree path when this chat operates in worktree mode. Null means local mode.</summary>
     public string? WorktreePath { get; set; }
+
+    /// <summary>Last model used in this chat. Restored as the selected model when the chat is reopened.</summary>
+    public string? LastModelUsed { get; set; }
 
     /// <summary>Cumulative input tokens consumed across all turns of this chat.</summary>
     public long TotalInputTokens { get; set; }

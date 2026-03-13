@@ -274,6 +274,13 @@
               </ContentControl.DataTemplates>
             </ContentControl>
 
+            <!-- Model label -->
+            <TextBlock Text="{Binding ModelName}"
+                       IsVisible="{Binding ModelName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       FontSize="10"
+                       Foreground="{DynamicResource Brush.TextTertiary}"
+                       Margin="0,2,0,0" />
+
           </StackPanel>
         </sc:StrataChatMessage.Content>
       </sc:StrataChatMessage>

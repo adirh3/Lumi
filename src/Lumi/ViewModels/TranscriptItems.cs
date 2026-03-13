@@ -108,6 +108,7 @@ public partial class AssistantMessageItem : TranscriptItem
     partial void OnHasSourcesChanged(bool value) => OnPropertyChanged(nameof(DisplaySourcesSection));
 
     public string? Author => _source.Author;
+    public string? ModelName => _source.ModelName;
     public ObservableCollection<SkillReference> Skills { get; } = [];
     public ObservableCollection<FileAttachmentItem> FileAttachments { get; } = [];
     public ObservableCollection<SourceItem> Sources { get; } = [];
