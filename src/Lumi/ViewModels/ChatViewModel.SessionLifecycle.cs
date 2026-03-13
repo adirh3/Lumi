@@ -171,6 +171,13 @@ public partial class ChatViewModel
                     assistantStream.CancelPending();
                     Dispatcher.UIThread.Post(() =>
                     {
+                        // Flush any buffered deltas that CancelPending() may have
+                        // prevented from reaching the UI. Without this, a fast
+                        // completion can cancel the throttled flush before it ever
+                        // creates the streaming message, causing the entire response
+                        // to appear at once instead of streaming.
+                        FlushAssistantDelta();
+
                         var finalContent = msg.Data.Content;
                         if (string.IsNullOrWhiteSpace(finalContent))
                         {
@@ -238,6 +245,8 @@ public partial class ChatViewModel
                     reasoningStream.CancelPending();
                     Dispatcher.UIThread.Post(() =>
                     {
+                        FlushReasoningDelta();
+
                         var finalReasoning = r.Data.Content;
                         if (!string.IsNullOrWhiteSpace(finalReasoning) && reasoningMsg is null)
                         {
