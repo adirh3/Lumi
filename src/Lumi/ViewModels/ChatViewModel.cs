@@ -562,6 +562,9 @@ public partial class ChatViewModel : ObservableObject
             catch (Exception ex)
             {
                 lastError = ex;
+                if (!await _copilotService.IsHealthyAsync(TimeSpan.FromSeconds(2)))
+                    await TryReconnectCopilotAsync(ct);
+
                 if (attempt < maxRetries)
                 {
                     await Task.Delay(500 * (attempt + 1), ct);
@@ -631,9 +634,9 @@ public partial class ChatViewModel : ObservableObject
             // Yield so the UI thread can render the loading overlay before heavy synchronous work
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
 
-            // Set the active session (don't dispose anything — background sessions keep running)
-            _sessionCache.TryGetValue(chat.Id, out var cachedSession);
-            _activeSession = cachedSession;
+            // Reuse the cached session only while the current CLI connection can still talk to it.
+            // AutoRestart revives the process, but cached CopilotSession objects can still go stale.
+            _activeSession = await TryGetReusableCachedSessionAsync(chat, loadToken);
 
             // Clear pending state from any previous chat
             _pendingSkillInjections.Clear();
@@ -1105,6 +1108,52 @@ public partial class ChatViewModel : ObservableObject
         catch (Exception ex) when (cts is not null)
         {
             HandleSendError(ex, cts);
+        }
+    }
+
+    private async Task<bool> TryReconnectCopilotAsync(CancellationToken ct)
+    {
+        try
+        {
+            await _copilotService.ConnectAsync(ct);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Returns a cached session only when it is still usable on the current CLI connection.</summary>
+    private async Task<CopilotSession?> TryGetReusableCachedSessionAsync(Chat chat, CancellationToken ct)
+    {
+        if (!_sessionCache.TryGetValue(chat.Id, out var cachedSession))
+            return null;
+
+        if (!await _copilotService.IsHealthyAsync(TimeSpan.FromSeconds(2)))
+        {
+            InvalidateLocalSessionCache(chat);
+            return null;
+        }
+
+        try
+        {
+            await _copilotService.ReadSessionPlanAsync(cachedSession, ct);
+            return cachedSession;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (IsSessionNotFoundError(ex))
+        {
+            InvalidateLocalSessionCache(chat);
+            return null;
+        }
+        catch
+        {
+            // Non-session-specific plan RPC failures should not discard a healthy cached session.
+            return cachedSession;
         }
     }
 

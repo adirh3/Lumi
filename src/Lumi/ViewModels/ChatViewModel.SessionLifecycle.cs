@@ -1443,7 +1443,8 @@ public partial class ChatViewModel
     }
 
     /// <summary>Called when the CopilotService reconnects (new CLI process).
-    /// All cached sessions are from the old process and must be discarded.</summary>
+    /// All cached session objects are from the old process and must be discarded,
+    /// but persisted session IDs can still be resumed on the new client.</summary>
     private void OnCopilotReconnected()
     {
         Dispatcher.UIThread.Post(() =>
@@ -1456,10 +1457,6 @@ public partial class ChatViewModel
             // Clear session cache (objects reference the dead client)
             _sessionCache.Clear();
             _activeSession = null;
-
-            // Reset CopilotSessionId on all chats so sessions are recreated
-            foreach (var chat in _dataStore.Data.Chats)
-                chat.CopilotSessionId = null;
 
             // Cancel any in-flight requests
             foreach (var cts in _ctsSources.Values)
