@@ -354,6 +354,7 @@ public partial class SubagentToolCallItem : TranscriptItem
     [ObservableProperty] private string? _agentDescription;
     [ObservableProperty] private string? _currentIntent;
     [ObservableProperty] private string? _modeLabel;
+    [ObservableProperty] private string? _modelDisplayName;
     [ObservableProperty] private string? _transcriptText;
     [ObservableProperty] private string? _reasoningText;
     [ObservableProperty] private string? _meta;
@@ -380,6 +381,7 @@ public partial class SubagentToolCallItem : TranscriptItem
 
     public bool IsActive => Status == StrataAiToolCallStatus.InProgress;
     public bool HasDescription => !string.IsNullOrWhiteSpace(AgentDescription);
+    public bool HasModelName => !string.IsNullOrWhiteSpace(ModelDisplayName);
     public bool HasTranscriptText => !string.IsNullOrWhiteSpace(TranscriptText);
     public bool HasReasoningText => !string.IsNullOrWhiteSpace(ReasoningText);
     public bool HasActivities => Activities.Count > 0;
@@ -401,6 +403,7 @@ public partial class SubagentToolCallItem : TranscriptItem
     partial void OnTaskDescriptionChanged(string? value) => OnPropertyChanged(nameof(Title));
     partial void OnCurrentIntentChanged(string? value) => OnPropertyChanged(nameof(Title));
     partial void OnAgentDescriptionChanged(string? value) => OnPropertyChanged(nameof(HasDescription));
+    partial void OnModelDisplayNameChanged(string? value) => OnPropertyChanged(nameof(HasModelName));
     partial void OnTranscriptTextChanged(string? value) => OnPropertyChanged(nameof(HasTranscriptText));
     partial void OnReasoningTextChanged(string? value) => OnPropertyChanged(nameof(HasReasoningText));
     partial void OnProgressValueChanged(double value) => OnPropertyChanged(nameof(HasProgressValue));

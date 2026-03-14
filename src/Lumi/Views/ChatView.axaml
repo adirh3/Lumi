@@ -489,18 +489,44 @@
 
     <!-- ── Subagent card (standalone turn-level item) ── -->
     <DataTemplate DataType="vm:SubagentToolCallItem">
-      <sc:StrataThink Label="{Binding Title}"
-                      Meta="{Binding Meta}"
-                      IsExpanded="{Binding IsExpanded}"
-                      IsActive="{Binding IsActive}"
-                      ProgressValue="{Binding ProgressValue}">
-        <sc:StrataThink.HeaderExtra>
-          <Border Background="{DynamicResource Brush.AccentSubtle}"
-                  CornerRadius="999" Padding="6,1">
-            <TextBlock Text="{Binding DisplayName}" Classes="caption"
-                       Foreground="{DynamicResource Brush.AccentDefault}" />
-          </Border>
-        </sc:StrataThink.HeaderExtra>
+      <Grid ColumnDefinitions="Auto,*">
+        <!-- Left accent bar — subtle sub-agent indicator -->
+        <Border Width="2.5" CornerRadius="1.5"
+                Background="{DynamicResource Brush.AccentDefault}"
+                Opacity="0.55"
+                Margin="0,4,8,4" />
+
+        <sc:StrataThink Grid.Column="1"
+                        Label="{Binding Title}"
+                        Meta="{Binding Meta}"
+                        IsExpanded="{Binding IsExpanded}"
+                        IsActive="{Binding IsActive}"
+                        ProgressValue="{Binding ProgressValue}">
+          <sc:StrataThink.HeaderExtra>
+            <StackPanel Orientation="Horizontal" Spacing="4">
+              <!-- Agent name chip -->
+              <Border Background="{DynamicResource Brush.AccentSubtle}"
+                      CornerRadius="999" Padding="5,1,7,1">
+                <StackPanel Orientation="Horizontal" Spacing="3">
+                  <TextBlock Text="✦" FontSize="8"
+                             Foreground="{DynamicResource Brush.AccentDefault}"
+                             VerticalAlignment="Center" />
+                  <TextBlock Text="{Binding DisplayName}"
+                             FontSize="{DynamicResource Font.SizeCaption}"
+                             FontWeight="Medium"
+                             Foreground="{DynamicResource Brush.AccentDefault}" />
+                </StackPanel>
+              </Border>
+              <!-- Model chip -->
+              <Border Background="{DynamicResource Brush.Surface2}"
+                      CornerRadius="999" Padding="6,1"
+                      IsVisible="{Binding HasModelName}">
+                <TextBlock Text="{Binding ModelDisplayName}"
+                           FontSize="10"
+                           Foreground="{DynamicResource Brush.TextTertiary}" />
+              </Border>
+            </StackPanel>
+          </sc:StrataThink.HeaderExtra>
         <sc:StrataThink.Content>
           <StackPanel Spacing="6">
             <sc:StrataThink Label="{loc:Str Tool_ReasoningLabel}"
@@ -526,7 +552,8 @@
             </ItemsControl>
           </StackPanel>
         </sc:StrataThink.Content>
-      </sc:StrataThink>
+          </sc:StrataThink>
+      </Grid>
     </DataTemplate>
 
     <!-- ── Regular tool call (inside tool group) ────── -->

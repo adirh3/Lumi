@@ -192,6 +192,7 @@ public partial class ChatViewModel
                     ?? "Agent";
                 var agentDescription = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "agentDescription");
                 var mode = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "mode") ?? string.Empty;
+                var model = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "model");
                 var nextTranscript = updateTranscript
                     ? transcript ?? string.Empty
                     : ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "transcript");
@@ -205,6 +206,7 @@ public partial class ChatViewModel
                     agentDisplayName,
                     agentDescription,
                     mode,
+                    model,
                     nextTranscript,
                     nextReasoning);
 
@@ -1196,6 +1198,7 @@ public partial class ChatViewModel
                     {
                         var existingDescription = ToolDisplayHelper.ExtractJsonField(existing.Content, "description") ?? string.Empty;
                         var existingMode = ToolDisplayHelper.ExtractJsonField(existing.Content, "mode") ?? string.Empty;
+                        var existingModel = ToolDisplayHelper.ExtractJsonField(existing.Content, "model");
                         var existingTranscript = ToolDisplayHelper.ExtractJsonField(existing.Content, "transcript")
                             ?? GetSubagentStream(subagentAssistantStreams, subStart.Data.ToolCallId)?.SnapshotOrNull();
                         var existingReasoning = ToolDisplayHelper.ExtractJsonField(existing.Content, "reasoning")
@@ -1207,6 +1210,7 @@ public partial class ChatViewModel
                             agentDisplayName: displayName,
                             agentDescription: subStart.Data.AgentDescription,
                             mode: existingMode,
+                            model: existingModel,
                             transcript: existingTranscript,
                             reasoning: existingReasoning);
                         existing.Author = displayName;

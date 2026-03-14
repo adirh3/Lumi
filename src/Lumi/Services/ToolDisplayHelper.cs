@@ -399,6 +399,52 @@ public static partial class ToolDisplayHelper
         return FormatAgentName(mode);
     }
 
+    public static string? GetSubagentModelName(string? argsJson)
+        => ExtractJsonField(argsJson, "model");
+
+    /// <summary>
+    /// Formats a raw model ID into a short, readable display name.
+    /// e.g. "claude-sonnet-4.5" → "Sonnet 4.5", "gpt-5.1-codex" → "GPT 5.1 Codex"
+    /// </summary>
+    public static string? FormatModelDisplayName(string? modelId)
+    {
+        if (string.IsNullOrWhiteSpace(modelId))
+            return null;
+
+        var name = modelId;
+
+        // Strip known vendor prefixes
+        ReadOnlySpan<string> vendorPrefixes = ["claude-", "openai-"];
+        foreach (var prefix in vendorPrefixes)
+        {
+            if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                name = name[prefix.Length..];
+                break;
+            }
+        }
+
+        var parts = name.Split('-');
+        for (var i = 0; i < parts.Length; i++)
+        {
+            var part = parts[i];
+            if (part.Length == 0) continue;
+
+            // Known abbreviations → all-caps
+            if (part.Equals("gpt", StringComparison.OrdinalIgnoreCase)
+                || part.Equals("1m", StringComparison.OrdinalIgnoreCase))
+            {
+                parts[i] = part.ToUpperInvariant();
+            }
+            else if (!char.IsDigit(part[0]))
+            {
+                parts[i] = char.ToUpperInvariant(part[0]) + part[1..];
+            }
+        }
+
+        return string.Join(' ', parts);
+    }
+
     /// <summary>Extracts all file diffs from tool call args JSON.</summary>
     public static List<(string FilePath, string? OldText, string? NewText)> ExtractAllDiffs(string toolName, string? argsJson)
     {

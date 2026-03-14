@@ -560,6 +560,8 @@ public class TranscriptBuilder
         subagent.TaskDescription = ToolDisplayHelper.GetSubagentTaskDescription(toolName, message.Content);
         subagent.AgentDescription = ToolDisplayHelper.GetSubagentDescription(message.Content);
         subagent.ModeLabel = ToolDisplayHelper.GetSubagentModeLabel(message.Content);
+        subagent.ModelDisplayName = ToolDisplayHelper.FormatModelDisplayName(
+            ToolDisplayHelper.GetSubagentModelName(message.Content));
         subagent.TranscriptText = ToolDisplayHelper.ExtractJsonField(message.Content, "transcript");
         subagent.ReasoningText = ToolDisplayHelper.ExtractJsonField(message.Content, "reasoning");
     }

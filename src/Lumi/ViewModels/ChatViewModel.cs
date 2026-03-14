@@ -275,6 +275,7 @@ public partial class ChatViewModel : ObservableObject
         string? agentDisplayName,
         string? agentDescription,
         string? mode,
+        string? model = null,
         string? transcript = null,
         string? reasoning = null)
     {
@@ -287,6 +288,8 @@ public partial class ChatViewModel : ObservableObject
             writer.WriteString("agentDisplayName", agentDisplayName ?? string.Empty);
             writer.WriteString("agentDescription", agentDescription ?? string.Empty);
             writer.WriteString("mode", mode ?? string.Empty);
+            if (!string.IsNullOrWhiteSpace(model))
+                writer.WriteString("model", model);
             writer.WriteString("transcript", transcript ?? string.Empty);
             writer.WriteString("reasoning", reasoning ?? string.Empty);
             writer.WriteEndObject();
