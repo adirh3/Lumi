@@ -269,7 +269,7 @@
           <!-- ── 0: Chat sidebar ── -->
           <Panel x:Name="SidebarChat">
             <DockPanel>
-              <Border DockPanel.Dock="Top" Margin="16,4,16,0">
+              <Border DockPanel.Dock="Top" Margin="16,8,16,0">
                 <Button Classes="subtle" HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Left"
                         CornerRadius="{DynamicResource Radius.Base}"
@@ -286,7 +286,7 @@
                   </StackPanel>
                 </Button>
               </Border>
-              <Border DockPanel.Dock="Top" Margin="16,6,16,0">
+              <Border DockPanel.Dock="Top" Margin="16,8,16,0">
                 <TextBox PlaceholderText="{loc:Str Sidebar_Search}" x:Name="ChatSearchBox"
                          Text="{Binding ChatSearchQuery, Mode=TwoWay}"
                          Padding="4,6,4,6" FontSize="{DynamicResource Font.SizeCaption}">
@@ -307,7 +307,7 @@
                 </TextBox>
               </Border>
               <!-- ── Project filter pills ── -->
-              <Border DockPanel.Dock="Top" Margin="10,6,10,0"
+              <Border DockPanel.Dock="Top" Margin="10,8,10,0"
                       IsVisible="{Binding Projects.Count}">
                 <ScrollViewer HorizontalScrollBarVisibility="Auto"
                               VerticalScrollBarVisibility="Disabled"
@@ -409,7 +409,7 @@
           <!-- ── 1: Projects sidebar ── -->
           <Panel x:Name="SidebarProjects" IsVisible="False" DataContext="{Binding ProjectsVM}" x:DataType="vm:ProjectsViewModel">
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="16,4,16,0">
+              <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
                         CornerRadius="{DynamicResource Radius.Base}"
                         Command="{Binding NewProjectCommand}" ToolTip.Tip="{loc:Str Sidebar_NewProjectTooltip}">
@@ -420,7 +420,7 @@
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" Margin="6,0,0,0" />
               </DockPanel>
-              <Border DockPanel.Dock="Top" Margin="16,6,16,0">
+              <Border DockPanel.Dock="Top" Margin="16,8,16,0">
                 <TextBox PlaceholderText="{loc:Str Sidebar_Search}" Text="{Binding SearchQuery}"
                          Padding="4,6,4,6" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
@@ -496,7 +496,7 @@
           <!-- ── 2: Skills sidebar ── -->
           <Panel x:Name="SidebarSkills" IsVisible="False" DataContext="{Binding SkillsVM}" x:DataType="vm:SkillsViewModel">
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="16,4,16,0">
+              <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
                         CornerRadius="{DynamicResource Radius.Base}"
                         Command="{Binding NewSkillCommand}" ToolTip.Tip="{loc:Str Sidebar_NewSkillTooltip}">
@@ -507,7 +507,7 @@
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" Margin="6,0,0,0" />
               </DockPanel>
-              <Border DockPanel.Dock="Top" Margin="16,6,16,0">
+              <Border DockPanel.Dock="Top" Margin="16,8,16,0">
                 <TextBox PlaceholderText="{loc:Str Sidebar_Search}" Text="{Binding SearchQuery}"
                          Padding="4,6,4,6" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
@@ -560,7 +560,7 @@
           <!-- ── 3: Lumis sidebar ── -->
           <Panel x:Name="SidebarAgents" IsVisible="False" DataContext="{Binding AgentsVM}" x:DataType="vm:AgentsViewModel">
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="16,4,16,0">
+              <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
                         CornerRadius="{DynamicResource Radius.Base}"
                         Command="{Binding NewAgentCommand}" ToolTip.Tip="{loc:Str Sidebar_NewLumiTooltip}">
@@ -571,7 +571,7 @@
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" Margin="6,0,0,0" />
               </DockPanel>
-              <Border DockPanel.Dock="Top" Margin="16,6,16,0">
+              <Border DockPanel.Dock="Top" Margin="16,8,16,0">
                 <TextBox PlaceholderText="{loc:Str Sidebar_Search}" Text="{Binding SearchQuery}"
                          Padding="4,6,4,6" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
@@ -628,7 +628,7 @@
           <!-- ── 4: Memories sidebar ── -->
           <Panel x:Name="SidebarMemories" IsVisible="False" DataContext="{Binding MemoriesVM}" x:DataType="vm:MemoriesViewModel">
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="16,4,16,0">
+              <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0">
                 <Button DockPanel.Dock="Right" Classes="subtle" Padding="7,5" MinHeight="0"
                         CornerRadius="{DynamicResource Radius.Base}"
                         Command="{Binding NewMemoryCommand}" ToolTip.Tip="{loc:Str Sidebar_NewMemoryTooltip}">
@@ -639,7 +639,7 @@
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" Margin="6,0,0,0" />
               </DockPanel>
-              <Border DockPanel.Dock="Top" Margin="16,6,16,0">
+              <Border DockPanel.Dock="Top" Margin="16,8,16,0">
                 <TextBox PlaceholderText="{loc:Str Sidebar_Search}" Text="{Binding SearchQuery}"
                          Padding="4,6,4,6" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
@@ -692,7 +692,7 @@
           <!-- ── 5: MCP Servers sidebar ── -->
           <Panel x:Name="SidebarMcpServers" IsVisible="False" DataContext="{Binding McpServersVM}" x:DataType="vm:McpServersViewModel">
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="16,4,16,0">
+              <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0">
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
                   <Button Classes="subtle" Padding="7,5" MinHeight="0"
                           CornerRadius="{DynamicResource Radius.Base}"
@@ -711,7 +711,7 @@
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" Margin="6,0,0,0" />
               </DockPanel>
-              <Border DockPanel.Dock="Top" Margin="16,6,16,0">
+              <Border DockPanel.Dock="Top" Margin="16,8,16,0">
                 <TextBox PlaceholderText="{loc:Str Sidebar_Search}" Text="{Binding SearchQuery}"
                          Padding="4,6,4,6" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
@@ -776,12 +776,12 @@
           <!-- ── 6: Settings sidebar ── -->
           <Panel x:Name="SidebarSettings" IsVisible="False" DataContext="{Binding SettingsVM}" x:DataType="vm:SettingsViewModel">
             <DockPanel>
-              <DockPanel DockPanel.Dock="Top" Margin="16,4,16,0">
+              <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0">
                 <TextBlock Text="{loc:Str Sidebar_Settings}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
                            Foreground="{DynamicResource Brush.TextSecondary}"
                            VerticalAlignment="Center" Margin="6,0,0,0" />
               </DockPanel>
-              <Border DockPanel.Dock="Top" Margin="16,6,16,0">
+              <Border DockPanel.Dock="Top" Margin="16,8,16,0">
                 <TextBox PlaceholderText="{loc:Str Sidebar_SearchSettings}" Text="{Binding SearchQuery}"
                          Padding="4,6,4,6" FontSize="{DynamicResource Font.SizeCaption}">
                   <TextBox.InnerLeftContent>
