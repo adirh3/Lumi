@@ -373,8 +373,7 @@
       <Button Classes="subtle" HorizontalAlignment="Left"
               HorizontalContentAlignment="Left"
               Command="{Binding OpenCommand}"
-              Padding="8,6" Margin="0,4" Cursor="Hand"
-              CornerRadius="{DynamicResource Radius.Control}">
+              Padding="8,6" Margin="0,4" Cursor="Hand">
         <StackPanel Orientation="Horizontal" Spacing="8">
           <PathIcon Width="14" Height="14" Foreground="{DynamicResource Brush.AccentDefault}"
                     VerticalAlignment="Center">
