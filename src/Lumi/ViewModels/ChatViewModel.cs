@@ -1952,6 +1952,7 @@ public partial class ChatViewModel : ObservableObject
             {
                 oldCts.Cancel();
                 oldCts.Dispose();
+                _ctsSources.Remove(chatId);
 
                 if (_sessionCache.TryGetValue(chatId, out var cachedSession))
                 {
@@ -1959,18 +1960,21 @@ public partial class ChatViewModel : ObservableObject
                     catch { /* best-effort */ }
                 }
             }
-            var cts = new CancellationTokenSource();
-            _ctsSources[chatId] = cts;
 
             var needsSessionSetup = _activeSession?.SessionId != CurrentChat.CopilotSessionId
                                     || CurrentChat.CopilotSessionId is null;
 
             // Editing must not keep old server-side context. Recreate session first.
+            // Must happen BEFORE creating the new CTS, because InvalidateCurrentSession
+            // calls ReleaseSessionResources which disposes any CTS still in _ctsSources.
             if (wasEdited)
             {
                 InvalidateCurrentSession();
                 needsSessionSetup = true;
             }
+
+            var cts = new CancellationTokenSource();
+            _ctsSources[chatId] = cts;
 
         if (needsSessionSetup)
         {
