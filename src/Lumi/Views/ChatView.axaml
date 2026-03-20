@@ -494,32 +494,27 @@
                         IsExpanded="{Binding IsExpanded}"
                         IsActive="{Binding IsActive}"
                         ProgressValue="{Binding ProgressValue}">
-          <sc:StrataThink.HeaderExtra>
-            <Border Background="{DynamicResource Brush.AccentSubtle}"
-                    CornerRadius="999" Padding="5,1,7,1">
-              <StackPanel Orientation="Horizontal" Spacing="3">
-                <TextBlock Text="✦" FontSize="8"
-                           Foreground="{DynamicResource Brush.AccentDefault}"
-                           VerticalAlignment="Center" />
-                <TextBlock Text="{Binding DisplayName}"
-                           FontSize="{DynamicResource Font.SizeCaption}"
-                           FontWeight="Medium"
-                           Foreground="{DynamicResource Brush.AccentDefault}" />
-                <TextBlock Text="·"
-                           FontSize="{DynamicResource Font.SizeCaption}"
-                           Foreground="{DynamicResource Brush.AccentDefault}"
-                           Opacity="0.5"
-                           IsVisible="{Binding HasModelName}" />
-                <TextBlock Text="{Binding ModelDisplayName}"
-                           FontSize="{DynamicResource Font.SizeCaption}"
-                           Foreground="{DynamicResource Brush.AccentDefault}"
-                           Opacity="0.6"
-                           IsVisible="{Binding HasModelName}" />
-              </StackPanel>
-            </Border>
-          </sc:StrataThink.HeaderExtra>
         <sc:StrataThink.Content>
           <StackPanel Spacing="6">
+            <!-- Agent byline — visible only when expanded -->
+            <StackPanel Orientation="Horizontal" Spacing="4"
+                        Margin="0,0,0,2">
+              <TextBlock Text="{Binding DisplayName}"
+                         FontSize="11"
+                         Foreground="{DynamicResource Brush.TextTertiary}"
+                         Opacity="0.8" />
+              <TextBlock Text="·"
+                         FontSize="11"
+                         Foreground="{DynamicResource Brush.TextTertiary}"
+                         Opacity="0.4"
+                         IsVisible="{Binding HasModelName}" />
+              <TextBlock Text="{Binding ModelDisplayName}"
+                         FontSize="11"
+                         Foreground="{DynamicResource Brush.TextTertiary}"
+                         Opacity="0.6"
+                         IsVisible="{Binding HasModelName}" />
+            </StackPanel>
+
             <sc:StrataThink Label="{loc:Str Tool_ReasoningLabel}"
                             IsExpanded="True"
                             IsActive="{Binding IsActive}"
