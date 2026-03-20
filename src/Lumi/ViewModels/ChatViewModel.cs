@@ -789,6 +789,10 @@ public partial class ChatViewModel : ObservableObject
                     AvailableModels.Add(chat.LastModelUsed);
                 SelectedModel = chat.LastModelUsed;
             }
+            else
+            {
+                SelectedModel = _dataStore.Data.Settings.PreferredModel;
+            }
 
             // Git status can be slow in large repos/worktrees. Do not keep the chat
             // loading overlay up after the transcript is already interactive.
