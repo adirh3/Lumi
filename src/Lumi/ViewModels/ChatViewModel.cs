@@ -479,7 +479,10 @@ public partial class ChatViewModel : ObservableObject
         var reasoningEffort = _dataStore.Data.Settings.ReasoningEffort;
         var effort = string.IsNullOrWhiteSpace(reasoningEffort) ? null : reasoningEffort;
 
-        // Native user input handler — wired to the existing question card UI
+        // Native user input handler — wired to the existing question card UI.
+        // Capture chat.Id in the closure so questions always target the owning chat,
+        // even if the user switches to a different chat while this session is active.
+        var inputHandlerChatId = chat.Id;
         UserInputHandler userInputHandler = async (request, invocation) =>
         {
             var questionId = Guid.NewGuid().ToString("N");
@@ -489,19 +492,18 @@ public partial class ChatViewModel : ObservableObject
             var optionsStr = request.Choices is { Count: > 0 } ? string.Join(",", request.Choices) : "";
             var freeText = request.AllowFreeform ?? true;
 
-            var chatId = CurrentChat?.Id;
             Dispatcher.UIThread.Post(() =>
             {
-                if (CurrentChat?.Id != chatId) return;
+                if (CurrentChat?.Id != inputHandlerChatId) return;
                 _transcriptBuilder.AddQuestionToTranscript(questionId, request.Question, optionsStr, freeText);
                 QuestionAsked?.Invoke(questionId, request.Question, optionsStr, freeText);
                 ScrollToEndRequested?.Invoke();
 
                 // Store questionId on the tool message so it can be recovered during rebuild
-                var chat = CurrentChat;
-                if (chat is not null)
+                var owningChat = _dataStore.Data.Chats.Find(c => c.Id == inputHandlerChatId);
+                if (owningChat is not null)
                 {
-                    var toolMsg = chat.Messages.LastOrDefault(m =>
+                    var toolMsg = owningChat.Messages.LastOrDefault(m =>
                         m.ToolName == "ask_question" && m.ToolStatus == "InProgress" && m.QuestionId is null);
                     if (toolMsg is not null)
                         toolMsg.QuestionId = questionId;
