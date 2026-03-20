@@ -205,6 +205,13 @@ public class UserSettings
     public bool EnableMemoryAutoSave { get; set; } = true;
     public bool AutoSaveChats { get; set; } = true;
 
+    // ── Window ──
+    public double? WindowWidth { get; set; }
+    public double? WindowHeight { get; set; }
+    public double? WindowLeft { get; set; }
+    public double? WindowTop { get; set; }
+    public bool IsMaximized { get; set; }
+
     // ── Browser ──
     public bool HasImportedBrowserCookies { get; set; }
 

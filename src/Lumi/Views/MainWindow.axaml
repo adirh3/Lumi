@@ -9,9 +9,8 @@
         x:DataType="vm:MainViewModel"
         x:CompileBindings="True"
         Title="Lumi"
-        Width="1320" Height="860"
         MinWidth="800" MinHeight="560"
-        WindowStartupLocation="CenterScreen"
+        WindowStartupLocation="Manual"
         TransparencyLevelHint="AcrylicBlur,Mica,Blur"
         UseLayoutRounding="True"
         Background="Transparent">

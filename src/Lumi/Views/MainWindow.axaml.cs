@@ -89,6 +89,7 @@ public partial class MainWindow : Window
 
         Opened += (_, _) =>
         {
+            RestoreWindowBounds();
             UpdateTransparencyFallbackOpacity();
             ApplyWindowContentPaddingForState();
         };
@@ -217,9 +218,112 @@ public partial class MainWindow : Window
         {
             e.Cancel = true;
             HideToTray();
+            return;
         }
 
+        SaveWindowBounds();
         base.OnClosing(e);
+    }
+
+    private void RestoreWindowBounds()
+    {
+        if (DataContext is not MainViewModel vm) return;
+        var settings = vm.DataStore.Data.Settings;
+
+        const double defaultWidth = 1320;
+        const double defaultHeight = 860;
+
+        var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary;
+        if (screen is null)
+        {
+            Width = defaultWidth;
+            Height = defaultHeight;
+            WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            return;
+        }
+
+        var scaling = screen.Scaling;
+        var workArea = screen.WorkingArea;
+        var maxW = workArea.Width / scaling;
+        var maxH = workArea.Height / scaling;
+
+        var w = settings.WindowWidth ?? defaultWidth;
+        var h = settings.WindowHeight ?? defaultHeight;
+
+        // Clamp to screen working area with a small margin
+        w = Math.Clamp(w, MinWidth, maxW);
+        h = Math.Clamp(h, MinHeight, maxH);
+
+        Width = w;
+        Height = h;
+
+        if (settings.WindowLeft.HasValue && settings.WindowTop.HasValue)
+        {
+            var left = settings.WindowLeft.Value;
+            var top = settings.WindowTop.Value;
+
+            // Ensure at least 100px of the window is visible on any screen
+            bool isVisible = false;
+            foreach (var s in Screens.All)
+            {
+                var wa = s.WorkingArea;
+                var waLeft = wa.X / s.Scaling;
+                var waTop = wa.Y / s.Scaling;
+                var waRight = waLeft + wa.Width / s.Scaling;
+                var waBottom = waTop + wa.Height / s.Scaling;
+
+                if (left + 100 > waLeft && left < waRight - 50 &&
+                    top + 50 > waTop && top < waBottom - 50)
+                {
+                    isVisible = true;
+                    break;
+                }
+            }
+
+            if (isVisible)
+            {
+                Position = new PixelPoint((int)(left * scaling), (int)(top * scaling));
+            }
+            else
+            {
+                // Saved position is off-screen, center on current screen
+                var cx = workArea.X + (workArea.Width - (int)(w * scaling)) / 2;
+                var cy = workArea.Y + (workArea.Height - (int)(h * scaling)) / 2;
+                Position = new PixelPoint(cx, cy);
+            }
+        }
+        else
+        {
+            // No saved position — center on screen
+            var cx = workArea.X + (workArea.Width - (int)(w * scaling)) / 2;
+            var cy = workArea.Y + (workArea.Height - (int)(h * scaling)) / 2;
+            Position = new PixelPoint(cx, cy);
+        }
+
+        if (settings.IsMaximized)
+            WindowState = WindowState.Maximized;
+    }
+
+    private void SaveWindowBounds()
+    {
+        if (DataContext is not MainViewModel vm) return;
+        var settings = vm.DataStore.Data.Settings;
+
+        settings.IsMaximized = WindowState == WindowState.Maximized;
+
+        // Save the normal (non-maximized) bounds so restore works correctly
+        if (WindowState == WindowState.Normal)
+        {
+            settings.WindowWidth = Width;
+            settings.WindowHeight = Height;
+
+            var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary;
+            var scaling = screen?.Scaling ?? 1.0;
+            settings.WindowLeft = Position.X / scaling;
+            settings.WindowTop = Position.Y / scaling;
+        }
+
+        vm.DataStore.Save();
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
