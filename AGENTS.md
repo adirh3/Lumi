@@ -169,6 +169,10 @@ Many tools take a `controlId` parameter. Three formats work:
 - When debugging layout issues — inspect bounds, margins, and visibility
 - When a feature "should work" but you're not sure — take a screenshot and see
 
+## Showing UI Changes to the User
+
+If the feature or fix you implement can be visibly seen by the user (e.g., layout changes, new controls, styling updates, new views), **keep the debug instance of Lumi running** after you finish — do not close it. In your message to the user, explain exactly where they should look to see the change (e.g., "Open the Agents tab and look at the top-right corner" or "Start a new chat and notice the updated welcome panel"). This lets the user immediately verify your work in the live app without having to relaunch it themselves.
+
 ## Key Conventions
 
 - **Single JSON file persistence** — no database. New data collections go in `AppData` class in `Models.cs`
