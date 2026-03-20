@@ -542,10 +542,7 @@ public sealed class BrowserService : IAsyncDisposable
                 "    }" +
                 "  }" +
                 "  if (!el) return 'error: no input found for: " + escapedSel + "';" +
-                "  el.focus();" +
-                "  el.value = '" + escapedText + "';" +
-                "  el.dispatchEvent(new Event('input', { bubbles: true }));" +
-                "  el.dispatchEvent(new Event('change', { bubbles: true }));" +
+                FrameworkAwareSetterJs("el", escapedText) +
                 "  return 'typed into: ' + (el.tagName || '') + ' [' + (el.name || el.id || '') + ']';" +
                 "})()";
 
@@ -558,15 +555,27 @@ public sealed class BrowserService : IAsyncDisposable
         }
     }
 
-    /// <summary>Execute arbitrary JavaScript and return the result.</summary>
+    /// <summary>Execute arbitrary JavaScript and return the result. Wraps in try/catch for better error reporting.</summary>
     public async Task<string> EvaluateAsync(string javascript)
     {
         await EnsureInitializedAsync();
         await _actionLock.WaitAsync();
         try
         {
+            // Wrap the user script in try/catch so errors are returned as text instead of null.
+            // Also wrap in an async IIFE so Promise-returning scripts work correctly.
+            var wrappedScript =
+                "(async function(){try{" +
+                "var __result__=(function(){" + javascript + "})();" +
+                "if(__result__ instanceof Promise)__result__=await __result__;" +
+                "if(__result__===undefined)return '(undefined)';" +
+                "if(__result__===null)return '(null)';" +
+                "if(typeof __result__==='object')try{return JSON.stringify(__result__,null,2)}catch(e){return String(__result__);}" +
+                "return String(__result__);" +
+                "}catch(e){return 'JS Error: '+e.message+(e.stack?'\\n'+e.stack.split('\\n').slice(0,3).join('\\n'):'');}})()";
+
             var beforeEval = DateTime.UtcNow;
-            var result = await InvokeOnUiThreadAsync(() => _webView!.ExecuteScriptAsync(javascript));
+            var result = await InvokeOnUiThreadAsync(() => _webView!.ExecuteScriptAsync(wrappedScript));
             await Task.Delay(300); // brief settle for any download to register
 
             // Check if the script triggered a download
@@ -609,7 +618,11 @@ public sealed class BrowserService : IAsyncDisposable
         }
     }
 
-    /// <summary>Select an option from a dropdown/select element.</summary>
+    /// <summary>
+    /// Select an option from a dropdown/select element. Works with native &lt;select&gt; elements
+    /// and custom dropdown components (react-select, MUI, downshift, etc.) by clicking to open
+    /// and then clicking the matching option.
+    /// </summary>
     private async Task<string> SelectAsync(string selector, string value)
     {
         await EnsureInitializedAsync();
@@ -619,15 +632,59 @@ public sealed class BrowserService : IAsyncDisposable
             var escapedSel = EscapeJs(selector);
             var escapedVal = EscapeJs(value);
             var script =
-                "(function() {" +
-                "  const el = document.querySelector('" + escapedSel + "');" +
-                "  if (!el || el.tagName !== 'SELECT') return 'error: select element not found';" +
-                "  const options = Array.from(el.options);" +
-                "  const opt = options.find(o => o.value === '" + escapedVal + "' || o.text.includes('" + escapedVal + "'));" +
-                "  if (!opt) return 'error: option not found: " + escapedVal + "';" +
-                "  el.value = opt.value;" +
-                "  el.dispatchEvent(new Event('change', { bubbles: true }));" +
-                "  return 'selected: ' + opt.text;" +
+                "(async function() {" +
+                // Try element by number first
+                "  var isNum=/^\\d+$/.test('" + escapedSel + "');" +
+                "  var el=null;" +
+                "  if(isNum){" +
+                "    var vis=function(el){if(!el)return false;var r=el.getBoundingClientRect();if(r.width<=0||r.height<=0)return false;var cs=getComputedStyle(el);return cs.display!=='none'&&cs.visibility!=='hidden'&&cs.opacity!=='0';};" +
+                "    var sel='a[href],button,input,select,textarea,[role=\"button\"],[role=\"link\"],[role=\"tab\"],[role=\"menuitem\"],[onclick],[tabindex],[data-tooltip]';" +
+                "    var dialogs=Array.from(document.querySelectorAll('[role=\"dialog\"],[aria-modal=\"true\"]')).filter(vis);" +
+                "    var roots=dialogs.length>0?dialogs.reverse().concat([document]):[document];" +
+                "    var all=[];var seen=new Set();" +
+                "    for(var ri=0;ri<roots.length;ri++){var els=roots[ri].querySelectorAll(sel);for(var ei=0;ei<els.length;ei++){var e=els[ei];if(!vis(e)||seen.has(e))continue;seen.add(e);all.push(e);}}" +
+                "    var idx=parseInt('" + escapedSel + "');" +
+                "    if(idx>=1&&idx<=all.length)el=all[idx-1];" +
+                "  } else {" +
+                "    el=document.querySelector('" + escapedSel + "');" +
+                "  }" +
+                "  if(!el) return 'error: element not found for: " + escapedSel + "';" +
+
+                // Case 1: Native <select>
+                "  if(el.tagName==='SELECT'){" +
+                "    var opts=Array.from(el.options);" +
+                "    var opt=opts.find(function(o){return o.value==='" + escapedVal + "'||o.text.toLowerCase().indexOf('" + escapedVal + "'.toLowerCase())>=0;});" +
+                "    if(!opt)return 'error: option not found: " + escapedVal + "';" +
+                "    var ns=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value');" +
+                "    if(ns&&ns.set){ns.set.call(el,opt.value);}else{el.value=opt.value;}" +
+                "    el.dispatchEvent(new Event('change',{bubbles:true}));" +
+                "    el.dispatchEvent(new Event('input',{bubbles:true}));" +
+                "    return 'selected: '+opt.text;" +
+                "  }" +
+
+                // Case 2: Custom dropdown — click to open, find option, click it
+                "  el.click(); el.focus();" +
+                "  var val='" + escapedVal + "'.toLowerCase();" +
+
+                // Wait a tick for the dropdown to open, then search for the option
+                "  return await new Promise(function(resolve){" +
+                "    setTimeout(function(){" +
+                "      var optionSels='[role=\"option\"],[role=\"menuitem\"],[role=\"listitem\"],li[data-value],li[class*=\"option\"],div[class*=\"option\"],div[class*=\"Option\"],span[class*=\"option\"]';" +
+                "      var options=document.querySelectorAll(optionSels);" +
+                "      var best=null;" +
+                "      for(var oi=0;oi<options.length;oi++){" +
+                "        var o=options[oi];" +
+                "        var r=o.getBoundingClientRect();" +
+                "        if(r.width<=0||r.height<=0)continue;" +
+                "        var txt=(o.textContent||'').replace(/\\s+/g,' ').trim().toLowerCase();" +
+                "        var dval=(o.getAttribute('data-value')||'').toLowerCase();" +
+                "        if(txt===val||dval===val){best=o;break;}" +
+                "        if(txt.indexOf(val)>=0||dval.indexOf(val)>=0){if(!best)best=o;}" +
+                "      }" +
+                "      if(best){best.click();resolve('selected: '+(best.textContent||'').replace(/\\s+/g,' ').trim().substring(0,60));}" +
+                "      else{resolve('error: option not found in dropdown: " + escapedVal + "');}" +
+                "    },150);" +
+                "  });" +
                 "})()";
 
             var result = await InvokeOnUiThreadAsync(() => _webView!.ExecuteScriptAsync(script));
@@ -859,7 +916,7 @@ public sealed class BrowserService : IAsyncDisposable
         var act = (action ?? "").Trim().ToLowerInvariant();
 
         // Actions that change page state — auto-append a snapshot so the LLM sees the result.
-        var autoLook = act is "click" or "type" or "press" or "select" or "back";
+        var autoLook = act is "click" or "type" or "press" or "select" or "back" or "clear";
 
         // Record time before the action so we can detect click-triggered downloads.
         var beforeAction = DateTime.UtcNow;
@@ -877,7 +934,10 @@ public sealed class BrowserService : IAsyncDisposable
             "back" => await GoBackAsync(),
             "wait" => await WaitForAsync(target ?? "body", int.TryParse(value, out var ms) ? ms : 10000),
             "download" => await WaitForDownloadAsync(target),
-            _ => $"Unknown action '{act}'. Valid: click, type, press, select, scroll, back, wait, download"
+            "clear" => await ClearFieldAsync(target),
+            "fill" => await FillFormAsync(value),
+            "read_form" => await ReadFormAsync(),
+            _ => $"Unknown action '{act}'. Valid: click, type, press, select, scroll, back, wait, download, clear, fill, read_form"
         };
 
         if (result.StartsWith("Error", StringComparison.Ordinal))
@@ -984,10 +1044,265 @@ public sealed class BrowserService : IAsyncDisposable
                 " var all=[];var seen=new Set();" +
                 " for(var ri=0;ri<roots.length;ri++){var els=roots[ri].querySelectorAll(sel);for(var ei=0;ei<els.length;ei++){var el=els[ei];if(!vis(el)||seen.has(el))continue;seen.add(el);all.push(el);}}" +
                 " if(idx<1||idx>all.length)return 'Error: element '+idx+' not found (page has '+all.length+' elements)';" +
-                " var t=all[idx-1];t.focus();t.value='" + escapedText + "';" +
-                " t.dispatchEvent(new Event('input',{bubbles:true}));" +
-                " t.dispatchEvent(new Event('change',{bubbles:true}));" +
+                " var t=all[idx-1];" +
+                FrameworkAwareSetterJs("t", escapedText) +
                 " return 'Typed into ['+idx+'] '+t.tagName.toLowerCase();" +
+                "})()";
+
+            var result = await InvokeOnUiThreadAsync(() => _webView!.ExecuteScriptAsync(script));
+            return CleanJsResult(result);
+        }
+        finally
+        {
+            _actionLock.Release();
+        }
+    }
+
+
+    /// <summary>Clear a field's value using the framework-aware approach.</summary>
+    private async Task<string> ClearFieldAsync(string? target)
+    {
+        if (string.IsNullOrWhiteSpace(target))
+            return "Error: clear needs a target — element number or CSS selector";
+        target = target.Trim();
+
+        await EnsureInitializedAsync();
+        await _actionLock.WaitAsync();
+        try
+        {
+            string script;
+            if (int.TryParse(target.TrimStart('#'), out var idx))
+            {
+                script =
+                    "(function(){" +
+                    " var idx=" + Math.Max(1, idx) + ";" +
+                    " var vis=function(el){if(!el)return false;var r=el.getBoundingClientRect();if(r.width<=0||r.height<=0)return false;var cs=getComputedStyle(el);return cs.display!=='none'&&cs.visibility!=='hidden'&&cs.opacity!=='0';};" +
+                    " var sel='a[href],button,input,select,textarea,[role=\"button\"],[role=\"link\"],[role=\"tab\"],[role=\"menuitem\"],[onclick],[tabindex],[data-tooltip]';" +
+                    " var dialogs=Array.from(document.querySelectorAll('[role=\"dialog\"],[aria-modal=\"true\"]')).filter(vis);" +
+                    " var roots=dialogs.length>0?dialogs.reverse().concat([document]):[document];" +
+                    " var all=[];var seen=new Set();" +
+                    " for(var ri=0;ri<roots.length;ri++){var els=roots[ri].querySelectorAll(sel);for(var ei=0;ei<els.length;ei++){var el=els[ei];if(!vis(el)||seen.has(el))continue;seen.add(el);all.push(el);}}" +
+                    " if(idx<1||idx>all.length)return 'Error: element '+idx+' not found (page has '+all.length+' elements)';" +
+                    " var t=all[idx-1];" +
+                    FrameworkAwareClearJs("t") +
+                    " return 'Cleared ['+idx+'] '+t.tagName.toLowerCase();" +
+                    "})()";
+            }
+            else
+            {
+                var escapedSel = EscapeJs(target);
+                script =
+                    "(function() {" +
+                    "  let el = document.querySelector('" + escapedSel + "');" +
+                    "  if (!el) { el = document.querySelector('input[placeholder*=\"" + escapedSel + "\"], textarea[placeholder*=\"" + escapedSel + "\"]'); }" +
+                    "  if (!el) return 'error: no input found for: " + escapedSel + "';" +
+                    FrameworkAwareClearJs("el") +
+                    "  return 'cleared: ' + (el.tagName || '') + ' [' + (el.name || el.id || '') + ']';" +
+                    "})()";
+            }
+
+            var result = await InvokeOnUiThreadAsync(() => _webView!.ExecuteScriptAsync(script));
+            return CleanJsResult(result);
+        }
+        finally
+        {
+            _actionLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Fill multiple form fields at once. The value parameter is a JSON object mapping field
+    /// identifiers (element number, name, id, placeholder, or label text) to values.
+    /// Handles inputs, textareas, checkboxes (true/false), and native selects.
+    /// </summary>
+    private async Task<string> FillFormAsync(string? fieldsJson)
+    {
+        if (string.IsNullOrWhiteSpace(fieldsJson))
+            return "Error: fill needs a value parameter — JSON object mapping field identifiers to values, e.g. {\"3\": \"John\", \"4\": \"john@email.com\", \"5\": true}";
+
+        await EnsureInitializedAsync();
+        await _actionLock.WaitAsync();
+        try
+        {
+            var escapedJson = EscapeJs(fieldsJson);
+            // The JS fills all fields in one execution, avoiding intermediate snapshots.
+            // It uses the native setter trick for each field to work with React/Vue/Angular.
+            var script =
+                "(function(){" +
+                " try { var fields = JSON.parse('" + escapedJson + "'); } catch(e) { return 'Error: invalid JSON — ' + e.message; }" +
+                " var vis=function(el){if(!el)return false;var r=el.getBoundingClientRect();if(r.width<=0||r.height<=0)return false;var cs=getComputedStyle(el);return cs.display!=='none'&&cs.visibility!=='hidden'&&cs.opacity!=='0';};" +
+                " var sel='a[href],button,input,select,textarea,[role=\"button\"],[role=\"link\"],[role=\"tab\"],[role=\"menuitem\"],[onclick],[tabindex],[data-tooltip]';" +
+                " var dialogs=Array.from(document.querySelectorAll('[role=\"dialog\"],[aria-modal=\"true\"]')).filter(vis);" +
+                " var roots=dialogs.length>0?dialogs.reverse().concat([document]):[document];" +
+                " var all=[];var seen=new Set();" +
+                " for(var ri=0;ri<roots.length;ri++){var els=roots[ri].querySelectorAll(sel);for(var ei=0;ei<els.length;ei++){var el=els[ei];if(!vis(el)||seen.has(el))continue;seen.add(el);all.push(el);}}" +
+
+                // Helper: find element by key (number, name, id, placeholder, label)
+                " var find=function(key){" +
+                "   var n=parseInt(key);" +
+                "   if(!isNaN(n)&&n>=1&&n<=all.length)return all[n-1];" +
+                "   var q=key.toLowerCase();" +
+                "   for(var i=0;i<all.length;i++){var el=all[i];" +
+                "     if((el.name||'').toLowerCase()===q||(el.id||'').toLowerCase()===q)return el;" +
+                "     if((el.placeholder||'').toLowerCase().indexOf(q)>=0)return el;" +
+                "     var ariaLabel=(el.getAttribute('aria-label')||'').toLowerCase();" +
+                "     if(ariaLabel&&ariaLabel.indexOf(q)>=0)return el;" +
+                "   }" +
+                "   var labels=document.querySelectorAll('label');" +
+                "   for(var li=0;li<labels.length;li++){" +
+                "     if(labels[li].textContent.toLowerCase().indexOf(q)>=0&&labels[li].htmlFor){" +
+                "       var el=document.getElementById(labels[li].htmlFor);if(el)return el;" +
+                "     }" +
+                "   }" +
+                "   var el=document.querySelector(key);if(el)return el;" +
+                "   return null;" +
+                " };" +
+
+                // Helper: set value using native setter trick
+                " var setVal=function(el,val){" +
+                "   var tag=el.tagName;var type=(el.type||'').toLowerCase();" +
+                "   if(type==='checkbox'||type==='radio'){" +
+                "     var want=(val===true||val==='true'||val==='on');" +
+                "     if(el.checked!==want){el.click();}" +
+                "     return 'toggled';" +
+                "   }" +
+                "   if(tag==='SELECT'){" +
+                "     var opts=Array.from(el.options);" +
+                "     var opt=opts.find(function(o){return o.value===String(val)||o.text.toLowerCase().indexOf(String(val).toLowerCase())>=0;});" +
+                "     if(!opt)return 'option not found';" +
+                "     el.value=opt.value;" +
+                "     el.dispatchEvent(new Event('change',{bubbles:true}));" +
+                "     return 'selected: '+opt.text;" +
+                "   }" +
+                "   el.focus();" +
+                "   var proto=tag==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;" +
+                "   var ns=Object.getOwnPropertyDescriptor(proto,'value');" +
+                "   if(ns&&ns.set){ns.set.call(el,String(val));}else{el.value=String(val);}" +
+                "   if(el._valueTracker){el._valueTracker.setValue('');}" +
+                "   el.dispatchEvent(new InputEvent('input',{bubbles:true,data:String(val),inputType:'insertText'}));" +
+                "   el.dispatchEvent(new Event('change',{bubbles:true}));" +
+                "   el.dispatchEvent(new Event('blur',{bubbles:true}));" +
+                "   return 'filled';" +
+                " };" +
+
+                // Process all fields
+                " var results=[];" +
+                " var keys=Object.keys(fields);" +
+                " for(var ki=0;ki<keys.length;ki++){" +
+                "   var key=keys[ki];var val=fields[key];" +
+                "   var el=find(key);" +
+                "   if(!el){results.push(key+': NOT FOUND');continue;}" +
+                "   var r=setVal(el,val);" +
+                "   var label=el.name||el.id||el.placeholder||key;" +
+                "   results.push(label+': '+r);" +
+                " }" +
+
+                // Read validation state after filling
+                " var errors=[];" +
+                " var inputs=document.querySelectorAll('input,select,textarea');" +
+                " for(var ii=0;ii<inputs.length;ii++){" +
+                "   var inp=inputs[ii];" +
+                "   if(inp.validationMessage&&vis(inp)){" +
+                "     errors.push((inp.name||inp.id||inp.placeholder||'field')+': '+inp.validationMessage);" +
+                "   }" +
+                "   if(inp.getAttribute('aria-invalid')==='true'&&vis(inp)){" +
+                "     var errId=inp.getAttribute('aria-describedby');" +
+                "     var errEl=errId?document.getElementById(errId):null;" +
+                "     var errMsg=errEl?(errEl.textContent||'').trim():'';" +
+                "     if(errMsg)errors.push((inp.name||inp.id||inp.placeholder||'field')+': '+errMsg);" +
+                "   }" +
+                " }" +
+                " var out='Fill results:\\n'+results.join('\\n');" +
+                " if(errors.length>0)out+='\\n\\nValidation errors:\\n'+errors.join('\\n');" +
+                " return out;" +
+                "})()";
+
+            var result = await InvokeOnUiThreadAsync(() => _webView!.ExecuteScriptAsync(script));
+            return CleanJsResult(result);
+        }
+        finally
+        {
+            _actionLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Read all form fields on the page — names, values, types, required/validation state.
+    /// Returns a structured summary that eliminates the need for manual browser_js inspection.
+    /// </summary>
+    private async Task<string> ReadFormAsync()
+    {
+        await EnsureInitializedAsync();
+        await _actionLock.WaitAsync();
+        try
+        {
+            var script =
+                "(function(){" +
+                " var vis=function(el){if(!el)return false;var r=el.getBoundingClientRect();if(r.width<=0||r.height<=0)return false;var cs=getComputedStyle(el);return cs.display!=='none'&&cs.visibility!=='hidden'&&cs.opacity!=='0';};" +
+
+                // Find all visible form fields
+                " var inputs=document.querySelectorAll('input,select,textarea');" +
+                " var fields=[];" +
+                " var elSel='a[href],button,input,select,textarea,[role=\"button\"],[role=\"link\"],[role=\"tab\"],[role=\"menuitem\"],[onclick],[tabindex],[data-tooltip]';" +
+                " var dialogs=Array.from(document.querySelectorAll('[role=\"dialog\"],[aria-modal=\"true\"]')).filter(vis);" +
+                " var roots=dialogs.length>0?dialogs.reverse().concat([document]):[document];" +
+                " var all=[];var seen=new Set();" +
+                " for(var ri=0;ri<roots.length;ri++){var els=roots[ri].querySelectorAll(elSel);for(var ei=0;ei<els.length;ei++){var el=els[ei];if(!vis(el)||seen.has(el))continue;seen.add(el);all.push(el);}}" +
+
+                // Map elements to their indices
+                " var idxMap=new Map();" +
+                " for(var ai=0;ai<all.length;ai++){idxMap.set(all[ai],ai+1);}" +
+
+                " for(var i=0;i<inputs.length;i++){" +
+                "   var el=inputs[i];" +
+                "   if(!vis(el))continue;" +
+                "   var tag=el.tagName;var type=(el.type||'').toLowerCase();" +
+                "   var name=el.name||el.id||'';" +
+                "   var ph=el.placeholder||'';" +
+                "   var label='';" +
+                "   if(el.id){var lbl=document.querySelector('label[for=\"'+el.id+'\"]');if(lbl)label=(lbl.textContent||'').replace(/\\s+/g,' ').trim();}" +
+                "   if(!label){var closest=el.closest('label');if(closest)label=(closest.textContent||'').replace(/\\s+/g,' ').trim();}" +
+                "   var ariaLabel=el.getAttribute('aria-label')||'';" +
+
+                // Get value based on type
+                "   var val='';" +
+                "   if(type==='checkbox'||type==='radio'){val=el.checked?'checked':'unchecked';}" +
+                "   else if(tag==='SELECT'){var opt=el.options[el.selectedIndex];val=opt?(opt.text||opt.value):'';}" +
+                "   else{val=el.value||'';}" +
+
+                // Required and validation
+                "   var req=el.required||el.getAttribute('aria-required')==='true';" +
+                "   var invalid=el.getAttribute('aria-invalid')==='true'||(!el.checkValidity());" +
+                "   var errMsg=el.validationMessage||'';" +
+                "   if(!errMsg&&el.getAttribute('aria-describedby')){" +
+                "     var errEl=document.getElementById(el.getAttribute('aria-describedby'));" +
+                "     if(errEl)errMsg=(errEl.textContent||'').trim();" +
+                "   }" +
+
+                "   var idx=idxMap.get(el)||'?';" +
+                "   var identifier=name||ph||ariaLabel||label||('field_'+i);" +
+                "   var line='['+idx+'] '+(type||tag.toLowerCase());" +
+                "   if(identifier)line+=' name=\"'+identifier.substring(0,40)+'\"';" +
+                "   if(label&&label!==identifier)line+=' label=\"'+label.substring(0,40)+'\"';" +
+                "   if(ph&&ph!==identifier)line+=' placeholder=\"'+ph.substring(0,40)+'\"';" +
+                "   line+=' value=\"'+(val||'').substring(0,60)+'\"';" +
+                "   if(req)line+=' [required]';" +
+                "   if(invalid&&(val||req))line+=' [invalid]';" +
+                "   if(errMsg)line+=' error=\"'+errMsg.substring(0,60)+'\"';" +
+                "   fields.push(line);" +
+                " }" +
+
+                // Also check for custom error messages in the DOM
+                " var errEls=document.querySelectorAll('[role=\"alert\"],[class*=\"error\"],[class*=\"Error\"]');" +
+                " var pageErrors=[];" +
+                " for(var ei=0;ei<errEls.length;ei++){" +
+                "   var txt=(errEls[ei].textContent||'').replace(/\\s+/g,' ').trim();" +
+                "   if(txt&&vis(errEls[ei])&&txt.length<200)pageErrors.push(txt);" +
+                " }" +
+
+                " var out='Form fields ('+fields.length+'):\\n'+fields.join('\\n');" +
+                " if(pageErrors.length>0)out+='\\n\\nPage errors:\\n'+pageErrors.join('\\n');" +
+                " return out;" +
                 "})()";
 
             var result = await InvokeOnUiThreadAsync(() => _webView!.ExecuteScriptAsync(script));
@@ -1319,6 +1634,46 @@ public sealed class BrowserService : IAsyncDisposable
             .Replace("\"", "\\\"")
             .Replace("\n", "\\n")
             .Replace("\r", "\\r");
+    }
+
+    /// <summary>
+    /// Returns a JS snippet that sets the value on an element variable using the native setter trick
+    /// (used by Playwright/React Testing Library) so React/Vue/Angular controlled components pick up the change.
+    /// The caller must define the element variable (e.g. "el" or "t") and the text must already be JS-escaped.
+    /// </summary>
+    private static string FrameworkAwareSetterJs(string elementVar, string escapedText)
+    {
+        // Strategy: use the native HTMLInputElement/HTMLTextAreaElement prototype setter to bypass
+        // React/Vue/Angular value tracking, then dispatch proper InputEvent + change + blur.
+        return
+            $" {elementVar}.focus();" +
+            $" var _tag = {elementVar}.tagName;" +
+            $" var _proto = _tag === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;" +
+            $" var _nativeSetter = Object.getOwnPropertyDescriptor(_proto, 'value');" +
+            $" if (_nativeSetter && _nativeSetter.set) {{ _nativeSetter.set.call({elementVar}, '{escapedText}'); }}" +
+            $" else {{ {elementVar}.value = '{escapedText}'; }}" +
+            $" if ({elementVar}._valueTracker) {{ {elementVar}._valueTracker.setValue(''); }}" +
+            $" {elementVar}.dispatchEvent(new InputEvent('input', {{ bubbles: true, data: '{escapedText}', inputType: 'insertText' }}));" +
+            $" {elementVar}.dispatchEvent(new Event('change', {{ bubbles: true }}));" +
+            $" {elementVar}.dispatchEvent(new Event('blur', {{ bubbles: true }}));";
+    }
+
+    /// <summary>
+    /// Returns a JS snippet that clears a field using the native setter trick, then dispatches events.
+    /// </summary>
+    private static string FrameworkAwareClearJs(string elementVar)
+    {
+        return
+            $" {elementVar}.focus();" +
+            $" var _tag = {elementVar}.tagName;" +
+            $" var _proto = _tag === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;" +
+            $" var _nativeSetter = Object.getOwnPropertyDescriptor(_proto, 'value');" +
+            $" if (_nativeSetter && _nativeSetter.set) {{ _nativeSetter.set.call({elementVar}, ''); }}" +
+            $" else {{ {elementVar}.value = ''; }}" +
+            $" if ({elementVar}._valueTracker) {{ {elementVar}._valueTracker.setValue('x'); }}" +
+            $" {elementVar}.dispatchEvent(new InputEvent('input', {{ bubbles: true, data: null, inputType: 'deleteContentBackward' }}));" +
+            $" {elementVar}.dispatchEvent(new Event('change', {{ bubbles: true }}));" +
+            $" {elementVar}.dispatchEvent(new Event('blur', {{ bubbles: true }}));";
     }
 
     private static string CleanJsResult(string result)

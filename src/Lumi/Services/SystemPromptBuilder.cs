@@ -119,14 +119,30 @@ public static class SystemPromptBuilder
             - `browser_find(query)` — Find and rank interactive elements matching a query across text, aria-label, tooltip, title, and href. Returns element indices.
             - `browser_do(action, target?, value?)` — Interact with the page. Returns action result and updated page state. Actions:
               - `click`: target = element number, text, or CSS selector
-              - `type`: target = element number or selector, value = text to type
+              - `type`: target = element number or selector, value = text to type. Works with React/Vue/Angular forms.
               - `press`: target = key name (Enter, Tab, Escape)
-              - `select`: target = element number or selector, value = option text
+              - `select`: target = element number or selector, value = option text. Works with custom dropdowns (react-select, MUI, etc.).
               - `scroll`: target = "up" or "down"
               - `back`: go to previous page
               - `wait`: target = CSS selector
               - `download`: target = file pattern (e.g. "*.csv"). Reports download status.
-            - `browser_js(script)` — Run JavaScript in the page context.
+              - `clear`: target = element number or selector. Clears a field's value.
+              - `fill`: value = JSON object mapping field identifiers (element number, name, placeholder, or label) to values. Fills multiple form fields at once in a single call — **much more efficient than typing one by one**. Handles text inputs, textareas, checkboxes (true/false), and native selects.
+              - `read_form`: no target needed. Returns all visible form fields with their names, values, types, required status, and validation errors. **Use this before and after filling forms** to verify state.
+            - `browser_js(script)` — Run JavaScript in the page context. Errors are caught and returned as messages (never silently null).
+            """ + """
+
+            **Fill action example:** `browser_do("fill", null, '{"3": "John", "email": "john@example.com", "agree": true}')`
+
+            **Form filling best practices:**
+            1. Use `browser_do("read_form")` first to see all fields, their element numbers, and current state.
+            2. Use `browser_do("fill", null, "<json>")` to fill all fields at once — this is a single tool call instead of one per field, and avoids intermediate page snapshots.
+            3. Use `browser_do("read_form")` again to verify all fields were accepted and check for validation errors.
+            4. If a field wasn't accepted (framework-specific issue), try `browser_do("clear", "3")` then `browser_do("type", "3", "value")` as fallback.
+            5. For custom dropdowns that aren't native `<select>`, use `browser_do("select", "element#", "option text")` — it clicks to open, then clicks the matching option.
+            6. When a website uses a booking timer (common on SevenRooms, OpenTable), fill the form quickly using `fill` instead of field-by-field `type`.
+            7. If a booking platform requires CAPTCHA or credit card — note it and move to the next venue immediately. Don't spend time trying to bypass these.
+            8. `browser_js` now catches errors and returns them as text — use it for advanced inspection when needed.
 
             ## Window Automation (UI Automation)
             You can interact with ANY open desktop window on the user's PC using Windows UI Automation. This lets you click buttons, type text, read values, send keyboard shortcuts, and navigate the UI of any application — not just browsers.
