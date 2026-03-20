@@ -298,9 +298,13 @@ public partial class ChatView : UserControl
         FocusComposer();
 
         // After ScrollToEnd settles, adjust if the user message is barely hidden.
-        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
-        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-        AdjustScrollAfterTurnCompleted();
+        // Only for completed chats — don't fight auto-scroll during streaming.
+        if (!viewModel.IsBusy)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+            AdjustScrollAfterTurnCompleted();
+        }
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -332,14 +336,16 @@ public partial class ChatView : UserControl
         if (offset <= 0)
             return;
 
-        var extent = _transcriptScrollViewer.Extent.Height;
-        var viewport = _transcriptScrollViewer.Viewport.Height;
-        var overflow = extent - viewport;
+        // Only adjust when the transcript was auto-scrolled to the bottom
+        // (user didn't scroll away during the turn).
+        if (_chatShell.CurrentDistanceFromBottom > 20)
+            return;
 
-        // If the content barely overflows the viewport (by less than the
-        // typical height of a user message bubble), scroll to the top so
-        // the entire conversation — including the user's prompt — is visible.
-        if (overflow > 0 && overflow <= 200)
+        // If the scroll offset from the top is small, the first user message
+        // is likely just barely above the viewport. A user message bubble is
+        // typically ~150px; with padding and spacing the first turn occupies
+        // roughly ~200px. Use a generous threshold to cover varied layouts.
+        if (offset <= 350)
             _chatShell.ScrollToVerticalOffset(0);
     }
 
