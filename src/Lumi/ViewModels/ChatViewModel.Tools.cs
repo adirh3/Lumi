@@ -317,13 +317,13 @@ public partial class ChatViewModel
                 "Find and rank interactive elements by query. Matches against text, aria-label, tooltip, title, and href. Returns stable element indices usable with browser_do."),
 
             AIFunctionFactory.Create(
-                ([Description("Action to perform: click, type, press, select, scroll, back, wait, download, clear, fill, read_form")] string action,
-                 [Description("Target: element number from browser/browser_look (e.g. '3'), button text (e.g. 'Export'), CSS selector (e.g. '.btn'), key name (for press), direction (for scroll), or file pattern (for download)")] string? target = null,
-                 [Description("Value: text to type (for type action), option text (for select), pixels (for scroll), JSON object for fill (e.g. {\"3\": \"John\", \"email\": \"a@b.com\", \"5\": true})")] string? value = null) =>
+                ([Description("Action to perform: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, steps")] string action,
+                 [Description("Target: element number from browser/browser_look (e.g. '3'), button text (e.g. 'Export'), CSS selector (e.g. '.btn'), key name (for press), direction (for scroll), or file pattern (for download). Append ' quiet' to suppress auto-snapshot (e.g. '3 quiet').")] string? target = null,
+                 [Description("Value: text to type (for type action), option text (for select), pixels (for scroll), JSON object for fill, JSON array for steps (e.g. [{\"action\":\"click\",\"target\":\"Next\"},{\"action\":\"click\",\"target\":\"25\"}]), or 'quiet' to suppress snapshot")] string? value = null) =>
                 {
                     var svc = GetOrCreateBrowserService(chatId);
                     var act = (action ?? "").Trim().ToLowerInvariant();
-                    if (act is "click" or "type" or "press" or "select" or "download" or "back" or "clear" or "fill")
+                    if (act is "click" or "type" or "press" or "select" or "download" or "back" or "clear" or "fill" or "steps")
                     {
                         var runtime = GetOrCreateRuntimeState(chatId);
                         runtime.HasUsedBrowser = true;
@@ -336,7 +336,7 @@ public partial class ChatViewModel
                     return svc.DoAsync(action ?? "", target, value);
                 },
                 "browser_do",
-                "Interact with the page. Actions: click (target: element #, text, or CSS selector), type (target: element # or selector, value: text — works with React/Vue/Angular), press (target: key name), select (target: element # or selector, value: option text — works with custom dropdowns), scroll (target: up/down), back, wait (target: CSS selector), download (target: file glob pattern — checks for a pending download, does NOT trigger one), clear (target: element # or selector — clears a field), fill (value: JSON mapping field identifiers to values — fills multiple fields at once without intermediate snapshots), read_form (no target — returns all form fields with values, types, required status, and validation errors)."),
+                "Interact with the page. Actions: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, steps. Use 'steps' to batch multiple actions in ONE call (value: JSON array like [{\"action\":\"click\",\"target\":\"Next month\"},{\"action\":\"click\",\"target\":\"25\"}]) — only snapshots once at end, drastically reducing tokens. Append ' quiet' to target or set value='quiet' on click/press/scroll to skip the auto-snapshot entirely."),
 
             AIFunctionFactory.Create(
                 ([Description("JavaScript code to execute in the page context")] string script) =>

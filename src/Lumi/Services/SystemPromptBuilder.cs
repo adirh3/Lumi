@@ -129,20 +129,24 @@ public static class SystemPromptBuilder
               - `clear`: target = element number or selector. Clears a field's value.
               - `fill`: value = JSON object mapping field identifiers (element number, name, placeholder, or label) to values. Fills multiple form fields at once in a single call — **much more efficient than typing one by one**. Handles text inputs, textareas, checkboxes (true/false), and native selects.
               - `read_form`: no target needed. Returns all visible form fields with their names, values, types, required status, and validation errors. **Use this before and after filling forms** to verify state.
+              - `steps`: **CRITICAL for efficiency** — execute multiple actions in ONE call with only ONE snapshot at the end. Value = JSON array of action objects. Use this for calendar navigation, sequential clicks, or any multi-step flow where you don't need intermediate page state.
             - `browser_js(script)` — Run JavaScript in the page context. Errors are caught and returned as messages (never silently null).
+
+            **Quiet mode:** Append ` quiet` to the target or set value to `quiet` on click/press/scroll to skip the auto-snapshot. Use when you already know the next action.
             """ + """
+
+            **Steps action example:** `browser_do("steps", null, '[{"action":"click","target":"Next month"},{"action":"click","target":"Next month"},{"action":"click","target":"25"}]')`
 
             **Fill action example:** `browser_do("fill", null, '{"3": "John", "email": "john@example.com", "agree": true}')`
 
-            **Form filling best practices:**
-            1. Use `browser_do("read_form")` first to see all fields, their element numbers, and current state.
-            2. Use `browser_do("fill", null, "<json>")` to fill all fields at once — this is a single tool call instead of one per field, and avoids intermediate page snapshots.
-            3. Use `browser_do("read_form")` again to verify all fields were accepted and check for validation errors.
-            4. If a field wasn't accepted (framework-specific issue), try `browser_do("clear", "3")` then `browser_do("type", "3", "value")` as fallback.
-            5. For custom dropdowns that aren't native `<select>`, use `browser_do("select", "element#", "option text")` — it clicks to open, then clicks the matching option.
-            6. When a website uses a booking timer (common on SevenRooms, OpenTable), fill the form quickly using `fill` instead of field-by-field `type`.
-            7. If a booking platform requires CAPTCHA or credit card — note it and move to the next venue immediately. Don't spend time trying to bypass these.
-            8. `browser_js` now catches errors and returns them as text — use it for advanced inspection when needed.
+            **Efficiency best practices (IMPORTANT):**
+            1. **Batch with `steps`** — Always use `steps` when you need 2+ sequential actions (especially calendar/date navigation). One `steps` call = one snapshot instead of N snapshots.
+            2. **Use `fill` for forms** — One call fills all fields instead of one call per field.
+            3. **Use `read_form`** before and after filling to verify state.
+            4. **Use `quiet` for intermediate clicks** — When you'll click again immediately, skip the snapshot: `browser_do("click", "3 quiet")`.
+            5. For custom dropdowns that aren't native `<select>`, use `browser_do("select", "element#", "option text")`.
+            6. When a website uses a booking timer, use `fill` and `steps` to be fast.
+            7. If a booking platform requires CAPTCHA or credit card — note it and move on immediately.
 
             ## Window Automation (UI Automation)
             You can interact with ANY open desktop window on the user's PC using Windows UI Automation. This lets you click buttons, type text, read values, send keyboard shortcuts, and navigate the UI of any application — not just browsers.

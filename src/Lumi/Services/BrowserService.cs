@@ -833,9 +833,9 @@ public sealed class BrowserService : IAsyncDisposable
                 "   var label=tag==='a'?'link':tag==='button'||role==='button'?'button':tag==='input'?'input'+(type?'['+type+']':''):tag==='select'?'select':tag==='textarea'?'textarea':role||tag;" +
                 "   var info='';if(text)info+=' \"'+text+'\"';if(aria&&aria!==text)info+=' aria=\"'+aria+'\"';if(tooltip&&tooltip!==text&&tooltip!==aria)info+=' tooltip=\"'+tooltip+'\"';if(ph)info+=' placeholder=\"'+ph+'\"';if(href)info+=' -> '+href;if(name)info+=' name=\"'+name+'\"';if(inDlg)info+=' [dialog]';" +
                 "   items.push('['+(items.length+1)+'] '+label+info);" +
-                "   if(items.length>=80)break;" +
-                " }if(items.length>=80)break;}" +
-                " var pageText=norm(document.body.innerText||'').substring(0,3000);" +
+                "   if(items.length>=50)break;" +
+                " }if(items.length>=50)break;}" +
+                " var pageText=norm(document.body.innerText||'').substring(0,1500);" +
                 " return 'Page: '+document.title+'\\nURL: '+location.href+'\\n\\n--- Elements'+(filter?' (filter: '+filter+')':'')+' ---\\n'+(items.length>0?items.join('\\n'):'(no matching elements)')+'\\n('+items.length+' shown)\\n\\n--- Text Preview ---\\n'+pageText;" +
                 "})()";
 
@@ -937,8 +937,28 @@ public sealed class BrowserService : IAsyncDisposable
     {
         var act = (action ?? "").Trim().ToLowerInvariant();
 
+        // "steps" is a meta-action that runs multiple sub-actions with one snapshot at the end.
+        if (act == "steps")
+            return await ExecuteStepsAsync(value);
+
+        // Check for quiet flag: value="quiet" or target ends with " quiet" suppresses the auto-snapshot.
+        var quiet = false;
+        if (act is "click" or "press" or "scroll" or "clear" or "back")
+        {
+            if (string.Equals(value, "quiet", StringComparison.OrdinalIgnoreCase))
+            {
+                quiet = true;
+                value = null;
+            }
+            else if (target is not null && target.EndsWith(" quiet", StringComparison.OrdinalIgnoreCase))
+            {
+                quiet = true;
+                target = target[..^6].TrimEnd();
+            }
+        }
+
         // Actions that change page state — auto-append a snapshot so the LLM sees the result.
-        var autoLook = act is "click" or "type" or "press" or "select" or "back" or "clear";
+        var autoLook = !quiet && act is "click" or "type" or "press" or "select" or "back" or "clear";
 
         // Record time before the action so we can detect click-triggered downloads.
         var beforeAction = DateTime.UtcNow;
@@ -959,7 +979,7 @@ public sealed class BrowserService : IAsyncDisposable
             "clear" => await ClearFieldAsync(target),
             "fill" => await FillFormAsync(value),
             "read_form" => await ReadFormAsync(),
-            _ => $"Unknown action '{act}'. Valid: click, type, press, select, scroll, back, wait, download, clear, fill, read_form"
+            _ => $"Unknown action '{act}'. Valid: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, steps"
         };
 
         if (result.StartsWith("Error", StringComparison.Ordinal))
@@ -988,7 +1008,87 @@ public sealed class BrowserService : IAsyncDisposable
             return result + "\n\n" + snapshot;
         }
 
+        if (quiet)
+            return result + " (quiet — no snapshot)";
+
         return result;
+    }
+
+    /// <summary>
+    /// Execute a sequence of browser actions, only returning a snapshot after the last one.
+    /// This drastically reduces round-trips and token waste for multi-step flows like
+    /// calendar navigation or multi-field form interactions.
+    /// The value parameter is a JSON array of action objects, each with action/target/value fields.
+    /// Example: [{"action":"click","target":"Next month"},{"action":"click","target":"Next month"},{"action":"click","target":"25"}]
+    /// </summary>
+    private async Task<string> ExecuteStepsAsync(string? stepsJson)
+    {
+        if (string.IsNullOrWhiteSpace(stepsJson))
+            return "Error: steps needs a value parameter — JSON array of actions, e.g. [{\"action\":\"click\",\"target\":\"Next month\"},{\"action\":\"click\",\"target\":\"25\"}]";
+
+        List<StepDef>? steps;
+        try
+        {
+            steps = System.Text.Json.JsonSerializer.Deserialize<List<StepDef>>(stepsJson,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch (Exception ex)
+        {
+            return $"Error: invalid JSON for steps — {ex.Message}";
+        }
+
+        if (steps is null || steps.Count == 0)
+            return "Error: steps array is empty";
+
+        if (steps.Count > 20)
+            return "Error: max 20 steps per call";
+
+        var results = new List<string>();
+        foreach (var step in steps)
+        {
+            var act = (step.Action ?? "").Trim().ToLowerInvariant();
+
+            // Don't allow nested steps or long-running actions
+            if (act is "steps" or "download" or "wait")
+            {
+                results.Add($"{act}: skipped (not allowed in steps)");
+                continue;
+            }
+
+            var result = act switch
+            {
+                "click" => await DoClickAsync(step.Target),
+                "type" => await DoTypeAsync(step.Target, step.Value),
+                "press" => await PressKeyAsync(step.Target ?? "Enter"),
+                "select" => string.IsNullOrWhiteSpace(step.Target) || string.IsNullOrWhiteSpace(step.Value)
+                    ? "Error: select needs target and value"
+                    : await SelectAsync(step.Target, step.Value),
+                "scroll" => await ScrollAsync(step.Target ?? "down", int.TryParse(step.Value, out var px) ? px : 500),
+                "back" => await GoBackAsync(),
+                "clear" => await ClearFieldAsync(step.Target),
+                "fill" => await FillFormAsync(step.Value),
+                "read_form" => await ReadFormAsync(),
+                _ => $"Unknown action: {act}"
+            };
+
+            results.Add($"{act}({step.Target ?? ""}): {(result.Length > 120 ? result[..120] + "..." : result)}");
+
+            // Brief pause between steps so the page can react
+            await Task.Delay(150);
+        }
+
+        // One final settle + snapshot
+        await WaitForContentSettleAsync(maxWaitMs: 2000, pollMs: 250);
+        var snapshot = await LookAsync();
+
+        return $"Executed {steps.Count} steps:\n" + string.Join("\n", results) + "\n\n" + snapshot;
+    }
+
+    private sealed class StepDef
+    {
+        public string? Action { get; set; }
+        public string? Target { get; set; }
+        public string? Value { get; set; }
     }
 
     private async Task<string> DoClickAsync(string? target)
