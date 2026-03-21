@@ -53,6 +53,7 @@ public partial class MainViewModel : ObservableObject
     public MemoriesViewModel MemoriesVM { get; }
     public McpServersViewModel McpServersVM { get; }
     public SettingsViewModel SettingsVM { get; }
+    public OnboardingViewModel OnboardingVM { get; }
 
     /// <summary>The browser service used for Settings cookie import/clear.</summary>
     public BrowserService SettingsBrowserService => _settingsBrowserService;
@@ -66,7 +67,7 @@ public partial class MainViewModel : ObservableObject
     // Project list for filter
     public ObservableCollection<Project> Projects { get; } = [];
 
-    public MainViewModel(DataStore dataStore, CopilotService copilotService)
+    public MainViewModel(DataStore dataStore, CopilotService copilotService, bool forceOnboarding = false)
     {
         _dataStore = dataStore;
         _copilotService = copilotService;
@@ -76,7 +77,20 @@ public partial class MainViewModel : ObservableObject
         _isDarkTheme = settings.IsDarkTheme;
         _isCompactDensity = settings.IsCompactDensity;
         _userName = settings.UserName ?? "";
-        _isOnboarded = settings.IsOnboarded;
+        _isOnboarded = settings.IsOnboarded && !forceOnboarding;
+
+        // Onboarding ViewModel — available even if already onboarded (for --onboarding flag)
+        OnboardingVM = new OnboardingViewModel(dataStore, copilotService);
+        OnboardingVM.OnboardingCompleted += () =>
+        {
+            UserName = OnboardingVM.UserName;
+            IsDarkTheme = OnboardingVM.IsDarkTheme;
+            IsOnboarded = true;
+
+            // Refresh memories in case learning created some
+            ChatVM.RefreshComposerCatalogs();
+        };
+        OnboardingVM.ThemeChanged += isDark => IsDarkTheme = isDark;
 
         ChatVM = new ChatViewModel(dataStore, copilotService);
         SkillsVM = new SkillsViewModel(dataStore);

@@ -39,8 +39,6 @@ public partial class MainWindow : Window
     private TextBox? _renameTextBox;
     private StackPanel? _projectFilterBar;
     private readonly List<(Project Project, PropertyChangedEventHandler Handler)> _projectFilterHandlers = [];
-    private ComboBox? _onboardingSexCombo;
-    private ComboBox? _onboardingLanguageCombo;
     private TextBox? _chatSearchBox;
     private ChatView? _chatView;
     private BrowserView? _browserView;
@@ -170,8 +168,6 @@ public partial class MainWindow : Window
         _renameTextBox = this.FindControl<TextBox>("RenameTextBox");
         _projectFilterBar = this.FindControl<StackPanel>("ProjectFilterBar");
 
-        _onboardingSexCombo = this.FindControl<ComboBox>("OnboardingSexCombo");
-        _onboardingLanguageCombo = this.FindControl<ComboBox>("OnboardingLanguageCombo");
         _chatSearchBox = this.FindControl<TextBox>("ChatSearchBox");
         _chatView = this.FindControl<ChatView>("PageChat");
         _browserHost = this.FindControl<ContentControl>("BrowserHost");
@@ -188,27 +184,6 @@ public partial class MainWindow : Window
         _diffHost = this.FindControl<ContentControl>("DiffHost");
         _diffFileNameText = this.FindControl<TextBlock>("DiffFileNameText");
         _planIsland = this.FindControl<Border>("PlanIsland");
-
-        // Populate onboarding ComboBoxes
-        if (_onboardingSexCombo is not null)
-        {
-            _onboardingSexCombo.ItemsSource = new[]
-            {
-                Loc.Onboarding_SexMale,
-                Loc.Onboarding_SexFemale,
-                Loc.Onboarding_SexPreferNot,
-            };
-            _onboardingSexCombo.PlaceholderText = Loc.Onboarding_Sex;
-            _onboardingSexCombo.SelectedIndex = 0;
-        }
-
-        if (_onboardingLanguageCombo is not null)
-        {
-            _onboardingLanguageCombo.ItemsSource =
-                Loc.AvailableLanguages.Select(l => $"{l.DisplayName} ({l.Code})").ToArray();
-            _onboardingLanguageCombo.PlaceholderText = Loc.Onboarding_Language;
-            _onboardingLanguageCombo.SelectedIndex = 0;
-        }
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)
@@ -663,7 +638,14 @@ public partial class MainWindow : Window
     private void UpdateOnboarding(bool isOnboarded)
     {
         if (_onboardingPanel is not null) _onboardingPanel.IsVisible = !isOnboarded;
-        if (_mainPanel is not null) _mainPanel.IsVisible = isOnboarded;
+        if (_mainPanel is not null) _mainPanel.IsVisible = true;
+
+        // Animate the main app entrance when onboarding completes
+        if (isOnboarded && _mainPanel is not null)
+        {
+            AnimateShellSectionChange(_pages.FirstOrDefault(p => p?.IsVisible == true),
+                _sidebarPanels.FirstOrDefault(p => p?.IsVisible == true), CancellationToken.None);
+        }
     }
 
     private void ShowPage(int index)

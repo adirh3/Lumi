@@ -25,6 +25,8 @@ public enum CopilotSignInResult
 public class CopilotService : IAsyncDisposable
 {
     private CopilotClient? _client;
+    /// <summary>Exposes the underlying CopilotClient for advanced usage (e.g. test harness).</summary>
+    public CopilotClient? Client => _client;
     private List<ModelInfo>? _models;
     private string? _fastestModelId;
     private long _connectionGeneration;
@@ -505,6 +507,9 @@ public class CopilotService : IAsyncDisposable
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
 
+        // AvailableTools = only these tools are usable (whitelist, no built-in SDK tools)
+        var toolNames = tools.Select(t => t.Name).ToList();
+
         var config = new SessionConfig
         {
             Model = model,
@@ -515,13 +520,7 @@ public class CopilotService : IAsyncDisposable
                 Mode = SystemMessageMode.Replace
             },
             Tools = tools,
-            ExcludedTools =
-            [
-                "web_fetch", "web_search",
-                "editFile", "readFile", "listDirectory", "createFile", "deleteFile",
-                "runTerminalCommand", "getTerminalOutput",
-                "searchFiles", "getFileInfo",
-            ],
+            AvailableTools = toolNames,
             OnPermissionRequest = PermissionHandler.ApproveAll,
         };
 

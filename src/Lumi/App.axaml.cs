@@ -34,7 +34,7 @@ public partial class App : Application
             Loc.Load(dataStore.Data.Settings.Language);
 
             var copilotService = new CopilotService();
-            var vm = new MainViewModel(dataStore, copilotService);
+            var vm = new MainViewModel(dataStore, copilotService, Program.ForceOnboarding);
 
             // Dispose CopilotService (stops the CLI process) on app shutdown
             desktop.ShutdownRequested += async (_, _) =>

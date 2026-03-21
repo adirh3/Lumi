@@ -1,0 +1,406 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.OnboardingView"
+             x:DataType="vm:OnboardingViewModel"
+             x:CompileBindings="True">
+
+  <UserControl.Styles>
+    <Style Selector="StackPanel.step-content">
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.3" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <Style Selector="Border.feature-card">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface0}" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
+      <Setter Property="Padding" Value="14,12" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
+      <Setter Property="RenderTransform" Value="scale(1)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.15" Easing="CubicEaseOut" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.15" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.feature-card:pointerover">
+      <Setter Property="RenderTransform" Value="scale(1.02)" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+
+    <Style Selector="Border.stat-card">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
+      <Setter Property="Padding" Value="16,12" />
+      <Setter Property="MinWidth" Value="100" />
+    </Style>
+  </UserControl.Styles>
+
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+  <Panel>
+    <Border HorizontalAlignment="Center" VerticalAlignment="Center"
+            MaxWidth="560" MinWidth="400" Margin="24">
+      <StackPanel Spacing="24">
+
+        <!-- Branding -->
+        <Border Width="56" Height="56" CornerRadius="28"
+                Background="{DynamicResource Brush.AccentGradient}"
+                HorizontalAlignment="Center">
+          <Image Source="/Assets/lumi-icon.png" Width="36" Height="36"
+                 RenderOptions.BitmapInterpolationMode="HighQuality"
+                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+
+        <!-- Step Flow -->
+        <sc:StrataStepFlow x:Name="StepFlow"
+                           CurrentStep="{Binding CurrentStep}"
+                           DisableFutureSteps="True"
+                           Step0Title="{loc:Str Onboarding_StepWelcome}"
+                           Step1Title="{loc:Str Onboarding_StepLearn}"
+                           Step2Title="{loc:Str Onboarding_StepScan}"
+                           Step3Title="{loc:Str Onboarding_StepMeet}"
+                           Step4Title="{loc:Str Onboarding_StepReady}">
+
+          <!-- STEP 0: Welcome -->
+          <sc:StrataStepFlow.Step0Content>
+            <StackPanel Classes="step-content" Spacing="16">
+              <StackPanel Spacing="4">
+                <TextBlock Classes="headline" Text="{loc:Str Onboarding_Hello}" HorizontalAlignment="Center" />
+                <TextBlock Classes="secondary" Text="{loc:Str Onboarding_Subtitle}"
+                           HorizontalAlignment="Center" TextAlignment="Center"
+                           TextWrapping="Wrap" MaxWidth="360" />
+              </StackPanel>
+              <StackPanel Spacing="10">
+                <TextBox x:Name="OnboardingNameBox" PlaceholderText="{loc:Str Onboarding_NameWatermark}" Text="{Binding UserName}" />
+                <Grid ColumnDefinitions="*,8,*">
+                  <ComboBox x:Name="OnboardingSexCombo" Grid.Column="0"
+                            HorizontalAlignment="Stretch" SelectedIndex="{Binding SexIndex}" />
+                  <ComboBox x:Name="OnboardingLanguageCombo" Grid.Column="2"
+                            HorizontalAlignment="Stretch" SelectedIndex="{Binding LanguageIndex}" />
+                </Grid>
+                <Border CornerRadius="{DynamicResource Radius.Base}"
+                        Background="{DynamicResource Brush.SurfaceSubtle}" Padding="14,8">
+                  <DockPanel>
+                    <ToggleSwitch DockPanel.Dock="Right" IsChecked="{Binding IsDarkTheme}"
+                                  VerticalAlignment="Center" Margin="12,0,0,0"
+                                  OnContent="" OffContent="" />
+                    <TextBlock Text="{loc:Str Onboarding_DarkMode}" FontWeight="Medium" VerticalAlignment="Center" />
+                  </DockPanel>
+                </Border>
+              </StackPanel>
+              <Button Classes="accent" Content="{loc:Str Onboarding_Continue}"
+                      Command="{Binding ContinueToLearnCommand}"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                      Padding="12,10" FontWeight="SemiBold" />
+            </StackPanel>
+          </sc:StrataStepFlow.Step0Content>
+
+          <!-- STEP 1: Learn -->
+          <sc:StrataStepFlow.Step1Content>
+            <StackPanel Classes="step-content" Spacing="16">
+              <StackPanel Spacing="4">
+                <TextBlock x:Name="LearnTitleText" Classes="headline" HorizontalAlignment="Center" />
+                <TextBlock Classes="secondary" Text="{loc:Str Onboarding_LearnDescription}"
+                           HorizontalAlignment="Center" TextAlignment="Center"
+                           TextWrapping="Wrap" MaxWidth="420" />
+              </StackPanel>
+              <Grid ColumnDefinitions="*,8,*" RowDefinitions="Auto,8,Auto">
+                <Border Grid.Row="0" Grid.Column="0" Classes="feature-card">
+                  <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <TextBlock Text="🖥️" FontSize="16" />
+                      <TextBlock Text="{loc:Str Onboarding_LearnFeatureApps}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Classes="secondary" FontSize="12" Text="{loc:Str Onboarding_LearnFeatureAppsDesc}" />
+                  </StackPanel>
+                </Border>
+                <Border Grid.Row="0" Grid.Column="2" Classes="feature-card">
+                  <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <TextBlock Text="🌐" FontSize="16" />
+                      <TextBlock Text="{loc:Str Onboarding_LearnFeatureBrowsing}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Classes="secondary" FontSize="12" Text="{loc:Str Onboarding_LearnFeatureBrowsingDesc}" />
+                  </StackPanel>
+                </Border>
+                <Border Grid.Row="2" Grid.Column="0" Classes="feature-card">
+                  <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <TextBlock Text="📁" FontSize="16" />
+                      <TextBlock Text="{loc:Str Onboarding_LearnFeatureFiles}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Classes="secondary" FontSize="12" Text="{loc:Str Onboarding_LearnFeatureFilesDesc}" />
+                  </StackPanel>
+                </Border>
+                <Border Grid.Row="2" Grid.Column="2" Classes="feature-card">
+                  <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <TextBlock Text="🎯" FontSize="16" />
+                      <TextBlock Text="{loc:Str Onboarding_LearnFeatureProfile}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Classes="secondary" FontSize="12" Text="{loc:Str Onboarding_LearnFeatureProfileDesc}" />
+                  </StackPanel>
+                </Border>
+              </Grid>
+              <TextBlock Text="{loc:Str Onboarding_LearnPrivacy}"
+                         HorizontalAlignment="Center" Opacity="0.7" FontSize="12" />
+              <StackPanel Spacing="8">
+                <Button Classes="accent" Content="{loc:Str Onboarding_LearnAccept}"
+                        Command="{Binding AcceptLearningCommand}"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        Padding="12,10" FontWeight="SemiBold" />
+                <Button Classes="subtle" Content="{loc:Str Onboarding_LearnSkip}"
+                        Command="{Binding SkipLearningCommand}"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        Padding="10,8" Opacity="0.8" />
+              </StackPanel>
+            </StackPanel>
+          </sc:StrataStepFlow.Step1Content>
+
+          <!-- STEP 2: Scan -->
+          <sc:StrataStepFlow.Step2Content>
+            <StackPanel Classes="step-content" Spacing="14">
+              <StackPanel Spacing="4">
+                <TextBlock Classes="headline" Text="{loc:Str Onboarding_DiscoverTitle}" HorizontalAlignment="Center" />
+                <TextBlock x:Name="DiscoverSubtitleText" Classes="secondary"
+                           HorizontalAlignment="Center" TextAlignment="Center"
+                           TextWrapping="Wrap" MaxWidth="400" />
+              </StackPanel>
+
+              <!-- Scan progress cards -->
+              <ItemsControl ItemsSource="{Binding Categories}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:DiscoveryCategoryViewModel">
+                    <Border Margin="0,0,0,4" Padding="10,8"
+                            Background="{DynamicResource Brush.Surface0}"
+                            CornerRadius="{DynamicResource Radius.Base}">
+                      <DockPanel>
+                        <!-- Status indicator -->
+                        <Panel DockPanel.Dock="Left" Width="18" Height="18" VerticalAlignment="Center" Margin="0,0,10,0">
+                          <!-- Pending: empty circle -->
+                          <Border Width="14" Height="14" CornerRadius="7"
+                                  BorderBrush="{DynamicResource Brush.BorderDefault}" BorderThickness="1.5"
+                                  IsVisible="{Binding IsPending}" />
+                          <!-- Scanning: pulsing accent dot -->
+                          <Border Width="14" Height="14" CornerRadius="7"
+                                  Background="{DynamicResource Brush.AccentDefault}"
+                                  IsVisible="{Binding IsScanning}"
+                                  Opacity="0.7">
+                            <Border.Styles>
+                              <Style Selector="Border[IsVisible=True]">
+                                <Style.Animations>
+                                  <Animation Duration="0:0:0.8" IterationCount="INFINITE" PlaybackDirection="Alternate">
+                                    <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.4" /></KeyFrame>
+                                    <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1.0" /></KeyFrame>
+                                  </Animation>
+                                </Style.Animations>
+                              </Style>
+                            </Border.Styles>
+                          </Border>
+                          <!-- Complete: green check -->
+                          <Border Width="14" Height="14" CornerRadius="7"
+                                  Background="{DynamicResource Brush.SuccessDefault}"
+                                  IsVisible="{Binding IsComplete}">
+                            <TextBlock Text="✓" Foreground="White" FontSize="9" FontWeight="Bold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                          </Border>
+                          <!-- Skipped: dimmed circle -->
+                          <Border Width="14" Height="14" CornerRadius="7"
+                                  BorderBrush="{DynamicResource Brush.TextTertiary}" BorderThickness="1.5"
+                                  IsVisible="{Binding IsSkipped}" />
+                        </Panel>
+                        <!-- Count badge -->
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding StatusText}" FontSize="11"
+                                   Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center"
+                                   Margin="8,0,0,0" />
+                        <!-- Category name -->
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding Icon}" FontSize="13" />
+                          <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Medium" />
+                        </StackPanel>
+                      </DockPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <!-- Scan-phase typing indicator -->
+              <StackPanel Orientation="Horizontal" Spacing="8"
+                          HorizontalAlignment="Center"
+                          IsVisible="{Binding IsScanPhase}">
+                <sc:StrataTypingIndicator />
+                <TextBlock Text="{Binding ScanPhaseStatus}" FontSize="12"
+                           Foreground="{DynamicResource Brush.TextSecondary}" FontWeight="Medium" />
+              </StackPanel>
+
+              <!-- Skip button -->
+              <Button Classes="subtle" Content="{loc:Str Onboarding_DiscoverSkip}"
+                      Command="{Binding SkipDiscoveryCommand}"
+                      HorizontalAlignment="Center" Padding="12,6" FontSize="12" Opacity="0.7"
+                      IsVisible="{Binding IsDiscovering}" />
+            </StackPanel>
+          </sc:StrataStepFlow.Step2Content>
+
+          <!-- STEP 3: Meet Lumi (Agent — single card carousel) -->
+          <sc:StrataStepFlow.Step3Content>
+            <StackPanel Classes="step-content" Spacing="16">
+
+              <!-- Header with activity orb -->
+              <StackPanel Spacing="6">
+                <TextBlock Classes="headline" Text="{loc:Str Onboarding_DiscoverTitle}" HorizontalAlignment="Center" />
+                <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                  <sc:StrataOrb State="Active" IsVisible="{Binding IsDiscovering}" />
+                  <TextBlock x:Name="AgentSubtitleText" Classes="secondary"
+                             TextAlignment="Center" TextWrapping="Wrap" MaxWidth="380" />
+                </StackPanel>
+              </StackPanel>
+
+              <!-- Card area -->
+              <Panel>
+
+                <!-- Waiting/thinking placeholder (shown when no card and no question yet) -->
+                <Border Background="{DynamicResource Brush.Surface0}"
+                        CornerRadius="{DynamicResource Radius.Base}"
+                        Padding="20,16"
+                        BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                        BorderThickness="1"
+                        IsVisible="{Binding ShowPlaceholder}"
+                        VerticalAlignment="Top">
+                  <StackPanel Spacing="12" HorizontalAlignment="Center" VerticalAlignment="Center"
+                              Margin="0,20">
+                    <sc:StrataOrb State="Active" HorizontalAlignment="Center" />
+                    <TextBlock Text="Lumi is exploring your PC…" FontSize="13"
+                               Foreground="{DynamicResource Brush.TextTertiary}"
+                               HorizontalAlignment="Center" />
+                  </StackPanel>
+                </Border>
+
+                <!-- Insight card — clean, markdown rendered -->
+                <Border Background="{DynamicResource Brush.Surface0}"
+                        CornerRadius="{DynamicResource Radius.Base}"
+                        Padding="20,16"
+                        BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                        BorderThickness="1"
+                        IsVisible="{Binding HasCard}"
+                        VerticalAlignment="Top">
+                  <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="{Binding CardProgress}"
+                               FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}"
+                               HorizontalAlignment="Right" Margin="0,0,0,6" />
+                    <StackPanel Spacing="6">
+                      <TextBlock Text="{Binding CardTitle}" FontSize="14" FontWeight="SemiBold"
+                                 Foreground="{DynamicResource Brush.TextDefault}"
+                                 TextWrapping="Wrap"
+                                 IsVisible="{Binding CardTitle.Length}" />
+                      <sc:StrataMarkdown Markdown="{Binding CardBody}" IsInline="True" />
+                    </StackPanel>
+                  </DockPanel>
+                </Border>
+
+                <!-- Streaming card — shows live agent text with typing feel (only when no static card) -->
+                <Border Background="{DynamicResource Brush.Surface0}"
+                        CornerRadius="{DynamicResource Radius.Base}"
+                        Padding="20,16"
+                        BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                        BorderThickness="1"
+                        IsVisible="{Binding ShowStreaming}"
+                        VerticalAlignment="Top">
+                  <sc:StrataMarkdown Markdown="{Binding AgentOutput}" IsInline="True" />
+                </Border>
+
+                <!-- Question card (populated by code-behind, replaces insight card) -->
+                <ContentControl x:Name="QuestionCardHost" VerticalAlignment="Top" />
+
+              </Panel>
+
+              <!-- Skip button -->
+              <Button Classes="subtle" Content="{loc:Str Onboarding_DiscoverSkip}"
+                      Command="{Binding SkipDiscoveryCommand}"
+                      HorizontalAlignment="Center" Padding="12,6" FontSize="12" Opacity="0.7"
+                      IsVisible="{Binding IsDiscovering}" />
+            </StackPanel>
+          </sc:StrataStepFlow.Step3Content>
+
+          <!-- STEP 4: Ready -->
+          <sc:StrataStepFlow.Step4Content>
+            <StackPanel Classes="step-content" Spacing="20">
+
+              <!-- Celebration header -->
+              <StackPanel Spacing="8">
+                <TextBlock Text="🎉" FontSize="36" HorizontalAlignment="Center" />
+                <TextBlock x:Name="ReadyTitleText" Classes="headline" HorizontalAlignment="Center" />
+                <TextBlock Classes="secondary" Text="{loc:Str Onboarding_ReadySubtitle}"
+                           HorizontalAlignment="Center" TextAlignment="Center"
+                           TextWrapping="Wrap" MaxWidth="380"
+                           IsVisible="{Binding !LearningWasSkipped}" />
+                <TextBlock Classes="secondary" Text="{loc:Str Onboarding_ReadySkippedSubtitle}"
+                           HorizontalAlignment="Center" TextAlignment="Center"
+                           TextWrapping="Wrap" MaxWidth="380"
+                           IsVisible="{Binding LearningWasSkipped}" />
+              </StackPanel>
+
+              <!-- Stats row -->
+              <Grid ColumnDefinitions="*,8,*,8,*"
+                    IsVisible="{Binding !LearningWasSkipped}">
+                <Border Grid.Column="0" Classes="stat-card">
+                  <StackPanel HorizontalAlignment="Center" Spacing="2">
+                    <TextBlock Text="{Binding TotalDiscoveries}" FontSize="22" FontWeight="Bold"
+                               HorizontalAlignment="Center" Foreground="{DynamicResource Brush.AccentDefault}" />
+                    <TextBlock Text="Discoveries" FontSize="11"
+                               Foreground="{DynamicResource Brush.TextSecondary}" HorizontalAlignment="Center" />
+                  </StackPanel>
+                </Border>
+                <Border Grid.Column="2" Classes="stat-card">
+                  <StackPanel HorizontalAlignment="Center" Spacing="2">
+                    <TextBlock Text="{Binding MemoriesCreated}" FontSize="22" FontWeight="Bold"
+                               HorizontalAlignment="Center" Foreground="{DynamicResource Brush.AccentDefault}" />
+                    <TextBlock Text="Memories" FontSize="11"
+                               Foreground="{DynamicResource Brush.TextSecondary}" HorizontalAlignment="Center" />
+                  </StackPanel>
+                </Border>
+                <Border Grid.Column="4" Classes="stat-card">
+                  <StackPanel HorizontalAlignment="Center" Spacing="2">
+                    <TextBlock Text="{Binding CardIndex}" FontSize="22" FontWeight="Bold"
+                               HorizontalAlignment="Center" Foreground="{DynamicResource Brush.AccentDefault}" />
+                    <TextBlock Text="Insights" FontSize="11"
+                               Foreground="{DynamicResource Brush.TextSecondary}" HorizontalAlignment="Center" />
+                  </StackPanel>
+                </Border>
+              </Grid>
+
+              <!-- What Lumi learned summary -->
+              <Border Background="{DynamicResource Brush.Surface0}"
+                      CornerRadius="{DynamicResource Radius.Base}"
+                      Padding="16,12"
+                      IsVisible="{Binding !LearningWasSkipped}">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="What I learned" FontSize="13" FontWeight="SemiBold"
+                             Foreground="{DynamicResource Brush.TextDefault}" />
+                  <TextBlock Text="I've saved your development environment, project ecosystem, coding tools, browser habits, and personal preferences. These memories will help me give you personalized assistance from day one."
+                             FontSize="12" TextWrapping="Wrap" LineHeight="18"
+                             Foreground="{DynamicResource Brush.TextSecondary}" />
+                </StackPanel>
+              </Border>
+
+              <!-- Get Started button -->
+              <Button Classes="accent" Content="{loc:Str Onboarding_GetStarted}"
+                      Command="{Binding FinishOnboardingCommand}"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                      Padding="14,12" FontWeight="SemiBold" FontSize="15" />
+            </StackPanel>
+          </sc:StrataStepFlow.Step4Content>
+
+        </sc:StrataStepFlow>
+      </StackPanel>
+    </Border>
+  </Panel>
+  </ScrollViewer>
+</UserControl>
