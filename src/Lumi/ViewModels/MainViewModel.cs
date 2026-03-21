@@ -39,9 +39,13 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private int _onboardingLanguageIndex; // index into Loc.AvailableLanguages
     [ObservableProperty] private Guid? _selectedProjectFilter;
     [ObservableProperty] private string _chatSearchQuery = "";
+    [ObservableProperty] private bool _isSidebarCollapsed;
 
     [RelayCommand]
     private void ClearChatSearch() => ChatSearchQuery = "";
+
+    [RelayCommand]
+    private void ToggleSidebar() => IsSidebarCollapsed = !IsSidebarCollapsed;
 
     [ObservableProperty] private Guid? _activeChatId;
 

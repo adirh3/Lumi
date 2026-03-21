@@ -54,6 +54,8 @@ public partial class MainWindow : Window
     private Border? _browserIsland;
     private GridSplitter? _browserSplitter;
     private Grid? _chatContentGrid;
+    private Border? _sidebarBorder;
+    private CancellationTokenSource? _sidebarAnimCts;
     private Border? _diffIsland;
     private ContentControl? _diffHost;
     private DiffView? _diffView;
@@ -98,6 +100,7 @@ public partial class MainWindow : Window
     {
         base.OnDetachedFromVisualTree(e);
         DisposeCancellationTokenSource(ref _shellAnimCts);
+        DisposeCancellationTokenSource(ref _sidebarAnimCts);
         DisposeCancellationTokenSource(ref _titleAnimCts);
         DisposeCancellationTokenSource(ref _browserAnimCts);
         DisposeCancellationTokenSource(ref _previewAnimCts);
@@ -131,6 +134,7 @@ public partial class MainWindow : Window
         _acrylicFallback = this.FindControl<Border>("AcrylicFallback");
         _chatIsland = this.FindControl<Border>("ChatIsland");
         _windowContentRoot = this.FindControl<Border>("WindowContentRoot");
+        _sidebarBorder = this.FindControl<Border>("SidebarBorder");
 
         _pages =
         [
@@ -371,6 +375,14 @@ public partial class MainWindow : Window
                 _chatSearchBox?.Focus();
                 _chatSearchBox?.SelectAll();
             }, DispatcherPriority.Input);
+            e.Handled = true;
+            return;
+        }
+
+        // ── Ctrl+B — Toggle sidebar ──
+        if (ctrl && !shift && e.Key == Key.B)
+        {
+            vm.ToggleSidebarCommand.Execute(null);
             e.Handled = true;
             return;
         }
@@ -617,6 +629,10 @@ public partial class MainWindow : Window
                 {
                     RebuildProjectFilterBar(vm);
                 }
+                else if (args.PropertyName == nameof(MainViewModel.IsSidebarCollapsed))
+                {
+                    AnimateSidebarCollapse(vm.IsSidebarCollapsed);
+                }
             };
 
             // When project list changes, rebuild filter bar
@@ -781,6 +797,44 @@ public partial class MainWindow : Window
 
         control.Opacity = 1;
         control.RenderTransform = null;
+    }
+
+    private async void AnimateSidebarCollapse(bool collapse)
+    {
+        if (_sidebarBorder is null) return;
+
+        var ct = ReplaceCancellationTokenSource(ref _sidebarAnimCts).Token;
+        var from = collapse ? 240.0 : 0.0;
+        var to = collapse ? 0.0 : 240.0;
+
+        var anim = new Avalonia.Animation.Animation
+        {
+            Duration = TimeSpan.FromMilliseconds(200),
+            Easing = new SplineEasing(0.16, 1, 0.3, 1),
+            FillMode = FillMode.Forward,
+            Children =
+            {
+                new KeyFrame
+                {
+                    Cue = new Cue(0),
+                    Setters = { new Setter(WidthProperty, from) }
+                },
+                new KeyFrame
+                {
+                    Cue = new Cue(1),
+                    Setters = { new Setter(WidthProperty, to) }
+                },
+            }
+        };
+
+        try
+        {
+            await anim.RunAsync(_sidebarBorder, ct);
+        }
+        catch (OperationCanceledException) { }
+        catch (ObjectDisposedException) { }
+
+        _sidebarBorder.Width = to;
     }
 
     private void UpdateNavHighlight(int index)

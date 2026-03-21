@@ -152,7 +152,7 @@
     <DockPanel x:Name="MainPanel" IsVisible="False">
 
       <!-- ═══ ALWAYS-VISIBLE LEFT SIDEBAR ═══ -->
-      <Border x:Name="SidebarBorder" DockPanel.Dock="Left" Width="240">
+      <Border x:Name="SidebarBorder" DockPanel.Dock="Left" Width="240" ClipToBounds="True">
         <DockPanel>
 
           <!-- ── Top: Title bar inset (respects window chrome) ── -->
