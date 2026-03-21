@@ -38,8 +38,10 @@ public partial class ChatViewModel
         var cts = new CancellationTokenSource();
         debounceCts = cts;
 
-        // Clear completed IDs under the lock (caller holds bgResumeGate)
+        // Clear completed IDs and release the session-keep-alive count (caller holds bgResumeGate)
+        var count = completedIds.Count;
         completedIds.Clear();
+        Interlocked.Add(ref runtime.PendingBackgroundTaskCount, -count);
 
         // Prevent session release while the debounce timer is active
         runtime.HasPendingAutoResume = true;

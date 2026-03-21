@@ -723,7 +723,6 @@ public partial class ChatViewModel
                         var isBgTaskCompletion = pendingBackgroundTaskIds.Remove(toolEnd.Data.ToolCallId);
                         if (isBgTaskCompletion)
                         {
-                            Interlocked.Decrement(ref runtime.PendingBackgroundTaskCount);
                             completedBackgroundTaskIds.Add(toolEnd.Data.ToolCallId);
                             if (sessionIsIdle)
                                 ScheduleBackgroundTaskAutoResume(session, chat, runtime, agentName, ref bgResumeDebounceCts, completedBackgroundTaskIds);
@@ -924,14 +923,14 @@ public partial class ChatViewModel
                     {
                         if (completedBackgroundTaskIds.Count > 0)
                         {
+                            var bgCount = completedBackgroundTaskIds.Count;
                             var lastMsg = chat.Messages.Count > 0 ? chat.Messages[^1] : null;
                             var alreadyHandled = lastMsg?.Role == "assistant"
                                                  && !string.IsNullOrWhiteSpace(lastMsg.Content);
-                            completedBackgroundTaskIds.Clear();
                             if (alreadyHandled)
                             {
-                                // LLM handled the background task within the agentic loop —
-                                // still mark as unread and notify if user is on a different chat.
+                                completedBackgroundTaskIds.Clear();
+                                Interlocked.Add(ref runtime.PendingBackgroundTaskCount, -bgCount);
                                 bgTasksHandledThisTurn = true;
                             }
                             else
