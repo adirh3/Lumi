@@ -251,7 +251,8 @@
               <!-- ── Project filter pills ── -->
               <Border DockPanel.Dock="Top" Margin="10,8,10,0"
                       IsVisible="{Binding Projects.Count}">
-                <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                <ScrollViewer x:Name="ProjectFilterScroller"
+                              HorizontalScrollBarVisibility="Auto"
                               VerticalScrollBarVisibility="Disabled"
                               Classes="scroll-fade">
                   <StackPanel x:Name="ProjectFilterBar" Orientation="Horizontal" Spacing="4" />

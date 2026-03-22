@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     private Panel? _renameOverlay;
     private TextBox? _renameTextBox;
     private StackPanel? _projectFilterBar;
+    private ScrollViewer? _projectFilterScroller;
     private readonly List<(Project Project, PropertyChangedEventHandler Handler)> _projectFilterHandlers = [];
     private TextBox? _chatSearchBox;
     private ChatView? _chatView;
@@ -167,6 +168,9 @@ public partial class MainWindow : Window
         _renameOverlay = this.FindControl<Panel>("RenameOverlay");
         _renameTextBox = this.FindControl<TextBox>("RenameTextBox");
         _projectFilterBar = this.FindControl<StackPanel>("ProjectFilterBar");
+        _projectFilterScroller = this.FindControl<ScrollViewer>("ProjectFilterScroller");
+        if (_projectFilterScroller is not null)
+            _projectFilterScroller.PointerWheelChanged += OnProjectFilterScrollerWheel;
 
         _chatSearchBox = this.FindControl<TextBox>("ChatSearchBox");
         _chatView = this.FindControl<ChatView>("PageChat");
@@ -1087,6 +1091,14 @@ public partial class MainWindow : Window
         {
             // Silently ignore — user may not have access
         }
+    }
+
+    private void OnProjectFilterScrollerWheel(object? sender, PointerWheelEventArgs e)
+    {
+        if (_projectFilterScroller is null) return;
+        _projectFilterScroller.Offset = _projectFilterScroller.Offset.WithX(
+            _projectFilterScroller.Offset.X - e.Delta.Y * 50);
+        e.Handled = true;
     }
 
     private void RebuildProjectFilterBar(MainViewModel vm)
