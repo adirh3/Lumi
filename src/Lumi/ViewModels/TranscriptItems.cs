@@ -532,6 +532,7 @@ public partial class QuestionItem : TranscriptItem
     [ObservableProperty] private bool _allowMultiSelect;
     [ObservableProperty] private string? _selectedAnswer;
     [ObservableProperty] private bool _isAnswered;
+    [ObservableProperty] private bool _isExpired;
 
     public QuestionItem(string questionId, string question, string options, bool allowFreeText,
         Action<string, string>? submitAction = null, bool allowMultiSelect = false)

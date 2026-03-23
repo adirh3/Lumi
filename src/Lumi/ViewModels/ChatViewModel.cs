@@ -537,8 +537,8 @@ public partial class ChatViewModel : ObservableObject
                 ScrollToEndRequested?.Invoke();
             });
 
-            // Store questionId on the tool message so rebuild can recreate the question card.
-            // This must run regardless of which chat is currently displayed.
+            // Persist question data on the tool message so rebuild can recreate the question card.
+            // If no matching tool message exists (SDK native user-input path), create one.
             Dispatcher.UIThread.Post(() =>
             {
                 var owningChat = _dataStore.Data.Chats.Find(c => c.Id == inputHandlerChatId);
@@ -546,8 +546,22 @@ public partial class ChatViewModel : ObservableObject
                 {
                     var toolMsg = owningChat.Messages.LastOrDefault(m =>
                         m.ToolName == "ask_question" && m.ToolStatus == "InProgress" && m.QuestionId is null);
-                    if (toolMsg is not null)
-                        toolMsg.QuestionId = questionId;
+                    if (toolMsg is null)
+                    {
+                        toolMsg = new ChatMessage
+                        {
+                            Role = "tool",
+                            ToolName = "ask_question",
+                            ToolStatus = "InProgress",
+                            Content = "",
+                        };
+                        owningChat.Messages.Add(toolMsg);
+                    }
+                    toolMsg.QuestionId = questionId;
+                    toolMsg.QuestionText = request.Question;
+                    toolMsg.QuestionOptions = optionsStr;
+                    toolMsg.QuestionAllowFreeText = freeText;
+                    toolMsg.QuestionAllowMultiSelect = false;
                 }
             });
 
@@ -1025,6 +1039,10 @@ public partial class ChatViewModel : ObservableObject
         PromptText = "";
         _chatDrafts.Remove(CurrentChat?.Id ?? Guid.Empty);
         ClearSuggestions();
+
+        // Expire any pending question cards — the user chose to type instead
+        if (CurrentChat is not null)
+            CancelPendingQuestions(CurrentChat);
 
         var attachments = TakePendingAttachments();
         var createdChat = false;

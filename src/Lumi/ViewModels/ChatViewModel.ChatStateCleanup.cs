@@ -63,6 +63,35 @@ public partial class ChatViewModel
                 _pendingQuestions.Remove(questionId);
             }
         }
+
+        // Mark unanswered ask_question tool messages as Failed so rebuild renders them as expired
+        foreach (var msg in chat.Messages)
+        {
+            if (msg.ToolName == "ask_question"
+                && msg.ToolStatus == "InProgress"
+                && string.IsNullOrEmpty(msg.ToolOutput))
+            {
+                msg.ToolStatus = "Failed";
+            }
+        }
+
+        // Expire any live QuestionItem cards in the current transcript
+        ExpireUnansweredQuestions(chat.Id);
+    }
+
+    /// <summary>Sets IsExpired on all unanswered QuestionItems in the live transcript for the given chat.</summary>
+    private void ExpireUnansweredQuestions(Guid chatId)
+    {
+        if (CurrentChat?.Id != chatId) return;
+
+        foreach (var turn in TranscriptTurns)
+        {
+            foreach (var item in turn.Items)
+            {
+                if (item is QuestionItem q && !q.IsAnswered && !q.IsExpired)
+                    q.IsExpired = true;
+            }
+        }
     }
 
     private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest, bool deleteServerSession)

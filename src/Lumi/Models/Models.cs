@@ -18,6 +18,10 @@ public class ChatMessage
     public string? ToolStatus { get; set; } // InProgress, Completed, Failed
     public string? ToolOutput { get; set; }
     public string? QuestionId { get; set; }
+    public string? QuestionText { get; set; }
+    public string? QuestionOptions { get; set; }
+    public bool? QuestionAllowFreeText { get; set; }
+    public bool? QuestionAllowMultiSelect { get; set; }
     public bool IsStreaming { get; set; }
     public string? Model { get; set; }
     public List<string> Attachments { get; set; } = [];

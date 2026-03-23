@@ -162,26 +162,38 @@ public class TranscriptBuilder
         {
             if (IsRebuildingTranscript)
             {
-                var question = ToolDisplayHelper.ExtractJsonField(msgVm.Content, "question") ?? "";
-                var opts = ToolDisplayHelper.ExtractJsonField(msgVm.Content, "options") ?? "";
-                var answer = msgVm.Message.ToolOutput;
+                // Prefer first-class fields on ChatMessage; fall back to JSON parsing for older data
+                var msg = msgVm.Message;
+                var question = msg.QuestionText
+                    ?? ToolDisplayHelper.ExtractJsonField(msgVm.Content, "question") ?? "";
+                var opts = msg.QuestionOptions
+                    ?? ToolDisplayHelper.ExtractJsonField(msgVm.Content, "options") ?? "";
+                var freeText = msg.QuestionAllowFreeText
+                    ?? string.Equals(ToolDisplayHelper.ExtractJsonField(msgVm.Content, "allowFreeText"), "true", StringComparison.OrdinalIgnoreCase);
+                var multiSelect = msg.QuestionAllowMultiSelect
+                    ?? string.Equals(ToolDisplayHelper.ExtractJsonField(msgVm.Content, "allowMultiSelect"), "true", StringComparison.OrdinalIgnoreCase);
+
+                var answer = msg.ToolOutput;
                 if (!string.IsNullOrEmpty(answer) && answer.StartsWith("User answered: ", StringComparison.Ordinal))
                     answer = answer["User answered: ".Length..];
 
-                var qid = msgVm.Message.QuestionId ?? ("replay_" + msgVm.Message.Id);
-                var freeText = string.Equals(ToolDisplayHelper.ExtractJsonField(msgVm.Content, "allowFreeText"), "true", StringComparison.OrdinalIgnoreCase);
-                var multiSelect = string.Equals(ToolDisplayHelper.ExtractJsonField(msgVm.Content, "allowMultiSelect"), "true", StringComparison.OrdinalIgnoreCase);
+                var qid = msg.QuestionId ?? ("replay_" + msg.Id);
 
                 CloseCurrentToolGroup();
                 var isAnswered = !string.IsNullOrEmpty(answer);
-                var card = new QuestionItem(qid, question, opts, freeText && !isAnswered, _submitQuestionAnswerAction, multiSelect && !isAnswered);
+                var isExpired = !isAnswered && msg.ToolStatus is "Completed" or "Failed";
+                var card = new QuestionItem(qid, question, opts, freeText && !isAnswered && !isExpired, _submitQuestionAnswerAction, multiSelect && !isAnswered && !isExpired);
                 if (isAnswered)
                 {
                     card.SelectedAnswer = answer;
                     card.IsAnswered = true;
                 }
+                else if (isExpired)
+                {
+                    card.IsExpired = true;
+                }
 
-                AppendToCurrentTurn(card, TurnStableIdFor($"question:{msgVm.Message.Id}"));
+                AppendToCurrentTurn(card, TurnStableIdFor($"question:{msg.Id}"));
             }
 
             return;

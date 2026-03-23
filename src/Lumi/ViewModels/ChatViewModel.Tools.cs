@@ -527,7 +527,8 @@ public partial class ChatViewModel
                     ScrollToEndRequested?.Invoke();
                 });
 
-                // Store questionId on the tool message so it can be recovered during rebuild
+                // Store questionId and question data on the tool message so it can be recovered during rebuild.
+                // If no matching tool message exists, create one to guarantee rebuild works.
                 Dispatcher.UIThread.Post(() =>
                 {
                     var chat = _dataStore.Data.Chats.Find(c => c.Id == chatId);
@@ -535,8 +536,22 @@ public partial class ChatViewModel
                     {
                         var toolMsg = chat.Messages.LastOrDefault(m =>
                             m.ToolName == "ask_question" && m.ToolStatus == "InProgress" && m.QuestionId is null);
-                        if (toolMsg is not null)
-                            toolMsg.QuestionId = questionId;
+                        if (toolMsg is null)
+                        {
+                            toolMsg = new Models.ChatMessage
+                            {
+                                Role = "tool",
+                                ToolName = "ask_question",
+                                ToolStatus = "InProgress",
+                                Content = "",
+                            };
+                            chat.Messages.Add(toolMsg);
+                        }
+                        toolMsg.QuestionId = questionId;
+                        toolMsg.QuestionText = question;
+                        toolMsg.QuestionOptions = options;
+                        toolMsg.QuestionAllowFreeText = freeText;
+                        toolMsg.QuestionAllowMultiSelect = multiSelect;
                     }
                 });
 

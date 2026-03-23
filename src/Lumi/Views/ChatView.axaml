@@ -599,6 +599,7 @@
                              AllowMultiSelect="{Binding AllowMultiSelect}"
                              SelectedAnswer="{Binding SelectedAnswer, Mode=TwoWay}"
                              IsAnswered="{Binding IsAnswered, Mode=TwoWay}"
+                             IsExpired="{Binding IsExpired}"
                              Margin="0,4" />
     </DataTemplate>
 
