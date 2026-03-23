@@ -101,7 +101,14 @@ public sealed class TranscriptTurnControl : UserControl
         if (newTurn is not null && Bounds.Height > 0)
             newTurn.MeasuredHeight = Bounds.Height;
 
-        RebuildItemHosts();
+        // Only build children when attached to the visual tree. The inner
+        // ContentPresenters need to walk up the tree to resolve DataTemplates
+        // defined in ChatView.axaml. If built before attachment, the template
+        // lookup fails silently and the presenters measure at zero height,
+        // leaving the turn invisible. OnAttachedToVisualTree calls
+        // RebuildItemHosts once the tree connection is established.
+        if (_isAttachedToVisualTree)
+            RebuildItemHosts();
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
