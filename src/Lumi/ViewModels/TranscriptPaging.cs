@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -212,28 +211,11 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
     private double _initialLoadMilliseconds;
     private double _lastCompensationBeforeOffset;
     private double _lastCompensationAfterOffset;
-    private StreamWriter? _traceLog;
 
     public TranscriptWindowController(TranscriptPagingOptions? options = null)
     {
         _options = options ?? new TranscriptPagingOptions();
         MountedTurns = [];
-
-        if (_options.EnableDiagnostics)
-        {
-            try
-            {
-                var logDir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "Lumi");
-                Directory.CreateDirectory(logDir);
-                var logPath = Path.Combine(logDir, "transcript-paging-trace.log");
-                _traceLog = new StreamWriter(logPath, append: false) { AutoFlush = true };
-                _traceLog.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] Transcript paging trace started");
-            }
-            catch { /* best-effort logging */ }
-        }
-
         UpdateDiagnostics("init", "created");
     }
 
@@ -491,8 +473,6 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         if (_sourceTurns is not null)
             _sourceTurns.CollectionChanged -= OnSourceTurnsCollectionChanged;
 
-        _traceLog?.Dispose();
-        _traceLog = null;
         _disposed = true;
     }
 
@@ -513,9 +493,6 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         var wasMountedToLatestTail = previousPageCount > 0
             && _lastMountedPageIndex >= 0
             && _lastMountedPageIndex >= previousPageCount - 1;
-
-        TraceLog("source-pre", $"{e.Action} prevPages={previousPageCount} wasTail={wasMountedToLatestTail} first={_firstMountedPageIndex} last={_lastMountedPageIndex}");
-
         RebuildPages();
 
         if (_pages.Count == 0)
@@ -783,60 +760,6 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
 
         DiagnosticsText = builder.ToString();
         Debug.WriteLine($"[TranscriptWindow] {stage}: {reason} | {snapshot.MountedPageSummary}");
-
-        TraceLog(stage, reason);
-    }
-
-    private void TraceLog(string stage, string reason)
-    {
-        if (_traceLog is null)
-            return;
-
-        try
-        {
-            var sb = new StringBuilder(512);
-            sb.Append($"[{DateTime.UtcNow:HH:mm:ss.fff}] {stage}: {reason}");
-            sb.Append($" | pages={_pages.Count} first={_firstMountedPageIndex} last={_lastMountedPageIndex}");
-            sb.Append($" | mounted={MountedTurns.Count}");
-
-            // Log all source turns
-            if (_sourceTurns is not null)
-            {
-                sb.AppendLine();
-                sb.Append("  source[");
-                for (var i = 0; i < _sourceTurns.Count; i++)
-                {
-                    if (i > 0) sb.Append(", ");
-                    var t = _sourceTurns[i];
-                    sb.Append($"{t.StableId}({t.Items.Count}items)");
-                }
-                sb.Append(']');
-            }
-
-            // Log page→turn mapping
-            for (var i = 0; i < _pages.Count; i++)
-            {
-                var p = _pages[i];
-                var mounted = i >= _firstMountedPageIndex && i <= _lastMountedPageIndex;
-                sb.AppendLine();
-                sb.Append($"  page[{i}]{(mounted ? " MOUNTED" : " unmounted")} w={p.EstimatedWeight} turns={p.TurnCount}: ");
-                foreach (var t in p.Turns)
-                    sb.Append($"{t.StableId}({t.Items.Count}items) ");
-            }
-
-            // Log mounted turns
-            sb.AppendLine();
-            sb.Append("  MountedTurns=[");
-            for (var i = 0; i < MountedTurns.Count; i++)
-            {
-                if (i > 0) sb.Append(", ");
-                sb.Append(MountedTurns[i].StableId);
-            }
-            sb.Append(']');
-
-            _traceLog.WriteLine(sb.ToString());
-        }
-        catch { /* best-effort */ }
     }
 
     private static double SanitizeViewportHeight(double viewportHeight)
