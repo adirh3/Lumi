@@ -65,6 +65,7 @@ public partial class MainWindow : Window
     private TextBlock?[] _navLabels = [];
     private Rect[] _navHitRegions = [];
     private CancellationTokenSource? _sidebarAnimCts;
+    private CancellationTokenSource? _navHoverIntentCts;
     private Border? _diffIsland;
     private ContentControl? _diffHost;
     private DiffView? _diffView;
@@ -78,10 +79,12 @@ public partial class MainWindow : Window
     private int _currentShellIndex = -1;
     private int _activeNavIndex = -1;
     private int _hoveredNavIndex = -1;
+    private int _pendingNavHoverIndex = -1;
     private bool _isNavPillWidthLocked;
     private double[] _navBaseButtonWidths = [];
     private double[] _navMinButtonWidths = [];
     private MainViewModel? _wiredVm;
+    private const int NavHoverIntentDelayMs = 85;
 
     public MainWindow()
     {
@@ -115,6 +118,7 @@ public partial class MainWindow : Window
         base.OnDetachedFromVisualTree(e);
         DisposeCancellationTokenSource(ref _shellAnimCts);
         DisposeCancellationTokenSource(ref _sidebarAnimCts);
+        DisposeCancellationTokenSource(ref _navHoverIntentCts);
         DisposeCancellationTokenSource(ref _titleAnimCts);
         DisposeCancellationTokenSource(ref _browserAnimCts);
         DisposeCancellationTokenSource(ref _previewAnimCts);
@@ -889,18 +893,7 @@ public partial class MainWindow : Window
         foreach (var btn in _navButtons)
         {
             if (btn is null) continue;
-            var v = ElementComposition.GetElementVisual(btn);
-            if (v is null) continue;
-
-            var compositor = v.Compositor;
-            var offsetAnim = compositor.CreateVector3DKeyFrameAnimation();
-            offsetAnim.Target = "Offset";
-            offsetAnim.InsertExpressionKeyFrame(1f, "this.FinalValue");
-            offsetAnim.Duration = TimeSpan.FromMilliseconds(200);
-
-            var implicitAnims = compositor.CreateImplicitAnimationCollection();
-            implicitAnims["Offset"] = offsetAnim;
-            v.ImplicitAnimations = implicitAnims;
+            SetNavButtonOffsetAnimation(btn, enabled: true);
         }
     }
 
@@ -993,7 +986,7 @@ public partial class MainWindow : Window
 
     private void UpdateHoveredNavButton(Border pill, PointerEventArgs e)
     {
-        SetHoveredNavButton(GetHoveredNavButtonIndex(pill, e.GetPosition(pill)));
+        RequestHoveredNavButton(GetHoveredNavButtonIndex(pill, e.GetPosition(pill)));
     }
 
     private int GetHoveredNavButtonIndex(Border pill, Point pointerPosition)
@@ -1053,6 +1046,55 @@ public partial class MainWindow : Window
         ApplyNavButtonLayout(index);
     }
 
+    private void RequestHoveredNavButton(int index)
+    {
+        if (index == _hoveredNavIndex)
+        {
+            _pendingNavHoverIndex = -1;
+            DisposeCancellationTokenSource(ref _navHoverIntentCts);
+            return;
+        }
+
+        if (index < 0)
+        {
+            _pendingNavHoverIndex = -1;
+            DisposeCancellationTokenSource(ref _navHoverIntentCts);
+            SetHoveredNavButton(-1);
+            return;
+        }
+
+        if (_pendingNavHoverIndex == index)
+            return;
+
+        _pendingNavHoverIndex = index;
+        var cts = ReplaceCancellationTokenSource(ref _navHoverIntentCts);
+        _ = ApplyNavHoverIntentAsync(index, cts.Token);
+    }
+
+    private async Task ApplyNavHoverIntentAsync(int index, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(NavHoverIntentDelayMs, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (cancellationToken.IsCancellationRequested || _pendingNavHoverIndex != index)
+                return;
+
+            _pendingNavHoverIndex = -1;
+            SetHoveredNavButton(index);
+        }, DispatcherPriority.Input);
+    }
+
     private void ApplyNavButtonLayout(int hoveredIndex)
     {
         if (_navBaseButtonWidths.Length != _navButtons.Length || _navMinButtonWidths.Length != _navButtons.Length)
@@ -1071,12 +1113,36 @@ public partial class MainWindow : Window
                 continue;
 
             var isHovered = i == hoveredIndex;
+            SetNavButtonOffsetAnimation(button, enabled: !isHovered);
             SetClass(button, "hovered", isHovered);
             button.Padding = GetNavButtonPadding(reductions[i]);
 
             if (i < _navLabels.Length && _navLabels[i] is TextBlock label)
                 label.MaxWidth = isHovered ? MeasureNavLabelWidth(label) : 0;
         }
+    }
+
+    private static void SetNavButtonOffsetAnimation(Button button, bool enabled)
+    {
+        var visual = ElementComposition.GetElementVisual(button);
+        if (visual is null)
+            return;
+
+        if (!enabled)
+        {
+            visual.ImplicitAnimations = null;
+            return;
+        }
+
+        var compositor = visual.Compositor;
+        var offsetAnim = compositor.CreateVector3DKeyFrameAnimation();
+        offsetAnim.Target = "Offset";
+        offsetAnim.InsertExpressionKeyFrame(1f, "this.FinalValue");
+        offsetAnim.Duration = TimeSpan.FromMilliseconds(140);
+
+        var implicitAnims = compositor.CreateImplicitAnimationCollection();
+        implicitAnims["Offset"] = offsetAnim;
+        visual.ImplicitAnimations = implicitAnims;
     }
 
     private double[] DistributeNavReduction(int hoveredIndex, double requiredReduction)
@@ -1217,7 +1283,7 @@ public partial class MainWindow : Window
         var w = pill.Bounds.Width;
         var h = pill.Bounds.Height;
         visual.CenterPoint = new Avalonia.Vector3D(w / 2, h / 2, 0);
-        SetHoveredNavButton(-1);
+        RequestHoveredNavButton(-1);
 
         var compositor = visual.Compositor;
         var scaleAnim = compositor.CreateVector3DKeyFrameAnimation();

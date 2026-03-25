@@ -137,18 +137,27 @@
       <Setter Property="Opacity" Value="0" />
       <Setter Property="MaxWidth" Value="0" />
       <Setter Property="Margin" Value="0" />
+      <Setter Property="RenderTransform" Value="translateX(-2px)" />
       <Setter Property="IsHitTestVisible" Value="False" />
       <Setter Property="Transitions">
         <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.18" Easing="CubicEaseOut" />
+          <DoubleTransition Property="Opacity" Duration="0:0:0.16" Delay="0:0:0.04" Easing="CubicEaseOut" />
           <DoubleTransition Property="MaxWidth" Duration="0:0:0.2" Easing="CubicEaseOut" />
           <ThicknessTransition Property="Margin" Duration="0:0:0.2" Easing="CubicEaseOut" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" Delay="0:0:0.04" Easing="CubicEaseOut" />
         </Transitions>
       </Setter>
+    </Style>
+    <Style Selector="Button.nav-icon.label-left TextBlock.nav-label">
+      <Setter Property="RenderTransform" Value="translateX(2px)" />
     </Style>
     <Style Selector="Button.nav-icon.hovered TextBlock.nav-label">
       <Setter Property="Opacity" Value="0.85" />
       <Setter Property="Margin" Value="3,0,0,0" />
+      <Setter Property="RenderTransform" Value="translateX(0px)" />
+    </Style>
+    <Style Selector="Button.nav-icon.label-left.hovered TextBlock.nav-label">
+      <Setter Property="Margin" Value="0,0,3,0" />
     </Style>
     <Style Selector="Button.nav-icon.active.hovered TextBlock.nav-label">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
@@ -246,28 +255,28 @@
                     <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Lumis}" />
                   </StackPanel>
                 </Button>
-                <Button Classes="subtle nav-icon" x:Name="NavMemories"
+                <Button Classes="subtle nav-icon label-left" x:Name="NavMemories"
                         Command="{Binding SetNavCommand}" CommandParameter="4">
                   <StackPanel Orientation="Horizontal">
-                    <PathIcon Data="{StaticResource Icon.Memory}" Width="14" Height="14"
-                              VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
                     <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Memories}" />
+                    <PathIcon Data="{StaticResource Icon.Memory}" Width="14" Height="14"
+                               VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
                   </StackPanel>
                 </Button>
-                <Button Classes="subtle nav-icon" x:Name="NavMcpServers"
+                <Button Classes="subtle nav-icon label-left" x:Name="NavMcpServers"
                         Command="{Binding SetNavCommand}" CommandParameter="5">
                   <StackPanel Orientation="Horizontal">
-                    <PathIcon Data="{StaticResource Icon.Plug}" Width="14" Height="14"
-                              VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
                     <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_McpServers}" />
+                    <PathIcon Data="{StaticResource Icon.Plug}" Width="14" Height="14"
+                               VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
                   </StackPanel>
                 </Button>
-                <Button Classes="subtle nav-icon" x:Name="NavSettings"
+                <Button Classes="subtle nav-icon label-left" x:Name="NavSettings"
                         Command="{Binding SetNavCommand}" CommandParameter="6">
                   <StackPanel Orientation="Horizontal">
-                    <PathIcon Data="{StaticResource Icon.Gear}" Width="14" Height="14"
-                              VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
                     <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Settings}" />
+                    <PathIcon Data="{StaticResource Icon.Gear}" Width="14" Height="14"
+                               VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
                   </StackPanel>
                 </Button>
               </StackPanel>
