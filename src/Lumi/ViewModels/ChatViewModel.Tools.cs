@@ -390,9 +390,13 @@ public partial class ChatViewModel
 
         if (string.IsNullOrWhiteSpace(value)) return;
 
-        // New chats are bound to the global default; existing chats save per-chat only.
-        if (_chatUsesDefaultModel)
+        // New chats (no messages yet) update the global default model.
+        // Existing chats only update their per-chat model.
+        if (CurrentChat is null || CurrentChat.Messages.Count == 0)
+        {
             _dataStore.Data.Settings.PreferredModel = value;
+            DefaultModelChanged?.Invoke(value);
+        }
 
         if (CurrentChat is { } chat)
             chat.LastModelUsed = value;

@@ -105,8 +105,6 @@ public partial class ChatViewModel : ObservableObject
     [ObservableProperty] private string _statusText = "";
     [ObservableProperty] private string? _selectedModel;
 
-    /// <summary>True when the current chat has no saved model and is bound to the global default.</summary>
-    private bool _chatUsesDefaultModel = true;
     [ObservableProperty] private LumiAgent? _activeAgent;
     [ObservableProperty] private long _totalInputTokens;
     [ObservableProperty] private long _totalOutputTokens;
@@ -208,6 +206,9 @@ public partial class ChatViewModel : ObservableObject
     public event Action? DiffHideRequested;
     /// <summary>Raised when the user clicks the plan card to open it in the right panel.</summary>
     public event Action? PlanShowRequested;
+
+    /// <summary>Raised when a model change in a new chat updates the global default.</summary>
+    public event Action<string>? DefaultModelChanged;
     /// <summary>Raised to hide the plan preview island.</summary>
     public event Action? PlanHideRequested;
 
@@ -288,7 +289,6 @@ public partial class ChatViewModel : ObservableObject
 
     public void RestoreDefaultModelSelection()
     {
-        _chatUsesDefaultModel = true;
         SetSelectedModelValue(_dataStore.Data.Settings.PreferredModel);
     }
 
@@ -871,15 +871,9 @@ public partial class ChatViewModel : ObservableObject
 
             // Restore per-chat model selection (falls back to global preferred model)
             if (!string.IsNullOrWhiteSpace(chat.LastModelUsed))
-            {
-                _chatUsesDefaultModel = false;
                 SetSelectedModelValue(chat.LastModelUsed);
-            }
             else
-            {
-                _chatUsesDefaultModel = true;
                 RestoreDefaultModelSelection();
-            }
 
             // Git status can be slow in large repos/worktrees. Do not keep the chat
             // loading overlay up after the transcript is already interactive.
@@ -1083,7 +1077,8 @@ public partial class ChatViewModel : ObservableObject
                 ActiveSkillIds = new List<Guid>(ActiveSkillIds),
                 ActiveMcpServerNames = new List<string>(ActiveMcpServerNames),
                 SdkAgentName = SelectedSdkAgentName,
-                WorktreePath = IsWorktreeMode ? WorktreePath : null
+                WorktreePath = IsWorktreeMode ? WorktreePath : null,
+                LastModelUsed = SelectedModel
             };
             _pendingProjectId = null;
             _dataStore.Data.Chats.Add(chat);
@@ -1537,7 +1532,7 @@ public partial class ChatViewModel : ObservableObject
                 Author = author,
                 Content = assistantMessage.Content,
                 IsStreaming = false,
-                Model = SelectedModel
+                Model = chat.LastModelUsed ?? SelectedModel
             };
             chat.Messages.Add(recoveredMessage);
 

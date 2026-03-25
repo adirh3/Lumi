@@ -104,6 +104,13 @@ public partial class MainViewModel : ObservableObject
         McpServersVM = new McpServersViewModel(dataStore);
         SettingsVM = new SettingsViewModel(dataStore, copilotService, _settingsBrowserService);
 
+        // When the chat model selector changes the global default, sync it to SettingsVM
+        ChatVM.DefaultModelChanged += model =>
+        {
+            if (SettingsVM.PreferredModel != model)
+                SettingsVM.PreferredModel = model;
+        };
+
         // Sync settings changes back to MainViewModel
         SettingsVM.PropertyChanged += (_, args) =>
         {
@@ -113,7 +120,7 @@ public partial class MainViewModel : ObservableObject
                 IsCompactDensity = SettingsVM.IsCompactDensity;
             else if (args.PropertyName == nameof(SettingsViewModel.PreferredModel)
                      && !string.IsNullOrWhiteSpace(SettingsVM.PreferredModel)
-                     && ChatVM.CurrentChat is null)
+                     && (ChatVM.CurrentChat is null || ChatVM.CurrentChat.Messages.Count == 0))
                 ChatVM.RestoreDefaultModelSelection();
             else if (args.PropertyName == nameof(SettingsViewModel.SendWithEnter))
                 ChatVM.SendWithEnter = SettingsVM.SendWithEnter;

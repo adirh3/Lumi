@@ -287,7 +287,7 @@ public partial class ChatViewModel
                     Author = agentName,
                     Content = currentContent,
                     IsStreaming = true,
-                    Model = SelectedModel
+                    Model = chat.LastModelUsed ?? SelectedModel
                 };
                 _inProgressMessages[chat.Id] = streamingMsg;
                 if (_activeSession == session)
@@ -455,7 +455,7 @@ public partial class ChatViewModel
                                 Author = agentName,
                                 Content = finalContent,
                                 IsStreaming = false,
-                                Model = SelectedModel
+                                Model = chat.LastModelUsed ?? SelectedModel
                             };
                             if (_pendingSearchSources.Count > 0)
                             {
