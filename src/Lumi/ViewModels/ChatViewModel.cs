@@ -1072,43 +1072,9 @@ public partial class ChatViewModel : ObservableObject
         var createdChat = false;
 
         // Create chat if needed
+        var needsWorktreeCreation = false;
         if (CurrentChat is null)
         {
-            // Lazily create the worktree now if worktree mode was toggled on.
-            // Use transcript builder directly — avoid toggling IsBusy which triggers
-            // RefreshCodingProjectState and resets worktree state before chat exists.
-            if (IsWorktreeMode && WorktreePath is null)
-            {
-                var projectDir = GetProjectWorkingDirectory();
-                if (GitService.IsGitRepo(projectDir))
-                {
-                    _transcriptBuilder.ShowTypingIndicator(Loc.Status_CreatingWorktree);
-                    try
-                    {
-                        var chatId = Guid.NewGuid().ToString("N")[..8];
-                        var branchName = $"lumi/{chatId}";
-                        var path = await GitService.CreateWorktreeAsync(projectDir, branchName);
-
-                        if (path is not null)
-                            WorktreePath = path;
-                        else
-                            IsWorktreeMode = false;
-                    }
-                    catch
-                    {
-                        IsWorktreeMode = false;
-                    }
-                    finally
-                    {
-                        _transcriptBuilder.HideTypingIndicator();
-                    }
-                }
-                else
-                {
-                    IsWorktreeMode = false;
-                }
-            }
-
             var chat = new Chat
             {
                 Title = prompt.Length > 40 ? prompt[..40].Trim() + "…" : prompt,
@@ -1123,13 +1089,13 @@ public partial class ChatViewModel : ObservableObject
             _dataStore.Data.Chats.Add(chat);
             CurrentChat = chat;
             createdChat = true;
+            needsWorktreeCreation = IsWorktreeMode && WorktreePath is null;
             if (_dataStore.Data.Settings.AutoGenerateTitles)
                 _ = GenerateTitleForChatAsync(chat, prompt);
-            _ = RefreshCodingProjectState();
             ChatUpdated?.Invoke();
         }
 
-        // Add user message
+        // Add user message immediately so it appears before async worktree creation
         var userMsg = new ChatMessage
         {
             Role = "user",
@@ -1142,6 +1108,46 @@ public partial class ChatViewModel : ObservableObject
         Messages.Add(new ChatMessageViewModel(userMsg));
         QueueSaveChat(CurrentChat, saveIndex: true, touchIndex: true);
         UserMessageSent?.Invoke();
+
+        // Lazily create the worktree after the user message is visible.
+        // The typing indicator shows "Creating worktree…" as a typewriter,
+        // then transitions naturally to "Thinking…" when IsBusy is set.
+        if (needsWorktreeCreation)
+        {
+            var projectDir = GetProjectWorkingDirectory();
+            if (GitService.IsGitRepo(projectDir))
+            {
+                _transcriptBuilder.ShowTypingIndicator(Loc.Status_CreatingWorktree);
+                try
+                {
+                    var chatId = Guid.NewGuid().ToString("N")[..8];
+                    var branchName = $"lumi/{chatId}";
+                    var path = await GitService.CreateWorktreeAsync(projectDir, branchName);
+
+                    if (path is not null)
+                    {
+                        WorktreePath = path;
+                        CurrentChat.WorktreePath = path;
+                        QueueSaveChat(CurrentChat, saveIndex: false);
+                    }
+                    else
+                    {
+                        IsWorktreeMode = false;
+                    }
+                }
+                catch
+                {
+                    IsWorktreeMode = false;
+                }
+            }
+            else
+            {
+                IsWorktreeMode = false;
+            }
+        }
+
+        if (createdChat)
+            _ = RefreshCodingProjectState();
 
         CancellationTokenSource? cts = null;
         MessageOptions? sendOptions = null;
