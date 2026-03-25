@@ -148,9 +148,14 @@ public sealed class BrowserService : IAsyncDisposable
                 {
                     var userDataFolder = GetUserDataFolder();
                     Directory.CreateDirectory(userDataFolder);
+                    var options = new CoreWebView2EnvironmentOptions
+                    {
+                        AllowSingleSignOnUsingOSPrimaryAccount = true
+                    };
                     _sharedEnvironment = await CoreWebView2Environment.CreateAsync(
                         browserExecutableFolder: null,
-                        userDataFolder: userDataFolder);
+                        userDataFolder: userDataFolder,
+                        options: options);
                 }
                 _environment = _sharedEnvironment;
             }
