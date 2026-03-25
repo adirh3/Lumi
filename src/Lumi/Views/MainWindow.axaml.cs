@@ -92,6 +92,21 @@ public partial class MainWindow : Window
         ExtendClientAreaToDecorationsHint = true;
         ExtendClientAreaTitleBarHeightHint = 38;
 
+#if DEBUG
+        try
+        {
+            var exeDir = AppContext.BaseDirectory;
+            var repoRoot = FindGitRoot(exeDir);
+            if (repoRoot is not null)
+            {
+                var dirName = Path.GetFileName(repoRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                if (dirName is not null && dirName.Contains("-wt-"))
+                    Title = dirName;
+            }
+        }
+        catch { /* best-effort debug title */ }
+#endif
+
         // Force transparent background after theme styles are applied
         Background = Avalonia.Media.Brushes.Transparent;
         TransparencyBackgroundFallback = Avalonia.Media.Brushes.Transparent;
@@ -130,6 +145,21 @@ public partial class MainWindow : Window
         source = new CancellationTokenSource();
         return source;
     }
+
+#if DEBUG
+    private static string? FindGitRoot(string startDir)
+    {
+        var dir = new DirectoryInfo(startDir);
+        while (dir is not null)
+        {
+            if (Directory.Exists(Path.Combine(dir.FullName, ".git")) ||
+                File.Exists(Path.Combine(dir.FullName, ".git")))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+        return null;
+    }
+#endif
 
     private static void DisposeCancellationTokenSource(ref CancellationTokenSource? source)
     {
