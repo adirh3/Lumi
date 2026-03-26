@@ -2065,35 +2065,63 @@ public partial class ChatViewModel : ObservableObject
     [GeneratedRegex(@"(\d+)(?:\.(\d+))?")]
     private static partial Regex VersionRegex();
 
-    /// <summary>Formats a model ID into a short display name (e.g. "claude-sonnet-4.5" → "Sonnet 4.5").</summary>
+    /// <summary>
+    /// Formats a model ID into a display name by splitting on hyphens and applying
+    /// known token mappings (e.g. "claude-opus-4.6-1m" → "Claude Opus 4.6 1M").
+    /// </summary>
     internal static string? FormatModelDisplay(string? modelId)
     {
         if (string.IsNullOrWhiteSpace(modelId)) return null;
 
-        var m = modelId.ToLowerInvariant();
+        var segments = modelId.Split('-');
+        var parts = new List<string>(segments.Length);
 
-        // Known model families — extract tier + version
-        string? tier = null;
-        if (m.Contains("opus"))        tier = "Opus";
-        else if (m.Contains("sonnet")) tier = "Sonnet";
-        else if (m.Contains("haiku"))  tier = "Haiku";
-        else if (m.Contains("gpt"))    tier = "GPT";
-        else if (m.Contains("gemini")) tier = "Gemini";
+        foreach (var seg in segments)
+        {
+            var lower = seg.ToLowerInvariant();
 
-        if (tier is null) return modelId; // Unknown family, show raw ID
+            // Context-window indicators like "1m", "2m" → "1M", "2M"
+            if (ContextWindowRegex().IsMatch(lower))
+            {
+                parts.Add(seg.ToUpperInvariant());
+                continue;
+            }
 
-        // Reuse the same generated regex as ScoreModel
-        var versionMatch = VersionRegex().Match(m);
-        var version = versionMatch.Success ? versionMatch.Value : "";
+            // Version numbers like "4.6", "5", "5.1" — keep as-is
+            if (VersionSegmentRegex().IsMatch(lower))
+            {
+                parts.Add(seg);
+                continue;
+            }
 
-        var suffix = "";
-        if (m.Contains("codex")) suffix = " Codex";
-        else if (m.Contains("mini")) suffix = " Mini";
-        else if (m.Contains("pro"))  suffix = " Pro";
-        if (m.Contains("preview")) suffix += " Preview";
+            // Known tokens → proper casing
+            if (KnownModelTokens.TryGetValue(lower, out var display))
+            {
+                parts.Add(display);
+                continue;
+            }
 
-        return $"{tier} {version}{suffix}".Trim();
+            // Unknown segment — title-case
+            if (seg.Length > 0)
+                parts.Add(char.ToUpperInvariant(seg[0]) + seg[1..]);
+        }
+
+        return string.Join(" ", parts);
     }
+
+    private static readonly Dictionary<string, string> KnownModelTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["claude"] = "Claude", ["opus"] = "Opus", ["sonnet"] = "Sonnet", ["haiku"] = "Haiku",
+        ["gpt"] = "GPT", ["gemini"] = "Gemini", ["o1"] = "o1", ["o3"] = "o3", ["o4"] = "o4",
+        ["codex"] = "Codex", ["mini"] = "Mini", ["max"] = "Max",
+        ["pro"] = "Pro", ["preview"] = "Preview", ["turbo"] = "Turbo",
+    };
+
+    [GeneratedRegex(@"^\d+m$", RegexOptions.IgnoreCase)]
+    private static partial Regex ContextWindowRegex();
+
+    [GeneratedRegex(@"^\d+(\.\d+)?$")]
+    private static partial Regex VersionSegmentRegex();
 
     /// <summary>
     /// Removes the user message and its response, then resends.

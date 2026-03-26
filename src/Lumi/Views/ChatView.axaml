@@ -3,12 +3,17 @@
              xmlns:model="using:Lumi.Models"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:services="using:Lumi.Services"
+             xmlns:conv="using:Lumi.Converters"
              xmlns:lc="using:Lumi.Views.Controls"
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.ChatView"
              x:DataType="vm:ChatViewModel"
              x:CompileBindings="True">
+
+  <UserControl.Resources>
+    <conv:ModelDisplayConverter x:Key="ModelDisplayConverter" />
+  </UserControl.Resources>
 
   <UserControl.Styles>
     <!-- Show Retry on user messages (theme hides it) -->
@@ -1210,6 +1215,11 @@
                              AvailableMcps="{Binding AvailableMcpChips}"
                              AvailableProjects="{Binding AvailableProjectChips}"
                              AvailableFiles="{Binding AvailableFileSuggestions}">
+        <sc:StrataChatComposer.ModelItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding Converter={StaticResource ModelDisplayConverter}}" />
+          </DataTemplate>
+        </sc:StrataChatComposer.ModelItemTemplate>
         <sc:StrataChatComposer.AttachmentContent>
           <sc:StrataAttachmentList ShowAddButton="False"
                                    ItemsSource="{Binding PendingAttachmentItems}"

@@ -1,11 +1,16 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.ViewModels"
+             xmlns:conv="using:Lumi.Converters"
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.SettingsView"
              x:DataType="vm:SettingsViewModel"
              x:CompileBindings="True">
+
+  <UserControl.Resources>
+    <conv:ModelDisplayConverter x:Key="ModelDisplayConverter" />
+  </UserControl.Resources>
 
   <UserControl.Styles>
     <Style Selector="Border.motion-surface, DockPanel.motion-surface, StackPanel.motion-surface">
@@ -276,7 +281,13 @@
                             IsModified="{Binding IsPreferredModelModified}">
             <ComboBox ItemsSource="{Binding AvailableModels}"
                       SelectedItem="{Binding PreferredModel, Mode=TwoWay}"
-                      Width="220" IsEditable="True" />
+                      Width="220" IsEditable="True">
+              <ComboBox.ItemTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding Converter={StaticResource ModelDisplayConverter}}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
           </sc:StrataSetting>
           <sc:StrataSetting Header="{loc:Str Setting_ReasoningEffort}" Description="{loc:Str SettingDesc_ReasoningEffort}"
                             IsModified="{Binding IsReasoningEffortModified}">
