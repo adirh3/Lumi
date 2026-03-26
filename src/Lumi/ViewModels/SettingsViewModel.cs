@@ -86,6 +86,27 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string? _gitHubAuthErrorText;
     [ObservableProperty] private string? _quotaDisplayText;
 
+    /// <summary>Shared login ViewModel — set by MainViewModel after construction.</summary>
+    private GitHubLoginViewModel? _loginVM;
+    public GitHubLoginViewModel? LoginVM
+    {
+        get => _loginVM;
+        set
+        {
+            if (_loginVM is not null)
+                _loginVM.AuthenticationChanged -= OnLoginAuthChanged;
+            _loginVM = value;
+            if (_loginVM is not null)
+                _loginVM.AuthenticationChanged += OnLoginAuthChanged;
+        }
+    }
+
+    private void OnLoginAuthChanged(bool isAuth)
+    {
+        IsAuthenticated = isAuth;
+        GitHubLogin = _loginVM?.GitHubLogin ?? "";
+    }
+
     // ── Privacy & Data ──
     [ObservableProperty] private bool _enableMemoryAutoSave;
     [ObservableProperty] private bool _autoSaveChats;

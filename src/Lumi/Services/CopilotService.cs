@@ -258,30 +258,170 @@ public class CopilotService : IAsyncDisposable
 
     /// <summary>
     /// Launches the Copilot CLI login flow (OAuth device flow) and waits for completion.
+    /// When <paramref name="onDeviceCode"/> is provided, stdout/stderr are captured to
+    /// extract the one-time device code and verification URL, which are passed to the
+    /// callback. The browser is opened automatically.
+    /// When <paramref name="onDeviceCode"/> is null, falls back to UseShellExecute (legacy).
     /// </summary>
-    public async Task<CopilotSignInResult> SignInAsync(CancellationToken ct = default)
+    public async Task<CopilotSignInResult> SignInAsync(
+        Action<string, string>? onDeviceCode = null,
+        CancellationToken ct = default)
     {
         var cliPath = FindCliPath();
         if (cliPath is null) return CopilotSignInResult.CliNotFound;
 
+        if (onDeviceCode is null)
+        {
+            // Legacy path: let the CLI handle everything
+            var legacyPsi = new ProcessStartInfo
+            {
+                FileName = cliPath,
+                Arguments = "login",
+                UseShellExecute = true,
+            };
+            using var legacyProcess = Process.Start(legacyPsi);
+            if (legacyProcess is null) return CopilotSignInResult.Failed;
+            await legacyProcess.WaitForExitAsync(ct);
+            if (legacyProcess.ExitCode != 0) return CopilotSignInResult.Failed;
+            await ConnectAsync(ct);
+            return CopilotSignInResult.Success;
+        }
+
+        // Capture stdout/stderr to extract device code
         var psi = new ProcessStartInfo
         {
             FileName = cliPath,
             Arguments = "login",
-            UseShellExecute = true, // Opens browser for OAuth
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+            CreateNoWindow = true,
         };
 
         using var process = Process.Start(psi);
         if (process is null) return CopilotSignInResult.Failed;
 
+        string? deviceCode = null;
+        string? verificationUrl = null;
+        int notified = 0; // 0 = not yet, 1 = done (atomic flag)
+        var parseLock = new object();
+
+        void ProcessLine(string line)
+        {
+            lock (parseLock)
+            {
+                ParseDeviceCodeLine(line, ref deviceCode, ref verificationUrl);
+
+                if (deviceCode is not null && verificationUrl is not null
+                    && Interlocked.CompareExchange(ref notified, 1, 0) == 0)
+                {
+                    var code = deviceCode;
+                    var url = verificationUrl;
+                    onDeviceCode(code, url);
+                    OpenBrowser(url);
+                }
+            }
+        }
+
+        // Read both stdout and stderr — CLI may write to either
+        var outputTask = Task.Run(async () =>
+        {
+            while (!process.StandardOutput.EndOfStream)
+            {
+                var line = await process.StandardOutput.ReadLineAsync(ct);
+                if (line is not null)
+                    ProcessLine(line);
+            }
+        }, ct);
+
+        var errorTask = Task.Run(async () =>
+        {
+            while (!process.StandardError.EndOfStream)
+            {
+                var line = await process.StandardError.ReadLineAsync(ct);
+                if (line is not null)
+                    ProcessLine(line);
+            }
+        }, ct);
+
+        // Send Enter to proceed past "Press Enter to open..." prompt
+        try
+        {
+            await Task.Delay(500, ct);
+            await process.StandardInput.WriteLineAsync();
+        }
+        catch { /* best-effort */ }
+
+        await Task.WhenAll(outputTask, errorTask);
         await process.WaitForExitAsync(ct);
+
         if (process.ExitCode != 0)
             return CopilotSignInResult.Failed;
 
-        // The CLI login runs out-of-process, so the current SDK client keeps stale
-        // auth state until it is recreated.
         await ConnectAsync(ct);
         return CopilotSignInResult.Success;
+    }
+
+    private static void ParseDeviceCodeLine(string line, ref string? deviceCode, ref string? verificationUrl)
+    {
+        // The CLI outputs lines like:
+        //   "First copy your one-time code: XXXX-XXXX"
+        //   "Open https://github.com/login/device in your browser"
+        // or sometimes a combined message. We look for common patterns.
+
+        // Look for a code pattern like ABCD-ABCD (4+ alphanum, dash, 4+ alphanum)
+        if (deviceCode is null)
+        {
+            var codeMatch = System.Text.RegularExpressions.Regex.Match(
+                line, @"\b([A-Z0-9]{4,}-[A-Z0-9]{4,})\b");
+            if (codeMatch.Success)
+                deviceCode = codeMatch.Groups[1].Value;
+        }
+
+        // Look for a URL containing "login/device" or "github.com"
+        if (verificationUrl is null)
+        {
+            var urlMatch = System.Text.RegularExpressions.Regex.Match(
+                line, @"(https?://\S+)");
+            if (urlMatch.Success)
+                verificationUrl = urlMatch.Groups[1].Value;
+        }
+    }
+
+    private static void OpenBrowser(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch { /* best-effort */ }
+    }
+
+    /// <summary>
+    /// Launches the Copilot CLI logout flow and reconnects without credentials.
+    /// </summary>
+    public async Task<bool> SignOutAsync(CancellationToken ct = default)
+    {
+        var cliPath = FindCliPath();
+        if (cliPath is null) return false;
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = cliPath,
+            Arguments = "logout",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        using var process = Process.Start(psi);
+        if (process is null) return false;
+
+        await process.WaitForExitAsync(ct);
+
+        // Reconnect so the client picks up the new (unauthenticated) state
+        await ForceReconnectAsync(ct);
+        return true;
     }
 
     private static string? FindCliPath()

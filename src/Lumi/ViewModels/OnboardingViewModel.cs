@@ -80,6 +80,27 @@ public partial class OnboardingViewModel : ObservableObject
     [ObservableProperty] private int _languageIndex;
     [ObservableProperty] private bool _isDarkTheme = true;
 
+    /// <summary>Shared GitHub login ViewModel — set by MainViewModel.</summary>
+    private GitHubLoginViewModel? _loginVM;
+    public GitHubLoginViewModel? LoginVM
+    {
+        get => _loginVM;
+        set
+        {
+            if (_loginVM is not null)
+                _loginVM.AuthenticationChanged -= OnAuthChanged;
+            _loginVM = value;
+            if (_loginVM is not null)
+                _loginVM.AuthenticationChanged += OnAuthChanged;
+            OnPropertyChanged(nameof(IsAuthenticated));
+        }
+    }
+
+    private void OnAuthChanged(bool _) => OnPropertyChanged(nameof(IsAuthenticated));
+
+    /// <summary>Whether the user is authenticated (delegates to LoginVM).</summary>
+    public bool IsAuthenticated => LoginVM?.IsAuthenticated == true;
+
     // ── Step 2+3: Discovery ──
     [ObservableProperty] private bool _isDiscovering;
     [ObservableProperty] private bool _isScanPhase;     // true = deterministic scan, false = agent phase

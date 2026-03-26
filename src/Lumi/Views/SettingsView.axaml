@@ -3,6 +3,7 @@
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:conv="using:Lumi.Converters"
              xmlns:sc="using:StrataTheme.Controls"
+             xmlns:ctrl="using:Lumi.Views.Controls"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.SettingsView"
              x:DataType="vm:SettingsViewModel"
@@ -241,24 +242,7 @@
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_GitHubAccount}">
           <sc:StrataSetting Header="{loc:Str Setting_GitHubAccount}" Description="{loc:Str SettingDesc_GitHubAccount}">
             <StackPanel Spacing="8" VerticalAlignment="Center">
-              <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                <!-- Signed-in state: green dot + username -->
-                <StackPanel Orientation="Horizontal" Spacing="6"
-                            IsVisible="{Binding IsAuthenticated}">
-                  <Border Width="6" Height="6" CornerRadius="3"
-                          Background="{DynamicResource Brush.SuccessDefault}"
-                          VerticalAlignment="Center" />
-                  <TextBlock Text="{Binding GitHubLogin}" FontSize="{DynamicResource Font.SizeCaption}"
-                             Foreground="{DynamicResource Brush.TextSecondary}"
-                             VerticalAlignment="Center" />
-                </StackPanel>
-                <!-- Not signed in: sign-in button -->
-                <Button Classes="accent motion-action" Padding="14,6" MinHeight="0"
-                        IsVisible="{Binding !IsAuthenticated}"
-                        IsEnabled="{Binding !IsSigningIn}"
-                        Command="{Binding SignInCommand}"
-                        x:Name="SignInButton" />
-              </StackPanel>
+              <ctrl:GitHubLoginView x:Name="SettingsLoginView" />
 
               <TextBlock Text="{Binding GitHubAuthErrorText}"
                          IsVisible="{Binding GitHubAuthErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
