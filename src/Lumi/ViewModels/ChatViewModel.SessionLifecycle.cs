@@ -865,7 +865,6 @@ public partial class ChatViewModel
                     {
                         _transcriptBuilder.HideTypingIndicator();
                         _transcriptBuilder.CloseCurrentToolGroup();
-                        _transcriptBuilder.AppendModelLabel(turnModelId);
                         IsBusy = runtime.IsBusy;
                         IsStreaming = runtime.IsStreaming;
                         StatusText = runtime.StatusText;
@@ -876,6 +875,14 @@ public partial class ChatViewModel
 
                 case SessionIdleEvent idle:
                     ClearPendingTurnTracking(chat.Id);
+
+                    // Show model label once at the very end of the assistant turn
+                    // (not per-message during agentic loops).
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                    if (_activeSession == session)
+                        _transcriptBuilder.AppendModelLabel(turnModelId);
+                    });
 
                     // The SDK tells us if background tasks (shells/agents) are still running.
                     var bg = idle.Data?.BackgroundTasks;
