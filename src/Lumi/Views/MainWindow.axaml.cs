@@ -233,6 +233,12 @@ public partial class MainWindow : Window
             _chatListScroller.ScrollChanged += OnChatListScrollChanged;
 
         _chatView = this.FindControl<ChatView>("PageChat");
+
+        // Set OS-specific shortcut label
+        var shortcutLabel = this.FindControl<TextBlock>("SearchButtonShortcut");
+        if (shortcutLabel is not null && RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            shortcutLabel.Text = "⌘K";
+
         _browserHost = this.FindControl<ContentControl>("BrowserHost");
         _projectsHost = this.FindControl<ContentControl>("PageProjectsHost");
         _skillsHost = this.FindControl<ContentControl>("PageSkillsHost");

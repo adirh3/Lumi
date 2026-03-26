@@ -59,6 +59,7 @@ public partial class MainViewModel : ObservableObject
     public SettingsViewModel SettingsVM { get; }
     public OnboardingViewModel OnboardingVM { get; }
     public SearchOverlayViewModel SearchOverlayVM { get; }
+    public GitHubLoginViewModel LoginVM { get; }
 
     /// <summary>The browser service used for Settings cookie import/clear.</summary>
     public BrowserService SettingsBrowserService => _settingsBrowserService;
@@ -84,13 +85,21 @@ public partial class MainViewModel : ObservableObject
         _userName = settings.UserName ?? "";
         _isOnboarded = settings.IsOnboarded && !forceOnboarding;
 
+        // Shared GitHub login ViewModel
+        LoginVM = new GitHubLoginViewModel(copilotService);
+
         // Onboarding ViewModel — available even if already onboarded (for --onboarding flag)
         OnboardingVM = new OnboardingViewModel(dataStore, copilotService);
+        OnboardingVM.LoginVM = LoginVM;
         OnboardingVM.OnboardingCompleted += () =>
         {
             UserName = OnboardingVM.UserName;
             IsDarkTheme = OnboardingVM.IsDarkTheme;
             IsOnboarded = true;
+
+            // Sync GitHub auth state if user signed in during onboarding
+            if (LoginVM.IsAuthenticated)
+                _ = SettingsVM.RefreshAuthStatusAsync();
 
             // Refresh memories in case learning created some
             ChatVM.RefreshComposerCatalogs();
@@ -104,6 +113,7 @@ public partial class MainViewModel : ObservableObject
         MemoriesVM = new MemoriesViewModel(dataStore);
         McpServersVM = new McpServersViewModel(dataStore);
         SettingsVM = new SettingsViewModel(dataStore, copilotService, _settingsBrowserService);
+        SettingsVM.LoginVM = LoginVM;
         SearchOverlayVM = new SearchOverlayViewModel(dataStore, () => SelectedNavIndex);
 
         // When the chat model selector changes the global default, sync it to SettingsVM

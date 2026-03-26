@@ -229,7 +229,7 @@
                         CornerRadius="3" Padding="4,1"
                         BorderBrush="{DynamicResource Brush.BorderSubtle}"
                         BorderThickness="1" VerticalAlignment="Center">
-                  <TextBlock Text="⌘K" FontSize="10" FontFamily="{DynamicResource Font.FamilyMono}"
+                  <TextBlock x:Name="SearchButtonShortcut" Text="Ctrl+K" FontSize="10" FontFamily="{DynamicResource Font.FamilyMono}"
                              Foreground="{DynamicResource Brush.TextTertiary}" />
                 </Border>
                 <StackPanel Orientation="Horizontal" Spacing="6">

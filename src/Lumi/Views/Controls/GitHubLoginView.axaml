@@ -1,0 +1,130 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.Controls.GitHubLoginView"
+             x:DataType="vm:GitHubLoginViewModel"
+             x:CompileBindings="True">
+
+  <UserControl.Styles>
+    <!-- Pulsing dot animation for "waiting" state -->
+    <Style Selector="Border.login-pulse">
+      <Style.Animations>
+        <Animation Duration="0:0:1.2" IterationCount="INFINITE" PlaybackDirection="Alternate" Easing="SineEaseInOut">
+          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.3" /></KeyFrame>
+          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1.0" /></KeyFrame>
+        </Animation>
+      </Style.Animations>
+    </Style>
+  </UserControl.Styles>
+
+  <StackPanel Spacing="4">
+  <Panel>
+    <!-- ═══ State 1: Not signed in — show Sign In button ═══ -->
+    <Button Classes="subtle" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+            Padding="10,8" FontWeight="Medium"
+            Command="{Binding SignInCommand}"
+            IsVisible="{Binding !IsAuthenticated}">
+      <Button.IsEnabled>
+        <Binding Path="IsSigningIn" Converter="{x:Static BoolConverters.Not}" />
+      </Button.IsEnabled>
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <TextBlock Text="🔗" FontSize="13" VerticalAlignment="Center"
+                   IsVisible="{Binding !IsSigningIn}" />
+        <TextBlock Text="{loc:Str Onboarding_SignInButton}" VerticalAlignment="Center"
+                   IsVisible="{Binding !IsSigningIn}" />
+
+        <!-- Inline waiting state (no device code yet) -->
+        <StackPanel Orientation="Horizontal" Spacing="6"
+                    IsVisible="{Binding IsSigningIn}">
+          <Border Width="5" Height="5" CornerRadius="2.5" Classes="login-pulse"
+                  Background="{DynamicResource Brush.AccentDefault}"
+                  VerticalAlignment="Center"
+                  IsVisible="{Binding !HasDeviceCode}" />
+          <TextBlock Text="{loc:Str Onboarding_SignInWaiting}" FontSize="12"
+                     Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center"
+                     IsVisible="{Binding !HasDeviceCode}" />
+        </StackPanel>
+      </StackPanel>
+    </Button>
+
+    <!-- ═══ State 2: Device code flow active ═══ -->
+    <Border IsVisible="{Binding HasDeviceCode}"
+            Background="{DynamicResource Brush.SurfaceSubtle}"
+            CornerRadius="{DynamicResource Radius.Base}"
+            Padding="14,12">
+      <StackPanel Spacing="8" HorizontalAlignment="Center">
+        <!-- Instruction + code on same visual block -->
+        <TextBlock Text="{loc:Str Onboarding_SignInDeviceCode}"
+                   FontSize="11" HorizontalAlignment="Center"
+                   Foreground="{DynamicResource Brush.TextTertiary}" />
+
+        <!-- Code — clickable to copy -->
+        <Button Classes="subtle" Command="{Binding CopyDeviceCodeCommand}"
+                HorizontalAlignment="Center" Padding="12,6"
+                CornerRadius="{DynamicResource Radius.Base}"
+                ToolTip.Tip="Click to copy">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBlock Text="{Binding DeviceCode}"
+                       FontSize="20" FontWeight="Bold" LetterSpacing="2"
+                       FontFamily="Cascadia Code, Consolas, monospace"
+                       Foreground="{DynamicResource Brush.AccentDefault}"
+                       VerticalAlignment="Center" />
+            <TextBlock Text="📋" FontSize="12" VerticalAlignment="Center" Opacity="0.6" />
+          </StackPanel>
+        </Button>
+
+        <!-- "Code copied!" feedback -->
+        <TextBlock IsVisible="{Binding DeviceCodeCopied}"
+                   Text="{loc:Str Onboarding_SignInCodeCopied}"
+                   FontSize="10" HorizontalAlignment="Center"
+                   Foreground="{DynamicResource Brush.SuccessDefault}" />
+
+        <!-- Open browser link -->
+        <StackPanel Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center">
+          <TextBlock Text="{loc:Str Onboarding_SignInOpenBrowser}"
+                     FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}" />
+          <Button Classes="strata-md-link" Command="{Binding OpenVerificationUrlCommand}"
+                  Padding="2,0" MinHeight="0" MinWidth="0">
+            <TextBlock Text="{loc:Str Onboarding_SignInOpenLink}" Classes="strata-md-link-text" FontSize="11" />
+          </Button>
+        </StackPanel>
+
+        <!-- Waiting indicator -->
+        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+          <Border Width="4" Height="4" CornerRadius="2" Classes="login-pulse"
+                  Background="{DynamicResource Brush.AccentDefault}" VerticalAlignment="Center" />
+          <TextBlock Text="{loc:Str Onboarding_SignInWaiting}"
+                     FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+
+    <!-- ═══ State 3: Authenticated ═══ -->
+    <Border IsVisible="{Binding IsAuthenticated}"
+            Background="{DynamicResource Brush.SurfaceSubtle}"
+            CornerRadius="{DynamicResource Radius.Base}"
+            Padding="10,8">
+      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+        <Border Width="6" Height="6" CornerRadius="3"
+                Background="{DynamicResource Brush.SuccessDefault}"
+                VerticalAlignment="Center" />
+        <TextBlock x:Name="SuccessText" FontSize="13"
+                   Foreground="{DynamicResource Brush.TextSecondary}" VerticalAlignment="Center" />
+        <TextBlock Text="·" Foreground="{DynamicResource Brush.TextTertiary}" VerticalAlignment="Center" />
+        <Button Classes="strata-md-link" Command="{Binding SignOutCommand}"
+                Padding="2,0" MinHeight="0" MinWidth="0">
+          <TextBlock Text="{loc:Str Onboarding_SignOut}" Classes="strata-md-link-text" FontSize="12" />
+        </Button>
+      </StackPanel>
+    </Border>
+  </Panel>
+
+    <!-- ═══ Error text (shown in any state) ═══ -->
+    <TextBlock Text="{Binding ErrorText}"
+               IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+               FontSize="11" Foreground="{DynamicResource Brush.DangerDefault}"
+               TextWrapping="Wrap" HorizontalAlignment="Center" />
+  </StackPanel>
+
+</UserControl>

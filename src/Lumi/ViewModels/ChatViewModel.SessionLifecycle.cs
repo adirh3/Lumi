@@ -712,30 +712,9 @@ public partial class ChatViewModel
 
                         if (success)
                         {
-                            // Track fetched skills for attachment to the assistant message
-                            if (toolName == "fetch_skill")
-                            {
-                                string? skillName = null;
-                                try
-                                {
-                                    using var doc = JsonDocument.Parse(toolMsg.Content);
-                                    if (doc.RootElement.TryGetProperty("name", out var nameProp))
-                                        skillName = nameProp.GetString();
-                                }
-                                catch { }
-                                if (!string.IsNullOrEmpty(skillName))
-                                {
-                                    var skill = FindSkillByName(skillName);
-                                    _transcriptBuilder.PendingFetchedSkillRefs.Add(new SkillReference
-                                    {
-                                        Name = skillName,
-                                        Glyph = skill?.IconGlyph ?? "\u26A1",
-                                        Description = skill?.Description ?? string.Empty
-                                    });
-                                }
-                            }
+                            // fetch_skill tracking is handled by TranscriptBuilder.ProcessToolMessage()
 
-                            if ((ToolDisplayHelper.IsFileCreationTool(toolName) || toolName == "powershell")
+                            if((ToolDisplayHelper.IsFileCreationTool(toolName) || toolName == "powershell")
                                 && toolEnd.Data.Result?.Contents is { Length: > 0 } contents)
                             {
                                 foreach (var item in contents)
@@ -865,7 +844,6 @@ public partial class ChatViewModel
                     {
                         _transcriptBuilder.HideTypingIndicator();
                         _transcriptBuilder.CloseCurrentToolGroup();
-                        _transcriptBuilder.AppendModelLabel(turnModelId);
                         IsBusy = runtime.IsBusy;
                         IsStreaming = runtime.IsStreaming;
                         StatusText = runtime.StatusText;
@@ -876,6 +854,14 @@ public partial class ChatViewModel
 
                 case SessionIdleEvent idle:
                     ClearPendingTurnTracking(chat.Id);
+
+                    // Show model label once at the very end of the assistant turn
+                    // (not per-message during agentic loops).
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                    if (_activeSession == session)
+                        _transcriptBuilder.AppendModelLabel(turnModelId);
+                    });
 
                     // The SDK tells us if background tasks (shells/agents) are still running.
                     var bg = idle.Data?.BackgroundTasks;

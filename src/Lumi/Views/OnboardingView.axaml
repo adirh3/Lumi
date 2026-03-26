@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:sc="using:StrataTheme.Controls"
+             xmlns:ctrl="using:Lumi.Views.Controls"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.OnboardingView"
              x:DataType="vm:OnboardingViewModel"
@@ -103,6 +104,22 @@
                   </DockPanel>
                 </Border>
               </StackPanel>
+
+              <!-- GitHub Sign-In (shared component) -->
+              <Border CornerRadius="{DynamicResource Radius.Base}"
+                      Background="{DynamicResource Brush.Surface0}"
+                      BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                      BorderThickness="1" Padding="16,14">
+                <StackPanel Spacing="10">
+                  <StackPanel Spacing="2">
+                    <TextBlock Text="{loc:Str Onboarding_SignInTitle}" FontWeight="SemiBold" FontSize="13" />
+                    <TextBlock Text="{loc:Str Onboarding_SignInDescription}"
+                               FontSize="12" Foreground="{DynamicResource Brush.TextTertiary}" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <ctrl:GitHubLoginView x:Name="OnboardingLoginView" />
+                </StackPanel>
+              </Border>
+
               <Button Classes="accent" Content="{loc:Str Onboarding_Continue}"
                       Command="{Binding ContinueToLearnCommand}"
                       HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
@@ -174,8 +191,14 @@
               <StackPanel Spacing="8">
                 <Button Classes="accent" Content="{loc:Str Onboarding_LearnAccept}"
                         Command="{Binding AcceptLearningCommand}"
+                        IsEnabled="{Binding IsAuthenticated}"
                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                         Padding="12,10" FontWeight="SemiBold" />
+                <TextBlock Text="{loc:Str Onboarding_LearnRequiresSignIn}"
+                           IsVisible="{Binding !IsAuthenticated}"
+                           FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}"
+                           HorizontalAlignment="Center" TextAlignment="Center"
+                           TextWrapping="Wrap" />
                 <Button Classes="subtle" Content="{loc:Str Onboarding_LearnSkip}"
                         Command="{Binding SkipLearningCommand}"
                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"

@@ -73,7 +73,7 @@ public partial class UserMessageItem : TranscriptItem
     /// <summary>Command invoked when user clicks Regenerate/Retry on the message.</summary>
     public ICommand ResendCommand { get; }
 
-    public UserMessageItem(ChatMessageViewModel source, bool showTimestamps, Action<ChatMessage, bool>? resendAction = null)
+    public UserMessageItem(ChatMessageViewModel source, bool showTimestamps, List<SkillReference>? filteredSkills = null, Action<ChatMessage, bool>? resendAction = null)
         : base($"message:user:{source.Message.Id}")
     {
         _source = source;
@@ -81,7 +81,7 @@ public partial class UserMessageItem : TranscriptItem
         _content = source.Content;
         _timestampText = showTimestamps ? source.TimestampText : "";
         Attachments = source.Message.Attachments.Select(fp => new FileAttachmentItem(fp)).ToList();
-        Skills = source.Message.ActiveSkills.ToList();
+        Skills = filteredSkills ?? source.Message.ActiveSkills.ToList();
 
         BeginEditCommand = new RelayCommand(() => { /* Strata handles entering edit mode internally */ });
         ConfirmEditCommand = new RelayCommand<string>(text => EditAndResend(text ?? Content));
@@ -168,12 +168,16 @@ public partial class AssistantMessageItem : TranscriptItem
     /// when the assistant turn completes (or during transcript rebuild).
     /// </summary>
     public void ApplyExtras(
-        List<FileAttachmentItem>? fileChips)
+        List<FileAttachmentItem>? fileChips,
+        HashSet<string>? shownSkillNames = null)
     {
-        // Skills come from the persisted model
+        // Skills come from the persisted model — only show first occurrence
         Skills.Clear();
         foreach (var skill in _source.Message.ActiveSkills)
-            Skills.Add(skill);
+        {
+            if (shownSkillNames is null || shownSkillNames.Add(skill.Name))
+                Skills.Add(skill);
+        }
         HasSkills = Skills.Count > 0;
 
         // File attachments

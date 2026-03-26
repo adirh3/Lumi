@@ -28,7 +28,7 @@ public partial class SettingsView : UserControl
     private ScrollViewer? _mainScrollViewer;
     private Button? _clearSearchButton;
     private Button? _noResultsClearButton;
-    private Button? _signInButton;
+    private Controls.GitHubLoginView? _loginView;
     private Button? _hotkeyRecorderButton;
     private StrataSetting? _debugTransparencySetting;
     private TextBlock? _debugTransparencyValue;
@@ -92,9 +92,7 @@ public partial class SettingsView : UserControl
         if (_noResultsClearButton is not null)
             _noResultsClearButton.Click += (_, _) => ClearSearch();
 
-        _signInButton = this.FindControl<Button>("SignInButton");
-        if (_signInButton is not null)
-            _signInButton.Content = Loc.Button_SignIn;
+        _loginView = this.FindControl<Controls.GitHubLoginView>("SettingsLoginView");
 
         _hotkeyRecorderButton = this.FindControl<Button>("HotkeyRecorderButton");
         if (_hotkeyRecorderButton is not null)
@@ -302,13 +300,14 @@ public partial class SettingsView : UserControl
                 }
                 else if (args.PropertyName == nameof(SettingsViewModel.SearchQuery))
                     ApplySearch(vm.SearchQuery);
-                else if (args.PropertyName == nameof(SettingsViewModel.IsSigningIn))
-                    UpdateSignInButton(vm);
                 else if (args.PropertyName == nameof(SettingsViewModel.GlobalHotkey))
                     UpdateHotkeyButtonText();
             };
 
-            UpdateSignInButton(vm);
+            // Wire the shared login component
+            if (_loginView is not null)
+                _loginView.DataContext = vm.LoginVM;
+
             UpdateHotkeyButtonText();
 
             vm.CookieImportDialogRequested += () =>
@@ -448,12 +447,6 @@ public partial class SettingsView : UserControl
         var desc = setting.Description ?? "";
         return header.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                desc.Contains(query, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void UpdateSignInButton(SettingsViewModel vm)
-    {
-        if (_signInButton is not null)
-            _signInButton.Content = vm.IsSigningIn ? Loc.Button_SigningIn : Loc.Button_SignIn;
     }
 
     private void OnHotkeyRecorderButtonClick(object? sender, RoutedEventArgs e)

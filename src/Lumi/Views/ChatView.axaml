@@ -3,12 +3,17 @@
              xmlns:model="using:Lumi.Models"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:services="using:Lumi.Services"
+             xmlns:conv="using:Lumi.Converters"
              xmlns:lc="using:Lumi.Views.Controls"
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.ChatView"
              x:DataType="vm:ChatViewModel"
              x:CompileBindings="True">
+
+  <UserControl.Resources>
+    <conv:ModelDisplayConverter x:Key="ModelDisplayConverter" />
+  </UserControl.Resources>
 
   <UserControl.Styles>
     <!-- Show Retry on user messages (theme hides it) -->
@@ -263,26 +268,14 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                       <DataTemplate DataType="model:SkillReference">
-                        <Border Background="{DynamicResource Brush.SurfaceSubtle}"
-                                CornerRadius="12" Padding="10,8" Margin="0,0,6,6" MaxWidth="280">
-                          <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Border Width="24" Height="24" CornerRadius="12"
-                                    Background="{DynamicResource Brush.AccentSubtle}"
-                                    VerticalAlignment="Top">
-                              <TextBlock Text="{Binding Glyph}" FontSize="12"
-                                         HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            </Border>
-                            <StackPanel Spacing="2" MaxWidth="228">
-                              <TextBlock Text="{loc:Str Chat_UsedSkillLabel}" Classes="caption"
-                                         Foreground="{DynamicResource Brush.TextTertiary}" />
-                              <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
-                                         Foreground="{DynamicResource Brush.TextPrimary}"
-                                         TextWrapping="Wrap" />
-                              <TextBlock Text="{Binding Description}" Classes="caption"
-                                         Foreground="{DynamicResource Brush.TextSecondary}"
-                                         TextWrapping="Wrap"
-                                         IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                            </StackPanel>
+                        <Border Background="{DynamicResource Brush.AccentSubtle}"
+                                CornerRadius="14" Padding="8,4,10,4" Margin="0,0,4,4">
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding Glyph}" FontSize="12"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="Medium"
+                                       Foreground="{DynamicResource Brush.TextSecondary}"
+                                       VerticalAlignment="Center" />
                           </StackPanel>
                         </Border>
                       </DataTemplate>
@@ -319,26 +312,14 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                       <DataTemplate DataType="model:SkillReference">
-                        <Border Background="{DynamicResource Brush.SurfaceSubtle}"
-                                CornerRadius="12" Padding="10,8" Margin="0,0,6,6" MaxWidth="280">
-                          <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Border Width="24" Height="24" CornerRadius="12"
-                                    Background="{DynamicResource Brush.AccentSubtle}"
-                                    VerticalAlignment="Top">
-                              <TextBlock Text="{Binding Glyph}" FontSize="12"
-                                         HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            </Border>
-                            <StackPanel Spacing="2" MaxWidth="228">
-                              <TextBlock Text="{loc:Str Chat_UsedSkillLabel}" Classes="caption"
-                                         Foreground="{DynamicResource Brush.TextTertiary}" />
-                              <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
-                                         Foreground="{DynamicResource Brush.TextPrimary}"
-                                         TextWrapping="Wrap" />
-                              <TextBlock Text="{Binding Description}" Classes="caption"
-                                         Foreground="{DynamicResource Brush.TextSecondary}"
-                                         TextWrapping="Wrap"
-                                         IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                            </StackPanel>
+                        <Border Background="{DynamicResource Brush.AccentSubtle}"
+                                CornerRadius="14" Padding="8,4,10,4" Margin="0,0,4,4">
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding Glyph}" FontSize="12"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="Medium"
+                                       Foreground="{DynamicResource Brush.TextSecondary}"
+                                       VerticalAlignment="Center" />
                           </StackPanel>
                         </Border>
                       </DataTemplate>
@@ -1210,6 +1191,11 @@
                              AvailableMcps="{Binding AvailableMcpChips}"
                              AvailableProjects="{Binding AvailableProjectChips}"
                              AvailableFiles="{Binding AvailableFileSuggestions}">
+        <sc:StrataChatComposer.ModelItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding Converter={StaticResource ModelDisplayConverter}}" />
+          </DataTemplate>
+        </sc:StrataChatComposer.ModelItemTemplate>
         <sc:StrataChatComposer.AttachmentContent>
           <sc:StrataAttachmentList ShowAddButton="False"
                                    ItemsSource="{Binding PendingAttachmentItems}"

@@ -4,6 +4,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Lumi.Localization;
 using Lumi.ViewModels;
+using Lumi.Views.Controls;
 using StrataTheme.Controls;
 using System;
 using System.ComponentModel;
@@ -21,6 +22,7 @@ public partial class OnboardingView : UserControl
     private TextBlock? _agentSubtitleText;
     private ContentControl? _questionCardHost;
     private TextBox? _nameBox;
+    private GitHubLoginView? _loginView;
     private OnboardingViewModel? _wiredVm;
 
     public OnboardingView()
@@ -35,6 +37,7 @@ public partial class OnboardingView : UserControl
         _agentSubtitleText = this.FindControl<TextBlock>("AgentSubtitleText");
         _questionCardHost = this.FindControl<ContentControl>("QuestionCardHost");
         _nameBox = this.FindControl<TextBox>("OnboardingNameBox");
+        _loginView = this.FindControl<GitHubLoginView>("OnboardingLoginView");
 
         if (_nameBox is not null)
             _nameBox.KeyDown += OnNameBoxKeyDown;
@@ -76,6 +79,10 @@ public partial class OnboardingView : UserControl
             vm.PropertyChanged += OnViewModelPropertyChanged;
             vm.QuestionAsked += OnQuestionAsked;
             UpdateFormattedTexts(vm);
+
+            // Wire the shared login component to the OnboardingVM's GitHubLoginVM
+            if (_loginView is not null)
+                _loginView.DataContext = vm.LoginVM;
         }
         else
         {

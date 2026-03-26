@@ -42,6 +42,7 @@ public class TranscriptBuilder
 
     public HashSet<string> ShownFileChips { get; } = new(StringComparer.OrdinalIgnoreCase);
     public List<SkillReference> PendingFetchedSkillRefs { get; } = [];
+    private readonly HashSet<string> _shownSkillNames = new(StringComparer.OrdinalIgnoreCase);
     private PlanCardItem? _pendingPlanCard;
     private string? _pendingModelName;
 
@@ -122,6 +123,7 @@ public class TranscriptBuilder
         PendingFileEdits.Clear();
         PendingFetchedSkillRefs.Clear();
         ShownFileChips.Clear();
+        _shownSkillNames.Clear();
     }
 
     private static StrataAiToolCallStatus MapToolStatus(string? status)
@@ -683,7 +685,11 @@ public class TranscriptBuilder
             FlushPendingModelLabel();
             FinalizeCurrentTurn();
 
-            var userItem = new UserMessageItem(msgVm, showTimestamps, (msg, edited) => _ = _resendFromMessageAction(msg, edited));
+            // Only show skills that haven't been displayed yet in this transcript
+            var newSkills = msgVm.Message.ActiveSkills
+                .Where(s => _shownSkillNames.Add(s.Name))
+                .ToList();
+            var userItem = new UserMessageItem(msgVm, showTimestamps, newSkills, (msg, edited) => _ = _resendFromMessageAction(msg, edited));
             AppendToCurrentTurn(userItem, TurnStableIdFor($"message:{msgVm.Message.Id}"));
             FinalizeCurrentTurn();
             return;
@@ -699,7 +705,7 @@ public class TranscriptBuilder
         _pendingModelName = ChatViewModel.FormatModelDisplay(msgVm.Message.Model);
         if (!msgVm.IsStreaming && (PendingToolFileChips.Count > 0 || msgVm.Message.Sources.Count > 0 || msgVm.Message.ActiveSkills.Count > 0))
         {
-            assistantItem.ApplyExtras(PendingToolFileChips.Count > 0 ? PendingToolFileChips.ToList() : null);
+            assistantItem.ApplyExtras(PendingToolFileChips.Count > 0 ? PendingToolFileChips.ToList() : null, _shownSkillNames);
             PendingToolFileChips.Clear();
             PendingFetchedSkillRefs.Clear();
         }
@@ -715,7 +721,7 @@ public class TranscriptBuilder
             {
                 if (args.PropertyName == nameof(ChatMessageViewModel.IsStreaming) && !msgVm.IsStreaming)
                 {
-                    capturedItem.ApplyExtras(PendingToolFileChips.Count > 0 ? PendingToolFileChips.ToList() : null);
+                    capturedItem.ApplyExtras(PendingToolFileChips.Count > 0 ? PendingToolFileChips.ToList() : null, _shownSkillNames);
                     PendingToolFileChips.Clear();
                     PendingFetchedSkillRefs.Clear();
 
