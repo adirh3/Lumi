@@ -34,12 +34,26 @@
         <Transitions>
           <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
           <BrushTransition Property="Background" Duration="0:0:0.12" />
-          <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
         </Transitions>
       </Setter>
     </Style>
     <Style Selector="Button.motion-list-row:pointerover">
       <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <Style Selector="TextBlock.field-label">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="Margin" Value="0,0,0,4" />
+    </Style>
+
+    <Style Selector="TextBlock.section-label">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Margin" Value="0,0,0,6" />
+      <Setter Property="LetterSpacing" Value="0.5" />
     </Style>
   </UserControl.Styles>
 
@@ -48,11 +62,11 @@
       <ScrollViewer Classes="motion-surface"
                     IsVisible="{Binding IsEditing}"
                     HorizontalScrollBarVisibility="Disabled"
-                    VerticalScrollBarVisibility="Auto" Padding="36,24,36,36">
-        <StackPanel Spacing="20" MaxWidth="640">
+                    VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="0" Margin="24,20,24,28">
 
           <!-- Header + actions row -->
-          <DockPanel>
+          <DockPanel Margin="0,0,0,16">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
               <Button Classes="accent motion-action" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
                       Command="{Binding SaveProjectCommand}" />
@@ -67,107 +81,86 @@
                           Foreground="{DynamicResource Brush.TextTertiary}" />
               </Button>
             </StackPanel>
-            <TextBlock Text="{loc:Str Editor_Project}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
-                       VerticalAlignment="Center" />
+            <TextBlock Text="{loc:Str Editor_Project}" Classes="subtitle" VerticalAlignment="Center" />
           </DockPanel>
 
           <!-- Name -->
-          <StackPanel Spacing="4">
-            <TextBlock Text="{loc:Str Field_Name}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                       LetterSpacing="0.8" />
-            <TextBox Text="{Binding EditName}" PlaceholderText="{loc:Str Watermark_ProjectName}" />
-          </StackPanel>
+          <TextBlock Text="{loc:Str Field_Name}" Classes="field-label" />
+          <TextBox Text="{Binding EditName}" PlaceholderText="{loc:Str Watermark_ProjectName}" Margin="0,0,0,10" />
 
           <!-- Working Directory -->
-          <StackPanel Spacing="4">
-            <TextBlock Text="{loc:Str Field_WorkingDirectory}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                       LetterSpacing="0.8" />
-            <DockPanel>
-              <Button DockPanel.Dock="Right" Classes="subtle motion-action" Padding="10,7" MinHeight="0" Margin="6,0,0,0"
-                      Name="BrowseFolderButton" ToolTip.Tip="{loc:Str Project_Browse}">
+          <TextBlock Text="{loc:Str Field_WorkingDirectory}" Classes="field-label" />
+          <DockPanel Margin="0,0,0,2">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" Margin="8,0,0,0">
+              <Button Name="BrowseFolderButton" Classes="subtle motion-action" Padding="8,6" MinHeight="0"
+                      CornerRadius="6" ToolTip.Tip="{loc:Str Project_Browse}">
                 <PathIcon Data="{StaticResource Icon.Folder}" Width="14" Height="14"
                           Foreground="{DynamicResource Brush.TextTertiary}" />
               </Button>
-              <Button DockPanel.Dock="Right" Classes="subtle motion-action" Padding="10,7" MinHeight="0" Margin="4,0,0,0"
+              <Button Classes="subtle motion-action" Padding="8,6" MinHeight="0" CornerRadius="6"
                       Command="{Binding ClearWorkingDirectoryCommand}"
                       IsVisible="{Binding EditWorkingDirectory, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                       ToolTip.Tip="Clear">
                 <TextBlock Text="✕" FontSize="12" Foreground="{DynamicResource Brush.TextTertiary}" />
               </Button>
-              <TextBox Text="{Binding EditWorkingDirectory}" PlaceholderText="{loc:Str Watermark_ProjectWorkingDir}" />
-            </DockPanel>
-            <TextBlock Text="{loc:Str Project_WorkingDirHint}"
-                       FontSize="{DynamicResource Font.SizeCaption}" Foreground="{DynamicResource Brush.TextTertiary}"
-                       Margin="0,2,0,0" />
-            <!-- Coding project indicator -->
-            <StackPanel Orientation="Horizontal" Spacing="6"
-                        IsVisible="{Binding IsCodingProject}" Margin="0,4,0,0">
-              <TextBlock Text="💻" FontSize="13" VerticalAlignment="Center" />
-              <TextBlock Text="{loc:Str Project_CodingProjectDetected}"
-                         FontSize="{DynamicResource Font.SizeCaption}"
-                         Foreground="{DynamicResource Brush.AccentDefault}"
-                         VerticalAlignment="Center" />
             </StackPanel>
+            <TextBox Text="{Binding EditWorkingDirectory}" PlaceholderText="{loc:Str Watermark_ProjectWorkingDir}" />
+          </DockPanel>
+
+          <!-- Coding project indicator -->
+          <StackPanel Orientation="Horizontal" Spacing="6"
+                      IsVisible="{Binding IsCodingProject}" Margin="0,2,0,0">
+            <TextBlock Text="💻" FontSize="12" VerticalAlignment="Center" />
+            <TextBlock Text="{loc:Str Project_CodingProjectDetected}"
+                       FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.AccentDefault}"
+                       VerticalAlignment="Center" />
           </StackPanel>
 
           <!-- Instructions -->
-          <StackPanel Spacing="4">
-            <TextBlock Text="{loc:Str Field_Instructions}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                       LetterSpacing="0.8" />
-            <TextBox Text="{Binding EditInstructions}" AcceptsReturn="True" TextWrapping="Wrap"
-                     MinHeight="180" MaxHeight="420" VerticalContentAlignment="Top"
-                     PlaceholderText="{loc:Str Watermark_ProjectInstructions}" />
-          </StackPanel>
+          <TextBlock Text="{loc:Str Field_Instructions}" Classes="field-label" Margin="0,12,0,4" />
+          <TextBox Text="{Binding EditInstructions}" AcceptsReturn="True" TextWrapping="Wrap"
+                   MinHeight="100" MaxHeight="360" VerticalContentAlignment="Top"
+                   PlaceholderText="{loc:Str Watermark_ProjectInstructions}" />
 
-          <!-- ── Chats in this project ── -->
-          <StackPanel Classes="motion-surface"
-                      Spacing="6" IsVisible="{Binding SelectedProject, Converter={x:Static ObjectConverters.IsNotNull}}"
-                      Margin="0,8,0,0">
-            <TextBlock Text="{loc:Str Field_Chats}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                       LetterSpacing="0.8" />
+          <!-- Chats in this project -->
+          <StackPanel IsVisible="{Binding SelectedProject, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <Separator Margin="0,16,0,12" />
+            <TextBlock Text="{loc:Str Field_Chats}" Classes="section-label" />
 
-            <!-- Empty state -->
             <Border IsVisible="{Binding !ProjectChats.Count}"
                     Background="{DynamicResource Brush.SurfaceRaised}" CornerRadius="{DynamicResource Radius.Base}"
                     Padding="16,14">
               <StackPanel Spacing="4" HorizontalAlignment="Center" Opacity="0.5">
-                <PathIcon Data="{StaticResource Icon.Chat}" Width="20" Height="20" HorizontalAlignment="Center" />
-                <TextBlock Text="{loc:Str Empty_NoProjectChats}"
-                           FontSize="{DynamicResource Font.SizeCaption}"
-                           HorizontalAlignment="Center" />
+                <PathIcon Data="{StaticResource Icon.Chat}" Width="18" Height="18" HorizontalAlignment="Center" />
+                <TextBlock Text="{loc:Str Empty_NoProjectChats}" Classes="caption" HorizontalAlignment="Center" />
               </StackPanel>
             </Border>
 
-            <!-- Chat list -->
-            <Border IsVisible="{Binding ProjectChats.Count}"
-                    Background="{DynamicResource Brush.SurfaceRaised}" CornerRadius="{DynamicResource Radius.Base}"
-                    Padding="4">
-              <ItemsControl ItemsSource="{Binding ProjectChats}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="models:Chat" x:CompileBindings="False">
-                    <Button Classes="subtle motion-list-row" HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Left"
-                            Padding="10,8" MinHeight="0" Margin="0,1"
-                            CornerRadius="{DynamicResource Radius.Base}"
-                            Command="{Binding $parent[UserControl].DataContext.OpenChatCommand}"
-                            CommandParameter="{Binding}">
-                      <DockPanel>
-                        <TextBlock DockPanel.Dock="Right" FontSize="{DynamicResource Font.SizeCaption}"
-                                   Foreground="{DynamicResource Brush.TextTertiary}"
-                                   VerticalAlignment="Center" Margin="12,0,0,0"
-                                   Text="{Binding UpdatedAt, StringFormat='{}{0:MMM d}'}" />
-                        <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Chat}"
-                                  Width="13" Height="13" VerticalAlignment="Center"
-                                  Foreground="{DynamicResource Brush.TextTertiary}" Margin="0,0,10,0" />
-                        <TextBlock Text="{Binding Title}" FontSize="{DynamicResource Font.SizeBody}"
-                                   TextTrimming="CharacterEllipsis"
-                                   VerticalAlignment="Center" />
-                      </DockPanel>
-                    </Button>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </Border>
+            <ItemsControl ItemsSource="{Binding ProjectChats}" IsVisible="{Binding ProjectChats.Count}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="models:Chat" x:CompileBindings="False">
+                  <Button Classes="subtle motion-list-row" HorizontalAlignment="Stretch"
+                          HorizontalContentAlignment="Left"
+                          Padding="8,7" MinHeight="0" Margin="0,1"
+                          CornerRadius="{DynamicResource Radius.Base}"
+                          Command="{Binding $parent[UserControl].DataContext.OpenChatCommand}"
+                          CommandParameter="{Binding}">
+                    <DockPanel>
+                      <TextBlock DockPanel.Dock="Right" FontSize="{DynamicResource Font.SizeCaption}"
+                                 Foreground="{DynamicResource Brush.TextTertiary}"
+                                 VerticalAlignment="Center" Margin="12,0,0,0"
+                                 Text="{Binding UpdatedAt, StringFormat='{}{0:MMM d}'}" />
+                      <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Chat}"
+                                Width="13" Height="13" VerticalAlignment="Center"
+                                Foreground="{DynamicResource Brush.TextTertiary}" Margin="0,0,8,0" />
+                      <TextBlock Text="{Binding Title}" FontSize="{DynamicResource Font.SizeBody}"
+                                 TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                    </DockPanel>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
           </StackPanel>
         </StackPanel>
       </ScrollViewer>

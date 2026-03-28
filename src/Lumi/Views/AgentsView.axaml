@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:models="using:Lumi.Models"
+             xmlns:sc="using:StrataTheme.Controls"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.AgentsView"
              x:DataType="vm:AgentsViewModel"
@@ -29,7 +30,22 @@
       </Setter>
     </Style>
 
-    <!-- Toggle pill: base -->
+    <Style Selector="TextBlock.field-label">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="Margin" Value="0,0,0,4" />
+    </Style>
+
+    <Style Selector="TextBlock.section-label">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Margin" Value="0,0,0,6" />
+      <Setter Property="LetterSpacing" Value="0.5" />
+    </Style>
+
+    <!-- Toggle pill -->
     <Style Selector="ToggleButton.pill">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
@@ -68,11 +84,11 @@
       <ScrollViewer Classes="motion-surface"
                     IsVisible="{Binding IsEditing}"
                     HorizontalScrollBarVisibility="Disabled"
-                    VerticalScrollBarVisibility="Auto" Padding="36,24,36,36">
-        <StackPanel Spacing="20" MaxWidth="920">
+                    VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="0" Margin="24,16,24,20">
 
           <!-- Header + actions row -->
-          <DockPanel>
+          <DockPanel Margin="0,0,0,12">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
               <Button Classes="accent motion-action" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
                       Command="{Binding SaveAgentCommand}" />
@@ -86,127 +102,106 @@
                           Foreground="{DynamicResource Brush.TextTertiary}" />
               </Button>
             </StackPanel>
-            <TextBlock Text="{loc:Str Editor_Lumi}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
-                       VerticalAlignment="Center" />
+            <TextBlock Text="{loc:Str Editor_Lumi}" Classes="subtitle" VerticalAlignment="Center" />
           </DockPanel>
 
-          <!-- Two-column layout -->
-          <Grid ColumnDefinitions="*,32,*" RowDefinitions="Auto">
+          <!-- Icon + Name row -->
+          <DockPanel Margin="0,0,0,8">
+            <Button x:Name="AgentIconPickerButton" DockPanel.Dock="Left" Classes="subtle" Margin="0,0,10,0"
+                    Padding="0" MinHeight="0" MinWidth="0" CornerRadius="{DynamicResource Radius.Base}"
+                    Width="36" Height="36" Cursor="Hand"
+                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+              <Button.Flyout>
+                <Flyout Placement="BottomEdgeAlignedLeft">
+                  <sc:StrataIconPicker SelectedIcon="{Binding EditIconGlyph, Mode=TwoWay}"
+                                       IconSelected="OnIconSelected" />
+                </Flyout>
+              </Button.Flyout>
+              <TextBlock Text="{Binding EditIconGlyph, FallbackValue=✦}" FontSize="18"
+                         HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Button>
+            <TextBox Text="{Binding EditName}" PlaceholderText="{loc:Str Watermark_AgentName}" />
+          </DockPanel>
 
-            <!-- ── Left column: identity + system prompt ── -->
-            <StackPanel Grid.Column="0" Spacing="16">
+          <!-- Description -->
+          <TextBox Text="{Binding EditDescription}" Margin="0,0,0,8"
+                   PlaceholderText="{loc:Str Watermark_AgentDescription}" />
 
-              <StackPanel Spacing="4">
-                <TextBlock Text="{loc:Str Field_Name}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                           LetterSpacing="0.8" />
-                <TextBox Text="{Binding EditName}" PlaceholderText="{loc:Str Watermark_AgentName}" />
-              </StackPanel>
+          <!-- System Prompt -->
+          <TextBlock Text="{loc:Str Field_SystemPrompt}" Classes="field-label" />
+          <TextBox Text="{Binding EditSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap"
+                   MinHeight="68" MaxHeight="360"
+                   VerticalContentAlignment="Top"
+                   PlaceholderText="{loc:Str Watermark_AgentSystemPrompt}" />
 
-              <Grid ColumnDefinitions="72,16,*">
-                <StackPanel Spacing="4">
-                  <TextBlock Text="{loc:Str Field_Icon}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                             LetterSpacing="0.8" />
-                  <TextBox Text="{Binding EditIconGlyph}" PlaceholderText="✦"
-                           HorizontalContentAlignment="Center" />
-                </StackPanel>
-                <StackPanel Grid.Column="2" Spacing="4">
-                  <TextBlock Text="{loc:Str Field_Description}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                             LetterSpacing="0.8" />
-                  <TextBox Text="{Binding EditDescription}"
-                           PlaceholderText="{loc:Str Watermark_AgentDescription}" />
-                </StackPanel>
-              </Grid>
+          <Separator Margin="0,10,0,8" />
 
-              <StackPanel Spacing="4">
-                <TextBlock Text="{loc:Str Field_SystemPrompt}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                           LetterSpacing="0.8" />
-                <TextBox Text="{Binding EditSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap"
-                         MinHeight="200" MaxHeight="420"
-                         VerticalContentAlignment="Top"
-                         PlaceholderText="{loc:Str Watermark_AgentSystemPrompt}" />
-              </StackPanel>
-            </StackPanel>
+          <!-- Skills -->
+          <TextBlock Text="{loc:Str Field_Skills}" Classes="section-label" />
+          <ItemsControl ItemsSource="{Binding AvailableSkills}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel Orientation="Horizontal" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:SkillToggle">
+                <ToggleButton Classes="pill" IsChecked="{Binding IsSelected}"
+                              ToolTip.Tip="{Binding Description}" Margin="0,0,6,6">
+                  <StackPanel Orientation="Horizontal" Spacing="5">
+                    <TextBlock Text="{Binding IconGlyph}" FontSize="12" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeCaption}"
+                               VerticalAlignment="Center" />
+                  </StackPanel>
+                </ToggleButton>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Text="{loc:Str Agent_NoSkills}" Classes="caption tertiary"
+                     IsVisible="{Binding !AvailableSkills.Count}" />
 
-            <!-- ── Right column: skills + MCP servers + tools ── -->
-            <StackPanel Grid.Column="2" Spacing="20">
+          <Separator Margin="0,6,0,8" />
 
-              <!-- Skills assignment -->
-              <StackPanel Spacing="6">
-                <TextBlock Text="{loc:Str Field_Skills}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                           LetterSpacing="0.8" />
-                <ItemsControl ItemsSource="{Binding AvailableSkills}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                      <WrapPanel Orientation="Horizontal" />
-                    </ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:SkillToggle">
-                      <ToggleButton Classes="pill" IsChecked="{Binding IsSelected}"
-                                    ToolTip.Tip="{Binding Description}" Margin="0,0,6,6">
-                        <StackPanel Orientation="Horizontal" Spacing="5">
-                          <TextBlock Text="{Binding IconGlyph}" FontSize="12" VerticalAlignment="Center" />
-                          <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeCaption}"
-                                     VerticalAlignment="Center" />
-                        </StackPanel>
-                      </ToggleButton>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <TextBlock Text="{loc:Str Agent_NoSkills}"
-                           FontSize="{DynamicResource Font.SizeCaption}"
-                           Foreground="{DynamicResource Brush.TextTertiary}"
-                           IsVisible="{Binding !AvailableSkills.Count}" />
-              </StackPanel>
+          <!-- MCP Servers -->
+          <TextBlock Text="{loc:Str Field_McpServers}" Classes="section-label" />
+          <ItemsControl ItemsSource="{Binding AvailableMcpServers}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel Orientation="Horizontal" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:McpServerToggle">
+                <ToggleButton Classes="pill" IsChecked="{Binding IsSelected}" Margin="0,0,6,6">
+                  <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeCaption}"
+                             VerticalAlignment="Center" />
+                </ToggleButton>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Text="{loc:Str Agent_NoMcpServers}" Classes="caption tertiary"
+                     IsVisible="{Binding !AvailableMcpServers.Count}" />
 
-              <!-- MCP servers assignment -->
-              <StackPanel Spacing="6">
-                <TextBlock Text="{loc:Str Field_McpServers}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                           LetterSpacing="0.8" />
-                <ItemsControl ItemsSource="{Binding AvailableMcpServers}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                      <WrapPanel Orientation="Horizontal" />
-                    </ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:McpServerToggle">
-                      <ToggleButton Classes="pill" IsChecked="{Binding IsSelected}" Margin="0,0,6,6">
-                        <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeCaption}"
-                                   VerticalAlignment="Center" />
-                      </ToggleButton>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <TextBlock Text="{loc:Str Agent_NoMcpServers}"
-                           FontSize="{DynamicResource Font.SizeCaption}"
-                           Foreground="{DynamicResource Brush.TextTertiary}"
-                           IsVisible="{Binding !AvailableMcpServers.Count}" />
-              </StackPanel>
+          <Separator Margin="0,6,0,8" />
 
-              <!-- Tools assignment -->
-              <StackPanel Spacing="6">
-                <TextBlock Text="{loc:Str Field_Tools}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                           LetterSpacing="0.8" />
-                <ItemsControl ItemsSource="{Binding AvailableTools}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                      <WrapPanel Orientation="Horizontal" />
-                    </ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:ToolToggle">
-                      <ToggleButton Classes="pill" IsChecked="{Binding IsSelected}"
-                                    ToolTip.Tip="{Binding Description}" Margin="0,0,6,6">
-                        <TextBlock Text="{Binding DisplayName}" FontSize="{DynamicResource Font.SizeCaption}"
-                                   VerticalAlignment="Center" />
-                      </ToggleButton>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </StackPanel>
-            </StackPanel>
-          </Grid>
+          <!-- Tools -->
+          <TextBlock Text="{loc:Str Field_Tools}" Classes="section-label" />
+          <ItemsControl ItemsSource="{Binding AvailableTools}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel Orientation="Horizontal" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ToolToggle">
+                <ToggleButton Classes="pill" IsChecked="{Binding IsSelected}"
+                              ToolTip.Tip="{Binding Description}" Margin="0,0,6,6">
+                  <TextBlock Text="{Binding DisplayName}" FontSize="{DynamicResource Font.SizeCaption}"
+                             VerticalAlignment="Center" />
+                </ToggleButton>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
         </StackPanel>
       </ScrollViewer>
 

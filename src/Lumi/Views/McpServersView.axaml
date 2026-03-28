@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:models="using:Lumi.Models"
+             xmlns:sc="using:StrataTheme.Controls"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.McpServersView"
              x:DataType="vm:McpServersViewModel"
@@ -28,6 +29,13 @@
         </Transitions>
       </Setter>
     </Style>
+
+    <Style Selector="TextBlock.field-label">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="Margin" Value="0,0,0,4" />
+    </Style>
   </UserControl.Styles>
 
   <Panel>
@@ -35,11 +43,11 @@
       <ScrollViewer Classes="motion-surface"
                     IsVisible="{Binding IsEditing}"
                     HorizontalScrollBarVisibility="Disabled"
-                    VerticalScrollBarVisibility="Auto" Padding="36,24,36,36">
-        <StackPanel Spacing="16" MaxWidth="560">
+                    VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="0" Margin="24,20,24,28">
 
           <!-- Header + actions row -->
-          <DockPanel>
+          <DockPanel Margin="0,0,0,16">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
               <Button Classes="accent motion-action" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
                       Command="{Binding SaveServerCommand}" />
@@ -54,151 +62,109 @@
                           Foreground="{DynamicResource Brush.TextTertiary}" />
               </Button>
             </StackPanel>
-            <TextBlock Text="{loc:Str Editor_McpServer}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
-                       VerticalAlignment="Center" />
+            <TextBlock Text="{loc:Str Editor_McpServer}" Classes="subtitle" VerticalAlignment="Center" />
           </DockPanel>
 
-          <StackPanel Spacing="4">
-            <TextBlock Text="{loc:Str Field_Name}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                       LetterSpacing="0.8" />
-            <TextBox Text="{Binding EditName}" PlaceholderText="{loc:Str Watermark_McpServerName}" />
-          </StackPanel>
+          <!-- Name -->
+          <TextBlock Text="{loc:Str Field_Name}" Classes="field-label" />
+          <TextBox Text="{Binding EditName}" PlaceholderText="{loc:Str Watermark_McpServerName}" Margin="0,0,0,10" />
 
-          <StackPanel Spacing="4">
-            <TextBlock Text="{loc:Str Field_Description}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                       LetterSpacing="0.8" />
-            <TextBox Text="{Binding EditDescription}"
-                     PlaceholderText="{loc:Str Watermark_McpServerDescription}" />
-          </StackPanel>
+          <!-- Description -->
+          <TextBlock Text="{loc:Str Field_Description}" Classes="field-label" />
+          <TextBox Text="{Binding EditDescription}" PlaceholderText="{loc:Str Watermark_McpServerDescription}" Margin="0,0,0,12" />
 
-          <StackPanel Spacing="4">
-            <TextBlock Text="{loc:Str Field_ServerType}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                       LetterSpacing="0.8" />
-            <ComboBox SelectedIndex="{Binding EditServerTypeIndex}" HorizontalAlignment="Stretch">
-              <ComboBoxItem Content="{loc:Str McpType_Local}" />
-              <ComboBoxItem Content="{loc:Str McpType_Remote}" />
-            </ComboBox>
-          </StackPanel>
+          <!-- Type + Enabled -->
+          <sc:StrataSettingGroup>
+            <sc:StrataSetting Header="Type" Description="Local (stdio) or Remote (SSE)">
+              <ComboBox SelectedIndex="{Binding EditServerTypeIndex}" Width="160">
+                <ComboBoxItem Content="{loc:Str McpType_Local}" />
+                <ComboBoxItem Content="{loc:Str McpType_Remote}" />
+              </ComboBox>
+            </sc:StrataSetting>
+            <sc:StrataSetting Header="Enabled" Description="Include in chat sessions">
+              <ToggleSwitch IsChecked="{Binding EditIsEnabled}" OnContent="" OffContent="" />
+            </sc:StrataSetting>
+          </sc:StrataSettingGroup>
 
           <!-- Local server fields -->
-          <StackPanel Spacing="16" IsVisible="{Binding !EditServerTypeIndex}">
-            <StackPanel Spacing="4">
-              <TextBlock Text="{loc:Str Field_Command}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                         LetterSpacing="0.8" />
-              <TextBox Text="{Binding EditCommand}" PlaceholderText="{loc:Str Watermark_McpCommand}" />
+          <StackPanel Spacing="0" IsVisible="{Binding !EditServerTypeIndex}">
+            <Separator Margin="0,12,0,12" />
+
+            <TextBlock Text="{loc:Str Field_Command}" Classes="field-label" />
+            <TextBox Text="{Binding EditCommand}" PlaceholderText="{loc:Str Watermark_McpCommand}" Margin="0,0,0,10" />
+
+            <!-- NPX package fields -->
+            <StackPanel Spacing="0" IsVisible="{Binding IsNpxCommand}">
+              <DockPanel Margin="0,0,0,4">
+                <Button DockPanel.Dock="Right" Classes="subtle" Padding="8,3" MinHeight="0" CornerRadius="6"
+                        Command="{Binding OpenNpmPageCommand}" ToolTip.Tip="Open npm page">
+                  <StackPanel Orientation="Horizontal" Spacing="4">
+                    <PathIcon Data="{StaticResource Icon.Browse}" Width="11" Height="11"
+                              Foreground="{DynamicResource Brush.TextTertiary}" />
+                    <TextBlock Text="Docs" FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}" />
+                  </StackPanel>
+                </Button>
+                <TextBlock Text="Package" Classes="field-label" Margin="0" />
+              </DockPanel>
+              <TextBox Text="{Binding EditNpxPackage}" Margin="0,0,0,10"
+                       PlaceholderText="@modelcontextprotocol/server-filesystem" />
+
+                <TextBlock Text="{loc:Str Field_Arguments}" Classes="field-label" />
+              <TextBox Text="{Binding EditServerArgs}" AcceptsReturn="True" TextWrapping="Wrap"
+                       MinHeight="56" MaxHeight="200" VerticalContentAlignment="Top" Margin="0,0,0,10"
+                       PlaceholderText="Paths, connection strings — one per line" />
             </StackPanel>
 
-            <!-- npx servers: read-only package + editable server args -->
-            <StackPanel Spacing="16" IsVisible="{Binding IsNpxCommand}">
-              <StackPanel Spacing="4">
-                <TextBlock Text="PACKAGE" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                           LetterSpacing="0.8" />
-                <DockPanel>
-                  <Button DockPanel.Dock="Right" Classes="subtle" Padding="8,4" MinHeight="0"
-                          CornerRadius="6" VerticalAlignment="Center" Margin="8,0,0,0"
-                          Command="{Binding OpenNpmPageCommand}" ToolTip.Tip="Open npm page for documentation">
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                      <PathIcon Data="{StaticResource Icon.Browse}" Width="11" Height="11"
-                                Foreground="{DynamicResource Brush.TextTertiary}" />
-                      <TextBlock Text="Docs" FontSize="11"
-                                 Foreground="{DynamicResource Brush.TextTertiary}" />
-                    </StackPanel>
-                  </Button>
-                  <TextBox Text="{Binding EditNpxPackage}"
-                           PlaceholderText="@modelcontextprotocol/server-filesystem" />
-                </DockPanel>
-              </StackPanel>
-
-              <StackPanel Spacing="4">
-                <TextBlock Text="SERVER ARGUMENTS" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                           LetterSpacing="0.8" />
-                <TextBox Text="{Binding EditServerArgs}" AcceptsReturn="True" TextWrapping="Wrap"
-                         MinHeight="72" MaxHeight="200"
-                         VerticalContentAlignment="Top"
-                         PlaceholderText="Paths, connection strings, or other config — one per line" />
-                <TextBlock Text="These arguments are passed to the MCP server after the package name. Check the Docs button above for what this server expects."
-                           FontSize="11" Foreground="{DynamicResource Brush.TextTertiary}"
-                           TextWrapping="Wrap" Margin="0,1,0,0" />
-              </StackPanel>
-            </StackPanel>
-
-            <!-- Non-npx servers: single args field -->
-            <StackPanel Spacing="4" IsVisible="{Binding !IsNpxCommand}">
-              <TextBlock Text="{loc:Str Field_Arguments}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                         LetterSpacing="0.8" />
+            <!-- Non-NPX arguments -->
+            <StackPanel Spacing="0" IsVisible="{Binding !IsNpxCommand}">
+              <TextBlock Text="{loc:Str Field_Arguments}" Classes="field-label" />
               <TextBox Text="{Binding EditArgs}" AcceptsReturn="True" TextWrapping="Wrap"
-                       MinHeight="72" MaxHeight="200"
-                       VerticalContentAlignment="Top"
+                       MinHeight="56" MaxHeight="200" VerticalContentAlignment="Top" Margin="0,0,0,10"
                        PlaceholderText="{loc:Str Watermark_McpArgs}" />
             </StackPanel>
 
-            <StackPanel Spacing="4">
-              <TextBlock Text="{loc:Str Field_Environment}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                         LetterSpacing="0.8" />
-              <TextBox Text="{Binding EditEnvVars}" AcceptsReturn="True" TextWrapping="Wrap"
-                       MinHeight="56" MaxHeight="200"
-                       VerticalContentAlignment="Top"
-                       PlaceholderText="API_KEY=your-key  (one per line)" />
-            </StackPanel>
+            <!-- Environment Variables -->
+            <TextBlock Text="{loc:Str Field_Environment}" Classes="field-label" />
+            <TextBox Text="{Binding EditEnvVars}" AcceptsReturn="True" TextWrapping="Wrap"
+                     MinHeight="56" MaxHeight="200" VerticalContentAlignment="Top"
+                     PlaceholderText="API_KEY=your-key  (one per line)" />
           </StackPanel>
 
           <!-- Remote server fields -->
-          <StackPanel Spacing="16" IsVisible="{Binding EditServerTypeIndex}">
-            <StackPanel Spacing="4">
-              <TextBlock Text="{loc:Str Field_Url}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                         LetterSpacing="0.8" />
-              <TextBox Text="{Binding EditUrl}" PlaceholderText="{loc:Str Watermark_McpUrl}" />
-            </StackPanel>
-            <StackPanel Spacing="4">
-              <TextBlock Text="{loc:Str Field_Headers}" FontSize="10" FontWeight="SemiBold" Opacity="0.5"
-                         LetterSpacing="0.8" />
-              <TextBox Text="{Binding EditHeaders}" AcceptsReturn="True" TextWrapping="Wrap"
-                       MinHeight="56" MaxHeight="200"
-                       VerticalContentAlignment="Top"
-                       PlaceholderText="Authorization=Bearer token" />
-            </StackPanel>
+          <StackPanel Spacing="0" IsVisible="{Binding EditServerTypeIndex}">
+            <Separator Margin="0,12,0,12" />
+
+            <TextBlock Text="{loc:Str Field_Url}" Classes="field-label" />
+            <TextBox Text="{Binding EditUrl}" PlaceholderText="{loc:Str Watermark_McpUrl}" Margin="0,0,0,10" />
+
+            <TextBlock Text="{loc:Str Field_Headers}" Classes="field-label" />
+            <TextBox Text="{Binding EditHeaders}" AcceptsReturn="True" TextWrapping="Wrap"
+                     MinHeight="56" MaxHeight="200" VerticalContentAlignment="Top"
+                     PlaceholderText="Authorization=Bearer token" />
           </StackPanel>
-
-          <!-- Enabled toggle -->
-          <DockPanel>
-            <ToggleSwitch DockPanel.Dock="Right" IsChecked="{Binding EditIsEnabled}"
-                          VerticalAlignment="Center" Margin="12,0,0,0"
-                          OnContent="" OffContent="" />
-            <StackPanel Spacing="1" VerticalAlignment="Center">
-              <TextBlock Text="{loc:Str Mcp_EnabledTitle}" FontSize="{DynamicResource Font.SizeBody}" />
-              <TextBlock Text="Include this server in chat sessions"
-                         FontSize="{DynamicResource Font.SizeCaption}"
-                         Foreground="{DynamicResource Brush.TextTertiary}" />
-            </StackPanel>
-          </DockPanel>
-
         </StackPanel>
       </ScrollViewer>
 
-      <!-- Browse catalog -->
+      <!-- Browse catalog (unchanged) -->
       <DockPanel IsVisible="{Binding IsBrowsing}">
-        <StackPanel DockPanel.Dock="Top" Spacing="1" Margin="36,24,36,0">
-          <TextBlock Text="{loc:Str Mcp_BrowseCatalog}" FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold" />
+        <StackPanel DockPanel.Dock="Top" Spacing="1" Margin="24,20,24,0">
+          <TextBlock Text="{loc:Str Mcp_BrowseCatalog}" Classes="subtitle" />
           <TextBlock Text="Discover and install MCP servers from npm"
-                     FontSize="{DynamicResource Font.SizeCaption}"
-                     Foreground="{DynamicResource Brush.TextTertiary}" />
+                     Classes="caption tertiary" />
         </StackPanel>
 
-        <Border DockPanel.Dock="Top" Margin="36,14,36,0">
+        <Border DockPanel.Dock="Top" Margin="24,12,24,0">
           <TextBox PlaceholderText="{loc:Str Mcp_SearchCatalog}" Text="{Binding BrowseSearchQuery}"
                    Padding="8,7,10,7" FontSize="{DynamicResource Font.SizeBody}">
             <TextBox.InnerLeftContent>
               <PathIcon Data="{StaticResource Icon.Search}" Width="13" Height="13"
-                        Foreground="{DynamicResource Brush.TextTertiary}"
-                        Margin="6,0,4,0" />
+                        Foreground="{DynamicResource Brush.TextTertiary}" Margin="6,0,4,0" />
             </TextBox.InnerLeftContent>
           </TextBox>
         </Border>
 
-        <!-- Loading indicator for npm search -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6"
-                    IsVisible="{Binding IsSearchingNpm}"
-                    Margin="36,10,36,0">
+                    IsVisible="{Binding IsSearchingNpm}" Margin="24,8,24,0">
           <TextBlock Text="⏳" FontSize="{DynamicResource Font.SizeCaption}"
                      Foreground="{DynamicResource Brush.TextTertiary}">
             <TextBlock.Styles>
@@ -206,37 +172,26 @@
                 <Style.Animations>
                   <Animation Duration="0:0:0.8" IterationCount="Infinite"
                              PlaybackDirection="Alternate" Easing="SineEaseInOut">
-                    <KeyFrame Cue="0%">
-                      <Setter Property="Opacity" Value="0.3" />
-                    </KeyFrame>
-                    <KeyFrame Cue="100%">
-                      <Setter Property="Opacity" Value="1" />
-                    </KeyFrame>
+                    <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.3" /></KeyFrame>
+                    <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1" /></KeyFrame>
                   </Animation>
                 </Style.Animations>
               </Style>
             </TextBlock.Styles>
           </TextBlock>
-          <TextBlock Text="{loc:Str Mcp_SearchingNpm}"
-                     FontSize="{DynamicResource Font.SizeCaption}"
-                     Foreground="{DynamicResource Brush.TextTertiary}" />
+          <TextBlock Text="{loc:Str Mcp_SearchingNpm}" Classes="caption tertiary" />
         </StackPanel>
 
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
-                      VerticalScrollBarVisibility="Auto"
-                      Margin="36,14,36,24">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                      Margin="24,12,24,20">
           <ItemsControl ItemsSource="{Binding CatalogEntries}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:McpCatalogEntry">
                 <Border Background="{DynamicResource Brush.SurfaceSubtle}"
-                        CornerRadius="{DynamicResource Radius.Base}"
-                        Padding="16,14" Margin="0,0,0,6"
-                        BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                        BorderThickness="1">
+                        CornerRadius="{DynamicResource Radius.Base}" Padding="14,12" Margin="0,0,0,6"
+                        BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1">
                   <Border.Transitions>
-                    <Transitions>
-                      <BrushTransition Property="BorderBrush" Duration="0:0:0.15" />
-                    </Transitions>
+                    <Transitions><BrushTransition Property="BorderBrush" Duration="0:0:0.15" /></Transitions>
                   </Border.Transitions>
                   <Border.Styles>
                     <Style Selector="Border:pointerover">
@@ -244,55 +199,40 @@
                     </Style>
                   </Border.Styles>
                   <DockPanel>
-                    <Button DockPanel.Dock="Right" VerticalAlignment="Center" Margin="16,0,0,0"
+                    <Button DockPanel.Dock="Right" VerticalAlignment="Center" Margin="12,0,0,0"
                             Padding="14,6" MinHeight="0" CornerRadius="8"
                             IsEnabled="{Binding !IsInstalled}"
                             Command="{Binding $parent[UserControl].((vm:McpServersViewModel)DataContext).InstallCatalogEntryCommand}"
                             CommandParameter="{Binding}">
                       <Button.Styles>
-                        <Style Selector="Button:disabled">
-                          <Setter Property="Opacity" Value="0.6" />
-                        </Style>
+                        <Style Selector="Button:disabled"><Setter Property="Opacity" Value="0.6" /></Style>
                       </Button.Styles>
                       <StackPanel Orientation="Horizontal" Spacing="5">
-                        <PathIcon Data="{StaticResource Icon.Check}" Width="11" Height="11"
-                                  IsVisible="{Binding IsInstalled}" />
-                        <TextBlock Text="{loc:Str Mcp_Install}"
-                                   IsVisible="{Binding !IsInstalled}" FontWeight="Medium" />
-                        <TextBlock Text="{loc:Str Mcp_Installed}"
-                                   IsVisible="{Binding IsInstalled}" />
+                        <PathIcon Data="{StaticResource Icon.Check}" Width="11" Height="11" IsVisible="{Binding IsInstalled}" />
+                        <TextBlock Text="{loc:Str Mcp_Install}" IsVisible="{Binding !IsInstalled}" FontWeight="Medium" />
+                        <TextBlock Text="{loc:Str Mcp_Installed}" IsVisible="{Binding IsInstalled}" />
                       </StackPanel>
                     </Button>
-                    <StackPanel Spacing="4">
+                    <StackPanel Spacing="3">
                       <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="{Binding Icon}" FontSize="18" VerticalAlignment="Center" />
-                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
-                                   FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center" />
-                        <Border Background="{DynamicResource Brush.SurfaceRaised}"
-                                CornerRadius="6" Padding="7,2" VerticalAlignment="Center">
-                          <TextBlock Text="{Binding Category}" FontSize="10"
-                                     Foreground="{DynamicResource Brush.TextTertiary}"
-                                     FontWeight="Medium" />
+                        <TextBlock Text="{Binding Icon}" FontSize="16" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <Border Background="{DynamicResource Brush.SurfaceRaised}" CornerRadius="6" Padding="6,2" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding Category}" FontSize="10" Foreground="{DynamicResource Brush.TextTertiary}" FontWeight="Medium" />
                         </Border>
                       </StackPanel>
-                      <TextBlock Text="{Binding Description}" FontSize="{DynamicResource Font.SizeCaption}"
-                                 Foreground="{DynamicResource Brush.TextSecondary}"
+                      <TextBlock Text="{Binding Description}" Classes="caption" Foreground="{DynamicResource Brush.TextSecondary}"
                                  TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
-                      <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,2,0,0">
-                        <TextBlock Text="{Binding NpmPackage}" FontSize="10"
-                                   Foreground="{DynamicResource Brush.TextTertiary}"
+                      <StackPanel Orientation="Horizontal" Spacing="12">
+                        <TextBlock Text="{Binding NpmPackage}" FontSize="10" Foreground="{DynamicResource Brush.TextTertiary}"
                                    FontFamily="Consolas,Menlo,monospace" Opacity="0.7" />
-                        <TextBlock Text="{Binding DownloadsDisplay}" FontSize="10"
-                                   Foreground="{DynamicResource Brush.TextTertiary}"
+                        <TextBlock Text="{Binding DownloadsDisplay}" FontSize="10" Foreground="{DynamicResource Brush.TextTertiary}"
                                    IsVisible="{Binding MonthlyDownloads}" />
                       </StackPanel>
-                      <StackPanel Orientation="Horizontal" Spacing="4"
-                                  IsVisible="{Binding HasRequiredEnvVars}" Margin="0,1,0,0">
+                      <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding HasRequiredEnvVars}">
                         <TextBlock Text="🔑" FontSize="10" VerticalAlignment="Center" />
-                        <TextBlock Text="Requires:" FontSize="10"
-                                   Foreground="{DynamicResource Brush.TextTertiary}" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding EnvVarHint}" FontSize="10"
-                                   Foreground="{DynamicResource Brush.TextTertiary}"
+                        <TextBlock Text="Requires:" FontSize="10" Foreground="{DynamicResource Brush.TextTertiary}" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding EnvVarHint}" FontSize="10" Foreground="{DynamicResource Brush.TextTertiary}"
                                    FontFamily="Consolas,Menlo,monospace" />
                       </StackPanel>
                     </StackPanel>
@@ -304,7 +244,7 @@
         </ScrollViewer>
       </DockPanel>
 
-      <!-- Empty state (only shown when not editing or browsing) -->
+      <!-- Empty state -->
       <StackPanel Classes="motion-surface"
                   HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Opacity="0.35">
         <StackPanel.IsVisible>
@@ -314,16 +254,11 @@
           </MultiBinding>
         </StackPanel.IsVisible>
         <PathIcon Data="{StaticResource Icon.Plug}" Width="28" Height="28"
-                  Foreground="{DynamicResource Brush.TextSecondary}"
-                  HorizontalAlignment="Center" />
+                  Foreground="{DynamicResource Brush.TextSecondary}" HorizontalAlignment="Center" />
         <StackPanel Spacing="2" HorizontalAlignment="Center">
-          <TextBlock Text="{loc:Str Empty_SelectMcpServer}" FontSize="{DynamicResource Font.SizeBody}"
+          <TextBlock Text="{loc:Str Empty_SelectMcpServer}" HorizontalAlignment="Center" />
+          <TextBlock Text="Select a server or browse the catalog" Classes="caption tertiary"
                      HorizontalAlignment="Center" />
-          <TextBlock Text="Select a server to configure or browse the catalog to add new ones."
-                     FontSize="{DynamicResource Font.SizeCaption}"
-                     Foreground="{DynamicResource Brush.TextTertiary}"
-                     HorizontalAlignment="Center" TextWrapping="Wrap"
-                     MaxWidth="280" TextAlignment="Center" />
         </StackPanel>
       </StackPanel>
   </Panel>
