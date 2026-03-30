@@ -1104,9 +1104,10 @@ public partial class ChatViewModel : ObservableObject
         var isSilentRetry = _silentRetryPrompt is not null && prompt == _silentRetryPrompt;
         _silentRetryPrompt = null;
 
+        ChatMessage? userMsg = null;
         if (!isSilentRetry)
         {
-            var userMsg = new ChatMessage
+            userMsg = new ChatMessage
             {
                 Role = "user",
                 Content = prompt,
