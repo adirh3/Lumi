@@ -399,4 +399,38 @@ public partial class ChatViewModel
         PendingAttachmentItems.Clear();
         return items;
     }
+
+    /// <summary>
+    /// Rebases file attachment paths from the original project directory to the worktree.
+    /// Files tagged via # resolve against the project directory when the worktree hasn't
+    /// been created yet (lazy creation). This fixes those paths before sending.
+    /// </summary>
+    internal static void RebaseAttachmentPaths(
+        List<UserMessageDataAttachmentsItemFile> attachments,
+        ChatMessage userMsg,
+        string projectDir,
+        string worktreePath)
+    {
+        var normalizedProjectDir = projectDir.TrimEnd(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        var normalizedWorktreePath = worktreePath.TrimEnd(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+
+        if (string.Equals(normalizedProjectDir, normalizedWorktreePath, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        for (var i = 0; i < attachments.Count; i++)
+        {
+            var path = attachments[i].Path;
+            if (path.StartsWith(normalizedProjectDir, StringComparison.OrdinalIgnoreCase))
+            {
+                var rebasedPath = normalizedWorktreePath + path[normalizedProjectDir.Length..];
+                attachments[i].Path = rebasedPath;
+                if (i < userMsg.Attachments.Count)
+                    userMsg.Attachments[i] = rebasedPath;
+            }
+        }
+    }
 }

@@ -1140,6 +1140,12 @@ public partial class ChatViewModel : ObservableObject
                     {
                         WorktreePath = path;
                         targetChat.WorktreePath = path;
+
+                        // Rebase attachment paths before persisting so the saved
+                        // chat has the corrected worktree paths from the start.
+                        if (attachments is { Count: > 0 })
+                            RebaseAttachmentPaths(attachments, userMsg, projectDir, path);
+
                         QueueSaveChat(targetChat, saveIndex: false);
                     }
                     else
@@ -1156,6 +1162,15 @@ public partial class ChatViewModel : ObservableObject
             {
                 IsWorktreeMode = false;
             }
+        }
+
+        // Rebase attachment paths for existing worktrees (e.g. files dragged from the
+        // project directory while an existing worktree is already selected).
+        // New worktrees are handled inside the creation block above.
+        if (!needsWorktreeCreation && WorktreePath is { Length: > 0 } wtPath && attachments is { Count: > 0 })
+        {
+            var projDir = GetProjectWorkingDirectory();
+            RebaseAttachmentPaths(attachments, userMsg, projDir, wtPath);
         }
 
         if (createdChat)
