@@ -5,6 +5,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Lumi.Services;
 using Lumi.ViewModels;
 using StrataTheme.Controls;
 using System;
@@ -79,25 +80,17 @@ public partial class DiffView : UserControl
             catch { content = ""; }
 
             if (string.IsNullOrEmpty(content))
-                return (Lines: Array.Empty<string>(), ChangedLines: new HashSet<int>(), TokenizedLines: Array.Empty<TokenizedLine>());
+                return (Lines: Array.Empty<string>(), Diff: DiffAlgorithm.ComputeChangedLines("", edits, isCreate), TokenizedLines: Array.Empty<TokenizedLine>());
 
             var lines = content.Split('\n');
-            var changed = new HashSet<int>();
 
-            foreach (var (_, newText) in edits)
-            {
-                if (string.IsNullOrEmpty(newText)) continue;
-                MarkChangedLines(content, lines, newText, changed);
-            }
-
-            if (isCreate)
-                for (int i = 0; i < lines.Length; i++)
-                    changed.Add(i);
+            // Use LCS-based diff to highlight only actually-changed lines
+            var diff = DiffAlgorithm.ComputeChangedLines(content, edits, isCreate);
 
             // Tokenize all lines on background thread (TextMate is not UI-bound)
             var tokenized = TokenizeLines(lines, language, isDark);
 
-            return (Lines: lines, ChangedLines: changed, TokenizedLines: tokenized);
+            return (Lines: lines, Diff: diff, TokenizedLines: tokenized);
         });
 
         if (result.Lines.Length == 0)
@@ -112,7 +105,7 @@ public partial class DiffView : UserControl
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
 
         // Build UI controls in batches so the loading animation stays alive
-        await BuildFileViewAsync(result.Lines, isDark, result.ChangedLines, result.TokenizedLines);
+        await BuildFileViewAsync(result.Lines, isDark, result.Diff, result.TokenizedLines);
 
         if (_loadingOverlay is not null) _loadingOverlay.IsVisible = false;
         UpdateStats(fileChange.LinesAdded, fileChange.LinesRemoved);
@@ -194,36 +187,6 @@ public partial class DiffView : UserControl
         return result;
     }
 
-    /// <summary>Finds which line indices contain the given newText and adds them to changedLines.</summary>
-    private static void MarkChangedLines(string fullContent, string[] lines, string newText, HashSet<int> changedLines)
-    {
-        // Normalize to \n for consistent matching regardless of line ending style
-        var normalizedContent = fullContent.Replace("\r\n", "\n");
-        var normalizedNew = newText.Replace("\r\n", "\n");
-
-        var idx = normalizedContent.IndexOf(normalizedNew, StringComparison.Ordinal);
-        if (idx < 0) return;
-
-        // Convert character offset to line indices (all in normalized space)
-        int charPos = 0;
-        for (int lineIdx = 0; lineIdx < lines.Length; lineIdx++)
-        {
-            int lineLen = lines[lineIdx].TrimEnd('\r').Length + 1; // +1 for \n
-            if (charPos + lineLen > idx)
-            {
-                int endIdx = idx + normalizedNew.Length;
-                for (int j = lineIdx; j < lines.Length; j++)
-                {
-                    changedLines.Add(j);
-                    charPos += lines[j].TrimEnd('\r').Length + 1;
-                    if (charPos >= endIdx) break;
-                }
-                return;
-            }
-            charPos += lineLen;
-        }
-    }
-
     /// <summary>
     /// Shows the file with explicit changed line numbers highlighted.
     /// Used for git diffs where we know exactly which lines changed.
@@ -265,7 +228,7 @@ public partial class DiffView : UserControl
         }
 
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
-        await BuildFileViewAsync(result.Lines, isDark, changedLineNumbers, result.TokenizedLines);
+        await BuildFileViewAsync(result.Lines, isDark, new DiffResult(changedLineNumbers, []), result.TokenizedLines);
 
         if (_loadingOverlay is not null) _loadingOverlay.IsVisible = false;
         UpdateStats(changedLineNumbers.Count, 0);
@@ -274,7 +237,7 @@ public partial class DiffView : UserControl
         ScheduleScrollToFirstChange();
     }
 
-    private async Task BuildFileViewAsync(string[] lines, bool isDark, HashSet<int> changedLines, TokenizedLine[] tokenizedLines)
+    private async Task BuildFileViewAsync(string[] lines, bool isDark, DiffResult diff, TokenizedLine[] tokenizedLines)
     {
         if (_diffContent is null) return;
 
@@ -297,17 +260,41 @@ public partial class DiffView : UserControl
         var changeGutterFg = isDark
             ? new SolidColorBrush(Color.FromArgb(180, 63, 185, 80))
             : new SolidColorBrush(Color.FromArgb(200, 0, 140, 0));
+        var deletionBg = isDark
+            ? new SolidColorBrush(Color.FromArgb(40, 248, 81, 73))
+            : new SolidColorBrush(Color.FromArgb(40, 208, 0, 0));
+        var deletionFg = isDark
+            ? new SolidColorBrush(Color.FromArgb(160, 248, 81, 73))
+            : new SolidColorBrush(Color.FromArgb(180, 208, 0, 0));
 
         var brushMap = GetBrushMap(isDark);
         var (_, registry) = GetRegistryPair(isDark);
         Theme? theme = registry.GetTheme();
 
+        // Build a lookup of deletion points: afterLineIndex → count
+        var deletionMap = new Dictionary<int, int>();
+        foreach (var d in diff.Deletions)
+        {
+            if (deletionMap.TryGetValue(d.AfterLineIndex, out var existing))
+                deletionMap[d.AfterLineIndex] = existing + d.Count;
+            else
+                deletionMap[d.AfterLineIndex] = d.Count;
+        }
+
         bool inChangeRegion = false;
+
+        // Deletions before the first line
+        if (deletionMap.TryGetValue(-1, out var leadingDeleted))
+        {
+            var marker = BuildDeletionMarker(leadingDeleted, monoFont, fontSize, deletionBg, deletionFg);
+            _diffContent.Children.Add(marker);
+            _changeRegionControls.Add(marker);
+        }
 
         for (int i = 0; i < lines.Length; i++)
         {
             var lineText = lines[i].TrimEnd('\r');
-            bool isChanged = changedLines.Contains(i);
+            bool isChanged = diff.ChangedLines.Contains(i);
 
             var tokenized = i < tokenizedLines.Length ? tokenizedLines[i] : new TokenizedLine([]);
             var row = BuildHighlightedLine(
@@ -330,10 +317,66 @@ public partial class DiffView : UserControl
                 inChangeRegion = false;
             }
 
+            // Render deletion marker after this line if deletions occurred here
+            if (deletionMap.TryGetValue(i, out var deletedCount))
+            {
+                var marker = BuildDeletionMarker(deletedCount, monoFont, fontSize, deletionBg, deletionFg);
+                _diffContent.Children.Add(marker);
+                if (!inChangeRegion)
+                    _changeRegionControls.Add(marker);
+                inChangeRegion = false;
+            }
+
             // Yield every batch to keep loading animation alive
             if ((i + 1) % batchSize == 0)
                 await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
         }
+    }
+
+    private static Border BuildDeletionMarker(int count, FontFamily font, double fontSize, IBrush bg, IBrush fg)
+    {
+        var label = count == 1 ? "1 line removed" : $"{count} lines removed";
+
+        var gutter = new Border
+        {
+            Background = bg,
+            Width = 48,
+            Padding = new Thickness(4, 0),
+            Child = new TextBlock
+            {
+                Text = "−",
+                FontFamily = font,
+                FontSize = fontSize,
+                Foreground = fg,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+            }
+        };
+
+        var content = new TextBlock
+        {
+            Text = $"  {label}",
+            FontFamily = font,
+            FontSize = fontSize * 0.9,
+            Foreground = fg,
+            FontStyle = Avalonia.Media.FontStyle.Italic,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0),
+        };
+
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+        Grid.SetColumn(gutter, 0);
+        Grid.SetColumn(content, 1);
+        grid.Children.Add(gutter);
+        grid.Children.Add(content);
+
+        return new Border
+        {
+            Background = bg,
+            MinHeight = 22,
+            Padding = new Thickness(0, 1),
+            Child = grid,
+        };
     }
 
     private void UpdateStats(int added, int removed)
