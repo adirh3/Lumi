@@ -711,13 +711,11 @@ public class CopilotIntegrationTests : IAsyncLifetime
     // ═══════════════════════════════════════════════════════════════════════
 
     [SkippableFact]
-    public async Task TitleGeneration_ProducesTitle()
+    public void TitleGeneration_RemovedInFavorOfSessionTitleChangedEvent()
     {
-        SkipIfDisabled();
-
-        var title = await _service.GenerateTitleAsync("How do I make sourdough starter?");
-        Assert.False(string.IsNullOrWhiteSpace(title));
-        Assert.True(title!.Length <= 80, $"Title too long: {title}");
+        // GenerateTitleAsync was removed; title generation now relies on
+        // the SDK's SessionTitleChangedEvent, tested via ChatViewModel.
+        Skip.If(true, "GenerateTitleAsync removed — title comes from SessionTitleChangedEvent");
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -871,8 +869,8 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var tool = AIFunctionFactory.Create(() => "done",
             "my_tool", "A tool.");
 
-        var session = await _service.CreateLightweightSessionAsync(
-            "Answer succinctly.", null, [tool]);
+        var session = await _service.CreateSessionAsync(
+            CopilotService.BuildLightweightConfig("Answer succinctly.", null, [tool]));
         Assert.NotEmpty(session.SessionId);
 
         var (resp, sub) = await SendAndWait(session, "Say OK.");
@@ -905,7 +903,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         await session.SendAsync(new MessageOptions { Prompt = "Say hello." });
         await Timeout(doneTcs.Task, 30);
 
-        var events = await _service.GetSessionEventsAsync(session);
+        var events = await session.GetMessagesAsync();
         Assert.NotNull(events);
         Assert.True(events.Count > 0, "Event log should have entries after a turn");
 
@@ -970,7 +968,8 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var config = SimpleConfig("You are a helpful assistant.");
         var session = await _service.CreateSessionAsync(config);
 
-        var agents = await _service.ListSessionAgentsAsync(session);
+        var result = await session.Rpc.Agent.ListAsync();
+        var agents = result.Agents;
 
         // Without custom agents configured, ListAsync returns an empty list
         Assert.NotNull(agents);
@@ -998,7 +997,8 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         var session = await _service.CreateSessionAsync(config);
 
-        var agents = await _service.ListSessionAgentsAsync(session);
+        var listResult = await session.Rpc.Agent.ListAsync();
+        var agents = listResult.Agents;
 
         // ListAsync returns our registered custom agents
         Assert.Single(agents);
@@ -1026,15 +1026,16 @@ public class CopilotIntegrationTests : IAsyncLifetime
             onPermission: null, hooks: null);
 
         var session = await _service.CreateSessionAsync(config);
-        var agents = await _service.ListSessionAgentsAsync(session);
+        var listResult = await session.Rpc.Agent.ListAsync();
+        var agents = listResult.Agents;
 
         if (agents.Count > 0)
         {
             // Select the first available agent
-            await _service.SelectSessionAgentAsync(session, agents[0].Name);
+            await session.Rpc.Agent.SelectAsync(agents[0].Name);
 
             // Deselect
-            await _service.DeselectSessionAgentAsync(session);
+            await session.Rpc.Agent.DeselectAsync();
         }
 
         await session.DisposeAsync();

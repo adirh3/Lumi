@@ -316,7 +316,8 @@ public partial class ChatViewModel
 
         try
         {
-            var agents = await _copilotService.ListSessionAgentsAsync(_activeSession);
+            var result = await _activeSession.Rpc.Agent.ListAsync();
+            var agents = result.Agents;
 
             var lumiAgentNames = _dataStore.Data.Agents.Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var currentChips = AvailableAgentChips.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);

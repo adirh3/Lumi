@@ -127,8 +127,9 @@ public sealed class MemoryAgentService
             var model = await PickLightweightModelAsync(cancellationToken).ConfigureAwait(false);
 
             var memoryTools = BuildMemoryTools(checkpoint.ChatId, source: "auto");
-            var session = await _copilotService.CreateLightweightSessionAsync(
-                BuildSystemPrompt(), model, memoryTools, cancellationToken).ConfigureAwait(false);
+            var session = await _copilotService.CreateSessionAsync(
+                CopilotService.BuildLightweightConfig(
+                    BuildSystemPrompt(), model, memoryTools), cancellationToken).ConfigureAwait(false);
 
             try
             {

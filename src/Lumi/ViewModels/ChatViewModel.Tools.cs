@@ -413,7 +413,7 @@ public partial class ChatViewModel
         if (_activeSession is null) return;
         try
         {
-            await _copilotService.SwitchSessionModelAsync(_activeSession, modelId);
+            await _activeSession.SetModelAsync(modelId);
         }
         catch
         {

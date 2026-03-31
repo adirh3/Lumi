@@ -1105,8 +1105,6 @@ public partial class ChatViewModel : ObservableObject
             CurrentChat = chat;
             createdChat = true;
             needsWorktreeCreation = IsWorktreeMode && WorktreePath is null;
-            if (_dataStore.Data.Settings.AutoGenerateTitles)
-                _ = GenerateTitleForChatAsync(chat, prompt);
         }
 
         // Capture before any async operations — CurrentChat may change if the user switches chats
@@ -1554,7 +1552,7 @@ public partial class ChatViewModel : ObservableObject
     {
         try
         {
-            return await _copilotService.GetSessionEventsAsync(session, ct);
+            return await session.GetMessagesAsync(ct);
         }
         catch
         {
@@ -1973,27 +1971,6 @@ public partial class ChatViewModel : ObservableObject
             ExistingMemories = memories,
             RecentConversation = recentConversation
         };
-    }
-
-    private async Task GenerateTitleForChatAsync(Chat chat, string userMessage)
-    {
-        try
-        {
-            var title = await _copilotService.GenerateTitleAsync(userMessage);
-            if (string.IsNullOrWhiteSpace(title)) return;
-
-            Dispatcher.UIThread.Post(() =>
-            {
-                chat.Title = title;
-                _dataStore.MarkChatChanged(chat);
-                if (CurrentChat?.Id == chat.Id)
-                    OnPropertyChanged(nameof(CurrentChatTitle));
-                if (_dataStore.Data.Settings.AutoSaveChats)
-                    _ = SaveIndexAsync();
-                ChatTitleChanged?.Invoke(chat.Id, chat.Title);
-            });
-        }
-        catch { /* best effort — title stays as truncated prompt */ }
     }
 
     private void QueueSuggestionGenerationForLatestAssistant(Chat chat)

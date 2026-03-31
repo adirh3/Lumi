@@ -43,38 +43,8 @@ public static class SessionConfigBuilder
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
         };
 
-        if (!string.IsNullOrWhiteSpace(reasoningEffort))
-            config.ReasoningEffort = reasoningEffort;
-
-        if (!string.IsNullOrWhiteSpace(systemPrompt))
-        {
-            config.SystemMessage = new SystemMessageConfig
-            {
-                Content = systemPrompt,
-                Mode = SystemMessageMode.Append,
-            };
-        }
-
-        if (skillDirectories is { Count: > 0 })
-            config.SkillDirectories = skillDirectories;
-
-        if (customAgents is { Count: > 0 })
-            config.CustomAgents = customAgents;
-
-        if (tools is { Count: > 0 })
-            config.Tools = tools;
-
-        if (mcpServers is { Count: > 0 })
-            config.McpServers = mcpServers;
-
-        if (userInputHandler is not null)
-            config.OnUserInputRequest = userInputHandler;
-
-        if (hooks is not null)
-            config.Hooks = hooks;
-
-        if (!string.IsNullOrWhiteSpace(agentName))
-            config.Agent = agentName;
+        Populate(config, systemPrompt, reasoningEffort, skillDirectories,
+            customAgents, tools, mcpServers, userInputHandler, hooks, agentName);
 
         return config;
     }
@@ -107,6 +77,25 @@ public static class SessionConfigBuilder
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
         };
 
+        Populate(config, systemPrompt, reasoningEffort, skillDirectories,
+            customAgents, tools, mcpServers, userInputHandler, hooks, agentName);
+
+        return config;
+    }
+
+    /// <summary>Sets the shared optional properties on either config type.</summary>
+    private static void Populate(
+        dynamic config,
+        string? systemPrompt,
+        string? reasoningEffort,
+        List<string>? skillDirectories,
+        List<CustomAgentConfig>? customAgents,
+        List<AIFunction>? tools,
+        Dictionary<string, object>? mcpServers,
+        UserInputHandler? userInputHandler,
+        SessionHooks? hooks,
+        string? agentName)
+    {
         if (!string.IsNullOrWhiteSpace(reasoningEffort))
             config.ReasoningEffort = reasoningEffort;
 
@@ -139,7 +128,5 @@ public static class SessionConfigBuilder
 
         if (!string.IsNullOrWhiteSpace(agentName))
             config.Agent = agentName;
-
-        return config;
     }
 }

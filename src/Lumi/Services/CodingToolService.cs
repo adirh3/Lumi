@@ -116,8 +116,8 @@ public sealed class CodingToolService
         CopilotSession? session = null;
         try
         {
-            session = await _copilotService.CreateLightweightSessionAsync(
-                systemPrompt, null, [], ct);
+            session = await _copilotService.CreateSessionAsync(
+                CopilotService.BuildLightweightConfig(systemPrompt, null, []), ct);
 
             var result = await session.SendAndWaitAsync(
                 new MessageOptions { Prompt = userMessage },

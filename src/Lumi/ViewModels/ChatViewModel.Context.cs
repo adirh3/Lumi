@@ -43,7 +43,7 @@ public partial class ChatViewModel
         if (_activeSession is null) return;
         try
         {
-            await _copilotService.SelectSessionAgentAsync(_activeSession, agentName);
+            await _activeSession.Rpc.Agent.SelectAsync(agentName);
         }
         catch { /* best effort — agent was still set locally via system prompt */ }
     }
@@ -54,7 +54,7 @@ public partial class ChatViewModel
         if (_activeSession is null) return;
         try
         {
-            await _copilotService.DeselectSessionAgentAsync(_activeSession);
+            await _activeSession.Rpc.Agent.DeselectAsync();
         }
         catch { /* best effort */ }
     }

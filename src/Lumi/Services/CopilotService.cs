@@ -283,13 +283,6 @@ public class CopilotService : IAsyncDisposable
         return await _client.ResumeSessionAsync(sessionId, config, ct);
     }
 
-    /// <summary>Retrieves the event log for a session (for replay/restore).</summary>
-    public async Task<IReadOnlyList<SessionEvent>> GetSessionEventsAsync(
-        CopilotSession session, CancellationToken ct = default)
-    {
-        return await session.GetMessagesAsync(ct);
-    }
-
     /// <summary>Lists all known sessions, optionally filtered.</summary>
     public async Task<List<SessionMetadata>> ListSessionsAsync(
         SessionListFilter? filter = null, CancellationToken ct = default)
@@ -316,28 +309,6 @@ public class CopilotService : IAsyncDisposable
         }
     }
 
-    /// <summary>Lists built-in agents available in a session via the RPC Agent API.</summary>
-    public async Task<List<GitHub.Copilot.SDK.Rpc.Agent>> ListSessionAgentsAsync(
-        CopilotSession session, CancellationToken ct = default)
-    {
-        var result = await session.Rpc.Agent.ListAsync(ct);
-        return result.Agents;
-    }
-
-    /// <summary>Selects a built-in agent by name for all future turns in the session.</summary>
-    public async Task SelectSessionAgentAsync(
-        CopilotSession session, string agentName, CancellationToken ct = default)
-    {
-        await session.Rpc.Agent.SelectAsync(agentName, ct);
-    }
-
-    /// <summary>Deselects the current built-in agent, returning the session to default routing.</summary>
-    public async Task DeselectSessionAgentAsync(
-        CopilotSession session, CancellationToken ct = default)
-    {
-        await session.Rpc.Agent.DeselectAsync(ct);
-    }
-
     // ── Plan API ──
 
     /// <summary>Reads the current plan content from the session.</summary>
@@ -360,15 +331,6 @@ public class CopilotService : IAsyncDisposable
         CopilotSession session, CancellationToken ct = default)
     {
         await session.Rpc.Plan.DeleteAsync(ct);
-    }
-
-    // ── Model API (mid-session switching) ──
-
-    /// <summary>Switches the model mid-session using the SDK's convenience method.</summary>
-    public async Task SwitchSessionModelAsync(
-        CopilotSession session, string modelId, CancellationToken ct = default)
-    {
-        await session.SetModelAsync(modelId, ct);
     }
 
     // ── Account API ──
@@ -722,67 +684,20 @@ public class CopilotService : IAsyncDisposable
         public string UserName;
     }
 
-    public async Task<string?> GenerateTitleAsync(string userMessage, CancellationToken ct = default)
-    {
-        if (_client is null) return null;
-
-        var fastModel = await GetFastestModelIdAsync(ct).ConfigureAwait(false);
-
-        // Embed the user message in the system message so the SDK's leaked
-        // base context (tools, SQL tables, etc.) doesn't pollute the title.
-        var systemContent = $"""
-            Generate a short title (3-6 words) for a chat that starts with this message. Output ONLY the title text, nothing else.
-
-            User: {Truncate(userMessage, 500)}
-            """;
-
-        var session = await _client.CreateSessionAsync(new SessionConfig
-        {
-            Model = fastModel,
-            Streaming = false,
-            SystemMessage = new SystemMessageConfig
-            {
-                Content = systemContent,
-                Mode = SystemMessageMode.Replace
-            },
-            AvailableTools = [],
-            ExcludedTools = ["*"],
-            OnPermissionRequest = PermissionHandler.ApproveAll,
-        }, ct).ConfigureAwait(false);
-
-        try
-        {
-            var result = await session.SendAndWaitAsync(
-                new MessageOptions { Prompt = "title:" },
-                TimeSpan.FromSeconds(15), ct).ConfigureAwait(false);
-            return result?.Data?.Content?.Trim().Trim('"', '\'', '.', '!');
-        }
-        finally
-        {
-            await session.DisposeAsync().ConfigureAwait(false);
-        }
-    }
-
     private static string Truncate(string text, int maxLength) =>
         text.Length <= maxLength ? text : text[..maxLength];
 
     /// <summary>
-    /// Creates a lightweight session with only the provided custom tools and a fully replaced
-    /// system prompt. InfiniteSessions and skill directories are off. Built-in tools that could
-    /// distract the model are excluded.
+    /// Builds a <see cref="SessionConfig"/> for a lightweight session with only custom tools
+    /// and a fully replaced system prompt. No built-in SDK tools, no infinite sessions.
     /// </summary>
-    public async Task<CopilotSession> CreateLightweightSessionAsync(
+    public static SessionConfig BuildLightweightConfig(
         string systemPrompt,
         string? model,
-        List<AIFunction> tools,
-        CancellationToken ct = default)
+        List<AIFunction> tools)
     {
-        if (_client is null) throw new InvalidOperationException("Not connected");
-
-        // AvailableTools = only these tools are usable (whitelist, no built-in SDK tools)
         var toolNames = tools.Select(t => t.Name).ToList();
-
-        var config = new SessionConfig
+        return new SessionConfig
         {
             Model = model,
             Streaming = true,
@@ -795,8 +710,6 @@ public class CopilotService : IAsyncDisposable
             AvailableTools = toolNames,
             OnPermissionRequest = PermissionHandler.ApproveAll,
         };
-
-        return await _client.CreateSessionAsync(config, ct);
     }
 
     public async Task<List<string>?> GenerateSuggestionsAsync(string assistantMessage, string? userMessage, CancellationToken ct = default)

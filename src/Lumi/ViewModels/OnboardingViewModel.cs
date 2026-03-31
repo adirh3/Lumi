@@ -348,8 +348,9 @@ public partial class OnboardingViewModel : ObservableObject
             await _copilotService.ConnectAsync(ct);
 
         var tools = BuildAgentTools(ct);
-        var session = await _copilotService.CreateLightweightSessionAsync(
-            BuildAgentSystemPrompt(), model: null, tools: tools, ct: ct);
+        var session = await _copilotService.CreateSessionAsync(
+            CopilotService.BuildLightweightConfig(
+                BuildAgentSystemPrompt(), model: null, tools: tools), ct);
 
         IDisposable? subscription = null;
         try
