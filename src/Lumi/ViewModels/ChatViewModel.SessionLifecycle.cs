@@ -94,7 +94,8 @@ public partial class ChatViewModel
                 runtime.IsBusy = false;
                 runtime.IsStreaming = false;
                 runtime.StatusText = "";
-                if (_activeSession == session)
+                var wasActive = _activeSession == session;
+                if (wasActive)
                 {
                     IsBusy = false;
                     IsStreaming = false;
@@ -109,10 +110,11 @@ public partial class ChatViewModel
                     ScrollToEndRequested?.Invoke();
                 }
 
-                DetachSessionAfterRemoteShutdown(chat, wasActive: _activeSession == session);
+                DetachSessionAfterRemoteShutdown(chat, wasActive: wasActive);
                 QueueSaveChat(chat, saveIndex: true, releaseIfInactive: CurrentChat?.Id != chat.Id, touchIndex: true);
 
-                _ = TryReconnectCopilotAsync(default);
+                // Reconnect is handled by CopilotService.AutoReconnectAndNotifyAsync —
+                // no need to call ForceReconnectAsync from per-session handlers.
             });
         }
         _copilotService.CliProcessExited += OnCliProcessExited;
@@ -1213,8 +1215,10 @@ public partial class ChatViewModel
                         DetachSessionAfterRemoteShutdown(chat, wasActive: _activeSession == session);
                         QueueSaveChat(chat, saveIndex: true, releaseIfInactive: CurrentChat?.Id != chat.Id, touchIndex: true);
 
-                        if (isError)
-                            _ = TryReconnectCopilotAsync(default);
+                        // Session shutdown (even with error type) is a per-session event —
+                        // the CLI process is still alive and serving other sessions.
+                        // Do NOT call ForceReconnectAsync here; that would kill the entire
+                        // CLI process and cascade-disconnect all other active sessions.
                     });
                     break;
 

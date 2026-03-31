@@ -66,10 +66,21 @@ public class CopilotService : IAsyncDisposable
     {
         CopilotClient? oldClient = null;
 
+        // Capture generation before waiting — if another caller reconnects while
+        // we're queued on the semaphore, we should skip instead of cascading.
+        var generationBeforeWait = Interlocked.Read(ref _connectionGeneration);
+
         await _connectGate.WaitAsync(ct);
         try
         {
             if (!forceReconnect && _client?.State == ConnectionState.Connected)
+                return;
+
+            // Another caller already reconnected while we were waiting on the gate.
+            // The client is fresh and healthy — no need to create yet another one.
+            if (forceReconnect
+                && Interlocked.Read(ref _connectionGeneration) != generationBeforeWait
+                && _client?.State == ConnectionState.Connected)
                 return;
 
             oldClient = _client;
@@ -139,14 +150,22 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>Uses reflection to reach the SDK's internal Process and JsonRpc
-    /// objects and subscribes to their exit/disconnect events. Fires <see cref="CliProcessExited"/>
-    /// when the CLI process dies or the RPC transport breaks.
+    /// objects and subscribes to their exit/disconnect events.
+    /// When the CLI process dies, the service automatically reconnects and then
+    /// fires <see cref="CliProcessExited"/> so consumers can update UI state.
     /// If reflection fails (SDK internals changed), falls back to polling <see cref="ConnectionState"/>.</summary>
     private void SubscribeToCliProcessExit(CopilotClient client)
     {
         var gen = ConnectionGeneration;
         var fired = 0;
-        void FireOnce() { if (Interlocked.CompareExchange(ref fired, 1, 0) == 0) CliProcessExited?.Invoke(gen); }
+        void FireOnce()
+        {
+            if (Interlocked.CompareExchange(ref fired, 1, 0) != 0) return;
+            // Auto-reconnect at the service level, then notify consumers.
+            // This keeps reconnect responsibility in CopilotService instead of
+            // requiring every per-session handler to independently call ForceReconnectAsync.
+            _ = AutoReconnectAndNotifyAsync(gen);
+        }
 
         try
         {
@@ -242,6 +261,23 @@ public class CopilotService : IAsyncDisposable
             }
             catch (OperationCanceledException) { }
         });
+    }
+
+    /// <summary>Auto-reconnects when the CLI process dies, then fires <see cref="CliProcessExited"/>
+    /// so consumers can update UI state. The reconnect happens once at the service level
+    /// instead of per-session, preventing cascade reconnections.</summary>
+    private async Task AutoReconnectAndNotifyAsync(long exitedGeneration)
+    {
+        try
+        {
+            await ForceReconnectAsync();
+        }
+        catch
+        {
+            // Reconnect failed — consumers still need to know the CLI died.
+        }
+
+        CliProcessExited?.Invoke(exitedGeneration);
     }
 
     public async Task<List<ModelInfo>> GetModelsAsync(CancellationToken ct = default)

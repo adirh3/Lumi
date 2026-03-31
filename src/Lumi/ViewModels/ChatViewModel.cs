@@ -675,6 +675,18 @@ public partial class ChatViewModel : ObservableObject
                     chat.CopilotSessionId, resumeConfig, sessionCt);
                 _activeSession = session;
                 SubscribeToSession(session, chat);
+
+                // The SDK does not automatically change the session model on resume —
+                // ResumeSessionConfig.Model only sets a preference for the CLI process,
+                // but the session's internal model stays at whatever it was created with.
+                // Explicitly call SetModelAsync so context-window limits match the
+                // user's current selection (e.g. switching from gpt-5.4 to opus-4.6-1m).
+                if (!string.IsNullOrWhiteSpace(SelectedModel))
+                {
+                    try { await session.SetModelAsync(SelectedModel, effort, sessionCt); }
+                    catch { /* best-effort — session works with original model if this fails */ }
+                }
+
                 return true; // Resume succeeded
             }
             catch (OperationCanceledException) when (sessionCts is not null && sessionCts.IsCancellationRequested && !ct.IsCancellationRequested)
