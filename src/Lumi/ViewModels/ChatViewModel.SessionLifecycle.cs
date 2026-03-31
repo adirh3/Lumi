@@ -1174,12 +1174,47 @@ public partial class ChatViewModel
                     ResetSubagentOutputState();
                     Dispatcher.UIThread.Post(() =>
                     {
+                        // Clean up any in-progress streaming state
+                        if (streamingMsg is not null)
+                        {
+                            _inProgressMessages.Remove(chat.Id);
+                            if (_activeSession == session && streamingVm is not null)
+                                Messages.Remove(streamingVm);
+                            streamingMsg = null;
+                            streamingVm = null;
+                        }
+                        assistantStream.Clear();
+                        if (reasoningMsg is not null)
+                        {
+                            reasoningMsg.IsStreaming = false;
+                            if (_activeSession == session)
+                                reasoningVm?.NotifyStreamingEnded();
+                            reasoningMsg = null;
+                            reasoningVm = null;
+                        }
+                        reasoningStream.Clear();
+
+                        var isError = shutdown.Data.ShutdownType == SessionShutdownDataShutdownType.Error;
+                        if (isError && _activeSession == session)
+                        {
+                            _transcriptBuilder.HideTypingIndicator();
+                            _transcriptBuilder.CloseCurrentToolGroup();
+                            _transcriptBuilder.FlushPendingFileEdits();
+
+                            var reason = shutdown.Data.ErrorReason ?? Loc.Status_CopilotStoppedResponding;
+                            _transcriptBuilder.AddConnectionLostError(
+                                reason,
+                                new RelayCommand(() => _ = RetryAfterConnectionLossAsync()));
+                            ScrollToEndRequested?.Invoke();
+                        }
+
                         // Clear local session objects, but keep the persisted session ID so
                         // a later resume attempt can retry after the CLI/server recovers.
                         DetachSessionAfterRemoteShutdown(chat, wasActive: _activeSession == session);
-                        assistantStream.Clear();
-                        reasoningStream.Clear();
                         QueueSaveChat(chat, saveIndex: true, releaseIfInactive: CurrentChat?.Id != chat.Id, touchIndex: true);
+
+                        if (isError)
+                            _ = TryReconnectCopilotAsync(default);
                     });
                     break;
 
@@ -1544,6 +1579,27 @@ public partial class ChatViewModel
         }
 
         Dispatcher.UIThread.Post(ResetAfterCopilotReconnect);
+    }
+
+    /// <summary>Handles server-side session deletion by detaching the local session
+    /// so the next send creates a fresh one instead of failing on resume.</summary>
+    private void OnSessionDeletedRemotely(string sessionId)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            var chat = _dataStore.Data.Chats.FirstOrDefault(
+                c => string.Equals(c.CopilotSessionId, sessionId, StringComparison.Ordinal));
+            if (chat is null) return;
+
+            DisposeSessionSubscription(chat.Id);
+            _sessionCache.Remove(chat.Id);
+            if (string.Equals(_activeSession?.SessionId, sessionId, StringComparison.Ordinal))
+                _activeSession = null;
+
+            // Clear the persisted session ID so EnsureSessionAsync creates a new one.
+            chat.CopilotSessionId = null;
+            _dataStore.MarkChatChanged(chat);
+        });
     }
 
     private void ResetAfterCopilotReconnect()

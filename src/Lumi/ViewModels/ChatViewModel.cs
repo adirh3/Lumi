@@ -270,6 +270,9 @@ public partial class ChatViewModel : ObservableObject
         // are invalid — they reference the old, dead client.
         _copilotService.Reconnected += OnCopilotReconnected;
 
+        // When a session is deleted remotely, detach it so the next send creates a fresh one.
+        _copilotService.SessionDeletedRemotely += OnSessionDeletedRemotely;
+
         InitializeMvvmUiState();
     }
 

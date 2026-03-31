@@ -32,6 +32,7 @@ public class CopilotService : IAsyncDisposable
     private long _connectionGeneration;
     private readonly SemaphoreSlim _connectGate = new(1, 1);
     private Action? _cleanupProcessHandlers;
+    private IDisposable? _lifecycleSub;
 
     /// <summary>Fires after the CopilotClient has been replaced (reconnection).
     /// Consumers should discard any cached CopilotSession objects.</summary>
@@ -41,7 +42,15 @@ public class CopilotService : IAsyncDisposable
     /// Subscribers receive the connection generation at the time of the disconnect.</summary>
     public event Action<long>? CliProcessExited;
 
+    /// <summary>Fires when a session is deleted on the server side (e.g. by another client).
+    /// Subscribers receive the deleted session ID so they can detach cleanly.</summary>
+    public event Action<string>? SessionDeletedRemotely;
+
     public bool IsConnected => _client?.State == ConnectionState.Connected;
+
+    /// <summary>The current connection state of the underlying CopilotClient.
+    /// Useful for UI indicators and fallback disconnect detection.</summary>
+    public ConnectionState State => _client?.State ?? ConnectionState.Disconnected;
 
     /// <summary>Monotonically increasing generation counter. Changes every time a
     /// new CopilotClient is created, allowing consumers to detect stale sessions.</summary>
@@ -84,9 +93,18 @@ public class CopilotService : IAsyncDisposable
             // Unsubscribe old process/RPC handlers before subscribing new ones
             _cleanupProcessHandlers?.Invoke();
             _cleanupProcessHandlers = null;
+            _lifecycleSub?.Dispose();
+            _lifecycleSub = null;
 
             // Watch the CLI process for unexpected exits
             SubscribeToCliProcessExit(newClient);
+
+            // Subscribe to client-level session lifecycle events (e.g. remote deletion)
+            _lifecycleSub = newClient.On(SessionLifecycleEventTypes.Deleted, evt =>
+            {
+                if (!string.IsNullOrEmpty(evt.SessionId))
+                    SessionDeletedRemotely?.Invoke(evt.SessionId);
+            });
         }
         finally
         {
@@ -122,9 +140,14 @@ public class CopilotService : IAsyncDisposable
 
     /// <summary>Uses reflection to reach the SDK's internal Process and JsonRpc
     /// objects and subscribes to their exit/disconnect events. Fires <see cref="CliProcessExited"/>
-    /// when the CLI process dies or the RPC transport breaks.</summary>
+    /// when the CLI process dies or the RPC transport breaks.
+    /// If reflection fails (SDK internals changed), falls back to polling <see cref="ConnectionState"/>.</summary>
     private void SubscribeToCliProcessExit(CopilotClient client)
     {
+        var gen = ConnectionGeneration;
+        var fired = 0;
+        void FireOnce() { if (Interlocked.CompareExchange(ref fired, 1, 0) == 0) CliProcessExited?.Invoke(gen); }
+
         try
         {
             var bf = System.Reflection.BindingFlags.Instance
@@ -134,14 +157,17 @@ public class CopilotService : IAsyncDisposable
             // Path: CopilotClient._connectionTask.Result → Connection
             var connTaskField = client.GetType().GetField("_connectionTask", bf);
             if (connTaskField?.GetValue(client) is not Task connTask || !connTask.IsCompletedSuccessfully)
+            {
+                StartStatePollingFallback(client, gen, FireOnce);
                 return;
+            }
 
             var result = connTask.GetType().GetProperty("Result")?.GetValue(connTask);
-            if (result is null) return;
-
-            var gen = ConnectionGeneration;
-            var fired = 0;
-            void FireOnce() { if (Interlocked.CompareExchange(ref fired, 1, 0) == 0) CliProcessExited?.Invoke(gen); }
+            if (result is null)
+            {
+                StartStatePollingFallback(client, gen, FireOnce);
+                return;
+            }
 
             EventHandler? processHandler = null;
             Process? process = null;
@@ -169,6 +195,13 @@ public class CopilotService : IAsyncDisposable
                 rpc.Disconnected += rpcHandler;
             }
 
+            // If we couldn't hook either signal, fall back to polling
+            if (process is null && jsonRpc is null)
+            {
+                StartStatePollingFallback(client, gen, FireOnce);
+                return;
+            }
+
             _cleanupProcessHandlers = () =>
             {
                 if (process is not null && processHandler is not null)
@@ -179,8 +212,36 @@ public class CopilotService : IAsyncDisposable
         }
         catch
         {
-            // Reflection failed — SDK internals may have changed. Not fatal.
+            // Reflection failed — SDK internals may have changed.
+            // Fall back to polling ConnectionState as a last resort.
+            StartStatePollingFallback(client, gen, FireOnce);
         }
+    }
+
+    /// <summary>Polls ConnectionState every 3 seconds as a fallback when reflection-based
+    /// process exit detection is unavailable.</summary>
+    private void StartStatePollingFallback(CopilotClient client, long gen, Action fireOnce)
+    {
+        var pollCts = new CancellationTokenSource();
+        _cleanupProcessHandlers = () => pollCts.Cancel();
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!pollCts.Token.IsCancellationRequested)
+                {
+                    await Task.Delay(3000, pollCts.Token);
+                    if (gen != ConnectionGeneration) return;
+                    if (client.State is ConnectionState.Disconnected or ConnectionState.Error)
+                    {
+                        fireOnce();
+                        return;
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }
+        });
     }
 
     public async Task<List<ModelInfo>> GetModelsAsync(CancellationToken ct = default)
@@ -801,6 +862,8 @@ public class CopilotService : IAsyncDisposable
     {
         _cleanupProcessHandlers?.Invoke();
         _cleanupProcessHandlers = null;
+        _lifecycleSub?.Dispose();
+        _lifecycleSub = null;
 
         if (_client is not null)
         {
