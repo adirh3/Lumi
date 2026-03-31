@@ -29,7 +29,8 @@ public static class SessionConfigBuilder
         string? reasoningEffort,
         UserInputHandler? userInputHandler,
         PermissionRequestHandler? onPermission,
-        SessionHooks? hooks)
+        SessionHooks? hooks,
+        string? agentName = null)
     {
         var config = new SessionConfig
         {
@@ -72,6 +73,9 @@ public static class SessionConfigBuilder
         if (hooks is not null)
             config.Hooks = hooks;
 
+        if (!string.IsNullOrWhiteSpace(agentName))
+            config.Agent = agentName;
+
         return config;
     }
 
@@ -89,7 +93,8 @@ public static class SessionConfigBuilder
         string? reasoningEffort,
         UserInputHandler? userInputHandler,
         PermissionRequestHandler? onPermission,
-        SessionHooks? hooks)
+        SessionHooks? hooks,
+        string? agentName = null)
     {
         var config = new ResumeSessionConfig
         {
@@ -131,6 +136,9 @@ public static class SessionConfigBuilder
 
         if (hooks is not null)
             config.Hooks = hooks;
+
+        if (!string.IsNullOrWhiteSpace(agentName))
+            config.Agent = agentName;
 
         return config;
     }

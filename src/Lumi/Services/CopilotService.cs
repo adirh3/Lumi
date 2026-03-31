@@ -69,7 +69,6 @@ public class CopilotService : IAsyncDisposable
             {
                 CliPath = cliPath ?? "copilot",
                 LogLevel = "error",
-                AutoRestart = true,
             };
 
             ConfigureAuthentication(clientOptions);
@@ -304,12 +303,11 @@ public class CopilotService : IAsyncDisposable
 
     // ── Model API (mid-session switching) ──
 
-    /// <summary>Switches the model mid-session without recreating it.</summary>
-    public async Task<string?> SwitchSessionModelAsync(
+    /// <summary>Switches the model mid-session using the SDK's convenience method.</summary>
+    public async Task SwitchSessionModelAsync(
         CopilotSession session, string modelId, CancellationToken ct = default)
     {
-        var result = await session.Rpc.Model.SwitchToAsync(modelId, ct);
-        return result.ModelId;
+        await session.SetModelAsync(modelId, ct);
     }
 
     // ── Account API ──
@@ -801,13 +799,22 @@ public class CopilotService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _cleanupProcessHandlers?.Invoke();
+        _cleanupProcessHandlers = null;
+
         if (_client is not null)
         {
             try
             {
-                await _client.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+                // StopAsync gracefully closes sessions and the CLI process.
+                await _client.StopAsync().WaitAsync(TimeSpan.FromSeconds(5));
             }
-            catch { /* CLI process didn't stop in time — abandon it */ }
+            catch
+            {
+                // Graceful stop failed — force kill the CLI process.
+                try { await _client.ForceStopAsync(); }
+                catch { /* best-effort */ }
+            }
         }
     }
 }

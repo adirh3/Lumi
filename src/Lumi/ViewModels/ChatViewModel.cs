@@ -543,6 +543,7 @@ public partial class ChatViewModel : ObservableObject
         var mcpServers = await mcpServersTask;
         var reasoningEffort = _dataStore.Data.Settings.ReasoningEffort;
         var effort = string.IsNullOrWhiteSpace(reasoningEffort) ? null : reasoningEffort;
+        var agentName = ActiveAgent?.Name;
 
         // Native user input handler — wired to the existing question card UI.
         // Capture chat.Id in the closure so questions always target the owning chat,
@@ -641,7 +642,7 @@ public partial class ChatViewModel : ObservableObject
             {
                 var createConfig = SessionConfigBuilder.Build(
                     systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools,
-                    mcpServers, effort, userInputHandler, onPermission: null, hooks);
+                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
                 var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
                 chat.CopilotSessionId = createdSession.SessionId;
                 _dataStore.MarkChatChanged(chat);
@@ -666,7 +667,7 @@ public partial class ChatViewModel : ObservableObject
                 StatusText = attempt > 0 ? Loc.Status_Reconnecting : Loc.Status_Resuming;
                 var resumeConfig = SessionConfigBuilder.BuildForResume(
                     systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools,
-                    mcpServers, effort, userInputHandler, onPermission: null, hooks);
+                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
                 var session = await _copilotService.ResumeSessionAsync(
                     chat.CopilotSessionId, resumeConfig, sessionCt);
                 _activeSession = session;
@@ -700,7 +701,7 @@ public partial class ChatViewModel : ObservableObject
         {
             var createConfig = SessionConfigBuilder.Build(
                 systemPrompt, SelectedModel, workDir, skillDirs, customAgents, customTools,
-                mcpServers, effort, userInputHandler, onPermission: null, hooks);
+                mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
             var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
             chat.CopilotSessionId = createdSession.SessionId;
             _activeSession = createdSession;
@@ -1241,15 +1242,8 @@ public partial class ChatViewModel : ObservableObject
                     return;
                 }
 
-                // If a custom agent is selected, route the session through it via the SDK Agent API
-                if (ActiveAgent is not null && _activeSession is not null)
-                {
-                    try { await _copilotService.SelectSessionAgentAsync(_activeSession, ActiveAgent.Name, cts.Token); }
-                    catch { /* Lumi agents may not be selectable via SDK Agent API — they work via system prompt */ }
-                }
-
-                // Workspace agents (.github/agents/) are handled via system prompt injection
-                // in EnsureSessionAsync — no Agent.SelectAsync needed.
+                // Agent is pre-selected via SessionConfig.Agent in EnsureSessionAsync.
+                // Workspace agents (.github/agents/) are handled via system prompt injection.
 
                 // Discover SDK agents in background (non-blocking)
                 _ = PopulateFromSessionAsync();
