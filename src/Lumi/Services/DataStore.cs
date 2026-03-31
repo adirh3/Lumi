@@ -37,6 +37,7 @@ public class DataStore
         Directory.CreateDirectory(SkillsDir);
         Directory.CreateDirectory(ChatsDir);
         _data = Load();
+        CleanOrphanedChats();
         SeedDefaults();
         SeedCodingLumi();
     }
@@ -412,6 +413,46 @@ public class DataStore
         var invalid = Path.GetInvalidFileNameChars();
         var sanitized = string.Join("_", name.Split(invalid, StringSplitOptions.RemoveEmptyEntries));
         return string.IsNullOrWhiteSpace(sanitized) ? "skill" : sanitized;
+    }
+
+    /// <summary>
+    /// Removes chats whose message file is missing or empty on disk.
+    /// These "ghost" entries can accumulate when the index is saved but the
+    /// per-chat message file was never written (e.g. due to a save failure
+    /// or the process being killed between the two writes).
+    /// </summary>
+    private void CleanOrphanedChats()
+    {
+        var removed = _data.Chats.RemoveAll(chat =>
+        {
+            var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
+            if (!File.Exists(chatFile))
+            {
+                MarkChatDeleted(chat.Id);
+                return true;
+            }
+
+            try
+            {
+                var length = new FileInfo(chatFile).Length;
+                // An empty JSON array "[]" is ≤ 4 bytes (possible BOM + brackets)
+                if (length <= 4)
+                {
+                    MarkChatDeleted(chat.Id);
+                    File.Delete(chatFile);
+                    return true;
+                }
+            }
+            catch (IOException)
+            {
+                // File might be locked; leave it alone
+            }
+
+            return false;
+        });
+
+        if (removed > 0)
+            Save();
     }
 
     private void SeedDefaults()

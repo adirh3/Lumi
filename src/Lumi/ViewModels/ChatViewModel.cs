@@ -2010,7 +2010,10 @@ public partial class ChatViewModel : ObservableObject
                 _dataStore.MarkChatChanged(chat);
                 if (CurrentChat?.Id == chat.Id)
                     OnPropertyChanged(nameof(CurrentChatTitle));
-                if (_dataStore.Data.Settings.AutoSaveChats)
+                // Only persist the title if the chat's message file already exists on disk.
+                // This prevents "ghost" index entries when the initial QueueSaveChat failed.
+                var chatFile = Path.Combine(DataStore.ChatsDir, $"{chat.Id}.json");
+                if (File.Exists(chatFile) && _dataStore.Data.Settings.AutoSaveChats)
                     _ = SaveIndexAsync();
                 ChatTitleChanged?.Invoke(chat.Id, chat.Title);
             });
