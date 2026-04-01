@@ -829,6 +829,12 @@ public class TranscriptBuilder
         if (string.IsNullOrWhiteSpace(_pendingModelName))
             return;
 
+        if (_currentTurn is not null && _currentTurn.Items.Any(static i => i is TurnModelItem))
+        {
+            _pendingModelName = null;
+            return;
+        }
+
         AppendToCurrentTurn(new TurnModelItem(_pendingModelName), TurnStableIdFor("turn-model"));
         _pendingModelName = null;
     }
