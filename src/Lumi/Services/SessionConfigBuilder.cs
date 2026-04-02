@@ -83,9 +83,9 @@ public static class SessionConfigBuilder
         return config;
     }
 
-    /// <summary>Sets the shared optional properties on either config type.</summary>
+    /// <summary>Sets the shared optional properties on a <see cref="SessionConfig"/>.</summary>
     private static void Populate(
-        dynamic config,
+        SessionConfig config,
         string? systemPrompt,
         string? reasoningEffort,
         List<string>? skillDirectories,
@@ -100,13 +100,48 @@ public static class SessionConfigBuilder
             config.ReasoningEffort = reasoningEffort;
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))
-        {
-            config.SystemMessage = new SystemMessageConfig
-            {
-                Content = systemPrompt,
-                Mode = SystemMessageMode.Append,
-            };
-        }
+            config.SystemMessage = new SystemMessageConfig { Content = systemPrompt, Mode = SystemMessageMode.Append };
+
+        if (skillDirectories is { Count: > 0 })
+            config.SkillDirectories = skillDirectories;
+
+        if (customAgents is { Count: > 0 })
+            config.CustomAgents = customAgents;
+
+        if (tools is { Count: > 0 })
+            config.Tools = tools;
+
+        if (mcpServers is { Count: > 0 })
+            config.McpServers = mcpServers;
+
+        if (userInputHandler is not null)
+            config.OnUserInputRequest = userInputHandler;
+
+        if (hooks is not null)
+            config.Hooks = hooks;
+
+        if (!string.IsNullOrWhiteSpace(agentName))
+            config.Agent = agentName;
+    }
+
+    /// <summary>Sets the shared optional properties on a <see cref="ResumeSessionConfig"/>.</summary>
+    private static void Populate(
+        ResumeSessionConfig config,
+        string? systemPrompt,
+        string? reasoningEffort,
+        List<string>? skillDirectories,
+        List<CustomAgentConfig>? customAgents,
+        List<AIFunction>? tools,
+        Dictionary<string, object>? mcpServers,
+        UserInputHandler? userInputHandler,
+        SessionHooks? hooks,
+        string? agentName)
+    {
+        if (!string.IsNullOrWhiteSpace(reasoningEffort))
+            config.ReasoningEffort = reasoningEffort;
+
+        if (!string.IsNullOrWhiteSpace(systemPrompt))
+            config.SystemMessage = new SystemMessageConfig { Content = systemPrompt, Mode = SystemMessageMode.Append };
 
         if (skillDirectories is { Count: > 0 })
             config.SkillDirectories = skillDirectories;
