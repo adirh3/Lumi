@@ -295,14 +295,20 @@ public partial class ChatViewModel
             ActiveMcpServerNames.Remove(stale.Name);
             ActiveMcpChips.Remove(stale);
         }
+        var addedWorkspaceMcps = false;
         foreach (var name in workspaceMcpNames)
         {
             if (!ActiveMcpServerNames.Contains(name))
             {
                 ActiveMcpServerNames.Add(name);
                 ActiveMcpChips.Add(new StrataComposerChip(name, "🔌"));
+                addedWorkspaceMcps = true;
             }
         }
+
+        // Persist workspace MCPs to the chat so they survive reload
+        if ((addedWorkspaceMcps || staleWorkspaceMcps.Count > 0) && !IsLoadingChat)
+            SyncActiveMcpsToChat();
 
         ReplaceCollection(AvailableProjectChips,
             _dataStore.Data.Projects
@@ -504,6 +510,7 @@ public partial class ChatViewModel
         {
             // Returning to welcome — clear transcript suggestions
             ClearSuggestions();
+            RefreshComposerCatalogs(); // Re-scan for welcome state (no project)
         }
     }
 

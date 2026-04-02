@@ -142,6 +142,8 @@ public partial class ChatViewModel
     /// Reads .vscode/mcp.json from the working directory and merges any servers
     /// not already present into the MCP server dictionary. This allows workspace
     /// MCP configs (VS Code convention) to be available in Copilot sessions.
+    /// Supports both local (stdio) and remote (sse/http) server types, and
+    /// forwards env variables and headers from the JSON config.
     /// </summary>
     private static async Task MergeWorkspaceMcpServersAsync(string workDir, Dictionary<string, object> dict, CancellationToken ct)
     {
@@ -159,28 +161,63 @@ public partial class ChatViewModel
             {
                 if (dict.ContainsKey(server.Name)) continue; // Lumi config takes precedence
 
-                if (server.Value.TryGetProperty("type", out var typeProp))
-                {
-                    var type = typeProp.GetString() ?? "stdio";
-                    if (type == "stdio")
-                    {
-                        var command = server.Value.TryGetProperty("command", out var cmdProp) ? cmdProp.GetString() ?? "" : "";
-                        var args = new List<string>();
-                        if (server.Value.TryGetProperty("args", out var argsProp))
-                        {
-                            foreach (var arg in argsProp.EnumerateArray())
-                                args.Add(arg.GetString() ?? "");
-                        }
+                var type = server.Value.TryGetProperty("type", out var typeProp)
+                    ? typeProp.GetString() ?? "stdio"
+                    : "stdio"; // Default to stdio when type is omitted
 
-                        dict[server.Name] = new McpLocalServerConfig
-                        {
-                            Command = command,
-                            Args = args,
-                            Type = "stdio",
-                            Cwd = workDir,
-                            Tools = ["*"]
-                        };
+                if (type is "sse" or "http")
+                {
+                    var url = server.Value.TryGetProperty("url", out var urlProp) ? urlProp.GetString() ?? "" : "";
+                    if (string.IsNullOrWhiteSpace(url)) continue;
+
+                    var remote = new McpRemoteServerConfig
+                    {
+                        Url = url,
+                        Type = type,
+                        Tools = ["*"]
+                    };
+
+                    if (server.Value.TryGetProperty("headers", out var headersProp) && headersProp.ValueKind == System.Text.Json.JsonValueKind.Object)
+                    {
+                        var headers = new Dictionary<string, string>();
+                        foreach (var header in headersProp.EnumerateObject())
+                            headers[header.Name] = header.Value.GetString() ?? "";
+                        if (headers.Count > 0)
+                            remote.Headers = headers;
                     }
+
+                    dict[server.Name] = remote;
+                }
+                else
+                {
+                    // stdio / local
+                    var command = server.Value.TryGetProperty("command", out var cmdProp) ? cmdProp.GetString() ?? "" : "";
+                    var args = new List<string>();
+                    if (server.Value.TryGetProperty("args", out var argsProp))
+                    {
+                        foreach (var arg in argsProp.EnumerateArray())
+                            args.Add(arg.GetString() ?? "");
+                    }
+
+                    var local = new McpLocalServerConfig
+                    {
+                        Command = command,
+                        Args = args,
+                        Type = "stdio",
+                        Cwd = workDir,
+                        Tools = ["*"]
+                    };
+
+                    if (server.Value.TryGetProperty("env", out var envProp) && envProp.ValueKind == System.Text.Json.JsonValueKind.Object)
+                    {
+                        var env = new Dictionary<string, string>();
+                        foreach (var entry in envProp.EnumerateObject())
+                            env[entry.Name] = entry.Value.GetString() ?? "";
+                        if (env.Count > 0)
+                            local.Env = env;
+                    }
+
+                    dict[server.Name] = local;
                 }
             }
         }

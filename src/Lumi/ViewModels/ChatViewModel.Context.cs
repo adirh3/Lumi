@@ -198,8 +198,10 @@ public partial class ChatViewModel
     public void AddMcpServer(string name)
     {
         if (ActiveMcpServerNames.Contains(name)) return;
-        var server = _dataStore.Data.McpServers.FirstOrDefault(s => s.Name == name);
-        if (server is null) return;
+        // Accept both Lumi-configured and workspace MCPs (workspace MCPs aren't in the data store)
+        var isKnown = _dataStore.Data.McpServers.Any(s => s.Name == name)
+                      || AvailableMcpChips.OfType<StrataTheme.Controls.StrataComposerChip>().Any(c => c.Name == name);
+        if (!isKnown) return;
         ActiveMcpServerNames.Add(name);
         ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name));
         SyncActiveMcpsToChat();
@@ -209,8 +211,10 @@ public partial class ChatViewModel
     public void RegisterMcpByName(string name)
     {
         if (ActiveMcpServerNames.Contains(name)) return;
-        var server = _dataStore.Data.McpServers.FirstOrDefault(s => s.Name == name);
-        if (server is null) return;
+        // Accept both Lumi-configured and workspace MCPs (workspace MCPs aren't in the data store)
+        var isKnown = _dataStore.Data.McpServers.Any(s => s.Name == name)
+                      || AvailableMcpChips.OfType<StrataTheme.Controls.StrataComposerChip>().Any(c => c.Name == name);
+        if (!isKnown) return;
         ActiveMcpServerNames.Add(name);
         SyncActiveMcpsToChat();
     }

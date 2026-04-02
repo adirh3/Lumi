@@ -878,6 +878,10 @@ public partial class ChatViewModel : ObservableObject
                     enabledServersByName[server.Name] = server;
             }
 
+            // Discover workspace MCPs from .vscode/mcp.json so we can restore them too
+            var workDir = GetEffectiveWorkingDirectory();
+            var workspaceMcpNames = DiscoverWorkspaceMcps(workDir, []);
+
             if (chat.ActiveMcpServerNames.Count > 0)
             {
                 foreach (var name in chat.ActiveMcpServerNames)
@@ -886,6 +890,11 @@ public partial class ChatViewModel : ObservableObject
                     {
                         ActiveMcpServerNames.Add(name);
                         ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name));
+                    }
+                    else if (workspaceMcpNames.Contains(name))
+                    {
+                        ActiveMcpServerNames.Add(name);
+                        ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name, "🔌"));
                     }
                 }
             }
@@ -896,6 +905,15 @@ public partial class ChatViewModel : ObservableObject
                 {
                     ActiveMcpServerNames.Add(server.Name);
                     ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(server.Name));
+                }
+                // Also include workspace MCPs by default
+                foreach (var name in workspaceMcpNames)
+                {
+                    if (!ActiveMcpServerNames.Contains(name))
+                    {
+                        ActiveMcpServerNames.Add(name);
+                        ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name, "🔌"));
+                    }
                 }
             }
 
@@ -934,6 +952,10 @@ public partial class ChatViewModel : ObservableObject
                 HasPlan = false;
                 PlanContent = null;
             }
+
+            // Refresh composer catalogs for the new chat's project context so workspace
+            // MCPs, agents, and skills from .vscode/mcp.json and .github/ are available.
+            RefreshComposerCatalogs();
         }
         catch (OperationCanceledException) when (loadToken.IsCancellationRequested)
         {
