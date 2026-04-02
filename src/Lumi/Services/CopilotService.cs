@@ -33,6 +33,8 @@ public class CopilotService : IAsyncDisposable
     private readonly SemaphoreSlim _connectGate = new(1, 1);
     private Action? _cleanupProcessHandlers;
     private IDisposable? _lifecycleSub;
+    private CopilotSession? _suggestionSession;
+    private readonly SemaphoreSlim _suggestionGate = new(1, 1);
 
     /// <summary>Fires after the CopilotClient has been replaced (reconnection).
     /// Consumers should discard any cached CopilotSession objects.</summary>
@@ -99,6 +101,7 @@ public class CopilotService : IAsyncDisposable
             _client = newClient;
             _models = null;
             _fastestModelId = null;
+            _suggestionSession = null;
             Interlocked.Increment(ref _connectionGeneration);
 
             // Unsubscribe old process/RPC handlers before subscribing new ones
@@ -787,13 +790,35 @@ public class CopilotService : IAsyncDisposable
         };
     }
 
+    private const string SuggestionSystemPrompt =
+        "You generate follow-up suggestions for a chat assistant. Given the conversation below, produce exactly 3 short follow-up messages the user might want to send next. Each suggestion must be concise (under 60 characters) and contextually relevant. Output ONLY a JSON array of 3 strings, nothing else. Example: [\"Tell me more\", \"How do I implement this?\", \"What are the alternatives?\"]";
+
+    private async Task<CopilotSession> GetOrCreateSuggestionSessionAsync(CancellationToken ct)
+    {
+        if (_suggestionSession is not null)
+            return _suggestionSession;
+
+        var fastModel = await GetFastestModelIdAsync(ct).ConfigureAwait(false);
+        _suggestionSession = await _client!.CreateSessionAsync(new SessionConfig
+        {
+            Model = fastModel,
+            Streaming = false,
+            SystemMessage = new SystemMessageConfig
+            {
+                Content = SuggestionSystemPrompt,
+                Mode = SystemMessageMode.Replace
+            },
+            AvailableTools = [],
+            ExcludedTools = ["*"],
+            OnPermissionRequest = PermissionHandler.ApproveAll,
+        }, ct).ConfigureAwait(false);
+        return _suggestionSession;
+    }
+
     public async Task<List<string>?> GenerateSuggestionsAsync(string assistantMessage, string? userMessage, CancellationToken ct = default)
     {
         if (_client is null) return null;
 
-        // Suggestions are a lightweight UI affordance; keep them fast and isolated
-        // from the current chat's heavier model/effort selection.
-        var fastModel = await GetFastestModelIdAsync(ct).ConfigureAwait(false);
         var context = string.IsNullOrWhiteSpace(userMessage)
             ? assistantMessage
             : $"User: {userMessage}\n\nAssistant: {assistantMessage}";
@@ -802,30 +827,24 @@ public class CopilotService : IAsyncDisposable
         if (context.Length > 2000)
             context = context[..2000];
 
-        var session = await _client.CreateSessionAsync(new SessionConfig
-        {
-            Model = fastModel,
-            Streaming = false,
-            SystemMessage = new SystemMessageConfig
-            {
-                Content = "You generate follow-up suggestions for a chat assistant. Given the conversation below, produce exactly 3 short follow-up messages the user might want to send next. Each suggestion must be concise (under 60 characters) and contextually relevant. Output ONLY a JSON array of 3 strings, nothing else. Example: [\"Tell me more\", \"How do I implement this?\", \"What are the alternatives?\"]",
-                Mode = SystemMessageMode.Replace
-            },
-            AvailableTools = [],
-            ExcludedTools = ["*"],
-            OnPermissionRequest = PermissionHandler.ApproveAll,
-        }, ct).ConfigureAwait(false);
-
+        await _suggestionGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            var session = await GetOrCreateSuggestionSessionAsync(ct).ConfigureAwait(false);
             var result = await session.SendAndWaitAsync(
                  new MessageOptions { Prompt = context },
-                 TimeSpan.FromSeconds(20), ct).ConfigureAwait(false);
+                 TimeSpan.FromSeconds(15), ct).ConfigureAwait(false);
             return ParseSuggestions(result?.Data?.Content);
+        }
+        catch
+        {
+            // Session may be stale — discard so next call creates a fresh one
+            _suggestionSession = null;
+            throw;
         }
         finally
         {
-            await session.DisposeAsync().ConfigureAwait(false);
+            _suggestionGate.Release();
         }
     }
 
