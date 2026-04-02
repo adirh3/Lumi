@@ -28,6 +28,58 @@ public partial class ChatViewModel : ObservableObject
     private static readonly bool TranscriptDiagnosticsEnabled = Debugger.IsAttached
         || string.Equals(Environment.GetEnvironmentVariable("LUMI_TRANSCRIPT_DEBUG"), "1", StringComparison.Ordinal);
 
+    /// <summary>
+    /// Checks MCP server status after session creation and marks failed server chips with an error.
+    /// Runs in the background so it doesn't block message sending.
+    /// </summary>
+    private async Task CheckMcpServerStatusAsync(CopilotSession session, CancellationToken ct)
+    {
+        try
+        {
+            // Give the MCP servers a moment to connect
+            await Task.Delay(2000, ct);
+            var mcpList = await session.Rpc.Mcp.ListAsync(ct);
+            if (mcpList?.Servers is not { Count: > 0 }) return;
+
+            var failed = mcpList.Servers
+                .Where(s => s.Status == GitHub.Copilot.SDK.Rpc.ServerStatus.Failed)
+                .ToList();
+
+            if (failed.Count == 0) return;
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                foreach (var server in failed)
+                {
+                    var rawError = server.Error ?? "";
+
+                    // Build a user-friendly error message
+                    var errorMsg = rawError switch
+                    {
+                        _ when rawError.Contains("Connection closed", StringComparison.OrdinalIgnoreCase)
+                            => $"Server process exited immediately. Verify the command is installed and runnable.",
+                        _ when rawError.Contains("ENOENT", StringComparison.OrdinalIgnoreCase)
+                            => $"Command not found. Check that the MCP server is installed.",
+                        _ when string.IsNullOrWhiteSpace(rawError)
+                            => "Failed to connect to MCP server.",
+                        _ => rawError
+                    };
+
+                    // Replace the active chip with an error-state chip
+                    var existingChip = ActiveMcpChips.OfType<StrataComposerChip>()
+                        .FirstOrDefault(c => c.Name == server.Name);
+                    if (existingChip is not null)
+                    {
+                        var index = ActiveMcpChips.IndexOf(existingChip);
+                        ActiveMcpChips[index] = new StrataComposerChip(
+                            server.Name, existingChip.Glyph, ErrorMessage: errorMsg);
+                    }
+                }
+            });
+        }
+        catch { /* best effort — don't let MCP status checks break the chat flow */ }
+    }
+
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
     private readonly MemoryAgentService _memoryAgentService;
@@ -657,6 +709,13 @@ public partial class ChatViewModel : ObservableObject
                 _dataStore.MarkChatChanged(chat);
                 _activeSession = createdSession;
                 SubscribeToSession(createdSession, chat);
+
+                // Check MCP server status after session creation and surface errors
+                if (mcpServers is { Count: > 0 })
+                {
+                    _ = CheckMcpServerStatusAsync(createdSession, ct);
+                }
+
                 return true;
             }
             catch (OperationCanceledException) when (sessionCts is not null && sessionCts.IsCancellationRequested && !ct.IsCancellationRequested)
