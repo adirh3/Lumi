@@ -1,8 +1,19 @@
 using System.Collections.Generic;
+using System.Linq;
 using GitHub.Copilot.SDK;
 using Microsoft.Extensions.AI;
 
 namespace Lumi.Services;
+
+public sealed class LightweightSessionOptions
+{
+    public required string SystemPrompt { get; init; }
+    public string? Model { get; init; }
+    public bool Streaming { get; init; }
+    public string? WorkingDirectory { get; init; }
+    public string? ConfigDir { get; init; }
+    public List<AIFunction>? Tools { get; init; }
+}
 
 /// <summary>
 /// Builds <see cref="SessionConfig"/> and <see cref="ResumeSessionConfig"/>
@@ -79,6 +90,43 @@ public static class SessionConfigBuilder
 
         Populate(config, systemPrompt, reasoningEffort, skillDirectories,
             customAgents, tools, mcpServers, userInputHandler, hooks, agentName);
+
+        return config;
+    }
+
+    /// <summary>
+    /// Builds a lightweight single-purpose <see cref="SessionConfig"/> for helper flows.
+    /// The SDK currently has no public transient-session API, so these sessions are
+    /// configured to be as cheap as possible and should be explicitly deleted after use.
+    /// </summary>
+    public static SessionConfig BuildLightweight(LightweightSessionOptions options)
+    {
+        var config = new SessionConfig
+        {
+            ClientName = ClientName,
+            Model = options.Model,
+            Streaming = options.Streaming,
+            WorkingDirectory = options.WorkingDirectory,
+            ConfigDir = options.ConfigDir,
+            InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
+            OnPermissionRequest = PermissionHandler.ApproveAll,
+            SystemMessage = new SystemMessageConfig
+            {
+                Content = options.SystemPrompt,
+                Mode = SystemMessageMode.Replace
+            }
+        };
+
+        if (options.Tools is { Count: > 0 })
+        {
+            config.Tools = options.Tools;
+            config.AvailableTools = options.Tools.Select(t => t.Name).ToList();
+        }
+        else
+        {
+            config.AvailableTools = [];
+            config.ExcludedTools = ["*"];
+        }
 
         return config;
     }

@@ -67,6 +67,7 @@ public class CopilotService : IAsyncDisposable
     private async Task ConnectCoreAsync(bool forceReconnect, CancellationToken ct)
     {
         CopilotClient? oldClient = null;
+        CopilotSession? oldSuggestionSession = null;
 
         // Capture generation before waiting — if another caller reconnects while
         // we're queued on the semaphore, we should skip instead of cascading.
@@ -101,7 +102,16 @@ public class CopilotService : IAsyncDisposable
             _client = newClient;
             _models = null;
             _fastestModelId = null;
-            _suggestionSession = null;
+            await _suggestionGate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                oldSuggestionSession = _suggestionSession;
+                _suggestionSession = null;
+            }
+            finally
+            {
+                _suggestionGate.Release();
+            }
             Interlocked.Increment(ref _connectionGeneration);
 
             // Unsubscribe old process/RPC handlers before subscribing new ones
@@ -124,6 +134,9 @@ public class CopilotService : IAsyncDisposable
         {
             _connectGate.Release();
         }
+
+        if (oldSuggestionSession is not null)
+            await DisposeAndDeleteSessionAsync(oldSuggestionSession).ConfigureAwait(false);
 
         // Dispose the old client (stops the old CLI process) after the new one is ready.
         if (oldClient is not null && !ReferenceEquals(oldClient, _client))
@@ -325,6 +338,45 @@ public class CopilotService : IAsyncDisposable
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
         return await _client.CreateSessionAsync(config, ct);
+    }
+
+    /// <summary>
+    /// Runs a one-shot lightweight helper session and always deletes the session afterwards.
+    /// The Copilot SDK does not expose a public transient-session API, so helper flows must
+    /// explicitly create, use, dispose, and delete ordinary sessions to avoid polluting history.
+    /// </summary>
+    public async Task<TResult> UseLightweightSessionAsync<TResult>(
+        LightweightSessionOptions options,
+        Func<CopilotSession, CancellationToken, Task<TResult>> operation,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(operation);
+
+        var session = await CreateSessionAsync(SessionConfigBuilder.BuildLightweight(options), ct).ConfigureAwait(false);
+        try
+        {
+            return await operation(session, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            await DisposeAndDeleteSessionAsync(session).ConfigureAwait(false);
+        }
+    }
+
+    public async Task UseLightweightSessionAsync(
+        LightweightSessionOptions options,
+        Func<CopilotSession, CancellationToken, Task> operation,
+        CancellationToken ct = default)
+    {
+        await UseLightweightSessionAsync(
+            options,
+            async (session, innerCt) =>
+            {
+                await operation(session, innerCt).ConfigureAwait(false);
+                return true;
+            },
+            ct).ConfigureAwait(false);
     }
 
     /// <summary>Resumes an existing Copilot session by ID.</summary>
@@ -748,60 +800,27 @@ public class CopilotService : IAsyncDisposable
             User: {Truncate(userMessage, 500)}
             """;
 
-        var session = await _client.CreateSessionAsync(new SessionConfig
-        {
-            Model = fastModel,
-            Streaming = false,
-            SystemMessage = new SystemMessageConfig
+        var rawTitle = await UseLightweightSessionAsync(
+            new LightweightSessionOptions
             {
-                Content = systemContent,
-                Mode = SystemMessageMode.Replace
+                SystemPrompt = systemContent,
+                Model = fastModel,
+                Streaming = false
             },
-            AvailableTools = [],
-            ExcludedTools = ["*"],
-            OnPermissionRequest = PermissionHandler.ApproveAll,
-        }, ct).ConfigureAwait(false);
+            async (session, innerCt) =>
+            {
+                var result = await session.SendAndWaitAsync(
+                    new MessageOptions { Prompt = "title:" },
+                    TimeSpan.FromSeconds(15), innerCt).ConfigureAwait(false);
+                return result?.Data?.Content;
+            },
+            ct).ConfigureAwait(false);
 
-        try
-        {
-            var result = await session.SendAndWaitAsync(
-                new MessageOptions { Prompt = "title:" },
-                TimeSpan.FromSeconds(15), ct).ConfigureAwait(false);
-            return result?.Data?.Content?.Trim().Trim('"', '\'', '.', '!');
-        }
-        finally
-        {
-            await session.DisposeAsync().ConfigureAwait(false);
-        }
+        return rawTitle?.Trim().Trim('"', '\'', '.', '!');
     }
 
     private static string Truncate(string text, int maxLength) =>
         text.Length <= maxLength ? text : text[..maxLength];
-
-    /// <summary>
-    /// Builds a <see cref="SessionConfig"/> for a lightweight session with only custom tools
-    /// and a fully replaced system prompt. No built-in SDK tools, no infinite sessions.
-    /// </summary>
-    public static SessionConfig BuildLightweightConfig(
-        string systemPrompt,
-        string? model,
-        List<AIFunction> tools)
-    {
-        var toolNames = tools.Select(t => t.Name).ToList();
-        return new SessionConfig
-        {
-            Model = model,
-            Streaming = true,
-            SystemMessage = new SystemMessageConfig
-            {
-                Content = systemPrompt,
-                Mode = SystemMessageMode.Replace
-            },
-            Tools = tools,
-            AvailableTools = toolNames,
-            OnPermissionRequest = PermissionHandler.ApproveAll,
-        };
-    }
 
     private const string SuggestionSystemPrompt =
         "You generate follow-up suggestions for a chat assistant. Given the conversation below, produce exactly 3 short follow-up messages the user might want to send next. Each suggestion must be concise (under 60 characters) and contextually relevant. Output ONLY a JSON array of 3 strings, nothing else. Example: [\"Tell me more\", \"How do I implement this?\", \"What are the alternatives?\"]";
@@ -812,19 +831,14 @@ public class CopilotService : IAsyncDisposable
             return _suggestionSession;
 
         var fastModel = await GetFastestModelIdAsync(ct).ConfigureAwait(false);
-        _suggestionSession = await _client!.CreateSessionAsync(new SessionConfig
-        {
-            Model = fastModel,
-            Streaming = false,
-            SystemMessage = new SystemMessageConfig
+        _suggestionSession = await _client!.CreateSessionAsync(
+            SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions
             {
-                Content = SuggestionSystemPrompt,
-                Mode = SystemMessageMode.Replace
-            },
-            AvailableTools = [],
-            ExcludedTools = ["*"],
-            OnPermissionRequest = PermissionHandler.ApproveAll,
-        }, ct).ConfigureAwait(false);
+                SystemPrompt = SuggestionSystemPrompt,
+                Model = fastModel,
+                Streaming = false
+            }),
+            ct).ConfigureAwait(false);
         return _suggestionSession;
     }
 
@@ -841,9 +855,10 @@ public class CopilotService : IAsyncDisposable
             context = context[..2000];
 
         await _suggestionGate.WaitAsync(ct).ConfigureAwait(false);
+        CopilotSession? session = null;
         try
         {
-            var session = await GetOrCreateSuggestionSessionAsync(ct).ConfigureAwait(false);
+            session = await GetOrCreateSuggestionSessionAsync(ct).ConfigureAwait(false);
             var result = await session.SendAndWaitAsync(
                  new MessageOptions { Prompt = context },
                  TimeSpan.FromSeconds(15), ct).ConfigureAwait(false);
@@ -852,7 +867,12 @@ public class CopilotService : IAsyncDisposable
         catch
         {
             // Session may be stale — discard so next call creates a fresh one
-            _suggestionSession = null;
+            if (session is not null)
+            {
+                if (ReferenceEquals(_suggestionSession, session))
+                    _suggestionSession = null;
+                await DisposeAndDeleteSessionAsync(session).ConfigureAwait(false);
+            }
             throw;
         }
         finally
@@ -920,12 +940,44 @@ public class CopilotService : IAsyncDisposable
         catch { /* Best-effort cleanup */ }
     }
 
+    public async Task DisposeAndDeleteSessionAsync(CopilotSession? session)
+    {
+        if (session is null)
+            return;
+
+        var sessionId = session.SessionId;
+        try
+        {
+            await session.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(sessionId))
+                await DeleteSessionAsync(sessionId).ConfigureAwait(false);
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         _cleanupProcessHandlers?.Invoke();
         _cleanupProcessHandlers = null;
         _lifecycleSub?.Dispose();
         _lifecycleSub = null;
+
+        CopilotSession? suggestionSession = null;
+        await _suggestionGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            suggestionSession = _suggestionSession;
+            _suggestionSession = null;
+        }
+        finally
+        {
+            _suggestionGate.Release();
+        }
+
+        if (suggestionSession is not null)
+            await DisposeAndDeleteSessionAsync(suggestionSession).ConfigureAwait(false);
 
         if (_client is not null)
         {

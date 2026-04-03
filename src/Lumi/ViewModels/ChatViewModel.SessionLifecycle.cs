@@ -986,13 +986,7 @@ public partial class ChatViewModel
                     Dispatcher.UIThread.Post(() =>
                     {
                     if (!_dataStore.Data.Settings.AutoGenerateTitles) return;
-                    chat.Title = title.Data.Title;
-                    _dataStore.MarkChatChanged(chat);
-                    if (CurrentChat?.Id == chat.Id)
-                        OnPropertyChanged(nameof(CurrentChatTitle));
-                    if (HasPersistedChatFile(chat) && _dataStore.Data.Settings.AutoSaveChats)
-                        _ = SaveIndexAsync();
-                    ChatTitleChanged?.Invoke(chat.Id, chat.Title);
+                    ApplyChatTitle(chat, title.Data.Title);
                     });
                     break;
 

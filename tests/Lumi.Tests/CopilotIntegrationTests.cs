@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using GitHub.Copilot.SDK;
@@ -45,6 +46,7 @@ namespace Lumi.Tests;
 /// 22. Session event replay — GetMessagesAsync returns log
 /// 23. Session delete cleanup — server-side deletion
 /// 24. Resume with fallback — resume failure falls back to fresh session
+/// 25. Memory checkpoint extraction — explicit personal facts saved, technical context ignored
 ///
 /// Unit tests (always run, no SDK connection):
 /// U1. ExcludedTools set correctly
@@ -129,6 +131,178 @@ public class CopilotIntegrationTests : IAsyncLifetime
             customAgents: null, tools: null, mcpServers: null,
             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
+
+    private static HashSet<string> SnapshotSessionStateDirectories()
+    {
+        var root = GetSessionStateRoot();
+        if (!Directory.Exists(root))
+            return [];
+
+        return Directory
+            .GetDirectories(root)
+            .Select(Path.GetFileName)
+            .Where(static name => !string.IsNullOrWhiteSpace(name))
+            .Select(static name => name!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static async Task<List<string>> WaitForNewSessionDirsWithFirstUserAsync(
+        HashSet<string> baseline,
+        Func<string, bool> predicate,
+        int attempts = 20,
+        int delayMs = 500)
+    {
+        List<string> matches = [];
+        for (var attempt = 0; attempt < attempts; attempt++)
+        {
+            await Task.Delay(delayMs);
+            matches = GetNewSessionDirsWithFirstUser(baseline, predicate);
+            if (matches.Count > 0)
+                break;
+        }
+
+        return matches;
+    }
+
+    private static List<string> GetNewSessionDirsWithFirstUser(
+        HashSet<string> baseline,
+        Func<string, bool> predicate)
+    {
+        var root = GetSessionStateRoot();
+        if (!Directory.Exists(root))
+            return [];
+
+        var matches = new List<string>();
+        foreach (var dir in Directory.GetDirectories(root))
+        {
+            var sessionId = Path.GetFileName(dir);
+            if (string.IsNullOrWhiteSpace(sessionId) || baseline.Contains(sessionId))
+                continue;
+
+            var firstUserMessage = TryReadFirstUserMessage(dir);
+            if (firstUserMessage is not null && predicate(firstUserMessage))
+                matches.Add(sessionId);
+        }
+
+        return matches;
+    }
+
+    private static string? TryReadFirstUserMessage(string sessionDirectory)
+    {
+        var eventsPath = Path.Combine(sessionDirectory, "events.jsonl");
+        if (!File.Exists(eventsPath))
+            return null;
+
+        foreach (var line in File.ReadLines(eventsPath))
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+
+            try
+            {
+                using var document = JsonDocument.Parse(line);
+                if (!document.RootElement.TryGetProperty("type", out var type)
+                    || type.ValueKind != JsonValueKind.String
+                    || !string.Equals(type.GetString(), "user.message", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (!document.RootElement.TryGetProperty("data", out var data)
+                    || !data.TryGetProperty("content", out var content)
+                    || content.ValueKind != JsonValueKind.String)
+                {
+                    return null;
+                }
+
+                return content.GetString();
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+        }
+
+        return null;
+    }
+
+    private static string GetSessionStateRoot()
+        => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".copilot",
+            "session-state");
+
+    private static string BuildMemorySystemPrompt()
+    {
+        var method = typeof(MemoryAgentService).GetMethod(
+            "BuildSystemPrompt",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        Assert.NotNull(method);
+        return Assert.IsType<string>(method!.Invoke(null, null));
+    }
+
+    private static string BuildMemoryCheckpointPrompt(MemoryAgentCheckpoint checkpoint)
+    {
+        var method = typeof(MemoryAgentService).GetMethod(
+            "BuildCheckpointPrompt",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        Assert.NotNull(method);
+        return Assert.IsType<string>(method!.Invoke(null, [checkpoint]));
+    }
+
+    private static List<AIFunction> BuildMemoryTestTools(
+        List<MemoryAgentSnapshot> existingMemories,
+        List<(string Key, string Content, string? Category)> saves,
+        List<(string Key, string? Content, string? NewKey, string? Category)> updates,
+        List<string> deletes)
+    {
+        return
+        [
+            AIFunctionFactory.Create(
+                ([Description("Brief label for the memory")] string key,
+                 [Description("Full memory text with details")] string content,
+                 [Description("Category")] string? category) =>
+                {
+                    saves.Add((key, content, category));
+                    return Task.FromResult($"Memory saved: {key}");
+                },
+                "save_memory",
+                "Save or update a persistent memory about the user"),
+
+            AIFunctionFactory.Create(
+                ([Description("Key of the memory to update")] string key,
+                 [Description("New content text (optional)")] string? content,
+                 [Description("New key if renaming (optional)")] string? newKey,
+                 [Description("New category (optional)")] string? category) =>
+                {
+                    updates.Add((key, content, newKey, category));
+                    return Task.FromResult($"Memory updated: {newKey ?? key}");
+                },
+                "update_memory",
+                "Update an existing memory's content, key, or category"),
+
+            AIFunctionFactory.Create(
+                ([Description("Key of the memory to remove")] string key) =>
+                {
+                    deletes.Add(key);
+                    return Task.FromResult($"Memory deleted: {key}");
+                },
+                "delete_memory",
+                "Remove a memory that is no longer relevant"),
+
+            AIFunctionFactory.Create(
+                ([Description("Key of the memory to retrieve full content for")] string key) =>
+                {
+                    var match = existingMemories.FirstOrDefault(m =>
+                        string.Equals(m.Key, key, StringComparison.OrdinalIgnoreCase));
+                    return match?.Content ?? $"Memory not found: {key}";
+                },
+                "recall_memory",
+                "Fetch the full content of a memory by its key")
+        ];
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  1. New chat — create session + send + receive streaming
@@ -720,6 +894,137 @@ public class CopilotIntegrationTests : IAsyncLifetime
         Assert.True(title!.Length <= 80, $"Title too long: {title}");
     }
 
+    [SkippableFact]
+    public async Task TitleGeneration_DoesNotLeaveTitleHelperSessionState()
+    {
+        SkipIfDisabled();
+
+        var baseline = SnapshotSessionStateDirectories();
+
+        var title = await _service.GenerateTitleAsync("How do I make sourdough starter?");
+
+        Assert.False(string.IsNullOrWhiteSpace(title));
+
+        var leakedTitleSessions = await WaitForNewSessionDirsWithFirstUserAsync(
+            baseline,
+            firstUser => string.Equals(firstUser.Trim(), "title:", StringComparison.Ordinal));
+
+        Assert.Empty(leakedTitleSessions);
+    }
+
+    [SkippableFact]
+    public async Task MemoryCheckpoint_SavesExplicitPreference_WithoutLeakingHelperPrompt()
+    {
+        SkipIfDisabled();
+
+        var marker = $"MEMCHK_{Guid.NewGuid():N}";
+        var userMessage =
+            $"My favorite tea is jasmine green tea and it has been my favorite for years. Ignore test marker {marker}.";
+        var assistantMessage =
+            $"Got it — jasmine green tea is your longtime favorite. I will ignore the test marker {marker}.";
+
+        var checkpoint = new MemoryAgentCheckpoint
+        {
+            ChatId = Guid.NewGuid(),
+            InteractionSignature = marker,
+            UserName = "TestUser",
+            UserMessage = userMessage,
+            AssistantMessage = assistantMessage,
+            ExistingMemories = [],
+            RecentConversation =
+            [
+                new MemoryAgentConversationItem { Role = "user", Content = userMessage },
+                new MemoryAgentConversationItem { Role = "assistant", Content = assistantMessage }
+            ]
+        };
+
+        var saves = new List<(string Key, string Content, string? Category)>();
+        var updates = new List<(string Key, string? Content, string? NewKey, string? Category)>();
+        var deletes = new List<string>();
+        var baseline = SnapshotSessionStateDirectories();
+
+        var response = await _service.UseLightweightSessionAsync(
+            new LightweightSessionOptions
+            {
+                SystemPrompt = BuildMemorySystemPrompt(),
+                Streaming = true,
+                Tools = BuildMemoryTestTools(checkpoint.ExistingMemories, saves, updates, deletes)
+            },
+            async (session, ct) =>
+            {
+                var result = await session.SendAndWaitAsync(
+                    new MessageOptions { Prompt = BuildMemoryCheckpointPrompt(checkpoint) },
+                    TimeSpan.FromSeconds(90),
+                    ct);
+                return result?.Data?.Content;
+            });
+
+        Assert.Equal("MEMORY_SYNC_DONE", response?.Trim());
+        Assert.Empty(updates);
+        Assert.Empty(deletes);
+        Assert.Contains(saves, save =>
+            save.Content.Contains("jasmine", StringComparison.OrdinalIgnoreCase)
+            && save.Content.Contains("favorite", StringComparison.OrdinalIgnoreCase));
+
+        var leakedMemorySessions = await WaitForNewSessionDirsWithFirstUserAsync(
+            baseline,
+            firstUser => firstUser.Contains(marker, StringComparison.Ordinal));
+
+        Assert.Empty(leakedMemorySessions);
+    }
+
+    [SkippableFact]
+    public async Task MemoryCheckpoint_IgnoresTechnicalConversation()
+    {
+        SkipIfDisabled();
+
+        var marker = $"TECHCHK_{Guid.NewGuid():N}";
+        var userMessage =
+            $"In the Lumi repo, helper sessions create duplicate empty echo sessions. Please inspect MemoryAgentService. Marker: {marker}.";
+        var assistantMessage =
+            $"I will inspect the helper session lifecycle and the checkpoint flow. Marker acknowledged: {marker}.";
+
+        var checkpoint = new MemoryAgentCheckpoint
+        {
+            ChatId = Guid.NewGuid(),
+            InteractionSignature = marker,
+            UserName = "TestUser",
+            UserMessage = userMessage,
+            AssistantMessage = assistantMessage,
+            ExistingMemories = [],
+            RecentConversation =
+            [
+                new MemoryAgentConversationItem { Role = "user", Content = userMessage },
+                new MemoryAgentConversationItem { Role = "assistant", Content = assistantMessage }
+            ]
+        };
+
+        var saves = new List<(string Key, string Content, string? Category)>();
+        var updates = new List<(string Key, string? Content, string? NewKey, string? Category)>();
+        var deletes = new List<string>();
+
+        var response = await _service.UseLightweightSessionAsync(
+            new LightweightSessionOptions
+            {
+                SystemPrompt = BuildMemorySystemPrompt(),
+                Streaming = true,
+                Tools = BuildMemoryTestTools(checkpoint.ExistingMemories, saves, updates, deletes)
+            },
+            async (session, ct) =>
+            {
+                var result = await session.SendAndWaitAsync(
+                    new MessageOptions { Prompt = BuildMemoryCheckpointPrompt(checkpoint) },
+                    TimeSpan.FromSeconds(90),
+                    ct);
+                return result?.Data?.Content;
+            });
+
+        Assert.Equal("MEMORY_SYNC_DONE", response?.Trim());
+        Assert.Empty(saves);
+        Assert.Empty(updates);
+        Assert.Empty(deletes);
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // 16. Suggestion generation — parse JSON array
     // ═══════════════════════════════════════════════════════════════════════
@@ -871,8 +1176,16 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var tool = AIFunctionFactory.Create(() => "done",
             "my_tool", "A tool.");
 
-        var session = await _service.CreateSessionAsync(
-            CopilotService.BuildLightweightConfig("Answer succinctly.", null, [tool]));
+        var config = SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions
+        {
+            SystemPrompt = "Answer succinctly.",
+            Streaming = true,
+            Tools = [tool]
+        });
+        Assert.NotNull(config.InfiniteSessions);
+        Assert.False(config.InfiniteSessions!.Enabled);
+
+        var session = await _service.CreateSessionAsync(config);
         Assert.NotEmpty(session.SessionId);
 
         var (resp, sub) = await SendAndWait(session, "Say OK.");
@@ -1211,6 +1524,47 @@ public class CopilotIntegrationTests : IAsyncLifetime
             null, null, null, null, null, null, null, null, null, null, null);
         Assert.NotNull(resumeConfig.InfiniteSessions);
         Assert.True(resumeConfig.InfiniteSessions!.Enabled);
+    }
+
+    [Fact]
+    public void LightweightConfig_DisablesInfiniteSessions_AndReplacesSystemPrompt()
+    {
+        var config = SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions
+        {
+            SystemPrompt = "Answer succinctly."
+        });
+
+        Assert.Equal("lumi", config.ClientName);
+        Assert.False(config.Streaming);
+        Assert.NotNull(config.SystemMessage);
+        Assert.Equal("Answer succinctly.", config.SystemMessage!.Content);
+        Assert.Equal(SystemMessageMode.Replace, config.SystemMessage.Mode);
+        Assert.NotNull(config.InfiniteSessions);
+        Assert.False(config.InfiniteSessions!.Enabled);
+        Assert.NotNull(config.AvailableTools);
+        Assert.Empty(config.AvailableTools!);
+        Assert.NotNull(config.ExcludedTools);
+        Assert.Contains("*", config.ExcludedTools!);
+    }
+
+    [Fact]
+    public void LightweightConfig_WithCustomTools_AdvertisesOnlyCustomToolNames()
+    {
+        var tool = AIFunctionFactory.Create(() => "done", "my_tool", "A tool.");
+
+        var config = SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions
+        {
+            SystemPrompt = "Answer succinctly.",
+            Streaming = true,
+            Tools = [tool]
+        });
+
+        Assert.True(config.Streaming);
+        Assert.NotNull(config.Tools);
+        Assert.Same(tool, Assert.Single(config.Tools!));
+        Assert.NotNull(config.AvailableTools);
+        Assert.Equal("my_tool", Assert.Single(config.AvailableTools!));
+        Assert.Null(config.ExcludedTools);
     }
 
     // ───────────────────────────────────────────────────────────────────────

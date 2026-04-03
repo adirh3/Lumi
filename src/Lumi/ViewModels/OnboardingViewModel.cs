@@ -348,74 +348,78 @@ public partial class OnboardingViewModel : ObservableObject
             await _copilotService.ConnectAsync(ct);
 
         var tools = BuildAgentTools(ct);
-        var session = await _copilotService.CreateSessionAsync(
-            CopilotService.BuildLightweightConfig(
-                BuildAgentSystemPrompt(), model: null, tools: tools), ct);
-
-        IDisposable? subscription = null;
-        try
-        {
-            var assistantText = "";
-            var toolNameByCallId = new Dictionary<string, string>(StringComparer.Ordinal);
-            subscription = session.On(evt =>
+        await _copilotService.UseLightweightSessionAsync(
+            new LightweightSessionOptions
             {
-                switch (evt)
+                SystemPrompt = BuildAgentSystemPrompt(),
+                Streaming = true,
+                Tools = tools
+            },
+            async (session, innerCt) =>
+            {
+                IDisposable? subscription = null;
+                var assistantText = "";
+                var toolNameByCallId = new Dictionary<string, string>(StringComparer.Ordinal);
+                try
                 {
-                    case AssistantMessageDeltaEvent delta:
-                        assistantText += delta.Data?.DeltaContent ?? "";
-                        Dispatcher.UIThread.Post(() => AgentOutput = assistantText);
-                        break;
-
-                    case ToolExecutionStartEvent toolStart:
+                    subscription = session.On(evt =>
                     {
-                        var name = toolStart.Data?.ToolName ?? "";
-                        var id = toolStart.Data?.ToolCallId;
-                        if (!string.IsNullOrEmpty(id))
-                            toolNameByCallId[id] = name;
-                        // Flush pending assistant text as a card
-                        var pendingText = assistantText.Trim();
-                        if (pendingText.Length > 0)
+                        switch (evt)
                         {
-                            ShowCard("", "", pendingText);
-                            assistantText = "";
-                        }
-                        var friendly = GetFriendlyToolName(name);
-                        Dispatcher.UIThread.Post(() =>
-                        {
-                            CurrentToolName = friendly;
-                            HasActiveToolCall = true;
-                        });
-                        break;
-                    }
+                            case AssistantMessageDeltaEvent delta:
+                                assistantText += delta.Data?.DeltaContent ?? "";
+                                Dispatcher.UIThread.Post(() => AgentOutput = assistantText);
+                                break;
 
-                    case ToolExecutionCompleteEvent toolEnd:
-                    {
-                        Dispatcher.UIThread.Post(() => HasActiveToolCall = false);
-                        break;
-                    }
+                            case ToolExecutionStartEvent toolStart:
+                            {
+                                var name = toolStart.Data?.ToolName ?? "";
+                                var id = toolStart.Data?.ToolCallId;
+                                if (!string.IsNullOrEmpty(id))
+                                    toolNameByCallId[id] = name;
+                                // Flush pending assistant text as a card
+                                var pendingText = assistantText.Trim();
+                                if (pendingText.Length > 0)
+                                {
+                                    ShowCard("", "", pendingText);
+                                    assistantText = "";
+                                }
+                                var friendly = GetFriendlyToolName(name);
+                                Dispatcher.UIThread.Post(() =>
+                                {
+                                    CurrentToolName = friendly;
+                                    HasActiveToolCall = true;
+                                });
+                                break;
+                            }
 
-                    case SessionIdleEvent:
-                        // Flush remaining assistant text
-                        var remainingText = assistantText.Trim();
-                        if (remainingText.Length > 0)
-                        {
-                            ShowCard("", "", remainingText);
-                            assistantText = "";
+                            case ToolExecutionCompleteEvent:
+                                Dispatcher.UIThread.Post(() => HasActiveToolCall = false);
+                                break;
+
+                            case SessionIdleEvent:
+                                // Flush remaining assistant text
+                                var remainingText = assistantText.Trim();
+                                if (remainingText.Length > 0)
+                                {
+                                    ShowCard("", "", remainingText);
+                                    assistantText = "";
+                                }
+                                break;
                         }
-                        break;
+                    });
+
+                    var prompt = BuildAgentPromptWithContext();
+                    await session.SendAndWaitAsync(
+                        new MessageOptions { Prompt = prompt },
+                        TimeSpan.FromMinutes(5), innerCt).ConfigureAwait(false);
                 }
-            });
-
-            var prompt = BuildAgentPromptWithContext();
-            await session.SendAndWaitAsync(
-                new MessageOptions { Prompt = prompt },
-                TimeSpan.FromMinutes(5), ct);
-        }
-        finally
-        {
-            subscription?.Dispose();
-            await session.DisposeAsync();
-        }
+                finally
+                {
+                    subscription?.Dispose();
+                }
+            },
+            ct).ConfigureAwait(false);
     }
 
     // ═══════════════════════════════════════════════════════════════

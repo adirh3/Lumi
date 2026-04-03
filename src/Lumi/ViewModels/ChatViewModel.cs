@@ -1205,8 +1205,6 @@ public partial class ChatViewModel : ObservableObject
             CurrentChat = chat;
             createdChat = true;
             needsWorktreeCreation = IsWorktreeMode && WorktreePath is null;
-            if (_dataStore.Data.Settings.AutoGenerateTitles)
-                _ = GenerateTitleForChatAsync(chat, prompt);
         }
 
         // Capture before any async operations — CurrentChat may change if the user switches chats
@@ -1289,7 +1287,10 @@ public partial class ChatViewModel : ObservableObject
         }
 
         if (createdChat)
+        {
             _ = RefreshCodingProjectState();
+            QueueGeneratedChatTitle(targetChat, prompt);
+        }
 
         CancellationTokenSource? cts = null;
         MessageOptions? sendOptions = null;
@@ -2004,6 +2005,68 @@ public partial class ChatViewModel : ObservableObject
         _ = SaveChatAsync(chat, saveIndex, releaseIfInactive);
     }
 
+    private void QueueGeneratedChatTitle(Chat chat, string firstUserMessage)
+    {
+        if (!_dataStore.Data.Settings.AutoGenerateTitles || string.IsNullOrWhiteSpace(firstUserMessage))
+            return;
+
+        var provisionalTitle = chat.Title;
+        _ = GenerateTitleForChatAsync(chat, firstUserMessage, provisionalTitle);
+    }
+
+    private async Task GenerateTitleForChatAsync(Chat chat, string firstUserMessage, string? expectedCurrentTitle)
+    {
+        try
+        {
+            var generatedTitle = await _copilotService.GenerateTitleAsync(firstUserMessage).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(generatedTitle))
+                return;
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!_dataStore.Data.Settings.AutoGenerateTitles)
+                    return;
+
+                if (!_dataStore.Data.Chats.Any(c => c.Id == chat.Id))
+                    return;
+
+                ApplyChatTitle(chat, generatedTitle, expectedCurrentTitle);
+            });
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Lumi] Title generation failed: {ex.Message}");
+        }
+    }
+
+    private void ApplyChatTitle(Chat chat, string? title, string? expectedCurrentTitle = null)
+    {
+        var normalizedTitle = NormalizeChatTitle(title);
+        if (normalizedTitle is null)
+            return;
+
+        if (expectedCurrentTitle is not null
+            && !string.Equals(chat.Title, expectedCurrentTitle, StringComparison.Ordinal))
+            return;
+
+        if (string.Equals(chat.Title, normalizedTitle, StringComparison.Ordinal))
+            return;
+
+        chat.Title = normalizedTitle;
+        _dataStore.MarkChatChanged(chat);
+        if (CurrentChat?.Id == chat.Id)
+            OnPropertyChanged(nameof(CurrentChatTitle));
+        if (HasPersistedChatFile(chat) && _dataStore.Data.Settings.AutoSaveChats)
+            _ = SaveIndexAsync();
+        ChatTitleChanged?.Invoke(chat.Id, chat.Title);
+    }
+
+    private static string? NormalizeChatTitle(string? title)
+    {
+        var normalized = title?.Trim().Trim('"', '\'', '.', '!');
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
+    }
+
     private void QueueAutonomousMemoryCheckpoint(Chat chat)
     {
         if (!_dataStore.Data.Settings.EnableMemoryAutoSave)
@@ -2077,29 +2140,6 @@ public partial class ChatViewModel : ObservableObject
             ExistingMemories = memories,
             RecentConversation = recentConversation
         };
-    }
-
-    private async Task GenerateTitleForChatAsync(Chat chat, string userMessage)
-    {
-        try
-        {
-            var title = await _copilotService.GenerateTitleAsync(userMessage);
-            if (string.IsNullOrWhiteSpace(title)) return;
-
-            Dispatcher.UIThread.Post(() =>
-            {
-                chat.Title = title;
-                _dataStore.MarkChatChanged(chat);
-                if (CurrentChat?.Id == chat.Id)
-                    OnPropertyChanged(nameof(CurrentChatTitle));
-                // Only persist the title if the chat's message file already exists on disk.
-                // This prevents "ghost" index entries when the initial QueueSaveChat failed.
-                if (HasPersistedChatFile(chat) && _dataStore.Data.Settings.AutoSaveChats)
-                    _ = SaveIndexAsync();
-                ChatTitleChanged?.Invoke(chat.Id, chat.Title);
-            });
-        }
-        catch { /* best effort — title stays as truncated prompt */ }
     }
 
     private void QueueSuggestionGenerationForLatestAssistant(Chat chat)

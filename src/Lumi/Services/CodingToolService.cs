@@ -113,18 +113,25 @@ public sealed class CodingToolService
         if (!_copilotService.IsConnected)
             return "Error: Copilot is not connected.";
 
-        CopilotSession? session = null;
         try
         {
-            session = await _copilotService.CreateSessionAsync(
-                CopilotService.BuildLightweightConfig(systemPrompt, null, []), ct);
+            var content = await _copilotService.UseLightweightSessionAsync(
+                new LightweightSessionOptions
+                {
+                    SystemPrompt = systemPrompt,
+                    Streaming = false
+                },
+                async (session, innerCt) =>
+                {
+                    var result = await session.SendAndWaitAsync(
+                        new MessageOptions { Prompt = userMessage },
+                        TimeSpan.FromSeconds(120),
+                        innerCt).ConfigureAwait(false);
 
-            var result = await session.SendAndWaitAsync(
-                new MessageOptions { Prompt = userMessage },
-                TimeSpan.FromSeconds(120),
-                ct);
+                    return result?.Data?.Content?.Trim();
+                },
+                ct).ConfigureAwait(false);
 
-            var content = result?.Data?.Content?.Trim();
             return string.IsNullOrWhiteSpace(content)
                 ? "Analysis completed but produced no output."
                 : content;
@@ -137,11 +144,6 @@ public sealed class CodingToolService
         {
             Log($"Sub-agent failed: {ex.Message}");
             return $"Analysis failed: {ex.Message}";
-        }
-        finally
-        {
-            if (session is not null)
-                await session.DisposeAsync().ConfigureAwait(false);
         }
     }
 

@@ -125,24 +125,24 @@ public sealed class MemoryAgentService
         try
         {
             var model = await PickLightweightModelAsync(cancellationToken).ConfigureAwait(false);
-
             var memoryTools = BuildMemoryTools(checkpoint.ChatId, source: "auto");
-            var session = await _copilotService.CreateSessionAsync(
-                CopilotService.BuildLightweightConfig(
-                    BuildSystemPrompt(), model, memoryTools), cancellationToken).ConfigureAwait(false);
-
-            try
-            {
+            await _copilotService.UseLightweightSessionAsync(
+                new LightweightSessionOptions
+                {
+                    SystemPrompt = BuildSystemPrompt(),
+                    Model = model,
+                    Streaming = true,
+                    Tools = memoryTools
+                },
+                async (session, innerCt) =>
+                {
                 var prompt = BuildCheckpointPrompt(checkpoint);
                 await session.SendAndWaitAsync(
                     new MessageOptions { Prompt = prompt },
                     TimeSpan.FromSeconds(90),
-                    cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                await session.DisposeAsync().ConfigureAwait(false);
-            }
+                    innerCt).ConfigureAwait(false);
+                },
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {

@@ -61,69 +61,64 @@ public static class OnboardingAgentTest
 
         var tools = BuildTools(ct);
         var systemPrompt = BuildSystemPrompt("TestUser");
-        var toolNames = tools.Select(t => t.Name).ToList();
-
-        var session = await copilotService.Client!.CreateSessionAsync(new SessionConfig
-        {
-            Streaming = true,
-            SystemMessage = new SystemMessageConfig
+        await copilotService.UseLightweightSessionAsync(
+            new LightweightSessionOptions
             {
-                Content = systemPrompt,
-                Mode = SystemMessageMode.Replace
+                SystemPrompt = systemPrompt,
+                Streaming = true,
+                Tools = tools
             },
-            Tools = tools,
-            AvailableTools = toolNames,
-            OnPermissionRequest = PermissionHandler.ApproveAll,
-        }, ct);
-
-        var assistantText = "";
-        var toolNameByCallId = new Dictionary<string, string>(StringComparer.Ordinal);
-
-        var sub = session.On(evt =>
-        {
-            switch (evt)
+            async (session, innerCt) =>
             {
-                case AssistantMessageDeltaEvent delta:
-                    var chunk = delta.Data?.DeltaContent ?? "";
-                    if (chunk.Length > 0)
+                var assistantText = "";
+                var toolNameByCallId = new Dictionary<string, string>(StringComparer.Ordinal);
+
+                var sub = session.On(evt =>
+                {
+                    switch (evt)
                     {
-                        Console.ForegroundColor = ConsoleColor.White;
-                        Console.Write(chunk);
-                        Console.ResetColor();
+                        case AssistantMessageDeltaEvent delta:
+                            var chunk = delta.Data?.DeltaContent ?? "";
+                            if (chunk.Length > 0)
+                            {
+                                Console.ForegroundColor = ConsoleColor.White;
+                                Console.Write(chunk);
+                                Console.ResetColor();
+                            }
+                            assistantText += chunk;
+                            break;
+
+                        case ToolExecutionStartEvent toolStart:
+                            var name = toolStart.Data?.ToolName ?? "";
+                            var id = toolStart.Data?.ToolCallId;
+                            if (!string.IsNullOrEmpty(id))
+                                toolNameByCallId[id] = name;
+                            Console.ForegroundColor = ConsoleColor.DarkYellow;
+                            Console.Write($"\n  🔧 [{name}] ");
+                            Console.ResetColor();
+                            break;
+
+                        case ToolExecutionCompleteEvent:
+                            Console.ForegroundColor = ConsoleColor.DarkGreen;
+                            Console.Write("✓");
+                            Console.ResetColor();
+                            break;
                     }
-                    assistantText += chunk;
-                    break;
+                });
 
-                case ToolExecutionStartEvent toolStart:
-                    var name = toolStart.Data?.ToolName ?? "";
-                    var id = toolStart.Data?.ToolCallId;
-                    if (!string.IsNullOrEmpty(id))
-                        toolNameByCallId[id] = name;
-                    Console.ForegroundColor = ConsoleColor.DarkYellow;
-                    Console.Write($"\n  🔧 [{name}] ");
-                    Console.ResetColor();
-                    break;
-
-                case ToolExecutionCompleteEvent toolEnd:
-                    Console.ForegroundColor = ConsoleColor.DarkGreen;
-                    Console.Write("✓");
-                    Console.ResetColor();
-                    break;
-            }
-        });
-
-        try
-        {
-            var prompt = BuildPromptWithContext(scanResults, "TestUser");
-            await session.SendAndWaitAsync(
-                new MessageOptions { Prompt = prompt },
-                TimeSpan.FromMinutes(5), ct);
-        }
-        finally
-        {
-            sub.Dispose();
-            await session.DisposeAsync();
-        }
+                try
+                {
+                    var prompt = BuildPromptWithContext(scanResults, "TestUser");
+                    await session.SendAndWaitAsync(
+                        new MessageOptions { Prompt = prompt },
+                        TimeSpan.FromMinutes(5), innerCt).ConfigureAwait(false);
+                }
+                finally
+                {
+                    sub.Dispose();
+                }
+            },
+            ct).ConfigureAwait(false);
 
         // Summary
         Console.ForegroundColor = ConsoleColor.Cyan;
