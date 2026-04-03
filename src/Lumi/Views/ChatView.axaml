@@ -31,6 +31,26 @@
     <Style Selector="sc|StrataAiToolCall.compact /template/ Border#PART_Header">
       <Setter Property="Padding" Value="8,3" />
     </Style>
+    <Style Selector="sc|StrataThink">
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="MaxWidth" Value="760" />
+    </Style>
+    <Style Selector="Border.streaming-tool-summary">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="999" />
+      <Setter Property="Padding" Value="6,2" />
+      <Setter Property="Margin" Value="6,0,0,0" />
+      <Setter Property="MaxWidth" Value="260" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.streaming-tool-summary TextBlock">
+      <Setter Property="FontSize" Value="10" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="MaxLines" Value="1" />
+    </Style>
     <Style Selector="Button#BrowserToggleButton.open">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
     </Style>
@@ -283,7 +303,7 @@
     <DataTemplate DataType="vm:UserMessageItem">
       <sc:StrataChatMessage Role="User"
                             HorizontalAlignment="Right"
-                            MaxWidth="560"
+                            MaxWidth="640"
                             Author="{Binding Author}"
                             Timestamp="{Binding TimestampText}"
                             IsEditable="True"
@@ -350,7 +370,7 @@
     <DataTemplate DataType="vm:AssistantMessageItem">
       <sc:StrataChatMessage Role="Assistant"
                             HorizontalAlignment="Left"
-                            MaxWidth="760"
+                            MaxWidth="900"
                             Author="{Binding Author}"
                             Timestamp="{Binding TimestampText}"
                             IsStreaming="{Binding IsStreaming}">
@@ -574,10 +594,29 @@
                       IsExpanded="{Binding IsExpanded}"
                       IsActive="{Binding IsActive}"
                       ProgressValue="{Binding ProgressValue}">
+        <sc:StrataThink.HeaderExtra>
+          <Border Classes="streaming-tool-summary"
+                  IsVisible="{Binding HasStreamingSummary}">
+            <TextBlock Text="{Binding StreamingSummary}" />
+          </Border>
+        </sc:StrataThink.HeaderExtra>
         <sc:StrataThink.Content>
           <ItemsControl ItemsSource="{Binding ToolCalls}">
+            <ItemsControl.Styles>
+              <Style Selector="ContentPresenter">
+                <Setter Property="Margin" Value="0,0,6,6" />
+              </Style>
+              <Style Selector="sc|StrataAiToolCall">
+                <Setter Property="MinWidth" Value="320" />
+                <Setter Property="MaxWidth" Value="420" />
+              </Style>
+              <Style Selector="sc|StrataTerminalPreview">
+                <Setter Property="MinWidth" Value="360" />
+                <Setter Property="MaxWidth" Value="560" />
+              </Style>
+            </ItemsControl.Styles>
             <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate><StackPanel Spacing="3" Width="440" /></ItemsPanelTemplate>
+              <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
           </ItemsControl>
         </sc:StrataThink.Content>
@@ -603,7 +642,7 @@
           </Button>
         </sc:StrataThink.HeaderExtra>
         <sc:StrataThink.Content>
-          <StackPanel Spacing="6" MaxWidth="440">
+          <StackPanel Spacing="6" MaxWidth="760">
             <!-- Regular tool details -->
             <sc:StrataMarkdown Markdown="{Binding InputParameters}" IsInline="True"
                                IsVisible="{Binding InputParameters, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
@@ -689,8 +728,21 @@
 
             <ItemsControl ItemsSource="{Binding Activities}"
                           IsVisible="{Binding HasActivities}">
+              <ItemsControl.Styles>
+                <Style Selector="ContentPresenter">
+                  <Setter Property="Margin" Value="0,0,6,6" />
+                </Style>
+                <Style Selector="sc|StrataAiToolCall">
+                  <Setter Property="MinWidth" Value="320" />
+                  <Setter Property="MaxWidth" Value="420" />
+                </Style>
+                <Style Selector="sc|StrataTerminalPreview">
+                  <Setter Property="MinWidth" Value="360" />
+                  <Setter Property="MaxWidth" Value="560" />
+                </Style>
+              </ItemsControl.Styles>
               <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><StackPanel Spacing="3" /></ItemsPanelTemplate>
+                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
               </ItemsControl.ItemsPanel>
             </ItemsControl>
           </StackPanel>

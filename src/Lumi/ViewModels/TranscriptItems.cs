@@ -278,14 +278,18 @@ public partial class ToolGroupItem : TranscriptItem
     [ObservableProperty] private bool _isActive;
     [ObservableProperty] private double _progressValue = -1;
     [ObservableProperty] private bool _isExpanded;
+    [ObservableProperty] private string? _streamingSummary;
 
     public ObservableCollection<ToolCallItemBase> ToolCalls { get; } = [];
+    public bool HasStreamingSummary => !string.IsNullOrWhiteSpace(StreamingSummary);
 
     public ToolGroupItem(string label, string? stableId = null)
         : base(stableId ?? TranscriptIds.Create("tool-group"))
     {
         _label = label;
     }
+
+    partial void OnStreamingSummaryChanged(string? value) => OnPropertyChanged(nameof(HasStreamingSummary));
 }
 
 // ── Single tool (flattened — rendered as StrataThink pill) ─

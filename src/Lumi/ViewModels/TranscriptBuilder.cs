@@ -295,10 +295,6 @@ public class TranscriptBuilder
             {
                 _todoUpdateCount++;
                 UpsertTodoProgressToolCall(steps, msgVm.ToolStatus ?? "InProgress");
-
-                if (_currentToolGroup is not null && initialStatus == StrataAiToolCallStatus.InProgress && !IsRebuildingTranscript)
-                    _currentToolGroup.IsExpanded = true;
-
                 UpdateToolGroupLabel();
             }
 
@@ -413,8 +409,6 @@ public class TranscriptBuilder
 
             if (termParentSubagent is not null && initialStatus == StrataAiToolCallStatus.InProgress && !IsRebuildingTranscript)
                 termParentSubagent.IsExpanded = true;
-            else if (_currentToolGroup is not null && initialStatus == StrataAiToolCallStatus.InProgress && !IsRebuildingTranscript)
-                _currentToolGroup.IsExpanded = true;
 
             UpdateToolGroupLabel();
             return;
@@ -969,6 +963,16 @@ public class TranscriptBuilder
         // These maps are only cleared in ResetState() at the start of Rebuild().
     }
 
+    public void CollapseCompletedBlocksInCurrentTurn()
+    {
+        if (IsRebuildingTranscript || _currentTurn is null)
+            return;
+
+        var assistantItems = _currentTurn.Items.OfType<AssistantMessageItem>().ToList();
+        for (var i = assistantItems.Count - 1; i >= 0; i--)
+            CollapseCompletedTurnBlocks(_currentTurn, assistantItems[i]);
+    }
+
     private void UpdateToolGroupLabel()
     {
         if (_currentToolGroup is null)
@@ -1000,6 +1004,9 @@ public class TranscriptBuilder
             var progress = Math.Clamp((todoDone * 100d) / _currentTodoProgress.Total, 0d, 100d);
             group.ProgressValue = IsRebuildingTranscript ? -1 : progress;
             group.IsActive = running > 0 && _currentTodoProgress.ToolStatus != "Failed";
+            group.StreamingSummary = !IsRebuildingTranscript && group.IsActive
+                ? ToolDisplayHelper.BuildToolActivitySummary(group.ToolCalls.Select(GetToolGroupSummaryLabel))
+                : null;
 
             if (!group.IsActive || IsRebuildingTranscript)
                 group.IsExpanded = false;
@@ -1017,6 +1024,7 @@ public class TranscriptBuilder
             group.Label = isCurrent && _currentIntentText is not null
                 ? _currentIntentText + "…"
                 : Loc.ToolGroup_Working;
+            group.StreamingSummary = null;
             return;
         }
 
@@ -1064,7 +1072,21 @@ public class TranscriptBuilder
             ? Math.Clamp(((completedCount + failedCount) * 100d) / toolCount, 0d, 100d)
             : -1;
         group.ProgressValue = IsRebuildingTranscript ? -1 : genericProgress;
+        group.StreamingSummary = !IsRebuildingTranscript && group.IsActive
+            ? ToolDisplayHelper.BuildToolActivitySummary(group.ToolCalls.Select(GetToolGroupSummaryLabel))
+            : null;
     }
+
+    private static string? GetToolGroupSummaryLabel(ToolCallItemBase item)
+        => item switch
+        {
+            ToolCallItem toolCall => string.IsNullOrWhiteSpace(toolCall.MoreInfo)
+                ? toolCall.ToolName
+                : $"{toolCall.ToolName}: {toolCall.MoreInfo}",
+            TerminalPreviewItem terminal => terminal.ToolName,
+            TodoProgressItem todo => todo.ToolName,
+            _ => null
+        };
 
     private void UpsertTodoProgressToolCall(List<ToolDisplayHelper.TodoStepSnapshot> steps, string toolStatus)
     {
@@ -1139,23 +1161,48 @@ public class TranscriptBuilder
     {
         var items = turn.Items;
         var idx = items.IndexOf(assistantItem);
-        if (idx <= 0)
+        if (idx < 0)
             return;
 
-        var blocksToMerge = new List<TranscriptItem>();
-        for (var i = idx - 1; i >= 0; i--)
+        CollapseTranscriptBlocks(turn, CollectAdjacentSummaryBlocks(items, idx - 1, -1), assistantItem, "before");
+
+        idx = items.IndexOf(assistantItem);
+        if (idx < 0)
+            return;
+
+        CollapseTranscriptBlocks(turn, CollectAdjacentSummaryBlocks(items, idx + 1, 1), assistantItem, "after");
+    }
+
+    private static List<TranscriptItem> CollectAdjacentSummaryBlocks(IList<TranscriptItem> items, int startIndex, int step)
+    {
+        var blocks = new List<TranscriptItem>();
+        for (var i = startIndex; i >= 0 && i < items.Count; i += step)
         {
-            if (items[i] is ToolGroupItem or ReasoningItem or SingleToolItem)
-                blocksToMerge.Add(items[i]);
-            else
+            if (!IsSummaryEligibleBlock(items[i]))
                 break;
+
+            blocks.Add(items[i]);
         }
 
+        if (step < 0)
+            blocks.Reverse();
+
+        return blocks;
+    }
+
+    private static bool IsSummaryEligibleBlock(TranscriptItem item)
+        => item is ToolGroupItem or ReasoningItem or SingleToolItem or SubagentToolCallItem;
+
+    private void CollapseTranscriptBlocks(
+        TranscriptTurn turn,
+        List<TranscriptItem> blocksToMerge,
+        AssistantMessageItem assistantItem,
+        string position)
+    {
         if (blocksToMerge.Count < 2)
             return;
 
-        blocksToMerge.Reverse();
-
+        var items = turn.Items;
         var totalToolCalls = 0;
         var failedCount = 0;
         var hasReasoning = false;
@@ -1244,7 +1291,7 @@ public class TranscriptBuilder
         foreach (var block in blocksToMerge)
             items.Remove(block);
 
-        var summary = new TurnSummaryItem(label, $"turn-summary:{assistantItem.StableId}")
+        var summary = new TurnSummaryItem(label, $"turn-summary:{assistantItem.StableId}:{position}")
         {
             IsExpanded = hasTodoProgress && !IsRebuildingTranscript,
             HasFailures = failedCount > 0,

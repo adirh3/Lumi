@@ -79,4 +79,26 @@ public class ToolDisplayHelperTests
 
         Assert.Equal("⚡", glyph);
     }
+
+    [Fact]
+    public void BuildToolActivitySummary_UsesRecentLabelsAndOverflowCount()
+    {
+        var summary = ToolDisplayHelper.BuildToolActivitySummary(
+        [
+            "📄 Reading first.txt",
+            "🔎 Searching files",
+            "⌨ Running command",
+            "🧪 Generating tests"
+        ]);
+
+        Assert.Equal("🔎 Searching files  ·  ⌨ Running command  ·  🧪 Generating tests  +1", summary);
+    }
+
+    [Fact]
+    public void TruncateInlineLabel_CollapsesWhitespaceAndAddsEllipsis()
+    {
+        var label = ToolDisplayHelper.TruncateInlineLabel("  Reading    a very long file name.txt  ", 18);
+
+        Assert.Equal("Reading a very lo…", label);
+    }
 }

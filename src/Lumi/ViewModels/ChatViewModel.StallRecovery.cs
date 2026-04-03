@@ -299,6 +299,7 @@ public partial class ChatViewModel
             {
                 _transcriptBuilder.HideTypingIndicator();
                 _transcriptBuilder.CloseCurrentToolGroup();
+                _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
                 _transcriptBuilder.FlushPendingFileEdits();
                 IsBusy = false;
                 IsStreaming = false;
@@ -325,6 +326,7 @@ public partial class ChatViewModel
             {
                 _transcriptBuilder.HideTypingIndicator();
                 _transcriptBuilder.CloseCurrentToolGroup();
+                _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
                 _transcriptBuilder.FlushPendingFileEdits();
                 IsBusy = false;
                 IsStreaming = false;
@@ -364,6 +366,7 @@ public partial class ChatViewModel
             {
                 _transcriptBuilder.HideTypingIndicator();
                 _transcriptBuilder.CloseCurrentToolGroup();
+                _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
                 IsBusy = false;
                 IsStreaming = false;
                 StatusText = runtime.StatusText;

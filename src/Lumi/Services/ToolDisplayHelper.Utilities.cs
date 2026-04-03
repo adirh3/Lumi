@@ -99,6 +99,38 @@ public static partial class ToolDisplayHelper
         return string.Join(' ', words);
     }
 
+    /// <summary>Builds a compact one-line summary for a streaming tool group using the most recent tool labels.</summary>
+    public static string? BuildToolActivitySummary(IEnumerable<string?> labels, int maxVisible = 3, int maxLabelLength = 28)
+    {
+        var compactLabels = new List<string>();
+        foreach (var label in labels)
+        {
+            if (string.IsNullOrWhiteSpace(label))
+                continue;
+
+            var compactLabel = TruncateInlineLabel(label, maxLabelLength);
+            if (compactLabels.Count == 0 || !string.Equals(compactLabels[^1], compactLabel, StringComparison.Ordinal))
+                compactLabels.Add(compactLabel);
+        }
+
+        if (compactLabels.Count == 0)
+            return null;
+
+        var visibleCount = Math.Min(maxVisible, compactLabels.Count);
+        var hiddenCount = compactLabels.Count - visibleCount;
+        var summary = string.Join("  ·  ", compactLabels.TakeLast(visibleCount));
+        return hiddenCount > 0 ? $"{summary}  +{hiddenCount}" : summary;
+    }
+
+    public static string TruncateInlineLabel(string text, int maxLength)
+    {
+        var compact = Regex.Replace(text, @"\s+", " ").Trim();
+        if (compact.Length <= maxLength)
+            return compact;
+
+        return compact[..Math.Max(1, maxLength - 1)].TrimEnd() + "…";
+    }
+
     /// <summary>Returns true if the tool creates files (for resource link detection).</summary>
     public static bool IsFileCreationTool(string? toolName)
     {

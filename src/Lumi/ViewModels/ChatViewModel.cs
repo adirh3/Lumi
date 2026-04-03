@@ -1489,6 +1489,7 @@ public partial class ChatViewModel : ObservableObject
                 IsStreaming = false;
                 _transcriptBuilder.HideTypingIndicator();
                 _transcriptBuilder.CloseCurrentToolGroup();
+                _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
             }
         }
         catch (OperationCanceledException)
@@ -1937,6 +1938,7 @@ public partial class ChatViewModel : ObservableObject
                 IsStreaming = false;
                 _transcriptBuilder.HideTypingIndicator();
                 _transcriptBuilder.CloseCurrentToolGroup();
+                _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
                 var msgVm = new ChatMessageViewModel(errorMsg);
                 Messages.Add(msgVm);
                 _transcriptBuilder.ProcessMessageToTranscript(msgVm);
@@ -1950,6 +1952,7 @@ public partial class ChatViewModel : ObservableObject
             IsStreaming = false;
             _transcriptBuilder.HideTypingIndicator();
             _transcriptBuilder.CloseCurrentToolGroup();
+            _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
         }
     }
 
@@ -1985,6 +1988,9 @@ public partial class ChatViewModel : ObservableObject
             IsBusy = false;
             IsStreaming = false;
             StatusText = Loc.Status_Stopped;
+            _transcriptBuilder.HideTypingIndicator();
+            _transcriptBuilder.CloseCurrentToolGroup();
+            _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
         }
     }
 

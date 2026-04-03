@@ -102,6 +102,7 @@ public partial class ChatViewModel
                     StatusText = "";
                     _transcriptBuilder.HideTypingIndicator();
                     _transcriptBuilder.CloseCurrentToolGroup();
+                    _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
                     _transcriptBuilder.FlushPendingFileEdits();
 
                     _transcriptBuilder.AddConnectionLostError(
@@ -912,6 +913,7 @@ public partial class ChatViewModel
                     {
                         _transcriptBuilder.HideTypingIndicator();
                         _transcriptBuilder.CloseCurrentToolGroup();
+                        _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
                         IsBusy = runtime.IsBusy;
                         IsStreaming = runtime.IsStreaming;
                         StatusText = runtime.StatusText;
@@ -1035,6 +1037,7 @@ public partial class ChatViewModel
                         // Clean up typing indicator and tool groups
                         _transcriptBuilder.HideTypingIndicator();
                         _transcriptBuilder.CloseCurrentToolGroup();
+                        _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
                         _transcriptBuilder.FlushPendingFileEdits();
 
                         StatusText = runtime.StatusText;
@@ -1153,6 +1156,9 @@ public partial class ChatViewModel
                     runtime.StatusText = Loc.Status_Stopped;
                     if (_activeSession == session)
                     {
+                        _transcriptBuilder.HideTypingIndicator();
+                        _transcriptBuilder.CloseCurrentToolGroup();
+                        _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
                         IsBusy = false;
                         IsStreaming = false;
                         StatusText = runtime.StatusText;
@@ -1195,6 +1201,7 @@ public partial class ChatViewModel
                         {
                             _transcriptBuilder.HideTypingIndicator();
                             _transcriptBuilder.CloseCurrentToolGroup();
+                            _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
                             _transcriptBuilder.FlushPendingFileEdits();
 
                             var reason = shutdown.Data.ErrorReason ?? Loc.Status_CopilotStoppedResponding;
@@ -1575,6 +1582,7 @@ public partial class ChatViewModel
                         StatusText = runtime.StatusText;
                         _transcriptBuilder.HideTypingIndicator();
                         _transcriptBuilder.CloseCurrentToolGroup();
+                        _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
                     }
                 });
             }
@@ -1614,6 +1622,9 @@ public partial class ChatViewModel
 
         if (CurrentChat?.Id == chat.Id)
         {
+            _transcriptBuilder.HideTypingIndicator();
+            _transcriptBuilder.CloseCurrentToolGroup();
+            _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
             IsBusy = false;
             IsStreaming = false;
             StatusText = string.Empty;
