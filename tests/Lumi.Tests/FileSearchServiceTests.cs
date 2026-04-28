@@ -274,6 +274,56 @@ public class FileSearchServiceTests
     }
 
     [Fact]
+    public void ScoreMatch_TypoInsideLongFileNameStillMatches()
+    {
+        var score = FileSearchService.ScoreMatch("src/FileSearchService.cs", new[] { "fileserach" });
+        var distractorScore = FileSearchService.ScoreMatch("src/FileStorageService.cs", new[] { "fileserach" });
+
+        Assert.True(score > 0, $"Typo inside long filename should match FileSearchService.cs, got score {score}");
+        Assert.True(score > distractorScore,
+            $"FileSearchService.cs ({score}) should beat FileStorageService.cs ({distractorScore})");
+    }
+
+    [Fact]
+    public void ScoreMatch_TypoInsideCamelCaseSegmentStillMatches()
+    {
+        var score = FileSearchService.ScoreMatch("src/ViewModels/ChatViewModel.cs", new[] { "viewmodle" });
+
+        Assert.True(score > 0, $"Typo inside CamelCase segment should match ChatViewModel.cs, got score {score}");
+    }
+
+    [Fact]
+    public void ScoreMatch_AcronymInitialsBeatLooseSubsequence()
+    {
+        var parts = new[] { "law" };
+        var acronymScore = FileSearchService.ScoreMatch("src/LogAnalyticsWorkspace.cs", parts);
+        var looseScore = FileSearchService.ScoreMatch("src/LaunchWindow.cs", parts);
+
+        Assert.True(acronymScore > 0, $"Acronym query should match LogAnalyticsWorkspace.cs, got score {acronymScore}");
+        Assert.True(acronymScore > looseScore,
+            $"Initials match ({acronymScore}) should beat loose subsequence ({looseScore})");
+    }
+
+    [Fact]
+    public void ScoreMatch_ExactShortNameBeatsAcronymExpansion()
+    {
+        var parts = new[] { "law" };
+        var exactScore = FileSearchService.ScoreMatch("src/Law.cs", parts);
+        var acronymScore = FileSearchService.ScoreMatch("src/LogAnalyticsWorkspace.cs", parts);
+
+        Assert.True(exactScore > acronymScore,
+            $"Exact short name ({exactScore}) should beat acronym expansion ({acronymScore})");
+    }
+
+    [Fact]
+    public void ScoreMatch_SeparatorInitialsMatchAcronymQuery()
+    {
+        var score = FileSearchService.ScoreMatch("src/Log-Analytics_Workspace.cs", new[] { "law" });
+
+        Assert.True(score > 0, $"Acronym query should match separator-delimited filename, got score {score}");
+    }
+
+    [Fact]
     public void ScoreMatch_DiacriticsAreIgnored()
     {
         var score = FileSearchService.ScoreMatch("src/R\u00e9sum\u00e9Parser.cs", new[] { "resume" });
@@ -305,6 +355,144 @@ public class FileSearchServiceTests
 
             Assert.Equal(3, results.Count);
             Assert.Equal("ChatViewModel.cs", Path.GetFileName(results[0].RelativePath));
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void Search_TypoInsideLongFileNameRanksExpectedFirst()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"lumi-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempDir, "src", "Services"));
+            Directory.CreateDirectory(Path.Combine(tempDir, "src", "ViewModels"));
+            File.WriteAllText(Path.Combine(tempDir, "src", "Services", "FileSearchService.cs"), "");
+            File.WriteAllText(Path.Combine(tempDir, "src", "Services", "FileStorageService.cs"), "");
+            File.WriteAllText(Path.Combine(tempDir, "src", "ViewModels", "SearchSettingsView.axaml"), "");
+
+            var service = new FileSearchService();
+            var results = service.Search(tempDir, "fileserach");
+
+            Assert.NotEmpty(results);
+            Assert.Equal("FileSearchService.cs", Path.GetFileName(results[0].RelativePath));
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void Search_AcronymInitialsRanksLogAnalyticsWorkspaceFirst()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"lumi-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempDir, "src", "Services"));
+            File.WriteAllText(Path.Combine(tempDir, "src", "Services", "LogAnalyticsWorkspace.cs"), "");
+            File.WriteAllText(Path.Combine(tempDir, "src", "Services", "LaunchWindow.cs"), "");
+            File.WriteAllText(Path.Combine(tempDir, "src", "Services", "LegalAdvice.cs"), "");
+
+            var service = new FileSearchService();
+            var results = service.Search(tempDir, "law");
+
+            Assert.NotEmpty(results);
+            Assert.Equal("LogAnalyticsWorkspace.cs", Path.GetFileName(results[0].RelativePath));
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void Search_ExactShortNameRanksBeforeAcronymExpansion()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"lumi-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempDir, "src", "Services"));
+            File.WriteAllText(Path.Combine(tempDir, "src", "Services", "LogAnalyticsWorkspace.cs"), "");
+            File.WriteAllText(Path.Combine(tempDir, "src", "Services", "Law.cs"), "");
+
+            var service = new FileSearchService();
+            var results = service.Search(tempDir, "law");
+
+            Assert.NotEmpty(results);
+            Assert.Equal("Law.cs", Path.GetFileName(results[0].RelativePath));
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void Search_SeparatorInitialsRankExpectedFirst()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"lumi-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempDir, "src", "Services"));
+            File.WriteAllText(Path.Combine(tempDir, "src", "Services", "Log-Analytics_Workspace.cs"), "");
+            File.WriteAllText(Path.Combine(tempDir, "src", "Services", "LaunchWindow.cs"), "");
+
+            var service = new FileSearchService();
+            var results = service.Search(tempDir, "law");
+
+            Assert.NotEmpty(results);
+            Assert.Equal("Log-Analytics_Workspace.cs", Path.GetFileName(results[0].RelativePath));
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void Search_MultiTermPrefixAndTypoRanksExpectedFirst()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"lumi-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempDir, "src", "Services"));
+            File.WriteAllText(Path.Combine(tempDir, "src", "Services", "LogAnalyticsWorkspace.cs"), "");
+            File.WriteAllText(Path.Combine(tempDir, "src", "Services", "LogAnalyticsWriter.cs"), "");
+
+            var service = new FileSearchService();
+            var results = service.Search(tempDir, "log workspce");
+
+            Assert.NotEmpty(results);
+            Assert.Equal("LogAnalyticsWorkspace.cs", Path.GetFileName(results[0].RelativePath));
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void Search_PathAcronymInitialsCanMatchNestedPath()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"lumi-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempDir, "src", "Log", "Analytics"));
+            Directory.CreateDirectory(Path.Combine(tempDir, "src", "Launch"));
+            File.WriteAllText(Path.Combine(tempDir, "src", "Log", "Analytics", "Workspace.cs"), "");
+            File.WriteAllText(Path.Combine(tempDir, "src", "Launch", "Window.cs"), "");
+
+            var service = new FileSearchService();
+            var results = service.Search(tempDir, "law");
+
+            Assert.NotEmpty(results);
+            Assert.Equal(
+                Path.Combine("src", "Log", "Analytics", "Workspace.cs"),
+                results[0].RelativePath);
         }
         finally
         {

@@ -404,16 +404,12 @@ public sealed class FileSearchService
             if (string.Equals(file.FileNameNoExtCompact, term.Compact, StringComparison.Ordinal))
                 Consider(585, true);
 
-            if (string.Equals(file.FileNameInitials, term.Compact, StringComparison.Ordinal))
-                Consider(520, true);
-            else
-            {
-                Consider(ScorePrefix(file.FileNameInitials, term.Compact, 500), true);
-                Consider(ScoreSubsequence(file.FileNameInitials, term.Compact, 455), true);
-            }
+            Consider(ScoreInitials(file.FileNameInitials, term.Compact, 585, 540, 500), true);
+            Consider(ScoreInitials(file.PathInitials, term.Compact, 390, 350, 310), false);
 
             Consider(ScorePrefix(file.FileNameNoExtCompact, term.Compact, 560), true);
             Consider(ScoreContains(file.FileNameNoExtCompact, term.Compact, 470), true);
+            Consider(ScoreApproximateContains(file.FileNameNoExtCompact, term.Compact, 445), true);
             Consider(ScoreSubsequence(file.FileNameNoExtCompact, term.Compact, 420), true);
             Consider(ScoreEditDistance(file.FileNameNoExtCompact, term.Compact, 450), true);
 
@@ -429,6 +425,7 @@ public sealed class FileSearchService
 
                 Consider(ScorePrefix(token, term.Compact, 545 - positionPenalty), true);
                 Consider(ScoreContains(token, term.Compact, 465 - positionPenalty), true);
+                Consider(ScoreApproximateContains(token, term.Compact, 430 - positionPenalty), true);
                 Consider(ScoreSubsequence(token, term.Compact, 405 - positionPenalty), true);
                 Consider(ScoreEditDistance(token, term.Compact, 425 - positionPenalty), true);
             }
@@ -443,6 +440,7 @@ public sealed class FileSearchService
 
                 Consider(ScorePrefix(token, term.Compact, 350), false);
                 Consider(ScoreContains(token, term.Compact, 305), false);
+                Consider(ScoreApproximateContains(token, term.Compact, 260), false);
                 Consider(ScoreSubsequence(token, term.Compact, 150), false);
             }
 
@@ -499,6 +497,58 @@ public sealed class FileSearchService
         return baseScore - positionPenalty - lengthPenalty;
     }
 
+    private static double ScoreInitials(
+        string initials,
+        string query,
+        double exactScore,
+        double prefixScore,
+        double subsequenceScore)
+    {
+        if (string.IsNullOrEmpty(initials) || string.IsNullOrEmpty(query))
+            return 0;
+
+        if (string.Equals(initials, query, StringComparison.Ordinal))
+            return exactScore;
+
+        return Math.Max(
+            ScorePrefix(initials, query, prefixScore),
+            ScoreSubsequence(initials, query, subsequenceScore));
+    }
+
+    private static double ScoreApproximateContains(string candidate, string query, double baseScore)
+    {
+        if (string.IsNullOrEmpty(candidate) || query.Length < 5 || candidate.Length < 3)
+            return 0;
+
+        var maxDistance = GetApproximateMaxDistance(query.Length);
+        var minWindowLength = Math.Max(3, query.Length - Math.Min(maxDistance, 1));
+        var maxWindowLength = Math.Min(candidate.Length, query.Length + maxDistance);
+        if (minWindowLength > maxWindowLength)
+            return 0;
+
+        var bestScore = 0d;
+        for (var windowLength = minWindowLength; windowLength <= maxWindowLength; windowLength++)
+        {
+            for (var start = 0; start <= candidate.Length - windowLength; start++)
+            {
+                var window = candidate.Substring(start, windowLength);
+                var distance = DamerauLevenshteinDistance(window, query, maxDistance);
+                if (distance <= 0 || distance > maxDistance)
+                    continue;
+
+                var score = baseScore
+                            - (distance * 95)
+                            - (Math.Abs(windowLength - query.Length) * 30)
+                            - (start * 14)
+                            + (Math.Min(1d, (double)query.Length / candidate.Length) * 45);
+                if (score > bestScore)
+                    bestScore = score;
+            }
+        }
+
+        return bestScore;
+    }
+
     private static double ScoreSubsequence(string candidate, string query, double baseScore)
     {
         if (string.IsNullOrEmpty(candidate) || query.Length < 2 || candidate.Length < query.Length)
@@ -525,7 +575,7 @@ public sealed class FileSearchService
             return 0;
         }
 
-        var maxDistance = query.Length <= 4 ? 1 : 2;
+        var maxDistance = GetApproximateMaxDistance(query.Length);
         var distance = DamerauLevenshteinDistance(candidate, query, maxDistance);
         if (distance > maxDistance)
             return 0;
@@ -533,6 +583,17 @@ public sealed class FileSearchService
         return baseScore
                - (distance * 110)
                - (Math.Abs(candidate.Length - query.Length) * 35);
+    }
+
+    private static int GetApproximateMaxDistance(int queryLength)
+    {
+        return queryLength switch
+        {
+            <= 4 => 1,
+            <= 8 => 2,
+            <= 14 => 3,
+            _ => 4
+        };
     }
 
     private static double GetCoverageBonus(int candidateLength, int queryLength)
@@ -1114,6 +1175,7 @@ internal readonly record struct PreparedFileSearchEntry(
     string FileNameNoExtCompact,
     string[] FileNameTokens,
     string FileNameInitials,
+    string PathInitials,
     int Depth,
     bool IsSourceFile)
 {
@@ -1140,6 +1202,13 @@ internal readonly record struct PreparedFileSearchEntry(
             ? fileName
             : fileName[..^extension.Length];
         var fileNameTokens = FileSearchService.ExtractSearchTokens(originalFileNameNoExt);
+        var pathForInitials = relativePath.Replace('\\', '/');
+        if (!string.IsNullOrEmpty(originalExtension))
+        {
+            var extensionIndex = pathForInitials.LastIndexOf(originalExtension, StringComparison.Ordinal);
+            if (extensionIndex >= 0)
+                pathForInitials = pathForInitials.Remove(extensionIndex, originalExtension.Length);
+        }
 
         return new PreparedFileSearchEntry(
             normalizedPath,
@@ -1152,6 +1221,7 @@ internal readonly record struct PreparedFileSearchEntry(
             FileSearchService.ToCompact(fileNameNoExt),
             fileNameTokens,
             FileSearchService.BuildInitials(fileNameTokens),
+            FileSearchService.BuildInitials(FileSearchService.ExtractSearchTokens(pathForInitials)),
             pathSegments.Length > 0 ? pathSegments.Length - 1 : 0,
             FileSearchService.IsSourceFileExtension(extension));
     }
