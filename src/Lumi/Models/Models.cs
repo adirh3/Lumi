@@ -281,10 +281,29 @@ public class Memory
     public string Key { get; set; } = "";
     public string Content { get; set; } = "";
     public string Category { get; set; } = "General";
+    public string Scope { get; set; } = MemoryScopes.Global;
+    public Guid? ProjectId { get; set; }
+    public string Status { get; set; } = MemoryStatuses.Active;
     public string? SourceChatId { get; set; }
     public string Source { get; set; } = "chat";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
+    public DateTimeOffset? LastReviewedAt { get; set; }
+    public DateTimeOffset? LastUsedAt { get; set; }
+    public int? Confidence { get; set; }
+    public string? MaintenanceNote { get; set; }
+}
+
+public static class MemoryScopes
+{
+    public const string Global = "global";
+    public const string Project = "project";
+}
+
+public static class MemoryStatuses
+{
+    public const string Active = "active";
+    public const string Archived = "archived";
 }
 
 public class UserSettings
@@ -323,6 +342,7 @@ public class UserSettings
 
     // ── Privacy & Data ──
     public bool EnableMemoryAutoSave { get; set; } = true;
+    public bool EnableMemoryAutoMaintenance { get; set; } = true;
     public bool AutoSaveChats { get; set; } = true;
 
     // ── Window ──

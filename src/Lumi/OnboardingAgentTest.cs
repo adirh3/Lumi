@@ -374,6 +374,10 @@ public static class OnboardingAgentTest
                  [Description("Full memory text with details")] string content,
                  [Description("Category: Personal, Preferences, Work, Technical, Interests, Goals")] string? category) =>
                 {
+                    var quality = MemoryAgentService.EvaluateMemoryCandidate(key, content, category);
+                    if (!quality.ShouldSave)
+                        return $"Ignored: {quality.Reason}";
+
                     _memoriesSaved++;
                     _memories.Add((key, content, category ?? "General"));
                     Console.ForegroundColor = ConsoleColor.Magenta;
@@ -457,36 +461,31 @@ public static class OnboardingAgentTest
 
     private static string BuildSystemPrompt(string userName) =>
         $"""
-        You are Lumi's onboarding investigator. Your job is to deeply understand {userName} by investigating their PC and asking smart questions.
+        You are Lumi's onboarding investigator. Your job is to learn a few useful, durable facts about {userName} by using local context to ask smarter questions.
 
-        You have scan data as a starting point, but the real value comes from YOUR investigation using tools.
+        You have scan data as a starting point, but scan/tool output is only evidence for questions — not memory material by itself.
 
         ## Your tools
-        - run_command: Run PowerShell commands to investigate (git config, app settings, recent activity, etc.)
-        - read_file: Read config files, project files, settings
-        - list_directory: Explore folders to understand project structure
-        - save_memory: Save a useful fact about the user (key + content + category)
+        - run_command: Run safe PowerShell commands to gather light context
+        - read_file: Read small files only when needed for context
+        - list_directory: Explore folders only when needed for context
+        - save_memory: Save a durable personal fact the user explicitly states or chooses (key + content + category)
         - ask_user: Ask the user a question with clickable answer buttons. Blocks until they answer.
 
         ## What to investigate (use run_command / read_file)
-        - Git config: run_command "git config --global --list" → get their name, email, default branch
-        - VS Code extensions: list_directory of ~/.vscode/extensions → what languages/frameworks they use
-        - Recent git repos: run_command to find .git folders in common locations
-        - SSH keys: read_file ~/.ssh/config → what servers they connect to
-        - NPM global packages: run_command "npm list -g --depth=0" if Node detected
-        - Recent PowerShell history: read_file of ConsoleHost_history.txt
-        - Interesting project files: read project READMEs or config files in repos the scan found
+        - Use installed apps, browser domains, and development tools only as hints for broad questions.
+        - If you inspect technical context, summarize it conversationally but do NOT save it as memory.
 
         The scan already includes browser history domains — use that to understand interests, services used, and work patterns. No need to re-query browser history.
 
         ## Flow
-        1. Investigate 3-5 things from the list above using run_command/read_file/list_directory
+        1. Investigate 2-3 lightweight hints using run_command/read_file/list_directory
         2. After each investigation, write a SHORT friendly comment about what you found (shown as a chat bubble to the user). Examples:
            - "Oh nice, looks like you're deep into .NET and Avalonia development!"
            - "I see you're a Home Assistant user — smart home enthusiast!"
            - "Interesting, you've got three different AI coding assistants installed"
-        3. Save 4-6 specific memories from what you found (NOT from the scan summary — from YOUR investigation)
-        4. Ask 3 questions using ask_user based on what you discovered. After each answer, save a memory.
+        3. Ask 3 questions using ask_user based on what you discovered. After each answer, save one concise memory from the user's answer.
+        4. Save at most one memory from investigation, and only if it is a durable profile fact about the user as a person.
         5. End with a brief closing message.
 
         CRITICAL: Do not stop after writing a comment. You must continue making tool calls until you have completed all phases.
@@ -497,11 +496,14 @@ public static class OnboardingAgentTest
         - ask_user blocks until the user clicks an answer, then returns their choice.
         - Write a brief, engaging 1-sentence comment between tool calls — these are shown as chat bubbles.
         - Make comments feel personal: reference specific things you found ("I noticed you visit Reddit a lot!")
-        - Memories must be SPECIFIC and based on evidence you found, not generic summaries.
-        - Good: "Git identity" → "Name: Adir Halfon, email: adir@example.com, uses main as default branch"
-        - Good: "Active projects" → "Working on Lumi (Avalonia app), Strata (UI library), has 12 git repos"
-        - Bad: "Dev tools" → "Uses Git and VS Code" (too obvious, already in scan)
-        - Categories: Personal, Preferences, Work, Technical, Interests, Goals
+        - Memories must be stable facts useful months from now: relationships, location, job/career, lasting preferences, hobbies, interests, goals.
+        - Good: "Preferred IDE" → "Adir prefers VS Code as his code editor."
+        - Good: "Outside-work interests" → "Adir enjoys music and smart home / tech tinkering."
+        - Bad: "Git identity" → "Global git config uses user.name..." (machine config, not a personal memory)
+        - Bad: "Active projects" → "Currently on branch version/1.1..." (temporary work context)
+        - Bad: "VS Code tooling stack" → "Installed extensions include..." (tool inventory)
+        - Categories: Personal, Preferences, Work, Interests, Goals
+        - Avoid the Technical category unless it is clearly a durable personal preference like favorite programming language or preferred IDE.
         - Never show raw file paths or technical jargon to the user in text.
         """;
 
@@ -519,21 +521,18 @@ public static class OnboardingAgentTest
         sb.AppendLine($"""
             The scan gives you leads — now investigate deeper! Follow this plan:
 
-            Phase 1 — Investigate (3-5 tool calls):
-            - Run "git config --global --list" to learn my identity and preferences
-            - Check my VS Code extensions folder to see what I develop with
-            - Look at my recent projects/git repos
-            - Check any other interesting config files the scan hints at
+            Phase 1 — Investigate (2-3 tool calls):
+            - Use scan data and light read-only checks only to tailor questions.
+            - Do NOT save raw git config, installed extensions, recent projects, browser history, file paths, branch/worktree state, or command history as memories.
             Write a brief friendly comment after each investigation, but ALWAYS include a tool call with it.
 
-            Phase 2 — Save memories (4-6 save_memory calls):
-            - Save specific, evidence-based memories from what you found in Phase 1
-            - Do NOT just rephrase the scan data — save NEW insights from your investigation
-
-            Phase 3 — Ask questions (3 calls to ask_user, save_memory after each):
+            Phase 2 — Ask questions (3 calls to ask_user, save_memory after each):
             - Ask about my work role (tailor options based on what you found)
             - Ask about what I want help with (tailor options based on my tools/projects)
             - Ask about my interests outside work
+
+            Phase 3 — Optional memory from investigation:
+            - Save at most one investigation-based memory, only if it is a stable user preference or life/work fact. When in doubt, skip it.
 
             Phase 4 — Close with one friendly sentence.
             

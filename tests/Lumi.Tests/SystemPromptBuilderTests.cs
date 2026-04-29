@@ -98,4 +98,94 @@ public sealed class SystemPromptBuilderTests
         Assert.DoesNotContain("Extra Writing Calibration", gptPrompt);
         Assert.DoesNotContain("Extra Writing Calibration", claudePrompt);
     }
+
+    [Fact]
+    public void Build_FiltersNoisyMemoriesFromPrompt()
+    {
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en", UserName = "Adir" },
+            agent: null,
+            project: null,
+            allSkills: [],
+            activeSkills: [],
+            memories:
+            [
+                new Memory
+                {
+                    Key = "Preferred IDE",
+                    Content = "Adir prefers VS Code as his code editor.",
+                    Category = "Preferences"
+                },
+                new Memory
+                {
+                    Key = "Current Blast branch activity",
+                    Content = "Blast is currently on branch version/1.1.0.0 with many uncommitted changes.",
+                    Category = "Work"
+                },
+                new Memory
+                {
+                    Key = "VS Code tooling stack",
+                    Content = "Uses VS Code extensions for .NET/C#, Python, Pylance, PowerShell, and GitHub Copilot Chat.",
+                    Category = "Technical"
+                }
+            ]);
+
+        Assert.Contains("Preferred IDE", prompt);
+        Assert.DoesNotContain("Current Blast branch activity", prompt);
+        Assert.DoesNotContain("VS Code tooling stack", prompt);
+    }
+
+    [Fact]
+    public void Build_IncludesOnlyMatchingProjectMemories()
+    {
+        var lumiProjectId = Guid.NewGuid();
+        var otherProjectId = Guid.NewGuid();
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en", UserName = "Adir" },
+            agent: null,
+            project: new Project { Id = lumiProjectId, Name = "Lumi" },
+            allSkills: [],
+            activeSkills: [],
+            memories:
+            [
+                new Memory
+                {
+                    Key = "Favorite color",
+                    Content = "Adir's favorite color is blue.",
+                    Category = "Preferences"
+                },
+                new Memory
+                {
+                    Key = "Lumi UI convention",
+                    Content = "In Lumi, always use Strata controls for chat UI.",
+                    Category = "Project",
+                    Scope = MemoryScopes.Project,
+                    ProjectId = lumiProjectId
+                },
+                new Memory
+                {
+                    Key = "Blast UI convention",
+                    Content = "In Blast, always use Fluent controls for settings UI.",
+                    Category = "Project",
+                    Scope = MemoryScopes.Project,
+                    ProjectId = otherProjectId
+                },
+                new Memory
+                {
+                    Key = "Archived project memory",
+                    Content = "In Lumi, always use archived project rules.",
+                    Category = "Project",
+                    Scope = MemoryScopes.Project,
+                    ProjectId = lumiProjectId,
+                    Status = MemoryStatuses.Archived
+                }
+            ]);
+
+        Assert.Contains("--- Your Memories About Adir ---", prompt);
+        Assert.Contains("Favorite color", prompt);
+        Assert.Contains("--- Project Memories: Lumi ---", prompt);
+        Assert.Contains("Lumi UI convention", prompt);
+        Assert.DoesNotContain("Blast UI convention", prompt);
+        Assert.DoesNotContain("Archived project memory", prompt);
+    }
 }

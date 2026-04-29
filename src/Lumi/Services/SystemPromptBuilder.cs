@@ -433,12 +433,50 @@ public static class SystemPromptBuilder
             }
         }
 
-        if (memories.Count > 0)
+        var promptMemories = memories
+            .Where(memory => string.Equals(memory.Status, MemoryStatuses.Active, StringComparison.OrdinalIgnoreCase))
+            .Where(memory =>
+            {
+                var scope = MemoryAgentService.NormalizeScope(memory.Scope, memory.ProjectId);
+                return scope == MemoryScopes.Global || (project is not null && memory.ProjectId == project.Id);
+            })
+            .Where(memory => MemoryAgentService.EvaluateMemoryCandidate(
+                memory.Key,
+                memory.Content,
+                memory.Category,
+                memory.Scope).ShouldSave)
+            .ToList();
+
+        var globalMemories = promptMemories
+            .Where(memory => MemoryAgentService.NormalizeScope(memory.Scope, memory.ProjectId) == MemoryScopes.Global)
+            .ToList();
+        var projectMemories = project is null
+            ? new List<Memory>()
+            : promptMemories
+                .Where(memory => MemoryAgentService.NormalizeScope(memory.Scope, memory.ProjectId) == MemoryScopes.Project
+                                 && memory.ProjectId == project.Id)
+                .ToList();
+
+        if (globalMemories.Count > 0)
         {
             promptBuilder.Append("\n\n--- Your Memories About ")
                 .Append(userName)
                 .Append(" ---\n");
-            var grouped = memories.GroupBy(m => m.Category).OrderBy(g => g.Key);
+            var grouped = globalMemories.GroupBy(m => m.Category).OrderBy(g => g.Key);
+            foreach (var group in grouped)
+            {
+                promptBuilder.Append('[').Append(group.Key).Append("]\n");
+                foreach (var memory in group)
+                    promptBuilder.Append("- ").Append(memory.Key).Append('\n');
+            }
+        }
+
+        if (project is not null && projectMemories.Count > 0)
+        {
+            promptBuilder.Append("\n\n--- Project Memories: ")
+                .Append(project.Name)
+                .Append(" ---\n");
+            var grouped = projectMemories.GroupBy(m => m.Category).OrderBy(g => g.Key);
             foreach (var group in grouped)
             {
                 promptBuilder.Append('[').Append(group.Key).Append("]\n");

@@ -38,6 +38,7 @@ internal static class AppDataSnapshotFactory
                 PreferredModel = settings.PreferredModel,
                 ReasoningEffort = settings.ReasoningEffort,
                 EnableMemoryAutoSave = settings.EnableMemoryAutoSave,
+                EnableMemoryAutoMaintenance = settings.EnableMemoryAutoMaintenance,
                 AutoSaveChats = settings.AutoSaveChats,
                 WindowWidth = settings.WindowWidth,
                 WindowHeight = settings.WindowHeight,
@@ -116,10 +117,17 @@ internal static class AppDataSnapshotFactory
                     Key = m.Key,
                     Content = m.Content,
                     Category = m.Category,
+                    Scope = m.Scope,
+                    ProjectId = m.ProjectId,
+                    Status = m.Status,
                     Source = m.Source,
                     SourceChatId = m.SourceChatId,
                     CreatedAt = m.CreatedAt,
-                    UpdatedAt = m.UpdatedAt
+                    UpdatedAt = m.UpdatedAt,
+                    LastReviewedAt = m.LastReviewedAt,
+                    LastUsedAt = m.LastUsedAt,
+                    Confidence = m.Confidence,
+                    MaintenanceNote = m.MaintenanceNote
                 })
                 .ToList(),
         };

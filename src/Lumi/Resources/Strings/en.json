@@ -519,6 +519,10 @@
   "Button_SigningIn": "Signing in\u2026",
   "Setting_AutoSaveMemories": "Auto-Save Memories",
   "SettingDesc_AutoSaveMemories": "Allow Lumi to automatically remember important information from conversations",
+  "Setting_AutoMaintainMemories": "Maintain Memories Automatically",
+  "SettingDesc_AutoMaintainMemories": "Let Lumi quietly clean up stale, duplicate, or noisy memories after memory changes",
+  "Setting_CleanUpMemories": "Clean Up Memories Now",
+  "SettingDesc_CleanUpMemories": "Run memory maintenance immediately without changing the automatic cleanup toggle",
   "Setting_AutoSaveChats": "Auto-Save Chats",
   "SettingDesc_AutoSaveChats": "Automatically save conversations to disk",
   "Setting_ClearAllChats": "Clear All Chats",
@@ -543,6 +547,7 @@
 
   "Button_ClearChats": "Clear Chats",
   "Button_ClearMemories": "Clear Memories",
+  "Button_CleanUpMemories": "Clean Up",
   "Button_ResetDefaults": "Reset Defaults",
 
   "Tray_Show": "Show Lumi",

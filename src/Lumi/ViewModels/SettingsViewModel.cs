@@ -120,6 +120,9 @@ public partial class SettingsViewModel : ObservableObject
 
     // ── Privacy & Data ──
     [ObservableProperty] private bool _enableMemoryAutoSave;
+    [ObservableProperty] private bool _enableMemoryAutoMaintenance;
+    [ObservableProperty] private bool _isMemoryCleanupRunning;
+    [ObservableProperty] private string _memoryCleanupStatus = "Memory cleanup has not run yet.";
     [ObservableProperty] private bool _autoSaveChats;
     [ObservableProperty] private string _browserCookieStatus = "";
 
@@ -331,6 +334,7 @@ public partial class SettingsViewModel : ObservableObject
 
         // Privacy
         _enableMemoryAutoSave = s.EnableMemoryAutoSave;
+        _enableMemoryAutoMaintenance = s.EnableMemoryAutoMaintenance;
         _autoSaveChats = s.AutoSaveChats;
         RefreshBrowserCookieStatus();
 
@@ -736,6 +740,7 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     partial void OnEnableMemoryAutoSaveChanged(bool value) { _dataStore.Data.Settings.EnableMemoryAutoSave = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
+    partial void OnEnableMemoryAutoMaintenanceChanged(bool value) { _dataStore.Data.Settings.EnableMemoryAutoMaintenance = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnAutoSaveChatsChanged(bool value) { _dataStore.Data.Settings.AutoSaveChats = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
 
     // ── IsModified properties (compare to defaults) ──
@@ -760,6 +765,7 @@ public partial class SettingsViewModel : ObservableObject
     public bool IsPreferredModelModified=> PreferredModel != _defaults.PreferredModel;
     public bool IsReasoningEffortModified => ReasoningEffort != _defaults.ReasoningEffort;
     public bool IsEnableMemoryAutoSaveModified => EnableMemoryAutoSave != _defaults.EnableMemoryAutoSave;
+    public bool IsEnableMemoryAutoMaintenanceModified => EnableMemoryAutoMaintenance != _defaults.EnableMemoryAutoMaintenance;
     public bool IsAutoSaveChatsModified => AutoSaveChats != _defaults.AutoSaveChats;
 
     private void NotifyModified()
@@ -783,6 +789,7 @@ public partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(IsPreferredModelModified));
         OnPropertyChanged(nameof(IsReasoningEffortModified));
         OnPropertyChanged(nameof(IsEnableMemoryAutoSaveModified));
+        OnPropertyChanged(nameof(IsEnableMemoryAutoMaintenanceModified));
         OnPropertyChanged(nameof(IsAutoSaveChatsModified));
     }
 
@@ -809,6 +816,7 @@ public partial class SettingsViewModel : ObservableObject
         ReasoningEffort = _defaults.ReasoningEffort;
     }
     [RelayCommand] private void RevertEnableMemoryAutoSave() => EnableMemoryAutoSave = _defaults.EnableMemoryAutoSave;
+    [RelayCommand] private void RevertEnableMemoryAutoMaintenance() => EnableMemoryAutoMaintenance = _defaults.EnableMemoryAutoMaintenance;
     [RelayCommand] private void RevertAutoSaveChats() => AutoSaveChats = _defaults.AutoSaveChats;
 
     // ── Restart indicator ──
@@ -845,7 +853,29 @@ public partial class SettingsViewModel : ObservableObject
     {
         _dataStore.Data.Memories.Clear();
         Save();
+        MemoryCleanupStatus = "All memories were cleared.";
         SettingsChanged?.Invoke();
+    }
+
+    [RelayCommand]
+    private async Task CleanUpMemoriesNowAsync()
+    {
+        if (IsMemoryCleanupRunning)
+            return;
+
+        IsMemoryCleanupRunning = true;
+        MemoryCleanupStatus = "Cleaning up memories...";
+        try
+        {
+            var result = await new MemoryMaintenanceService(_dataStore).RunAsync();
+            MemoryCleanupStatus = result.ToDisplayText();
+            SettingsChanged?.Invoke();
+            RefreshStats();
+        }
+        finally
+        {
+            IsMemoryCleanupRunning = false;
+        }
     }
 
     [RelayCommand]
@@ -913,6 +943,7 @@ public partial class SettingsViewModel : ObservableObject
         PreferredModel = defaults.PreferredModel;
         ReasoningEffort = defaults.ReasoningEffort;
         EnableMemoryAutoSave = defaults.EnableMemoryAutoSave;
+        EnableMemoryAutoMaintenance = defaults.EnableMemoryAutoMaintenance;
         AutoSaveChats = defaults.AutoSaveChats;
         NeedsRestart = false;
     }
@@ -921,7 +952,8 @@ public partial class SettingsViewModel : ObservableObject
     /// Stats for About page.
     /// </summary>
     public int TotalChats => _dataStore.Data.Chats.Count;
-    public int TotalMemories => _dataStore.Data.Memories.Count;
+    public int TotalMemories => _dataStore.Data.Memories.Count(m =>
+        string.Equals(m.Status, Models.MemoryStatuses.Active, StringComparison.OrdinalIgnoreCase));
     public int TotalSkills => _dataStore.Data.Skills.Count;
     public int TotalAgents => _dataStore.Data.Agents.Count;
     public int TotalProjects => _dataStore.Data.Projects.Count;

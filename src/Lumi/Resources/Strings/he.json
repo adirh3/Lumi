@@ -520,6 +520,10 @@
   "Button_SigningIn": "מתחבר…",
   "Setting_AutoSaveMemories": "שמירת זיכרונות אוטומטית",
   "SettingDesc_AutoSaveMemories": "לאפשר ללומי לזכור אוטומטית מידע חשוב משיחות",
+  "Setting_AutoMaintainMemories": "תחזוקת זיכרונות אוטומטית",
+  "SettingDesc_AutoMaintainMemories": "לאפשר ללומי לנקות בשקט זיכרונות ישנים, כפולים או רועשים אחרי שינויי זיכרון",
+  "Setting_CleanUpMemories": "ניקוי זיכרונות עכשיו",
+  "SettingDesc_CleanUpMemories": "הרצת תחזוקת זיכרונות מיידית בלי לשנות את מתג הניקוי האוטומטי",
   "Setting_AutoSaveChats": "שמירת צ׳אטים אוטומטית",
   "SettingDesc_AutoSaveChats": "שמירת שיחות אוטומטית לדיסק",
   "Setting_ClearAllChats": "מחיקת כל הצ׳אטים",
@@ -544,6 +548,7 @@
 
   "Button_ClearChats": "מחיקת צ׳אטים",
   "Button_ClearMemories": "מחיקת זיכרונות",
+  "Button_CleanUpMemories": "ניקוי",
   "Button_ResetDefaults": "איפוס ברירות מחדל",
 
   "Tray_Show": "הצגת לומי",

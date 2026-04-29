@@ -49,6 +49,86 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void AppDataJsonContext_SerializesMemoryScopeAndMaintenanceFields()
+    {
+        var projectId = Guid.NewGuid();
+        var data = new AppData
+        {
+            Settings = new UserSettings
+            {
+                EnableMemoryAutoMaintenance = false
+            },
+            Memories =
+            [
+                new Memory
+                {
+                    Key = "Lumi UI convention",
+                    Content = "In Lumi, always use Strata controls for chat UI.",
+                    Category = "Project",
+                    Scope = MemoryScopes.Project,
+                    ProjectId = projectId,
+                    Status = MemoryStatuses.Active,
+                    Confidence = 88,
+                    MaintenanceNote = "Reviewed"
+                }
+            ]
+        };
+
+        var json = JsonSerializer.Serialize(data, AppDataJsonContext.Default.AppData);
+        using var document = JsonDocument.Parse(json);
+
+        Assert.False(document.RootElement.GetProperty("settings").GetProperty("enableMemoryAutoMaintenance").GetBoolean());
+        var memory = document.RootElement.GetProperty("memories")[0];
+        Assert.Equal(MemoryScopes.Project, memory.GetProperty("scope").GetString());
+        Assert.Equal(projectId, memory.GetProperty("projectId").GetGuid());
+        Assert.Equal(MemoryStatuses.Active, memory.GetProperty("status").GetString());
+        Assert.Equal(88, memory.GetProperty("confidence").GetInt32());
+        Assert.Equal("Reviewed", memory.GetProperty("maintenanceNote").GetString());
+    }
+
+    [Fact]
+    public void CreateIndexSnapshot_PreservesMemoryMaintenanceFields()
+    {
+        var projectId = Guid.NewGuid();
+        var reviewedAt = new DateTimeOffset(2026, 4, 29, 10, 0, 0, TimeSpan.Zero);
+        var source = new AppData
+        {
+            Settings = new UserSettings
+            {
+                EnableMemoryAutoMaintenance = false
+            },
+            Memories =
+            [
+                new Memory
+                {
+                    Key = "Lumi UI convention",
+                    Content = "In Lumi, always use Strata controls for chat UI.",
+                    Category = "Project",
+                    Scope = MemoryScopes.Project,
+                    ProjectId = projectId,
+                    Status = MemoryStatuses.Archived,
+                    LastReviewedAt = reviewedAt,
+                    LastUsedAt = reviewedAt,
+                    Confidence = 42,
+                    MaintenanceNote = "Archived"
+                }
+            ]
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+
+        Assert.False(snapshot.Settings.EnableMemoryAutoMaintenance);
+        var memory = Assert.Single(snapshot.Memories);
+        Assert.Equal(MemoryScopes.Project, memory.Scope);
+        Assert.Equal(projectId, memory.ProjectId);
+        Assert.Equal(MemoryStatuses.Archived, memory.Status);
+        Assert.Equal(reviewedAt, memory.LastReviewedAt);
+        Assert.Equal(reviewedAt, memory.LastUsedAt);
+        Assert.Equal(42, memory.Confidence);
+        Assert.Equal("Archived", memory.MaintenanceNote);
+    }
+
+    [Fact]
     public void AppDataJsonContext_SerializesChatReasoningEffort()
     {
         var data = new AppData

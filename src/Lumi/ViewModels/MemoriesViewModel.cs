@@ -38,7 +38,8 @@ public partial class MemoriesViewModel : ObservableObject
              return;
 
          var selectedMemory = _dataStore.Data.Memories.FirstOrDefault(memory => memory.Id == SelectedMemory.Id);
-         if (selectedMemory is null)
+         if (selectedMemory is null
+             || !string.Equals(selectedMemory.Status, MemoryStatuses.Active, StringComparison.OrdinalIgnoreCase))
          {
              SelectedMemory = null;
              IsEditing = false;
@@ -57,9 +58,11 @@ public partial class MemoriesViewModel : ObservableObject
     private void RefreshList()
     {
         Memories.Clear();
+        var activeMemories = _dataStore.Data.Memories
+            .Where(m => string.Equals(m.Status, MemoryStatuses.Active, StringComparison.OrdinalIgnoreCase));
         var items = string.IsNullOrWhiteSpace(SearchQuery)
-            ? _dataStore.Data.Memories
-            : _dataStore.Data.Memories.Where(m =>
+            ? activeMemories
+            : activeMemories.Where(m =>
                 m.Key.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase) ||
                 m.Content.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase) ||
                 m.Category.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase));

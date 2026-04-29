@@ -2480,12 +2480,29 @@ public partial class ChatViewModel : ObservableObject
             })
             .ToList();
 
+        var project = chat.ProjectId.HasValue
+            ? _dataStore.Data.Projects.FirstOrDefault(p => p.Id == chat.ProjectId.Value)
+            : null;
+
         var memories = _dataStore.Data.Memories
+            .Where(m => string.Equals(m.Status, MemoryStatuses.Active, StringComparison.OrdinalIgnoreCase))
+            .Where(m =>
+            {
+                var scope = MemoryAgentService.NormalizeScope(m.Scope, m.ProjectId);
+                return scope == MemoryScopes.Global || (chat.ProjectId.HasValue && m.ProjectId == chat.ProjectId.Value);
+            })
+            .Where(m => MemoryAgentService.EvaluateMemoryCandidate(
+                m.Key,
+                m.Content,
+                m.Category,
+                m.Scope).ShouldSave)
             .Select(m => new MemoryAgentSnapshot
             {
                 Key = m.Key,
                 Content = m.Content,
-                Category = m.Category
+                Category = m.Category,
+                Scope = m.Scope,
+                ProjectId = m.ProjectId
             })
             .ToList();
 
@@ -2496,6 +2513,8 @@ public partial class ChatViewModel : ObservableObject
             UserMessage = userMessage.Content,
             AssistantMessage = assistantMessage.Content,
             UserName = _dataStore.Data.Settings.UserName,
+            ProjectId = project?.Id,
+            ProjectName = project?.Name,
             ExistingMemories = memories,
             RecentConversation = recentConversation
         };
