@@ -1143,13 +1143,32 @@ public partial class ChatViewModel
     [RelayCommand]
     private async Task ToggleWorktreePreChat()
     {
+        await SetWorktreeModePreChatAsync(!IsWorktreeMode);
+    }
+
+    [RelayCommand]
+    private async Task SwitchToLocalPreChat()
+    {
+        await SetWorktreeModePreChatAsync(false);
+    }
+
+    [RelayCommand]
+    private async Task SwitchToWorktreePreChat()
+    {
+        await SetWorktreeModePreChatAsync(true);
+    }
+
+    private async Task SetWorktreeModePreChatAsync(bool useWorktree)
+    {
         // Locked once a chat exists
         if (CurrentChat is not null) return;
 
         var projectDir = GetProjectWorkingDirectory();
-        if (!IsWorktreeMode && !GitService.IsGitRepo(projectDir)) return;
+        if (useWorktree && !GitService.IsGitRepo(projectDir)) return;
 
-        IsWorktreeMode = !IsWorktreeMode;
+        if (IsWorktreeMode == useWorktree) return;
+
+        IsWorktreeMode = useWorktree;
         if (!IsWorktreeMode)
         {
             WorktreePath = null;

@@ -1316,7 +1316,7 @@
               <!-- Toggle buttons -->
               <StackPanel x:Name="WorktreeTogglePanel" Orientation="Horizontal" Spacing="1">
                 <Button x:Name="LocalToggleBtn" Classes="subtle" Padding="5,1" MinHeight="0" Height="20" CornerRadius="3"
-                        Command="{Binding ToggleWorktreePreChatCommand}"
+                        Command="{Binding SwitchToLocalPreChatCommand}"
                         IsEnabled="{Binding !IsWorktreeLocked}"
                         ToolTip.Tip="{loc:Str Git_LocalTooltip}"
                         Background="Transparent" Cursor="Hand">
@@ -1324,7 +1324,7 @@
                              Classes="wt-label" Classes.inactive="{Binding IsWorktreeMode}" />
                 </Button>
                 <Button x:Name="WorktreeToggleBtn" Classes="subtle" Padding="5,1" MinHeight="0" Height="20" CornerRadius="3"
-                        Command="{Binding ToggleWorktreePreChatCommand}"
+                        Command="{Binding SwitchToWorktreePreChatCommand}"
                         IsEnabled="{Binding !IsWorktreeLocked}"
                         ToolTip.Tip="{loc:Str Git_WorktreeTooltip}"
                         Background="Transparent" Cursor="Hand">

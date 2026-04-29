@@ -552,6 +552,7 @@ public partial class MainWindow : Window
 
         var ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
         var shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
+        var alt = (e.KeyModifiers & KeyModifiers.Alt) != 0;
         var noMods = e.KeyModifiers == KeyModifiers.None;
 
         // ── Rename dialog: Enter to confirm, Escape to cancel ──
@@ -592,7 +593,7 @@ public partial class MainWindow : Window
         }
 
         // ── Ctrl+N — New chat ──
-        if (ctrl && !shift && e.Key == Key.N)
+        if (ctrl && !alt && !shift && e.Key == Key.N)
         {
             vm.NewChatCommand.Execute(null);
             Dispatcher.UIThread.Post(() => _chatView?.FocusComposer(), DispatcherPriority.Input);
@@ -601,7 +602,7 @@ public partial class MainWindow : Window
         }
 
         // ── Ctrl+L — Focus chat input ──
-        if (ctrl && !shift && e.Key == Key.L)
+        if (ctrl && !alt && !shift && e.Key == Key.L)
         {
             if (vm.SelectedNavIndex != 0)
                 vm.SelectedNavIndex = 0;
@@ -611,15 +612,37 @@ public partial class MainWindow : Window
         }
 
         // ── Ctrl+K — Open search overlay ──
-        if (ctrl && !shift && e.Key == Key.K)
+        if (ctrl && !alt && !shift && e.Key == Key.K)
         {
             vm.SearchOverlayVM.Open();
             e.Handled = true;
             return;
         }
 
+        // Ctrl+Alt+L / Ctrl+Alt+W — switch local/worktree before a chat starts
+        var canSwitchWorktreeMode = vm.SelectedNavIndex == 0
+            && vm.ChatVM.CurrentChat is null
+            && vm.ChatVM.IsCodingProject;
+
+        if (ctrl && alt && !shift && canSwitchWorktreeMode)
+        {
+            if (e.Key == Key.L)
+            {
+                vm.ChatVM.SwitchToLocalPreChatCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.W)
+            {
+                vm.ChatVM.SwitchToWorktreePreChatCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
+        }
+
         // ── Ctrl+B — Toggle sidebar ──
-        if (ctrl && !shift && e.Key == Key.B)
+        if (ctrl && !alt && !shift && e.Key == Key.B)
         {
             vm.ToggleSidebarCommand.Execute(null);
             e.Handled = true;
@@ -627,7 +650,7 @@ public partial class MainWindow : Window
         }
 
         // ── Ctrl+, — Settings ──
-        if (ctrl && !shift && e.Key == Key.OemComma)
+        if (ctrl && !alt && !shift && e.Key == Key.OemComma)
         {
             vm.SelectedNavIndex = 7;
             e.Handled = true;
@@ -635,7 +658,7 @@ public partial class MainWindow : Window
         }
 
         // ── Ctrl+1..8 — Tab navigation ──
-        if (ctrl && !shift)
+        if (ctrl && !alt && !shift)
         {
             var tabIndex = e.Key switch
             {
