@@ -72,12 +72,12 @@ public partial class ChatViewModel
         return agent.ToolNames.Exists(toolGroup.Contains);
     }
 
-    private List<AIFunction> BuildCustomTools(Guid chatId, LumiAgent? activeAgent)
+    private List<AIFunction> BuildCustomTools(Guid chatId, LumiAgent? activeAgent, string workDir)
     {
         var tools = new List<AIFunction>();
         tools.AddRange(BuildMemoryTools());
-        tools.Add(BuildAnnounceFileTool());
-        tools.Add(BuildFetchSkillTool());
+        tools.Add(BuildAnnounceFileTool(chatId));
+        tools.Add(BuildFetchSkillTool(workDir));
         tools.Add(BuildAskQuestionTool(chatId));
         tools.AddRange(BuildLumiManagementTools(chatId));
         tools.AddRange(BuildWebTools());
@@ -513,7 +513,7 @@ public partial class ChatViewModel
         ];
     }
 
-    private AIFunction BuildAnnounceFileTool()
+    private AIFunction BuildAnnounceFileTool(Guid chatId)
     {
         return AIFunctionFactory.Create(
             ([Description("Absolute path of the file that was created, converted, or produced for the user")] string filePath) =>
@@ -522,6 +522,7 @@ public partial class ChatViewModel
                 {
                     Dispatcher.UIThread.Post(() =>
                     {
+                        if (CurrentChat?.Id != chatId) return;
                         _transcriptBuilder.ShownFileChips.Add(filePath);
                     });
                 }
@@ -531,7 +532,7 @@ public partial class ChatViewModel
             "Show a file attachment chip to the user for a file you created or produced. Call this ONCE for each final deliverable file (e.g. the PDF, DOCX, PPTX, image, etc.). Do NOT call for intermediate/temporary files like scripts.");
     }
 
-    private AIFunction BuildFetchSkillTool()
+    private AIFunction BuildFetchSkillTool(string workDir)
     {
         return AIFunctionFactory.Create(
             ([Description("The exact name of the skill to retrieve (as listed in Available Skills)")] string name) =>
@@ -541,7 +542,7 @@ public partial class ChatViewModel
                 if (skill is not null)
                     return $"# {skill.Name}\n\n{skill.Content}";
 
-                var externalSkill = FindExternalSkillByName(name);
+                var externalSkill = FindExternalSkillByName(name, workDir);
                 if (externalSkill is not null)
                     return externalSkill.Content;
 

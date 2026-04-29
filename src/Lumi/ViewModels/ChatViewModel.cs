@@ -36,7 +36,7 @@ public partial class ChatViewModel : ObservableObject
     /// Checks MCP server status after session creation and marks failed server chips with an error.
     /// Runs in the background so it doesn't block message sending.
     /// </summary>
-    private async Task CheckMcpServerStatusAsync(CopilotSession session, CancellationToken ct)
+    private async Task CheckMcpServerStatusAsync(CopilotSession session, Guid chatId, CancellationToken ct)
     {
         try
         {
@@ -53,6 +53,9 @@ public partial class ChatViewModel : ObservableObject
 
             Dispatcher.UIThread.Post(() =>
             {
+                if (CurrentChat?.Id != chatId)
+                    return;
+
                 foreach (var server in failed)
                 {
                     var rawError = server.Error ?? "";
@@ -84,6 +87,14 @@ public partial class ChatViewModel : ObservableObject
         catch { /* best effort — don't let MCP status checks break the chat flow */ }
     }
 
+    private void SetSessionSetupStatus(Chat chat, string statusText)
+    {
+        var runtime = GetOrCreateRuntimeState(chat.Id);
+        runtime.StatusText = statusText;
+        if (CurrentChat?.Id == chat.Id)
+            StatusText = statusText;
+    }
+
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
     private readonly MemoryAgentService _memoryAgentService;
@@ -95,8 +106,6 @@ public partial class ChatViewModel : ObservableObject
     private bool _isBulkLoadingMessages;
     /// <summary>Maps chat ID → CancellationTokenSource for per-chat cancellation.</summary>
     private readonly Dictionary<Guid, CancellationTokenSource> _ctsSources = new();
-    private readonly List<SearchSource> _pendingSearchSources = [];
-
     private readonly TranscriptBuilder _transcriptBuilder;
     private readonly TranscriptWindowController _transcriptWindow = new(new TranscriptPagingOptions
     {
@@ -585,9 +594,9 @@ public partial class ChatViewModel : ObservableObject
             : null;
         var systemPrompt = SystemPromptBuilder.Build(
             _dataStore.Data.Settings, activeAgent, project, allSkills, activeSkills, memories, _dataStore.SnapshotBackgroundJobs());
-        systemPrompt = AppendAvailableExternalSkillsToPrompt(systemPrompt, externalSkills);
+        systemPrompt = AppendAvailableExternalSkillsToPrompt(systemPrompt, externalSkills, chat.ActiveExternalSkillNames);
 
-        var sdkAgentName = chat.SdkAgentName ?? SelectedSdkAgentName;
+        var sdkAgentName = GetSessionSdkAgentName(chat, CurrentChat, SelectedSdkAgentName);
         var externalAgent = activeAgent is null
             ? FindExternalAgentByName(externalCatalog, sdkAgentName)
             : null;
@@ -595,7 +604,7 @@ public partial class ChatViewModel : ObservableObject
         var mcpServersTask = BuildMcpServersAsync(workDir, chat, activeAgent, ct);
 
         var customAgents = BuildCustomAgents();
-        var customTools = BuildCustomTools(chat.Id, activeAgent);
+        var customTools = BuildCustomTools(chat.Id, activeAgent, workDir);
         if (!string.IsNullOrWhiteSpace(externalAgent?.Content))
             systemPrompt = (systemPrompt ?? "") + "\n\n--- Active Agent: " + externalAgent.Name + " ---\n" + externalAgent.Content;
 
@@ -605,17 +614,17 @@ public partial class ChatViewModel : ObservableObject
             skillDirs.Add(dir);
 
         var mcpServers = await mcpServersTask;
-        var selectedModel = !string.IsNullOrWhiteSpace(chat.LastModelUsed)
-            ? chat.LastModelUsed
-            : SelectedModel;
-        var persistedEffort = GetPersistedReasoningEffortPreference();
+        var selectedModel = ResolveSelectedModelForChat(chat);
+        var persistedEffort = ResolvePersistedReasoningEffortForChat(chat, selectedModel);
         if (chat.LastReasoningEffortUsed != persistedEffort)
             chat.LastReasoningEffortUsed = persistedEffort;
 
-        var effort = GetSelectedReasoningEffort() ?? persistedEffort;
-        var agentName = activeAgent?.Name;
-        if (agentName is null && externalAgent is null && !string.IsNullOrWhiteSpace(sdkAgentName))
-            agentName = sdkAgentName;
+        var effort = persistedEffort;
+        var agentName = ResolveSessionAgentName(
+            activeAgent,
+            externalAgent,
+            sdkAgentName,
+            allowSdkAgentRouting: CanRouteSdkAgentByName(chat, externalAgent, sdkAgentName));
 
         // Native user input handler — wired to the existing question card UI.
         // Capture chat.Id in the closure so questions always target the owning chat,
@@ -696,7 +705,7 @@ public partial class ChatViewModel : ObservableObject
         };
 
         if (mcpServers is { Count: > 0 })
-            StatusText = Loc.Status_ConnectingMcp;
+            SetSessionSetupStatus(chat, Loc.Status_ConnectingMcp);
 
         // When MCP servers are configured, apply a timeout so a broken server
         // doesn't block the UI indefinitely.
@@ -720,12 +729,12 @@ public partial class ChatViewModel : ObservableObject
                 chat.CopilotSessionId = createdSession.SessionId;
                 _dataStore.MarkChatChanged(chat);
                 _activeSession = createdSession;
-                SubscribeToSession(createdSession, chat);
+                SubscribeToSession(createdSession, chat, workDir);
 
                 // Check MCP server status after session creation and surface errors
                 if (mcpServers is { Count: > 0 })
                 {
-                    _ = CheckMcpServerStatusAsync(createdSession, ct);
+                    _ = CheckMcpServerStatusAsync(createdSession, chat.Id, ct);
                 }
 
                 return true;
@@ -744,14 +753,14 @@ public partial class ChatViewModel : ObservableObject
         {
             try
             {
-                StatusText = attempt > 0 ? Loc.Status_Reconnecting : Loc.Status_Resuming;
+                SetSessionSetupStatus(chat, attempt > 0 ? Loc.Status_Reconnecting : Loc.Status_Resuming);
                 var resumeConfig = SessionConfigBuilder.BuildForResume(
                     systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
                     mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
                 var session = await _copilotService.ResumeSessionAsync(
                     chat.CopilotSessionId, resumeConfig, sessionCt);
                 _activeSession = session;
-                SubscribeToSession(session, chat);
+                SubscribeToSession(session, chat, workDir);
 
                 // The SDK does not automatically change the session model on resume —
                 // ResumeSessionConfig.Model only sets a preference for the CLI process,
@@ -785,7 +794,7 @@ public partial class ChatViewModel : ObservableObject
         }
 
         // All retries failed.
-        StatusText = Loc.Status_SessionExpired;
+        SetSessionSetupStatus(chat, Loc.Status_SessionExpired);
         if (!allowCreateFallback)
             return false;
 
@@ -797,8 +806,9 @@ public partial class ChatViewModel : ObservableObject
             var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
             chat.CopilotSessionId = createdSession.SessionId;
             _activeSession = createdSession;
-            SubscribeToSession(createdSession, chat);
-            await SaveCurrentChatAsync();
+            SubscribeToSession(createdSession, chat, workDir);
+            _dataStore.MarkChatChanged(chat);
+            await SaveChatAsync(chat, saveIndex: true);
             return true;
         }
         catch (OperationCanceledException) when (sessionCts is not null && sessionCts.IsCancellationRequested && !ct.IsCancellationRequested)
@@ -860,7 +870,6 @@ public partial class ChatViewModel : ObservableObject
             // Clear pending state from any previous chat
             _pendingSkillInjections.Clear();
             _activeExternalSkillNames.Clear();
-            _pendingSearchSources.Clear();
             _transcriptBuilder.PendingFetchedSkillRefs.Clear();
 
             // Restore real runtime state for this session/chat
@@ -1095,7 +1104,6 @@ public partial class ChatViewModel : ObservableObject
         TotalOutputTokens = 0;
         ContextCurrentTokens = 0;
         ContextTokenLimit = 0;
-        _pendingSearchSources.Clear();
         ActiveSkillIds.Clear();
         ActiveSkillChips.Clear();
         ActiveMcpServerNames.Clear();
@@ -1207,10 +1215,20 @@ public partial class ChatViewModel : ObservableObject
         if (!_copilotService.IsConnected)
             await _copilotService.ConnectAsync(cancellationToken);
 
+        var targetWorkDir = GetEffectiveWorkingDirectory(targetChat);
         if (string.IsNullOrWhiteSpace(targetChat.LastModelUsed))
-            targetChat.LastModelUsed = SelectedModel;
+        {
+            var targetModel = ResolveSelectedModelForChat(targetChat);
+            if (!string.IsNullOrWhiteSpace(targetModel))
+                targetChat.LastModelUsed = targetModel;
+        }
+
         if (string.IsNullOrWhiteSpace(targetChat.LastReasoningEffortUsed))
-            targetChat.LastReasoningEffortUsed = GetPersistedReasoningEffortPreference();
+        {
+            var targetEffort = ResolvePersistedReasoningEffortForChat(targetChat, targetChat.LastModelUsed);
+            if (!string.IsNullOrWhiteSpace(targetEffort))
+                targetChat.LastReasoningEffortUsed = targetEffort;
+        }
 
         var prompt = BuildBackgroundJobPrompt(job, triggerContext);
         var userMsg = new ChatMessage
@@ -1218,7 +1236,7 @@ public partial class ChatViewModel : ObservableObject
             Role = "user",
             Content = prompt,
             Author = $"Lumi Job - {job.Name}",
-            ActiveSkills = BuildSkillReferences(targetChat.ActiveSkillIds, targetChat.ActiveExternalSkillNames)
+            ActiveSkills = BuildSkillReferences(targetChat.ActiveSkillIds, targetChat.ActiveExternalSkillNames, targetWorkDir)
         };
 
         targetChat.Messages.Add(userMsg);
@@ -1242,7 +1260,7 @@ public partial class ChatViewModel : ObservableObject
         var promptAdditions = BuildSendPromptAdditions(
             externalSkillNames: targetChat.ActiveExternalSkillNames,
             consumePendingSkillInjections: false,
-            workDir: GetEffectiveWorkingDirectory(targetChat));
+            workDir: targetWorkDir);
         var localUserMessageCount = 0;
         var localAssistantMessageCount = 0;
 
@@ -1290,7 +1308,8 @@ public partial class ChatViewModel : ObservableObject
                     targetChat.CopilotSessionId,
                     retainedContext.Count);
 
-                _ = PopulateFromSessionAsync();
+                if (CurrentChat?.Id == chatId)
+                    _ = PopulateFromSessionAsync();
                 _ = RefreshQuotaAsync();
             }
 
@@ -1835,6 +1854,7 @@ public partial class ChatViewModel : ObservableObject
         // Use the session from cache — _activeSession may have been restored to the displayed chat
         if (recoveredTurnCts is null || !_sessionCache.TryGetValue(chat.Id, out var recoveredSession))
             return (false, failureMessage ?? Loc.Status_ConnectionRecoveryFailed);
+        RestoreActiveSessionIfSwitched(chat);
 
         var recoveredAnalysis = await AnalyzePendingTurnRecoveryAsync(
             recoveredSession,
@@ -1870,6 +1890,7 @@ public partial class ChatViewModel : ObservableObject
             return (true, null);
 
         var recoveredByWaiting = await WaitForRecoveredTurnAsync(
+            recoveredSession,
             chat,
             pendingSessionUserMessageCount,
             pendingAssistantCount,
@@ -1961,7 +1982,9 @@ public partial class ChatViewModel : ObservableObject
         if (recoveredAssistantMessages.Count == 0)
             return false;
 
-        var author = ActiveAgent?.Name ?? Loc.Author_Lumi;
+        var author = chat.AgentId.HasValue
+            ? _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == chat.AgentId.Value)?.Name ?? Loc.Author_Lumi
+            : Loc.Author_Lumi;
         foreach (var assistantMessage in recoveredAssistantMessages)
         {
             var recoveredMessage = new ChatMessage
@@ -1970,7 +1993,7 @@ public partial class ChatViewModel : ObservableObject
                 Author = author,
                 Content = assistantMessage.Content,
                 IsStreaming = false,
-                Model = chat.LastModelUsed ?? SelectedModel
+                Model = ResolveSelectedModelForChat(chat)
             };
             chat.Messages.Add(recoveredMessage);
 
@@ -1995,17 +2018,15 @@ public partial class ChatViewModel : ObservableObject
     }
 
     private async Task<bool> WaitForRecoveredTurnAsync(
+        CopilotSession session,
         Chat chat,
         int expectedSessionUserMessageCount,
         int assistantCountBeforeRecovery,
         CancellationToken ct)
     {
-        if (_activeSession is null)
-            return false;
-
         var sawRecoveredTurnActivity = false;
         var turnActivity = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var sub = _activeSession.On(evt =>
+        using var sub = session.On(evt =>
         {
             switch (evt)
             {
@@ -2042,7 +2063,7 @@ public partial class ChatViewModel : ObservableObject
         }
 
         var recoveredAnalysis = await AnalyzePendingTurnRecoveryAsync(
-            _activeSession,
+            session,
             expectedSessionUserMessageCount,
             ct);
         if (await ApplyRecoveredTurnStateAsync(chat, recoveredAnalysis))
@@ -2965,7 +2986,6 @@ public partial class ChatViewModel : ObservableObject
         RebuildTranscript();
 
         _transcriptBuilder.ShownFileChips.Clear();
-        _pendingSearchSources.Clear();
         _transcriptBuilder.PendingFetchedSkillRefs.Clear();
 
         // For edits: there is currently no public SDK API to rewind/remove prior

@@ -26,7 +26,7 @@ public partial class ChatViewModel
     /// <summary>Subscribes to events on a CopilotSession. Each subscription captures its own
     /// streaming state via closures and always updates the Chat model. UI updates are gated
     /// on _activeSession so only the displayed chat's events touch the UI.</summary>
-    private void SubscribeToSession(CopilotSession session, Chat chat)
+    private void SubscribeToSession(CopilotSession session, Chat chat, string workDir)
     {
         // Dispose previous subscription for this chat (e.g., session was resumed)
         if (_sessionSubs.TryGetValue(chat.Id, out var oldSub))
@@ -56,6 +56,10 @@ public partial class ChatViewModel
         var subagentAssistantStreams = new Dictionary<string, StreamingTextAccumulator>(StringComparer.Ordinal);
         var subagentReasoningStreams = new Dictionary<string, StreamingTextAccumulator>(StringComparer.Ordinal);
         string? mostRecentSubagentToolCallId = null;
+        var pendingSearchSources = new List<SearchSource>();
+        var pendingFetchedSkillRefs = new List<SkillReference>();
+
+        bool IsDisplayedSession() => CurrentChat?.Id == chat.Id && _activeSession == session;
 
         // Subscribe to CLI process exit — fires instantly when the process is killed,
         // unlike SDK events which go silent on crash.
@@ -291,7 +295,7 @@ public partial class ChatViewModel
                     return;
 
                 toolMsg.Content = nextContent;
-                if (_activeSession == session)
+                if (IsDisplayedSession())
                 {
                     var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == toolCallId);
                     vm?.NotifyContentChanged();
@@ -306,8 +310,8 @@ public partial class ChatViewModel
             if (currentContent is null)
                 return;
 
-            // Direct update for immediate UI visibility (runs on UI thread via UiThrottler)
-            _transcriptBuilder.UpdateSubagentTranscriptText(toolCallId, currentContent);
+            if (IsDisplayedSession())
+                _transcriptBuilder.UpdateSubagentTranscriptText(toolCallId, currentContent);
             // Persist to ChatMessage JSON for transcript rebuilds
             UpdateSubagentCardContent(toolCallId, updateTranscript: true, transcript: currentContent);
         }
@@ -319,7 +323,8 @@ public partial class ChatViewModel
             if (currentContent is null)
                 return;
 
-            _transcriptBuilder.UpdateSubagentReasoningText(toolCallId, currentContent);
+            if (IsDisplayedSession())
+                _transcriptBuilder.UpdateSubagentReasoningText(toolCallId, currentContent);
             UpdateSubagentCardContent(toolCallId, updateReasoning: true, reasoning: currentContent);
         }
 
@@ -376,7 +381,7 @@ public partial class ChatViewModel
                     Model = turnModelId
                 };
                 _inProgressMessages[chat.Id] = streamingMsg;
-                if (_activeSession == session)
+                if (IsDisplayedSession())
                 {
                     streamingVm = new ChatMessageViewModel(streamingMsg);
                     Messages.Add(streamingVm);
@@ -391,7 +396,7 @@ public partial class ChatViewModel
                 return;
 
             streamingMsg.Content = currentContent;
-            if (_activeSession == session)
+            if (IsDisplayedSession())
             {
                 streamingVm?.NotifyContentChanged();
                 StatusText = runtime.StatusText;
@@ -416,7 +421,7 @@ public partial class ChatViewModel
                     IsStreaming = true
                 };
                 chat.Messages.Add(reasoningMsg);
-                if (_activeSession == session)
+                if (IsDisplayedSession())
                 {
                     reasoningVm = new ChatMessageViewModel(reasoningMsg);
                     Messages.Add(reasoningVm);
@@ -431,7 +436,7 @@ public partial class ChatViewModel
                 return;
 
             reasoningMsg.Content = currentReasoning;
-            if (_activeSession == session)
+            if (IsDisplayedSession())
             {
                 reasoningVm?.NotifyContentChanged();
                 StatusText = runtime.StatusText;
@@ -457,11 +462,11 @@ public partial class ChatViewModel
                 case AssistantTurnStartEvent:
                     Dispatcher.UIThread.Post(() =>
                     {
-                        turnModelId = chat.LastModelUsed ?? SelectedModel;
+                        turnModelId = ResolveSelectedModelForChat(chat);
                         runtime.IsBusy = true;
                         runtime.IsStreaming = true;
                         runtime.StatusText = Loc.Status_Thinking;
-                        if (_activeSession == session)
+                        if (IsDisplayedSession())
                         {
                             IsBusy = runtime.IsBusy;
                             IsStreaming = runtime.IsStreaming;
@@ -504,6 +509,9 @@ public partial class ChatViewModel
                         var capturedToolCallId = activeSubagentToolCallIdForAssistantMessage;
                         Dispatcher.UIThread.Post(() =>
                         {
+                            if (!IsDisplayedSession())
+                                return;
+
                             _transcriptBuilder.UpdateSubagentTranscriptText(capturedToolCallId, capturedTranscript);
                             if (!string.IsNullOrWhiteSpace(capturedReasoning))
                                 _transcriptBuilder.UpdateSubagentReasoningText(capturedToolCallId, capturedReasoning);
@@ -533,7 +541,7 @@ public partial class ChatViewModel
                         var finalContent = capturedFinalContent;
                         if (string.IsNullOrWhiteSpace(finalContent))
                         {
-                            if (_activeSession == session && streamingVm is not null)
+                            if (IsDisplayedSession() && streamingVm is not null)
                                 Messages.Remove(streamingVm);
                         }
                         else if (streamingMsg is null)
@@ -546,18 +554,18 @@ public partial class ChatViewModel
                                 IsStreaming = false,
                                 Model = turnModelId
                             };
-                            if (_pendingSearchSources.Count > 0)
+                            if (pendingSearchSources.Count > 0)
                             {
-                                completedMessage.Sources.AddRange(_pendingSearchSources);
-                                _pendingSearchSources.Clear();
+                                completedMessage.Sources.AddRange(pendingSearchSources);
+                                pendingSearchSources.Clear();
                             }
-                            if (_transcriptBuilder.PendingFetchedSkillRefs.Count > 0)
+                            if (pendingFetchedSkillRefs.Count > 0)
                             {
-                                completedMessage.ActiveSkills.AddRange(_transcriptBuilder.PendingFetchedSkillRefs);
-                                _transcriptBuilder.PendingFetchedSkillRefs.Clear();
+                                completedMessage.ActiveSkills.AddRange(pendingFetchedSkillRefs);
+                                pendingFetchedSkillRefs.Clear();
                             }
                             chat.Messages.Add(completedMessage);
-                            if (_activeSession == session)
+                            if (IsDisplayedSession())
                             {
                                 Messages.Add(new ChatMessageViewModel(completedMessage));
                                 StatusText = runtime.StatusText;
@@ -568,18 +576,18 @@ public partial class ChatViewModel
                         {
                             streamingMsg.Content = finalContent;
                             streamingMsg.IsStreaming = false;
-                            if (_pendingSearchSources.Count > 0)
+                            if (pendingSearchSources.Count > 0)
                             {
-                                streamingMsg.Sources.AddRange(_pendingSearchSources);
-                                _pendingSearchSources.Clear();
+                                streamingMsg.Sources.AddRange(pendingSearchSources);
+                                pendingSearchSources.Clear();
                             }
-                            if (_transcriptBuilder.PendingFetchedSkillRefs.Count > 0)
+                            if (pendingFetchedSkillRefs.Count > 0)
                             {
-                                streamingMsg.ActiveSkills.AddRange(_transcriptBuilder.PendingFetchedSkillRefs);
-                                _transcriptBuilder.PendingFetchedSkillRefs.Clear();
+                                streamingMsg.ActiveSkills.AddRange(pendingFetchedSkillRefs);
+                                pendingFetchedSkillRefs.Clear();
                             }
                             chat.Messages.Add(streamingMsg);
-                            if (_activeSession == session)
+                            if (IsDisplayedSession())
                                 streamingVm?.NotifyStreamingEnded();
                         }
 
@@ -620,6 +628,9 @@ public partial class ChatViewModel
                         var capturedReasoningToolCallId = activeSubagentToolCallIdForReasoning;
                         Dispatcher.UIThread.Post(() =>
                         {
+                            if (!IsDisplayedSession())
+                                return;
+
                             _transcriptBuilder.UpdateSubagentReasoningText(capturedReasoningToolCallId, capturedReasoningContent);
                         });
                         UpdateSubagentCardContent(
@@ -648,7 +659,7 @@ public partial class ChatViewModel
                                 IsStreaming = false
                             };
                             chat.Messages.Add(completedReasoning);
-                            if (_activeSession == session)
+                            if (IsDisplayedSession())
                             {
                                 Messages.Add(new ChatMessageViewModel(completedReasoning));
                                 StatusText = runtime.StatusText;
@@ -659,7 +670,7 @@ public partial class ChatViewModel
                         {
                             reasoningMsg.Content = finalReasoning;
                             reasoningMsg.IsStreaming = false;
-                            if (_activeSession == session)
+                            if (IsDisplayedSession())
                             {
                                 reasoningVm?.NotifyStreamingEnded();
                             }
@@ -714,7 +725,7 @@ public partial class ChatViewModel
                         toolMsg.Author = displayName;
                     }
 
-                    if (_activeSession == session)
+                    if (IsDisplayedSession())
                     {
                         var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == startToolCallId);
                         if (vm is null)
@@ -736,7 +747,7 @@ public partial class ChatViewModel
                 case ToolExecutionPartialResultEvent partial:
                     Dispatcher.UIThread.Post(() =>
                     {
-                    if (_activeSession != session)
+                    if (!IsDisplayedSession())
                         return;
 
                     var partialToolCallId = partial.Data.ToolCallId;
@@ -758,7 +769,7 @@ public partial class ChatViewModel
                 case ToolExecutionProgressEvent progress:
                     Dispatcher.UIThread.Post(() =>
                     {
-                    if (_activeSession != session)
+                    if (!IsDisplayedSession())
                         return;
 
                     var progressToolCallId = progress.Data.ToolCallId;
@@ -792,7 +803,7 @@ public partial class ChatViewModel
                     if (toolMsg is not null)
                     {
                         toolMsg.ToolStatus = success ? "Completed" : "Failed";
-                        if (_activeSession == session)
+                        if (IsDisplayedSession())
                         {
                             var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == toolEnd.Data.ToolCallId);
                             vm?.NotifyToolStatusChanged();
@@ -808,14 +819,15 @@ public partial class ChatViewModel
                             {
                                 foreach (var source in ToolDisplayHelper.ExtractSearchSources(toolEnd.Data.Result))
                                 {
-                                    if (_pendingSearchSources.Any(existing => string.Equals(existing.Url, source.Url, StringComparison.OrdinalIgnoreCase)))
+                                    if (pendingSearchSources.Any(existing => string.Equals(existing.Url, source.Url, StringComparison.OrdinalIgnoreCase)))
                                         continue;
 
-                                    _pendingSearchSources.Add(source);
+                                    pendingSearchSources.Add(source);
                                 }
                             }
 
-                            if((ToolDisplayHelper.IsFileCreationTool(toolName) || toolName == "powershell")
+                            if (IsDisplayedSession()
+                                && (ToolDisplayHelper.IsFileCreationTool(toolName) || toolName == "powershell")
                                 && toolEnd.Data.Result?.Contents is { Length: > 0 } contents)
                             {
                                 foreach (var item in contents)
@@ -833,7 +845,7 @@ public partial class ChatViewModel
                             }
                         }
 
-                        if (ToolDisplayHelper.IsTerminalStreamingTool(toolName) && _activeSession == session)
+                        if (ToolDisplayHelper.IsTerminalStreamingTool(toolName) && IsDisplayedSession())
                         {
                             var rootToolCallId = ToolDisplayHelper.ResolveRootTerminalToolCallId(
                                 toolEnd.Data.ToolCallId, toolParentById, terminalRootByToolCallId);
@@ -884,7 +896,7 @@ public partial class ChatViewModel
                         toolMsg.Author = displayName;
                     }
 
-                    if (_activeSession == session)
+                    if (IsDisplayedSession())
                     {
                         var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == externalToolRequest.Data.ToolCallId);
                         if (vm is null)
@@ -919,7 +931,7 @@ public partial class ChatViewModel
                     foreach (var msg in chat.Messages.Where(m => m.ToolCallId == externalToolCallId))
                         msg.ToolStatus = "Completed";
 
-                    if (_activeSession == session)
+                    if (IsDisplayedSession())
                     {
                         foreach (var vm in Messages.Where(m => m.Message.ToolCallId == externalToolCallId))
                             vm.NotifyToolStatusChanged();
@@ -931,7 +943,7 @@ public partial class ChatViewModel
                     Dispatcher.UIThread.Post(() =>
                     {
                     runtime.StatusText = $"Queued command: {commandQueued.Data.Command}";
-                    if (_activeSession == session)
+                    if (IsDisplayedSession())
                         StatusText = runtime.StatusText;
                     });
                     break;
@@ -946,7 +958,7 @@ public partial class ChatViewModel
                     runtime.IsBusy = false;
                     runtime.IsStreaming = false;
                     runtime.StatusText = "";
-                    if (_activeSession == session)
+                    if (IsDisplayedSession())
                     {
                         _transcriptBuilder.HideTypingIndicator();
                         _transcriptBuilder.CloseCurrentToolGroup();
@@ -975,7 +987,7 @@ public partial class ChatViewModel
                     // (not per-message during agentic loops).
                     Dispatcher.UIThread.Post(() =>
                     {
-                    if (_activeSession == session)
+                    if (IsDisplayedSession())
                     {
                         _transcriptBuilder.AppendModelLabel(turnModelId);
                         ScrollToEndRequested?.Invoke();
@@ -1001,7 +1013,7 @@ public partial class ChatViewModel
                     }
 
                     // Flush file changes only when session is truly idle (not between agentic turns).
-                    if (_activeSession == session)
+                    if (IsDisplayedSession())
                     {
                         _transcriptBuilder.FlushPendingFileEdits();
                         ScrollToEndRequested?.Invoke();
@@ -1014,7 +1026,7 @@ public partial class ChatViewModel
                     QueueAutonomousMemoryCheckpoint(chat);
 
                     // Generate follow-up suggestions once the full assistant response is done.
-                    if (_activeSession == session && CurrentChat?.Id == chat.Id)
+                    if (IsDisplayedSession())
                         QueueSuggestionGenerationForLatestAssistant(chat);
 
                     if (CurrentChat?.Id != chat.Id)
@@ -1104,7 +1116,7 @@ public partial class ChatViewModel
                     Dispatcher.UIThread.Post(() =>
                     {
                     runtime.StatusText = Loc.Status_Compacting;
-                    if (_activeSession == session)
+                    if (IsDisplayedSession())
                         StatusText = runtime.StatusText;
                     });
                     break;
@@ -1113,7 +1125,7 @@ public partial class ChatViewModel
                     Dispatcher.UIThread.Post(() =>
                     {
                     runtime.StatusText = "";
-                    if (_activeSession == session)
+                    if (IsDisplayedSession())
                         StatusText = runtime.StatusText;
                     });
                     break;
@@ -1122,7 +1134,7 @@ public partial class ChatViewModel
                     Dispatcher.UIThread.Post(() =>
                     {
                     runtime.StatusText = Loc.Status_Truncated;
-                    if (_activeSession == session)
+                    if (IsDisplayedSession())
                         StatusText = runtime.StatusText;
                     });
                     break;
@@ -1131,7 +1143,7 @@ public partial class ChatViewModel
                     Dispatcher.UIThread.Post(() =>
                     {
                     runtime.StatusText = string.Format(Loc.Status_Warning, warn.Data.WarningType);
-                    if (_activeSession == session)
+                    if (IsDisplayedSession())
                     {
                         StatusText = runtime.StatusText;
                         // Surface the warning as a visible chat message
@@ -1292,7 +1304,7 @@ public partial class ChatViewModel
                     if (!string.IsNullOrWhiteSpace(intent.Data.Intent))
                     {
                         runtime.StatusText = intent.Data.Intent;
-                        if (_activeSession == session)
+                        if (IsDisplayedSession())
                             StatusText = runtime.StatusText;
                     }
                     });
@@ -1351,7 +1363,7 @@ public partial class ChatViewModel
                             transcript: existingTranscript,
                             reasoning: existingReasoning);
                         existing.Author = displayName;
-                        if (_activeSession == session)
+                        if (IsDisplayedSession())
                         {
                             var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == subStart.Data.ToolCallId);
                             vm?.NotifyContentChanged();
@@ -1371,7 +1383,7 @@ public partial class ChatViewModel
                             Author = displayName
                         };
                         chat.Messages.Add(toolMsg);
-                        if (_activeSession == session)
+                        if (IsDisplayedSession())
                         {
                             Messages.Add(new ChatMessageViewModel(toolMsg));
                             StatusText = runtime.StatusText;
@@ -1392,7 +1404,7 @@ public partial class ChatViewModel
                     // (covers both ToolExecutionStart and SubagentStarted entries).
                     foreach (var msg in chat.Messages.Where(m => m.ToolCallId == subEnd.Data.ToolCallId))
                         msg.ToolStatus = "Completed";
-                    if (_activeSession == session)
+                    if (IsDisplayedSession())
                     {
                         foreach (var vm in Messages.Where(m => m.Message.ToolCallId == subEnd.Data.ToolCallId))
                             vm.NotifyToolStatusChanged();
@@ -1413,7 +1425,7 @@ public partial class ChatViewModel
                         msg.ToolStatus = "Failed";
                         msg.ToolOutput = subFail.Data.Error;
                     }
-                    if (_activeSession == session)
+                    if (IsDisplayedSession())
                     {
                         foreach (var vm in Messages.Where(m => m.Message.ToolCallId == subFail.Data.ToolCallId))
                             vm.NotifyToolStatusChanged();
@@ -1436,7 +1448,7 @@ public partial class ChatViewModel
                         // Persist token counts to the Chat model so they survive restarts.
                         chat.TotalInputTokens = runtime.TotalInputTokens;
                         chat.TotalOutputTokens = runtime.TotalOutputTokens;
-                        if (_activeSession == session)
+                        if (IsDisplayedSession())
                         {
                             TotalInputTokens = runtime.TotalInputTokens;
                             TotalOutputTokens = runtime.TotalOutputTokens;
@@ -1450,7 +1462,7 @@ public partial class ChatViewModel
                     Dispatcher.UIThread.Post(() =>
                     {
                         runtime.ContextTokenLimit = (long)sessionUsage.Data.TokenLimit;
-                        if (_activeSession == session)
+                        if (IsDisplayedSession())
                             ContextTokenLimit = runtime.ContextTokenLimit;
                     });
                     break;
@@ -1460,8 +1472,8 @@ public partial class ChatViewModel
                     {
                     if (!string.IsNullOrWhiteSpace(skillInvoked.Data.Name))
                     {
-                        var skill = FindSkillReferenceByName(skillInvoked.Data.Name);
-                        _transcriptBuilder.PendingFetchedSkillRefs.Add(new SkillReference
+                        var skill = FindSkillReferenceByName(skillInvoked.Data.Name, workDir);
+                        pendingFetchedSkillRefs.Add(new SkillReference
                         {
                             Name = skill?.Name ?? skillInvoked.Data.Name,
                             Glyph = skill?.Glyph ?? "\u26A1",
@@ -1476,10 +1488,10 @@ public partial class ChatViewModel
                     {
                     var effectiveModel = !string.IsNullOrWhiteSpace(start.Data.SelectedModel)
                         ? start.Data.SelectedModel
-                        : chat.LastModelUsed ?? SelectedModel;
+                        : ResolveSelectedModelForChat(chat);
                     if (!string.IsNullOrWhiteSpace(effectiveModel))
                     {
-                        if (!AvailableModels.Contains(effectiveModel))
+                        if (IsDisplayedSession() && !AvailableModels.Contains(effectiveModel))
                             AvailableModels.Add(effectiveModel);
                         chat.LastModelUsed = effectiveModel;
                     }
@@ -1490,7 +1502,7 @@ public partial class ChatViewModel
                         _modelReasoningEfforts,
                         _modelDefaultEfforts);
 
-                    if (!string.IsNullOrWhiteSpace(effectiveModel))
+                    if (IsDisplayedSession() && !string.IsNullOrWhiteSpace(effectiveModel))
                         ApplyModelSelection(effectiveModel, chat.LastReasoningEffortUsed);
 
                     QueueModelSelectionSave(chat);
@@ -1500,7 +1512,7 @@ public partial class ChatViewModel
                 case SessionTaskCompleteEvent taskComplete:
                     Dispatcher.UIThread.Post(() =>
                     {
-                    if (_activeSession == session && !string.IsNullOrWhiteSpace(taskComplete.Data.Summary))
+                    if (IsDisplayedSession() && !string.IsNullOrWhiteSpace(taskComplete.Data.Summary))
                     {
                         runtime.StatusText = $"✓ {taskComplete.Data.Summary}";
                         StatusText = runtime.StatusText;
@@ -1513,10 +1525,10 @@ public partial class ChatViewModel
                     {
                     var effectiveModel = !string.IsNullOrWhiteSpace(resume.Data.SelectedModel)
                         ? resume.Data.SelectedModel
-                        : chat.LastModelUsed ?? SelectedModel;
+                        : ResolveSelectedModelForChat(chat);
                     if (!string.IsNullOrWhiteSpace(effectiveModel))
                     {
-                        if (!AvailableModels.Contains(effectiveModel))
+                        if (IsDisplayedSession() && !AvailableModels.Contains(effectiveModel))
                             AvailableModels.Add(effectiveModel);
                         chat.LastModelUsed = effectiveModel;
                     }
@@ -1527,11 +1539,11 @@ public partial class ChatViewModel
                         _modelReasoningEfforts,
                         _modelDefaultEfforts);
 
-                    if (!string.IsNullOrWhiteSpace(effectiveModel))
+                    if (IsDisplayedSession() && !string.IsNullOrWhiteSpace(effectiveModel))
                         ApplyModelSelection(effectiveModel, chat.LastReasoningEffortUsed);
 
                     runtime.StatusText = "";
-                    if (_activeSession == session)
+                    if (IsDisplayedSession())
                         StatusText = "";
 
                     QueueModelSelectionSave(chat);
@@ -1541,17 +1553,18 @@ public partial class ChatViewModel
                 case SessionModelChangeEvent modelChange:
                     Dispatcher.UIThread.Post(() =>
                     {
-                    if (_activeSession == session && !string.IsNullOrWhiteSpace(modelChange.Data.NewModel))
+                    if (!string.IsNullOrWhiteSpace(modelChange.Data.NewModel))
                     {
-                        if (!AvailableModels.Contains(modelChange.Data.NewModel))
+                        if (IsDisplayedSession() && !AvailableModels.Contains(modelChange.Data.NewModel))
                             AvailableModels.Add(modelChange.Data.NewModel);
                         chat.LastModelUsed = modelChange.Data.NewModel;
                         chat.LastReasoningEffortUsed = ModelSelectionHelper.NormalizeEffort(
-                            chat.LastReasoningEffortUsed ?? GetSelectedReasoningEffort(),
+                            chat.LastReasoningEffortUsed ?? ResolvePersistedReasoningEffortForChat(chat, modelChange.Data.NewModel),
                             modelChange.Data.NewModel,
                             _modelReasoningEfforts,
                             _modelDefaultEfforts);
-                        ApplyModelSelection(modelChange.Data.NewModel, chat.LastReasoningEffortUsed);
+                        if (IsDisplayedSession())
+                            ApplyModelSelection(modelChange.Data.NewModel, chat.LastReasoningEffortUsed);
                         // Update in-flight streaming message with the actual model used
                         if (streamingMsg is not null)
                             streamingMsg.Model = modelChange.Data.NewModel;
@@ -1588,7 +1601,7 @@ public partial class ChatViewModel
                         };
                         chat.Messages.Add(toolMsg);
 
-                        if (_activeSession == session && CurrentChat?.Id == chat.Id)
+                        if (IsDisplayedSession())
                         {
                             Messages.Add(new ChatMessageViewModel(toolMsg));
                             ScrollToEndRequested?.Invoke();
@@ -1603,7 +1616,7 @@ public partial class ChatViewModel
                 case SessionPlanChangedEvent planChanged:
                     Dispatcher.UIThread.Post(() =>
                     {
-                    if (_activeSession != session) return;
+                    if (!IsDisplayedSession()) return;
                     switch (planChanged.Data.Operation)
                     {
                         case SessionPlanChangedDataOperation.Create:
@@ -1628,7 +1641,7 @@ public partial class ChatViewModel
                 case ExitPlanModeRequestedEvent exitPlanMode:
                     Dispatcher.UIThread.Post(() =>
                     {
-                    if (_activeSession != session)
+                    if (!IsDisplayedSession())
                         return;
 
                     HasPlan = !string.IsNullOrWhiteSpace(exitPlanMode.Data.PlanContent);
@@ -1657,7 +1670,7 @@ public partial class ChatViewModel
                 Dispatcher.UIThread.Post(() =>
                 {
                     MarkRuntimeTerminal(runtime, string.Format(Loc.Status_Error, ex.Message));
-                    if (_activeSession == session)
+                    if (IsDisplayedSession())
                     {
                         IsBusy = false;
                         IsStreaming = false;

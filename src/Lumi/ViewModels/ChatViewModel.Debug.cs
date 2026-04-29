@@ -19,7 +19,6 @@ public partial class ChatViewModel
 
         _pendingSkillInjections.Clear();
         _activeExternalSkillNames.Clear();
-        _pendingSearchSources.Clear();
         _transcriptBuilder.PendingFetchedSkillRefs.Clear();
 
         IsBusy = false;

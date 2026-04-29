@@ -176,6 +176,38 @@ public partial class ChatViewModel
         return GetStoredReasoningEffortPreference();
     }
 
+    internal string? ResolveSelectedModelForChat(Chat chat)
+    {
+        if (!string.IsNullOrWhiteSpace(chat.LastModelUsed))
+            return chat.LastModelUsed;
+
+        if (CurrentChat?.Id == chat.Id && !string.IsNullOrWhiteSpace(SelectedModel))
+            return SelectedModel;
+
+        return string.IsNullOrWhiteSpace(_dataStore.Data.Settings.PreferredModel)
+            ? null
+            : _dataStore.Data.Settings.PreferredModel;
+    }
+
+    internal string? ResolvePersistedReasoningEffortForChat(Chat chat, string? modelId)
+    {
+        if (CurrentChat?.Id == chat.Id)
+            return GetPersistedReasoningEffortPreference();
+
+        var storedEffort = !string.IsNullOrWhiteSpace(chat.LastReasoningEffortUsed)
+            ? chat.LastReasoningEffortUsed
+            : _dataStore.Data.Settings.ReasoningEffort;
+
+        if (string.IsNullOrWhiteSpace(storedEffort))
+            return null;
+
+        return ModelSelectionHelper.NormalizeEffort(
+            storedEffort,
+            modelId,
+            _modelReasoningEfforts,
+            _modelDefaultEfforts) ?? storedEffort;
+    }
+
     private void SyncSelectedQualityFromState(string? modelId = null, string? preferredEffort = null)
     {
         if (QualityLevels is null)

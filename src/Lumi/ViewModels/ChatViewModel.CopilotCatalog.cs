@@ -21,6 +21,9 @@ public partial class ChatViewModel
     private CopilotSkillDefinition? FindExternalSkillByName(string name)
         => GetExternalCatalog().FindSkill(name);
 
+    private CopilotSkillDefinition? FindExternalSkillByName(string name, string workDir)
+        => GetExternalCatalog(workDir).FindSkill(name);
+
     private CopilotAgentDefinition? FindExternalAgentByName(string name)
         => GetExternalCatalog().FindAgent(name);
 
@@ -30,13 +33,52 @@ public partial class ChatViewModel
     private static CopilotAgentDefinition? FindExternalAgentByName(CopilotCatalogSnapshot catalog, string? name)
         => catalog.FindAgent(name);
 
-    private List<SkillReference> BuildSkillReferences(IReadOnlyCollection<Guid> skillIds, IReadOnlyCollection<string> externalSkillNames)
+    internal static string? GetSessionSdkAgentName(Chat chat, Chat? currentChat, string? selectedSdkAgentName)
+    {
+        if (!string.IsNullOrWhiteSpace(chat.SdkAgentName))
+            return chat.SdkAgentName;
+
+        return currentChat?.Id == chat.Id ? selectedSdkAgentName : null;
+    }
+
+    internal static string? ResolveSessionAgentName(
+        LumiAgent? activeAgent,
+        CopilotAgentDefinition? externalAgent,
+        string? sdkAgentName,
+        bool allowSdkAgentRouting)
+    {
+        if (!string.IsNullOrWhiteSpace(activeAgent?.Name))
+            return activeAgent.Name;
+
+        if (externalAgent is not null)
+            return null;
+
+        return allowSdkAgentRouting && !string.IsNullOrWhiteSpace(sdkAgentName)
+            ? sdkAgentName
+            : null;
+    }
+
+    private bool CanRouteSdkAgentByName(Chat chat, CopilotAgentDefinition? externalAgent, string? sdkAgentName)
+    {
+        if (externalAgent is not null || CurrentChat?.Id != chat.Id || string.IsNullOrWhiteSpace(sdkAgentName))
+            return false;
+
+        return AvailableAgentChips.Any(chip =>
+            chip.Glyph == ExternalAgentGlyph
+            && string.Equals(chip.Name, sdkAgentName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private List<SkillReference> BuildSkillReferences(
+        IReadOnlyCollection<Guid> skillIds,
+        IReadOnlyCollection<string> externalSkillNames,
+        string? workDir = null)
     {
         var references = BuildSkillReferences(skillIds);
         if (externalSkillNames.Count == 0)
             return references;
 
-        foreach (var skill in ResolveExternalSkills(GetExternalCatalog(), externalSkillNames))
+        var catalog = workDir is { Length: > 0 } ? GetExternalCatalog(workDir) : GetExternalCatalog();
+        foreach (var skill in ResolveExternalSkills(catalog, externalSkillNames))
         {
             references.Add(CreateExternalSkillReference(skill));
         }
@@ -85,7 +127,10 @@ public partial class ChatViewModel
         return skills;
     }
 
-    private string AppendAvailableExternalSkillsToPrompt(string? systemPrompt, IReadOnlyList<CopilotSkillDefinition> externalSkills)
+    private string AppendAvailableExternalSkillsToPrompt(
+        string? systemPrompt,
+        IReadOnlyList<CopilotSkillDefinition> externalSkills,
+        IReadOnlyCollection<string> activeExternalSkillNames)
     {
         if (externalSkills.Count == 0)
             return systemPrompt ?? string.Empty;
@@ -99,7 +144,7 @@ public partial class ChatViewModel
         if (promptSkills.Count == 0)
             return systemPrompt ?? string.Empty;
 
-        var activeSkillNames = _activeExternalSkillNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var activeSkillNames = activeExternalSkillNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var builder = new StringBuilder(systemPrompt ?? string.Empty);
         builder.Append("""
 

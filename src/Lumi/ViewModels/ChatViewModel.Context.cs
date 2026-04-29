@@ -367,6 +367,9 @@ public partial class ChatViewModel
     }
 
     public SkillReference? FindSkillReferenceByName(string name)
+        => FindSkillReferenceByName(name, workDir: null);
+
+    public SkillReference? FindSkillReferenceByName(string name, string? workDir)
     {
         var skill = FindSkillByName(name);
         if (skill is not null)
@@ -379,7 +382,9 @@ public partial class ChatViewModel
             };
         }
 
-        var externalSkill = FindExternalSkillByName(name);
+        var externalSkill = workDir is { Length: > 0 }
+            ? FindExternalSkillByName(name, workDir)
+            : FindExternalSkillByName(name);
         if (externalSkill is null)
             return null;
 
