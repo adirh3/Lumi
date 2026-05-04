@@ -125,6 +125,156 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public void IsChatBusy_ReturnsTrueWhileTurnCleanupIsPending()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "pending-chat" };
+
+        dataStore.Data.Chats.Add(chat);
+        GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[chat.Id] = new ChatRuntimeState
+        {
+            Chat = chat,
+            PendingSessionUserMessageCount = 1
+        };
+
+        Assert.True(vm.IsChatBusy(chat.Id));
+    }
+
+    [Fact]
+    public async Task SendMessage_WhenChatRuntimeActive_QueuesPromptAndClearsComposer()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "busy-chat" };
+
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+        vm.PromptText = "queued while busy";
+        GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[chat.Id] = new ChatRuntimeState
+        {
+            Chat = chat,
+            IsBusy = true
+        };
+
+        await InvokePrivateAsync(vm, "SendMessage");
+
+        Assert.Empty(chat.Messages);
+        Assert.Equal("", vm.PromptText);
+        Assert.Equal(
+            "queued while busy",
+            GetField<Dictionary<Guid, string>>(vm, "_queuedBusySendPrompts")[chat.Id]);
+    }
+
+    [Fact]
+    public async Task SendMessageCore_WhenQueuedPromptFindsRuntimeStillActive_DoesNotOverwriteDraft()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "busy-chat" };
+
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+        vm.PromptText = "new draft";
+        GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[chat.Id] = new ChatRuntimeState
+        {
+            Chat = chat,
+            IsBusy = true
+        };
+
+        await InvokePrivateAsync(vm, "SendMessageCore", "queued prompt", false);
+
+        Assert.Empty(chat.Messages);
+        Assert.Equal("new draft", vm.PromptText);
+        Assert.Equal(
+            "queued prompt",
+            GetField<Dictionary<Guid, string>>(vm, "_queuedBusySendPrompts")[chat.Id]);
+    }
+
+    [Fact]
+    public async Task DrainQueuedBusySendAsync_WhenChatChanged_PreservesQueuedPromptAsDraft()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var queuedChat = new Chat { Title = "queued-chat" };
+        var visibleChat = new Chat { Title = "visible-chat" };
+
+        dataStore.Data.Chats.Add(queuedChat);
+        dataStore.Data.Chats.Add(visibleChat);
+        vm.CurrentChat = visibleChat;
+        GetField<Dictionary<Guid, string>>(vm, "_queuedBusySendPrompts")[queuedChat.Id] = "send me later";
+
+        await InvokePrivateAsync(vm, "DrainQueuedBusySendAsync", queuedChat.Id);
+
+        Assert.False(GetField<Dictionary<Guid, string>>(vm, "_queuedBusySendPrompts").ContainsKey(queuedChat.Id));
+        Assert.Equal("send me later", GetField<Dictionary<Guid, string>>(vm, "_chatDrafts")[queuedChat.Id]);
+        Assert.Empty(queuedChat.Messages);
+    }
+
+    [Fact]
+    public void MarkInProgressToolsStopped_StopsPersistedAndLiveToolMessages()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "tool-chat" };
+        var runningTool = new ChatMessage
+        {
+            Role = "tool",
+            ToolName = "powershell",
+            ToolCallId = "tool-1",
+            ToolStatus = "InProgress"
+        };
+        var completedTool = new ChatMessage
+        {
+            Role = "tool",
+            ToolName = "powershell",
+            ToolCallId = "tool-2",
+            ToolStatus = "Completed"
+        };
+        chat.Messages.Add(runningTool);
+        chat.Messages.Add(completedTool);
+
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+        var runningVm = new ChatMessageViewModel(runningTool);
+        var completedVm = new ChatMessageViewModel(completedTool);
+        vm.Messages.Add(runningVm);
+        vm.Messages.Add(completedVm);
+
+        var changed = InvokePrivate<bool>(vm, "MarkInProgressToolsStopped", chat);
+
+        Assert.True(changed);
+        Assert.Equal("Stopped", runningTool.ToolStatus);
+        Assert.Equal("Stopped", runningVm.ToolStatus);
+        Assert.Equal("Completed", completedTool.ToolStatus);
+        Assert.Equal("Completed", completedVm.ToolStatus);
+    }
+
+    [Fact]
+    public void TranscriptBuilder_RendersStoppedToolAsTerminal()
+    {
+        var dataStore = CreateDataStore();
+        dataStore.Data.Settings.ShowToolCalls = true;
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var toolMessage = new ChatMessage
+        {
+            Role = "tool",
+            ToolName = "powershell",
+            ToolCallId = "tool-1",
+            ToolStatus = "Stopped",
+            Content = "{\"command\":\"Start-Sleep -Seconds 45\"}"
+        };
+
+        vm.Messages.Add(new ChatMessageViewModel(toolMessage));
+
+        var turn = Assert.Single(vm.TranscriptTurns);
+        var group = Assert.IsType<ToolGroupItem>(Assert.Single(turn.Items));
+        var terminal = Assert.IsType<TerminalPreviewItem>(Assert.Single(group.ToolCalls));
+        Assert.False(group.IsActive);
+        Assert.Equal(StrataTheme.Controls.StrataAiToolCallStatus.Stopped, terminal.Status);
+    }
+
+    [Fact]
     public void ResetAfterCopilotReconnect_ClearsTransientRuntimeState()
     {
         var dataStore = CreateDataStore();
@@ -729,6 +879,16 @@ public sealed class ChatViewModelLeakTests
             .GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
             ?.Invoke(instance, args)
             ?? throw new InvalidOperationException($"Method {name} was not found."));
+
+    private static async Task InvokePrivateAsync(object instance, string name, params object[] args)
+    {
+        var task = instance.GetType()
+            .GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?.Invoke(instance, args) as Task
+            ?? throw new InvalidOperationException($"Async method {name} was not found.");
+
+        await task;
+    }
 
     private static T InvokePrivateStatic<T>(Type type, string name, params object[] args)
         => (T)(type

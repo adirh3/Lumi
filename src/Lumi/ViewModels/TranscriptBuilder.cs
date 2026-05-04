@@ -135,8 +135,12 @@ public class TranscriptBuilder
         {
             "Completed" => StrataAiToolCallStatus.Completed,
             "Failed" => StrataAiToolCallStatus.Failed,
+            "Stopped" => StrataAiToolCallStatus.Stopped,
             _ => StrataAiToolCallStatus.InProgress
         };
+
+    private static bool IsTerminalToolStatus(string? status)
+        => status is "Completed" or "Failed" or "Stopped";
 
     public void ProcessMessageToTranscript(ChatMessageViewModel msgVm)
     {
@@ -209,7 +213,7 @@ public class TranscriptBuilder
 
                 CloseCurrentToolGroup();
                 var isAnswered = !string.IsNullOrEmpty(answer);
-                var isExpired = !isAnswered && msg.ToolStatus is "Completed" or "Failed";
+                var isExpired = !isAnswered && IsTerminalToolStatus(msg.ToolStatus);
                 var card = new QuestionItem(qid, question, optionsList, freeText && !isAnswered && !isExpired, _submitQuestionAnswerAction, multiSelect && !isAnswered && !isExpired);
                 if (isAnswered)
                 {
@@ -337,7 +341,7 @@ public class TranscriptBuilder
                             UpdateToolGroupState(capturedGroup);
                         }
 
-                        if (msgVm.ToolStatus is "Completed" or "Failed")
+                        if (IsTerminalToolStatus(msgVm.ToolStatus))
                         {
                             msgVm.PropertyChanged -= handler;
                             RemovePendingHandler(msgVm, handler);
@@ -402,12 +406,7 @@ public class TranscriptBuilder
                     if (args.PropertyName != nameof(ChatMessageViewModel.ToolStatus))
                         return;
 
-                    termPreview.Status = msgVm.ToolStatus switch
-                    {
-                        "Completed" => StrataAiToolCallStatus.Completed,
-                        "Failed" => StrataAiToolCallStatus.Failed,
-                        _ => StrataAiToolCallStatus.InProgress
-                    };
+                    termPreview.Status = MapToolStatus(msgVm.ToolStatus);
                     if (toolCallId is not null && termPreview.Status is not StrataAiToolCallStatus.InProgress
                         && _toolStartTimes.TryGetValue(toolCallId, out var startTick))
                     {
@@ -420,7 +419,7 @@ public class TranscriptBuilder
 
                     UpdateToolGroupState(capturedTermGroup);
 
-                    if (msgVm.ToolStatus is "Completed" or "Failed")
+                    if (IsTerminalToolStatus(msgVm.ToolStatus))
                     {
                         msgVm.PropertyChanged -= handler;
                         RemovePendingHandler(msgVm, handler);
@@ -470,12 +469,7 @@ public class TranscriptBuilder
                 if (args.PropertyName != nameof(ChatMessageViewModel.ToolStatus))
                     return;
 
-                toolCall.Status = msgVm.ToolStatus switch
-                {
-                    "Completed" => StrataAiToolCallStatus.Completed,
-                    "Failed" => StrataAiToolCallStatus.Failed,
-                    _ => StrataAiToolCallStatus.InProgress
-                };
+                toolCall.Status = MapToolStatus(msgVm.ToolStatus);
                 if (toolCallId is not null && toolCall.Status is not StrataAiToolCallStatus.InProgress
                     && _toolStartTimes.TryGetValue(toolCallId, out var startTick))
                 {
@@ -494,7 +488,7 @@ public class TranscriptBuilder
 
                 UpdateToolGroupState(capturedToolGroup);
 
-                if (msgVm.ToolStatus is "Completed" or "Failed")
+                if (IsTerminalToolStatus(msgVm.ToolStatus))
                 {
                     msgVm.PropertyChanged -= handler;
                     RemovePendingHandler(msgVm, handler);
@@ -555,7 +549,7 @@ public class TranscriptBuilder
 
                 UpdateSubagentState(subagent);
 
-                if (msgVm.ToolStatus is "Completed" or "Failed")
+                if (IsTerminalToolStatus(msgVm.ToolStatus))
                 {
                     msgVm.PropertyChanged -= handler;
                     RemovePendingHandler(msgVm, handler);
@@ -687,7 +681,7 @@ public class TranscriptBuilder
         {
             total++;
             var status = GetStatus(call);
-            if (status == StrataAiToolCallStatus.Completed)
+            if (status is StrataAiToolCallStatus.Completed or StrataAiToolCallStatus.Stopped)
                 completed++;
             else if (status == StrataAiToolCallStatus.Failed)
                 failed++;
@@ -1077,7 +1071,7 @@ public class TranscriptBuilder
 
             var progress = Math.Clamp((todoDone * 100d) / _currentTodoProgress.Total, 0d, 100d);
             group.ProgressValue = IsRebuildingTranscript ? -1 : progress;
-            group.IsActive = running > 0 && _currentTodoProgress.ToolStatus != "Failed";
+            group.IsActive = running > 0 && !IsTerminalToolStatus(_currentTodoProgress.ToolStatus);
             group.StreamingSummary = !IsRebuildingTranscript && group.IsActive
                 ? ToolDisplayHelper.BuildToolActivitySummary(group.ToolCalls.Select(GetToolGroupSummaryLabel))
                 : null;

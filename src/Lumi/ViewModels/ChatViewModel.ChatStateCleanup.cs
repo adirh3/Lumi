@@ -12,6 +12,34 @@ public partial class ChatViewModel
            && (runtime.IsBusy || runtime.IsStreaming || runtime.HasPendingBackgroundWork
                || runtime.PendingSessionUserMessageCount > 0);
 
+    private void QueueBusySendPrompt(Guid chatId, string prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+            return;
+
+        _queuedBusySendPrompts[chatId] = prompt;
+    }
+
+    private async Task DrainQueuedBusySendAsync(Guid chatId)
+    {
+        if (!_queuedBusySendPrompts.Remove(chatId, out var prompt) || string.IsNullOrWhiteSpace(prompt))
+            return;
+
+        if (CurrentChat?.Id != chatId)
+        {
+            _chatDrafts[chatId] = prompt;
+            return;
+        }
+
+        if (IsChatRuntimeActive(chatId))
+        {
+            _queuedBusySendPrompts[chatId] = prompt;
+            return;
+        }
+
+        await SendMessageCore(prompt, consumeComposerPrompt: false);
+    }
+
     private void ReleaseChatCancellation(Guid chatId, bool cancel)
     {
         if (!_ctsSources.Remove(chatId, out var cts))
@@ -108,6 +136,32 @@ public partial class ChatViewModel
         ExpireUnansweredQuestions(chat.Id);
     }
 
+    private bool MarkInProgressToolsStopped(Chat chat)
+    {
+        List<Guid>? stoppedMessageIds = null;
+
+        foreach (var message in chat.Messages)
+        {
+            if (message.ToolStatus != "InProgress" || string.IsNullOrWhiteSpace(message.ToolName))
+                continue;
+
+            message.ToolStatus = "Stopped";
+            (stoppedMessageIds ??= []).Add(message.Id);
+        }
+
+        if (stoppedMessageIds is null)
+            return false;
+
+        if (CurrentChat?.Id == chat.Id)
+        {
+            var stoppedIds = stoppedMessageIds.ToHashSet();
+            foreach (var vm in Messages.Where(vm => stoppedIds.Contains(vm.Message.Id)))
+                vm.NotifyToolStatusChanged();
+        }
+
+        return true;
+    }
+
     /// <summary>Sets IsExpired on all unanswered QuestionItems in the live transcript for the given chat.</summary>
     private void ExpireUnansweredQuestions(Guid chatId)
     {
@@ -125,6 +179,7 @@ public partial class ChatViewModel
 
     private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest, bool deleteServerSession)
     {
+        _queuedBusySendPrompts.Remove(chatId);
         ReleaseChatCancellation(chatId, cancelActiveRequest);
         ClearPendingTurnTracking(chatId);
         DisposeSessionSubscription(chatId);

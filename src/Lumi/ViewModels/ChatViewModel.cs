@@ -130,6 +130,8 @@ public partial class ChatViewModel : ObservableObject
     private readonly HashSet<Guid> _suggestionGenerationInFlightChats = new();
     /// <summary>Maps chat ID → unsent composer draft text. Guid.Empty is used for the "new chat" state.</summary>
     private readonly Dictionary<Guid, string> _chatDrafts = new();
+    /// <summary>Maps chat ID → prompt submitted while the chat was busy. Drained after the active turn stops.</summary>
+    private readonly Dictionary<Guid, string> _queuedBusySendPrompts = new();
     /// <summary>Tracks the last assistant message ID that already produced suggestions per chat.</summary>
     private readonly Dictionary<Guid, Guid> _lastSuggestedAssistantMessageByChat = new();
 
@@ -1194,7 +1196,7 @@ public partial class ChatViewModel : ObservableObject
 
     public bool IsChatBusy(Guid chatId)
     {
-        return _runtimeStates.TryGetValue(chatId, out var runtime) && runtime.IsBusy;
+        return IsChatRuntimeActive(chatId);
     }
 
     public async Task SendBackgroundJobMessageAsync(
@@ -1434,19 +1436,50 @@ public partial class ChatViewModel : ObservableObject
     [RelayCommand]
     private async Task SendMessage()
     {
-        if (string.IsNullOrWhiteSpace(PromptText))
+        await SendMessageCore(PromptText, consumeComposerPrompt: true);
+    }
+
+    private async Task SendMessageCore(string? promptText, bool consumeComposerPrompt)
+    {
+        if (string.IsNullOrWhiteSpace(promptText))
             return;
+
+        var prompt = promptText.Trim();
+        if (CurrentChat is { } activeChat && IsChatRuntimeActive(activeChat.Id))
+        {
+            QueueBusySendPrompt(activeChat.Id, prompt);
+            if (consumeComposerPrompt)
+            {
+                PromptText = "";
+                _chatDrafts.Remove(activeChat.Id);
+            }
+
+            return;
+        }
 
         if (!_copilotService.IsConnected)
         {
             StatusText = Loc.Status_NotConnected;
             try { await _copilotService.ConnectAsync(); }
-            catch { StatusText = Loc.Status_CheckAccess; return; }
+            catch
+            {
+                StatusText = Loc.Status_CheckAccess;
+                if (!consumeComposerPrompt && CurrentChat is not null)
+                {
+                    _chatDrafts[CurrentChat.Id] = prompt;
+                    if (string.IsNullOrWhiteSpace(PromptText))
+                        PromptText = prompt;
+                }
+
+                return;
+            }
         }
 
-        var prompt = PromptText!.Trim();
-        PromptText = "";
-        _chatDrafts.Remove(CurrentChat?.Id ?? Guid.Empty);
+        if (consumeComposerPrompt)
+        {
+            PromptText = "";
+            _chatDrafts.Remove(CurrentChat?.Id ?? Guid.Empty);
+        }
         ClearSuggestions();
         var selectedReasoningEffort = GetPersistedReasoningEffortPreference();
 
@@ -2311,7 +2344,8 @@ public partial class ChatViewModel : ObservableObject
     {
         if (CurrentChat is null) return;
 
-        var chatId = CurrentChat.Id;
+        var chat = CurrentChat;
+        var chatId = chat.Id;
         SetManualStopRequested(chatId, true);
         ReleaseChatCancellation(chatId, cancel: true);
 
@@ -2323,6 +2357,7 @@ public partial class ChatViewModel : ObservableObject
         }
 
         var runtime = GetOrCreateRuntimeState(chatId);
+        var stoppedTools = MarkInProgressToolsStopped(chat);
         MarkRuntimeTerminal(runtime, Loc.Status_Stopped);
         ClearPendingTurnTracking(chatId);
 
@@ -2336,6 +2371,11 @@ public partial class ChatViewModel : ObservableObject
             _transcriptBuilder.CloseCurrentToolGroup();
             _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
         }
+
+        if (stoppedTools)
+            QueueSaveChat(chat, saveIndex: false);
+
+        await DrainQueuedBusySendAsync(chatId);
     }
 
     private async Task SaveCurrentChatAsync(bool saveIndex = true, bool touchIndex = false)

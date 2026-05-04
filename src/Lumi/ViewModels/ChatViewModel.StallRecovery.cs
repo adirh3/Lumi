@@ -374,6 +374,7 @@ public partial class ChatViewModel
             QueueAutonomousMemoryCheckpoint(chat);
             QueueSaveChat(chat, saveIndex: false, releaseIfInactive: CurrentChat?.Id != chat.Id);
         });
+
     }
 
     private async Task ApplyRecoveredErrorAsync(Chat chat, string message)
@@ -413,6 +414,7 @@ public partial class ChatViewModel
 
             QueueSaveChat(chat, saveIndex: false, releaseIfInactive: CurrentChat?.Id != chat.Id);
         });
+
     }
 
     private async Task ApplyRecoveredAbortAsync(Chat chat)
@@ -428,6 +430,7 @@ public partial class ChatViewModel
             }
 
             var runtime = GetOrCreateRuntimeState(chat.Id);
+            MarkInProgressToolsStopped(chat);
             MarkRuntimeTerminal(runtime, Loc.Status_Stopped);
 
             if (CurrentChat?.Id == chat.Id)
@@ -442,6 +445,9 @@ public partial class ChatViewModel
 
             QueueSaveChat(chat, saveIndex: false, releaseIfInactive: CurrentChat?.Id != chat.Id);
         });
+
+        if (wasUserStopRequested)
+            await DrainQueuedBusySendAsync(chat.Id);
     }
 
     private async Task ApplyRecoveredShutdownAsync(Chat chat)
