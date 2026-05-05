@@ -1515,6 +1515,23 @@ public partial class ChatViewModel : ObservableObject
             ? "Please use the attached file as context."
             : "Please use the attached files as context.";
 
+    internal static List<string> GetChatMessageAttachmentPaths(IEnumerable<UserMessageAttachment>? attachments)
+    {
+        if (attachments is null)
+            return [];
+
+        return attachments
+            .Select(static attachment => attachment switch
+            {
+                UserMessageAttachmentFile file => file.Path,
+                UserMessageAttachmentDirectory directory => directory.Path,
+                _ => null
+            })
+            .Where(static path => !string.IsNullOrWhiteSpace(path))
+            .Select(static path => path!)
+            .ToList();
+    }
+
     private async Task SendMessageCore(string? promptText, bool consumeComposerPrompt)
     {
         var hasPendingAttachments = PendingAttachments.Count > 0;
@@ -1627,7 +1644,7 @@ public partial class ChatViewModel : ObservableObject
                 Role = "user",
                 Content = prompt,
                 Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
-                Attachments = attachments?.OfType<UserMessageAttachmentFile>().Select(a => a.Path).ToList() ?? [],
+                Attachments = GetChatMessageAttachmentPaths(attachments),
                 ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames)
             };
             targetChat.Messages.Add(userMsg);
