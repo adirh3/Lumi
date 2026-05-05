@@ -1056,12 +1056,10 @@ public partial class ChatViewModel
                     });
                     break;
 
-                case SessionTitleChangedEvent title:
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                    if (!_dataStore.Data.Settings.AutoGenerateTitles) return;
-                    ApplyChatTitle(chat, title.Data.Title);
-                    });
+                case SessionTitleChangedEvent:
+                    // SDK session titles are based on the transport prompt. After resume
+                    // or message editing that prompt can be a full transcript replay, so
+                    // Lumi uses its own guarded title generator instead.
                     break;
 
                 case SessionErrorEvent err:
