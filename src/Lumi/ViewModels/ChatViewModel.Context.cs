@@ -396,8 +396,17 @@ public partial class ChatViewModel
         if (PendingAttachments.Contains(filePath))
             return;
 
+        var validationError = AttachmentPreparationService.ValidatePendingPath(filePath);
         PendingAttachments.Add(filePath);
-        PendingAttachmentItems.Add(new FileAttachmentItem(filePath, isRemovable: true, removeAction: RemoveAttachment));
+        PendingAttachmentItems.Add(new FileAttachmentItem(
+            filePath,
+            isRemovable: true,
+            removeAction: RemoveAttachment,
+            status: validationError is null ? StrataAttachmentStatus.Completed : StrataAttachmentStatus.Failed,
+            errorMessage: validationError));
+
+        if (validationError is not null)
+            StatusText = validationError;
     }
 
     public void RemoveAttachment(string filePath)
@@ -482,21 +491,11 @@ public partial class ChatViewModel
         return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     }
 
-    private List<UserMessageAttachment>? TakePendingAttachments()
-    {
-        if (PendingAttachments.Count == 0) return null;
-        var items = PendingAttachments.Select(fp => (UserMessageAttachment)new UserMessageAttachmentFile
-        {
-            Path = fp,
-            DisplayName = Path.GetFileName(fp)
-        }).ToList();
-        PendingAttachments.Clear();
-        PendingAttachmentItems.Clear();
-        return items;
-    }
+    internal static AttachmentPreparationResult PrepareSdkAttachmentsForPaths(IEnumerable<string> paths)
+        => AttachmentPreparationService.PrepareForCopilot(paths);
 
     /// <summary>
-    /// Rebases file attachment paths from the original project directory to the worktree.
+    /// Rebases attachment paths from the original project directory to the worktree.
     /// Files tagged via # resolve against the project directory when the worktree hasn't
     /// been created yet (lazy creation). This fixes those paths before sending.
     /// </summary>
@@ -518,14 +517,29 @@ public partial class ChatViewModel
 
         for (var i = 0; i < attachments.Count; i++)
         {
-            if (attachments[i] is not UserMessageAttachmentFile file)
+            var path = attachments[i] switch
+            {
+                UserMessageAttachmentFile file => file.Path,
+                UserMessageAttachmentDirectory directory => directory.Path,
+                _ => null
+            };
+
+            if (path is null)
                 continue;
 
-            var path = file.Path;
             if (path.StartsWith(normalizedProjectDir, StringComparison.OrdinalIgnoreCase))
             {
                 var rebasedPath = normalizedWorktreePath + path[normalizedProjectDir.Length..];
-                file.Path = rebasedPath;
+                switch (attachments[i])
+                {
+                    case UserMessageAttachmentFile file:
+                        file.Path = rebasedPath;
+                        break;
+                    case UserMessageAttachmentDirectory directory:
+                        directory.Path = rebasedPath;
+                        break;
+                }
+
                 if (i < userMsg.Attachments.Count)
                     userMsg.Attachments[i] = rebasedPath;
             }

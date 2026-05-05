@@ -432,7 +432,8 @@
                         <sc:StrataFileAttachment FileName="{Binding FileName}"
                                                  FileSize="{Binding FileSize}"
                                                  IconImage="{Binding IconImage}"
-                                                 Status="Completed"
+                                                 Status="{Binding Status}"
+                                                 ToolTip.Tip="{Binding ErrorMessage}"
                                                  IsRemovable="False" />
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -527,7 +528,8 @@
                         <sc:StrataFileAttachment FileName="{Binding FileName}"
                                                  FileSize="{Binding FileSize}"
                                                  IconImage="{Binding IconImage}"
-                                                 Status="Completed"
+                                                 Status="{Binding Status}"
+                                                 ToolTip.Tip="{Binding ErrorMessage}"
                                                  IsRemovable="False" />
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -1492,7 +1494,8 @@
                 <sc:StrataFileAttachment FileName="{Binding FileName}"
                                          FileSize="{Binding FileSize}"
                                          IconImage="{Binding IconImage}"
-                                         Status="Completed"
+                                         Status="{Binding Status}"
+                                         ToolTip.Tip="{Binding ErrorMessage}"
                                          IsCompact="True"
                                          IsRemovable="{Binding IsRemovable}"
                                          RemoveCommand="{Binding RemoveCommand}"

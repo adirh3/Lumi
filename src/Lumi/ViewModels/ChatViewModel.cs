@@ -1510,12 +1510,20 @@ public partial class ChatViewModel : ObservableObject
         await SendMessageCore(PromptText, consumeComposerPrompt: true);
     }
 
+    private static string BuildAttachmentOnlyPrompt(int attachmentCount)
+        => attachmentCount == 1
+            ? "Please use the attached file as context."
+            : "Please use the attached files as context.";
+
     private async Task SendMessageCore(string? promptText, bool consumeComposerPrompt)
     {
-        if (string.IsNullOrWhiteSpace(promptText))
+        var hasPendingAttachments = PendingAttachments.Count > 0;
+        if (string.IsNullOrWhiteSpace(promptText) && !hasPendingAttachments)
             return;
 
-        var prompt = promptText.Trim();
+        var prompt = string.IsNullOrWhiteSpace(promptText)
+            ? BuildAttachmentOnlyPrompt(PendingAttachments.Count)
+            : promptText.Trim();
         if (CurrentChat is { } activeChat && IsChatRuntimeActive(activeChat.Id))
         {
             QueueBusySendPrompt(activeChat.Id, prompt);
@@ -1527,6 +1535,17 @@ public partial class ChatViewModel : ObservableObject
 
             return;
         }
+
+        var preparedAttachments = PrepareSdkAttachmentsForPaths(PendingAttachments);
+        if (!preparedAttachments.Success)
+        {
+            StatusText = preparedAttachments.ErrorMessage ?? "Could not prepare the attachment for Copilot.";
+            return;
+        }
+
+        var attachments = preparedAttachments.Attachments.Count > 0
+            ? preparedAttachments.Attachments
+            : null;
 
         if (!_copilotService.IsConnected)
         {
@@ -1558,7 +1577,12 @@ public partial class ChatViewModel : ObservableObject
         if (CurrentChat is not null)
             CancelPendingQuestions(CurrentChat);
 
-        var attachments = TakePendingAttachments();
+        if (attachments is not null)
+        {
+            PendingAttachments.Clear();
+            PendingAttachmentItems.Clear();
+        }
+
         var createdChat = false;
 
         // Create chat if needed
@@ -3110,6 +3134,17 @@ public partial class ChatViewModel : ObservableObject
         if (idx < 0) return;
 
         var prompt = userMessage.Content;
+        var attachmentPaths = userMessage.Attachments.ToList();
+        var preparedAttachments = PrepareSdkAttachmentsForPaths(attachmentPaths);
+        if (!preparedAttachments.Success)
+        {
+            StatusText = preparedAttachments.ErrorMessage ?? "Could not prepare the attachment for Copilot.";
+            return;
+        }
+
+        var resendAttachments = preparedAttachments.Attachments.Count > 0
+            ? preparedAttachments.Attachments
+            : null;
 
         // Remove the user message and everything after it
         while (CurrentChat.Messages.Count > idx)
@@ -3143,7 +3178,9 @@ public partial class ChatViewModel : ObservableObject
         {
             Role = "user",
             Content = prompt,
-            Author = userMessage.Author
+            Author = userMessage.Author,
+            Attachments = [..attachmentPaths],
+            ActiveSkills = [..userMessage.ActiveSkills]
         };
         CurrentChat.Messages.Add(newUserMsg);
         Messages.Add(new ChatMessageViewModel(newUserMsg));
@@ -3255,6 +3292,8 @@ public partial class ChatViewModel : ObservableObject
                 promptAdditions);
 
             resendOptions = new MessageOptions { Prompt = resendPrompt };
+            if (resendAttachments is not null)
+                resendOptions.Attachments = resendAttachments;
             localUserMessageCount = CurrentChat.Messages.Count(m => m.Role == "user");
             localAssistantMessageCount = CountCompletedAssistantMessages(CurrentChat);
             var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
@@ -3293,6 +3332,8 @@ public partial class ChatViewModel : ObservableObject
                     shouldReplayPrompt: !wasEdited,
                     promptAdditions);
                 resendOptions = new MessageOptions { Prompt = resendPrompt2 };
+                if (resendAttachments is not null)
+                    resendOptions.Attachments = resendAttachments;
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                     _activeSession!,
                     localUserMessageCount,

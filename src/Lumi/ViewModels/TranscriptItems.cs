@@ -753,13 +753,22 @@ public partial class FileAttachmentItem : ObservableObject
     public string FileName { get; }
     public string? FileSize { get; }
     public bool IsRemovable { get; }
+    public StrataAttachmentStatus Status { get; }
+    public string? ErrorMessage { get; }
     public Avalonia.Media.Imaging.Bitmap? IconImage { get; }
 
-    public FileAttachmentItem(string filePath, bool isRemovable = false, Action<string>? removeAction = null)
+    public FileAttachmentItem(
+        string filePath,
+        bool isRemovable = false,
+        Action<string>? removeAction = null,
+        StrataAttachmentStatus status = StrataAttachmentStatus.Completed,
+        string? errorMessage = null)
     {
         FilePath = filePath;
         FileName = Path.GetFileName(filePath);
         IsRemovable = isRemovable;
+        Status = status;
+        ErrorMessage = errorMessage;
         _removeAction = removeAction;
 
         try
