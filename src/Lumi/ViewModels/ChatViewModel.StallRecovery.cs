@@ -368,10 +368,9 @@ public partial class ChatViewModel
                 IsBusy = false;
                 IsStreaming = false;
                 StatusText = string.Empty;
-                QueueSuggestionGenerationForLatestAssistant(chat);
             }
 
-            QueueAutonomousMemoryCheckpoint(chat);
+            QueueChatCompletionFollowUps(chat);
             QueueSaveChat(chat, saveIndex: false, releaseIfInactive: CurrentChat?.Id != chat.Id);
         });
 

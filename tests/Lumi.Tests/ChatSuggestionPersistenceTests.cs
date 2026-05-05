@@ -79,7 +79,49 @@ public sealed class ChatSuggestionPersistenceTests
         }, CancellationToken.None);
     }
 
+    [Fact]
+    public async Task QueueChatCompletionFollowUps_GeneratesSuggestionsForInactiveChat()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var activeChat = CreateCompletedChat("Active chat");
+            var inactiveChat = CreateCompletedChat("Inactive chat");
+            var inactiveAssistantMessage = inactiveChat.Messages.Last(static message => message.Role == "assistant");
+            var data = new AppData
+            {
+                Settings = new UserSettings
+                {
+                    AutoSaveChats = false,
+                    EnableMemoryAutoSave = false
+                },
+                Chats = [activeChat, inactiveChat]
+            };
+
+            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+
+            await viewModel.LoadChatAsync(activeChat);
+            viewModel.QueueChatCompletionFollowUps(inactiveChat);
+            await WaitForConditionAsync(() =>
+                inactiveChat.FollowUpSuggestionAssistantMessageId == inactiveAssistantMessage.Id);
+
+            Assert.Equal(activeChat.Id, viewModel.CurrentChat?.Id);
+            Assert.False(viewModel.IsSuggestionsGenerating);
+            Assert.Equal("", viewModel.SuggestionA);
+        }, CancellationToken.None);
+    }
+
     private static Chat CreateChatWithSuggestions(string title, List<string> suggestions)
+    {
+        var chat = CreateCompletedChat(title);
+        var assistantMessage = chat.Messages.Last(static message => message.Role == "assistant");
+        chat.FollowUpSuggestions = suggestions;
+        chat.FollowUpSuggestionAssistantMessageId = assistantMessage.Id;
+        return chat;
+    }
+
+    private static Chat CreateCompletedChat(string title)
     {
         var assistantMessage = new ChatMessage
         {
@@ -97,9 +139,20 @@ public sealed class ChatSuggestionPersistenceTests
                     Content = "Can you help?"
                 },
                 assistantMessage
-            ],
-            FollowUpSuggestions = suggestions,
-            FollowUpSuggestionAssistantMessageId = assistantMessage.Id
+            ]
         };
+    }
+
+    private static async Task WaitForConditionAsync(Func<bool> condition)
+    {
+        for (var i = 0; i < 50; i++)
+        {
+            if (condition())
+                return;
+
+            await Task.Delay(20);
+        }
+
+        Assert.True(condition());
     }
 }

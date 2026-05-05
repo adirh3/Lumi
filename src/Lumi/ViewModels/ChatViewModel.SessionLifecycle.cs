@@ -1023,11 +1023,7 @@ public partial class ChatViewModel
                     // Running these on every AssistantTurnEndEvent creates a storm of
                     // background sessions that can starve the CLI process and stall
                     // all active sessions.
-                    QueueAutonomousMemoryCheckpoint(chat);
-
-                    // Generate follow-up suggestions once the full assistant response is done.
-                    if (IsDisplayedSession())
-                        QueueSuggestionGenerationForLatestAssistant(chat);
+                    QueueChatCompletionFollowUps(chat);
 
                     if (CurrentChat?.Id != chat.Id)
                         QueueSaveChat(chat, saveIndex: false, releaseIfInactive: true);

@@ -931,7 +931,7 @@ public class CopilotService : IAsyncDisposable
             session = await GetOrCreateSuggestionSessionAsync(ct).ConfigureAwait(false);
             var result = await session.SendAndWaitAsync(
                  new MessageOptions { Prompt = context },
-                 TimeSpan.FromSeconds(15), ct).ConfigureAwait(false);
+                 TimeSpan.FromSeconds(60), ct).ConfigureAwait(false);
             return ParseSuggestions(result?.Data?.Content);
         }
         catch

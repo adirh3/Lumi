@@ -2478,6 +2478,12 @@ public partial class ChatViewModel : ObservableObject
         _ = _memoryAgentService.ProcessCheckpointAsync(checkpoint);
     }
 
+    internal void QueueChatCompletionFollowUps(Chat chat)
+    {
+        QueueAutonomousMemoryCheckpoint(chat);
+        QueueSuggestionGenerationForLatestAssistant(chat);
+    }
+
     private MemoryAgentCheckpoint? CreateMemoryCheckpoint(Chat chat)
     {
         var assistantIndex = -1;
@@ -2578,11 +2584,18 @@ public partial class ChatViewModel : ObservableObject
             return;
         }
 
+        var context = CreateSuggestionGenerationContext(chat, lastAssistant.Id);
+        if (context is null)
+            return;
+
         _suggestionGenerationInFlightChats.Add(chat.Id);
-        _ = GenerateSuggestionsAsync(chat, lastAssistant.Id);
+        _ = GenerateSuggestionsAsync(chat, lastAssistant.Id, context);
     }
 
-    private async Task GenerateSuggestionsAsync(Chat chat, Guid assistantMessageId)
+    private async Task GenerateSuggestionsAsync(
+        Chat chat,
+        Guid assistantMessageId,
+        SuggestionGenerationContext context)
     {
         var suggestionsApplied = false;
         try
@@ -2592,11 +2605,6 @@ public partial class ChatViewModel : ObservableObject
                 if (CurrentChat?.Id == chat.Id)
                     IsSuggestionsGenerating = true;
             });
-
-            var context = await Dispatcher.UIThread.InvokeAsync(() =>
-                CreateSuggestionGenerationContext(chat, assistantMessageId));
-            if (context is null)
-                return;
 
             var userHistorySummary = await BuildSuggestionHistorySummaryAsync(
                 context.LatestUserMessageId,
