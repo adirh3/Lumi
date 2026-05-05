@@ -23,6 +23,26 @@ public partial class ChatViewModel
 {
     private const int StreamingUiUpdateThrottleMs = 50;
 
+    internal static string? ResolveFinalAssistantContent(
+        string? finalEventContent,
+        string? streamedContent,
+        string? existingStreamingContent)
+    {
+        var finalContent = NormalizeAssistantContent(finalEventContent);
+        if (!string.IsNullOrWhiteSpace(finalContent))
+            return finalContent;
+
+        var streamContent = NormalizeAssistantContent(streamedContent);
+        if (!string.IsNullOrWhiteSpace(streamContent))
+            return streamContent;
+
+        var existingContent = NormalizeAssistantContent(existingStreamingContent);
+        return string.IsNullOrWhiteSpace(existingContent) ? null : existingContent;
+    }
+
+    private static string? NormalizeAssistantContent(string? content)
+        => content?.TrimStart('\n', '\r');
+
     /// <summary>Subscribes to events on a CopilotSession. Each subscription captures its own
     /// streaming state via closures and always updates the Chat model. UI updates are gated
     /// on _activeSession so only the displayed chat's events touch the UI.</summary>
@@ -504,7 +524,10 @@ public partial class ChatViewModel
                             subagentAssistantStreams,
                             activeSubagentToolCallIdForAssistantMessage);
                         subagentAssistantStream?.CancelPending();
-                        var capturedTranscript = msg.Data.Content;
+                        var capturedTranscript = ResolveFinalAssistantContent(
+                            msg.Data.Content,
+                            subagentAssistantStream?.SnapshotOrNull(),
+                            existingStreamingContent: null) ?? string.Empty;
                         var capturedReasoning = msg.Data.ReasoningText;
                         var capturedToolCallId = activeSubagentToolCallIdForAssistantMessage;
                         Dispatcher.UIThread.Post(() =>
@@ -519,7 +542,7 @@ public partial class ChatViewModel
                         UpdateSubagentCardContent(
                             activeSubagentToolCallIdForAssistantMessage,
                             updateTranscript: true,
-                            transcript: msg.Data.Content,
+                            transcript: capturedTranscript,
                             updateReasoning: !string.IsNullOrWhiteSpace(msg.Data.ReasoningText),
                             reasoning: msg.Data.ReasoningText);
                         subagentAssistantStream?.Clear();
@@ -527,7 +550,7 @@ public partial class ChatViewModel
                     }
                     if (IsSubagentOutputActive())
                         break;
-                    var capturedFinalContent = msg.Data.Content?.TrimStart('\n', '\r');
+                    var capturedFinalContent = msg.Data.Content;
                     assistantStream.CancelPending();
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -538,7 +561,10 @@ public partial class ChatViewModel
                         // to appear at once instead of streaming.
                         FlushAssistantDelta();
 
-                        var finalContent = capturedFinalContent;
+                        var finalContent = ResolveFinalAssistantContent(
+                            capturedFinalContent,
+                            assistantStream?.SnapshotOrNull(),
+                            streamingMsg?.Content);
                         if (string.IsNullOrWhiteSpace(finalContent))
                         {
                             if (IsDisplayedSession() && streamingVm is not null)
@@ -594,7 +620,7 @@ public partial class ChatViewModel
                         _inProgressMessages.Remove(chat.Id);
                         streamingMsg = null;
                         streamingVm = null;
-                        assistantStream.Clear();
+                        assistantStream?.Clear();
                     });
                     break;
 
@@ -832,7 +858,7 @@ public partial class ChatViewModel
                             {
                                 foreach (var item in contents)
                                 {
-                                    if (item is ToolExecutionCompleteDataResultContentsItemResourceLink rl
+                                    if (item is ToolExecutionCompleteContentResourceLink rl
                                         && !string.IsNullOrEmpty(rl.Uri))
                                     {
                                         var fp = ToolDisplayHelper.UriToLocalPath(rl.Uri);
@@ -1265,7 +1291,7 @@ public partial class ChatViewModel
                         }
                         reasoningStream.Clear();
 
-                        var isError = shutdown.Data.ShutdownType == SessionShutdownDataShutdownType.Error;
+                        var isError = shutdown.Data.ShutdownType == ShutdownType.Error;
                         if (isError && shouldUpdateDisplayedChatUi)
                         {
                             _transcriptBuilder.HideTypingIndicator();
@@ -1615,17 +1641,17 @@ public partial class ChatViewModel
                     if (!IsDisplayedSession()) return;
                     switch (planChanged.Data.Operation)
                     {
-                        case SessionPlanChangedDataOperation.Create:
-                        case SessionPlanChangedDataOperation.Update:
+                        case PlanChangedOperation.Create:
+                        case PlanChangedOperation.Update:
                             HasPlan = true;
                             _ = RefreshPlan();
                             StagePlanCard(
-                                planChanged.Data.Operation == SessionPlanChangedDataOperation.Create
+                                planChanged.Data.Operation == PlanChangedOperation.Create
                                     ? "Created a plan"
                                     : "Updated the plan");
                             PlanShowRequested?.Invoke();
                             break;
-                        case SessionPlanChangedDataOperation.Delete:
+                        case PlanChangedOperation.Delete:
                             HasPlan = false;
                             PlanContent = null;
                             PlanHideRequested?.Invoke();
@@ -1725,7 +1751,7 @@ public partial class ChatViewModel
 
     private static string BuildWorkspaceFileChangedPayloadJson(
         string filePath,
-        SessionWorkspaceFileChangedDataOperation operation)
+        WorkspaceFileChangedOperation operation)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))

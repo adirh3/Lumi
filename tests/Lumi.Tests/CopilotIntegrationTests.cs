@@ -55,7 +55,7 @@ namespace Lumi.Tests;
 /// U4. Nil / empty inputs produce safe defaults
 /// U5. System prompt modes
 /// U6. InfiniteSession config
-/// U7. MCP server config building (McpLocalServerConfig / McpRemoteServerConfig)
+/// U7. MCP server config building (McpStdioServerConfig / McpHttpServerConfig)
 /// </summary>
 [Trait("Category", "Integration")]
 public class CopilotIntegrationTests : IAsyncLifetime
@@ -693,10 +693,10 @@ public class CopilotIntegrationTests : IAsyncLifetime
     {
         SkipIfDisabled();
 
-        var mcpServers = new Dictionary<string, object>();
+        var mcpServers = new Dictionary<string, McpServerConfig>();
         var token = CopilotService.TryGetGitHubTokenForMcp();
         GitHubMcpWebSearchBootstrap.Ensure(mcpServers, token);
-        var serverConfig = Assert.IsType<McpRemoteServerConfig>(mcpServers[GitHubMcpWebSearchBootstrap.ServerName]);
+        var serverConfig = Assert.IsType<McpHttpServerConfig>(mcpServers[GitHubMcpWebSearchBootstrap.ServerName]);
         var hasAuthHeader = serverConfig.Headers?.ContainsKey("Authorization") == true;
 
         var config = SessionConfigBuilder.Build(
@@ -1541,7 +1541,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
             skillDirectories: [],
             customAgents: [],
             tools: [],
-            mcpServers: new Dictionary<string, object>(),
+            mcpServers: new Dictionary<string, McpServerConfig>(),
             reasoningEffort: "", userInputHandler: null,
             onPermission: null, hooks: null);
 
@@ -1642,29 +1642,27 @@ public class CopilotIntegrationTests : IAsyncLifetime
     [Fact]
     public void McpServerConfig_LocalAndRemote_AreDistinct()
     {
-        var local = new McpLocalServerConfig
+        var local = new McpStdioServerConfig
         {
             Command = "npx",
             Args = ["-y", "@mcp/server"],
-            Type = "stdio",
             Cwd = "/tmp",
             Tools = ["*"]
         };
 
-        var remote = new McpRemoteServerConfig
+        var remote = new McpHttpServerConfig
         {
             Url = "https://example.com/mcp",
-            Type = "sse",
             Tools = ["tool1", "tool2"]
         };
 
         Assert.Equal("stdio", local.Type);
-        Assert.Equal("sse", remote.Type);
+        Assert.Equal("http", remote.Type);
         Assert.Equal("npx", local.Command);
         Assert.Equal("https://example.com/mcp", remote.Url);
 
         // Verify they can be placed in the config dictionary
-        var mcpServers = new Dictionary<string, object>
+        var mcpServers = new Dictionary<string, McpServerConfig>
         {
             ["local-server"] = local,
             ["remote-server"] = remote

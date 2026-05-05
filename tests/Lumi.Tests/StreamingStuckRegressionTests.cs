@@ -159,6 +159,28 @@ public sealed class StreamingStuckRegressionTests
     // ───────── StreamingTextAccumulator (integration) ──────────
 
     [Fact]
+    public void ResolveFinalAssistantContent_UsesStreamedContentWhenFinalEventIsEmpty()
+    {
+        var result = ChatViewModel.ResolveFinalAssistantContent(
+            finalEventContent: "",
+            streamedContent: "\nstreamed answer",
+            existingStreamingContent: null);
+
+        Assert.Equal("streamed answer", result);
+    }
+
+    [Fact]
+    public void ResolveFinalAssistantContent_PrefersFinalEventContentWhenPresent()
+    {
+        var result = ChatViewModel.ResolveFinalAssistantContent(
+            finalEventContent: "\nfinal answer",
+            streamedContent: "streamed answer",
+            existingStreamingContent: "existing answer");
+
+        Assert.Equal("final answer", result);
+    }
+
+    [Fact]
     public async Task StreamingTextAccumulator_CancelPendingThenAppend_FlushesNewContent()
     {
         // Simulates the exact streaming stuck scenario: accumulator has pending

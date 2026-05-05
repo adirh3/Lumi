@@ -482,10 +482,10 @@ public partial class ChatViewModel
         return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     }
 
-    private List<UserMessageDataAttachmentsItemFile>? TakePendingAttachments()
+    private List<UserMessageAttachment>? TakePendingAttachments()
     {
         if (PendingAttachments.Count == 0) return null;
-        var items = PendingAttachments.Select(fp => new UserMessageDataAttachmentsItemFile
+        var items = PendingAttachments.Select(fp => (UserMessageAttachment)new UserMessageAttachmentFile
         {
             Path = fp,
             DisplayName = Path.GetFileName(fp)
@@ -501,7 +501,7 @@ public partial class ChatViewModel
     /// been created yet (lazy creation). This fixes those paths before sending.
     /// </summary>
     internal static void RebaseAttachmentPaths(
-        List<UserMessageDataAttachmentsItemFile> attachments,
+        List<UserMessageAttachment> attachments,
         ChatMessage userMsg,
         string projectDir,
         string worktreePath)
@@ -518,11 +518,14 @@ public partial class ChatViewModel
 
         for (var i = 0; i < attachments.Count; i++)
         {
-            var path = attachments[i].Path;
+            if (attachments[i] is not UserMessageAttachmentFile file)
+                continue;
+
+            var path = file.Path;
             if (path.StartsWith(normalizedProjectDir, StringComparison.OrdinalIgnoreCase))
             {
                 var rebasedPath = normalizedWorktreePath + path[normalizedProjectDir.Length..];
-                attachments[i].Path = rebasedPath;
+                file.Path = rebasedPath;
                 if (i < userMsg.Attachments.Count)
                     userMsg.Attachments[i] = rebasedPath;
             }

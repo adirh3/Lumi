@@ -90,7 +90,7 @@ public partial class ChatViewModel
         return tools;
     }
 
-    private async Task<Dictionary<string, object>> BuildMcpServersAsync(
+    private async Task<Dictionary<string, McpServerConfig>> BuildMcpServersAsync(
         string workDir,
         Chat chat,
         LumiAgent? activeAgent,
@@ -117,17 +117,16 @@ public partial class ChatViewModel
             allServers = allServers.Where(s => agentServerIds.Contains(s.Id)).ToList();
         }
 
-        var dict = new Dictionary<string, object>();
+        var dict = new Dictionary<string, McpServerConfig>();
 
         // Add Lumi-configured MCP servers
         foreach (var server in allServers)
         {
             if (server.ServerType == "remote")
             {
-                var remote = new McpRemoteServerConfig
+                var remote = new McpHttpServerConfig
                 {
                     Url = server.Url,
-                    Type = "sse",
                     Tools = server.Tools.Count > 0 ? server.Tools.ToList() : ["*"]
                 };
                 if (server.Headers.Count > 0)
@@ -138,11 +137,10 @@ public partial class ChatViewModel
             }
             else
             {
-                var local = new McpLocalServerConfig
+                var local = new McpStdioServerConfig
                 {
                     Command = server.Command,
                     Args = server.Args.ToList(),
-                    Type = "stdio",
                     Cwd = workDir,
                     Tools = server.Tools.Count > 0 ? server.Tools.ToList() : ["*"]
                 };
@@ -169,7 +167,7 @@ public partial class ChatViewModel
     /// Supports both local (stdio) and remote (sse/http) server types, and
     /// forwards env variables and headers from the JSON config.
     /// </summary>
-    private static async Task MergeWorkspaceMcpServersAsync(string workDir, Dictionary<string, object> dict, CancellationToken ct)
+    private static async Task MergeWorkspaceMcpServersAsync(string workDir, Dictionary<string, McpServerConfig> dict, CancellationToken ct)
     {
         var mcpJsonPath = Path.Combine(workDir, ".vscode", "mcp.json");
         if (!File.Exists(mcpJsonPath)) return;
@@ -194,10 +192,9 @@ public partial class ChatViewModel
                     var url = server.Value.TryGetProperty("url", out var urlProp) ? urlProp.GetString() ?? "" : "";
                     if (string.IsNullOrWhiteSpace(url)) continue;
 
-                    var remote = new McpRemoteServerConfig
+                    var remote = new McpHttpServerConfig
                     {
                         Url = url,
-                        Type = type,
                         Tools = ["*"]
                     };
 
@@ -223,11 +220,10 @@ public partial class ChatViewModel
                             args.Add(arg.GetString() ?? "");
                     }
 
-                    var local = new McpLocalServerConfig
+                    var local = new McpStdioServerConfig
                     {
                         Command = command,
                         Args = args,
-                        Type = "stdio",
                         Cwd = workDir,
                         Tools = ["*"]
                     };

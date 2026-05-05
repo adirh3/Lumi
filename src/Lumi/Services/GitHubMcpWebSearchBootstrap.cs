@@ -13,7 +13,7 @@ internal static class GitHubMcpWebSearchBootstrap
     private const string EnterpriseCopilotMcpUrlPrefix = "https://api.enterprise.githubcopilot.com/mcp";
     private const string WebSearchToolName = "web_search";
 
-    public static bool Ensure(Dictionary<string, object> mcpServers, string? gitHubToken = null)
+    public static bool Ensure(Dictionary<string, McpServerConfig> mcpServers, string? gitHubToken = null)
     {
         if (mcpServers.ContainsKey(ServerName) || ContainsGitHubCopilotMcpServer(mcpServers.Values))
             return false;
@@ -27,9 +27,8 @@ internal static class GitHubMcpWebSearchBootstrap
         if (!string.IsNullOrWhiteSpace(gitHubToken))
             headers["Authorization"] = "Bearer " + gitHubToken;
 
-        mcpServers[ServerName] = new McpRemoteServerConfig
+        mcpServers[ServerName] = new McpHttpServerConfig
         {
-            Type = "http",
             Url = CopilotMcpUrl,
             Tools = ["*"],
             Headers = headers
@@ -38,11 +37,11 @@ internal static class GitHubMcpWebSearchBootstrap
         return true;
     }
 
-    private static bool ContainsGitHubCopilotMcpServer(IEnumerable<object> mcpServers)
+    private static bool ContainsGitHubCopilotMcpServer(IEnumerable<McpServerConfig> mcpServers)
     {
         foreach (var server in mcpServers)
         {
-            if (server is McpRemoteServerConfig remote && IsGitHubCopilotMcpUrl(remote.Url))
+            if (server is McpHttpServerConfig remote && IsGitHubCopilotMcpUrl(remote.Url))
                 return true;
         }
 

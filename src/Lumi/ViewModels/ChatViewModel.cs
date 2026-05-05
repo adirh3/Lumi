@@ -46,7 +46,7 @@ public partial class ChatViewModel : ObservableObject
             if (mcpList?.Servers is not { Count: > 0 }) return;
 
             var failed = mcpList.Servers
-                .Where(s => s.Status == GitHub.Copilot.SDK.Rpc.ServerStatus.Failed)
+                .Where(s => s.Status == GitHub.Copilot.SDK.Rpc.McpServerStatus.Failed)
                 .ToList();
 
             if (failed.Count == 0) return;
@@ -1532,7 +1532,7 @@ public partial class ChatViewModel : ObservableObject
                 Role = "user",
                 Content = prompt,
                 Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
-                Attachments = attachments?.Select(a => a.Path).ToList() ?? [],
+                Attachments = attachments?.OfType<UserMessageAttachmentFile>().Select(a => a.Path).ToList() ?? [],
                 ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames)
             };
             targetChat.Messages.Add(userMsg);
@@ -1693,7 +1693,7 @@ public partial class ChatViewModel : ObservableObject
             localAssistantMessageCount = CountCompletedAssistantMessages(targetChat);
 
             if (attachments is { Count: > 0 })
-                sendOptions.Attachments = attachments.Cast<UserMessageDataAttachmentsItem>().ToList();
+                sendOptions.Attachments = attachments;
 
             var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                 sendSession,

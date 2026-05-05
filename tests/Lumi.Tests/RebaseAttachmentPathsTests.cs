@@ -7,10 +7,10 @@ namespace Lumi.Tests;
 
 public class RebaseAttachmentPathsTests
 {
-    private static (List<UserMessageDataAttachmentsItemFile> attachments, ChatMessage msg) MakeAttachments(
+    private static (List<UserMessageAttachment> attachments, ChatMessage msg) MakeAttachments(
         params string[] paths)
     {
-        var attachments = paths.Select(p => new UserMessageDataAttachmentsItemFile
+        var attachments = paths.Select(p => (UserMessageAttachment)new UserMessageAttachmentFile
         {
             Path = p,
             DisplayName = Path.GetFileName(p)
@@ -26,6 +26,9 @@ public class RebaseAttachmentPathsTests
         return (attachments, msg);
     }
 
+    private static UserMessageAttachmentFile FileAt(List<UserMessageAttachment> attachments, int index)
+        => Assert.IsType<UserMessageAttachmentFile>(attachments[index]);
+
     [Fact]
     public void Rebases_paths_under_project_dir_to_worktree()
     {
@@ -38,8 +41,8 @@ public class RebaseAttachmentPathsTests
             @"E:\Git\Lumi",
             @"E:\Git\Lumi-wt-abc123");
 
-        Assert.Equal(@"E:\Git\Lumi-wt-abc123\src\Models\Models.cs", attachments[0].Path);
-        Assert.Equal(@"E:\Git\Lumi-wt-abc123\src\ViewModels\ChatViewModel.cs", attachments[1].Path);
+        Assert.Equal(@"E:\Git\Lumi-wt-abc123\src\Models\Models.cs", FileAt(attachments, 0).Path);
+        Assert.Equal(@"E:\Git\Lumi-wt-abc123\src\ViewModels\ChatViewModel.cs", FileAt(attachments, 1).Path);
         Assert.Equal(@"E:\Git\Lumi-wt-abc123\src\Models\Models.cs", msg.Attachments[0]);
         Assert.Equal(@"E:\Git\Lumi-wt-abc123\src\ViewModels\ChatViewModel.cs", msg.Attachments[1]);
     }
@@ -57,8 +60,8 @@ public class RebaseAttachmentPathsTests
             @"E:\Git\Lumi",
             @"E:\Git\Lumi-wt-abc123");
 
-        Assert.Equal(@"E:\Git\Lumi-wt-abc123\src\file.cs", attachments[0].Path);
-        Assert.Equal(externalPath, attachments[1].Path);
+        Assert.Equal(@"E:\Git\Lumi-wt-abc123\src\file.cs", FileAt(attachments, 0).Path);
+        Assert.Equal(externalPath, FileAt(attachments, 1).Path);
         Assert.Equal(externalPath, msg.Attachments[1]);
     }
 
@@ -73,7 +76,7 @@ public class RebaseAttachmentPathsTests
             @"E:\Git\Lumi",
             @"E:\Git\Lumi");
 
-        Assert.Equal(original, attachments[0].Path);
+        Assert.Equal(original, FileAt(attachments, 0).Path);
         Assert.Equal(original, msg.Attachments[0]);
     }
 
@@ -87,7 +90,7 @@ public class RebaseAttachmentPathsTests
             @"E:\Git\Lumi\",
             @"E:\Git\Lumi-wt-abc123");
 
-        Assert.Equal(@"E:\Git\Lumi-wt-abc123\src\file.cs", attachments[0].Path);
+        Assert.Equal(@"E:\Git\Lumi-wt-abc123\src\file.cs", FileAt(attachments, 0).Path);
     }
 
     [Fact]
@@ -100,13 +103,13 @@ public class RebaseAttachmentPathsTests
             @"E:\Git\Lumi",
             @"E:\Git\Lumi-wt-abc123");
 
-        Assert.Equal(@"E:\Git\Lumi-wt-abc123\src\file.cs", attachments[0].Path);
+        Assert.Equal(@"E:\Git\Lumi-wt-abc123\src\file.cs", FileAt(attachments, 0).Path);
     }
 
     [Fact]
     public void Empty_attachments_is_noop()
     {
-        var attachments = new List<UserMessageDataAttachmentsItemFile>();
+        var attachments = new List<UserMessageAttachment>();
         var msg = new ChatMessage { Role = "user", Content = "test", Attachments = [] };
 
         ChatViewModel.RebaseAttachmentPaths(
@@ -127,6 +130,6 @@ public class RebaseAttachmentPathsTests
             @"E:\Git\Lumi",
             @"E:\Git\Lumi-wt-abc123");
 
-        Assert.Equal("file.cs", attachments[0].DisplayName);
+        Assert.Equal("file.cs", FileAt(attachments, 0).DisplayName);
     }
 }

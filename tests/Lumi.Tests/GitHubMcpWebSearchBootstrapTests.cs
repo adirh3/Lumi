@@ -10,12 +10,12 @@ public sealed class GitHubMcpWebSearchBootstrapTests
     [Fact]
     public void Ensure_AddsBuiltInGitHubMcpWebSearchServer()
     {
-        var servers = new Dictionary<string, object>();
+        var servers = new Dictionary<string, McpServerConfig>();
 
         var changed = GitHubMcpWebSearchBootstrap.Ensure(servers, "test-token");
 
         Assert.True(changed);
-        var server = Assert.IsType<McpRemoteServerConfig>(servers[GitHubMcpWebSearchBootstrap.ServerName]);
+        var server = Assert.IsType<McpHttpServerConfig>(servers[GitHubMcpWebSearchBootstrap.ServerName]);
         Assert.Equal("http", server.Type);
         Assert.StartsWith("https://api.githubcopilot.com/mcp", server.Url);
         Assert.Equal(["*"], server.Tools);
@@ -27,25 +27,24 @@ public sealed class GitHubMcpWebSearchBootstrapTests
     [Fact]
     public void Ensure_AddsServerWithoutAuthorizationWhenTokenUnavailable()
     {
-        var servers = new Dictionary<string, object>();
+        var servers = new Dictionary<string, McpServerConfig>();
 
         var changed = GitHubMcpWebSearchBootstrap.Ensure(servers);
 
         Assert.True(changed);
-        var server = Assert.IsType<McpRemoteServerConfig>(servers[GitHubMcpWebSearchBootstrap.ServerName]);
+        var server = Assert.IsType<McpHttpServerConfig>(servers[GitHubMcpWebSearchBootstrap.ServerName]);
         Assert.False(server.Headers!.ContainsKey("Authorization"));
     }
 
     [Fact]
     public void Ensure_DoesNotOverrideExistingGitHubMcpServer()
     {
-        var existing = new McpRemoteServerConfig
+        var existing = new McpHttpServerConfig
         {
-            Type = "http",
             Url = "https://api.githubcopilot.com/mcp/readonly",
             Tools = ["*"]
         };
-        var servers = new Dictionary<string, object>
+        var servers = new Dictionary<string, McpServerConfig>
         {
             ["custom-github"] = existing
         };

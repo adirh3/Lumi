@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using GitHub.Copilot.SDK;
 using Lumi.Services;
 using Xunit;
 
@@ -18,7 +19,7 @@ public sealed class SessionConfigBuilderTests
             skillDirectories: [],
             customAgents: [],
             tools: [],
-            mcpServers: new Dictionary<string, object>(),
+            mcpServers: new Dictionary<string, McpServerConfig>(),
             reasoningEffort: null,
             userInputHandler: null,
             onPermission: null,
@@ -41,7 +42,7 @@ public sealed class SessionConfigBuilderTests
             skillDirectories: [],
             customAgents: [],
             tools: [],
-            mcpServers: new Dictionary<string, object>(),
+            mcpServers: new Dictionary<string, McpServerConfig>(),
             reasoningEffort: null,
             userInputHandler: null,
             onPermission: null,

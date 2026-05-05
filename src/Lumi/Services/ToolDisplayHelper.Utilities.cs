@@ -156,7 +156,7 @@ public static partial class ToolDisplayHelper
     }
 
     /// <summary>Extracts web search citations from resource-link tool results.</summary>
-    public static List<SearchSource> ExtractSearchSources(ToolExecutionCompleteDataResult? result)
+    public static List<SearchSource> ExtractSearchSources(ToolExecutionCompleteResult? result)
     {
         if (result?.Contents is not { Length: > 0 } contents)
             return [];
@@ -166,7 +166,7 @@ public static partial class ToolDisplayHelper
 
         foreach (var item in contents)
         {
-            if (item is not ToolExecutionCompleteDataResultContentsItemResourceLink resource
+            if (item is not ToolExecutionCompleteContentResourceLink resource
                 || string.IsNullOrWhiteSpace(resource.Uri)
                 || !Uri.TryCreate(resource.Uri, UriKind.Absolute, out var uri)
                 || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
@@ -234,7 +234,7 @@ public static partial class ToolDisplayHelper
     }
 
     /// <summary>Extracts terminal/text output from SDK tool result fields.</summary>
-    public static string? ExtractTerminalOutput(ToolExecutionCompleteDataResult? result)
+    public static string? ExtractTerminalOutput(ToolExecutionCompleteResult? result)
     {
         if (result is null)
             return null;
@@ -251,7 +251,7 @@ public static partial class ToolDisplayHelper
     }
 
     /// <summary>Extracts terminal/text output from tool execution result contents.</summary>
-    public static string? ExtractTerminalOutputFromContents(ToolExecutionCompleteDataResultContentsItem[]? contents)
+    public static string? ExtractTerminalOutputFromContents(ToolExecutionCompleteContent[]? contents)
     {
         if (contents is not { Length: > 0 })
             return null;
@@ -259,14 +259,14 @@ public static partial class ToolDisplayHelper
         var chunks = new List<string>();
         foreach (var item in contents)
         {
-            if (item is ToolExecutionCompleteDataResultContentsItemTerminal terminal)
+            if (item is ToolExecutionCompleteContentTerminal terminal)
             {
                 if (!string.IsNullOrWhiteSpace(terminal.Text))
                     chunks.Add(terminal.Text);
                 continue;
             }
 
-            if (item is ToolExecutionCompleteDataResultContentsItemText text
+            if (item is ToolExecutionCompleteContentText text
                 && !string.IsNullOrWhiteSpace(text.Text))
             {
                 chunks.Add(text.Text);

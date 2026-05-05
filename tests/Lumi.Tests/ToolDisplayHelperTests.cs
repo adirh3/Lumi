@@ -114,35 +114,35 @@ public class ToolDisplayHelperTests
     [Fact]
     public void ExtractSearchSources_UsesResourceLinksAndDeduplicatesByUrl()
     {
-        var result = new ToolExecutionCompleteDataResult
+        var result = new ToolExecutionCompleteResult
         {
             Content = "ok",
             Contents =
             [
-                new ToolExecutionCompleteDataResultContentsItemResourceLink
+                new ToolExecutionCompleteContentResourceLink
                 {
                     Name = "Example",
                     Title = "Example title",
                     Description = "Example snippet",
                     Uri = "https://example.com/article"
                 },
-                new ToolExecutionCompleteDataResultContentsItemResourceLink
+                new ToolExecutionCompleteContentResourceLink
                 {
                     Name = "Fallback title",
                     Uri = "https://contoso.com/post"
                 },
-                new ToolExecutionCompleteDataResultContentsItemResourceLink
+                new ToolExecutionCompleteContentResourceLink
                 {
                     Name = "Duplicate",
                     Title = "Ignored duplicate",
                     Uri = "https://example.com/article"
                 },
-                new ToolExecutionCompleteDataResultContentsItemResourceLink
+                new ToolExecutionCompleteContentResourceLink
                 {
                     Name = "Local file",
                     Uri = "file:///C:/temp/result.txt"
                 },
-                new ToolExecutionCompleteDataResultContentsItemText
+                new ToolExecutionCompleteContentText
                 {
                     Text = "plain text"
                 }

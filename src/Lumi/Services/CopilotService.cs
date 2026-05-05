@@ -299,7 +299,7 @@ public class CopilotService : IAsyncDisposable
     public async Task<List<ModelInfo>> GetModelsAsync(CancellationToken ct = default)
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
-        _models ??= await _client.ListModelsAsync(ct);
+        _models ??= (await _client.ListModelsAsync(ct)).ToList();
         return _models;
     }
 
@@ -392,7 +392,7 @@ public class CopilotService : IAsyncDisposable
         SessionListFilter? filter = null, CancellationToken ct = default)
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
-        return await _client.ListSessionsAsync(filter, ct);
+        return (await _client.ListSessionsAsync(filter, ct)).ToList();
     }
 
     public async Task<GetAuthStatusResponse> GetAuthStatusAsync(CancellationToken ct = default)
@@ -443,7 +443,7 @@ public class CopilotService : IAsyncDisposable
     public async Task<GitHub.Copilot.SDK.Rpc.AccountGetQuotaResult?> GetAccountQuotaAsync(CancellationToken ct = default)
     {
         if (_client is null) return null;
-        return await _client.Rpc.Account.GetQuotaAsync(ct);
+        return await _client.Rpc.Account.GetQuotaAsync(cancellationToken: ct);
     }
 
     // ── Tools API ──
@@ -453,7 +453,7 @@ public class CopilotService : IAsyncDisposable
     {
         if (_client is null) return [];
         var result = await _client.Rpc.Tools.ListAsync(model, ct);
-        return result.Tools;
+        return result.Tools.ToList();
     }
 
     /// <summary>
