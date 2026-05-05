@@ -12,18 +12,22 @@ public partial class ChatViewModel
            && (runtime.IsBusy || runtime.IsStreaming || runtime.HasPendingBackgroundWork
                || runtime.PendingSessionUserMessageCount > 0);
 
-    private void QueueBusySendPrompt(Guid chatId, string prompt)
+    private void QueueBusySendPrompt(Guid chatId, string prompt, IEnumerable<string>? attachmentPaths = null)
     {
         if (string.IsNullOrWhiteSpace(prompt))
             return;
 
-        _queuedBusySendPrompts[chatId] = prompt;
+        _queuedBusySendPrompts[chatId] = new QueuedBusySend(
+            prompt,
+            attachmentPaths?.Where(static path => !string.IsNullOrWhiteSpace(path)).ToList() ?? []);
     }
 
     private async Task DrainQueuedBusySendAsync(Guid chatId)
     {
-        if (!_queuedBusySendPrompts.Remove(chatId, out var prompt) || string.IsNullOrWhiteSpace(prompt))
+        if (!_queuedBusySendPrompts.Remove(chatId, out var queuedSend) || string.IsNullOrWhiteSpace(queuedSend.Prompt))
             return;
+
+        var prompt = queuedSend.Prompt;
 
         if (CurrentChat?.Id != chatId)
         {
@@ -33,11 +37,11 @@ public partial class ChatViewModel
 
         if (IsChatRuntimeActive(chatId))
         {
-            _queuedBusySendPrompts[chatId] = prompt;
+            _queuedBusySendPrompts[chatId] = queuedSend;
             return;
         }
 
-        await SendMessageCore(prompt, consumeComposerPrompt: false);
+        await SendMessageCore(prompt, consumeComposerPrompt: false, queuedSend.AttachmentPaths);
     }
 
     private void ReleaseChatCancellation(Guid chatId, bool cancel)

@@ -147,23 +147,33 @@ public sealed class ChatViewModelLeakTests
         var dataStore = CreateDataStore();
         var vm = new ChatViewModel(dataStore, new CopilotService());
         var chat = new Chat { Title = "busy-chat" };
+        var attachmentPath = Path.GetTempFileName();
 
-        dataStore.Data.Chats.Add(chat);
-        vm.CurrentChat = chat;
-        vm.PromptText = "queued while busy";
-        GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[chat.Id] = new ChatRuntimeState
+        try
         {
-            Chat = chat,
-            IsBusy = true
-        };
+            dataStore.Data.Chats.Add(chat);
+            vm.CurrentChat = chat;
+            vm.PromptText = "queued while busy";
+            vm.AddAttachment(attachmentPath);
+            GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[chat.Id] = new ChatRuntimeState
+            {
+                Chat = chat,
+                IsBusy = true
+            };
 
-        await InvokePrivateAsync(vm, "SendMessage");
+            await InvokePrivateAsync(vm, "SendMessage");
 
-        Assert.Empty(chat.Messages);
-        Assert.Equal("", vm.PromptText);
-        Assert.Equal(
-            "queued while busy",
-            GetField<Dictionary<Guid, string>>(vm, "_queuedBusySendPrompts")[chat.Id]);
+            Assert.Empty(chat.Messages);
+            Assert.Equal("", vm.PromptText);
+            Assert.Empty(vm.PendingAttachments);
+            Assert.Empty(vm.PendingAttachmentItems);
+            Assert.Equal("queued while busy", GetQueuedBusySendPrompt(vm, chat.Id));
+            Assert.Equal([attachmentPath], GetQueuedBusySendAttachmentPaths(vm, chat.Id));
+        }
+        finally
+        {
+            File.Delete(attachmentPath);
+        }
     }
 
     [Fact]
@@ -186,9 +196,8 @@ public sealed class ChatViewModelLeakTests
 
         Assert.Empty(chat.Messages);
         Assert.Equal("new draft", vm.PromptText);
-        Assert.Equal(
-            "queued prompt",
-            GetField<Dictionary<Guid, string>>(vm, "_queuedBusySendPrompts")[chat.Id]);
+        Assert.Equal("queued prompt", GetQueuedBusySendPrompt(vm, chat.Id));
+        Assert.Empty(GetQueuedBusySendAttachmentPaths(vm, chat.Id));
     }
 
     [Fact]
@@ -202,11 +211,11 @@ public sealed class ChatViewModelLeakTests
         dataStore.Data.Chats.Add(queuedChat);
         dataStore.Data.Chats.Add(visibleChat);
         vm.CurrentChat = visibleChat;
-        GetField<Dictionary<Guid, string>>(vm, "_queuedBusySendPrompts")[queuedChat.Id] = "send me later";
+        QueueBusySendPrompt(vm, queuedChat.Id, "send me later");
 
         await InvokePrivateAsync(vm, "DrainQueuedBusySendAsync", queuedChat.Id);
 
-        Assert.False(GetField<Dictionary<Guid, string>>(vm, "_queuedBusySendPrompts").ContainsKey(queuedChat.Id));
+        Assert.False(GetQueuedBusySends(vm).Contains(queuedChat.Id));
         Assert.Equal("send me later", GetField<Dictionary<Guid, string>>(vm, "_chatDrafts")[queuedChat.Id]);
         Assert.Empty(queuedChat.Messages);
     }
@@ -928,28 +937,57 @@ public sealed class ChatViewModelLeakTests
             ?.GetValue(instance)
             ?? throw new InvalidOperationException($"Field {name} was not found."));
 
+    private static System.Collections.IDictionary GetQueuedBusySends(ChatViewModel vm)
+        => GetField<System.Collections.IDictionary>(vm, "_queuedBusySendPrompts");
+
+    private static object GetQueuedBusySend(ChatViewModel vm, Guid chatId)
+        => GetQueuedBusySends(vm)[chatId]
+           ?? throw new InvalidOperationException($"Queued send for {chatId} was not found.");
+
+    private static string GetQueuedBusySendPrompt(ChatViewModel vm, Guid chatId)
+        => (string)(GetQueuedBusySend(vm, chatId)
+            .GetType()
+            .GetProperty("Prompt")
+            ?.GetValue(GetQueuedBusySend(vm, chatId))
+            ?? throw new InvalidOperationException("Queued send prompt was not found."));
+
+    private static IReadOnlyList<string> GetQueuedBusySendAttachmentPaths(ChatViewModel vm, Guid chatId)
+        => (IReadOnlyList<string>)(GetQueuedBusySend(vm, chatId)
+            .GetType()
+            .GetProperty("AttachmentPaths")
+            ?.GetValue(GetQueuedBusySend(vm, chatId))
+            ?? throw new InvalidOperationException("Queued send attachment paths were not found."));
+
+    private static void QueueBusySendPrompt(ChatViewModel vm, Guid chatId, string prompt, params string[] attachmentPaths)
+    {
+        vm.GetType()
+            .GetMethod("QueueBusySendPrompt", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?.Invoke(vm, [chatId, prompt, attachmentPaths]);
+    }
+
     private static void InvokePrivate(object instance, string name, params object[] args)
     {
-        instance.GetType()
-            .GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
-            ?.Invoke(instance, args);
+        GetPrivateInstanceMethod(instance, name, args.Length).Invoke(instance, args);
     }
 
     private static T InvokePrivate<T>(object instance, string name, params object[] args)
-        => (T)(instance.GetType()
-            .GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
-            ?.Invoke(instance, args)
+        => (T)(GetPrivateInstanceMethod(instance, name, args.Length)
+            .Invoke(instance, args)
             ?? throw new InvalidOperationException($"Method {name} was not found."));
 
     private static async Task InvokePrivateAsync(object instance, string name, params object[] args)
     {
-        var task = instance.GetType()
-            .GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
-            ?.Invoke(instance, args) as Task
+        var task = GetPrivateInstanceMethod(instance, name, args.Length).Invoke(instance, args) as Task
             ?? throw new InvalidOperationException($"Async method {name} was not found.");
 
         await task;
     }
+
+    private static MethodInfo GetPrivateInstanceMethod(object instance, string name, int argumentCount)
+        => instance.GetType()
+               .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+               .SingleOrDefault(method => method.Name == name && method.GetParameters().Length == argumentCount)
+           ?? throw new InvalidOperationException($"Method {name} with {argumentCount} parameters was not found.");
 
     private static T InvokePrivateStatic<T>(Type type, string name, params object[] args)
         => (T)(type

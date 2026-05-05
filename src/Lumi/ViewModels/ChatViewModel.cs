@@ -132,10 +132,12 @@ public partial class ChatViewModel : ObservableObject
     private Guid? _suggestionDisplayChatId;
     /// <summary>Maps chat ID → unsent composer draft text. Guid.Empty is used for the "new chat" state.</summary>
     private readonly Dictionary<Guid, string> _chatDrafts = new();
-    /// <summary>Maps chat ID → prompt submitted while the chat was busy. Drained after the active turn stops.</summary>
-    private readonly Dictionary<Guid, string> _queuedBusySendPrompts = new();
+    /// <summary>Maps chat ID → turn submitted while the chat was busy. Drained after the active turn stops.</summary>
+    private readonly Dictionary<Guid, QueuedBusySend> _queuedBusySendPrompts = new();
     /// <summary>Tracks the last assistant message ID that already produced suggestions per chat.</summary>
     private readonly Dictionary<Guid, Guid> _lastSuggestedAssistantMessageByChat = new();
+
+    private sealed record QueuedBusySend(string Prompt, IReadOnlyList<string> AttachmentPaths);
 
     /// <summary>Gets or lazily creates a per-chat BrowserService instance.</summary>
     private BrowserService GetOrCreateBrowserService(Guid chatId)
@@ -1532,28 +1534,42 @@ public partial class ChatViewModel : ObservableObject
             .ToList();
     }
 
-    private async Task SendMessageCore(string? promptText, bool consumeComposerPrompt)
+    private Task SendMessageCore(string? promptText, bool consumeComposerPrompt)
+        => SendMessageCore(promptText, consumeComposerPrompt, attachmentPathSnapshot: null);
+
+    private async Task SendMessageCore(
+        string? promptText,
+        bool consumeComposerPrompt,
+        IReadOnlyCollection<string>? attachmentPathSnapshot)
     {
-        var hasPendingAttachments = PendingAttachments.Count > 0;
-        if (string.IsNullOrWhiteSpace(promptText) && !hasPendingAttachments)
+        var attachmentPaths = attachmentPathSnapshot is not null
+            ? attachmentPathSnapshot.Where(static path => !string.IsNullOrWhiteSpace(path)).ToList()
+            : PendingAttachments.Where(static path => !string.IsNullOrWhiteSpace(path)).ToList();
+        var hasAttachments = attachmentPaths.Count > 0;
+        if (string.IsNullOrWhiteSpace(promptText) && !hasAttachments)
             return;
 
         var prompt = string.IsNullOrWhiteSpace(promptText)
-            ? BuildAttachmentOnlyPrompt(PendingAttachments.Count)
+            ? BuildAttachmentOnlyPrompt(attachmentPaths.Count)
             : promptText.Trim();
         if (CurrentChat is { } activeChat && IsChatRuntimeActive(activeChat.Id))
         {
-            QueueBusySendPrompt(activeChat.Id, prompt);
+            QueueBusySendPrompt(activeChat.Id, prompt, attachmentPaths);
             if (consumeComposerPrompt)
             {
                 PromptText = "";
                 _chatDrafts.Remove(activeChat.Id);
+                if (hasAttachments && attachmentPathSnapshot is null)
+                {
+                    PendingAttachments.Clear();
+                    PendingAttachmentItems.Clear();
+                }
             }
 
             return;
         }
 
-        var preparedAttachments = PrepareSdkAttachmentsForPaths(PendingAttachments);
+        var preparedAttachments = PrepareSdkAttachmentsForPaths(attachmentPaths);
         if (!preparedAttachments.Success)
         {
             StatusText = preparedAttachments.ErrorMessage ?? "Could not prepare the attachment for Copilot.";
@@ -1594,7 +1610,7 @@ public partial class ChatViewModel : ObservableObject
         if (CurrentChat is not null)
             CancelPendingQuestions(CurrentChat);
 
-        if (attachments is not null)
+        if (attachments is not null && attachmentPathSnapshot is null)
         {
             PendingAttachments.Clear();
             PendingAttachmentItems.Clear();
