@@ -102,6 +102,7 @@ public partial class ChatViewModel
     public bool IsWelcomeVisible => CurrentChat is null;
     public bool IsChatVisible => CurrentChat is not null;
     public bool HasPendingAttachments => PendingAttachmentItems.Count > 0;
+    public bool HasSendablePendingAttachments => PendingAttachments.Count > 0;
     public bool HasProjectBadge => !string.IsNullOrWhiteSpace(ProjectBadgeText);
     public bool HasAgentBadge => !string.IsNullOrWhiteSpace(AgentBadgeText);
     public bool HasHeaderSubtitle => HasProjectBadge || HasAgentBadge;
@@ -295,6 +296,7 @@ public partial class ChatViewModel
 
         ActiveSkillChips.CollectionChanged += OnActiveSkillChipsCollectionChanged;
         ActiveMcpChips.CollectionChanged += OnActiveMcpChipsCollectionChanged;
+        PendingAttachments.CollectionChanged += OnPendingAttachmentsCollectionChanged;
         PendingAttachmentItems.CollectionChanged += OnPendingAttachmentItemsCollectionChanged;
 
         RefreshComposerCatalogs();
@@ -763,6 +765,11 @@ public partial class ChatViewModel
     private void OnPendingAttachmentItemsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         OnPropertyChanged(nameof(HasPendingAttachments));
+    }
+
+    private void OnPendingAttachmentsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(HasSendablePendingAttachments));
     }
 
     private void OnActiveSkillChipsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs args)

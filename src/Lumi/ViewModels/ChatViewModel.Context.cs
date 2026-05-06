@@ -393,11 +393,14 @@ public partial class ChatViewModel
 
     public void AddAttachment(string filePath)
     {
-        if (PendingAttachments.Contains(filePath))
+        if (PendingAttachmentItems.Any(item =>
+                string.Equals(item.FilePath, filePath, StringComparison.OrdinalIgnoreCase)))
             return;
 
         var validationError = AttachmentPreparationService.ValidatePendingPath(filePath);
-        PendingAttachments.Add(filePath);
+        if (validationError is null)
+            PendingAttachments.Add(filePath);
+
         PendingAttachmentItems.Add(new FileAttachmentItem(
             filePath,
             isRemovable: true,

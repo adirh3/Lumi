@@ -177,6 +177,24 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public void AddAttachment_WhenPathIsInvalid_ShowsFailedChipWithoutSendableAttachment()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var missingPath = Path.Combine(Path.GetTempPath(), $"lumi-missing-{Guid.NewGuid():N}.txt");
+
+        vm.AddAttachment(missingPath);
+
+        Assert.Empty(vm.PendingAttachments);
+        Assert.True(vm.HasPendingAttachments);
+        Assert.False(vm.HasSendablePendingAttachments);
+        var item = Assert.Single(vm.PendingAttachmentItems);
+        Assert.Equal(missingPath, item.FilePath);
+        Assert.Equal(StrataTheme.Controls.StrataAttachmentStatus.Failed, item.Status);
+        Assert.Contains("Attachment not found", item.ErrorMessage);
+    }
+
+    [Fact]
     public async Task SendMessageCore_WhenQueuedPromptFindsRuntimeStillActive_DoesNotOverwriteDraft()
     {
         var dataStore = CreateDataStore();

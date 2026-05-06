@@ -1455,7 +1455,7 @@
                              IsBusy="{Binding IsBusy}"
                              IsRecording="{Binding IsRecording}"
                              SendWithEnter="{Binding SendWithEnter}"
-                             CanSendWithoutPrompt="{Binding HasPendingAttachments}"
+                             CanSendWithoutPrompt="{Binding HasSendablePendingAttachments}"
                              SendCommand="{Binding SendMessageCommand}"
                              StopCommand="{Binding StopGenerationCommand}"
                              AttachCommand="{Binding RequestAttachFilesCommand}"
