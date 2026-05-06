@@ -65,7 +65,7 @@ public sealed class BackgroundJobScheduleTests
     [Fact]
     public void ComputeNextRun_Monthly_ClampsShortMonths()
     {
-        var now = new DateTimeOffset(2026, 1, 31, 9, 0, 0, TimeSpan.FromHours(2));
+        var now = CreateLocalDateTimeOffset(2026, 1, 31, 9, 0, 0);
         var job = new BackgroundJob
         {
             TriggerType = BackgroundJobTriggerTypes.Time,
@@ -74,7 +74,7 @@ public sealed class BackgroundJobScheduleTests
             DailyTime = "08:00"
         };
 
-        var expected = new DateTimeOffset(2026, 2, 28, 8, 0, 0, TimeSpan.FromHours(2));
+        var expected = CreateLocalDateTimeOffset(2026, 2, 28, 8, 0, 0);
         Assert.Equal(expected, BackgroundJobSchedule.ComputeNextRun(job, now, afterRun: false));
     }
 
@@ -118,5 +118,17 @@ public sealed class BackgroundJobScheduleTests
         var now = new DateTimeOffset(2026, 4, 26, 10, 0, 0, TimeSpan.FromHours(3));
 
         Assert.Equal(TimeSpan.FromHours(24), BackgroundJobService.GetSchedulerDelay(now.AddDays(7), now));
+    }
+
+    private static DateTimeOffset CreateLocalDateTimeOffset(
+        int year,
+        int month,
+        int day,
+        int hour,
+        int minute,
+        int second)
+    {
+        var localDateTime = new DateTime(year, month, day, hour, minute, second);
+        return new DateTimeOffset(localDateTime, TimeZoneInfo.Local.GetUtcOffset(localDateTime));
     }
 }
