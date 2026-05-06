@@ -562,9 +562,14 @@ public partial class ChatViewModel
 
         if (value is null)
         {
+            _suggestionDisplayChatId = null;
             // Returning to welcome — clear transcript suggestions
             ClearSuggestions();
             RefreshComposerCatalogs(); // Re-scan for welcome state (no project)
+        }
+        else
+        {
+            _suggestionDisplayChatId = value.Id;
         }
     }
 

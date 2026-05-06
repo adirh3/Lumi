@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Lumi.Models;
@@ -112,6 +113,45 @@ public sealed class ChatSuggestionPersistenceTests
         }, CancellationToken.None);
     }
 
+    [Fact]
+    public void PendingChatSwitchSuppressesPreviousChatBackgroundSuggestions()
+    {
+        var activeChat = CreateCompletedChat("Active chat");
+        var targetChat = CreateCompletedChat("Target chat");
+        var data = new AppData
+        {
+            Settings = new UserSettings
+            {
+                AutoSaveChats = false,
+                EnableMemoryAutoSave = false
+            },
+            Chats = [activeChat, targetChat]
+        };
+
+        var viewModel = new ChatViewModel(new DataStore(data), new CopilotService())
+        {
+            CurrentChat = activeChat
+        };
+        InvokePrivate(viewModel, "ApplyDisplayedSuggestions", new List<string> { "Active suggestion" });
+        Assert.Equal("Active suggestion", viewModel.SuggestionA);
+
+        // Simulate the synchronous start of LoadChatAsync(targetChat): the
+        // old chat remains CurrentChat until history loading completes, but
+        // background suggestions must no longer be allowed to target it.
+        SetPrivateField(viewModel, "_suggestionDisplayChatId", targetChat.Id);
+        InvokePrivate(viewModel, "ClearSuggestions");
+
+        InvokePrivate(
+            viewModel,
+            "TryApplyDisplayedSuggestions",
+            activeChat,
+            new List<string> { "Wrong chat suggestion" });
+
+        Assert.Equal(activeChat.Id, viewModel.CurrentChat?.Id);
+        Assert.Equal("", viewModel.SuggestionA);
+        Assert.False(viewModel.HasSuggestions);
+    }
+
     private static Chat CreateChatWithSuggestions(string title, List<string> suggestions)
     {
         var chat = CreateCompletedChat(title);
@@ -155,4 +195,14 @@ public sealed class ChatSuggestionPersistenceTests
 
         Assert.True(condition());
     }
+
+    private static void SetPrivateField(object instance, string name, object? value)
+        => instance.GetType()
+            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(instance, value);
+
+    private static void InvokePrivate(object instance, string name, params object[] args)
+        => instance.GetType()
+            .GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(instance, args);
 }

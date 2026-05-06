@@ -128,6 +128,8 @@ public partial class ChatViewModel : ObservableObject
     private readonly List<Guid> _pendingSkillInjections = new();
     /// <summary>Per-chat guard so suggestion generation is queued at most once concurrently.</summary>
     private readonly HashSet<Guid> _suggestionGenerationInFlightChats = new();
+    /// <summary>Chat ID that the visible suggestion row is allowed to represent, including pending chat loads.</summary>
+    private Guid? _suggestionDisplayChatId;
     /// <summary>Maps chat ID → unsent composer draft text. Guid.Empty is used for the "new chat" state.</summary>
     private readonly Dictionary<Guid, string> _chatDrafts = new();
     /// <summary>Maps chat ID → prompt submitted while the chat was busy. Drained after the active turn stops.</summary>
@@ -827,6 +829,8 @@ public partial class ChatViewModel : ObservableObject
 
         if (CurrentChat?.Id == chat.Id && chat.Messages.Count > 0)
         {
+            _suggestionDisplayChatId = chat.Id;
+            RestoreSuggestionsForChat(chat);
             lock (_chatLoadSync)
             {
                 if (ReferenceEquals(_chatLoadCts, loadCts))
@@ -841,6 +845,8 @@ public partial class ChatViewModel : ObservableObject
 
         if (CurrentChat?.Id != chat.Id)
         {
+            _suggestionDisplayChatId = chat.Id;
+
             // Save unsent composer draft for the chat we're leaving
             var leavingId = CurrentChat?.Id ?? Guid.Empty;
             if (!string.IsNullOrEmpty(PromptText))
@@ -1034,7 +1040,9 @@ public partial class ChatViewModel : ObservableObject
         }
         catch (OperationCanceledException) when (loadToken.IsCancellationRequested)
         {
-            // A newer chat selection superseded this load.
+            // A newer chat selection or external cancellation superseded this load.
+            if (IsCurrentChatLoad(requestId, loadCts))
+                _suggestionDisplayChatId = CurrentChat?.Id;
         }
         finally
         {
@@ -1094,6 +1102,8 @@ public partial class ChatViewModel : ObservableObject
 
         // Detach from the visible chat; inactive chat state is released later when it is safe.
         _activeSession = null;
+        _suggestionDisplayChatId = null;
+        ClearSuggestions();
 
         Messages.Clear();
         TranscriptTurns.Clear();
@@ -2600,7 +2610,7 @@ public partial class ChatViewModel : ObservableObject
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                if (CurrentChat?.Id == chat.Id)
+                if (CanUpdateDisplayedSuggestions(chat))
                     IsSuggestionsGenerating = true;
             });
 
@@ -2622,8 +2632,7 @@ public partial class ChatViewModel : ObservableObject
 
                 var normalizedSuggestions = NormalizeFollowUpSuggestions(suggestions);
                 StoreGeneratedSuggestions(chat, assistantMessageId, normalizedSuggestions);
-                if (CurrentChat?.Id == chat.Id)
-                    ApplyDisplayedSuggestions(normalizedSuggestions);
+                TryApplyDisplayedSuggestions(chat, normalizedSuggestions);
 
                 suggestionsApplied = true;
             });
@@ -2636,7 +2645,7 @@ public partial class ChatViewModel : ObservableObject
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                if (CurrentChat?.Id == chat.Id)
+                if (CanUpdateDisplayedSuggestions(chat))
                     IsSuggestionsGenerating = false;
 
                 _suggestionGenerationInFlightChats.Remove(chat.Id);
@@ -2820,8 +2829,18 @@ public partial class ChatViewModel : ObservableObject
         SuggestionC = suggestions.ElementAtOrDefault(2) ?? "";
     }
 
+    private bool CanUpdateDisplayedSuggestions(Chat chat)
+        => CurrentChat?.Id == chat.Id && _suggestionDisplayChatId == chat.Id;
+
+    private void TryApplyDisplayedSuggestions(Chat chat, IReadOnlyList<string> suggestions)
+    {
+        if (CanUpdateDisplayedSuggestions(chat))
+            ApplyDisplayedSuggestions(suggestions);
+    }
+
     private void RestoreSuggestionsForChat(Chat chat)
     {
+        _suggestionDisplayChatId = chat.Id;
         ApplyDisplayedSuggestions([]);
 
         if (_suggestionGenerationInFlightChats.Contains(chat.Id))
