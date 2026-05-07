@@ -219,23 +219,62 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
-    public async Task DrainQueuedBusySendAsync_WhenChatChanged_PreservesQueuedPromptAsDraft()
+    public async Task DrainQueuedBusySendAsync_WhenChatChanged_PreservesQueuedSendAsDraft()
     {
         var dataStore = CreateDataStore();
         var vm = new ChatViewModel(dataStore, new CopilotService());
         var queuedChat = new Chat { Title = "queued-chat" };
         var visibleChat = new Chat { Title = "visible-chat" };
+        var attachmentPath = Path.GetTempFileName();
 
-        dataStore.Data.Chats.Add(queuedChat);
-        dataStore.Data.Chats.Add(visibleChat);
-        vm.CurrentChat = visibleChat;
-        QueueBusySendPrompt(vm, queuedChat.Id, "send me later");
+        try
+        {
+            dataStore.Data.Chats.Add(queuedChat);
+            dataStore.Data.Chats.Add(visibleChat);
+            vm.CurrentChat = visibleChat;
+            QueueBusySendPrompt(vm, queuedChat.Id, "send me later", attachmentPath);
 
-        await InvokePrivateAsync(vm, "DrainQueuedBusySendAsync", queuedChat.Id);
+            await InvokePrivateAsync(vm, "DrainQueuedBusySendAsync", queuedChat.Id);
 
-        Assert.False(GetQueuedBusySends(vm).Contains(queuedChat.Id));
-        Assert.Equal("send me later", GetField<Dictionary<Guid, string>>(vm, "_chatDrafts")[queuedChat.Id]);
-        Assert.Empty(queuedChat.Messages);
+            Assert.False(GetQueuedBusySends(vm).Contains(queuedChat.Id));
+            Assert.Equal("send me later", GetField<Dictionary<Guid, string>>(vm, "_chatDrafts")[queuedChat.Id]);
+            Assert.Equal([attachmentPath], GetChatDraftAttachmentPaths(vm, queuedChat.Id));
+            Assert.Empty(queuedChat.Messages);
+        }
+        finally
+        {
+            File.Delete(attachmentPath);
+        }
+    }
+
+    [Fact]
+    public void RestoreComposerDraft_RestoresDraftPromptAndAttachments()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "draft-chat" };
+        var oldAttachmentPath = Path.GetTempFileName();
+        var draftAttachmentPath = Path.GetTempFileName();
+
+        try
+        {
+            dataStore.Data.Chats.Add(chat);
+            vm.PromptText = "old draft";
+            vm.AddAttachment(oldAttachmentPath);
+            InvokePrivate(vm, "SaveChatDraft", chat.Id, "restored draft", new[] { draftAttachmentPath });
+
+            InvokePrivate(vm, "RestoreComposerDraft", chat.Id);
+
+            Assert.Equal("restored draft", vm.PromptText);
+            Assert.Equal([draftAttachmentPath], vm.PendingAttachments);
+            var item = Assert.Single(vm.PendingAttachmentItems);
+            Assert.Equal(draftAttachmentPath, item.FilePath);
+        }
+        finally
+        {
+            File.Delete(oldAttachmentPath);
+            File.Delete(draftAttachmentPath);
+        }
     }
 
     [Fact]
@@ -975,6 +1014,9 @@ public sealed class ChatViewModelLeakTests
             .GetProperty("AttachmentPaths")
             ?.GetValue(GetQueuedBusySend(vm, chatId))
             ?? throw new InvalidOperationException("Queued send attachment paths were not found."));
+
+    private static IReadOnlyList<string> GetChatDraftAttachmentPaths(ChatViewModel vm, Guid chatId)
+        => GetField<Dictionary<Guid, List<string>>>(vm, "_chatDraftAttachmentPaths")[chatId];
 
     private static void QueueBusySendPrompt(ChatViewModel vm, Guid chatId, string prompt, params string[] attachmentPaths)
     {

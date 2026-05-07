@@ -31,7 +31,7 @@ public partial class ChatViewModel
 
         if (CurrentChat?.Id != chatId)
         {
-            _chatDrafts[chatId] = prompt;
+            SaveChatDraft(chatId, prompt, queuedSend.AttachmentPaths);
             return;
         }
 

@@ -132,6 +132,8 @@ public partial class ChatViewModel : ObservableObject
     private Guid? _suggestionDisplayChatId;
     /// <summary>Maps chat ID → unsent composer draft text. Guid.Empty is used for the "new chat" state.</summary>
     private readonly Dictionary<Guid, string> _chatDrafts = new();
+    /// <summary>Maps chat ID → unsent composer attachment paths. Guid.Empty is used for the "new chat" state.</summary>
+    private readonly Dictionary<Guid, List<string>> _chatDraftAttachmentPaths = new();
     /// <summary>Maps chat ID → turn submitted while the chat was busy. Drained after the active turn stops.</summary>
     private readonly Dictionary<Guid, QueuedBusySend> _queuedBusySendPrompts = new();
     /// <summary>Tracks the last assistant message ID that already produced suggestions per chat.</summary>
@@ -908,13 +910,7 @@ public partial class ChatViewModel : ObservableObject
         if (CurrentChat?.Id != chat.Id)
         {
             _suggestionDisplayChatId = chat.Id;
-
-            // Save unsent composer draft for the chat we're leaving
-            var leavingId = CurrentChat?.Id ?? Guid.Empty;
-            if (!string.IsNullOrEmpty(PromptText))
-                _chatDrafts[leavingId] = PromptText!;
-            else
-                _chatDrafts.Remove(leavingId);
+            SaveComposerDraft(CurrentChat?.Id ?? Guid.Empty);
 
             BrowserHideRequested?.Invoke();
             DiffHideRequested?.Invoke();
@@ -973,8 +969,7 @@ public partial class ChatViewModel : ObservableObject
                 CurrentChat = chat;
                 chat.HasUnreadMessages = false; // Clear unread when switching to this chat
 
-                // Restore unsent composer draft for this chat
-                PromptText = _chatDrafts.TryGetValue(chat.Id, out var draft) ? draft : "";
+                RestoreComposerDraft(chat.Id);
                 RestoreSuggestionsForChat(chat);
 
                 if (previousChat is not null)
@@ -1151,12 +1146,7 @@ public partial class ChatViewModel : ObservableObject
             catch (ObjectDisposedException) { }
         }
 
-        // Save unsent composer draft for the chat we're leaving
-        var leavingId = CurrentChat?.Id ?? Guid.Empty;
-        if (!string.IsNullOrEmpty(PromptText))
-            _chatDrafts[leavingId] = PromptText!;
-        else
-            _chatDrafts.Remove(leavingId);
+        SaveComposerDraft(CurrentChat?.Id ?? Guid.Empty);
 
         BrowserHideRequested?.Invoke();
         DiffHideRequested?.Invoke();
@@ -1204,8 +1194,7 @@ public partial class ChatViewModel : ObservableObject
         SelectedSdkAgentName = null;
         SdkAgentChips.Clear();
 
-        // Restore unsent composer draft for the "new chat" state
-        PromptText = _chatDrafts.TryGetValue(Guid.Empty, out var draft) ? draft : "";
+        RestoreComposerDraft(Guid.Empty);
 
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
@@ -1517,6 +1506,53 @@ public partial class ChatViewModel : ObservableObject
             ? "Please use the attached file as context."
             : "Please use the attached files as context.";
 
+    private void SaveComposerDraft(Guid chatId)
+    {
+        SaveChatDraft(chatId, PromptText, PendingAttachmentItems.Select(static item => item.FilePath));
+    }
+
+    private void SaveChatDraft(Guid chatId, string? promptText, IEnumerable<string>? attachmentPaths)
+    {
+        if (!string.IsNullOrEmpty(promptText))
+            _chatDrafts[chatId] = promptText!;
+        else
+            _chatDrafts.Remove(chatId);
+
+        var paths = attachmentPaths?
+            .Where(static path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
+
+        if (paths.Count > 0)
+            _chatDraftAttachmentPaths[chatId] = paths;
+        else
+            _chatDraftAttachmentPaths.Remove(chatId);
+    }
+
+    private void ClearComposerDraft(Guid chatId)
+    {
+        _chatDrafts.Remove(chatId);
+        _chatDraftAttachmentPaths.Remove(chatId);
+    }
+
+    private void RestoreComposerDraft(Guid chatId)
+    {
+        PromptText = _chatDrafts.TryGetValue(chatId, out var draft) ? draft : "";
+        RestoreDraftAttachments(chatId);
+    }
+
+    private void RestoreDraftAttachments(Guid chatId)
+    {
+        PendingAttachments.Clear();
+        PendingAttachmentItems.Clear();
+
+        if (!_chatDraftAttachmentPaths.TryGetValue(chatId, out var attachmentPaths))
+            return;
+
+        foreach (var attachmentPath in attachmentPaths)
+            AddAttachment(attachmentPath);
+    }
+
     internal static List<string> GetChatMessageAttachmentPaths(IEnumerable<UserMessageAttachment>? attachments)
     {
         if (attachments is null)
@@ -1558,7 +1594,7 @@ public partial class ChatViewModel : ObservableObject
             if (consumeComposerPrompt)
             {
                 PromptText = "";
-                _chatDrafts.Remove(activeChat.Id);
+                ClearComposerDraft(activeChat.Id);
                 if (hasAttachments && attachmentPathSnapshot is null)
                 {
                     PendingAttachments.Clear();
@@ -1589,9 +1625,12 @@ public partial class ChatViewModel : ObservableObject
                 StatusText = Loc.Status_CheckAccess;
                 if (!consumeComposerPrompt && CurrentChat is not null)
                 {
-                    _chatDrafts[CurrentChat.Id] = prompt;
+                    SaveChatDraft(CurrentChat.Id, prompt, attachmentPaths);
                     if (string.IsNullOrWhiteSpace(PromptText))
+                    {
                         PromptText = prompt;
+                        RestoreDraftAttachments(CurrentChat.Id);
+                    }
                 }
 
                 return;
@@ -1601,7 +1640,7 @@ public partial class ChatViewModel : ObservableObject
         if (consumeComposerPrompt)
         {
             PromptText = "";
-            _chatDrafts.Remove(CurrentChat?.Id ?? Guid.Empty);
+            ClearComposerDraft(CurrentChat?.Id ?? Guid.Empty);
         }
         ClearSuggestions();
         var selectedReasoningEffort = GetPersistedReasoningEffortPreference();
