@@ -1570,6 +1570,53 @@ public partial class ChatViewModel : ObservableObject
             .ToList();
     }
 
+    private List<string> GetAttachmentPathsReadyForSend(IReadOnlyCollection<string>? attachmentPathSnapshot)
+    {
+        var attachmentPaths = attachmentPathSnapshot is not null
+            ? attachmentPathSnapshot.Where(static path => !string.IsNullOrWhiteSpace(path)).ToList()
+            : PendingAttachments.Where(static path => !string.IsNullOrWhiteSpace(path)).ToList();
+
+        if (attachmentPathSnapshot is not null)
+            return attachmentPaths;
+
+        var sendablePaths = new List<string>(attachmentPaths.Count);
+        foreach (var path in attachmentPaths)
+        {
+            var validationError = AttachmentPreparationService.ValidatePendingPath(path);
+            if (validationError is null)
+            {
+                sendablePaths.Add(path);
+                continue;
+            }
+
+            MarkPendingAttachmentFailed(path, validationError);
+            StatusText = validationError;
+        }
+
+        return sendablePaths;
+    }
+
+    private void MarkPendingAttachmentFailed(string filePath, string errorMessage)
+    {
+        PendingAttachments.Remove(filePath);
+
+        var pendingItem = PendingAttachmentItems.FirstOrDefault(item =>
+            string.Equals(item.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+        if (pendingItem is not null)
+        {
+            pendingItem.MarkFailed(errorMessage);
+            UpdatePendingAttachmentErrorText();
+            return;
+        }
+
+        PendingAttachmentItems.Add(new FileAttachmentItem(
+            filePath,
+            isRemovable: true,
+            removeAction: RemoveAttachment,
+            status: StrataAttachmentStatus.Failed,
+            errorMessage: errorMessage));
+    }
+
     private Task SendMessageCore(string? promptText, bool consumeComposerPrompt)
         => SendMessageCore(promptText, consumeComposerPrompt, attachmentPathSnapshot: null);
 
@@ -1578,9 +1625,7 @@ public partial class ChatViewModel : ObservableObject
         bool consumeComposerPrompt,
         IReadOnlyCollection<string>? attachmentPathSnapshot)
     {
-        var attachmentPaths = attachmentPathSnapshot is not null
-            ? attachmentPathSnapshot.Where(static path => !string.IsNullOrWhiteSpace(path)).ToList()
-            : PendingAttachments.Where(static path => !string.IsNullOrWhiteSpace(path)).ToList();
+        var attachmentPaths = GetAttachmentPathsReadyForSend(attachmentPathSnapshot);
         var hasAttachments = attachmentPaths.Count > 0;
         if (string.IsNullOrWhiteSpace(promptText) && !hasAttachments)
             return;

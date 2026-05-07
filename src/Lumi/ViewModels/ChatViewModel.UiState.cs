@@ -98,11 +98,13 @@ public partial class ChatViewModel
     public ObservableCollection<StrataComposerChip> AvailableProjectChips { get; } = [];
     [ObservableProperty] private IEnumerable<StrataComposerChip>? _availableFileSuggestions;
     public ObservableCollection<FileAttachmentItem> PendingAttachmentItems { get; } = [];
+    [ObservableProperty] private string _pendingAttachmentErrorText = "";
 
     public bool IsWelcomeVisible => CurrentChat is null;
     public bool IsChatVisible => CurrentChat is not null;
     public bool HasPendingAttachments => PendingAttachmentItems.Count > 0;
     public bool HasSendablePendingAttachments => PendingAttachments.Count > 0;
+    public bool HasPendingAttachmentError => !string.IsNullOrWhiteSpace(PendingAttachmentErrorText);
     public bool HasProjectBadge => !string.IsNullOrWhiteSpace(ProjectBadgeText);
     public bool HasAgentBadge => !string.IsNullOrWhiteSpace(AgentBadgeText);
     public bool HasHeaderSubtitle => HasProjectBadge || HasAgentBadge;
@@ -765,11 +767,24 @@ public partial class ChatViewModel
     private void OnPendingAttachmentItemsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         OnPropertyChanged(nameof(HasPendingAttachments));
+        UpdatePendingAttachmentErrorText();
     }
 
     private void OnPendingAttachmentsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         OnPropertyChanged(nameof(HasSendablePendingAttachments));
+    }
+
+    partial void OnPendingAttachmentErrorTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasPendingAttachmentError));
+    }
+
+    private void UpdatePendingAttachmentErrorText()
+    {
+        PendingAttachmentErrorText = PendingAttachmentItems
+            .Select(static item => item.ErrorMessage)
+            .FirstOrDefault(static error => !string.IsNullOrWhiteSpace(error)) ?? "";
     }
 
     private void OnActiveSkillChipsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs args)

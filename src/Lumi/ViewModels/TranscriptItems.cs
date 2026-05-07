@@ -753,9 +753,9 @@ public partial class FileAttachmentItem : ObservableObject
     public string FileName { get; }
     public string? FileSize { get; }
     public bool IsRemovable { get; }
-    public StrataAttachmentStatus Status { get; }
-    public string? ErrorMessage { get; }
     public Avalonia.Media.Imaging.Bitmap? IconImage { get; }
+    [ObservableProperty] private StrataAttachmentStatus _status;
+    [ObservableProperty] private string? _errorMessage;
 
     public FileAttachmentItem(
         string filePath,
@@ -780,6 +780,12 @@ public partial class FileAttachmentItem : ObservableObject
         catch { /* ignore */ }
 
         IconImage = Services.FileIconHelper.GetFileIcon(filePath);
+    }
+
+    public void MarkFailed(string errorMessage)
+    {
+        Status = StrataAttachmentStatus.Failed;
+        ErrorMessage = errorMessage;
     }
 
     [RelayCommand]

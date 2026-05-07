@@ -188,8 +188,74 @@ public sealed class ChatViewModelLeakTests
         Assert.Empty(vm.PendingAttachments);
         Assert.True(vm.HasPendingAttachments);
         Assert.False(vm.HasSendablePendingAttachments);
+        Assert.True(vm.HasPendingAttachmentError);
+        Assert.Contains("Attachment not found", vm.PendingAttachmentErrorText);
         var item = Assert.Single(vm.PendingAttachmentItems);
         Assert.Equal(missingPath, item.FilePath);
+        Assert.Equal(StrataTheme.Controls.StrataAttachmentStatus.Failed, item.Status);
+        Assert.Contains("Attachment not found", item.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task SendMessage_WhenPendingAttachmentWasDeleted_MarksChipFailedWithoutSendingAttachmentOnly()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "attachment-chat" };
+        var attachmentPath = Path.GetTempFileName();
+
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+        vm.AddAttachment(attachmentPath);
+        File.Delete(attachmentPath);
+
+        await InvokePrivateAsync(vm, "SendMessage");
+
+        Assert.Empty(chat.Messages);
+        Assert.Empty(vm.PendingAttachments);
+        Assert.True(vm.HasPendingAttachments);
+        Assert.False(vm.HasSendablePendingAttachments);
+        Assert.True(vm.HasPendingAttachmentError);
+        Assert.Contains("Attachment not found", vm.StatusText);
+        Assert.Contains("Attachment not found", vm.PendingAttachmentErrorText);
+        var item = Assert.Single(vm.PendingAttachmentItems);
+        Assert.Equal(attachmentPath, item.FilePath);
+        Assert.Equal(StrataTheme.Controls.StrataAttachmentStatus.Failed, item.Status);
+        Assert.Contains("Attachment not found", item.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task SendMessage_WhenPendingAttachmentWasDeleted_QueuesTextWithoutStaleAttachment()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "busy-chat" };
+        var attachmentPath = Path.GetTempFileName();
+
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+        vm.PromptText = "send the text";
+        vm.AddAttachment(attachmentPath);
+        File.Delete(attachmentPath);
+        GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[chat.Id] = new ChatRuntimeState
+        {
+            Chat = chat,
+            IsBusy = true
+        };
+
+        await InvokePrivateAsync(vm, "SendMessage");
+
+        Assert.Empty(chat.Messages);
+        Assert.Equal("", vm.PromptText);
+        Assert.Empty(vm.PendingAttachments);
+        Assert.True(vm.HasPendingAttachments);
+        Assert.False(vm.HasSendablePendingAttachments);
+        Assert.True(vm.HasPendingAttachmentError);
+        Assert.Contains("Attachment not found", vm.PendingAttachmentErrorText);
+        Assert.Equal("send the text", GetQueuedBusySendPrompt(vm, chat.Id));
+        Assert.Empty(GetQueuedBusySendAttachmentPaths(vm, chat.Id));
+        var item = Assert.Single(vm.PendingAttachmentItems);
+        Assert.Equal(attachmentPath, item.FilePath);
         Assert.Equal(StrataTheme.Controls.StrataAttachmentStatus.Failed, item.Status);
         Assert.Contains("Attachment not found", item.ErrorMessage);
     }
