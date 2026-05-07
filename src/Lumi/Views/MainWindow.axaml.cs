@@ -135,7 +135,7 @@ public partial class MainWindow : Window
         Background = Avalonia.Media.Brushes.Transparent;
         TransparencyBackgroundFallback = Avalonia.Media.Brushes.Transparent;
 
-        // Watch for minimize to hide to tray
+        // Watch for window state changes that affect chrome/layout.
         this.PropertyChanged += (_, e) =>
         {
             if (e.Property == WindowStateProperty)
@@ -365,7 +365,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(WindowClosingEventArgs e)
     {
-        // If minimize-to-tray is enabled, hide instead of closing
+        // If tray behavior is enabled, hide instead of closing.
         if (DataContext is MainViewModel vm && vm.SettingsVM.MinimizeToTray)
         {
             e.Cancel = true;
@@ -753,17 +753,10 @@ public partial class MainWindow : Window
         Hide();
     }
 
-    /// <summary>Handle WindowState changes: when minimized + tray enabled, hide to tray.</summary>
+    /// <summary>Handle WindowState changes that affect window chrome/layout.</summary>
     private void OnWindowStateChanged()
     {
         ApplyWindowContentPaddingForState();
-
-        if (WindowState == WindowState.Minimized
-            && DataContext is MainViewModel vm
-            && vm.SettingsVM.MinimizeToTray)
-        {
-            HideToTray();
-        }
     }
 
     private void ApplyWindowContentPaddingForState()
