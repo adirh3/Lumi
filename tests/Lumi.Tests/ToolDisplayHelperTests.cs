@@ -166,4 +166,32 @@ public class ToolDisplayHelperTests
                 Assert.Equal("https://contoso.com/post", second.Url);
             });
     }
+
+    [Fact]
+    public void IsWebFetchTool_RecognizesFetchVariants()
+    {
+        Assert.True(ToolDisplayHelper.IsWebFetchTool("web_fetch"));
+        Assert.True(ToolDisplayHelper.IsWebFetchTool("fetch"));
+        Assert.True(ToolDisplayHelper.IsWebFetchTool("lumi_fetch"));
+        Assert.False(ToolDisplayHelper.IsWebFetchTool("web_search"));
+        Assert.False(ToolDisplayHelper.IsWebFetchTool(null));
+    }
+
+    [Fact]
+    public void ExtractFetchSource_UsesFetchArgumentsAndReadableResult()
+    {
+        var source = ToolDisplayHelper.ExtractFetchSource("{\"url\":\"https://example.com/article\"}");
+
+        Assert.NotNull(source);
+        Assert.Equal("example.com", source.Title);
+        Assert.Equal(string.Empty, source.Snippet);
+        Assert.Equal("https://example.com/article", source.Url);
+    }
+
+    [Fact]
+    public void ExtractFetchSource_IgnoresMissingOrNonWebUrl()
+    {
+        Assert.Null(ToolDisplayHelper.ExtractFetchSource("{}"));
+        Assert.Null(ToolDisplayHelper.ExtractFetchSource("{\"url\":\"file:///C:/temp/page.html\"}"));
+    }
 }

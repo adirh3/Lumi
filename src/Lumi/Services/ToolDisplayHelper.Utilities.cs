@@ -190,6 +190,30 @@ public static partial class ToolDisplayHelper
         return sources;
     }
 
+    public static bool IsWebFetchTool(string? toolName)
+    {
+        return toolName is "web_fetch" or "fetch" or "lumi_fetch";
+    }
+
+    public static SearchSource? ExtractFetchSource(string? argsJson)
+    {
+        var url = ExtractJsonField(argsJson, "url");
+        if (string.IsNullOrWhiteSpace(url)
+            || !Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            || !IsWebUri(uri))
+            return null;
+
+        return new SearchSource
+        {
+            Title = uri.Host,
+            Snippet = string.Empty,
+            Url = uri.AbsoluteUri
+        };
+    }
+
+    private static bool IsWebUri(Uri uri)
+        => uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
+
     /// <summary>Returns true if the file looks like a user-facing deliverable, not a temp script.</summary>
     public static bool IsUserFacingFile(string filePath)
     {

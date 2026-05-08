@@ -504,6 +504,67 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public void AttachSourcesToFinalAssistantMessage_UsesOnlyLatestAssistantAfterUserTurn()
+    {
+        var previousAssistant = new ChatMessage { Role = "assistant", Content = "Previous answer" };
+        var firstAssistant = new ChatMessage { Role = "assistant", Content = "I will look that up." };
+        var finalAssistant = new ChatMessage { Role = "assistant", Content = "Here is the final answer." };
+        var chat = new Chat();
+        chat.Messages.Add(previousAssistant);
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "Find current info" });
+        chat.Messages.Add(firstAssistant);
+        chat.Messages.Add(new ChatMessage { Role = "tool", ToolName = "web_search", Content = "{}" });
+        chat.Messages.Add(finalAssistant);
+
+        var updatedMessage = InvokePrivateStaticNullable<ChatMessage>(
+            typeof(ChatViewModel),
+            "AttachSourcesToFinalAssistantMessage",
+            chat,
+            new List<SearchSource>
+            {
+                new()
+                {
+                    Title = "Example Domain",
+                    Url = "https://example.com/",
+                    Snippet = "Example snippet"
+                }
+            });
+
+        Assert.Same(finalAssistant, updatedMessage);
+        Assert.Empty(previousAssistant.Sources);
+        Assert.Empty(firstAssistant.Sources);
+        var source = Assert.Single(finalAssistant.Sources);
+        Assert.Equal("https://example.com/", source.Url);
+    }
+
+    [Fact]
+    public void AttachSourcesToFinalAssistantMessage_DoesNotLeakToPreviousTurn()
+    {
+        var previousAssistant = new ChatMessage { Role = "assistant", Content = "Previous answer" };
+        var chat = new Chat();
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "Earlier question" });
+        chat.Messages.Add(previousAssistant);
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "New question" });
+
+        var updatedMessage = InvokePrivateStaticNullable<ChatMessage>(
+            typeof(ChatViewModel),
+            "AttachSourcesToFinalAssistantMessage",
+            chat,
+            new List<SearchSource>
+            {
+                new()
+                {
+                    Title = "Example Domain",
+                    Url = "https://example.com/",
+                    Snippet = "Example snippet"
+                }
+            });
+
+        Assert.Null(updatedMessage);
+        Assert.Empty(previousAssistant.Sources);
+    }
+
+    [Fact]
     public void BuildSessionRecoveryReplayPrompt_IncludesRetainedTranscriptAndLatestMessage()
     {
         var retainedContext = new List<ChatMessage>
@@ -895,6 +956,15 @@ public sealed class ChatViewModelLeakTests
             .GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)
             ?.Invoke(null, args)
             ?? throw new InvalidOperationException($"Static method {name} was not found."));
+
+    private static T? InvokePrivateStaticNullable<T>(Type type, string name, params object[] args)
+        where T : class
+    {
+        var method = type.GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException($"Static method {name} was not found.");
+
+        return (T?)method.Invoke(null, args);
+    }
 
     private static void InvokePrivateStatic(Type type, string name, params object?[] args)
     {
