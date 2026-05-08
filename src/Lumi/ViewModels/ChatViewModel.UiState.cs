@@ -119,6 +119,7 @@ public partial class ChatViewModel
     // Model reasoning effort capabilities from SDK
     private Dictionary<string, List<string>> _modelReasoningEfforts = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _modelDefaultEfforts = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, long> _modelContextTokenLimits = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Updates the model capabilities cache from SDK ModelInfo list.
@@ -126,8 +127,18 @@ public partial class ChatViewModel
     /// </summary>
     public void UpdateModelCapabilities(List<GitHub.Copilot.SDK.ModelInfo> models)
     {
-        ModelSelectionHelper.ApplyModelCapabilities(models, _modelReasoningEfforts, _modelDefaultEfforts);
+        ModelSelectionHelper.ApplyModelCapabilities(
+            models,
+            _modelReasoningEfforts,
+            _modelDefaultEfforts,
+            _modelContextTokenLimits);
         UpdateQualityLevels(SelectedModel);
+
+        if (CurrentChat is { } chat)
+        {
+            var runtime = GetOrCreateRuntimeState(chat.Id);
+            ApplyKnownContextTokenLimit(chat, runtime, ResolveSelectedModelForChat(chat), updateDisplayed: true);
+        }
     }
 
     private void UpdateQualityLevels(string? modelId)

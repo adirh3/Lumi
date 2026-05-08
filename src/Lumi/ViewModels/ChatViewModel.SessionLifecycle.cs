@@ -1463,8 +1463,12 @@ public partial class ChatViewModel
                         runtime.TotalOutputTokens += (long)(d.OutputTokens ?? 0);
                         // Each API call sends the full conversation context, so the latest
                         // InputTokens is the best proxy for current context window usage.
-                        if (turnInput > 0)
-                            runtime.ContextCurrentTokens = turnInput;
+                        ApplyContextUsage(
+                            chat,
+                            runtime,
+                            turnInput > 0 ? turnInput : null,
+                            ResolveKnownContextTokenLimit(d.Model) is > 0 and var modelTokenLimit ? modelTokenLimit : null,
+                            IsDisplayedSession());
                         // Persist token counts to the Chat model so they survive restarts.
                         chat.TotalInputTokens = runtime.TotalInputTokens;
                         chat.TotalOutputTokens = runtime.TotalOutputTokens;
@@ -1472,7 +1476,6 @@ public partial class ChatViewModel
                         {
                             TotalInputTokens = runtime.TotalInputTokens;
                             TotalOutputTokens = runtime.TotalOutputTokens;
-                            ContextCurrentTokens = runtime.ContextCurrentTokens;
                             OnPropertyChanged(nameof(CurrentChat));
                         }
                     });
@@ -1481,9 +1484,14 @@ public partial class ChatViewModel
                 case SessionUsageInfoEvent sessionUsage:
                     Dispatcher.UIThread.Post(() =>
                     {
-                        runtime.ContextTokenLimit = (long)sessionUsage.Data.TokenLimit;
-                        if (IsDisplayedSession())
-                            ContextTokenLimit = runtime.ContextTokenLimit;
+                        var currentTokens = NormalizeTokenCount(sessionUsage.Data.CurrentTokens);
+                        var tokenLimit = NormalizeTokenCount(sessionUsage.Data.TokenLimit);
+                        ApplyContextUsage(
+                            chat,
+                            runtime,
+                            currentTokens > 0 ? currentTokens : null,
+                            tokenLimit > 0 ? tokenLimit : null,
+                            IsDisplayedSession());
                     });
                     break;
 
@@ -1514,6 +1522,7 @@ public partial class ChatViewModel
                         if (IsDisplayedSession() && !AvailableModels.Contains(effectiveModel))
                             AvailableModels.Add(effectiveModel);
                         chat.LastModelUsed = effectiveModel;
+                        ApplyKnownContextTokenLimit(chat, runtime, effectiveModel, IsDisplayedSession());
                     }
 
                     chat.LastReasoningEffortUsed = ModelSelectionHelper.NormalizeEffort(
@@ -1551,6 +1560,7 @@ public partial class ChatViewModel
                         if (IsDisplayedSession() && !AvailableModels.Contains(effectiveModel))
                             AvailableModels.Add(effectiveModel);
                         chat.LastModelUsed = effectiveModel;
+                        ApplyKnownContextTokenLimit(chat, runtime, effectiveModel, IsDisplayedSession());
                     }
 
                     chat.LastReasoningEffortUsed = ModelSelectionHelper.NormalizeEffort(
@@ -1578,6 +1588,7 @@ public partial class ChatViewModel
                         if (IsDisplayedSession() && !AvailableModels.Contains(modelChange.Data.NewModel))
                             AvailableModels.Add(modelChange.Data.NewModel);
                         chat.LastModelUsed = modelChange.Data.NewModel;
+                        ApplyKnownContextTokenLimit(chat, runtime, modelChange.Data.NewModel, IsDisplayedSession());
                         chat.LastReasoningEffortUsed = ModelSelectionHelper.NormalizeEffort(
                             chat.LastReasoningEffortUsed ?? ResolvePersistedReasoningEffortForChat(chat, modelChange.Data.NewModel),
                             modelChange.Data.NewModel,
@@ -1881,7 +1892,11 @@ public partial class ChatViewModel
                 Chat = chat,
                 TotalInputTokens = chat?.TotalInputTokens ?? 0,
                 TotalOutputTokens = chat?.TotalOutputTokens ?? 0,
+                ContextCurrentTokens = chat?.ContextCurrentTokens ?? 0,
+                ContextTokenLimit = chat?.ContextTokenLimit ?? 0,
             };
+            if (chat is not null)
+                ApplyKnownContextTokenLimit(chat, runtime, ResolveSelectedModelForChat(chat), updateDisplayed: false);
             _runtimeStates[chatId] = runtime;
         }
         return runtime;

@@ -243,6 +243,8 @@ internal static class AppDataSnapshotFactory
             LastReasoningEffortUsed = source.LastReasoningEffortUsed,
             TotalInputTokens = source.TotalInputTokens,
             TotalOutputTokens = source.TotalOutputTokens,
+            ContextCurrentTokens = source.ContextCurrentTokens,
+            ContextTokenLimit = source.ContextTokenLimit,
             PlanContent = source.PlanContent,
             FollowUpSuggestions = [..source.FollowUpSuggestions],
             FollowUpSuggestionAssistantMessageId = source.FollowUpSuggestionAssistantMessageId,

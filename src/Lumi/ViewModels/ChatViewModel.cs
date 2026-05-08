@@ -194,18 +194,18 @@ public partial class ChatViewModel : ObservableObject
 
     public bool HasTokenUsage => TotalInputTokens > 0 || TotalOutputTokens > 0;
     public bool ShowInfoStrip => IsCodingProject || HasTokenUsage;
-    public string TokenUsageSummary => ContextTokenLimit > 0
+    public string TokenUsageSummary => HasContextUsage
         ? $"{ContextUsagePercent}%"
         : FormatTokenCount(TotalInputTokens + TotalOutputTokens);
-    public string TokenUsageSuffixText => ContextTokenLimit > 0 ? "context" : "tokens";
+    public string TokenUsageSuffixText => HasContextUsage ? "context" : "tokens";
     public string TokenInputDisplay => $"{TotalInputTokens:N0}";
     public string TokenOutputDisplay => $"{TotalOutputTokens:N0}";
     public string TokenTotalDisplay => $"{TotalInputTokens + TotalOutputTokens:N0}";
-    public bool HasContextUsage => ContextTokenLimit > 0;
+    public bool HasContextUsage => ContextCurrentTokens > 0 && ContextTokenLimit > 0;
     public int ContextUsagePercent => ContextTokenLimit > 0
         ? (int)Math.Round(100.0 * ContextCurrentTokens / ContextTokenLimit)
         : 0;
-    public string ContextUsageDisplay => ContextTokenLimit > 0
+    public string ContextUsageDisplay => HasContextUsage
         ? $"{FormatTokenCount(ContextCurrentTokens)} / {FormatTokenCount(ContextTokenLimit)}"
         : "";
 
@@ -234,6 +234,66 @@ public partial class ChatViewModel : ObservableObject
         < 1_000_000 => $"{tokens / 1_000.0:0.#}K",
         _ => $"{tokens / 1_000_000.0:0.##}M"
     };
+
+    private static long NormalizeTokenCount(double tokens)
+    {
+        if (double.IsNaN(tokens) || double.IsInfinity(tokens) || tokens <= 0)
+            return 0;
+
+        return (long)Math.Round(tokens);
+    }
+
+    private long ResolveKnownContextTokenLimit(string? modelId)
+    {
+        if (string.IsNullOrWhiteSpace(modelId))
+            return 0;
+
+        return _modelContextTokenLimits.TryGetValue(modelId, out var tokenLimit)
+            ? tokenLimit
+            : 0;
+    }
+
+    private void ApplyKnownContextTokenLimit(
+        Chat chat,
+        ChatRuntimeState runtime,
+        string? modelId,
+        bool updateDisplayed)
+    {
+        var tokenLimit = ResolveKnownContextTokenLimit(modelId);
+        if (tokenLimit <= 0)
+            return;
+
+        var currentTokens = runtime.ContextCurrentTokens <= 0 && chat.ContextCurrentTokens > 0
+            ? chat.ContextCurrentTokens
+            : (long?)null;
+        ApplyContextUsage(chat, runtime, currentTokens, tokenLimit, updateDisplayed);
+    }
+
+    private void ApplyContextUsage(
+        Chat chat,
+        ChatRuntimeState runtime,
+        long? currentTokens,
+        long? tokenLimit,
+        bool updateDisplayed)
+    {
+        if (currentTokens is > 0 and var currentTokenValue)
+        {
+            runtime.ContextCurrentTokens = currentTokenValue;
+            chat.ContextCurrentTokens = currentTokenValue;
+        }
+
+        if (tokenLimit is > 0 and var tokenLimitValue)
+        {
+            runtime.ContextTokenLimit = tokenLimitValue;
+            chat.ContextTokenLimit = tokenLimitValue;
+        }
+
+        if (updateDisplayed)
+        {
+            ContextCurrentTokens = runtime.ContextCurrentTokens;
+            ContextTokenLimit = runtime.ContextTokenLimit;
+        }
+    }
 
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = [];
     /// <summary>Full transcript turn store retained in memory for the active chat.</summary>
@@ -882,6 +942,7 @@ public partial class ChatViewModel : ObservableObject
 
             // Restore real runtime state for this session/chat
             var runtime = GetOrCreateRuntimeState(chat.Id);
+            ApplyKnownContextTokenLimit(chat, runtime, ResolveSelectedModelForChat(chat), updateDisplayed: false);
             IsBusy = runtime.IsBusy;
             IsStreaming = runtime.IsStreaming;
             StatusText = runtime.StatusText;

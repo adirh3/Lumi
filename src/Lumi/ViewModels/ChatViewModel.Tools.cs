@@ -373,6 +373,11 @@ public partial class ChatViewModel
     partial void OnSelectedModelChanged(string? value)
     {
         UpdateQualityLevels(value);
+        if (CurrentChat is { } activeChat)
+        {
+            var runtime = GetOrCreateRuntimeState(activeChat.Id);
+            ApplyKnownContextTokenLimit(activeChat, runtime, value, updateDisplayed: true);
+        }
 
         if (_suppressModelSelectionSideEffects || string.IsNullOrWhiteSpace(value))
             return;

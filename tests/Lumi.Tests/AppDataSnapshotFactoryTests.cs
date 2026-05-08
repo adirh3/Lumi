@@ -153,6 +153,31 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void AppDataJsonContext_SerializesChatContextUsage()
+    {
+        var data = new AppData
+        {
+            Chats =
+            [
+                CreateChat(
+                    Guid.NewGuid(),
+                    title: "Context usage check",
+                    copilotSessionId: null,
+                    updatedAt: new DateTimeOffset(2026, 3, 31, 18, 30, 0, TimeSpan.Zero),
+                    contextCurrentTokens: 42_000,
+                    contextTokenLimit: 128_000)
+            ]
+        };
+
+        var json = JsonSerializer.Serialize(data, AppDataJsonContext.Default.AppData);
+        using var document = JsonDocument.Parse(json);
+
+        var chat = document.RootElement.GetProperty("chats")[0];
+        Assert.Equal(42_000, chat.GetProperty("contextCurrentTokens").GetInt64());
+        Assert.Equal(128_000, chat.GetProperty("contextTokenLimit").GetInt64());
+    }
+
+    [Fact]
     public void AppDataJsonContext_SerializesChatFollowUpSuggestions()
     {
         var assistantMessageId = Guid.NewGuid();
@@ -335,6 +360,8 @@ public class AppDataSnapshotFactoryTests
                     lastReasoningEffortUsed: "high",
                     totalInputTokens: 100,
                     totalOutputTokens: 200,
+                    contextCurrentTokens: 90,
+                    contextTokenLimit: 1_000,
                     planContent: "updated plan",
                     followUpSuggestions: ["Run code review", "Push changes"],
                     followUpSuggestionAssistantMessageId: chatId)
@@ -371,6 +398,8 @@ public class AppDataSnapshotFactoryTests
         Assert.Equal("high", chat.LastReasoningEffortUsed);
         Assert.Equal(100, chat.TotalInputTokens);
         Assert.Equal(200, chat.TotalOutputTokens);
+        Assert.Equal(90, chat.ContextCurrentTokens);
+        Assert.Equal(1_000, chat.ContextTokenLimit);
         Assert.Equal("updated plan", chat.PlanContent);
         Assert.Equal(["Run code review", "Push changes"], chat.FollowUpSuggestions);
         Assert.Equal(chatId, chat.FollowUpSuggestionAssistantMessageId);
@@ -403,7 +432,9 @@ public class AppDataSnapshotFactoryTests
                     copilotSessionId: null,
                     updatedAt: new DateTimeOffset(2026, 3, 20, 11, 5, 0, TimeSpan.Zero),
                     totalInputTokens: 100,
-                    totalOutputTokens: 200)
+                    totalOutputTokens: 200,
+                    contextCurrentTokens: 80,
+                    contextTokenLimit: 1_000)
             ]
         };
 
@@ -415,6 +446,8 @@ public class AppDataSnapshotFactoryTests
         Assert.Equal(persistedSnapshot.Chats[0].UpdatedAt, chat.UpdatedAt);
         Assert.Equal(100, chat.TotalInputTokens);
         Assert.Equal(200, chat.TotalOutputTokens);
+        Assert.Equal(80, chat.ContextCurrentTokens);
+        Assert.Equal(1_000, chat.ContextTokenLimit);
     }
 
     [Fact]
@@ -553,6 +586,8 @@ public class AppDataSnapshotFactoryTests
         string? lastReasoningEffortUsed = null,
         long totalInputTokens = 0,
         long totalOutputTokens = 0,
+        long contextCurrentTokens = 0,
+        long contextTokenLimit = 0,
         string? planContent = null,
         List<string>? followUpSuggestions = null,
         Guid? followUpSuggestionAssistantMessageId = null)
@@ -569,6 +604,8 @@ public class AppDataSnapshotFactoryTests
             LastReasoningEffortUsed = lastReasoningEffortUsed,
             TotalInputTokens = totalInputTokens,
             TotalOutputTokens = totalOutputTokens,
+            ContextCurrentTokens = contextCurrentTokens,
+            ContextTokenLimit = contextTokenLimit,
             PlanContent = planContent,
             FollowUpSuggestions = followUpSuggestions ?? [],
             FollowUpSuggestionAssistantMessageId = followUpSuggestionAssistantMessageId

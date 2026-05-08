@@ -28,8 +28,10 @@ public partial class ChatViewModel
         StatusText = "Debug transcript fixture";
         TotalInputTokens = fixture.TotalInputTokens;
         TotalOutputTokens = fixture.TotalOutputTokens;
-        ContextCurrentTokens = fixture.TotalInputTokens + fixture.TotalOutputTokens;
-        ContextTokenLimit = 128000;
+        fixture.ContextCurrentTokens = fixture.TotalInputTokens + fixture.TotalOutputTokens;
+        fixture.ContextTokenLimit = 128000;
+        ContextCurrentTokens = fixture.ContextCurrentTokens;
+        ContextTokenLimit = fixture.ContextTokenLimit;
         HasPlan = true;
         PlanContent = fixture.PlanContent;
         ActiveAgent = null;

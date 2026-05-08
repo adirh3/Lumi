@@ -99,6 +99,12 @@ public class Chat : INotifyPropertyChanged
     /// <summary>Cumulative output tokens consumed across all turns of this chat.</summary>
     public long TotalOutputTokens { get; set; }
 
+    /// <summary>Latest known context window usage for this chat.</summary>
+    public long ContextCurrentTokens { get; set; }
+
+    /// <summary>Latest known context window token limit for this chat.</summary>
+    public long ContextTokenLimit { get; set; }
+
     /// <summary>Persisted plan content (markdown) so it survives chat switches and app restarts.</summary>
     public string? PlanContent { get; set; }
 

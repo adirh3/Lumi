@@ -12,13 +12,18 @@ internal static class ModelSelectionHelper
     public static void ApplyModelCapabilities(
         IEnumerable<ModelInfo> models,
         IDictionary<string, List<string>> reasoningEfforts,
-        IDictionary<string, string> defaultEfforts)
+        IDictionary<string, string> defaultEfforts,
+        IDictionary<string, long>? contextTokenLimits = null)
     {
         reasoningEfforts.Clear();
         defaultEfforts.Clear();
+        contextTokenLimits?.Clear();
 
         foreach (var model in models)
         {
+            if (string.IsNullOrWhiteSpace(model.Id))
+                continue;
+
             if (model.SupportedReasoningEfforts is { Count: > 0 })
                 reasoningEfforts[model.Id] = model.SupportedReasoningEfforts
                     .Where(static effort => !string.IsNullOrWhiteSpace(effort))
@@ -26,6 +31,9 @@ internal static class ModelSelectionHelper
 
             if (!string.IsNullOrWhiteSpace(model.DefaultReasoningEffort))
                 defaultEfforts[model.Id] = model.DefaultReasoningEffort!;
+
+            if (model.Capabilities?.Limits?.MaxContextWindowTokens is > 0 and var contextTokenLimit)
+                contextTokenLimits?[model.Id] = contextTokenLimit;
         }
     }
 
