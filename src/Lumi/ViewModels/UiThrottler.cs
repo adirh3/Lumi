@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -102,9 +103,10 @@ internal sealed class UiThrottler(Action action, TimeSpan minimumInterval, Dispa
         {
             // Token was cancelled — the caller has already scheduled a replacement.
         }
-        catch
+        catch (Exception ex)
         {
             // Unexpected error — reset _scheduled so future requests aren't permanently blocked.
+            Trace.TraceError("UiThrottler scheduling failed: {0}", ex);
             lock (_gate)
             {
                 _scheduled = false;
@@ -125,6 +127,13 @@ internal sealed class UiThrottler(Action action, TimeSpan minimumInterval, Dispa
             _lastRunUtc = DateTime.UtcNow;
         }
 
-        _action();
+        try
+        {
+            _action();
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError("UiThrottler action failed: {0}", ex);
+        }
     }
 }
