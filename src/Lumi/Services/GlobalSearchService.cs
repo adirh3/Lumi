@@ -67,7 +67,7 @@ public sealed class GlobalSearchService
         new("Language", "Profile", 0),
         new("Launch at Startup", "General", 1),
         new("Start Minimized", "General", 1),
-        new("Minimize to Tray", "General", 1),
+        new("Close to Tray", "General", 1),
         new("Enable Notifications", "General", 1),
         new("Global Hotkey", "General", 1),
         new("Dark Mode", "Appearance", 2),
