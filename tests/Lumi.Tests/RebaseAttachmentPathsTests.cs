@@ -132,4 +132,56 @@ public class RebaseAttachmentPathsTests
 
         Assert.Equal("file.cs", FileAt(attachments, 0).DisplayName);
     }
+
+    [Fact]
+    public void Rebases_directory_attachments()
+    {
+        var attachments = new List<UserMessageAttachment>
+        {
+            new UserMessageAttachmentDirectory
+            {
+                Path = @"E:\Git\Lumi\docs",
+                DisplayName = "docs"
+            }
+        };
+        var msg = new ChatMessage
+        {
+            Role = "user",
+            Content = "test",
+            Attachments = [@"E:\Git\Lumi\docs"]
+        };
+
+        ChatViewModel.RebaseAttachmentPaths(
+            attachments,
+            msg,
+            @"E:\Git\Lumi",
+            @"E:\Git\Lumi-wt-abc123");
+
+        var directory = Assert.IsType<UserMessageAttachmentDirectory>(attachments[0]);
+        Assert.Equal(@"E:\Git\Lumi-wt-abc123\docs", directory.Path);
+        Assert.Equal(@"E:\Git\Lumi-wt-abc123\docs", msg.Attachments[0]);
+        Assert.Equal("docs", directory.DisplayName);
+    }
+
+    [Fact]
+    public void Chat_message_attachment_paths_include_files_and_directories()
+    {
+        var attachments = new List<UserMessageAttachment>
+        {
+            new UserMessageAttachmentFile
+            {
+                Path = @"E:\Git\Lumi\notes.txt",
+                DisplayName = "notes.txt"
+            },
+            new UserMessageAttachmentDirectory
+            {
+                Path = @"E:\Git\Lumi\docs",
+                DisplayName = "docs"
+            }
+        };
+
+        var paths = ChatViewModel.GetChatMessageAttachmentPaths(attachments);
+
+        Assert.Equal([@"E:\Git\Lumi\notes.txt", @"E:\Git\Lumi\docs"], paths);
+    }
 }

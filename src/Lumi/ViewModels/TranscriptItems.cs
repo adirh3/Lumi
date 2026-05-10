@@ -754,12 +754,21 @@ public partial class FileAttachmentItem : ObservableObject
     public string? FileSize { get; }
     public bool IsRemovable { get; }
     public Avalonia.Media.Imaging.Bitmap? IconImage { get; }
+    [ObservableProperty] private StrataAttachmentStatus _status;
+    [ObservableProperty] private string? _errorMessage;
 
-    public FileAttachmentItem(string filePath, bool isRemovable = false, Action<string>? removeAction = null)
+    public FileAttachmentItem(
+        string filePath,
+        bool isRemovable = false,
+        Action<string>? removeAction = null,
+        StrataAttachmentStatus status = StrataAttachmentStatus.Completed,
+        string? errorMessage = null)
     {
         FilePath = filePath;
         FileName = Path.GetFileName(filePath);
         IsRemovable = isRemovable;
+        Status = status;
+        ErrorMessage = errorMessage;
         _removeAction = removeAction;
 
         try
@@ -771,6 +780,12 @@ public partial class FileAttachmentItem : ObservableObject
         catch { /* ignore */ }
 
         IconImage = Services.FileIconHelper.GetFileIcon(filePath);
+    }
+
+    public void MarkFailed(string errorMessage)
+    {
+        Status = StrataAttachmentStatus.Failed;
+        ErrorMessage = errorMessage;
     }
 
     [RelayCommand]

@@ -428,11 +428,12 @@
                       <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
-                      <DataTemplate DataType="vm:FileAttachmentItem">
-                        <sc:StrataFileAttachment FileName="{Binding FileName}"
-                                                 FileSize="{Binding FileSize}"
-                                                 IconImage="{Binding IconImage}"
-                                                 Status="Completed"
+                <DataTemplate DataType="vm:FileAttachmentItem">
+                  <sc:StrataFileAttachment FileName="{Binding FileName}"
+                                           FileSize="{Binding FileSize}"
+                                           IconImage="{Binding IconImage}"
+                                           Status="{Binding Status}"
+                                                 ToolTip.Tip="{Binding ErrorMessage}"
                                                  IsRemovable="False" />
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -527,7 +528,8 @@
                         <sc:StrataFileAttachment FileName="{Binding FileName}"
                                                  FileSize="{Binding FileSize}"
                                                  IconImage="{Binding IconImage}"
-                                                 Status="Completed"
+                                                 Status="{Binding Status}"
+                                                 ToolTip.Tip="{Binding ErrorMessage}"
                                                  IsRemovable="False" />
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -1453,6 +1455,7 @@
                              IsBusy="{Binding IsBusy}"
                              IsRecording="{Binding IsRecording}"
                              SendWithEnter="{Binding SendWithEnter}"
+                             CanSendWithoutPrompt="{Binding HasSendablePendingAttachments}"
                              SendCommand="{Binding SendMessageCommand}"
                              StopCommand="{Binding StopGenerationCommand}"
                              AttachCommand="{Binding RequestAttachFilesCommand}"
@@ -1484,22 +1487,30 @@
           </DataTemplate>
         </sc:StrataChatComposer.ModelItemTemplate>
         <sc:StrataChatComposer.AttachmentContent>
-          <sc:StrataAttachmentList ShowAddButton="False"
-                                   ItemsSource="{Binding PendingAttachmentItems}"
-                                   IsVisible="{Binding HasPendingAttachments}">
-            <sc:StrataAttachmentList.ItemTemplate>
-              <DataTemplate DataType="vm:FileAttachmentItem">
-                <sc:StrataFileAttachment FileName="{Binding FileName}"
-                                         FileSize="{Binding FileSize}"
-                                         IconImage="{Binding IconImage}"
-                                         Status="Completed"
-                                         IsCompact="True"
-                                         IsRemovable="{Binding IsRemovable}"
-                                         RemoveCommand="{Binding RemoveCommand}"
-                                         Margin="0,0,6,4" />
-              </DataTemplate>
-            </sc:StrataAttachmentList.ItemTemplate>
-          </sc:StrataAttachmentList>
+          <StackPanel Spacing="4">
+            <sc:StrataAttachmentList ShowAddButton="False"
+                                     ItemsSource="{Binding PendingAttachmentItems}"
+                                     IsVisible="{Binding HasPendingAttachments}">
+              <sc:StrataAttachmentList.ItemTemplate>
+                <DataTemplate DataType="vm:FileAttachmentItem">
+                  <sc:StrataFileAttachment FileName="{Binding FileName}"
+                                           FileSize="{Binding FileSize}"
+                                           IconImage="{Binding IconImage}"
+                                           Status="{Binding Status}"
+                                           ToolTip.Tip="{Binding ErrorMessage}"
+                                           IsCompact="True"
+                                           IsRemovable="{Binding IsRemovable}"
+                                           RemoveCommand="{Binding RemoveCommand}"
+                                           Margin="0,0,6,4" />
+                </DataTemplate>
+              </sc:StrataAttachmentList.ItemTemplate>
+            </sc:StrataAttachmentList>
+            <TextBlock Text="{Binding PendingAttachmentErrorText}"
+                       IsVisible="{Binding HasPendingAttachmentError}"
+                       Classes="caption"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource Brush.DangerDefault}" />
+          </StackPanel>
         </sc:StrataChatComposer.AttachmentContent>
       </sc:StrataChatComposer>
     </StackPanel>

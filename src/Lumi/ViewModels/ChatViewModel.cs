@@ -132,10 +132,14 @@ public partial class ChatViewModel : ObservableObject
     private Guid? _suggestionDisplayChatId;
     /// <summary>Maps chat ID → unsent composer draft text. Guid.Empty is used for the "new chat" state.</summary>
     private readonly Dictionary<Guid, string> _chatDrafts = new();
-    /// <summary>Maps chat ID → prompt submitted while the chat was busy. Drained after the active turn stops.</summary>
-    private readonly Dictionary<Guid, string> _queuedBusySendPrompts = new();
+    /// <summary>Maps chat ID → unsent composer attachment paths. Guid.Empty is used for the "new chat" state.</summary>
+    private readonly Dictionary<Guid, List<string>> _chatDraftAttachmentPaths = new();
+    /// <summary>Maps chat ID → turn submitted while the chat was busy. Drained after the active turn stops.</summary>
+    private readonly Dictionary<Guid, QueuedBusySend> _queuedBusySendPrompts = new();
     /// <summary>Tracks the last assistant message ID that already produced suggestions per chat.</summary>
     private readonly Dictionary<Guid, Guid> _lastSuggestedAssistantMessageByChat = new();
+
+    private sealed record QueuedBusySend(string Prompt, IReadOnlyList<string> AttachmentPaths);
 
     /// <summary>Gets or lazily creates a per-chat BrowserService instance.</summary>
     private BrowserService GetOrCreateBrowserService(Guid chatId)
@@ -906,13 +910,7 @@ public partial class ChatViewModel : ObservableObject
         if (CurrentChat?.Id != chat.Id)
         {
             _suggestionDisplayChatId = chat.Id;
-
-            // Save unsent composer draft for the chat we're leaving
-            var leavingId = CurrentChat?.Id ?? Guid.Empty;
-            if (!string.IsNullOrEmpty(PromptText))
-                _chatDrafts[leavingId] = PromptText!;
-            else
-                _chatDrafts.Remove(leavingId);
+            SaveComposerDraft(CurrentChat?.Id ?? Guid.Empty);
 
             BrowserHideRequested?.Invoke();
             DiffHideRequested?.Invoke();
@@ -971,8 +969,7 @@ public partial class ChatViewModel : ObservableObject
                 CurrentChat = chat;
                 chat.HasUnreadMessages = false; // Clear unread when switching to this chat
 
-                // Restore unsent composer draft for this chat
-                PromptText = _chatDrafts.TryGetValue(chat.Id, out var draft) ? draft : "";
+                RestoreComposerDraft(chat.Id);
                 RestoreSuggestionsForChat(chat);
 
                 if (previousChat is not null)
@@ -1149,12 +1146,7 @@ public partial class ChatViewModel : ObservableObject
             catch (ObjectDisposedException) { }
         }
 
-        // Save unsent composer draft for the chat we're leaving
-        var leavingId = CurrentChat?.Id ?? Guid.Empty;
-        if (!string.IsNullOrEmpty(PromptText))
-            _chatDrafts[leavingId] = PromptText!;
-        else
-            _chatDrafts.Remove(leavingId);
+        SaveComposerDraft(CurrentChat?.Id ?? Guid.Empty);
 
         BrowserHideRequested?.Invoke();
         DiffHideRequested?.Invoke();
@@ -1202,8 +1194,7 @@ public partial class ChatViewModel : ObservableObject
         SelectedSdkAgentName = null;
         SdkAgentChips.Clear();
 
-        // Restore unsent composer draft for the "new chat" state
-        PromptText = _chatDrafts.TryGetValue(Guid.Empty, out var draft) ? draft : "";
+        RestoreComposerDraft(Guid.Empty);
 
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
@@ -1510,23 +1501,165 @@ public partial class ChatViewModel : ObservableObject
         await SendMessageCore(PromptText, consumeComposerPrompt: true);
     }
 
-    private async Task SendMessageCore(string? promptText, bool consumeComposerPrompt)
+    private static string BuildAttachmentOnlyPrompt(int attachmentCount)
+        => attachmentCount == 1
+            ? "Please use the attached file as context."
+            : "Please use the attached files as context.";
+
+    private void SaveComposerDraft(Guid chatId)
     {
-        if (string.IsNullOrWhiteSpace(promptText))
+        SaveChatDraft(chatId, PromptText, PendingAttachmentItems.Select(static item => item.FilePath));
+    }
+
+    private void SaveChatDraft(Guid chatId, string? promptText, IEnumerable<string>? attachmentPaths)
+    {
+        if (!string.IsNullOrEmpty(promptText))
+            _chatDrafts[chatId] = promptText!;
+        else
+            _chatDrafts.Remove(chatId);
+
+        var paths = attachmentPaths?
+            .Where(static path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
+
+        if (paths.Count > 0)
+            _chatDraftAttachmentPaths[chatId] = paths;
+        else
+            _chatDraftAttachmentPaths.Remove(chatId);
+    }
+
+    private void ClearComposerDraft(Guid chatId)
+    {
+        _chatDrafts.Remove(chatId);
+        _chatDraftAttachmentPaths.Remove(chatId);
+    }
+
+    private void RestoreComposerDraft(Guid chatId)
+    {
+        PromptText = _chatDrafts.TryGetValue(chatId, out var draft) ? draft : "";
+        RestoreDraftAttachments(chatId);
+    }
+
+    private void RestoreDraftAttachments(Guid chatId)
+    {
+        PendingAttachments.Clear();
+        PendingAttachmentItems.Clear();
+
+        if (!_chatDraftAttachmentPaths.TryGetValue(chatId, out var attachmentPaths))
             return;
 
-        var prompt = promptText.Trim();
+        foreach (var attachmentPath in attachmentPaths)
+            AddAttachment(attachmentPath);
+    }
+
+    internal static List<string> GetChatMessageAttachmentPaths(IEnumerable<UserMessageAttachment>? attachments)
+    {
+        if (attachments is null)
+            return [];
+
+        return attachments
+            .Select(static attachment => attachment switch
+            {
+                UserMessageAttachmentFile file => file.Path,
+                UserMessageAttachmentDirectory directory => directory.Path,
+                _ => null
+            })
+            .Where(static path => !string.IsNullOrWhiteSpace(path))
+            .Select(static path => path!)
+            .ToList();
+    }
+
+    private List<string> GetAttachmentPathsReadyForSend(IReadOnlyCollection<string>? attachmentPathSnapshot)
+    {
+        var attachmentPaths = attachmentPathSnapshot is not null
+            ? attachmentPathSnapshot.Where(static path => !string.IsNullOrWhiteSpace(path)).ToList()
+            : PendingAttachments.Where(static path => !string.IsNullOrWhiteSpace(path)).ToList();
+
+        if (attachmentPathSnapshot is not null)
+            return attachmentPaths;
+
+        var sendablePaths = new List<string>(attachmentPaths.Count);
+        foreach (var path in attachmentPaths)
+        {
+            var validationError = AttachmentPreparationService.ValidatePendingPath(path);
+            if (validationError is null)
+            {
+                sendablePaths.Add(path);
+                continue;
+            }
+
+            MarkPendingAttachmentFailed(path, validationError);
+            StatusText = validationError;
+        }
+
+        return sendablePaths;
+    }
+
+    private void MarkPendingAttachmentFailed(string filePath, string errorMessage)
+    {
+        PendingAttachments.Remove(filePath);
+
+        var pendingItem = PendingAttachmentItems.FirstOrDefault(item =>
+            string.Equals(item.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+        if (pendingItem is not null)
+        {
+            pendingItem.MarkFailed(errorMessage);
+            UpdatePendingAttachmentErrorText();
+            return;
+        }
+
+        PendingAttachmentItems.Add(new FileAttachmentItem(
+            filePath,
+            isRemovable: true,
+            removeAction: RemoveAttachment,
+            status: StrataAttachmentStatus.Failed,
+            errorMessage: errorMessage));
+    }
+
+    private Task SendMessageCore(string? promptText, bool consumeComposerPrompt)
+        => SendMessageCore(promptText, consumeComposerPrompt, attachmentPathSnapshot: null);
+
+    private async Task SendMessageCore(
+        string? promptText,
+        bool consumeComposerPrompt,
+        IReadOnlyCollection<string>? attachmentPathSnapshot)
+    {
+        var attachmentPaths = GetAttachmentPathsReadyForSend(attachmentPathSnapshot);
+        var hasAttachments = attachmentPaths.Count > 0;
+        if (string.IsNullOrWhiteSpace(promptText) && !hasAttachments)
+            return;
+
+        var prompt = string.IsNullOrWhiteSpace(promptText)
+            ? BuildAttachmentOnlyPrompt(attachmentPaths.Count)
+            : promptText.Trim();
         if (CurrentChat is { } activeChat && IsChatRuntimeActive(activeChat.Id))
         {
-            QueueBusySendPrompt(activeChat.Id, prompt);
+            QueueBusySendPrompt(activeChat.Id, prompt, attachmentPaths);
             if (consumeComposerPrompt)
             {
                 PromptText = "";
-                _chatDrafts.Remove(activeChat.Id);
+                ClearComposerDraft(activeChat.Id);
+                if (hasAttachments && attachmentPathSnapshot is null)
+                {
+                    PendingAttachments.Clear();
+                    PendingAttachmentItems.Clear();
+                }
             }
 
             return;
         }
+
+        var preparedAttachments = PrepareSdkAttachmentsForPaths(attachmentPaths);
+        if (!preparedAttachments.Success)
+        {
+            StatusText = preparedAttachments.ErrorMessage ?? "Could not prepare the attachment for Copilot.";
+            return;
+        }
+
+        var attachments = preparedAttachments.Attachments.Count > 0
+            ? preparedAttachments.Attachments
+            : null;
 
         if (!_copilotService.IsConnected)
         {
@@ -1537,9 +1670,12 @@ public partial class ChatViewModel : ObservableObject
                 StatusText = Loc.Status_CheckAccess;
                 if (!consumeComposerPrompt && CurrentChat is not null)
                 {
-                    _chatDrafts[CurrentChat.Id] = prompt;
+                    SaveChatDraft(CurrentChat.Id, prompt, attachmentPaths);
                     if (string.IsNullOrWhiteSpace(PromptText))
+                    {
                         PromptText = prompt;
+                        RestoreDraftAttachments(CurrentChat.Id);
+                    }
                 }
 
                 return;
@@ -1549,7 +1685,7 @@ public partial class ChatViewModel : ObservableObject
         if (consumeComposerPrompt)
         {
             PromptText = "";
-            _chatDrafts.Remove(CurrentChat?.Id ?? Guid.Empty);
+            ClearComposerDraft(CurrentChat?.Id ?? Guid.Empty);
         }
         ClearSuggestions();
         var selectedReasoningEffort = GetPersistedReasoningEffortPreference();
@@ -1558,7 +1694,12 @@ public partial class ChatViewModel : ObservableObject
         if (CurrentChat is not null)
             CancelPendingQuestions(CurrentChat);
 
-        var attachments = TakePendingAttachments();
+        if (attachments is not null && attachmentPathSnapshot is null)
+        {
+            PendingAttachments.Clear();
+            PendingAttachmentItems.Clear();
+        }
+
         var createdChat = false;
 
         // Create chat if needed
@@ -1603,7 +1744,7 @@ public partial class ChatViewModel : ObservableObject
                 Role = "user",
                 Content = prompt,
                 Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
-                Attachments = attachments?.OfType<UserMessageAttachmentFile>().Select(a => a.Path).ToList() ?? [],
+                Attachments = GetChatMessageAttachmentPaths(attachments),
                 ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames)
             };
             targetChat.Messages.Add(userMsg);
@@ -3110,6 +3251,17 @@ public partial class ChatViewModel : ObservableObject
         if (idx < 0) return;
 
         var prompt = userMessage.Content;
+        var attachmentPaths = userMessage.Attachments.ToList();
+        var preparedAttachments = PrepareSdkAttachmentsForPaths(attachmentPaths);
+        if (!preparedAttachments.Success)
+        {
+            StatusText = preparedAttachments.ErrorMessage ?? "Could not prepare the attachment for Copilot.";
+            return;
+        }
+
+        var resendAttachments = preparedAttachments.Attachments.Count > 0
+            ? preparedAttachments.Attachments
+            : null;
 
         // Remove the user message and everything after it
         while (CurrentChat.Messages.Count > idx)
@@ -3143,7 +3295,9 @@ public partial class ChatViewModel : ObservableObject
         {
             Role = "user",
             Content = prompt,
-            Author = userMessage.Author
+            Author = userMessage.Author,
+            Attachments = [..attachmentPaths],
+            ActiveSkills = [..userMessage.ActiveSkills]
         };
         CurrentChat.Messages.Add(newUserMsg);
         Messages.Add(new ChatMessageViewModel(newUserMsg));
@@ -3255,6 +3409,8 @@ public partial class ChatViewModel : ObservableObject
                 promptAdditions);
 
             resendOptions = new MessageOptions { Prompt = resendPrompt };
+            if (resendAttachments is not null)
+                resendOptions.Attachments = resendAttachments;
             localUserMessageCount = CurrentChat.Messages.Count(m => m.Role == "user");
             localAssistantMessageCount = CountCompletedAssistantMessages(CurrentChat);
             var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
@@ -3293,6 +3449,8 @@ public partial class ChatViewModel : ObservableObject
                     shouldReplayPrompt: !wasEdited,
                     promptAdditions);
                 resendOptions = new MessageOptions { Prompt = resendPrompt2 };
+                if (resendAttachments is not null)
+                    resendOptions.Attachments = resendAttachments;
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                     _activeSession!,
                     localUserMessageCount,
