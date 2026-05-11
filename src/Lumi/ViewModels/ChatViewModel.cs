@@ -99,6 +99,7 @@ public partial class ChatViewModel : ObservableObject
     private readonly CopilotService _copilotService;
     private readonly MemoryAgentService _memoryAgentService;
     private readonly CodingToolService _codingToolService;
+    private readonly ReleaseManagerService _releaseManagerService;
     private readonly UIAutomationService _uiAutomation = new();
     private readonly object _chatLoadSync = new();
     private CancellationTokenSource? _chatLoadCts;
@@ -314,6 +315,8 @@ public partial class ChatViewModel : ObservableObject
         _copilotService = copilotService;
         _memoryAgentService = new MemoryAgentService(dataStore, copilotService);
         _codingToolService = new CodingToolService(copilotService, GetCurrentCancellationToken);
+        _releaseManagerService = new ReleaseManagerService(dataStore,
+            () => Dispatcher.UIThread.Post(() => FeatureManagementStateChanged?.Invoke()));
         _selectedModel = dataStore.Data.Settings.PreferredModel;
 
         _transcriptBuilder = new TranscriptBuilder(

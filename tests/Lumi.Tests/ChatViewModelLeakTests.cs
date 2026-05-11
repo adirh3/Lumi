@@ -725,6 +725,48 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public void BuildCustomTools_AddsReleaseToolsOnlyForReleaseManagerAgent()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var releaseAgent = ReleaseManagerService.CreateReleaseManagerAgent();
+        var otherAgent = new LumiAgent
+        {
+            Name = "Daily Planner",
+            Description = "Not a release agent",
+            SystemPrompt = "Plan the day."
+        };
+        var workDir = Directory.GetCurrentDirectory();
+
+        var releaseTools = InvokePrivate<List<Microsoft.Extensions.AI.AIFunction>>(
+            vm,
+            "BuildCustomTools",
+            Guid.NewGuid(),
+            releaseAgent,
+            workDir);
+        var noAgentTools = InvokePrivate<List<Microsoft.Extensions.AI.AIFunction>>(
+            vm,
+            "BuildCustomTools",
+            Guid.NewGuid(),
+            null,
+            workDir);
+        var otherAgentTools = InvokePrivate<List<Microsoft.Extensions.AI.AIFunction>>(
+            vm,
+            "BuildCustomTools",
+            Guid.NewGuid(),
+            otherAgent,
+            workDir);
+
+        Assert.Contains(releaseTools, tool => tool.Name == "release_discover_capabilities");
+        Assert.Contains(releaseTools, tool => tool.Name == "r2d_create_draft");
+        Assert.Contains(releaseTools, tool => tool.Name == "r2d_list_drafts");
+        Assert.DoesNotContain(noAgentTools, tool => tool.Name.StartsWith("release_", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(noAgentTools, tool => tool.Name.StartsWith("r2d_", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(otherAgentTools, tool => tool.Name.StartsWith("release_", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(otherAgentTools, tool => tool.Name.StartsWith("r2d_", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void ApplyUnexpectedAbortState_ResetsRuntimeAndDetachesCachedSession()
     {
         var dataStore = CreateDataStore();
