@@ -81,6 +81,7 @@
 
   "Sidebar_NewChat": "צ׳אט חדש",
   "Sidebar_NewChatTooltip": "צ׳אט חדש (Ctrl+N)",
+  "Sidebar_NewWindowTooltip": "פתיחת חלון לומי חדש",
   "Sidebar_Search": "חיפוש (Ctrl+K)",
   "Sidebar_Search_Short": "חיפוש…",
   "Sidebar_Jobs": "משימות רקע",
@@ -98,6 +99,7 @@
   "Sidebar_All": "הכול",
 
   "Menu_Rename": "שינוי שם",
+  "Menu_OpenInNewWindow": "פתיחה בחלון חדש",
   "Menu_MoveToProject": "העברה לפרויקט",
   "Menu_RemoveFromProject": "הסרה מפרויקט",
   "Menu_Delete": "מחיקה",
@@ -552,6 +554,7 @@
   "Button_ResetDefaults": "איפוס ברירות מחדל",
 
   "Tray_Show": "הצגת לומי",
+  "Tray_NewWindow": "חלון חדש",
   "Tray_Exit": "יציאה",
 
   "Notification_ResponseReady": "התגובה מוכנה",

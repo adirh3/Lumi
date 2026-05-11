@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
@@ -16,8 +18,14 @@ namespace Lumi;
 public partial class App : Application
 {
     private TrayIcon? _trayIcon;
-    private Window? _mainWindow;
+    private MainWindow? _mainWindow;
     private GlobalHotkeyService? _hotkeyService;
+    private DataStore? _dataStore;
+    private CopilotService? _copilotService;
+    private UpdateService? _updateService;
+    private BackgroundJobService? _backgroundJobService;
+    private readonly List<MainWindow> _windows = [];
+    private int _secondaryWindowSequence;
 
     public override void Initialize()
     {
@@ -29,22 +37,24 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var dataStore = new DataStore();
+            _dataStore = dataStore;
 
             // Initialize localization before creating any UI
             Loc.Load(dataStore.Data.Settings.Language);
 
             var copilotService = new CopilotService();
+            _copilotService = copilotService;
             var updateService = new UpdateService();
+            _updateService = updateService;
             updateService.Initialize();
-            var vm = new MainViewModel(
-                dataStore,
-                copilotService,
-                updateService,
-                Program.ForceOnboarding
+            var vm = CreateMainViewModel(
+                forceOnboarding: Program.ForceOnboarding,
+                startBackgroundJobs: true
 #if DEBUG
-                , Program.OpenAgentDebugHarness
+                , openAgentDebugHarness: Program.OpenAgentDebugHarness
 #endif
             );
+            _backgroundJobService = vm.BackgroundJobService;
 
             // Save data and dispose CopilotService on app shutdown.
             // The window is already hidden at this point so nothing blocks the user.
@@ -53,7 +63,17 @@ public partial class App : Application
             desktop.ShutdownRequested += (_, _) =>
             {
                 updateService.Dispose();
-                vm.Dispose();
+                var viewModels = _windows
+                    .Select(static window => window.DataContext)
+                    .OfType<MainViewModel>();
+                if (_mainWindow?.DataContext is MainViewModel primaryVm)
+                    viewModels = viewModels.Append(primaryVm);
+
+                foreach (var windowVm in viewModels.Distinct())
+                {
+                    windowVm.Dispose();
+                }
+
                 Task.Run(async () =>
                 {
                     try
@@ -79,7 +99,7 @@ public partial class App : Application
             // Apply saved density
             MainWindow.ApplyDensityStatic(dataStore.Data.Settings.IsCompactDensity);
 
-            var window = new MainWindow { DataContext = vm };
+            var window = CreateWindow(vm, isPrimary: true);
             _mainWindow = window;
 
             // Apply RTL for right-to-left languages
@@ -123,6 +143,54 @@ public partial class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
+    private MainViewModel CreateMainViewModel(
+        bool forceOnboarding = false,
+        bool startBackgroundJobs = false
+#if DEBUG
+        , bool openAgentDebugHarness = false
+#endif
+        )
+    {
+        if (_dataStore is null || _copilotService is null || _updateService is null)
+            throw new InvalidOperationException("Lumi services are not initialized.");
+
+        // Secondary windows share the primary scheduler so background jobs have a single runner.
+        return new MainViewModel(
+            _dataStore,
+            _copilotService,
+            _updateService,
+            forceOnboarding,
+            _backgroundJobService,
+            startBackgroundJobs
+#if DEBUG
+            , openAgentDebugHarness
+#endif
+        );
+    }
+
+    private MainWindow CreateWindow(MainViewModel vm, bool isPrimary)
+    {
+        var window = new MainWindow
+        {
+            DataContext = vm,
+            IsPrimaryWindow = isPrimary,
+            SecondaryWindowCascadeIndex = isPrimary ? 0 : ++_secondaryWindowSequence
+        };
+
+        if (Loc.IsRightToLeft)
+            window.FlowDirection = Avalonia.Media.FlowDirection.RightToLeft;
+
+        window.Closed += (_, _) =>
+        {
+            _windows.Remove(window);
+            if (!isPrimary && window.DataContext is MainViewModel windowVm)
+                windowVm.Dispose();
+        };
+
+        _windows.Add(window);
+        return window;
+    }
+
     private void OnGlobalHotkeyPressed()
     {
         Dispatcher.UIThread.Post(ToggleMainWindow);
@@ -139,6 +207,9 @@ public partial class App : Application
             var showItem = new NativeMenuItem(Loc.Tray_Show);
             showItem.Click += (_, _) => ShowMainWindow();
 
+            var newWindowItem = new NativeMenuItem(Loc.Tray_NewWindow);
+            newWindowItem.Click += (_, _) => OpenNewWindow();
+
             var exitItem = new NativeMenuItem(Loc.Tray_Exit);
             exitItem.Click += (_, _) =>
             {
@@ -148,6 +219,7 @@ public partial class App : Application
 
             var menu = new NativeMenu();
             menu.Items.Add(showItem);
+            menu.Items.Add(newWindowItem);
             menu.Items.Add(new NativeMenuItemSeparator());
             menu.Items.Add(exitItem);
 
@@ -190,6 +262,26 @@ public partial class App : Application
             Avalonia.Threading.Dispatcher.UIThread.Post(() => chatView?.FocusComposer(),
                 Avalonia.Threading.DispatcherPriority.Input);
         }
+    }
+
+    public void OpenNewWindow(Guid? chatId = null)
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => OpenNewWindow(chatId));
+            return;
+        }
+
+        var window = CreateWindow(CreateMainViewModel(), isPrimary: false);
+        if (_mainWindow is { IsVisible: true } owner)
+            window.SecondaryWindowAnchorPosition = owner.Position;
+
+        window.Show();
+
+        window.Activate();
+
+        if (chatId is Guid targetChatId && window.DataContext is MainViewModel vm)
+            _ = vm.OpenChatByIdAsync(targetChatId);
     }
 
     public void ShowMainWindow(Guid? chatId)

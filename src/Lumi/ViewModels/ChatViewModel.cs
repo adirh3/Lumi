@@ -23,7 +23,7 @@ using ChatMessage = Lumi.Models.ChatMessage;
 
 namespace Lumi.ViewModels;
 
-public partial class ChatViewModel : ObservableObject
+public partial class ChatViewModel : ObservableObject, IDisposable
 {
     private const int SuggestionHistoryScanLimit = 1000;
     private const int SuggestionHistorySummaryMaxItems = 24;

@@ -81,6 +81,7 @@
 
   "Sidebar_NewChat": "New Chat",
   "Sidebar_NewChatTooltip": "New chat (Ctrl+N)",
+  "Sidebar_NewWindowTooltip": "Open a new Lumi window",
   "Sidebar_Search": "Search (Ctrl+K)",
   "Sidebar_Search_Short": "Search…",
   "Sidebar_Jobs": "Background Jobs",
@@ -98,6 +99,7 @@
   "Sidebar_All": "All",
 
   "Menu_Rename": "Rename",
+  "Menu_OpenInNewWindow": "Open in New Window",
   "Menu_MoveToProject": "Move to Project",
   "Menu_RemoveFromProject": "Remove from Project",
   "Menu_Delete": "Delete",
@@ -551,6 +553,7 @@
   "Button_ResetDefaults": "Reset Defaults",
 
   "Tray_Show": "Show Lumi",
+  "Tray_NewWindow": "New Window",
   "Tray_Exit": "Exit",
 
   "Notification_ResponseReady": "Response ready",
