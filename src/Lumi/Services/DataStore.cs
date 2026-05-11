@@ -55,6 +55,7 @@ public class DataStore
         CleanOrphanedChats();
         SeedDefaults();
         SeedCodingLumi();
+        EnsureReleaseManagerLumi();
         EnsureFeatureManagerSkill();
     }
 
@@ -1428,6 +1429,14 @@ public class DataStore
 
         Save();
         SyncSkillFiles();
+    }
+
+    private void EnsureReleaseManagerLumi()
+    {
+        if (!ReleaseManagerService.EnsureReleaseManagerLumi(_data))
+            return;
+
+        Save();
     }
 
     private static Skill CreateFeatureManagerSkill()

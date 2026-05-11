@@ -15,6 +15,11 @@ namespace Lumi.Models;
 [JsonSerializable(typeof(List<ChatMessage>))]
 [JsonSerializable(typeof(List<McpServer>))]
 [JsonSerializable(typeof(List<BackgroundJob>))]
+[JsonSerializable(typeof(List<ReleaseServiceProfile>))]
+[JsonSerializable(typeof(List<ReleaseEvidencePacket>))]
+[JsonSerializable(typeof(List<ReleaseSafeFlyDraft>))]
+[JsonSerializable(typeof(List<ReleaseLease>))]
+[JsonSerializable(typeof(List<ReleaseRiskSignal>))]
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(string[]))]
 internal partial class AppDataJsonContext : JsonSerializerContext;

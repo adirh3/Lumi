@@ -130,6 +130,41 @@ internal static class AppDataSnapshotFactory
                     MaintenanceNote = m.MaintenanceNote
                 })
                 .ToList(),
+            ReleaseServiceProfiles = source.ReleaseServiceProfiles
+                .Select(CloneReleaseServiceProfile)
+                .ToList(),
+            ReleaseEvidencePackets = source.ReleaseEvidencePackets
+                .Select(CloneReleaseEvidencePacket)
+                .ToList(),
+            ReleaseSafeFlyDrafts = source.ReleaseSafeFlyDrafts
+                .Select(CloneReleaseSafeFlyDraft)
+                .ToList(),
+            ReleaseLeases = source.ReleaseLeases
+                .Select(static lease => new ReleaseLease
+                {
+                    Id = lease.Id,
+                    Service = lease.Service,
+                    Scope = lease.Scope,
+                    EligibilityState = lease.EligibilityState,
+                    MonitoringState = lease.MonitoringState,
+                    LifecycleState = lease.LifecycleState,
+                    ExpiresAt = lease.ExpiresAt,
+                    RevocationPath = lease.RevocationPath
+                })
+                .ToList(),
+            ReleaseRiskSignals = source.ReleaseRiskSignals
+                .Select(static signal => new ReleaseRiskSignal
+                {
+                    Id = signal.Id,
+                    EvidencePacketId = signal.EvidencePacketId,
+                    Service = signal.Service,
+                    SignalType = signal.SignalType,
+                    Scope = signal.Scope,
+                    Value = signal.Value,
+                    Source = signal.Source,
+                    CapturedAt = signal.CapturedAt
+                })
+                .ToList(),
         };
     }
 
@@ -246,6 +281,138 @@ internal static class AppDataSnapshotFactory
             PlanContent = source.PlanContent,
             FollowUpSuggestions = [..source.FollowUpSuggestions],
             FollowUpSuggestionAssistantMessageId = source.FollowUpSuggestionAssistantMessageId,
+        };
+    }
+
+    private static ReleaseServiceProfile CloneReleaseServiceProfile(ReleaseServiceProfile source)
+    {
+        return new ReleaseServiceProfile
+        {
+            Id = source.Id,
+            ServiceName = source.ServiceName,
+            RepoPath = source.RepoPath,
+            AdoOrgUrl = source.AdoOrgUrl,
+            AdoProjectName = source.AdoProjectName,
+            Pipelines = [..source.Pipelines.Select(static pipeline => new ReleasePipelineConfig
+            {
+                Name = pipeline.Name,
+                PipelineId = pipeline.PipelineId,
+                PipelineType = pipeline.PipelineType,
+                Stage = pipeline.Stage,
+                Ring = pipeline.Ring,
+                Environment = pipeline.Environment,
+                Region = pipeline.Region,
+                Stamp = pipeline.Stamp
+            })],
+            HealthQueries = [..source.HealthQueries.Select(static query => new ReleaseHealthQuery
+            {
+                Name = query.Name,
+                Query = query.Query,
+                Scope = query.Scope,
+                DashboardUrl = query.DashboardUrl
+            })],
+            Dependencies = [..source.Dependencies.Select(static dependency => new ReleasePipelineDependency
+            {
+                Source = dependency.Source,
+                Target = dependency.Target,
+                Reason = dependency.Reason
+            })],
+            CreatedAt = source.CreatedAt,
+            UpdatedAt = source.UpdatedAt
+        };
+    }
+
+    private static ReleaseEvidencePacket CloneReleaseEvidencePacket(ReleaseEvidencePacket source)
+    {
+        return new ReleaseEvidencePacket
+        {
+            Id = source.Id,
+            ChatId = source.ChatId,
+            Service = source.Service,
+            Goal = source.Goal,
+            TargetScope = source.TargetScope,
+            Candidate = source.Candidate is null ? null : new ReleaseCandidateEvidence
+            {
+                Version = source.Candidate.Version,
+                BuildId = source.Candidate.BuildId,
+                Branch = source.Candidate.Branch,
+                CommitSha = source.Candidate.CommitSha,
+                PullRequests = [..source.Candidate.PullRequests],
+                WorkItems = [..source.Candidate.WorkItems],
+                Rationale = source.Candidate.Rationale
+            },
+            ProofChain = [..source.ProofChain.Select(static link => new ReleaseProofLink
+            {
+                LinkType = link.LinkType,
+                Label = link.Label,
+                Evidence = link.Evidence,
+                Status = link.Status
+            })],
+            Risk = new ReleaseRiskAssessment
+            {
+                Summary = source.Risk.Summary,
+                ChangeType = source.Risk.ChangeType,
+                ReviewPathRecommendation = source.Risk.ReviewPathRecommendation,
+                Confidence = source.Risk.Confidence,
+                Signals = [..source.Risk.Signals]
+            },
+            State = CloneReleaseState(source.State),
+            MissingProof = [..source.MissingProof],
+            RecommendedNextAction = source.RecommendedNextAction,
+            RequiresUserApproval = source.RequiresUserApproval,
+            SafeFlyDraftId = source.SafeFlyDraftId,
+            CreatedAt = source.CreatedAt,
+            UpdatedAt = source.UpdatedAt
+        };
+    }
+
+    private static ReleaseSafeFlyDraft CloneReleaseSafeFlyDraft(ReleaseSafeFlyDraft source)
+    {
+        return new ReleaseSafeFlyDraft
+        {
+            Id = source.Id,
+            ChatId = source.ChatId,
+            EvidencePacketId = source.EvidencePacketId,
+            Service = source.Service,
+            CandidateVersion = source.CandidateVersion,
+            TargetScope = source.TargetScope,
+            ChangeType = source.ChangeType,
+            AutoCreateCapability = source.AutoCreateCapability,
+            RiskSummary = source.RiskSummary,
+            ValidationSummary = source.ValidationSummary,
+            HealthSummary = source.HealthSummary,
+            BakeTimeSummary = source.BakeTimeSummary,
+            RollbackPlan = source.RollbackPlan,
+            CommunicationsPlan = source.CommunicationsPlan,
+            ReviewPathRecommendation = source.ReviewPathRecommendation,
+            Status = source.Status,
+            ExternalRequestId = source.ExternalRequestId,
+            RequestStatus = source.RequestStatus,
+            StatusUrl = source.StatusUrl,
+            LastStatusSummary = source.LastStatusSummary,
+            LastStatusCheckedAt = source.LastStatusCheckedAt,
+            MissingFields = [..source.MissingFields],
+            Links = [..source.Links],
+            RequiresUserApprovalForCreate = source.RequiresUserApprovalForCreate,
+            RequiresUserApprovalForSubmit = source.RequiresUserApprovalForSubmit,
+            CreatedAt = source.CreatedAt,
+            UpdatedAt = source.UpdatedAt
+        };
+    }
+
+    private static ReleaseStateSnapshot CloneReleaseState(ReleaseStateSnapshot source)
+    {
+        return new ReleaseStateSnapshot
+        {
+            CandidateState = source.CandidateState,
+            PipelineState = source.PipelineState,
+            DeploymentState = source.DeploymentState,
+            HealthState = source.HealthState,
+            ChangeValidationState = source.ChangeValidationState,
+            DependencyState = source.DependencyState,
+            R2DState = source.R2DState,
+            CommunicationsState = source.CommunicationsState,
+            ApprovalState = source.ApprovalState
         };
     }
 }
