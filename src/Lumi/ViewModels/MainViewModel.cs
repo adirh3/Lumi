@@ -51,6 +51,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private int _onboardingLanguageIndex; // index into Loc.AvailableLanguages
     [ObservableProperty] private Guid? _selectedProjectFilter;
     [ObservableProperty] private bool _isSidebarCollapsed;
+    [ObservableProperty] private bool _isAgentDebugMapDismissed;
 
     public bool IsGlobalUpdateBannerVisible => SettingsVM.ShouldShowUpdateBanner
         && (SelectedNavIndex != 7 || SettingsVM.SelectedPageIndex != SettingsViewModel.AboutPageIndex);
@@ -60,11 +61,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
         get
         {
 #if DEBUG
-            return true;
+            return !IsAgentDebugMapDismissed;
 #else
             return false;
 #endif
         }
+    }
+
+    partial void OnIsAgentDebugMapDismissedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsAgentDebugMapVisible));
     }
 
     public string AgentDebugCurrentPage => SelectedNavIndex switch
@@ -661,6 +667,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ChatVM.LoadDebugTranscriptFixture();
         SelectedNavIndex = 0;
 #endif
+    }
+
+    [RelayCommand]
+    private void DismissAgentDebugMap()
+    {
+        IsAgentDebugMapDismissed = true;
     }
 
     [RelayCommand(AllowConcurrentExecutions = true)]

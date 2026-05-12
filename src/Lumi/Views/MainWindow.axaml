@@ -1438,13 +1438,30 @@
             ZIndex="20">
       <StackPanel Spacing="6">
         <DockPanel LastChildFill="True">
-          <Button DockPanel.Dock="Right"
-                  Classes="accent"
-                  Content="Open fixture"
-                  Command="{Binding OpenAgentDebugHarnessCommand}"
-                  Padding="8,4"
-                  MinHeight="0"
-                  FontSize="11" />
+          <StackPanel DockPanel.Dock="Right"
+                      Orientation="Horizontal"
+                      Spacing="4">
+            <Button x:Name="AgentDebugDismissButton"
+                    Classes="subtle"
+                    Command="{Binding DismissAgentDebugMapCommand}"
+                    ToolTip.Tip="Dismiss debug map"
+                    AutomationProperties.Name="Dismiss debug map"
+                    AutomationProperties.HelpText="Hides the debug-only agent map for this window."
+                    Padding="5"
+                    MinHeight="0"
+                    MinWidth="0">
+              <PathIcon Data="{StaticResource Icon.Dismiss}"
+                        Width="12"
+                        Height="12"
+                        Foreground="#FFFFFFFF" />
+            </Button>
+            <Button Classes="accent"
+                    Content="Open fixture"
+                    Command="{Binding OpenAgentDebugHarnessCommand}"
+                    Padding="8,4"
+                    MinHeight="0"
+                    FontSize="11" />
+          </StackPanel>
           <StackPanel>
             <TextBlock Text="Agent debug map"
                        FontSize="12"
