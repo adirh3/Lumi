@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
@@ -26,6 +27,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>A dedicated BrowserService for Settings cookie import/clear (not tied to any chat).</summary>
     private readonly BrowserService _settingsBrowserService;
     private readonly BackgroundJobService _backgroundJobService;
+    private readonly bool _ownsBackgroundJobService;
+    private readonly HashSet<Chat> _runningStateSubscriptions = [];
+    private bool _isDisposed;
     private bool _isRefreshingCopilotState;
     private bool _isSyncingDefaultModelSelectionFromChat;
     private readonly ChatNavigationHistory _chatNavigationHistory = new();
@@ -47,6 +51,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private int _onboardingLanguageIndex; // index into Loc.AvailableLanguages
     [ObservableProperty] private Guid? _selectedProjectFilter;
     [ObservableProperty] private bool _isSidebarCollapsed;
+    [ObservableProperty] private bool _isAgentDebugMapDismissed;
 
     public bool IsGlobalUpdateBannerVisible => SettingsVM.ShouldShowUpdateBanner
         && (SelectedNavIndex != 7 || SettingsVM.SelectedPageIndex != SettingsViewModel.AboutPageIndex);
@@ -56,11 +61,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
         get
         {
 #if DEBUG
-            return true;
+            return !IsAgentDebugMapDismissed;
 #else
             return false;
 #endif
         }
+    }
+
+    partial void OnIsAgentDebugMapDismissedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsAgentDebugMapVisible));
     }
 
     public string AgentDebugCurrentPage => SelectedNavIndex switch
@@ -129,7 +139,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         DataStore dataStore,
         CopilotService copilotService,
         UpdateService updateService,
-        bool forceOnboarding = false
+        bool forceOnboarding = false,
+        BackgroundJobService? backgroundJobService = null,
+        bool startBackgroundJobs = true
 #if DEBUG
         , bool openAgentDebugHarness = false
 #endif
@@ -167,7 +179,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         OnboardingVM.ThemeChanged += isDark => IsDarkTheme = isDark;
 
         ChatVM = new ChatViewModel(dataStore, copilotService);
-        _backgroundJobService = new BackgroundJobService(dataStore, ChatVM);
+        _backgroundJobService = backgroundJobService ?? new BackgroundJobService(dataStore, ChatVM);
+        _ownsBackgroundJobService = backgroundJobService is null;
         JobsVM = new BackgroundJobsViewModel(dataStore, _backgroundJobService);
         SkillsVM = new SkillsViewModel(dataStore);
         AgentsVM = new AgentsViewModel(dataStore);
@@ -257,10 +270,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             RefreshFeatureManagementUi();
         };
         JobsVM.OpenChatRequested += jobChatId => _ = OpenChatByIdAsync(jobChatId);
-        _backgroundJobService.JobsChanged += () =>
-        {
-            Dispatcher.UIThread.Post(RefreshFeatureManagementUi);
-        };
+        _backgroundJobService.JobsChanged += OnBackgroundJobServiceJobsChanged;
 
         SettingsVM.SettingsChanged += () =>
         {
@@ -316,7 +326,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SubscribeChatRunningState();
         RefreshChatList();
         ChatVM.RefreshComposerCatalogs();
-        _backgroundJobService.Start();
+        if (_ownsBackgroundJobService && startBackgroundJobs)
+            _backgroundJobService.Start();
 
 #if DEBUG
         if (openAgentDebugHarness)
@@ -334,7 +345,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
-        _backgroundJobService.Dispose();
+        if (_isDisposed)
+            return;
+
+        _isDisposed = true;
+        _backgroundJobService.JobsChanged -= OnBackgroundJobServiceJobsChanged;
+        UnsubscribeChatRunningState();
+        if (_ownsBackgroundJobService)
+            _backgroundJobService.Dispose();
+        ChatVM.Dispose();
+        SettingsVM.Dispose();
+        _ = _settingsBrowserService.DisposeAsync();
     }
 
     private async Task RefreshCopilotStateAsync(bool refreshAuthStatus)
@@ -423,15 +444,42 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void SubscribeChatRunningState()
     {
-        foreach (var chat in _dataStore.Data.Chats)
+        var currentChats = _dataStore.Data.Chats.ToHashSet();
+        foreach (var chat in _runningStateSubscriptions.Where(chat => !currentChats.Contains(chat)).ToList())
         {
             chat.PropertyChanged -= OnChatRunningChanged;
-            chat.PropertyChanged += OnChatRunningChanged;
+            _runningStateSubscriptions.Remove(chat);
         }
+
+        foreach (var chat in _dataStore.Data.Chats)
+        {
+            if (_runningStateSubscriptions.Add(chat))
+                chat.PropertyChanged += OnChatRunningChanged;
+        }
+    }
+
+    private void UnsubscribeChatRunningState()
+    {
+        foreach (var chat in _runningStateSubscriptions)
+            chat.PropertyChanged -= OnChatRunningChanged;
+
+        _runningStateSubscriptions.Clear();
+    }
+
+    private void OnBackgroundJobServiceJobsChanged()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_isDisposed)
+                RefreshFeatureManagementUi();
+        });
     }
 
     private void OnChatRunningChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (_isDisposed)
+            return;
+
         if (e.PropertyName == nameof(Chat.IsRunning))
             RefreshProjectRunningState();
     }
@@ -596,12 +644,35 @@ public partial class MainViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
+    private void OpenNewWindow()
+    {
+        if (Avalonia.Application.Current is App app)
+            app.OpenNewWindow();
+    }
+
+    [RelayCommand]
+    private void OpenChatInNewWindow(Chat? chat)
+    {
+        if (chat is null)
+            return;
+
+        if (Avalonia.Application.Current is App app)
+            app.OpenNewWindow(chat.Id);
+    }
+
+    [RelayCommand]
     private void OpenAgentDebugHarness()
     {
 #if DEBUG
         ChatVM.LoadDebugTranscriptFixture();
         SelectedNavIndex = 0;
 #endif
+    }
+
+    [RelayCommand]
+    private void DismissAgentDebugMap()
+    {
+        IsAgentDebugMapDismissed = true;
     }
 
     [RelayCommand(AllowConcurrentExecutions = true)]

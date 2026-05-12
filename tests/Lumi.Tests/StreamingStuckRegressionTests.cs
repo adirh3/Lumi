@@ -73,12 +73,13 @@ public sealed class StreamingStuckRegressionTests
         {
             var callCount = 0;
             var shouldThrow = true;
+            Exception? observedError = null;
             using var throttler = new UiThrottler(() =>
             {
                 callCount++;
                 if (shouldThrow)
                     throw new InvalidOperationException("Simulated error");
-            }, TimeSpan.Zero);
+            }, TimeSpan.Zero, DispatcherPriority.Normal, ex => observedError = ex);
 
             // First request — the action throws, but _scheduled is properly reset
             // inside Flush() (which runs _action after clearing _scheduled).
@@ -87,13 +88,16 @@ public sealed class StreamingStuckRegressionTests
             await PumpAsync();
 
             Assert.Equal(1, callCount);
+            Assert.IsType<InvalidOperationException>(observedError);
 
             // Second request — must NOT be blocked by the previous failure.
             shouldThrow = false;
+            observedError = null;
             throttler.Request(immediate: true);
             await WaitUntilAsync(() => callCount == 2);
 
             Assert.Equal(2, callCount);
+            Assert.Null(observedError);
         }, CancellationToken.None);
     }
 

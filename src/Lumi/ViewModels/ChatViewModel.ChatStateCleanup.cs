@@ -7,6 +7,52 @@ namespace Lumi.ViewModels;
 
 public partial class ChatViewModel
 {
+    private bool _isDisposed;
+
+    public void Dispose()
+    {
+        if (_isDisposed)
+            return;
+
+        _isDisposed = true;
+        _copilotService.Reconnected -= OnCopilotReconnected;
+        _copilotService.SessionDeletedRemotely -= OnSessionDeletedRemotely;
+        _transcriptWindow.PropertyChanged -= OnTranscriptWindowPropertyChanged;
+
+        lock (_chatLoadSync)
+        {
+            _chatLoadRequestId++;
+            try { _chatLoadCts?.Cancel(); }
+            catch (ObjectDisposedException) { }
+            _chatLoadCts?.Dispose();
+            _chatLoadCts = null;
+        }
+
+        foreach (var chatId in _sessionCache.Keys
+                     .Concat(_ctsSources.Keys)
+                     .Concat(_runtimeStates.Keys)
+                     .Distinct()
+                     .ToList())
+        {
+            ReleaseSessionResources(chatId, cancelActiveRequest: true, deleteServerSession: false);
+            RemoveSuggestionTracking(chatId);
+            DisposeBrowserService(chatId);
+            _dataStore.RemoveChatLoadLock(chatId);
+        }
+
+        _runtimeStates.Clear();
+        _inProgressMessages.Clear();
+        _modelSelectionSaveCts?.Cancel();
+        _modelSelectionSaveCts?.Dispose();
+        _modelSelectionSaveCts = null;
+        _modelSelectionSyncCts?.Cancel();
+        _modelSelectionSyncCts?.Dispose();
+        _modelSelectionSyncCts = null;
+        _fileSearchCts?.Cancel();
+        _fileSearchCts?.Dispose();
+        _fileSearchCts = null;
+    }
+
     private bool IsChatRuntimeActive(Guid chatId)
         => _runtimeStates.TryGetValue(chatId, out var runtime)
            && (runtime.IsBusy || runtime.IsStreaming || runtime.HasPendingBackgroundWork

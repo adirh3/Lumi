@@ -113,6 +113,10 @@ public partial class MainWindow : Window
     private MainViewModel? _wiredVm;
     private const int NavHoverIntentDelayMs = 85;
 
+    public bool IsPrimaryWindow { get; set; } = true;
+    public int SecondaryWindowCascadeIndex { get; set; }
+    public PixelPoint? SecondaryWindowAnchorPosition { get; set; }
+
     public MainWindow()
     {
         InitializeComponent();
@@ -149,7 +153,10 @@ public partial class MainWindow : Window
 
         Opened += (_, _) =>
         {
-            RestoreWindowBounds();
+            if (IsPrimaryWindow)
+                RestoreWindowBounds();
+            else
+                PlaceSecondaryWindow();
             UpdateTransparencyFallbackOpacity();
             ApplyWindowContentPaddingForState();
         };
@@ -369,7 +376,7 @@ public partial class MainWindow : Window
     protected override void OnClosing(WindowClosingEventArgs e)
     {
         // If tray behavior is enabled, hide instead of closing.
-        if (DataContext is MainViewModel vm && vm.SettingsVM.MinimizeToTray)
+        if (IsPrimaryWindow && DataContext is MainViewModel vm && vm.SettingsVM.MinimizeToTray)
         {
             e.Cancel = true;
             HideToTray();
@@ -464,12 +471,73 @@ public partial class MainWindow : Window
             WindowState = WindowState.Maximized;
     }
 
+    private void PlaceSecondaryWindow()
+    {
+        if (DataContext is not MainViewModel vm) return;
+        var settings = vm.DataStore.Data.Settings;
+
+        const double defaultWidth = 1320;
+        const double defaultHeight = 860;
+        const int cascadeStep = 28;
+        const int maxCascadeSteps = 8;
+
+        var screen = (SecondaryWindowAnchorPosition is { } anchor ? Screens.ScreenFromPoint(anchor) : null)
+            ?? (Owner is Window owner ? Screens.ScreenFromWindow(owner) : null)
+            ?? Screens.ScreenFromWindow(this)
+            ?? Screens.Primary;
+        if (screen is null)
+        {
+            Width = settings.WindowWidth ?? defaultWidth;
+            Height = settings.WindowHeight ?? defaultHeight;
+            WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            return;
+        }
+
+        var scaling = screen.Scaling <= 0 ? 1.0 : screen.Scaling;
+        var workArea = screen.WorkingArea;
+        var maxW = Math.Max(1.0, workArea.Width / scaling);
+        var maxH = Math.Max(1.0, workArea.Height / scaling);
+        var width = Math.Clamp(settings.WindowWidth ?? defaultWidth, Math.Min(MinWidth, maxW), maxW);
+        var height = Math.Clamp(settings.WindowHeight ?? defaultHeight, Math.Min(MinHeight, maxH), maxH);
+        Width = width;
+        Height = height;
+
+        var offset = cascadeStep * Math.Max(1, SecondaryWindowCascadeIndex % maxCascadeSteps);
+        int left;
+        int top;
+
+        if (SecondaryWindowAnchorPosition is { } anchorPosition)
+        {
+            left = anchorPosition.X + (int)(offset * scaling);
+            top = anchorPosition.Y + (int)(offset * scaling);
+        }
+        else if (Owner is Window { IsVisible: true } ownerWindow)
+        {
+            left = ownerWindow.Position.X + (int)(offset * scaling);
+            top = ownerWindow.Position.Y + (int)(offset * scaling);
+        }
+        else
+        {
+            left = workArea.X + (workArea.Width - (int)(width * scaling)) / 2 + (int)(offset * scaling);
+            top = workArea.Y + (workArea.Height - (int)(height * scaling)) / 2 + (int)(offset * scaling);
+        }
+
+        var maxLeft = workArea.Right - (int)Math.Min(width * scaling, workArea.Width);
+        var maxTop = workArea.Bottom - (int)Math.Min(height * scaling, workArea.Height);
+        Position = new PixelPoint(
+            Math.Clamp(left, workArea.X, Math.Max(workArea.X, maxLeft)),
+            Math.Clamp(top, workArea.Y, Math.Max(workArea.Y, maxTop)));
+    }
+
     /// <summary>
     /// Captures current window bounds into settings without persisting to disk.
     /// Must be called on the UI thread while the window is still visible.
     /// </summary>
     private void CaptureBoundsToSettings()
     {
+        if (!IsPrimaryWindow)
+            return;
+
         if (DataContext is not MainViewModel vm) return;
         var settings = vm.DataStore.Data.Settings;
 
@@ -526,12 +594,15 @@ public partial class MainWindow : Window
         if (_sidebarBorder is not null)
             _sidebarBorder.Width = clampedWidth;
 
-        if (DataContext is MainViewModel vm)
+        if (IsPrimaryWindow && DataContext is MainViewModel vm)
             vm.DataStore.Data.Settings.SidebarWidth = clampedWidth;
     }
 
     private void PersistSidebarWidth()
     {
+        if (!IsPrimaryWindow)
+            return;
+
         if (DataContext is not MainViewModel vm)
             return;
 

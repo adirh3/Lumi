@@ -10,7 +10,7 @@ using Lumi.Services;
 
 namespace Lumi.ViewModels;
 
-public partial class SettingsViewModel : ObservableObject
+public partial class SettingsViewModel : ObservableObject, IDisposable
 {
     public const int AboutPageIndex = 6;
 
@@ -347,6 +347,11 @@ public partial class SettingsViewModel : ObservableObject
         // Wire update status changes
         _updateService.StatusChanged += OnUpdateStatusChanged;
         OnUpdateStatusChanged(_updateService.CurrentStatus);
+    }
+
+    public void Dispose()
+    {
+        _updateService.StatusChanged -= OnUpdateStatusChanged;
     }
 
     private void OnUpdateStatusChanged(UpdateStatus status)

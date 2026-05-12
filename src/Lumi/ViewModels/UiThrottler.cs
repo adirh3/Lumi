@@ -6,11 +6,16 @@ using Avalonia.Threading;
 
 namespace Lumi.ViewModels;
 
-internal sealed class UiThrottler(Action action, TimeSpan minimumInterval, DispatcherPriority priority) : IDisposable
+internal sealed class UiThrottler(
+    Action action,
+    TimeSpan minimumInterval,
+    DispatcherPriority priority,
+    Action<Exception>? onError = null) : IDisposable
 {
     private readonly Action _action = action;
     private readonly TimeSpan _minimumInterval = minimumInterval < TimeSpan.Zero ? TimeSpan.Zero : minimumInterval;
     private readonly DispatcherPriority _priority = priority;
+    private readonly Action<Exception>? _onError = onError;
     private readonly object _gate = new();
     private bool _disposed;
     private bool _scheduled;
@@ -134,7 +139,8 @@ internal sealed class UiThrottler(Action action, TimeSpan minimumInterval, Dispa
         }
         catch (Exception ex)
         {
-            Trace.TraceError("UiThrottler action failed: {0}", ex);
+            Debug.WriteLine($"UiThrottler action failed: {ex}");
+            _onError?.Invoke(ex);
         }
     }
 }
