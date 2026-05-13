@@ -19,6 +19,7 @@ public partial class ProjectsViewModel : ObservableObject
     [ObservableProperty] private string _editName = "";
     [ObservableProperty] private string _editInstructions = "";
     [ObservableProperty] private string _editWorkingDirectory = "";
+    [ObservableProperty] private string _editAdditionalContextDirectories = "";
     [ObservableProperty] private bool _isCodingProject;
     [ObservableProperty] private string _searchQuery = "";
 
@@ -31,37 +32,37 @@ public partial class ProjectsViewModel : ObservableObject
     /// <summary>Fired when a chat is clicked in the project detail view. MainViewModel navigates to it.</summary>
     public event Action<Chat>? ChatOpenRequested;
 
-     public ProjectsViewModel(DataStore dataStore)
-     {
-         _dataStore = dataStore;
-         RefreshList();
-     }
+    public ProjectsViewModel(DataStore dataStore)
+    {
+        _dataStore = dataStore;
+        RefreshList();
+    }
 
-     public void RefreshFromStore()
-     {
-         RefreshList();
+    public void RefreshFromStore()
+    {
+        RefreshList();
 
-         if (SelectedProject is null)
-             return;
+        if (SelectedProject is null)
+            return;
 
-         var selectedProject = _dataStore.Data.Projects.FirstOrDefault(project => project.Id == SelectedProject.Id);
-         if (selectedProject is null)
-         {
-             SelectedProject = null;
-             IsEditing = false;
-             ProjectChats.Clear();
-             return;
-         }
+        var selectedProject = _dataStore.Data.Projects.FirstOrDefault(project => project.Id == SelectedProject.Id);
+        if (selectedProject is null)
+        {
+            SelectedProject = null;
+            IsEditing = false;
+            ProjectChats.Clear();
+            return;
+        }
 
-         if (!ReferenceEquals(SelectedProject, selectedProject))
-         {
-             SelectedProject = selectedProject;
-             return;
-         }
+        if (!ReferenceEquals(SelectedProject, selectedProject))
+        {
+            SelectedProject = selectedProject;
+            return;
+        }
 
-         SyncEditorFromProject(selectedProject);
-         RefreshProjectChats(selectedProject.Id);
-     }
+        SyncEditorFromProject(selectedProject);
+        RefreshProjectChats(selectedProject.Id);
+    }
 
     private void RefreshList()
     {
@@ -75,6 +76,7 @@ public partial class ProjectsViewModel : ObservableObject
                 [
                     SearchField.Primary(project.Name, 3.5),
                     new SearchField(project.WorkingDirectory, 1.3),
+                    new SearchField(ProjectContextDirectoryHelper.FormatFolderList(project.AdditionalContextDirectories), 1.1),
                     SearchField.Content(project.Instructions, 1.0)
                 ],
                 static project => new SearchSortMetadata(Text: project.Name))
@@ -91,6 +93,7 @@ public partial class ProjectsViewModel : ObservableObject
         EditName = "";
         EditInstructions = "";
         EditWorkingDirectory = "";
+        EditAdditionalContextDirectories = "";
         IsCodingProject = false;
         IsEditing = true;
     }
@@ -101,25 +104,26 @@ public partial class ProjectsViewModel : ObservableObject
         SelectedProject = project;
     }
 
-     partial void OnSelectedProjectChanged(Project? value)
-     {
-         if (value is null)
-         {
-             ProjectChats.Clear();
-             return;
-         }
-         SyncEditorFromProject(value);
-         IsEditing = true;
-         RefreshProjectChats(value.Id);
-     }
+    partial void OnSelectedProjectChanged(Project? value)
+    {
+        if (value is null)
+        {
+            ProjectChats.Clear();
+            return;
+        }
+        SyncEditorFromProject(value);
+        IsEditing = true;
+        RefreshProjectChats(value.Id);
+    }
 
-     private void SyncEditorFromProject(Project project)
-     {
-         EditName = project.Name;
-         EditInstructions = project.Instructions;
-         EditWorkingDirectory = project.WorkingDirectory ?? "";
-         IsCodingProject = SystemPromptBuilder.IsCodingProject(project.WorkingDirectory);
-     }
+    private void SyncEditorFromProject(Project project)
+    {
+        EditName = project.Name;
+        EditInstructions = project.Instructions;
+        EditWorkingDirectory = project.WorkingDirectory ?? "";
+        EditAdditionalContextDirectories = ProjectContextDirectoryHelper.FormatFolderList(project.AdditionalContextDirectories);
+        IsCodingProject = SystemPromptBuilder.IsCodingProject(project.WorkingDirectory);
+    }
 
     /// <summary>Refreshes the chat list for the currently selected project. Called on tab navigation.</summary>
     public void RefreshSelectedProjectChats()
@@ -157,12 +161,14 @@ public partial class ProjectsViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(EditName)) return;
 
         var workDir = string.IsNullOrWhiteSpace(EditWorkingDirectory) ? null : EditWorkingDirectory.Trim();
+        var additionalContextDirectories = ProjectContextDirectoryHelper.ParseFolderList(EditAdditionalContextDirectories);
 
         if (SelectedProject is not null)
         {
             SelectedProject.Name = EditName.Trim();
             SelectedProject.Instructions = EditInstructions.Trim();
             SelectedProject.WorkingDirectory = workDir;
+            SelectedProject.AdditionalContextDirectories = additionalContextDirectories;
         }
         else
         {
@@ -170,7 +176,8 @@ public partial class ProjectsViewModel : ObservableObject
             {
                 Name = EditName.Trim(),
                 Instructions = EditInstructions.Trim(),
-                WorkingDirectory = workDir
+                WorkingDirectory = workDir,
+                AdditionalContextDirectories = additionalContextDirectories
             };
             _dataStore.Data.Projects.Add(project);
         }
@@ -222,5 +229,19 @@ public partial class ProjectsViewModel : ObservableObject
     private void ClearWorkingDirectory()
     {
         EditWorkingDirectory = "";
+    }
+
+    public void AddAdditionalContextDirectories(IEnumerable<string> directories)
+    {
+        var combined = ProjectContextDirectoryHelper
+            .ParseFolderList(EditAdditionalContextDirectories)
+            .Concat(directories);
+        EditAdditionalContextDirectories = ProjectContextDirectoryHelper.FormatFolderList(combined);
+    }
+
+    [RelayCommand]
+    private void ClearAdditionalContextDirectories()
+    {
+        EditAdditionalContextDirectories = "";
     }
 }

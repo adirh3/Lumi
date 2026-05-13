@@ -53,14 +53,15 @@ internal static class AppDataSnapshotFactory
                 .ToList(),
             Projects = source.Projects
                 .Select(static p => new Project
-                {
-                    Id = p.Id,
-                    Name = p.Name,
-                    Instructions = p.Instructions,
-                    WorkingDirectory = p.WorkingDirectory,
-                    CreatedAt = p.CreatedAt
-                })
-                .ToList(),
+                 {
+                     Id = p.Id,
+                     Name = p.Name,
+                     Instructions = p.Instructions,
+                     WorkingDirectory = p.WorkingDirectory,
+                     AdditionalContextDirectories = [..p.AdditionalContextDirectories],
+                     CreatedAt = p.CreatedAt
+                 })
+                 .ToList(),
             Skills = source.Skills
                 .Select(static s => new Skill
                 {

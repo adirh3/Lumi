@@ -257,6 +257,108 @@ public sealed class ChatViewModelAgentRoutingTests
         }
     }
 
+    [Fact]
+    public void FindSkillReferenceByName_ExplicitWorkDir_DoesNotUseCurrentProjectAdditionalFolders()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"lumi-fetch-skill-leak-test-{Guid.NewGuid():N}");
+        var targetWorkDir = Path.Combine(tempRoot, "target");
+        var visibleWorkDir = Path.Combine(tempRoot, "visible");
+        var visibleAdditionalDir = Path.Combine(tempRoot, "visible-additional");
+
+        try
+        {
+            Directory.CreateDirectory(targetWorkDir);
+            Directory.CreateDirectory(visibleWorkDir);
+            Directory.CreateDirectory(Path.Combine(visibleAdditionalDir, ".github", "skills"));
+            File.WriteAllText(
+                Path.Combine(visibleAdditionalDir, ".github", "skills", "leaked-skill.md"),
+                """
+                ---
+                name: Leaked Skill
+                description: Should not leak into explicit workdir lookup
+                ---
+
+                Use only with the visible project.
+                """);
+
+            var visibleProject = new Project
+            {
+                Id = Guid.NewGuid(),
+                Name = "Visible",
+                WorkingDirectory = visibleWorkDir,
+                AdditionalContextDirectories = [visibleAdditionalDir]
+            };
+            var visibleChat = CreateChatWithMessage("Visible chat");
+            visibleChat.ProjectId = visibleProject.Id;
+            using var harness = CreateHarness(new AppData
+            {
+                Projects = [visibleProject],
+                Chats = [visibleChat]
+            });
+            harness.ViewModel.CurrentChat = visibleChat;
+
+            var reference = harness.ViewModel.FindSkillReferenceByName("Leaked Skill", targetWorkDir);
+
+            Assert.Null(reference);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FindSkillReferenceByName_UsesCurrentProjectAdditionalContextDirectories()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"lumi-additional-skill-route-test-{Guid.NewGuid():N}");
+        var workDir = Path.Combine(tempRoot, "work");
+        var additionalDir = Path.Combine(tempRoot, "additional");
+
+        try
+        {
+            Directory.CreateDirectory(workDir);
+            Directory.CreateDirectory(Path.Combine(additionalDir, ".github", "skills"));
+            File.WriteAllText(
+                Path.Combine(additionalDir, ".github", "skills", "additional-skill.md"),
+                """
+                ---
+                name: Additional Skill
+                description: Skill from an additional folder
+                ---
+
+                Use the additional folder context.
+                """);
+
+            var project = new Project
+            {
+                Id = Guid.NewGuid(),
+                Name = "Multi folder project",
+                WorkingDirectory = workDir,
+                AdditionalContextDirectories = [additionalDir]
+            };
+            var chat = CreateChatWithMessage("Project chat");
+            chat.ProjectId = project.Id;
+            using var harness = CreateHarness(new AppData
+            {
+                Projects = [project],
+                Chats = [chat]
+            });
+            harness.ViewModel.CurrentChat = chat;
+
+            var reference = harness.ViewModel.FindSkillReferenceByName("Additional Skill");
+
+            Assert.NotNull(reference);
+            Assert.Equal("Additional Skill", reference!.Name);
+            Assert.Equal("Skill from an additional folder", reference.Description);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private static TestHarness CreateHarness(AppData data)
     {
         var store = new DataStore(data);

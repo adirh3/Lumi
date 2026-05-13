@@ -306,7 +306,7 @@ public partial class ChatViewModel
         _ = RefreshCodingProjectState();
     }
 
-    public void RefreshComposerCatalogs(bool syncWorkspaceMcpSelections = true)
+    public void RefreshComposerCatalogs(bool syncProjectContextMcpSelections = true)
     {
         // Start with Lumi agents
         var agentChips = _dataStore.Data.Agents
@@ -326,43 +326,42 @@ public partial class ChatViewModel
                 SecondaryText: BuildChipSearchText(s.Description, s.Content)))
             .ToList();
 
-        // Discover workspace and user-level Copilot agents/skills
-        var workDir = GetEffectiveWorkingDirectory();
-        var externalCatalog = GetExternalCatalog(workDir);
-        DiscoverCopilotItems(externalCatalog, agentChips, skillChips);
+        // Discover project-scoped and user-level Copilot agents/skills
+        var projectContextCatalog = GetProjectContextCatalog();
+        DiscoverCopilotItems(projectContextCatalog, agentChips, skillChips);
 
         ReplaceCollection(AvailableAgentChips, agentChips);
         ReplaceCollection(AvailableSkillChips, skillChips);
 
-        // Build MCP chips: Lumi-configured MCPs + workspace MCPs from .vscode/mcp.json
+        // Build MCP chips: Lumi-configured MCPs + project-scoped MCPs from .vscode/mcp.json
         var mcpChips = _dataStore.Data.McpServers
             .Where(s => s.IsEnabled)
             .OrderBy(s => s.Name)
             .Select(s => new StrataComposerChip(s.Name))
             .ToList();
-        var workspaceMcpNames = DiscoverWorkspaceMcps(workDir, mcpChips);
+        var projectContextMcpNames = AddProjectContextMcpChips(projectContextCatalog.McpServers, mcpChips);
         ReplaceCollection(AvailableMcpChips, mcpChips);
 
-        // Remove stale workspace MCPs from the previous project, then add current ones
-        List<StrataComposerChip> staleWorkspaceMcps;
-        var addedWorkspaceMcps = false;
+        // Remove stale project-context MCPs from the previous project, then add current ones.
+        List<StrataComposerChip> staleProjectContextMcps;
+        var addedProjectContextMcps = false;
         _suppressActiveMcpCollectionSync = true;
         try
         {
-            staleWorkspaceMcps = ActiveMcpChips.OfType<StrataComposerChip>().Where(c => c.Glyph == "🔌").ToList();
-            foreach (var stale in staleWorkspaceMcps)
+            staleProjectContextMcps = ActiveMcpChips.OfType<StrataComposerChip>().Where(c => c.Glyph == "🔌").ToList();
+            foreach (var stale in staleProjectContextMcps)
             {
                 ActiveMcpServerNames.Remove(stale.Name);
                 ActiveMcpChips.Remove(stale);
             }
 
-            foreach (var name in workspaceMcpNames)
+            foreach (var name in projectContextMcpNames)
             {
                 if (!ActiveMcpServerNames.Contains(name))
                 {
                     ActiveMcpServerNames.Add(name);
                     ActiveMcpChips.Add(new StrataComposerChip(name, "🔌"));
-                    addedWorkspaceMcps = true;
+                    addedProjectContextMcps = true;
                 }
             }
         }
@@ -371,9 +370,9 @@ public partial class ChatViewModel
             _suppressActiveMcpCollectionSync = false;
         }
 
-        // Persist workspace MCPs to the chat so they survive reload
-        if (syncWorkspaceMcpSelections
-            && (addedWorkspaceMcps || staleWorkspaceMcps.Count > 0)
+        // Persist project-context MCPs to the chat so they survive reload.
+        if (syncProjectContextMcpSelections
+            && (addedProjectContextMcps || staleProjectContextMcps.Count > 0)
             && !IsLoadingChat)
             SyncActiveMcpsToChat();
 
@@ -394,7 +393,7 @@ public partial class ChatViewModel
     /// the user's <c>~\.copilot</c> directory.
     /// </summary>
     private static void DiscoverCopilotItems(
-        CopilotCatalogSnapshot catalog,
+        ProjectContextCatalogSnapshot catalog,
         List<StrataComposerChip> agentChips,
         List<StrataComposerChip> skillChips)
     {
@@ -453,34 +452,25 @@ public partial class ChatViewModel
     }
 
     /// <summary>
-    /// Discovers MCP servers from .vscode/mcp.json in the workspace directory
-    /// and adds them to the MCP chip list. Returns the names of discovered workspace MCPs.
+    /// Discovers MCP servers from .vscode/mcp.json in project context directories
+    /// and adds them to the MCP chip list. Returns the names of discovered project MCPs.
     /// </summary>
-    private static List<string> DiscoverWorkspaceMcps(string workDir, List<StrataComposerChip> mcpChips)
+    private static List<string> AddProjectContextMcpChips(
+        IReadOnlyList<ProjectContextMcpServerDefinition> contextMcpServers,
+        List<StrataComposerChip> mcpChips)
     {
         var discovered = new List<string>();
-        var mcpJsonPath = Path.Combine(workDir, ".vscode", "mcp.json");
-        if (!File.Exists(mcpJsonPath)) return discovered;
-
         var existingNames = mcpChips.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        try
+        foreach (var server in contextMcpServers)
         {
-            var json = File.ReadAllText(mcpJsonPath);
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (existingNames.Contains(server.Name))
+                continue;
 
-            if (!doc.RootElement.TryGetProperty("servers", out var servers)) return discovered;
-
-            foreach (var server in servers.EnumerateObject())
-            {
-                if (!existingNames.Contains(server.Name))
-                {
-                    mcpChips.Add(new StrataComposerChip(server.Name, "🔌"));
-                    discovered.Add(server.Name);
-                }
-            }
+            mcpChips.Add(new StrataComposerChip(server.Name, "🔌"));
+            discovered.Add(server.Name);
+            existingNames.Add(server.Name);
         }
-        catch { /* best effort */ }
 
         return discovered;
     }
@@ -757,6 +747,9 @@ public partial class ChatViewModel
         if (!string.IsNullOrWhiteSpace(project.WorkingDirectory))
             return CollapseInlineCompletionText(project.WorkingDirectory, 80);
 
+        if (project.AdditionalContextDirectories.Count > 0)
+            return CollapseInlineCompletionText(ProjectContextDirectoryHelper.FormatFolderList(project.AdditionalContextDirectories), 80);
+
         return BuildChipSearchText(project.Instructions, null);
     }
 
@@ -1006,11 +999,11 @@ public partial class ChatViewModel
             CurrentChat.SdkAgentName = value;
             QueueSaveChat(CurrentChat, saveIndex: true);
 
-            var externalCatalog = GetExternalCatalog();
+            var projectContextCatalog = GetProjectContextCatalog();
             var previousExternalAgent = !string.IsNullOrWhiteSpace(previousValue)
-                && FindExternalAgentByName(externalCatalog, previousValue) is not null;
+                && FindExternalAgentByName(projectContextCatalog, previousValue) is not null;
             var currentExternalAgent = !string.IsNullOrWhiteSpace(value)
-                && FindExternalAgentByName(externalCatalog, value) is not null;
+                && FindExternalAgentByName(projectContextCatalog, value) is not null;
 
             if (CurrentChat.CopilotSessionId is not null && (previousExternalAgent || currentExternalAgent))
             {

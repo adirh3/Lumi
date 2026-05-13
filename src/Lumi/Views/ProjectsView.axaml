@@ -117,6 +117,36 @@
                        VerticalAlignment="Center" />
           </StackPanel>
 
+          <!-- Additional context folders -->
+          <DockPanel Margin="0,12,0,4">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" Margin="8,0,0,0">
+              <Button Name="BrowseAdditionalFoldersButton" Classes="subtle motion-action" Padding="8,6" MinHeight="0"
+                      CornerRadius="6" ToolTip.Tip="{loc:Str Project_AddFolders}">
+                <PathIcon Data="{StaticResource Icon.Folder}" Width="14" Height="14"
+                          Foreground="{DynamicResource Brush.TextTertiary}" />
+              </Button>
+              <Button Classes="subtle motion-action" Padding="8,6" MinHeight="0" CornerRadius="6"
+                      Command="{Binding ClearAdditionalContextDirectoriesCommand}"
+                      IsVisible="{Binding EditAdditionalContextDirectories, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                      ToolTip.Tip="Clear">
+                <TextBlock Text="✕" FontSize="12" Foreground="{DynamicResource Brush.TextTertiary}" />
+              </Button>
+            </StackPanel>
+            <StackPanel Spacing="2">
+              <TextBlock Text="{loc:Str Field_AdditionalContextFolders}" Classes="field-label" Margin="0" />
+              <TextBlock Text="{loc:Str Project_AdditionalContextFoldersHint}"
+                         Classes="caption tertiary"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </DockPanel>
+          <TextBox Text="{Binding EditAdditionalContextDirectories}"
+                   AcceptsReturn="True"
+                   TextWrapping="NoWrap"
+                   MinHeight="62"
+                   MaxHeight="140"
+                   VerticalContentAlignment="Top"
+                   PlaceholderText="{loc:Str Watermark_ProjectAdditionalContextDirs}" />
+
           <!-- Instructions -->
           <TextBlock Text="{loc:Str Field_Instructions}" Classes="field-label" Margin="0,12,0,4" />
           <TextBox Text="{Binding EditInstructions}" AcceptsReturn="True" TextWrapping="Wrap"

@@ -100,6 +100,7 @@ public partial class ChatViewModel
             ? _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == chat.AgentId.Value)?.Name ?? Loc.Author_Lumi
             : Loc.Author_Lumi;
         var runtime = GetOrCreateRuntimeState(chat.Id);
+        var projectContextCatalog = GetProjectContextCatalog(chat, workDir);
         var toolParentById = new Dictionary<string, string?>(StringComparer.Ordinal);
         var terminalRootByToolCallId = new Dictionary<string, string>(StringComparer.Ordinal);
         var externalToolCallIdByRequestId = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -1544,7 +1545,7 @@ public partial class ChatViewModel
                     {
                     if (!string.IsNullOrWhiteSpace(skillInvoked.Data.Name))
                     {
-                        var skill = FindSkillReferenceByName(skillInvoked.Data.Name, workDir);
+                        var skill = FindSkillReferenceByName(skillInvoked.Data.Name, projectContextCatalog);
                         pendingFetchedSkillRefs.Add(new SkillReference
                         {
                             Name = skill?.Name ?? skillInvoked.Data.Name,

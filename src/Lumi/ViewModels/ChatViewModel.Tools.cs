@@ -72,12 +72,15 @@ public partial class ChatViewModel
         return agent.ToolNames.Exists(toolGroup.Contains);
     }
 
-    private List<AIFunction> BuildCustomTools(Guid chatId, LumiAgent? activeAgent, string workDir)
+    private List<AIFunction> BuildCustomTools(
+        Guid chatId,
+        LumiAgent? activeAgent,
+        ProjectContextCatalogSnapshot projectContextCatalog)
     {
         var tools = new List<AIFunction>();
         tools.AddRange(BuildMemoryTools());
         tools.Add(BuildAnnounceFileTool(chatId));
-        tools.Add(BuildFetchSkillTool(workDir));
+        tools.Add(BuildFetchSkillTool(projectContextCatalog));
         tools.Add(BuildAskQuestionTool(chatId));
         tools.AddRange(BuildLumiManagementTools(chatId));
         tools.AddRange(BuildWebTools());
@@ -90,11 +93,11 @@ public partial class ChatViewModel
         return tools;
     }
 
-    private async Task<Dictionary<string, McpServerConfig>> BuildMcpServersAsync(
+    private Dictionary<string, McpServerConfig> BuildMcpServers(
         string workDir,
+        ProjectContextCatalogSnapshot projectContextCatalog,
         Chat chat,
-        LumiAgent? activeAgent,
-        CancellationToken ct)
+        LumiAgent? activeAgent)
     {
         var allServers = _dataStore.Data.McpServers.Where(s => s.IsEnabled).ToList();
 
@@ -152,96 +155,16 @@ public partial class ChatViewModel
             }
         }
 
-        // Add workspace MCP servers from .vscode/mcp.json (VS Code convention)
-        await MergeWorkspaceMcpServersAsync(workDir, dict, ct);
+        // Add project-scoped MCP servers from the project context catalog.
+        foreach (var contextServer in projectContextCatalog.McpServers)
+        {
+            if (!dict.ContainsKey(contextServer.Name))
+                dict[contextServer.Name] = contextServer.Config;
+        }
 
         GitHubMcpWebSearchBootstrap.Ensure(dict, CopilotService.TryGetGitHubTokenForMcp());
 
         return dict;
-    }
-
-    /// <summary>
-    /// Reads .vscode/mcp.json from the working directory and merges any servers
-    /// not already present into the MCP server dictionary. This allows workspace
-    /// MCP configs (VS Code convention) to be available in Copilot sessions.
-    /// Supports both local (stdio) and remote (sse/http) server types, and
-    /// forwards env variables and headers from the JSON config.
-    /// </summary>
-    private static async Task MergeWorkspaceMcpServersAsync(string workDir, Dictionary<string, McpServerConfig> dict, CancellationToken ct)
-    {
-        var mcpJsonPath = Path.Combine(workDir, ".vscode", "mcp.json");
-        if (!File.Exists(mcpJsonPath)) return;
-
-        try
-        {
-            var json = await File.ReadAllTextAsync(mcpJsonPath, ct);
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
-
-            if (!doc.RootElement.TryGetProperty("servers", out var servers)) return;
-
-            foreach (var server in servers.EnumerateObject())
-            {
-                if (dict.ContainsKey(server.Name)) continue; // Lumi config takes precedence
-
-                var type = server.Value.TryGetProperty("type", out var typeProp)
-                    ? typeProp.GetString() ?? "stdio"
-                    : "stdio"; // Default to stdio when type is omitted
-
-                if (type is "sse" or "http")
-                {
-                    var url = server.Value.TryGetProperty("url", out var urlProp) ? urlProp.GetString() ?? "" : "";
-                    if (string.IsNullOrWhiteSpace(url)) continue;
-
-                    var remote = new McpHttpServerConfig
-                    {
-                        Url = url,
-                        Tools = ["*"]
-                    };
-
-                    if (server.Value.TryGetProperty("headers", out var headersProp) && headersProp.ValueKind == System.Text.Json.JsonValueKind.Object)
-                    {
-                        var headers = new Dictionary<string, string>();
-                        foreach (var header in headersProp.EnumerateObject())
-                            headers[header.Name] = header.Value.GetString() ?? "";
-                        if (headers.Count > 0)
-                            remote.Headers = headers;
-                    }
-
-                    dict[server.Name] = remote;
-                }
-                else
-                {
-                    // stdio / local
-                    var command = server.Value.TryGetProperty("command", out var cmdProp) ? cmdProp.GetString() ?? "" : "";
-                    var args = new List<string>();
-                    if (server.Value.TryGetProperty("args", out var argsProp))
-                    {
-                        foreach (var arg in argsProp.EnumerateArray())
-                            args.Add(arg.GetString() ?? "");
-                    }
-
-                    var local = new McpStdioServerConfig
-                    {
-                        Command = command,
-                        Args = args,
-                        Cwd = workDir,
-                        Tools = ["*"]
-                    };
-
-                    if (server.Value.TryGetProperty("env", out var envProp) && envProp.ValueKind == System.Text.Json.JsonValueKind.Object)
-                    {
-                        var env = new Dictionary<string, string>();
-                        foreach (var entry in envProp.EnumerateObject())
-                            env[entry.Name] = entry.Value.GetString() ?? "";
-                        if (env.Count > 0)
-                            local.Env = env;
-                    }
-
-                    dict[server.Name] = local;
-                }
-            }
-        }
-        catch { /* best effort — malformed JSON or missing fields */ }
     }
 
     private List<AIFunction> BuildWebTools()
@@ -533,7 +456,7 @@ public partial class ChatViewModel
             "Show a file attachment chip to the user for a file you created or produced. Call this ONCE for each final deliverable file (e.g. the PDF, DOCX, PPTX, image, etc.). Do NOT call for intermediate/temporary files like scripts.");
     }
 
-    private AIFunction BuildFetchSkillTool(string workDir)
+    private AIFunction BuildFetchSkillTool(ProjectContextCatalogSnapshot projectContextCatalog)
     {
         return AIFunctionFactory.Create(
             ([Description("The exact name of the skill to retrieve (as listed in Available Skills)")] string name) =>
@@ -543,7 +466,7 @@ public partial class ChatViewModel
                 if (skill is not null)
                     return $"# {skill.Name}\n\n{skill.Content}";
 
-                var externalSkill = FindExternalSkillByName(name, workDir);
+                var externalSkill = projectContextCatalog.FindSkill(name);
                 if (externalSkill is not null)
                     return externalSkill.Content;
 
@@ -654,9 +577,20 @@ public partial class ChatViewModel
                     [Description("Project instructions or custom prompt text.")] string? instructions = null,
                     [Description("Working directory path for the project.")] string? workingDirectory = null,
                     [Description("Set to true to clear the project's working directory during update.")] bool? clearWorkingDirectory = null,
+                    [Description("Optional folders to scan for project-scoped .github skills/agents and .vscode/mcp.json. Pass an empty array to clear on update.")] string[]? additionalContextDirectories = null,
+                    [Description("Set to true to clear the project's additional context folders during update.")] bool? clearAdditionalContextDirectories = null,
                     [Description("Optional text query for list filtering.")] string? query = null) =>
                 {
-                    var result = FeatureManager.ManageProjects(action, identifier, name, instructions, workingDirectory, clearWorkingDirectory, query);
+                    var result = FeatureManager.ManageProjects(
+                        action,
+                        identifier,
+                        name,
+                        instructions,
+                        workingDirectory,
+                        clearWorkingDirectory,
+                        additionalContextDirectories,
+                        clearAdditionalContextDirectories,
+                        query);
                     return await ApplyFeatureChangeAsync(result);
                 },
                 "manage_projects",
@@ -787,7 +721,7 @@ public partial class ChatViewModel
 
         Dispatcher.UIThread.Post(() =>
         {
-            RefreshComposerCatalogs(syncWorkspaceMcpSelections: false);
+            RefreshComposerCatalogs(syncProjectContextMcpSelections: false);
             var chatMetadataChanged = RefreshCurrentChatFeatureState(result);
             if (chatMetadataChanged)
                 _ = SaveIndexAsync();
@@ -833,8 +767,8 @@ public partial class ChatViewModel
     private bool RefreshActiveSkillChipsFromState()
     {
         var skillsById = _dataStore.Data.Skills.ToDictionary(skill => skill.Id);
-        var externalCatalog = GetExternalCatalog(GetEffectiveWorkingDirectory());
-        var externalSkillsByName = externalCatalog.Skills
+        var projectContextCatalog = GetProjectContextCatalog();
+        var externalSkillsByName = projectContextCatalog.Skills
             .ToDictionary(skill => skill.Name, StringComparer.OrdinalIgnoreCase);
         var filteredIds = new List<Guid>();
         var filteredExternalNames = new List<string>();

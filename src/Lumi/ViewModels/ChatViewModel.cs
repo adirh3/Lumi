@@ -651,8 +651,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ? _dataStore.Data.Projects.FirstOrDefault(p => p.Id == chat.ProjectId)
             : null;
         var workDir = GetEffectiveWorkingDirectory(chat);
-        var externalCatalog = GetExternalCatalog(workDir);
-        var externalSkills = externalCatalog.Skills;
+        var projectContextCatalog = GetProjectContextCatalog(chat, workDir);
+        var externalSkills = projectContextCatalog.Skills;
         var activeAgent = chat.AgentId.HasValue
             ? _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == chat.AgentId.Value)
             : null;
@@ -662,13 +662,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         var sdkAgentName = GetSessionSdkAgentName(chat, CurrentChat, SelectedSdkAgentName);
         var externalAgent = activeAgent is null
-            ? FindExternalAgentByName(externalCatalog, sdkAgentName)
+            ? FindExternalAgentByName(projectContextCatalog, sdkAgentName)
             : null;
         var skillDirTask = SyncSkillDirectoryAsync(chat.ActiveSkillIds, ct);
-        var mcpServersTask = BuildMcpServersAsync(workDir, chat, activeAgent, ct);
+        var mcpServers = BuildMcpServers(workDir, projectContextCatalog, chat, activeAgent);
 
         var customAgents = BuildCustomAgents();
-        var customTools = BuildCustomTools(chat.Id, activeAgent, workDir);
+        var customTools = BuildCustomTools(chat.Id, activeAgent, projectContextCatalog);
         if (!string.IsNullOrWhiteSpace(externalAgent?.Content))
             systemPrompt = (systemPrompt ?? "") + "\n\n--- Active Agent: " + externalAgent.Name + " ---\n" + externalAgent.Content;
 
@@ -677,7 +677,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (!string.IsNullOrWhiteSpace(dir))
             skillDirs.Add(dir);
 
-        var mcpServers = await mcpServersTask;
         var selectedModel = ResolveSelectedModelForChat(chat);
         var persistedEffort = ResolvePersistedReasoningEffortForChat(chat, selectedModel);
         if (chat.LastReasoningEffortUsed != persistedEffort)
@@ -1020,9 +1019,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     enabledServersByName[server.Name] = server;
             }
 
-            // Discover workspace MCPs from .vscode/mcp.json so we can restore them too
-            var workDir = GetEffectiveWorkingDirectory();
-            var workspaceMcpNames = DiscoverWorkspaceMcps(workDir, []);
+            // Restore project-scoped MCPs from the same context catalog used for sessions.
+            var projectContextMcpNames = GetProjectContextCatalog(chat).McpServers
+                .Select(server => server.Name)
+                .ToList();
 
             if (chat.ActiveMcpServerNames.Count > 0)
             {
@@ -1033,7 +1033,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         ActiveMcpServerNames.Add(name);
                         ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name));
                     }
-                    else if (workspaceMcpNames.Contains(name))
+                    else if (projectContextMcpNames.Contains(name))
                     {
                         ActiveMcpServerNames.Add(name);
                         ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name, "🔌"));
@@ -1048,8 +1048,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     ActiveMcpServerNames.Add(server.Name);
                     ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(server.Name));
                 }
-                // Also include workspace MCPs by default
-                foreach (var name in workspaceMcpNames)
+                // Also include project-context MCPs by default.
+                foreach (var name in projectContextMcpNames)
                 {
                     if (!ActiveMcpServerNames.Contains(name))
                     {
@@ -1222,6 +1222,19 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Called when project settings change so the next message recreates the session
+    /// with updated project instructions, context folders, file-based skills/agents, and MCPs.
+    /// </summary>
+    public void InvalidateProjectSession()
+    {
+        if (CurrentChat is not null)
+        {
+            InvalidateCurrentSession();
+            _pendingSkillInjections.Clear();
+        }
+    }
+
     /// <summary>Discards the current chat's session so a fresh one is created on the next message.</summary>
     private void InvalidateCurrentSession()
     {
@@ -1289,6 +1302,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             await _copilotService.ConnectAsync(cancellationToken);
 
         var targetWorkDir = GetEffectiveWorkingDirectory(targetChat);
+        var targetContextCatalog = GetProjectContextCatalog(targetChat, targetWorkDir);
         if (string.IsNullOrWhiteSpace(targetChat.LastModelUsed))
         {
             var targetModel = ResolveSelectedModelForChat(targetChat);
@@ -1309,7 +1323,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             Role = "user",
             Content = prompt,
             Author = $"Lumi Job - {job.Name}",
-            ActiveSkills = BuildSkillReferences(targetChat.ActiveSkillIds, targetChat.ActiveExternalSkillNames, targetWorkDir)
+            ActiveSkills = BuildSkillReferences(targetChat.ActiveSkillIds, targetChat.ActiveExternalSkillNames, targetContextCatalog)
         };
 
         targetChat.Messages.Add(userMsg);
@@ -1333,7 +1347,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var promptAdditions = BuildSendPromptAdditions(
             externalSkillNames: targetChat.ActiveExternalSkillNames,
             consumePendingSkillInjections: false,
-            workDir: targetWorkDir);
+            projectContextCatalog: targetContextCatalog);
         var localUserMessageCount = 0;
         var localAssistantMessageCount = 0;
 
@@ -2288,7 +2302,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private string BuildSendPromptAdditions(
         IReadOnlyCollection<string>? externalSkillNames = null,
         bool consumePendingSkillInjections = true,
-        string? workDir = null)
+        ProjectContextCatalogSnapshot? projectContextCatalog = null)
     {
         var builder = new StringBuilder();
         var hasActivatedSkillsSection = false;
@@ -2325,7 +2339,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (externalNames.Count > 0)
         {
             var externalSkills = ResolveExternalSkills(
-                workDir is { Length: > 0 } ? GetExternalCatalog(workDir) : GetExternalCatalog(),
+                projectContextCatalog ?? GetProjectContextCatalog(),
                 externalNames);
 
             if (externalSkills.Count > 0)

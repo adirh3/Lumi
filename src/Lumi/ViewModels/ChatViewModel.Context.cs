@@ -87,7 +87,7 @@ public partial class ChatViewModel
 
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
-        RefreshComposerCatalogs(); // Re-scan workspace and user Copilot agents/skills for the new project
+        RefreshComposerCatalogs(); // Re-scan project-context and user Copilot agents/skills for the new project
         _ = RefreshCodingProjectState();
     }
 
@@ -137,7 +137,7 @@ public partial class ChatViewModel
 
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
-        RefreshComposerCatalogs(); // Re-scan to remove workspace and user Copilot agents/skills
+        RefreshComposerCatalogs(); // Re-scan to remove project-context and user Copilot agents/skills
         _ = RefreshCodingProjectState();
     }
     public void AddSkill(Skill skill)
@@ -215,7 +215,7 @@ public partial class ChatViewModel
     public void AddMcpServer(string name)
     {
         if (ActiveMcpServerNames.Contains(name)) return;
-        // Accept both Lumi-configured and workspace MCPs (workspace MCPs aren't in the data store)
+        // Accept both Lumi-configured and project-context MCPs (project-context MCPs aren't in the data store)
         var isKnown = _dataStore.Data.McpServers.Any(s => s.Name == name)
                       || AvailableMcpChips.OfType<StrataTheme.Controls.StrataComposerChip>().Any(c => c.Name == name);
         if (!isKnown) return;
@@ -228,7 +228,7 @@ public partial class ChatViewModel
     public void RegisterMcpByName(string name)
     {
         if (ActiveMcpServerNames.Contains(name)) return;
-        // Accept both Lumi-configured and workspace MCPs (workspace MCPs aren't in the data store)
+        // Accept both Lumi-configured and project-context MCPs (project-context MCPs aren't in the data store)
         var isKnown = _dataStore.Data.McpServers.Any(s => s.Name == name)
                       || AvailableMcpChips.OfType<StrataTheme.Controls.StrataComposerChip>().Any(c => c.Name == name);
         if (!isKnown) return;
@@ -317,7 +317,7 @@ public partial class ChatViewModel
             .Select(p => new StrataTheme.Controls.StrataComposerChip(
                 p.Name,
                 "📁",
-                SecondaryText: BuildChipSearchText(p.WorkingDirectory, p.Instructions)))
+                SecondaryText: BuildProjectInlineCompletionSecondaryText(p)))
             .ToList();
     }
 
@@ -370,6 +370,11 @@ public partial class ChatViewModel
         => FindSkillReferenceByName(name, workDir: null);
 
     public SkillReference? FindSkillReferenceByName(string name, string? workDir)
+        => FindSkillReferenceByName(
+            name,
+            workDir is { Length: > 0 } ? GetProjectContextCatalog(workDir) : GetProjectContextCatalog());
+
+    private SkillReference? FindSkillReferenceByName(string name, ProjectContextCatalogSnapshot projectContextCatalog)
     {
         var skill = FindSkillByName(name);
         if (skill is not null)
@@ -382,9 +387,7 @@ public partial class ChatViewModel
             };
         }
 
-        var externalSkill = workDir is { Length: > 0 }
-            ? FindExternalSkillByName(name, workDir)
-            : FindExternalSkillByName(name);
+        var externalSkill = projectContextCatalog.FindSkill(name);
         if (externalSkill is null)
             return null;
 
@@ -480,6 +483,14 @@ public partial class ChatViewModel
         }
 
         return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    }
+
+    private Project? GetCurrentProject()
+    {
+        var pid = CurrentChat?.ProjectId ?? _pendingProjectId ?? ActiveProjectFilterId;
+        return pid.HasValue
+            ? _dataStore.Data.Projects.FirstOrDefault(p => p.Id == pid.Value)
+            : null;
     }
 
     private List<UserMessageAttachment>? TakePendingAttachments()

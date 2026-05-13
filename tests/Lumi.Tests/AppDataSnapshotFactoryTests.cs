@@ -87,6 +87,53 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void AppDataJsonContext_SerializesProjectAdditionalContextDirectories()
+    {
+        var data = new AppData
+        {
+            Projects =
+            [
+                new Project
+                {
+                    Name = "Multi folder project",
+                    WorkingDirectory = @"C:\Repo",
+                    AdditionalContextDirectories = [@"C:\SharedSkills", @"D:\McpConfigs"]
+                }
+            ]
+        };
+
+        var json = JsonSerializer.Serialize(data, AppDataJsonContext.Default.AppData);
+        using var document = JsonDocument.Parse(json);
+
+        var project = document.RootElement.GetProperty("projects")[0];
+        Assert.Equal(@"C:\SharedSkills", project.GetProperty("additionalContextDirectories")[0].GetString());
+        Assert.Equal(@"D:\McpConfigs", project.GetProperty("additionalContextDirectories")[1].GetString());
+    }
+
+    [Fact]
+    public void CreateIndexSnapshot_PreservesProjectAdditionalContextDirectories()
+    {
+        var source = new AppData
+        {
+            Projects =
+            [
+                new Project
+                {
+                    Name = "Multi folder project",
+                    WorkingDirectory = @"C:\Repo",
+                    AdditionalContextDirectories = [@"C:\SharedSkills", @"D:\McpConfigs"]
+                }
+            ]
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+
+        var project = Assert.Single(snapshot.Projects);
+        Assert.Equal([@"C:\SharedSkills", @"D:\McpConfigs"], project.AdditionalContextDirectories);
+        Assert.NotSame(source.Projects[0].AdditionalContextDirectories, project.AdditionalContextDirectories);
+    }
+
+    [Fact]
     public void CreateIndexSnapshot_PreservesMemoryMaintenanceFields()
     {
         var projectId = Guid.NewGuid();

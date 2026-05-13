@@ -12,25 +12,38 @@ public partial class ChatViewModel
     private const string ExternalSkillGlyph = "\u26A1";
     private const string ExternalAgentGlyph = "🤖";
 
-    private CopilotCatalogSnapshot GetExternalCatalog()
-        => GetExternalCatalog(GetEffectiveWorkingDirectory());
+    private ProjectContextCatalogSnapshot GetProjectContextCatalog()
+        => ProjectContextCatalog.Discover(GetEffectiveWorkingDirectory(), GetCurrentProject());
 
-    private static CopilotCatalogSnapshot GetExternalCatalog(string workDir)
-        => CopilotConfigCatalog.Discover(workDir);
+    /// <summary>
+    /// Discovers context for a standalone directory. This intentionally does not
+    /// include the currently selected project's additional folders.
+    /// </summary>
+    private ProjectContextCatalogSnapshot GetProjectContextCatalog(string effectiveWorkingDirectory)
+        => ProjectContextCatalog.Discover(effectiveWorkingDirectory, project: null);
+
+    private ProjectContextCatalogSnapshot GetProjectContextCatalog(Chat chat, string? effectiveWorkingDirectory = null)
+    {
+        var project = chat.ProjectId.HasValue
+            ? _dataStore.Data.Projects.FirstOrDefault(p => p.Id == chat.ProjectId.Value)
+            : null;
+
+        return ProjectContextCatalog.Discover(effectiveWorkingDirectory ?? GetEffectiveWorkingDirectory(chat), project);
+    }
 
     private CopilotSkillDefinition? FindExternalSkillByName(string name)
-        => GetExternalCatalog().FindSkill(name);
+        => GetProjectContextCatalog().FindSkill(name);
 
     private CopilotSkillDefinition? FindExternalSkillByName(string name, string workDir)
-        => GetExternalCatalog(workDir).FindSkill(name);
+        => GetProjectContextCatalog(workDir).FindSkill(name);
 
     private CopilotAgentDefinition? FindExternalAgentByName(string name)
-        => GetExternalCatalog().FindAgent(name);
+        => GetProjectContextCatalog().FindAgent(name);
 
-    private static CopilotSkillDefinition? FindExternalSkillByName(CopilotCatalogSnapshot catalog, string? name)
+    private static CopilotSkillDefinition? FindExternalSkillByName(ProjectContextCatalogSnapshot catalog, string? name)
         => catalog.FindSkill(name);
 
-    private static CopilotAgentDefinition? FindExternalAgentByName(CopilotCatalogSnapshot catalog, string? name)
+    private static CopilotAgentDefinition? FindExternalAgentByName(ProjectContextCatalogSnapshot catalog, string? name)
         => catalog.FindAgent(name);
 
     internal static string? GetSessionSdkAgentName(Chat chat, Chat? currentChat, string? selectedSdkAgentName)
@@ -73,11 +86,19 @@ public partial class ChatViewModel
         IReadOnlyCollection<string> externalSkillNames,
         string? workDir = null)
     {
+        var catalog = workDir is { Length: > 0 } ? GetProjectContextCatalog(workDir) : GetProjectContextCatalog();
+        return BuildSkillReferences(skillIds, externalSkillNames, catalog);
+    }
+
+    private List<SkillReference> BuildSkillReferences(
+        IReadOnlyCollection<Guid> skillIds,
+        IReadOnlyCollection<string> externalSkillNames,
+        ProjectContextCatalogSnapshot catalog)
+    {
         var references = BuildSkillReferences(skillIds);
         if (externalSkillNames.Count == 0)
             return references;
 
-        var catalog = workDir is { Length: > 0 } ? GetExternalCatalog(workDir) : GetExternalCatalog();
         foreach (var skill in ResolveExternalSkills(catalog, externalSkillNames))
         {
             references.Add(CreateExternalSkillReference(skill));
@@ -113,7 +134,7 @@ public partial class ChatViewModel
     // File-based Copilot skills are not registered as persistent SDK session skills,
     // so selected ones must be resolved and reapplied from the catalog when needed.
     private static List<CopilotSkillDefinition> ResolveExternalSkills(
-        CopilotCatalogSnapshot externalCatalog,
+        ProjectContextCatalogSnapshot externalCatalog,
         IReadOnlyCollection<string> externalSkillNames)
     {
         var skills = new List<CopilotSkillDefinition>(externalSkillNames.Count);

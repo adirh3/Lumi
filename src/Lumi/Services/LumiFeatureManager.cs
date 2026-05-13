@@ -29,13 +29,16 @@ public sealed class LumiFeatureManager
         string? instructions = null,
         string? workingDirectory = null,
         bool? clearWorkingDirectory = null,
+        string[]? additionalContextDirectories = null,
+        bool? clearAdditionalContextDirectories = null,
         string? query = null)
     {
         return NormalizeAction(action) switch
         {
             "list" => new FeatureChangeResult(ListProjects(query ?? identifier)),
-            "create" => CreateProject(name, instructions, workingDirectory),
-            "update" => UpdateProject(identifier, name, instructions, workingDirectory, clearWorkingDirectory),
+            "create" => CreateProject(name, instructions, workingDirectory, additionalContextDirectories),
+            "update" => UpdateProject(identifier, name, instructions, workingDirectory, clearWorkingDirectory,
+                additionalContextDirectories, clearAdditionalContextDirectories),
             "delete" => DeleteProject(identifier),
             _ => InvalidAction("projects", action)
         };
@@ -489,7 +492,11 @@ public sealed class LumiFeatureManager
         return "Background jobs:\n" + string.Join("\n", jobs.Select(DescribeJob));
     }
 
-    private FeatureChangeResult CreateProject(string? name, string? instructions, string? workingDirectory)
+    private FeatureChangeResult CreateProject(
+        string? name,
+        string? instructions,
+        string? workingDirectory,
+        string[]? additionalContextDirectories)
     {
         var normalizedName = NormalizeOrNull(name);
         if (normalizedName is null)
@@ -501,7 +508,8 @@ public sealed class LumiFeatureManager
         {
             Name = normalizedName,
             Instructions = NormalizeOrNull(instructions) ?? "",
-            WorkingDirectory = NormalizeOrNull(workingDirectory)
+            WorkingDirectory = NormalizeOrNull(workingDirectory),
+            AdditionalContextDirectories = ProjectContextDirectoryHelper.NormalizeFolderList(additionalContextDirectories)
         };
 
         _dataStore.Data.Projects.Add(project);
@@ -513,7 +521,9 @@ public sealed class LumiFeatureManager
         string? name,
         string? instructions,
         string? workingDirectory,
-        bool? clearWorkingDirectory)
+        bool? clearWorkingDirectory,
+        string[]? additionalContextDirectories,
+        bool? clearAdditionalContextDirectories)
     {
         var lookup = ResolveByIdOrLabel(
             _dataStore.Data.Projects,
@@ -525,7 +535,12 @@ public sealed class LumiFeatureManager
             return Failure(lookup.Error!);
 
         var project = lookup.Item!;
-        if (name is null && instructions is null && workingDirectory is null && clearWorkingDirectory != true)
+        if (name is null
+            && instructions is null
+            && workingDirectory is null
+            && clearWorkingDirectory != true
+            && additionalContextDirectories is null
+            && clearAdditionalContextDirectories != true)
             return Failure("No project changes were provided.");
 
         if (name is not null)
@@ -545,6 +560,11 @@ public sealed class LumiFeatureManager
             project.WorkingDirectory = null;
         else if (workingDirectory is not null)
             project.WorkingDirectory = NormalizeOrNull(workingDirectory);
+
+        if (clearAdditionalContextDirectories == true)
+            project.AdditionalContextDirectories = [];
+        else if (additionalContextDirectories is not null)
+            project.AdditionalContextDirectories = ProjectContextDirectoryHelper.NormalizeFolderList(additionalContextDirectories);
 
         return Success($"Project updated.\n{DescribeProject(project)}");
     }
@@ -580,7 +600,8 @@ public sealed class LumiFeatureManager
                 query,
                 project => project.Name,
                 project => project.Instructions,
-                project => project.WorkingDirectory)
+                project => project.WorkingDirectory,
+                project => ProjectContextDirectoryHelper.FormatFolderList(project.AdditionalContextDirectories))
             .OrderBy(project => project.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -1184,7 +1205,10 @@ public sealed class LumiFeatureManager
     {
         var chatCount = _dataStore.Data.Chats.Count(chat => chat.ProjectId == project.Id);
         var workingDirectory = project.WorkingDirectory ?? "(none)";
-        return $"- {project.Id} | {project.Name} | chats: {chatCount} | workdir: {workingDirectory} | instructions: {Preview(project.Instructions)}";
+        var contextDirectories = project.AdditionalContextDirectories.Count == 0
+            ? "(none)"
+            : string.Join("; ", project.AdditionalContextDirectories);
+        return $"- {project.Id} | {project.Name} | chats: {chatCount} | workdir: {workingDirectory} | context folders: {contextDirectories} | instructions: {Preview(project.Instructions)}";
     }
 
     private static string DescribeSkill(Skill skill)

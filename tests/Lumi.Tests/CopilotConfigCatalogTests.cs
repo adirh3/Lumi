@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using GitHub.Copilot.SDK;
+using Lumi.Models;
 using Lumi.Services;
 using Xunit;
 
@@ -136,6 +138,256 @@ public sealed class CopilotConfigCatalogTests
             if (Directory.Exists(tempRoot))
                 Directory.Delete(tempRoot, recursive: true);
         }
+    }
+
+    [Fact]
+    public void Discover_MergesPrimaryAndAdditionalWorkspaceSourcesInOrder()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"lumi-copilot-multi-folder-test-{Guid.NewGuid():N}");
+        var primaryWorkDir = Path.Combine(tempRoot, "primary");
+        var additionalDir = Path.Combine(tempRoot, "additional");
+        var copilotRoot = Path.Combine(tempRoot, "copilot");
+
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(primaryWorkDir, ".github", "skills"));
+            Directory.CreateDirectory(Path.Combine(additionalDir, ".github", "skills"));
+            Directory.CreateDirectory(Path.Combine(additionalDir, ".github", "agents"));
+            Directory.CreateDirectory(copilotRoot);
+
+            File.WriteAllText(
+                Path.Combine(primaryWorkDir, ".github", "skills", "shared-skill.md"),
+                """
+                ---
+                name: Shared Skill
+                description: Primary project version
+                ---
+
+                Use the primary project version.
+                """);
+
+            File.WriteAllText(
+                Path.Combine(additionalDir, ".github", "skills", "shared-skill.md"),
+                """
+                ---
+                name: Shared Skill
+                description: Additional folder version
+                ---
+
+                Use the additional folder version.
+                """);
+
+            File.WriteAllText(
+                Path.Combine(additionalDir, ".github", "skills", "additional-skill.md"),
+                """
+                ---
+                name: Additional Skill
+                description: Extra project folder skill
+                ---
+
+                Use the extra folder skill.
+                """);
+
+            File.WriteAllText(
+                Path.Combine(additionalDir, ".github", "agents", "additional-agent.md"),
+                """
+                ---
+                name: Additional Agent
+                description: Extra project folder agent
+                ---
+
+                Use the extra folder agent.
+                """);
+
+            var catalog = CopilotConfigCatalog.Discover([primaryWorkDir, additionalDir], copilotRoot);
+
+            var sharedSkill = catalog.Skills.Single(skill => skill.Name == "Shared Skill");
+            Assert.Equal("Primary project version", sharedSkill.Description);
+            Assert.Contains(catalog.Skills, skill => skill.Name == "Additional Skill" && skill.Description == "Extra project folder skill");
+            Assert.Contains(catalog.Agents, agent => agent.Name == "Additional Agent" && agent.Description == "Extra project folder agent");
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProjectContextCatalog_LoadsProjectSkillsAgentsAndMcpsFromOneSnapshot()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"lumi-project-context-catalog-test-{Guid.NewGuid():N}");
+        var primaryWorkDir = Path.Combine(tempRoot, "primary");
+        var additionalDir = Path.Combine(tempRoot, "additional");
+        var copilotRoot = Path.Combine(tempRoot, "copilot");
+
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(primaryWorkDir, ".github", "skills"));
+            Directory.CreateDirectory(Path.Combine(primaryWorkDir, ".vscode"));
+            Directory.CreateDirectory(Path.Combine(additionalDir, ".github", "agents"));
+            Directory.CreateDirectory(Path.Combine(additionalDir, ".vscode"));
+            Directory.CreateDirectory(copilotRoot);
+
+            File.WriteAllText(
+                Path.Combine(primaryWorkDir, ".github", "skills", "primary-skill.md"),
+                """
+                ---
+                name: Primary Skill
+                description: Primary project skill
+                ---
+
+                Use the primary project skill.
+                """);
+
+            File.WriteAllText(
+                Path.Combine(additionalDir, ".github", "agents", "additional-agent.md"),
+                """
+                ---
+                name: Additional Agent
+                description: Extra project folder agent
+                ---
+
+                Use the additional folder agent.
+                """);
+
+            File.WriteAllText(
+                Path.Combine(primaryWorkDir, ".vscode", "mcp.json"),
+                """
+                {
+                  "servers": {
+                    "shared": {
+                      "command": "primary-command",
+                      "args": ["--primary"]
+                    }
+                  }
+                }
+                """);
+
+            File.WriteAllText(
+                Path.Combine(additionalDir, ".vscode", "mcp.json"),
+                """
+                {
+                  "servers": {
+                    "shared": {
+                      "command": "additional-command"
+                    },
+                    "additional": {
+                      "type": "http",
+                      "url": "https://example.com/mcp"
+                    }
+                  }
+                }
+                """);
+
+            var project = new Project
+            {
+                WorkingDirectory = primaryWorkDir,
+                AdditionalContextDirectories = [additionalDir]
+            };
+
+            var catalog = ProjectContextCatalog.Discover(primaryWorkDir, project, copilotRoot);
+
+            Assert.Contains(catalog.Skills, skill => skill.Name == "Primary Skill");
+            Assert.Contains(catalog.Agents, agent => agent.Name == "Additional Agent");
+
+            var shared = Assert.Single(catalog.McpServers, server => server.Name == "shared");
+            var sharedConfig = Assert.IsType<McpStdioServerConfig>(shared.Config);
+            Assert.Equal("primary-command", sharedConfig.Command);
+            Assert.Equal(primaryWorkDir, sharedConfig.Cwd);
+            Assert.Equal(Path.Combine(primaryWorkDir, ".vscode", "mcp.json"), shared.SourcePath);
+
+            var additional = Assert.Single(catalog.McpServers, server => server.Name == "additional");
+            var additionalConfig = Assert.IsType<McpHttpServerConfig>(additional.Config);
+            Assert.Equal("https://example.com/mcp", additionalConfig.Url);
+            var diagnostic = Assert.Single(catalog.Diagnostics);
+            Assert.Contains("duplicate MCP server 'shared'", diagnostic.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProjectContextCatalog_SkipsInvalidMcpServersWithoutDroppingValidServers()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"lumi-project-context-mcp-invalid-test-{Guid.NewGuid():N}");
+        var workDir = Path.Combine(tempRoot, "project");
+
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(workDir, ".vscode"));
+            File.WriteAllText(
+                Path.Combine(workDir, ".vscode", "mcp.json"),
+                """
+                {
+                  "servers": {
+                    "missing-command": {
+                      "args": ["--flag"]
+                    },
+                    "bad-args": {
+                      "command": "npx",
+                      "args": [123]
+                    },
+                    "bad-url": {
+                      "type": "http",
+                      "url": "not-a-url"
+                    },
+                    "valid": {
+                      "command": "npx",
+                      "args": ["valid-server"]
+                    }
+                  }
+                }
+                """);
+
+            var catalog = ProjectContextCatalog.Discover(workDir, project: null, copilotRootOverride: Path.Combine(tempRoot, "missing-copilot"));
+
+            var server = Assert.Single(catalog.McpServers);
+            Assert.Equal("valid", server.Name);
+            Assert.Equal("npx", Assert.IsType<McpStdioServerConfig>(server.Config).Command);
+            Assert.Equal(3, catalog.Diagnostics.Count);
+            Assert.Contains(catalog.Diagnostics, diagnostic => diagnostic.Message.Contains("missing-command", StringComparison.Ordinal));
+            Assert.Contains(catalog.Diagnostics, diagnostic => diagnostic.Message.Contains("bad-args", StringComparison.Ordinal));
+            Assert.Contains(catalog.Diagnostics, diagnostic => diagnostic.Message.Contains("bad-url", StringComparison.Ordinal));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProjectContextCatalogSnapshot_CopiesInputsAndUsesFirstDefinitionForLookup()
+    {
+        var skills = new List<CopilotSkillDefinition>
+        {
+            new("Shared", "First", "first content", @"C:\first.md"),
+            new("Shared", "Second", "second content", @"C:\second.md")
+        };
+        var agents = new List<CopilotAgentDefinition>
+        {
+            new("Agent", "First agent", "first agent content", @"C:\agent-first.md"),
+            new("Agent", "Second agent", "second agent content", @"C:\agent-second.md")
+        };
+        var mcpServers = new List<ProjectContextMcpServerDefinition>
+        {
+            new("server", new McpStdioServerConfig { Command = "npx" }, @"C:\mcp.json", @"C:\")
+        };
+
+        var snapshot = new ProjectContextCatalogSnapshot(skills, agents, mcpServers);
+        skills.Add(new CopilotSkillDefinition("Added Later", "Late", "late content", @"C:\late.md"));
+        agents.Clear();
+        mcpServers.Clear();
+
+        Assert.Equal(2, snapshot.Skills.Count);
+        Assert.Equal(2, snapshot.Agents.Count);
+        Assert.Single(snapshot.McpServers);
+        Assert.Equal("First", snapshot.FindSkill("Shared")!.Description);
+        Assert.Equal("First agent", snapshot.FindAgent("Agent")!.Description);
     }
 
     [Fact]

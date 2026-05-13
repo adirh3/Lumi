@@ -59,8 +59,11 @@ public static class CopilotConfigCatalog
     private static readonly StringComparer NameComparer = StringComparer.OrdinalIgnoreCase;
 
     public static CopilotCatalogSnapshot Discover(string workDir, string? copilotRootOverride = null)
+        => Discover([workDir], copilotRootOverride);
+
+    public static CopilotCatalogSnapshot Discover(IReadOnlyList<string> workDirs, string? copilotRootOverride = null)
     {
-        var sources = GetCatalogSources(workDir, copilotRootOverride ?? GetCopilotRoot());
+        var sources = GetCatalogSources(workDirs, copilotRootOverride ?? GetCopilotRoot());
         var skills = DiscoverDefinitions(
             sources,
             static source => source.SkillDirectories,
@@ -80,8 +83,14 @@ public static class CopilotConfigCatalog
     public static IReadOnlyList<CopilotSkillDefinition> DiscoverSkills(string workDir, string? copilotRootOverride = null)
         => Discover(workDir, copilotRootOverride).Skills;
 
+    public static IReadOnlyList<CopilotSkillDefinition> DiscoverSkills(IReadOnlyList<string> workDirs, string? copilotRootOverride = null)
+        => Discover(workDirs, copilotRootOverride).Skills;
+
     public static IReadOnlyList<CopilotAgentDefinition> DiscoverAgents(string workDir, string? copilotRootOverride = null)
         => Discover(workDir, copilotRootOverride).Agents;
+
+    public static IReadOnlyList<CopilotAgentDefinition> DiscoverAgents(IReadOnlyList<string> workDirs, string? copilotRootOverride = null)
+        => Discover(workDirs, copilotRootOverride).Agents;
 
     public static CopilotSkillDefinition? FindSkill(string workDir, string name, string? copilotRootOverride = null)
         => Discover(workDir, copilotRootOverride).FindSkill(name);
@@ -109,17 +118,20 @@ public static class CopilotConfigCatalog
             .ToList();
     }
 
-    private static IReadOnlyList<CopilotCatalogSource> GetCatalogSources(string workDir, string? copilotRoot)
+    private static IReadOnlyList<CopilotCatalogSource> GetCatalogSources(IReadOnlyList<string> workDirs, string? copilotRoot)
     {
         var sources = new List<CopilotCatalogSource>();
 
-        var githubDir = GetGitHubDirectory(workDir);
-        if (githubDir is not null)
+        foreach (var workDir in NormalizeWorkDirectories(workDirs))
         {
-            AddCatalogSource(
-                sources,
-                GetExistingDirectories(githubDir, "skills"),
-                GetExistingDirectories(githubDir, "agents"));
+            var githubDir = GetGitHubDirectory(workDir);
+            if (githubDir is not null)
+            {
+                AddCatalogSource(
+                    sources,
+                    GetExistingDirectories(githubDir, "skills"),
+                    GetExistingDirectories(githubDir, "agents"));
+            }
         }
 
         if (string.IsNullOrWhiteSpace(copilotRoot) || !Directory.Exists(copilotRoot))
@@ -139,6 +151,23 @@ public static class CopilotConfigCatalog
             GetExistingDirectories(latestPackageDir, "builtin-skills"),
             GetExistingDirectories(latestPackageDir, "builtin-agents", "agents"));
         return sources;
+    }
+
+    private static IReadOnlyList<string> NormalizeWorkDirectories(IReadOnlyList<string> workDirs)
+    {
+        var directories = new List<string>();
+        foreach (var workDir in workDirs)
+        {
+            if (string.IsNullOrWhiteSpace(workDir) || !Directory.Exists(workDir))
+                continue;
+
+            if (directories.Any(existing => string.Equals(existing, workDir, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            directories.Add(workDir);
+        }
+
+        return directories;
     }
 
     private static void AddCatalogSource(

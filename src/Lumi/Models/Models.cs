@@ -140,11 +140,17 @@ public class Chat : INotifyPropertyChanged
 public class Project : INotifyPropertyChanged
 {
     private bool _isRunning;
+    private List<string> _additionalContextDirectories = [];
 
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
     public string Instructions { get; set; } = "";
     public string? WorkingDirectory { get; set; }
+    public List<string> AdditionalContextDirectories
+    {
+        get => _additionalContextDirectories;
+        set => _additionalContextDirectories = value ?? [];
+    }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
 
     /// <summary>Runtime-only flag indicating at least one chat in this project is actively generating a response.</summary>

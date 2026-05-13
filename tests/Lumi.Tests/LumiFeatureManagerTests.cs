@@ -166,6 +166,46 @@ public sealed class LumiFeatureManagerTests
     }
 
     [Fact]
+    public void ManageProjects_Create_SavesAdditionalContextDirectories()
+    {
+        var data = new AppData();
+        var store = new DataStore(data);
+        var manager = new LumiFeatureManager(store);
+
+        var result = manager.ManageProjects(
+            "create",
+            name: "Multi folder project",
+            workingDirectory: @"C:\Repo",
+            additionalContextDirectories: [@"C:\SharedSkills", @"C:\SharedSkills", @"D:\McpConfigs"]);
+
+        Assert.True(result.DataChanged);
+        var project = Assert.Single(data.Projects);
+        Assert.Equal([@"C:\SharedSkills", @"D:\McpConfigs"], project.AdditionalContextDirectories);
+    }
+
+    [Fact]
+    public void ManageProjects_Update_CanClearAdditionalContextDirectories()
+    {
+        var project = new Project
+        {
+            Name = "Multi folder project",
+            AdditionalContextDirectories = [@"C:\SharedSkills"]
+        };
+        var data = new AppData();
+        data.Projects.Add(project);
+        var store = new DataStore(data);
+        var manager = new LumiFeatureManager(store);
+
+        var result = manager.ManageProjects(
+            "update",
+            identifier: project.Name,
+            clearAdditionalContextDirectories: true);
+
+        Assert.True(result.DataChanged);
+        Assert.Empty(project.AdditionalContextDirectories);
+    }
+
+    [Fact]
     public void ManageMcps_Update_RenamesChatSelections()
     {
         var server = new McpServer

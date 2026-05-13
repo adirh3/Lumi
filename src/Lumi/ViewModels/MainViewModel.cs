@@ -289,6 +289,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         ProjectsVM.ProjectsChanged += () =>
         {
+            ChatVM.InvalidateProjectSession();
             ChatVM.RefreshComposerCatalogs();
             RefreshFeatureManagementUi();
         };
