@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using Lumi.Models;
 
 namespace Lumi.ViewModels;
@@ -244,20 +245,39 @@ public partial class ChatViewModel
         _inProgressMessages.Remove(chatId);
     }
 
-    private void ReleaseInactiveChatState(Chat chat, bool canEvictMessages)
-    {
-        if (CurrentChat?.Id == chat.Id || IsChatRuntimeActive(chat.Id))
-            return;
+    private bool ShouldReleaseInactiveChatState(Chat chat)
+        => CurrentChat?.Id != chat.Id
+           && !IsChatRuntimeActive(chat.Id)
+           && IsChatVisibleInAnySurface?.Invoke(chat.Id) != true;
 
+    private void ReleaseInactiveChatResources(Chat chat)
+    {
         CancelPendingQuestions(chat);
         ReleaseSessionResources(chat.Id, cancelActiveRequest: false, deleteServerSession: false);
         RemoveSuggestionTracking(chat.Id);
         DisposeBrowserService(chat.Id);
         _runtimeStates.Remove(chat.Id);
-        _dataStore.RemoveChatLoadLock(chat.Id);
+    }
+
+    private async Task ReleaseInactiveChatStateAsync(Chat chat, bool canEvictMessages)
+    {
+        if (!ShouldReleaseInactiveChatState(chat))
+            return;
 
         if (canEvictMessages && chat.Messages.Count > 0)
-            chat.Messages.Clear();
+        {
+            await _dataStore.EvictChatMessagesAsync(chat, () =>
+            {
+                if (!ShouldReleaseInactiveChatState(chat))
+                    return false;
+
+                ReleaseInactiveChatResources(chat);
+                return true;
+            });
+            return;
+        }
+
+        ReleaseInactiveChatResources(chat);
     }
 
     /// <summary>
@@ -266,7 +286,7 @@ public partial class ChatViewModel
     /// Call this on chat switch to catch states that event-driven cleanup missed
     /// (e.g. chats whose background work completed but cleanup was skipped).
     /// </summary>
-    private void SweepInactiveChatStates()
+    private async Task SweepInactiveChatStatesAsync()
     {
         var currentChatId = CurrentChat?.Id;
         var staleIds = _runtimeStates
@@ -281,7 +301,7 @@ public partial class ChatViewModel
         {
             var chat = _dataStore.Data.Chats.FirstOrDefault(c => c.Id == chatId);
             if (chat is not null)
-                ReleaseInactiveChatState(chat, canEvictMessages: true);
+                await ReleaseInactiveChatStateAsync(chat, canEvictMessages: true);
             else
             {
                 // Chat was deleted but runtime state lingered — clean up directly

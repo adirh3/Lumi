@@ -137,6 +137,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>Tracks the last assistant message ID that already produced suggestions per chat.</summary>
     private readonly Dictionary<Guid, Guid> _lastSuggestedAssistantMessageByChat = new();
 
+    internal Func<Guid, bool>? IsChatVisibleInAnySurface { get; set; }
+
     /// <summary>Gets or lazily creates a per-chat BrowserService instance.</summary>
     private BrowserService GetOrCreateBrowserService(Guid chatId)
     {
@@ -475,6 +477,64 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _transcriptBuilder.ShowTypingIndicator(StatusText);
 
         TranscriptRebuilt?.Invoke();
+    }
+
+    private IReadOnlyList<ChatMessage> GetDisplayMessagesForChat(Chat chat)
+    {
+        var displayMessages = chat.Messages
+            .Where(static msg => msg.Role != "assistant" || !string.IsNullOrWhiteSpace(msg.Content))
+            .ToList();
+
+        if (_inProgressMessages.TryGetValue(chat.Id, out var inProgress)
+            && displayMessages.All(message => message.Id != inProgress.Id))
+        {
+            displayMessages.Add(inProgress);
+        }
+
+        return displayMessages;
+    }
+
+    private bool AreDisplayedMessagesInSync(IReadOnlyList<ChatMessage> displayMessages)
+    {
+        if (Messages.Count != displayMessages.Count)
+            return false;
+
+        for (var i = 0; i < displayMessages.Count; i++)
+        {
+            var message = displayMessages[i];
+            var viewModel = Messages[i];
+            if (viewModel.Message.Id != message.Id
+                || viewModel.Role != message.Role
+                || !string.Equals(viewModel.Content, message.Content, StringComparison.Ordinal)
+                || viewModel.IsStreaming != message.IsStreaming
+                || !string.Equals(viewModel.ToolStatus, message.ToolStatus, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void SynchronizeDisplayedMessagesFromChat(Chat chat, bool forceRebuild = false)
+    {
+        var displayMessages = GetDisplayMessagesForChat(chat);
+        if (!forceRebuild && AreDisplayedMessagesInSync(displayMessages))
+            return;
+
+        _isBulkLoadingMessages = true;
+        try
+        {
+            Messages.Clear();
+            foreach (var msg in displayMessages)
+                Messages.Add(new ChatMessageViewModel(msg));
+
+            RebuildTranscript();
+        }
+        finally
+        {
+            _isBulkLoadingMessages = false;
+        }
     }
 
     private static string BuildSubagentPayloadJson(
@@ -888,17 +948,32 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         if (CurrentChat?.Id == chat.Id && chat.Messages.Count > 0)
         {
-            _suggestionDisplayChatId = chat.Id;
-            RestoreSuggestionsForChat(chat);
-            lock (_chatLoadSync)
+            try
             {
-                if (ReferenceEquals(_chatLoadCts, loadCts))
-                {
-                    _chatLoadCts = null;
-                    IsLoadingChat = false;
-                }
+                await _dataStore.LoadChatMessagesAsync(chat, loadToken);
+
+                if (loadToken.IsCancellationRequested || !IsCurrentChatLoad(requestId, loadCts))
+                    return;
+
+                _suggestionDisplayChatId = chat.Id;
+                chat.HasUnreadMessages = false;
+                SynchronizeDisplayedMessagesFromChat(chat, forceRebuild: true);
+                RestoreSuggestionsForChat(chat);
             }
-            loadCts.Dispose();
+            finally
+            {
+                lock (_chatLoadSync)
+                {
+                    if (ReferenceEquals(_chatLoadCts, loadCts))
+                    {
+                        _chatLoadCts = null;
+                        IsLoadingChat = false;
+                    }
+                }
+
+                loadCts.Dispose();
+            }
+
             return;
         }
 
@@ -955,17 +1030,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             try
             {
                 Messages.Clear();
-                foreach (var msg in chat.Messages)
-                {
-                    // Skip empty assistant messages (SDK artifact)
-                    if (msg.Role == "assistant" && string.IsNullOrWhiteSpace(msg.Content))
-                        continue;
+                foreach (var msg in GetDisplayMessagesForChat(chat))
                     Messages.Add(new ChatMessageViewModel(msg));
-                }
-
-                // If there's an in-progress streaming message not yet committed, show it
-                if (_inProgressMessages.TryGetValue(chat.Id, out var inProgress))
-                    Messages.Add(new ChatMessageViewModel(inProgress));
 
                 CurrentChat = chat;
                 chat.HasUnreadMessages = false; // Clear unread when switching to this chat
@@ -983,7 +1049,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
                 // Release all non-active, non-busy runtime states that may have
                 // accumulated (e.g. from chats the user left while they were streaming).
-                SweepInactiveChatStates();
+                await SweepInactiveChatStatesAsync();
 
                 // If this chat has an active browser, show its panel (after CurrentChat is set
                 // so ActiveChatId is already updated when the MainWindow handler runs)
@@ -2982,12 +3048,28 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         if (releaseIfInactive)
+            await ReleaseInactiveChatStateOnUiAsync(chat, canEvictMessages);
+    }
+
+    private Task ReleaseInactiveChatStateOnUiAsync(Chat chat, bool canEvictMessages)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+            return ReleaseInactiveChatStateAsync(chat, canEvictMessages);
+
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Dispatcher.UIThread.Post(async () =>
         {
-            if (Dispatcher.UIThread.CheckAccess())
-                ReleaseInactiveChatState(chat, canEvictMessages);
-            else
-                Dispatcher.UIThread.Post(() => ReleaseInactiveChatState(chat, canEvictMessages));
-        }
+            try
+            {
+                await ReleaseInactiveChatStateAsync(chat, canEvictMessages);
+                tcs.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+        });
+        return tcs.Task;
     }
 
     private async Task SaveIndexAsync()

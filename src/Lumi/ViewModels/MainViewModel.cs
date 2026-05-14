@@ -324,7 +324,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var chatVm = new ChatViewModel(_dataStore, _copilotService)
         {
             SendWithEnter = _dataStore.Data.Settings.SendWithEnter,
-            ActiveProjectFilterId = SelectedProjectFilter
+            ActiveProjectFilterId = SelectedProjectFilter,
+            IsChatVisibleInAnySurface = _chatSurfaceRegistry.HasOwner
         };
 
         if (_chatVM is not null)

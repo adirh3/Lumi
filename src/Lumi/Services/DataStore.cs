@@ -31,7 +31,9 @@ public class DataStore
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly SemaphoreSlim _skillSyncLock = new(1, 1);
     private readonly object _chatLoadLocksSync = new();
-    private readonly Dictionary<Guid, SemaphoreSlim> _chatLoadLocks = new();
+    private readonly Dictionary<Guid, ChatLoadLock> _chatLoadLocks = new();
+    private readonly object _loadedChatMessagesSync = new();
+    private readonly HashSet<Guid> _loadedChatMessages = [];
     private readonly object _chatSearchCacheSync = new();
     private readonly Dictionary<Guid, CachedChatSearchSnapshot> _chatSearchCache = [];
     private readonly object _chatChangeSync = new();
@@ -44,6 +46,29 @@ public class DataStore
     private int? _activeSkillSyncHash;
     private string? _activeSkillSyncDirectory;
     private long _nextChatChangeVersion;
+
+    private sealed class ChatLoadLock : IDisposable
+    {
+        public SemaphoreSlim Semaphore { get; } = new(1, 1);
+        public int LeaseCount { get; set; }
+        public bool RemoveWhenIdle { get; set; }
+
+        public void Dispose()
+            => Semaphore.Dispose();
+    }
+
+    private sealed class ChatLoadLockLease(DataStore owner, Guid chatId, ChatLoadLock chatLock) : IDisposable
+    {
+        private DataStore? _owner = owner;
+
+        public SemaphoreSlim Semaphore => chatLock.Semaphore;
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref _owner, null);
+            owner?.ReleaseChatLoadLockLease(chatId, chatLock);
+        }
+    }
 
     public DataStore()
     {
@@ -62,6 +87,8 @@ public class DataStore
     {
         _usesPersistentStorage = false;
         _data = data ?? new AppData();
+        foreach (var chat in _data.Chats.Where(static chat => chat.Messages.Count > 0))
+            _loadedChatMessages.Add(chat.Id);
     }
 
     public AppData Data => _data;
@@ -97,6 +124,26 @@ public class DataStore
             _dirtyChatVersions.Remove(chatId);
             _deletedChatVersions[chatId] = version;
         }
+
+        MarkChatMessagesUnloaded(chatId);
+    }
+
+    internal void MarkChatMessagesUnloaded(Guid chatId)
+    {
+        lock (_loadedChatMessagesSync)
+            _loadedChatMessages.Remove(chatId);
+    }
+
+    private void MarkChatMessagesLoaded(Guid chatId)
+    {
+        lock (_loadedChatMessagesSync)
+            _loadedChatMessages.Add(chatId);
+    }
+
+    private bool AreChatMessagesLoaded(Guid chatId)
+    {
+        lock (_loadedChatMessagesSync)
+            return _loadedChatMessages.Contains(chatId);
     }
 
     public void MarkBackgroundJobsChanged()
@@ -241,121 +288,232 @@ public class DataStore
             return;
 
         var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
-        var messagesSnapshot = chat.Messages
-            .Select(static m => new ChatMessage
-            {
-                Id = m.Id,
-                Role = m.Role,
-                Content = m.Content,
-                Author = m.Author,
-                Timestamp = m.Timestamp,
-                ToolName = m.ToolName,
-                ToolCallId = m.ToolCallId,
-                ParentToolCallId = m.ParentToolCallId,
-                ToolStatus = m.ToolStatus,
-                ToolOutput = m.ToolOutput,
-                IsStreaming = m.IsStreaming,
-                Model = m.Model,
-                Attachments = [..m.Attachments],
-                ActiveSkills = [..m.ActiveSkills.Select(static s => new SkillReference
-                {
-                    Name = s.Name,
-                    Glyph = s.Glyph,
-                    Description = s.Description
-                })],
-                Sources = [..m.Sources.Select(static s => new SearchSource
-                {
-                    Title = s.Title,
-                    Snippet = s.Snippet,
-                    Url = s.Url
-                })]
-            })
-            .ToList();
-
-        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var loadLock = RentChatLoadLock(chat.Id);
+        await loadLock.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await using var stream = new FileStream(
-                chatFile,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                81920,
-                FileOptions.Asynchronous);
+            if (!AreChatMessagesLoaded(chat.Id)
+                && !await TryMergePersistedChatMessagesAsync(chat, chatFile, cancellationToken).ConfigureAwait(false))
+            {
+                throw new IOException($"Unable to load existing messages for chat {chat.Id} before saving.");
+            }
 
-            await JsonSerializer.SerializeAsync(
-                stream,
-                messagesSnapshot,
-                AppDataJsonContext.Default.ListChatMessage,
-                cancellationToken).ConfigureAwait(false);
+            var messagesSnapshot = CreateMessagePersistenceSnapshot(chat.Messages);
+
+            await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await using var stream = new FileStream(
+                    chatFile,
+                    FileMode.Create,
+                    FileAccess.Write,
+                    FileShare.None,
+                    81920,
+                    FileOptions.Asynchronous);
+
+                await JsonSerializer.SerializeAsync(
+                    stream,
+                    messagesSnapshot,
+                    AppDataJsonContext.Default.ListChatMessage,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _writeLock.Release();
+            }
+
+            MarkChatMessagesLoaded(chat.Id);
         }
         finally
         {
-            _writeLock.Release();
+            loadLock.Semaphore.Release();
         }
     }
 
     /// <summary>Loads messages from a chat's per-chat file into chat.Messages.</summary>
     public async Task LoadChatMessagesAsync(Chat chat, CancellationToken cancellationToken = default)
     {
-        if (chat.Messages.Count > 0) return; // Already loaded
+        if (!_usesPersistentStorage)
+            return;
 
-        var loadLock = GetChatLoadLock(chat.Id);
-        await loadLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (chat.Messages.Count > 0 && AreChatMessagesLoaded(chat.Id))
+            return;
+
+        using var loadLock = RentChatLoadLock(chat.Id);
+        await loadLock.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {
-            // Another concurrent caller may have loaded this chat while we awaited the lock.
-            if (chat.Messages.Count > 0) return;
+            if (chat.Messages.Count > 0 && AreChatMessagesLoaded(chat.Id))
+                return;
 
             var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
-            if (!File.Exists(chatFile)) return;
-
-            const int maxReadAttempts = 3;
-            const int retryDelayMs = 35;
-
-            for (var attempt = 1; attempt <= maxReadAttempts; attempt++)
-            {
-                try
-                {
-                    await using var stream = new FileStream(
-                        chatFile,
-                        FileMode.Open,
-                        FileAccess.Read,
-                        FileShare.ReadWrite | FileShare.Delete,
-                        81920,
-                        FileOptions.Asynchronous | FileOptions.SequentialScan);
-
-                    var messages = await JsonSerializer.DeserializeAsync(
-                        stream,
-                        AppDataJsonContext.Default.ListChatMessage,
-                        cancellationToken).ConfigureAwait(false);
-
-                    if (messages is not null)
-                        chat.Messages.AddRange(messages);
-                    break;
-                }
-                catch (IOException) when (attempt < maxReadAttempts)
-                {
-                    // Save operations can momentarily lock the chat file. Retry briefly.
-                    await Task.Delay(retryDelayMs, cancellationToken).ConfigureAwait(false);
-                }
-                catch (IOException)
-                {
-                    // Ignore persistent file IO issues; chat will open without history.
-                    break;
-                }
-                catch (JsonException)
-                {
-                    // Ignore malformed chat files; chat will open without history.
-                    break;
-                }
-            }
+            if (await TryMergePersistedChatMessagesAsync(chat, chatFile, cancellationToken).ConfigureAwait(false))
+                MarkChatMessagesLoaded(chat.Id);
         }
         finally
         {
-            loadLock.Release();
+            loadLock.Semaphore.Release();
         }
+    }
+
+    internal async Task<bool> EvictChatMessagesAsync(
+        Chat chat,
+        Func<bool>? shouldEvict = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(chat);
+
+        using var loadLock = RentChatLoadLock(chat.Id);
+        await loadLock.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (shouldEvict?.Invoke() == false)
+                return false;
+
+            MarkChatMessagesUnloaded(chat.Id);
+            chat.Messages.Clear();
+            RemoveChatSearchSnapshot(chat.Id);
+            return true;
+        }
+        finally
+        {
+            loadLock.Semaphore.Release();
+        }
+    }
+
+    private async Task<bool> TryMergePersistedChatMessagesAsync(
+        Chat chat,
+        string chatFile,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(chatFile))
+            return true;
+
+        const int maxReadAttempts = 3;
+        const int retryDelayMs = 35;
+
+        for (var attempt = 1; attempt <= maxReadAttempts; attempt++)
+        {
+            try
+            {
+                await using var stream = new FileStream(
+                    chatFile,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete,
+                    81920,
+                    FileOptions.Asynchronous | FileOptions.SequentialScan);
+
+                var messages = await JsonSerializer.DeserializeAsync(
+                    stream,
+                    AppDataJsonContext.Default.ListChatMessage,
+                    cancellationToken).ConfigureAwait(false);
+
+                if (messages is not null)
+                    MergeLoadedChatMessages(chat, messages);
+                return true;
+            }
+            catch (IOException) when (attempt < maxReadAttempts)
+            {
+                // Save operations can momentarily lock the chat file. Retry briefly.
+                await Task.Delay(retryDelayMs, cancellationToken).ConfigureAwait(false);
+            }
+            catch (IOException ex)
+            {
+                Debug.WriteLine($"[Lumi] Chat message load failed for chat {chat.Id}: {ex.Message}");
+                return false;
+            }
+            catch (JsonException ex)
+            {
+                Debug.WriteLine($"[Lumi] Chat message JSON parse failed for chat {chat.Id}: {ex.Message}");
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private static List<ChatMessage> CreateMessagePersistenceSnapshot(IReadOnlyList<ChatMessage> messages)
+        => [..messages.Select(static m => new ChatMessage
+        {
+            Id = m.Id,
+            Role = m.Role,
+            Content = m.Content,
+            Author = m.Author,
+            Timestamp = m.Timestamp,
+            ToolName = m.ToolName,
+            ToolCallId = m.ToolCallId,
+            ParentToolCallId = m.ParentToolCallId,
+            ToolStatus = m.ToolStatus,
+            ToolOutput = m.ToolOutput,
+            QuestionId = m.QuestionId,
+            QuestionText = m.QuestionText,
+            QuestionOptions = m.QuestionOptions,
+            QuestionAllowFreeText = m.QuestionAllowFreeText,
+            QuestionAllowMultiSelect = m.QuestionAllowMultiSelect,
+            IsStreaming = m.IsStreaming,
+            Model = m.Model,
+            Attachments = [..m.Attachments],
+            ActiveSkills = [..m.ActiveSkills.Select(static s => new SkillReference
+            {
+                Name = s.Name,
+                Glyph = s.Glyph,
+                Description = s.Description
+            })],
+            Sources = [..m.Sources.Select(static s => new SearchSource
+            {
+                Title = s.Title,
+                Snippet = s.Snippet,
+                Url = s.Url
+            })]
+        })];
+
+    internal static bool MergeLoadedChatMessages(Chat chat, IReadOnlyList<ChatMessage> persistedMessages)
+    {
+        ArgumentNullException.ThrowIfNull(chat);
+        ArgumentNullException.ThrowIfNull(persistedMessages);
+
+        if (persistedMessages.Count == 0)
+            return false;
+
+        if (chat.Messages.Count == 0)
+        {
+            chat.Messages.AddRange(persistedMessages);
+            return true;
+        }
+
+        var currentById = new Dictionary<Guid, ChatMessage>();
+        foreach (var currentMessage in chat.Messages)
+        {
+            if (!currentById.ContainsKey(currentMessage.Id))
+                currentById[currentMessage.Id] = currentMessage;
+        }
+
+        var persistedIds = new HashSet<Guid>();
+        var merged = new List<ChatMessage>(Math.Max(chat.Messages.Count, persistedMessages.Count));
+
+        foreach (var persistedMessage in persistedMessages)
+        {
+            persistedIds.Add(persistedMessage.Id);
+            merged.Add(currentById.GetValueOrDefault(persistedMessage.Id) ?? persistedMessage);
+        }
+
+        foreach (var currentMessage in chat.Messages)
+        {
+            if (!persistedIds.Contains(currentMessage.Id))
+                merged.Add(currentMessage);
+        }
+
+        if (chat.Messages.Count == merged.Count
+            && chat.Messages.Zip(merged).All(static pair => ReferenceEquals(pair.First, pair.Second)))
+        {
+            return false;
+        }
+
+        chat.Messages.Clear();
+        chat.Messages.AddRange(merged);
+        return true;
     }
 
     /// <summary>Returns recent user-authored prompts across chats for personalized follow-up suggestions.</summary>
@@ -527,17 +685,40 @@ public class DataStore
         return new ChatSearchSnapshot { Version = $"io-error:{chat.Id}" };
     }
 
-    private SemaphoreSlim GetChatLoadLock(Guid chatId)
+    private ChatLoadLockLease RentChatLoadLock(Guid chatId)
     {
         lock (_chatLoadLocksSync)
         {
             if (_chatLoadLocks.TryGetValue(chatId, out var existing))
-                return existing;
+            {
+                existing.LeaseCount++;
+                return new ChatLoadLockLease(this, chatId, existing);
+            }
 
-            var created = new SemaphoreSlim(1, 1);
+            var created = new ChatLoadLock();
+            created.LeaseCount++;
             _chatLoadLocks[chatId] = created;
-            return created;
+            return new ChatLoadLockLease(this, chatId, created);
         }
+    }
+
+    private void ReleaseChatLoadLockLease(Guid chatId, ChatLoadLock chatLock)
+    {
+        ChatLoadLock? lockToDispose = null;
+        lock (_chatLoadLocksSync)
+        {
+            chatLock.LeaseCount--;
+            if (chatLock.LeaseCount == 0
+                && chatLock.RemoveWhenIdle
+                && _chatLoadLocks.TryGetValue(chatId, out var existing)
+                && ReferenceEquals(existing, chatLock))
+            {
+                _chatLoadLocks.Remove(chatId);
+                lockToDispose = chatLock;
+            }
+        }
+
+        lockToDispose?.Dispose();
     }
 
     private void RemoveChatSearchSnapshot(Guid chatId)
@@ -638,11 +819,21 @@ public class DataStore
     /// <summary>Removes the load-serialisation lock for a chat, freeing the SemaphoreSlim.</summary>
     public void RemoveChatLoadLock(Guid chatId)
     {
+        ChatLoadLock? lockToDispose = null;
         lock (_chatLoadLocksSync)
         {
-            if (_chatLoadLocks.Remove(chatId, out var semaphore))
-                semaphore.Dispose();
+            if (_chatLoadLocks.TryGetValue(chatId, out var chatLock))
+            {
+                chatLock.RemoveWhenIdle = true;
+                if (chatLock.LeaseCount == 0)
+                {
+                    _chatLoadLocks.Remove(chatId);
+                    lockToDispose = chatLock;
+                }
+            }
         }
+
+        lockToDispose?.Dispose();
     }
 
     /// <summary>Deletes the per-chat file for a given chat ID.</summary>

@@ -16,7 +16,7 @@ namespace Lumi.Tests;
 public sealed class ChatViewModelLeakTests
 {
     [Fact]
-    public void ReleaseInactiveChatState_ClearsDetachedChatResources()
+    public async Task ReleaseInactiveChatState_ClearsDetachedChatResources()
     {
         var dataStore = CreateDataStore();
         var vm = new ChatViewModel(dataStore, new CopilotService());
@@ -42,7 +42,7 @@ public sealed class ChatViewModelLeakTests
         GetField<Dictionary<Guid, Guid>>(vm, "_lastSuggestedAssistantMessageByChat")[inactiveChat.Id] = Guid.NewGuid();
         GetField<Dictionary<Guid, BrowserService>>(vm, "_chatBrowserServices")[inactiveChat.Id] = new BrowserService();
 
-        InvokePrivate(vm, "ReleaseInactiveChatState", inactiveChat, true);
+        await InvokePrivateAsync(vm, "ReleaseInactiveChatStateAsync", inactiveChat, true);
 
         Assert.Empty(inactiveChat.Messages);
         Assert.Equal(1, subscription.DisposeCount);
@@ -56,7 +56,7 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
-    public void ReleaseInactiveChatState_LeavesBusyChatAttached()
+    public async Task ReleaseInactiveChatState_LeavesBusyChatAttached()
     {
         var dataStore = CreateDataStore();
         var vm = new ChatViewModel(dataStore, new CopilotService());
@@ -76,7 +76,7 @@ public sealed class ChatViewModelLeakTests
         var subscription = new CountingDisposable();
         GetField<Dictionary<Guid, IDisposable>>(vm, "_sessionSubs")[busyChat.Id] = subscription;
 
-        InvokePrivate(vm, "ReleaseInactiveChatState", busyChat, true);
+        await InvokePrivateAsync(vm, "ReleaseInactiveChatStateAsync", busyChat, true);
 
         Assert.Single(busyChat.Messages);
         Assert.Equal(0, subscription.DisposeCount);
@@ -85,7 +85,60 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
-    public void ReleaseInactiveChatState_DoesNotCreateRuntimeStateForUnknownChat()
+    public async Task ReleaseInactiveChatState_DoesNotEvictMessagesForChatVisibleOnAnotherSurface()
+    {
+        var dataStore = CreateDataStore();
+        var mainChat = new Chat { Title = "main" };
+        var visibleDetachedChat = new Chat { Title = "visible detached" };
+        visibleDetachedChat.Messages.Add(new ChatMessage { Role = "assistant", Content = "still visible" });
+        dataStore.Data.Chats.Add(mainChat);
+        dataStore.Data.Chats.Add(visibleDetachedChat);
+
+        using var registry = new ChatSurfaceRegistry();
+        var mainSurface = new ChatViewModel(dataStore, new CopilotService())
+        {
+            CurrentChat = mainChat,
+            IsChatVisibleInAnySurface = registry.HasOwner
+        };
+        var detachedSurface = new ChatViewModel(dataStore, new CopilotService())
+        {
+            CurrentChat = visibleDetachedChat,
+            IsChatVisibleInAnySurface = registry.HasOwner
+        };
+        registry.Attach(mainSurface);
+        registry.Attach(detachedSurface);
+
+        await InvokePrivateAsync(mainSurface, "ReleaseInactiveChatStateAsync", visibleDetachedChat, true);
+
+        Assert.Single(visibleDetachedChat.Messages);
+        Assert.Equal("still visible", visibleDetachedChat.Messages[0].Content);
+        mainSurface.Dispose();
+        detachedSurface.Dispose();
+    }
+
+    [Fact]
+    public void Dispose_ReleasesDataStoreChatLoadLocksForTrackedChats()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "tracked" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+        GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[chat.Id] = new ChatRuntimeState
+        {
+            Chat = chat
+        };
+        var loadLockLease = InvokePrivate<IDisposable>(dataStore, "RentChatLoadLock", chat.Id);
+        var loadLock = GetLeaseSemaphore(loadLockLease);
+        loadLockLease.Dispose();
+
+        vm.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => loadLock.Wait(0));
+    }
+
+    [Fact]
+    public async Task ReleaseInactiveChatState_DoesNotCreateRuntimeStateForUnknownChat()
     {
         var dataStore = CreateDataStore();
         var vm = new ChatViewModel(dataStore, new CopilotService());
@@ -97,7 +150,7 @@ public sealed class ChatViewModelLeakTests
         dataStore.Data.Chats.Add(detachedChat);
         vm.CurrentChat = activeChat;
 
-        InvokePrivate(vm, "ReleaseInactiveChatState", detachedChat, true);
+        await InvokePrivateAsync(vm, "ReleaseInactiveChatStateAsync", detachedChat, true);
 
         Assert.False(GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates").ContainsKey(detachedChat.Id));
     }
@@ -319,7 +372,7 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
-    public void ReleaseInactiveChatState_CleansUpChatAfterRemoteShutdownClearsBackgroundWork()
+    public async Task ReleaseInactiveChatState_CleansUpChatAfterRemoteShutdownClearsBackgroundWork()
     {
         var dataStore = CreateDataStore();
         var vm = new ChatViewModel(dataStore, new CopilotService());
@@ -341,7 +394,7 @@ public sealed class ChatViewModelLeakTests
         GetField<Dictionary<Guid, IDisposable>>(vm, "_sessionSubs")[detachedChat.Id] = subscription;
 
         InvokePrivate(vm, "DetachSessionAfterRemoteShutdown", detachedChat, false);
-        InvokePrivate(vm, "ReleaseInactiveChatState", detachedChat, true);
+        await InvokePrivateAsync(vm, "ReleaseInactiveChatStateAsync", detachedChat, true);
 
         Assert.Equal(1, subscription.DisposeCount);
         Assert.False(GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates").ContainsKey(detachedChat.Id));
@@ -950,6 +1003,12 @@ public sealed class ChatViewModelLeakTests
 
         await task;
     }
+
+    private static SemaphoreSlim GetLeaseSemaphore(object lease)
+        => (SemaphoreSlim)(lease.GetType()
+            .GetProperty("Semaphore", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            ?.GetValue(lease)
+            ?? throw new InvalidOperationException("Semaphore property was not found."));
 
     private static T InvokePrivateStatic<T>(Type type, string name, params object[] args)
         => (T)(type
