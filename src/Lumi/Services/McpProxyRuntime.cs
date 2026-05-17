@@ -33,6 +33,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
     private CancellationTokenSource? _listenerCts;
     private Task? _listenerTask;
     private int _port;
+    private bool _disposed;
 
     public McpHttpServerConfig Register(McpProxyServerDefinition definition)
     {
@@ -42,8 +43,12 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
         McpProxyRegistration? staleRegistration = null;
         McpProxyRegistration activeRegistration;
+        int port;
         lock (_gate)
         {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(McpProxyRuntime));
+
             EnsureListenerStartedLocked();
 
             var fingerprint = ComputeFingerprint(definition.Config);
@@ -65,6 +70,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
             }
 
             activeRegistration = currentRegistration;
+            port = _port;
         }
 
         if (staleRegistration is not null)
@@ -72,10 +78,38 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
         return new McpHttpServerConfig
             {
-                Url = $"http://127.0.0.1:{_port}/mcp/{_routeToken}/{activeRegistration.RouteId}",
+                Url = $"http://127.0.0.1:{port}/mcp/{_routeToken}/{activeRegistration.RouteId}",
                 Tools = definition.Config.Tools?.ToList() ?? ["*"],
                 Timeout = definition.Config.Timeout
             };
+    }
+
+    public void RetireUserRegistrationsExcept(IEnumerable<Guid> activeLocalServerIds)
+    {
+        ArgumentNullException.ThrowIfNull(activeLocalServerIds);
+        var retainedKeys = activeLocalServerIds
+            .Select(id => "lumi:" + id)
+            .ToHashSet(StringComparer.Ordinal);
+        List<McpProxyRegistration> staleRegistrations = [];
+
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+
+            foreach (var (key, registration) in _registrationsByKey.ToArray())
+            {
+                if (!key.StartsWith("lumi:", StringComparison.Ordinal) || retainedKeys.Contains(key))
+                    continue;
+
+                _registrationsByKey.Remove(key);
+                _registrationsByRoute.Remove(registration.RouteId);
+                staleRegistrations.Add(registration);
+            }
+        }
+
+        foreach (var registration in staleRegistrations)
+            RetireRegistrationInBackground(registration);
     }
 
     public async ValueTask DisposeAsync()
@@ -87,6 +121,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
         lock (_gate)
         {
+            _disposed = true;
             listener = _listener;
             cts = _listenerCts;
             listenerTask = _listenerTask;
@@ -425,15 +460,18 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly Dictionary<string, TaskCompletionSource<JsonElement>> _pending = new(StringComparer.Ordinal);
-    private readonly CancellationTokenSource _ioCts = new();
+    private readonly List<Task> _retiredIoTasks = [];
     private readonly int _timeoutMilliseconds;
 
+    private CancellationTokenSource _ioCts = new();
     private Process? _process;
     private StreamWriter? _stdin;
     private Task? _stdoutTask;
     private Task? _stderrTask;
     private int _nextId;
+    private int _processGeneration;
     private JsonElement? _initializeResult;
+    private bool _disposed;
 
     public McpStdioServerConnection(McpProxyServerDefinition definition)
     {
@@ -488,6 +526,7 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         Process? process;
         Task? stdoutTask;
         Task? stderrTask;
+        Task[] retiredIoTasks;
 
         await _lifecycleLock.WaitAsync().ConfigureAwait(false);
         try
@@ -495,11 +534,14 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
             process = _process;
             stdoutTask = _stdoutTask;
             stderrTask = _stderrTask;
+            retiredIoTasks = _retiredIoTasks.ToArray();
+            _retiredIoTasks.Clear();
             _process = null;
             _stdin = null;
             _stdoutTask = null;
             _stderrTask = null;
             _initializeResult = null;
+            _disposed = true;
             CompletePendingWithError(new ObjectDisposedException(_definition.Name));
             _ioCts.Cancel();
         }
@@ -522,6 +564,8 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
 
         await IgnoreAsync(stdoutTask).ConfigureAwait(false);
         await IgnoreAsync(stderrTask).ConfigureAwait(false);
+        foreach (var retiredIoTask in retiredIoTasks)
+            await IgnoreAsync(retiredIoTask).ConfigureAwait(false);
         _lifecycleLock.Dispose();
         _writeLock.Dispose();
         _ioCts.Dispose();
@@ -529,14 +573,18 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
 
     private async Task<JsonElement> EnsureInitializedAsync(JsonElement? clientParams, CancellationToken cancellationToken)
     {
-        if (_initializeResult is { } existing)
+        if (_initializeResult is { } existing && IsProcessRunning(_process))
             return existing;
 
         await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_initializeResult is { } current)
+            ThrowIfDisposed();
+            if (_initializeResult is { } current && IsProcessRunning(_process))
                 return current;
+
+            if (_process is not null && !IsProcessRunning(_process))
+                ResetStoppedProcess();
 
             StartProcess();
             var initParams = clientParams ?? JsonRpc.DefaultInitializeParams();
@@ -556,6 +604,7 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
 
     private void StartProcess()
     {
+        ThrowIfDisposed();
         if (_process is { HasExited: false })
             return;
 
@@ -589,8 +638,73 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
 
         _process = process;
         _stdin = process.StandardInput;
-        _stdoutTask = Task.Run(() => ReadStdoutAsync(process, _ioCts.Token), _ioCts.Token);
+        var generation = Interlocked.Increment(ref _processGeneration);
+        _stdoutTask = Task.Run(() => ReadStdoutAsync(process, generation, _ioCts.Token), _ioCts.Token);
         _stderrTask = Task.Run(() => DrainAsync(process.StandardError, _ioCts.Token), _ioCts.Token);
+    }
+
+    private void ResetStoppedProcess()
+    {
+        var process = _process;
+        var oldIoCts = _ioCts;
+        var oldStdoutTask = _stdoutTask;
+        var oldStderrTask = _stderrTask;
+        _process = null;
+        _stdin = null;
+        _stdoutTask = null;
+        _stderrTask = null;
+        _initializeResult = null;
+        _ioCts = new CancellationTokenSource();
+        CompletePendingWithError(new IOException($"MCP server '{_definition.Name}' stopped."));
+
+        oldIoCts.Cancel();
+        TrackRetiredIoTasks(oldIoCts, oldStdoutTask, oldStderrTask);
+
+        if (process is not null)
+        {
+            try { process.Dispose(); }
+            catch { }
+        }
+    }
+
+    private void TrackRetiredIoTasks(CancellationTokenSource ioCts, Task? stdoutTask, Task? stderrTask)
+    {
+        _retiredIoTasks.RemoveAll(static task => task.IsCompleted);
+        _retiredIoTasks.Add(DisposeRetiredIoAsync(ioCts, stdoutTask, stderrTask));
+    }
+
+    private static async Task DisposeRetiredIoAsync(CancellationTokenSource ioCts, Task? stdoutTask, Task? stderrTask)
+    {
+        try
+        {
+            await IgnoreAsync(stdoutTask).ConfigureAwait(false);
+            await IgnoreAsync(stderrTask).ConfigureAwait(false);
+        }
+        finally
+        {
+            ioCts.Dispose();
+        }
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (_disposed)
+            throw new ObjectDisposedException(_definition.Name);
+    }
+
+    private static bool IsProcessRunning(Process? process)
+    {
+        if (process is null)
+            return false;
+
+        try
+        {
+            return !process.HasExited;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private async Task<JsonElement> ForwardRequestAsync(JsonElement clientMessage, CancellationToken cancellationToken)
@@ -669,7 +783,7 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         }
     }
 
-    private async Task ReadStdoutAsync(Process process, CancellationToken cancellationToken)
+    private async Task ReadStdoutAsync(Process process, int generation, CancellationToken cancellationToken)
     {
         try
         {
@@ -682,6 +796,9 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
                 if (string.IsNullOrWhiteSpace(line))
                     continue;
 
+                if (generation != Volatile.Read(ref _processGeneration))
+                    break;
+
                 HandleServerLine(line);
             }
         }
@@ -690,12 +807,18 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            CompletePendingWithError(ex);
+            CompletePendingWithErrorForGeneration(generation, ex);
         }
         finally
         {
-            CompletePendingWithError(new IOException($"MCP server '{_definition.Name}' stopped."));
+            CompletePendingWithErrorForGeneration(generation, new IOException($"MCP server '{_definition.Name}' stopped."));
         }
+    }
+
+    private void CompletePendingWithErrorForGeneration(int generation, Exception error)
+    {
+        if (generation == Volatile.Read(ref _processGeneration))
+            CompletePendingWithError(error);
     }
 
     private void HandleServerLine(string line)
