@@ -48,6 +48,7 @@ public partial class ChatView : UserControl
     private Border? _worktreeHighlight;
     private Button? _localToggleBtn;
     private Button? _worktreeToggleBtn;
+    private bool _worktreeHighlightUpdateQueued;
     private bool _isApplyingTranscriptMutation;
     private bool _resizeRestoreQueued;
     private bool _viewportEvaluationQueued;
@@ -153,7 +154,7 @@ public partial class ChatView : UserControl
 
         var togglePanel = this.FindControl<StackPanel>("WorktreeTogglePanel");
         if (togglePanel is not null)
-            togglePanel.SizeChanged += (_, _) => UpdateWorktreeToggleHighlight();
+            togglePanel.SizeChanged += (_, _) => QueueWorktreeToggleHighlightUpdate();
 
         AddHandler(DragDrop.DragEnterEvent, OnDragEnter);
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
@@ -236,6 +237,8 @@ public partial class ChatView : UserControl
             Dispatcher.UIThread.Post(EnsureTranscriptScrollViewer, DispatcherPriority.Loaded);
             QueueInitialTranscriptTailSyncIfNeeded(vm);
         }
+
+        QueueWorktreeToggleHighlightUpdate();
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -522,7 +525,7 @@ public partial class ChatView : UserControl
         }
 
         if (e.PropertyName == nameof(ChatViewModel.IsWorktreeMode))
-            UpdateWorktreeToggleHighlight();
+            QueueWorktreeToggleHighlightUpdate();
     }
 
     private void QueueInitialTranscriptTailSyncIfNeeded(ChatViewModel viewModel)
@@ -1313,6 +1316,19 @@ public partial class ChatView : UserControl
 
         _worktreeHighlight.Width = target.Bounds.Width;
         _worktreeHighlight.Margin = new Thickness(target.Bounds.Left, 0, 0, 0);
+    }
+
+    private void QueueWorktreeToggleHighlightUpdate()
+    {
+        if (_worktreeHighlightUpdateQueued)
+            return;
+
+        _worktreeHighlightUpdateQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _worktreeHighlightUpdateQueued = false;
+            UpdateWorktreeToggleHighlight();
+        }, DispatcherPriority.Loaded);
     }
 
     // ── Ctrl+F in-chat search ────────────────────────────

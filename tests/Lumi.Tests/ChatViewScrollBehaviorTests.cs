@@ -155,6 +155,64 @@ public sealed class ChatViewScrollBehaviorTests
         }, CancellationToken.None);
     }
 
+    [Fact]
+    public async Task WorktreeToggleHighlight_ResyncsWhenChatSurfaceChanges()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var data = new AppData
+            {
+                Settings = new UserSettings
+                {
+                    AutoSaveChats = false,
+                    EnableMemoryAutoSave = false
+                }
+            };
+
+            using var worktreeViewModel = new ChatViewModel(new DataStore(data), new CopilotService())
+            {
+                IsCodingProject = true
+            };
+            using var localViewModel = new ChatViewModel(new DataStore(data), new CopilotService())
+            {
+                IsCodingProject = true
+            };
+
+            var view = new ChatView { DataContext = worktreeViewModel };
+            var window = new Window
+            {
+                Width = 1100,
+                Height = 820,
+                Content = view,
+            };
+
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                await PumpAsync();
+
+                var highlight = Assert.IsType<Border>(view.FindControl<Border>("WorktreeToggleHighlight"));
+                var localButton = Assert.IsType<Button>(view.FindControl<Button>("LocalToggleBtn"));
+                var worktreeButton = Assert.IsType<Button>(view.FindControl<Button>("WorktreeToggleBtn"));
+
+                await WaitUntilAsync(() => localButton.Bounds.Width > 0 && worktreeButton.Bounds.Width > 0);
+
+                worktreeViewModel.IsWorktreeMode = true;
+                await WaitUntilAsync(() => IsAlignedWith(highlight, worktreeButton));
+
+                view.DataContext = localViewModel;
+                await WaitUntilAsync(() => IsAlignedWith(highlight, localButton));
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     private static Chat CreateLongChat(int pairCount = 18)
     {
         var chat = new Chat { Title = "Scroll regression" };
@@ -173,6 +231,12 @@ public sealed class ChatViewScrollBehaviorTests
         }
 
         return chat;
+    }
+
+    private static bool IsAlignedWith(Border highlight, Button target)
+    {
+        return Math.Abs(highlight.Margin.Left - target.Bounds.Left) < 0.5
+            && Math.Abs(highlight.Width - target.Bounds.Width) < 0.5;
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 2000)
