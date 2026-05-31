@@ -628,7 +628,7 @@ public sealed class TranscriptBuilderToolGroupTests
     }
 
     private static TranscriptBuilder CreateBuilder(bool showToolCalls = true)
-        => new(CreateDataStore(showToolCalls), _ => { }, (_, _) => { }, (_, _) => Task.CompletedTask, () => null);
+        => new(CreateDataStore(showToolCalls), _ => { }, (_, _) => { }, _ => { }, (_, _) => Task.CompletedTask, () => null);
 
     private static void AssertCompactFinishedToolGroup(TranscriptItem item, int expectedToolCalls)
     {

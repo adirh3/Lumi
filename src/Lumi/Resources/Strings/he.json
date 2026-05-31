@@ -120,6 +120,8 @@
   "Chat_SuggestionB": "חקור נושא",
   "Chat_SuggestionC": "צור מסמך",
   "Chat_AvatarLetter": "ל",
+  "Chat_EditPlaceholder": "ערוך את ההודעה...",
+  "Chat_EditStatus": "עריכת הודעה - אפשר לשנות טקסט, קבצים מצורפים, סוכן, מודל או MCPs ואז לשלוח.",
 
   "Editor_Lumi": "עורך לומי",
   "Editor_Project": "עורך פרויקט",

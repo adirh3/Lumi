@@ -18,6 +18,7 @@ public class TranscriptBuilder
     private readonly DataStore _dataStore;
     private readonly Action<FileChangeItem> _showDiffAction;
     private readonly Action<string, string> _submitQuestionAnswerAction;
+    private readonly Action<ChatMessage> _beginEditMessageAction;
     private readonly Func<ChatMessage, bool, Task> _resendFromMessageAction;
     private readonly Func<string?> _getSelectedModel;
 
@@ -67,12 +68,14 @@ public class TranscriptBuilder
         DataStore dataStore,
         Action<FileChangeItem> showDiffAction,
         Action<string, string> submitQuestionAnswerAction,
+        Action<ChatMessage> beginEditMessageAction,
         Func<ChatMessage, bool, Task> resendFromMessageAction,
         Func<string?> getSelectedModel)
     {
         _dataStore = dataStore;
         _showDiffAction = showDiffAction;
         _submitQuestionAnswerAction = submitQuestionAnswerAction;
+        _beginEditMessageAction = beginEditMessageAction;
         _resendFromMessageAction = resendFromMessageAction;
         _getSelectedModel = getSelectedModel;
     }
@@ -850,7 +853,12 @@ public class TranscriptBuilder
             var newSkills = msgVm.Message.ActiveSkills
                 .Where(s => _shownSkillNames.Add(s.Name))
                 .ToList();
-            var userItem = new UserMessageItem(msgVm, showTimestamps, newSkills, (msg, edited) => _ = _resendFromMessageAction(msg, edited));
+            var userItem = new UserMessageItem(
+                msgVm,
+                showTimestamps,
+                newSkills,
+                msg => _beginEditMessageAction(msg),
+                (msg, edited) => _ = _resendFromMessageAction(msg, edited));
             AppendToCurrentTurn(userItem, TurnStableIdFor($"message:{msgVm.Message.Id}"));
             FinalizeCurrentTurn();
             return;

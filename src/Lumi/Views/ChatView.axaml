@@ -420,6 +420,7 @@
                             Author="{Binding Author}"
                             Timestamp="{Binding TimestampText}"
                             IsEditable="True"
+                            UseInlineEdit="False"
                             EditText="{Binding Content, Mode=OneWay}"
                             EditCommand="{Binding BeginEditCommand}"
                             EditConfirmedCommand="{Binding ConfirmEditCommand}"
@@ -1457,8 +1458,43 @@
         </Grid>
       </Border>
 
+      <Border IsVisible="{Binding IsEditingMessage}"
+              Margin="4,0,4,0"
+              Padding="10,7"
+              CornerRadius="10"
+              Background="{DynamicResource Brush.AccentSubtle}"
+              BorderBrush="{DynamicResource Brush.AccentDefault}"
+              BorderThickness="1">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="7">
+            <PathIcon Width="12"
+                      Height="12"
+                      VerticalAlignment="Center"
+                      Foreground="{DynamicResource Brush.AccentDefault}"
+                      Data="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z" />
+            <TextBlock Text="{Binding EditingMessageStatusText}"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource Brush.AccentDefault}"
+                       VerticalAlignment="Center"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+          <Button Grid.Column="1"
+                  Content="{loc:Str Common_Cancel}"
+                  Classes="subtle"
+                  Command="{Binding CancelComposerEditCommand}"
+                  Padding="8,3"
+                  MinHeight="0"
+                  CornerRadius="6"
+                  FontSize="12"
+                  FontWeight="SemiBold"
+                  Foreground="{DynamicResource Brush.AccentDefault}"
+                  Cursor="Hand" />
+        </Grid>
+      </Border>
+
       <sc:StrataChatComposer x:Name="Composer"
-                             Placeholder="{loc:Str Chat_Placeholder}"
+                             Placeholder="{Binding ComposerPlaceholder}"
                              PromptText="{Binding PromptText, Mode=TwoWay}"
                              IsBusy="{Binding IsBusy}"
                              IsRecording="{Binding IsRecording}"

@@ -24,6 +24,12 @@ public class ChatMessage
     public bool? QuestionAllowMultiSelect { get; set; }
     public bool IsStreaming { get; set; }
     public string? Model { get; set; }
+    public string? ReasoningEffort { get; set; }
+    public Guid? AgentId { get; set; }
+    public string? SdkAgentName { get; set; }
+    public bool HasAgentSelection { get; set; }
+    public List<string> ActiveMcpServerNames { get; set; } = [];
+    public bool HasMcpSelection { get; set; }
     public List<string> Attachments { get; set; } = [];
     public List<SearchSource> Sources { get; set; } = [];
     public List<SkillReference> ActiveSkills { get; set; } = [];
