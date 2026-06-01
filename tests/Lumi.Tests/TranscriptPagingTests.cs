@@ -454,6 +454,70 @@ public sealed class TranscriptPagingTests
     }
 
     [Fact]
+    public void EnsureLatestMountedIfAdjacentTailGap_RestoresCompletedAssistantWithoutPinning()
+    {
+        var controller = new TranscriptWindowController(new TranscriptPagingOptions
+        {
+            MaxPageWeight = 4,
+            MaxTurnsPerPage = 1,
+            MinInitialPages = 1,
+            MaxMountedPages = 3,
+        });
+        var source = CreateTurns(7, measuredHeightFactory: _ => 120);
+
+        controller.BindTranscript(source, "assistant-tail-gap");
+        controller.ResetToLatest(200, "assistant-tail-gap");
+        controller.UpdatePinnedState(false, 260, "assistant-tail-gap");
+
+        Assert.Equal("turn:0006", controller.MountedTurns[^1].StableId);
+
+        source.Add(CreateTurn(7, measuredHeight: 120));
+
+        Assert.DoesNotContain(controller.MountedTurns, turn => turn.StableId == "turn:0007");
+
+        var mutation = controller.EnsureLatestMountedIfAdjacentTailGap("assistant-completed");
+
+        Assert.Equal(TranscriptWindowMutationKind.TailRestore, mutation.Kind);
+        Assert.False(controller.CaptureSnapshot().IsPinnedToBottom);
+        Assert.True(controller.CaptureSnapshot().MountedPageCount <= 3);
+        Assert.Equal("turn:0007", controller.MountedTurns[^1].StableId);
+        Assert.Contains(controller.MountedTurns, turn => turn.StableId == "turn:0006");
+    }
+
+    [Fact]
+    public void EnsureLatestMountedIfAdjacentTailGap_DoesNotJumpFarReaderWindow()
+    {
+        var controller = new TranscriptWindowController(new TranscriptPagingOptions
+        {
+            MaxPageWeight = 4,
+            MaxTurnsPerPage = 1,
+            MinInitialPages = 1,
+            MaxMountedPages = 3,
+            PrependTriggerPixels = 160,
+        });
+        var source = CreateTurns(12, measuredHeightFactory: _ => 120);
+
+        controller.BindTranscript(source, "far-reader");
+        controller.ResetToLatest(200, "far-reader");
+        controller.UpdatePinnedState(false, 260, "far-reader");
+
+        for (var i = 0; i < 4; i++)
+        {
+            controller.UpdateViewport(
+                new TranscriptViewportState(0, 200, 1400 + (i * 120), false, 260),
+                $"far-reader-{i}");
+        }
+
+        var mountedBefore = controller.MountedTurns.Select(static turn => turn.StableId).ToArray();
+        source.Add(CreateTurn(12, measuredHeight: 120));
+
+        var mutation = controller.EnsureLatestMountedIfAdjacentTailGap("assistant-completed");
+
+        Assert.Equal(TranscriptWindowMutationKind.None, mutation.Kind);
+        Assert.Equal(mountedBefore, controller.MountedTurns.Select(static turn => turn.StableId).ToArray());
+    }
+
+    [Fact]
     public void EnsureLatestMounted_NoOpWhenAlreadyAtTail()
     {
         var controller = new TranscriptWindowController(new TranscriptPagingOptions

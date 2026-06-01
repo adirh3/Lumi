@@ -613,6 +613,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return changed;
     }
 
+    internal TranscriptWindowMutation EnsureLatestTranscriptMountedIfAdjacentTailGap()
+    {
+        var mutation = _transcriptWindow.EnsureLatestMountedIfAdjacentTailGap("assistant-completed");
+        if (mutation.HasChanges && ShowTranscriptDiagnostics)
+            OnPropertyChanged(nameof(TranscriptDiagnosticsText));
+        return mutation;
+    }
+
     internal bool MountTranscriptPageContainingTurn(TranscriptTurn turn)
     {
         var changed = _transcriptWindow.MountPageContainingTurn(turn, "search-navigate");

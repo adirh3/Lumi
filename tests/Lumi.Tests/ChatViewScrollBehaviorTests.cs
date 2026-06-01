@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -213,6 +214,89 @@ public sealed class ChatViewScrollBehaviorTests
         }, CancellationToken.None);
     }
 
+    [Fact]
+    public async Task CompletedAssistantTailWhileScrolledUp_RemountsWhenBusyEndsWithoutRepinning()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var chat = CreateLongChat(pairCount: 28);
+            var data = new AppData
+            {
+                Settings = new UserSettings
+                {
+                    AutoSaveChats = false,
+                    EnableMemoryAutoSave = false
+                }
+            };
+            data.Chats.Add(chat);
+
+            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+            var view = new ChatView { DataContext = viewModel };
+            var window = new Window
+            {
+                Width = 1100,
+                Height = 820,
+                Content = view,
+            };
+
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                await PumpAsync();
+
+                await viewModel.LoadChatAsync(chat);
+                await WaitUntilAsync(() => view.FindControl<StrataChatShell>("ChatShell")?.TranscriptScrollViewer is not null);
+
+                var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
+                var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
+
+                shell.JumpToLatest();
+                await PumpAsync();
+
+                Assert.True(scrollViewer.Extent.Height > scrollViewer.Viewport.Height);
+
+                var bottomOffset = scrollViewer.Offset.Y;
+                scrollViewer.Offset = scrollViewer.Offset.WithY(Math.Max(0, bottomOffset - 220));
+                await WaitUntilAsync(() => !shell.IsPinnedToBottom);
+                var readerOffset = scrollViewer.Offset.Y;
+
+                viewModel.StatusText = "Generating...";
+                viewModel.IsBusy = true;
+                await PumpAsync();
+
+                var assistantTurn = CreateCompletedAssistantTailTurn();
+                var typingTurn = viewModel.TranscriptTurns.FirstOrDefault(static turn => turn.StableId == "turn:typing");
+                var typingIndex = typingTurn is null ? -1 : viewModel.TranscriptTurns.IndexOf(typingTurn);
+
+                if (typingIndex >= 0)
+                    viewModel.TranscriptTurns.Insert(typingIndex, assistantTurn);
+                else
+                    viewModel.TranscriptTurns.Add(assistantTurn);
+
+                await PumpAsync();
+
+                Assert.DoesNotContain(viewModel.MountedTranscriptTurns, turn => turn.StableId == assistantTurn.StableId);
+
+                viewModel.IsBusy = false;
+
+                await WaitUntilAsync(() =>
+                    viewModel.MountedTranscriptTurns.Any(turn => turn.StableId == assistantTurn.StableId));
+
+                Assert.False(shell.IsPinnedToBottom);
+                Assert.InRange(Math.Abs(scrollViewer.Offset.Y - readerOffset), 0, 2.0);
+                Assert.Equal(assistantTurn.StableId, viewModel.MountedTranscriptTurns[^1].StableId);
+            }
+            finally
+            {
+                viewModel.IsBusy = false;
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     private static Chat CreateLongChat(int pairCount = 18)
     {
         var chat = new Chat { Title = "Scroll regression" };
@@ -237,6 +321,25 @@ public sealed class ChatViewScrollBehaviorTests
     {
         return Math.Abs(highlight.Margin.Left - target.Bounds.Left) < 0.5
             && Math.Abs(highlight.Width - target.Bounds.Width) < 0.5;
+    }
+
+    private static TranscriptTurn CreateCompletedAssistantTailTurn()
+    {
+        var turn = new TranscriptTurn("turn:test-completed-assistant-tail");
+        for (var i = 0; i < 4; i++)
+        {
+            var message = new ChatMessage
+            {
+                Role = "assistant",
+                Author = "Lumi",
+                Content = $"Completed assistant stream segment {i}: " + new string('a', 1200),
+                IsStreaming = false
+            };
+
+            turn.Items.Add(new AssistantMessageItem(new ChatMessageViewModel(message), showTimestamps: false));
+        }
+
+        return turn;
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 2000)

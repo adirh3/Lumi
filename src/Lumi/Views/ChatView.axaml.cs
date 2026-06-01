@@ -54,6 +54,7 @@ public partial class ChatView : UserControl
     private bool _viewportEvaluationQueued;
     private bool _viewportEvaluationRequested;
     private bool _heightCompensationQueued;
+    private bool _tailRecoveryQueued;
     private int _initialTranscriptTailSyncVersion;
     private double _pendingHeightCompensationDelta;
     private ScrollAnchorState? _pendingResizeAnchor;
@@ -218,6 +219,7 @@ public partial class ChatView : UserControl
         ResetSearchState();
         _pendingHeightCompensationDelta = 0;
         _heightCompensationQueued = false;
+        _tailRecoveryQueued = false;
         _viewportEvaluationRequested = false;
         _lastObservedCurrentChat = null;
 
@@ -526,6 +528,9 @@ public partial class ChatView : UserControl
 
         if (e.PropertyName == nameof(ChatViewModel.IsWorktreeMode))
             QueueWorktreeToggleHighlightUpdate();
+
+        if (e.PropertyName == nameof(ChatViewModel.IsBusy) && _subscribedVm?.IsBusy == false)
+            QueueCompletedAssistantTailRecovery();
     }
 
     private void QueueInitialTranscriptTailSyncIfNeeded(ChatViewModel viewModel)
@@ -722,7 +727,12 @@ public partial class ChatView : UserControl
         {
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
             if (mutation.RequiresAnchorRestore)
-                RestoreAnchor(anchor, mutation.Kind == TranscriptWindowMutationKind.Prepend ? "prepend" : "cleanup");
+                RestoreAnchor(anchor, mutation.Kind switch
+                {
+                    TranscriptWindowMutationKind.Prepend => "prepend",
+                    TranscriptWindowMutationKind.TailRestore => "tail-restore",
+                    _ => "cleanup"
+                });
 
             SyncTranscriptPinnedState();
             if (_chatShell?.IsPinnedToBottom == true)
@@ -734,6 +744,45 @@ public partial class ChatView : UserControl
             if (_viewportEvaluationRequested)
                 QueueTranscriptViewportEvaluation();
         }
+    }
+
+    private void QueueCompletedAssistantTailRecovery()
+    {
+        if (_tailRecoveryQueued
+            || _subscribedVm is not { CurrentChat: not null, IsBusy: false, IsLoadingChat: false }
+            || _chatShell is null
+            || _chatShell.IsPinnedToBottom)
+        {
+            return;
+        }
+
+        _tailRecoveryQueued = true;
+        Dispatcher.UIThread.Post(() => _ = RecoverCompletedAssistantTailAsync(), DispatcherPriority.Loaded);
+    }
+
+    private async Task RecoverCompletedAssistantTailAsync()
+    {
+        _tailRecoveryQueued = false;
+
+        if (_isApplyingTranscriptMutation)
+        {
+            QueueCompletedAssistantTailRecovery();
+            return;
+        }
+
+        if (_subscribedVm is not { CurrentChat: not null, IsBusy: false, IsLoadingChat: false } viewModel
+            || _chatShell is null
+            || _chatShell.IsPinnedToBottom)
+        {
+            return;
+        }
+
+        var anchor = CaptureAnchor();
+        var mutation = viewModel.EnsureLatestTranscriptMountedIfAdjacentTailGap();
+        if (!mutation.HasChanges)
+            return;
+
+        await CompleteTranscriptMutationAsync(anchor, mutation);
     }
 
     private ScrollAnchorState? CaptureAnchor()

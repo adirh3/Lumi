@@ -144,6 +144,7 @@ internal enum TranscriptWindowMutationKind
     EnsureCoverage,
     Prepend,
     TrimHead,
+    TailRestore,
 }
 
 internal readonly record struct TranscriptViewportState(
@@ -448,6 +449,37 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         ReconcileMountedTurns(BuildDesiredMountedTurns());
         UpdateDiagnostics("ensure-latest", reason);
         return true;
+    }
+
+    public TranscriptWindowMutation EnsureLatestMountedIfAdjacentTailGap(string reason)
+    {
+        if (_pages.Count == 0 || MountedPageCount == 0)
+            return TranscriptWindowMutation.None;
+
+        var latestPageIndex = _pages.Count - 1;
+        if (_lastMountedPageIndex >= latestPageIndex)
+            return TranscriptWindowMutation.None;
+
+        if (_lastMountedPageIndex + 1 != latestPageIndex)
+            return TranscriptWindowMutation.None;
+
+        _lastMountedPageIndex = latestPageIndex;
+        _pageLoadCount++;
+        var removedPages = TrimMountedHeadOverflow();
+        ClampMountedRange();
+
+        var latestPage = _pages[latestPageIndex];
+        var estimatedDelta = GetEffectivePageHeight(latestPage) + TranscriptLayoutMetrics.TurnSpacing;
+        ReconcileMountedTurns(BuildDesiredMountedTurns());
+        UpdateDiagnostics("tail-restore", reason);
+
+        return new TranscriptWindowMutation(
+            TranscriptWindowMutationKind.TailRestore,
+            reason,
+            1,
+            removedPages,
+            estimatedDelta,
+            true);
     }
 
     /// <summary>
