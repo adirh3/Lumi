@@ -96,6 +96,82 @@ public sealed class McpProxyRuntimeTests
     }
 
     [SkippableFact]
+    public async Task Proxy_ResolvesPathCommandBeforeStartingStdioServer()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows PATH command resolution is Windows-specific.");
+
+        var root = Path.Combine(Path.GetTempPath(), "lumi-mcp-proxy-path-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var binDir = Path.Combine(root, "bin");
+            var workDir = Path.Combine(root, "work");
+            Directory.CreateDirectory(binDir);
+            Directory.CreateDirectory(workDir);
+
+            var scriptPath = Path.Combine(binDir, "fake-mcp.ps1");
+            var shimPath = Path.Combine(binDir, "fake-npx.cmd");
+            var logPath = Path.Combine(root, "starts.log");
+            await File.WriteAllTextAsync(scriptPath, """
+                [System.IO.File]::AppendAllText($env:MCP_TEST_LOG, "$PID|$PWD`n")
+                function Write-Json($obj) {
+                    [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 30))
+                    [Console]::Out.Flush()
+                }
+                while ($null -ne ($line = [Console]::In.ReadLine())) {
+                    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                    $msg = $line | ConvertFrom-Json
+                    if ($msg.method -eq "initialize") {
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ protocolVersion = "2025-06-18"; capabilities = @{ tools = @{ listChanged = $false } }; serverInfo = @{ name = "path-test-mcp"; version = "1" } } }
+                    } elseif ($msg.method -eq "tools/call") {
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ content = @(@{ type = "text"; text = "PATH_MARKER" }) } }
+                    }
+                }
+                """);
+            await File.WriteAllTextAsync(shimPath, $"""
+                @echo off
+                "{GetPowerShellPath()}" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0fake-mcp.ps1"
+                """);
+
+            await using var runtime = new McpProxyRuntime();
+            var remote = runtime.Register(new McpProxyServerDefinition(
+                "test:path",
+                "path-test",
+                new McpStdioServerConfig
+                {
+                    Command = "fake-npx",
+                    Cwd = workDir,
+                    Env = new Dictionary<string, string>
+                    {
+                        ["MCP_TEST_LOG"] = logPath,
+                        ["PATH"] = binDir + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"),
+                        ["PATHEXT"] = ".COM;.EXE;.BAT;.CMD"
+                    },
+                    Tools = ["*"]
+                }));
+
+            using var http = new HttpClient();
+            using var initialize = await PostJsonAsync(http, remote.Url, """
+                {"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+                """);
+            Assert.True(initialize.RootElement.TryGetProperty("result", out _));
+
+            using var call = await PostJsonAsync(http, remote.Url, """
+                {"jsonrpc":"2.0","id":"call","method":"tools/call","params":{"name":"emit_marker","arguments":{}}}
+                """);
+            Assert.Equal("PATH_MARKER", call.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString());
+
+            var start = Assert.Single(await File.ReadAllLinesAsync(logPath));
+            Assert.Contains(workDir, start);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+        }
+    }
+
+    [SkippableFact]
     public async Task Proxy_RestartsStdioServerAfterUnexpectedExit()
     {
         Skip.IfNot(OperatingSystem.IsWindows(), "PowerShell fake MCP server is Windows-only.");

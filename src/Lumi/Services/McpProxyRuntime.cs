@@ -613,7 +613,6 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = _definition.Config.Command,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -633,6 +632,8 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
                 startInfo.Environment[key] = value;
         }
 
+        startInfo.FileName = ResolveCommandPath(_definition.Config.Command, startInfo.Environment);
+
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException($"Failed to start MCP server '{_definition.Name}'.");
 
@@ -641,6 +642,78 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         var generation = Interlocked.Increment(ref _processGeneration);
         _stdoutTask = Task.Run(() => ReadStdoutAsync(process, generation, _ioCts.Token), _ioCts.Token);
         _stderrTask = Task.Run(() => DrainAsync(process.StandardError, _ioCts.Token), _ioCts.Token);
+    }
+
+    private static string ResolveCommandPath(string command, IDictionary<string, string?> environment)
+    {
+        if (!OperatingSystem.IsWindows()
+            || string.IsNullOrWhiteSpace(command)
+            || HasDirectorySeparator(command)
+            || Path.IsPathRooted(command))
+        {
+            return command;
+        }
+
+        var path = GetEnvironmentValue(environment, "PATH");
+        if (string.IsNullOrWhiteSpace(path))
+            return command;
+
+        var candidateNames = GetWindowsCommandCandidateNames(command, environment);
+        foreach (var directory in path.Split(Path.PathSeparator))
+        {
+            var trimmedDirectory = directory.Trim().Trim('"');
+            if (string.IsNullOrWhiteSpace(trimmedDirectory))
+                continue;
+
+            foreach (var candidateName in candidateNames)
+            {
+                var candidate = Path.Combine(trimmedDirectory, candidateName);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+        }
+
+        return command;
+    }
+
+    private static bool HasDirectorySeparator(string command)
+        => command.Contains(Path.DirectorySeparatorChar)
+           || command.Contains(Path.AltDirectorySeparatorChar)
+           || (OperatingSystem.IsWindows() && command.Contains('/'));
+
+    private static IReadOnlyList<string> GetWindowsCommandCandidateNames(
+        string command,
+        IDictionary<string, string?> environment)
+    {
+        if (!string.IsNullOrEmpty(Path.GetExtension(command)))
+            return [command];
+
+        var pathExt = GetEnvironmentValue(environment, "PATHEXT");
+        var extensions = string.IsNullOrWhiteSpace(pathExt)
+            ? [".COM", ".EXE", ".BAT", ".CMD"]
+            : pathExt.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(extension => extension.StartsWith('.') ? extension : "." + extension)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+        return extensions
+            .Select(extension => command + extension)
+            .Concat([command])
+            .ToList();
+    }
+
+    private static string? GetEnvironmentValue(IDictionary<string, string?> environment, string key)
+    {
+        if (environment.TryGetValue(key, out var value))
+            return value;
+
+        foreach (var pair in environment)
+        {
+            if (pair.Key.Equals(key, StringComparison.OrdinalIgnoreCase))
+                return pair.Value;
+        }
+
+        return null;
     }
 
     private void ResetStoppedProcess()
