@@ -218,6 +218,60 @@ public sealed class LumiSharingServiceTests
         }
     }
 
+    [Fact]
+    public async Task PublishSkill_CreatesPushesBranchAndRestoresBaseBranch()
+    {
+        var tempRoot = CreateTempDirectory();
+        try
+        {
+            var remotePath = Path.Combine(tempRoot, "remote.git");
+            var repoPath = Path.Combine(tempRoot, "repo");
+            Directory.CreateDirectory(repoPath);
+            RunGit(tempRoot, $"init --bare \"{remotePath}\"");
+            RunGit(repoPath, "init");
+            RunGit(repoPath, "checkout -b main");
+            File.WriteAllText(Path.Combine(repoPath, "README.md"), "sharing fixture");
+            RunGit(repoPath, "add README.md");
+            RunGit(repoPath, "-c user.name=\"Test\" -c user.email=\"test@example.com\" commit -m \"Initial\"");
+            RunGit(repoPath, $"remote add origin \"{remotePath}\"");
+            RunGit(repoPath, "push -u origin main");
+
+            var repository = new LumiSharedRepository
+            {
+                Name = "Team",
+                Repository = repoPath
+            };
+            var skill = new Skill
+            {
+                Name = "Branch Skill",
+                Description = "Published on a branch",
+                Content = "Branch content.",
+                IconGlyph = "🌿"
+            };
+            var data = new AppData
+            {
+                SharedRepositories = [repository],
+                Skills = [skill]
+            };
+            var service = new LumiSharingService(new DataStore(data));
+
+            var result = await service.PublishSkillAsync(repository, skill);
+
+            Assert.True(result.Pushed);
+            Assert.StartsWith("lumi/share/branch-skill-", result.BranchName);
+            Assert.Equal("main", RunGit(repoPath, "branch --show-current").Trim());
+            var remoteBranches = RunGit(repoPath, "ls-remote --heads origin");
+            Assert.Contains(result.BranchName!, remoteBranches);
+            var publishedContent = RunGit(repoPath, $"show \"origin/{result.BranchName}:.github/skills/branch-skill/SKILL.md\"");
+            Assert.Contains("Branch Skill", publishedContent);
+            Assert.Equal(repository.Id, skill.SharedSource?.RepositoryId);
+        }
+        finally
+        {
+            DeleteDirectory(tempRoot);
+        }
+    }
+
     [SkippableFact]
     public async Task SyncRepository_ImportsFromRealGitHubRepository()
     {
@@ -353,5 +407,29 @@ public sealed class LumiSharingServiceTests
                 Thread.Sleep(100 * attempt);
             }
         }
+    }
+
+    private static string RunGit(string workingDirectory, string arguments)
+    {
+        using var process = new System.Diagnostics.Process
+        {
+            StartInfo = new System.Diagnostics.ProcessStartInfo("git", arguments)
+            {
+                WorkingDirectory = workingDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            }
+        };
+        process.StartInfo.Environment["GIT_TERMINAL_PROMPT"] = "0";
+        process.Start();
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        var output = stdout + stderr;
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException($"git {arguments} failed: {output}");
+        return output;
     }
 }

@@ -22,11 +22,14 @@ public sealed record LumiSharingSyncResult(
 public sealed record LumiSharingPublishResult(
     bool Success,
     string Message,
-    string? RelativePath = null);
+    string? RelativePath = null,
+    string? BranchName = null,
+    bool Pushed = false);
 
 public sealed class LumiSharingService : IDisposable
 {
     private static readonly StringComparer KeyComparer = StringComparer.OrdinalIgnoreCase;
+    private static readonly TimeSpan GitCommandTimeout = TimeSpan.FromSeconds(90);
     private readonly DataStore _dataStore;
     private readonly Func<DateTimeOffset> _nowProvider;
     private readonly SemaphoreSlim _syncLock = new(1, 1);
@@ -120,6 +123,7 @@ public sealed class LumiSharingService : IDisposable
         ArgumentNullException.ThrowIfNull(skill);
 
         var repositoryPath = await EnsureRepositoryPathAsync(repository, cancellationToken).ConfigureAwait(false);
+        var branchContext = await PreparePublishBranchAsync(repositoryPath, skill.Name, cancellationToken).ConfigureAwait(false);
         var relativePath = GetPublishPath(
             skill.SharedSource,
             repository,
@@ -132,10 +136,20 @@ public sealed class LumiSharingService : IDisposable
             BuildMarkdownAsset(skill.Name, skill.Description, skill.Content, skill.IconGlyph),
             cancellationToken).ConfigureAwait(false);
 
-        await StageFileIfGitRepositoryAsync(repositoryPath, relativePath, cancellationToken).ConfigureAwait(false);
+        var pushed = await CommitAndPushIfGitRepositoryAsync(
+            repositoryPath,
+            relativePath,
+            branchContext,
+            $"Share Lumi skill: {skill.Name}",
+            cancellationToken).ConfigureAwait(false);
         var sourcePath = ToGitPath(relativePath);
         skill.SharedSource = CreateSource(repository, SharedCapabilityTypes.Skill, sourcePath, sourcePath, _nowProvider());
-        return new LumiSharingPublishResult(true, $"Published skill \"{skill.Name}\" to {repository.DisplayName}.", relativePath);
+        return new LumiSharingPublishResult(
+            true,
+            BuildPublishMessage("skill", skill.Name, repository.DisplayName, branchContext?.BranchName, pushed),
+            relativePath,
+            branchContext?.BranchName,
+            pushed);
     }
 
     public async Task<LumiSharingPublishResult> PublishAgentAsync(
@@ -147,6 +161,7 @@ public sealed class LumiSharingService : IDisposable
         ArgumentNullException.ThrowIfNull(agent);
 
         var repositoryPath = await EnsureRepositoryPathAsync(repository, cancellationToken).ConfigureAwait(false);
+        var branchContext = await PreparePublishBranchAsync(repositoryPath, agent.Name, cancellationToken).ConfigureAwait(false);
         var relativePath = GetPublishPath(
             agent.SharedSource,
             repository,
@@ -178,10 +193,20 @@ public sealed class LumiSharingService : IDisposable
                 mcpServerNames),
             cancellationToken).ConfigureAwait(false);
 
-        await StageFileIfGitRepositoryAsync(repositoryPath, relativePath, cancellationToken).ConfigureAwait(false);
+        var pushed = await CommitAndPushIfGitRepositoryAsync(
+            repositoryPath,
+            relativePath,
+            branchContext,
+            $"Share Lumi agent: {agent.Name}",
+            cancellationToken).ConfigureAwait(false);
         var sourcePath = ToGitPath(relativePath);
         agent.SharedSource = CreateSource(repository, SharedCapabilityTypes.Lumi, sourcePath, sourcePath, _nowProvider());
-        return new LumiSharingPublishResult(true, $"Published Lumi \"{agent.Name}\" to {repository.DisplayName}.", relativePath);
+        return new LumiSharingPublishResult(
+            true,
+            BuildPublishMessage("Lumi", agent.Name, repository.DisplayName, branchContext?.BranchName, pushed),
+            relativePath,
+            branchContext?.BranchName,
+            pushed);
     }
 
     public async Task<LumiSharingPublishResult> PublishMemoryAsync(
@@ -193,6 +218,7 @@ public sealed class LumiSharingService : IDisposable
         ArgumentNullException.ThrowIfNull(memory);
 
         var repositoryPath = await EnsureRepositoryPathAsync(repository, cancellationToken).ConfigureAwait(false);
+        var branchContext = await PreparePublishBranchAsync(repositoryPath, memory.Key, cancellationToken).ConfigureAwait(false);
         var relativePath = GetPublishPath(
             memory.SharedSource,
             repository,
@@ -218,11 +244,21 @@ public sealed class LumiSharingService : IDisposable
             entries.Add(updated);
 
         await WriteMemoryEntriesAsync(filePath, entries, cancellationToken).ConfigureAwait(false);
-        await StageFileIfGitRepositoryAsync(repositoryPath, relativePath, cancellationToken).ConfigureAwait(false);
+        var pushed = await CommitAndPushIfGitRepositoryAsync(
+            repositoryPath,
+            relativePath,
+            branchContext,
+            $"Share Lumi memory: {memory.Key}",
+            cancellationToken).ConfigureAwait(false);
         var sourcePath = ToGitPath(relativePath);
         memory.Source = "shared";
         memory.SharedSource = CreateSource(repository, SharedCapabilityTypes.Memory, $"{sourcePath}#{memory.Key}", sourcePath, _nowProvider());
-        return new LumiSharingPublishResult(true, $"Published memory \"{memory.Key}\" to {repository.DisplayName}.", relativePath);
+        return new LumiSharingPublishResult(
+            true,
+            BuildPublishMessage("memory", memory.Key, repository.DisplayName, branchContext?.BranchName, pushed),
+            relativePath,
+            branchContext?.BranchName,
+            pushed);
     }
 
     public async Task RemoveRepositoryAsync(
@@ -378,20 +414,95 @@ public sealed class LumiSharingService : IDisposable
         return result.Success ? null : result.Output;
     }
 
-    private static async Task StageFileIfGitRepositoryAsync(
+    private static async Task<PublishBranchContext?> PreparePublishBranchAsync(
         string repositoryPath,
-        string relativePath,
+        string itemName,
         CancellationToken cancellationToken)
     {
         if (!GitService.IsGitRepo(repositoryPath))
-            return;
+            return null;
 
-        var result = await RunGitAsync(
+        var status = await RunGitAsync(repositoryPath, "status --porcelain", cancellationToken).ConfigureAwait(false);
+        if (!status.Success)
+            throw new InvalidOperationException($"Could not inspect repository before publishing: {status.Output}");
+        if (!string.IsNullOrWhiteSpace(status.Output))
+            throw new InvalidOperationException("The sharing repository has uncommitted changes. Sync or commit them before publishing another shared capability.");
+
+        var originalBranchResult = await RunGitAsync(repositoryPath, "branch --show-current", cancellationToken).ConfigureAwait(false);
+        var originalBranch = originalBranchResult.Success && !string.IsNullOrWhiteSpace(originalBranchResult.Output)
+            ? originalBranchResult.Output.Trim()
+            : null;
+        var branchName = $"lumi/share/{CreateSlug(itemName)}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}";
+        var checkout = await RunGitAsync(
             repositoryPath,
-            $"add -- {QuoteArgument(ToGitPath(relativePath))}",
+            $"checkout -b {QuoteArgument(branchName)}",
             cancellationToken).ConfigureAwait(false);
-        if (!result.Success)
-            throw new InvalidOperationException($"Published file but could not stage it in git: {result.Output}");
+        if (!checkout.Success)
+            throw new InvalidOperationException($"Could not create sharing branch '{branchName}': {checkout.Output}");
+
+        return new PublishBranchContext(branchName, originalBranch);
+    }
+
+    private static async Task<bool> CommitAndPushIfGitRepositoryAsync(
+        string repositoryPath,
+        string relativePath,
+        PublishBranchContext? branchContext,
+        string commitMessage,
+        CancellationToken cancellationToken)
+    {
+        if (!GitService.IsGitRepo(repositoryPath))
+            return false;
+
+        try
+        {
+            var gitPath = ToGitPath(relativePath);
+            var add = await RunGitAsync(
+                repositoryPath,
+                $"add -- {QuoteArgument(gitPath)}",
+                cancellationToken).ConfigureAwait(false);
+            if (!add.Success)
+                throw new InvalidOperationException($"Published file but could not stage it in git: {add.Output}");
+
+            var diff = await RunGitAsync(
+                repositoryPath,
+                "diff --cached --quiet",
+                cancellationToken).ConfigureAwait(false);
+            if (diff.Success)
+                return false;
+
+            var commit = await RunGitAsync(
+                repositoryPath,
+                $"-c user.name={QuoteArgument("Lumi")} -c user.email={QuoteArgument("lumi@local")} commit -m {QuoteArgument(commitMessage)}",
+                cancellationToken).ConfigureAwait(false);
+            if (!commit.Success)
+                throw new InvalidOperationException($"Published file but could not commit it: {commit.Output}");
+
+            var remote = await RunGitAsync(
+                repositoryPath,
+                "remote get-url origin",
+                cancellationToken).ConfigureAwait(false);
+            if (!remote.Success || string.IsNullOrWhiteSpace(branchContext?.BranchName))
+                return false;
+
+            var push = await RunGitAsync(
+                repositoryPath,
+                $"push -u origin {QuoteArgument(branchContext.BranchName)}",
+                cancellationToken).ConfigureAwait(false);
+            if (!push.Success)
+                throw new InvalidOperationException($"Committed the shared capability on branch '{branchContext.BranchName}' but could not push it: {push.Output}");
+
+            return true;
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(branchContext?.OriginalBranch))
+            {
+                await RunGitAsync(
+                    repositoryPath,
+                    $"checkout {QuoteArgument(branchContext.OriginalBranch)}",
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+        }
     }
 
     private int ImportSkills(LumiSharedRepository repository, string repositoryPath, DateTimeOffset now)
@@ -1044,11 +1155,28 @@ public sealed class LumiSharingService : IDisposable
     private static string QuoteArgument(string value)
         => $"\"{value.Replace("\"", "\\\"")}\"";
 
+    private static string BuildPublishMessage(
+        string itemType,
+        string itemName,
+        string repositoryName,
+        string? branchName,
+        bool pushed)
+    {
+        if (string.IsNullOrWhiteSpace(branchName))
+            return $"Published {itemType} \"{itemName}\" to local repository folder {repositoryName}.";
+
+        return pushed
+            ? $"Published {itemType} \"{itemName}\" to {repositoryName} on branch {branchName}."
+            : $"Published {itemType} \"{itemName}\" to {repositoryName} on local branch {branchName}. No origin remote was available to push.";
+    }
+
     private static async Task<GitCommandResult> RunGitAsync(
         string workingDirectory,
         string arguments,
         CancellationToken cancellationToken)
     {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(GitCommandTimeout);
         using var process = new Process
         {
             StartInfo = new ProcessStartInfo("git", arguments)
@@ -1056,10 +1184,13 @@ public sealed class LumiSharingService : IDisposable
                 WorkingDirectory = workingDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                RedirectStandardInput = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             }
         };
+        process.StartInfo.Environment["GIT_TERMINAL_PROMPT"] = "0";
+        process.StartInfo.Environment["GCM_INTERACTIVE"] = "Never";
 
         try
         {
@@ -1070,9 +1201,26 @@ public sealed class LumiSharingService : IDisposable
             return new GitCommandResult(false, ex.Message);
         }
 
-        var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        var outputTask = process.StandardOutput.ReadToEndAsync(timeout.Token);
+        var errorTask = process.StandardError.ReadToEndAsync(timeout.Token);
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return new GitCommandResult(false, $"git {arguments} timed out after {GitCommandTimeout.TotalSeconds:N0} seconds.");
+        }
+
         var stdout = await outputTask.ConfigureAwait(false);
         var stderr = await errorTask.ConfigureAwait(false);
         var output = (stdout + stderr).Trim();
@@ -1099,6 +1247,8 @@ public sealed class LumiSharingService : IDisposable
         int? Confidence);
 
     private sealed record GitCommandResult(bool Success, string Output);
+
+    private sealed record PublishBranchContext(string BranchName, string? OriginalBranch);
 
     private sealed class MutableSyncCounts
     {
