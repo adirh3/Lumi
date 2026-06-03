@@ -12,7 +12,7 @@ namespace Lumi.Services;
 /// <summary>
 /// Effective Copilot context for a chat/project.
 /// Skills and agents include project folders plus user/built-in Copilot definitions;
-/// MCP servers include only project-context .vscode/mcp.json definitions.
+/// MCP servers include project-context, user Copilot, and plugin definitions.
 /// </summary>
 public sealed class ProjectContextCatalogSnapshot
 {
@@ -97,8 +97,9 @@ public static class ProjectContextCatalog
         string? copilotRootOverride = null)
     {
         var contextDirectories = ProjectContextDirectoryHelper.GetExistingContextDirectories(effectiveWorkingDirectory, project);
-        var copilotCatalog = CopilotConfigCatalog.Discover(contextDirectories, copilotRootOverride);
-        var mcpCatalog = DiscoverMcpServers(contextDirectories);
+        var copilotRoot = copilotRootOverride ?? CopilotConfigCatalog.GetDefaultCopilotRoot();
+        var copilotCatalog = CopilotConfigCatalog.Discover(contextDirectories, copilotRoot);
+        var mcpCatalog = DiscoverMcpServers(contextDirectories, effectiveWorkingDirectory, copilotRoot);
         return new ProjectContextCatalogSnapshot(
             copilotCatalog.Skills,
             copilotCatalog.Agents,
@@ -108,36 +109,40 @@ public static class ProjectContextCatalog
 
     private static (
         IReadOnlyList<ProjectContextMcpServerDefinition> Servers,
-        IReadOnlyList<ProjectContextCatalogDiagnostic> Diagnostics) DiscoverMcpServers(IReadOnlyList<string> contextDirectories)
+        IReadOnlyList<ProjectContextCatalogDiagnostic> Diagnostics) DiscoverMcpServers(
+            IReadOnlyList<string> contextDirectories,
+            string effectiveWorkingDirectory,
+            string? copilotRoot)
     {
         var servers = new Dictionary<string, ProjectContextMcpServerDefinition>(NameComparer);
         var diagnostics = new List<ProjectContextCatalogDiagnostic>();
-        foreach (var contextDirectory in contextDirectories)
+        foreach (var source in GetMcpConfigSources(contextDirectories, effectiveWorkingDirectory, copilotRoot))
         {
-            var mcpJsonPath = Path.Combine(contextDirectory, ".vscode", "mcp.json");
-            if (!File.Exists(mcpJsonPath))
-                continue;
-
             try
             {
-                using var stream = File.OpenRead(mcpJsonPath);
-                using var doc = JsonDocument.Parse(stream);
+                using var stream = File.OpenRead(source.SourcePath);
+                using var doc = JsonDocument.Parse(stream, JsonOptions);
                 if (!TryGetMcpServerEntries(doc.RootElement, out var serverEntries, out var rootWarning))
                     continue;
 
                 if (!string.IsNullOrWhiteSpace(rootWarning))
                 {
                     diagnostics.Add(new ProjectContextCatalogDiagnostic(
-                        mcpJsonPath,
+                        source.SourcePath,
                         rootWarning));
                 }
 
                 foreach (var serverEntry in serverEntries.EnumerateObject())
                 {
-                    if (!TryCreateMcpServerConfig(serverEntry.Value, contextDirectory, out var config, out var error))
+                    if (!TryCreateMcpServerConfig(
+                        serverEntry.Value,
+                        source.SourceDirectory,
+                        source.WorkspaceDirectory,
+                        out var config,
+                        out var error))
                     {
                         diagnostics.Add(new ProjectContextCatalogDiagnostic(
-                            mcpJsonPath,
+                            source.SourcePath,
                             $"Skipped MCP server '{serverEntry.Name}': {error}"));
                         continue;
                     }
@@ -145,20 +150,21 @@ public static class ProjectContextCatalog
                     var definition = new ProjectContextMcpServerDefinition(
                         serverEntry.Name,
                         config,
-                        mcpJsonPath,
-                        contextDirectory);
-                    if (!servers.TryAdd(serverEntry.Name, definition))
+                        source.SourcePath,
+                        source.SourceDirectory);
+                    if (!servers.TryAdd(serverEntry.Name, definition)
+                        && servers.TryGetValue(serverEntry.Name, out var existing))
                     {
                         diagnostics.Add(new ProjectContextCatalogDiagnostic(
-                            mcpJsonPath,
-                            $"Ignored duplicate MCP server '{serverEntry.Name}' because an earlier project context folder already defines it."));
+                            source.SourcePath,
+                            $"Ignored duplicate MCP server '{serverEntry.Name}' because '{existing.SourcePath}' already defines it."));
                     }
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
             {
                 diagnostics.Add(new ProjectContextCatalogDiagnostic(
-                    mcpJsonPath,
+                    source.SourcePath,
                     $"Failed to load MCP config: {ex.Message}"));
             }
         }
@@ -166,18 +172,102 @@ public static class ProjectContextCatalog
         return (servers.Values.ToList(), diagnostics);
     }
 
+    private static IReadOnlyList<McpConfigSource> GetMcpConfigSources(
+        IReadOnlyList<string> contextDirectories,
+        string effectiveWorkingDirectory,
+        string? copilotRoot)
+    {
+        var sources = new List<McpConfigSource>();
+        var workspaceDirectory = GetWorkspaceDirectory(effectiveWorkingDirectory, contextDirectories, copilotRoot);
+
+        foreach (var contextDirectory in contextDirectories)
+        {
+            AddMcpConfigSource(
+                sources,
+                Path.Combine(contextDirectory, ".vscode", "mcp.json"),
+                contextDirectory,
+                contextDirectory);
+        }
+
+        if (string.IsNullOrWhiteSpace(copilotRoot) || !Directory.Exists(copilotRoot))
+            return sources;
+
+        AddMcpConfigSource(
+            sources,
+            Path.Combine(copilotRoot, "mcp-config.json"),
+            workspaceDirectory,
+            workspaceDirectory);
+        AddMcpConfigSource(
+            sources,
+            Path.Combine(copilotRoot, "mcp.json"),
+            workspaceDirectory,
+            workspaceDirectory);
+
+        foreach (var pluginDirectory in CopilotConfigCatalog.DiscoverPluginDirectories(copilotRoot))
+        {
+            AddMcpConfigSource(sources, Path.Combine(pluginDirectory, ".mcp.json"), pluginDirectory, workspaceDirectory);
+            AddMcpConfigSource(sources, Path.Combine(pluginDirectory, "mcp.json"), pluginDirectory, workspaceDirectory);
+            AddMcpConfigSource(sources, Path.Combine(pluginDirectory, ".github", "mcp.json"), pluginDirectory, workspaceDirectory);
+            AddMcpConfigSource(sources, Path.Combine(pluginDirectory, "plugin.json"), pluginDirectory, workspaceDirectory);
+            AddMcpConfigSource(sources, Path.Combine(pluginDirectory, ".github", "plugin.json"), pluginDirectory, workspaceDirectory);
+            AddMcpConfigSource(sources, Path.Combine(pluginDirectory, ".github", "plugin", "plugin.json"), pluginDirectory, workspaceDirectory);
+        }
+
+        return sources;
+    }
+
+    private static string GetWorkspaceDirectory(
+        string effectiveWorkingDirectory,
+        IReadOnlyList<string> contextDirectories,
+        string? copilotRoot)
+    {
+        if (!string.IsNullOrWhiteSpace(effectiveWorkingDirectory) && Directory.Exists(effectiveWorkingDirectory))
+            return effectiveWorkingDirectory;
+
+        var firstContext = contextDirectories.FirstOrDefault(Directory.Exists);
+        if (!string.IsNullOrWhiteSpace(firstContext))
+            return firstContext;
+
+        if (!string.IsNullOrWhiteSpace(copilotRoot) && Directory.Exists(copilotRoot))
+            return copilotRoot;
+
+        return Environment.CurrentDirectory;
+    }
+
+    private static void AddMcpConfigSource(
+        List<McpConfigSource> sources,
+        string sourcePath,
+        string sourceDirectory,
+        string workspaceDirectory)
+    {
+        if (!File.Exists(sourcePath))
+            return;
+
+        var normalizedPath = Path.GetFullPath(sourcePath);
+        if (sources.Any(source => string.Equals(source.SourcePath, normalizedPath, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        sources.Add(new McpConfigSource(
+            normalizedPath,
+            Path.GetFullPath(sourceDirectory),
+            Path.GetFullPath(workspaceDirectory)));
+    }
+
     private static bool TryCreateMcpServerConfig(
         JsonElement server,
-        string contextDirectory,
+        string sourceDirectory,
+        string workspaceDirectory,
         out McpServerConfig config,
         out string? error)
     {
         config = null!;
-        var type = GetOptionalStringProperty(server, "type")?.Trim().ToLowerInvariant() ?? "stdio";
+        var type = NormalizeMcpServerType(GetOptionalStringProperty(server, "type"));
+        if (!TryReadStringArray(server, "tools", workspaceDirectory, sourceDirectory, out var tools, out error))
+            return false;
 
         if (type is "sse" or "http" or "streamable-http")
         {
-            var url = ExpandMcpVariables(GetOptionalStringProperty(server, "url"), contextDirectory)?.Trim();
+            var url = ExpandMcpVariables(GetOptionalStringProperty(server, "url"), workspaceDirectory, sourceDirectory)?.Trim();
             if (!IsValidRemoteMcpUrl(url))
             {
                 error = "remote MCP server requires an absolute http/https URL";
@@ -187,10 +277,10 @@ public static class ProjectContextCatalog
             var remote = new McpHttpServerConfig
             {
                 Url = url!,
-                Tools = ["*"]
+                Tools = NormalizeTools(tools)
             };
 
-            if (!TryReadStringMap(server, "headers", contextDirectory, out var headers, out error))
+            if (!TryReadStringMap(server, "headers", workspaceDirectory, sourceDirectory, out var headers, out error))
                 return false;
 
             if (headers.Count > 0)
@@ -207,25 +297,25 @@ public static class ProjectContextCatalog
             return false;
         }
 
-        var command = ExpandMcpVariables(GetOptionalStringProperty(server, "command"), contextDirectory)?.Trim();
+        var command = ExpandMcpVariables(GetOptionalStringProperty(server, "command"), workspaceDirectory, sourceDirectory)?.Trim();
         if (string.IsNullOrWhiteSpace(command))
         {
             error = "stdio MCP server requires a non-empty command";
             return false;
         }
 
-        if (!TryReadStringArray(server, "args", contextDirectory, out var args, out error))
+        if (!TryReadStringArray(server, "args", workspaceDirectory, sourceDirectory, out var args, out error))
             return false;
 
         var local = new McpStdioServerConfig
         {
             Command = command.Trim(),
             Args = args,
-            Cwd = contextDirectory,
-            Tools = ["*"]
+            Cwd = sourceDirectory,
+            Tools = NormalizeTools(tools)
         };
 
-        if (!TryReadStringMap(server, "env", contextDirectory, out var env, out error))
+        if (!TryReadStringMap(server, "env", workspaceDirectory, sourceDirectory, out var env, out error))
             return false;
 
         if (env.Count > 0)
@@ -271,6 +361,18 @@ public static class ProjectContextCatalog
         return property.ValueKind == JsonValueKind.String ? property.GetString() : null;
     }
 
+    private static string NormalizeMcpServerType(string? value)
+    {
+        var type = value?.Trim().ToLowerInvariant();
+        return type switch
+        {
+            null or "" => "stdio",
+            "local" => "stdio",
+            "remote" => "http",
+            _ => type
+        };
+    }
+
     private static bool IsValidRemoteMcpUrl(string? url)
     {
         return Uri.TryCreate(url, UriKind.Absolute, out var uri)
@@ -280,7 +382,8 @@ public static class ProjectContextCatalog
     private static bool TryReadStringArray(
         JsonElement element,
         string propertyName,
-        string contextDirectory,
+        string workspaceDirectory,
+        string sourceDirectory,
         out List<string> values,
         out string? error)
     {
@@ -305,7 +408,7 @@ public static class ProjectContextCatalog
                 return false;
             }
 
-            values.Add(ExpandMcpVariables(item.GetString() ?? "", contextDirectory) ?? "");
+            values.Add(ExpandMcpVariables(item.GetString() ?? "", workspaceDirectory, sourceDirectory) ?? "");
         }
 
         return true;
@@ -314,7 +417,8 @@ public static class ProjectContextCatalog
     private static bool TryReadStringMap(
         JsonElement element,
         string propertyName,
-        string contextDirectory,
+        string workspaceDirectory,
+        string sourceDirectory,
         out Dictionary<string, string> values,
         out string? error)
     {
@@ -339,13 +443,21 @@ public static class ProjectContextCatalog
                 return false;
             }
 
-            values[entry.Name] = ExpandMcpVariables(entry.Value.GetString() ?? "", contextDirectory) ?? "";
+            values[entry.Name] = ExpandMcpVariables(entry.Value.GetString() ?? "", workspaceDirectory, sourceDirectory) ?? "";
         }
 
         return true;
     }
 
-    private static string? ExpandMcpVariables(string? value, string contextDirectory)
+    private static List<string> NormalizeTools(IEnumerable<string>? tools)
+    {
+        var values = tools?
+            .Where(tool => !string.IsNullOrWhiteSpace(tool))
+            .ToList() ?? [];
+        return values.Count > 0 ? values : ["*"];
+    }
+
+    private static string? ExpandMcpVariables(string? value, string workspaceDirectory, string sourceDirectory)
     {
         if (string.IsNullOrEmpty(value))
             return value;
@@ -356,11 +468,17 @@ public static class ProjectContextCatalog
             if (variable.Equals("workspaceFolder", StringComparison.OrdinalIgnoreCase)
                 || variable.Equals("cwd", StringComparison.OrdinalIgnoreCase))
             {
-                return contextDirectory;
+                return workspaceDirectory;
             }
 
             if (variable.Equals("workspaceFolderBasename", StringComparison.OrdinalIgnoreCase))
-                return GetDirectoryName(contextDirectory);
+                return GetDirectoryName(workspaceDirectory);
+
+            if (variable.Equals("pluginRoot", StringComparison.OrdinalIgnoreCase)
+                || variable.Equals("pluginDir", StringComparison.OrdinalIgnoreCase))
+            {
+                return sourceDirectory;
+            }
 
             if (variable.Equals("userHome", StringComparison.OrdinalIgnoreCase))
                 return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -385,4 +503,15 @@ public static class ProjectContextCatalog
         var name = Path.GetFileName(trimmed);
         return string.IsNullOrEmpty(name) ? directory : name;
     }
+
+    private sealed record McpConfigSource(
+        string SourcePath,
+        string SourceDirectory,
+        string WorkspaceDirectory);
+
+    private static readonly JsonDocumentOptions JsonOptions = new()
+    {
+        AllowTrailingCommas = true,
+        CommentHandling = JsonCommentHandling.Skip
+    };
 }

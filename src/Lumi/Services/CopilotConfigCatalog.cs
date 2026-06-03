@@ -63,7 +63,7 @@ public static class CopilotConfigCatalog
 
     public static CopilotCatalogSnapshot Discover(IReadOnlyList<string> workDirs, string? copilotRootOverride = null)
     {
-        var sources = GetCatalogSources(workDirs, copilotRootOverride ?? GetCopilotRoot());
+        var sources = GetCatalogSources(workDirs, copilotRootOverride ?? GetDefaultCopilotRoot());
         var skills = DiscoverDefinitions(
             sources,
             static source => source.SkillDirectories,
@@ -91,6 +91,19 @@ public static class CopilotConfigCatalog
 
     public static IReadOnlyList<CopilotAgentDefinition> DiscoverAgents(IReadOnlyList<string> workDirs, string? copilotRootOverride = null)
         => Discover(workDirs, copilotRootOverride).Agents;
+
+    internal static IReadOnlyList<string> DiscoverPluginDirectories(string? copilotRootOverride = null)
+    {
+        var copilotRoot = copilotRootOverride ?? GetDefaultCopilotRoot();
+        return string.IsNullOrWhiteSpace(copilotRoot) || !Directory.Exists(copilotRoot)
+            ? []
+            : GetPluginDirectories(copilotRoot);
+    }
+
+    internal static string GetDefaultCopilotRoot()
+        => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".copilot");
 
     public static CopilotSkillDefinition? FindSkill(string workDir, string name, string? copilotRootOverride = null)
         => Discover(workDir, copilotRootOverride).FindSkill(name);
@@ -142,6 +155,8 @@ public static class CopilotConfigCatalog
             GetExistingDirectories(copilotRoot, "skills"),
             GetExistingDirectories(copilotRoot, "agents"));
 
+        AddPluginCatalogSources(sources, GetPluginDirectories(copilotRoot));
+
         var latestPackageDir = GetLatestUniversalPackageDir(copilotRoot);
         if (latestPackageDir is null)
             return sources;
@@ -168,6 +183,17 @@ public static class CopilotConfigCatalog
         }
 
         return directories;
+    }
+
+    private static void AddPluginCatalogSources(List<CopilotCatalogSource> sources, IReadOnlyList<string> pluginDirectories)
+    {
+        foreach (var pluginDirectory in pluginDirectories)
+        {
+            AddCatalogSource(
+                sources,
+                GetPluginAssetDirectories(pluginDirectory, "skills"),
+                GetPluginAssetDirectories(pluginDirectory, "agents"));
+        }
     }
 
     private static void AddCatalogSource(
@@ -211,7 +237,12 @@ public static class CopilotConfigCatalog
             return;
 
         foreach (var file in Directory.GetFiles(directory, "*.md"))
-            AddMarkdownFile(file, Path.GetFileNameWithoutExtension(file), loadDefinition, getName, definitions);
+        {
+            var fallbackName = string.Equals(Path.GetFileName(file), nestedFileName, StringComparison.OrdinalIgnoreCase)
+                ? Path.GetFileName(directory)
+                : Path.GetFileNameWithoutExtension(file);
+            AddMarkdownFile(file, fallbackName, loadDefinition, getName, definitions);
+        }
 
         foreach (var nestedDirectory in Directory.GetDirectories(directory))
         {
@@ -358,11 +389,6 @@ public static class CopilotConfigCatalog
         return Directory.Exists(githubDir) ? githubDir : null;
     }
 
-    private static string GetCopilotRoot()
-        => Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".copilot");
-
     private static string? GetLatestUniversalPackageDir(string copilotRoot)
     {
         var universalDir = Path.Combine(copilotRoot, "pkg", "universal");
@@ -398,6 +424,90 @@ public static class CopilotConfigCatalog
 
         var build = baseVersion.Build >= 0 ? baseVersion.Build : 0;
         return new Version(baseVersion.Major, baseVersion.Minor, build, revision);
+    }
+
+    private static IReadOnlyList<string> GetPluginDirectories(string copilotRoot)
+    {
+        var directories = new List<string>();
+        AddPluginContainerDirectories(directories, Path.Combine(copilotRoot, "plugins"));
+        AddPluginContainerDirectories(directories, Path.Combine(copilotRoot, "installed-plugins"));
+
+        return directories;
+    }
+
+    private static void AddPluginContainerDirectories(List<string> directories, string container)
+    {
+        if (!Directory.Exists(container))
+            return;
+
+        foreach (var child in EnumerateDirectories(container))
+        {
+            if (LooksLikePluginDirectory(child))
+                AddDirectoryIfExists(directories, child);
+
+            foreach (var nested in EnumerateDirectories(child))
+            {
+                if (LooksLikePluginDirectory(nested))
+                    AddDirectoryIfExists(directories, nested);
+            }
+        }
+    }
+
+    private static IReadOnlyList<string> GetPluginAssetDirectories(string pluginDirectory, string assetName)
+    {
+        var directory = Path.Combine(pluginDirectory, assetName);
+        return Directory.Exists(directory) ? [directory] : [];
+    }
+
+    private static bool LooksLikePluginDirectory(string directory)
+    {
+        return Directory.Exists(Path.Combine(directory, "skills"))
+            || Directory.Exists(Path.Combine(directory, "agents"))
+            || File.Exists(Path.Combine(directory, ".mcp.json"))
+            || File.Exists(Path.Combine(directory, "mcp.json"))
+            || File.Exists(Path.Combine(directory, ".github", "mcp.json"))
+            || File.Exists(Path.Combine(directory, ".github", "plugin", "plugin.json"))
+            || File.Exists(Path.Combine(directory, "plugin.json"));
+    }
+
+    private static IEnumerable<string> EnumerateDirectories(string directory)
+    {
+        try
+        {
+            return Directory.GetDirectories(directory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
+    private static string? NormalizeDirectoryPath(string? directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+            return null;
+
+        try
+        {
+            return Path.GetFullPath(directory)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+    }
+
+    private static void AddDirectoryIfExists(List<string> directories, string? directory)
+    {
+        var normalized = NormalizeDirectoryPath(directory);
+        if (normalized is null || !Directory.Exists(normalized))
+            return;
+
+        if (directories.Any(existing => string.Equals(existing, normalized, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        directories.Add(normalized);
     }
 
     private static string? FindSubdirectory(string parentDir, string name)

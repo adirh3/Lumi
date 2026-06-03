@@ -214,6 +214,64 @@ public sealed class CopilotConfigCatalogTests
     }
 
     [Fact]
+    public void Discover_LoadsPluginSkillsAndAgents()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"lumi-copilot-plugin-catalog-test-{Guid.NewGuid():N}");
+        var workDir = Path.Combine(tempRoot, "repo");
+        var copilotRoot = Path.Combine(tempRoot, "copilot");
+        var installedPlugin = Path.Combine(copilotRoot, "installed-plugins", "market", "installed-plugin");
+        var loosePlugin = Path.Combine(copilotRoot, "plugins", "loose-plugin");
+
+        try
+        {
+            Directory.CreateDirectory(workDir);
+            Directory.CreateDirectory(Path.Combine(installedPlugin, "skills", "installed-plugin-skill"));
+            Directory.CreateDirectory(Path.Combine(installedPlugin, "agents"));
+            Directory.CreateDirectory(Path.Combine(loosePlugin, "skills", "loose-plugin-skill"));
+
+            File.WriteAllText(
+                Path.Combine(installedPlugin, "skills", "installed-plugin-skill", "SKILL.md"),
+                """
+                ---
+                name: Installed Plugin Skill
+                description: Loaded from an installed plugin
+                ---
+
+                Installed plugin skill content.
+                """);
+
+            File.WriteAllText(
+                Path.Combine(installedPlugin, "agents", "installed.agent.md"),
+                """
+                ---
+                name: Installed Plugin Agent
+                description: Agent loaded from an installed plugin
+                ---
+
+                Installed plugin agent content.
+                """);
+
+            File.WriteAllText(
+                Path.Combine(loosePlugin, "skills", "loose-plugin-skill", "SKILL.md"),
+                "Loose plugin skill content without front matter.");
+
+            var catalog = CopilotConfigCatalog.Discover(workDir, copilotRoot);
+
+            Assert.Contains(catalog.Skills, skill => skill.Name == "Installed Plugin Skill"
+                && skill.Description == "Loaded from an installed plugin");
+            Assert.Contains(catalog.Skills, skill => skill.Name == "loose-plugin-skill"
+                && skill.Content == "Loose plugin skill content without front matter.");
+            Assert.Contains(catalog.Agents, agent => agent.Name == "Installed Plugin Agent"
+                && agent.Description == "Agent loaded from an installed plugin");
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ProjectContextCatalog_LoadsProjectSkillsAgentsAndMcpsFromOneSnapshot()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"lumi-project-context-catalog-test-{Guid.NewGuid():N}");
@@ -458,6 +516,73 @@ public sealed class CopilotConfigCatalogTests
             Assert.Equal("preferred-command", Assert.IsType<McpStdioServerConfig>(server.Config).Command);
             var diagnostic = Assert.Single(catalog.Diagnostics);
             Assert.Contains("Both 'servers' and 'mcpServers'", diagnostic.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProjectContextCatalog_LoadsUserAndPluginMcpConfigs()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"lumi-project-context-plugin-mcp-test-{Guid.NewGuid():N}");
+        var workDir = Path.Combine(tempRoot, "repo");
+        var copilotRoot = Path.Combine(tempRoot, "copilot");
+        var workiqPlugin = Path.Combine(copilotRoot, "installed-plugins", "copilot-plugins", "workiq");
+
+        try
+        {
+            Directory.CreateDirectory(workDir);
+            Directory.CreateDirectory(workiqPlugin);
+
+            File.WriteAllText(
+                Path.Combine(copilotRoot, "mcp-config.json"),
+                """
+                {
+                  "mcpServers": {
+                    "memory": {
+                      "command": "npx",
+                      "args": ["-y", "@modelcontextprotocol/server-memory"],
+                      "tools": ["remember"],
+                      "env": {
+                        "WORKSPACE_NAME": "${workspaceFolderBasename}"
+                      }
+                    }
+                  }
+                }
+                """);
+
+            File.WriteAllText(
+                Path.Combine(workiqPlugin, ".mcp.json"),
+                """
+                {
+                  "mcpServers": {
+                    "workiq": {
+                      "command": "npx",
+                      "args": ["-y", "@microsoft/workiq@latest", "mcp"],
+                      "tools": ["*"]
+                    }
+                  }
+                }
+                """);
+
+            var catalog = ProjectContextCatalog.Discover(workDir, project: null, copilotRootOverride: copilotRoot);
+
+            var memory = Assert.IsType<McpStdioServerConfig>(
+                Assert.Single(catalog.McpServers, server => server.Name == "memory").Config);
+            Assert.Equal(workDir, memory.Cwd);
+            Assert.Equal(["remember"], memory.Tools);
+            Assert.NotNull(memory.Env);
+            Assert.Equal("repo", memory.Env!["WORKSPACE_NAME"]);
+
+            var workiqServer = Assert.Single(catalog.McpServers, server => server.Name == "workiq");
+            var workiq = Assert.IsType<McpStdioServerConfig>(workiqServer.Config);
+            Assert.Equal(workiqPlugin, workiq.Cwd);
+            Assert.Equal("npx", workiq.Command);
+            Assert.Equal(["-y", "@microsoft/workiq@latest", "mcp"], workiq.Args);
+            Assert.Equal(["*"], workiq.Tools);
         }
         finally
         {

@@ -100,6 +100,41 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         catch { /* best effort — don't let MCP status checks break the chat flow */ }
     }
 
+    private void MarkMcpSetupFailed(
+        Guid chatId,
+        IReadOnlyDictionary<string, McpServerConfig> configuredServers,
+        Exception error)
+    {
+        if (configuredServers.Count == 0)
+            return;
+
+        var errorMessage = "MCP server failed to start for this turn, so Lumi continued without it. "
+            + GetSafeMcpSetupError(error);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (CurrentChat?.Id != chatId)
+                return;
+
+            foreach (var chip in ActiveMcpChips.OfType<StrataComposerChip>().ToList())
+            {
+                if (!configuredServers.ContainsKey(chip.Name))
+                    continue;
+
+                var index = ActiveMcpChips.IndexOf(chip);
+                if (index >= 0)
+                    ActiveMcpChips[index] = new StrataComposerChip(chip.Name, chip.Glyph, ErrorMessage: errorMessage);
+            }
+        });
+    }
+
+    private static string GetSafeMcpSetupError(Exception error)
+    {
+        var message = error.GetBaseException().Message;
+        return string.IsNullOrWhiteSpace(message)
+            ? "Check the MCP server command, authentication, and dependencies."
+            : SensitiveHttpDiagnosticPattern.Replace(message, "$1$2***");
+    }
+
     internal static async Task<string> BuildMcpStatusErrorMessageAsync(
         string serverName,
         GitHub.Copilot.SDK.Rpc.McpServerStatus status,
@@ -1026,6 +1061,52 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         sessionCts?.CancelAfter(TimeSpan.FromSeconds(30));
         var sessionCt = sessionCts?.Token ?? ct;
 
+        bool CanRetryWithoutMcp(Exception error)
+        {
+            return mcpServers.Count > 0
+                && !ct.IsCancellationRequested
+                && (error is not OperationCanceledException
+                    || sessionCts is not null && sessionCts.IsCancellationRequested);
+        }
+
+        async Task<(CopilotSession Session, Dictionary<string, McpServerConfig>? EffectiveMcpServers)> CreateSessionWithMcpFallbackAsync()
+        {
+            try
+            {
+                var createConfig = SessionConfigBuilder.Build(
+                    systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
+                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
+                return (await _copilotService.CreateSessionAsync(createConfig, sessionCt), mcpServers);
+            }
+            catch (Exception ex) when (CanRetryWithoutMcp(ex))
+            {
+                MarkMcpSetupFailed(chat.Id, mcpServers, ex);
+                var fallbackConfig = SessionConfigBuilder.Build(
+                    systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
+                    null, effort, userInputHandler, onPermission: null, hooks, agentName);
+                return (await _copilotService.CreateSessionAsync(fallbackConfig, ct), null);
+            }
+        }
+
+        async Task<(CopilotSession Session, Dictionary<string, McpServerConfig>? EffectiveMcpServers)> ResumeSessionWithMcpFallbackAsync(string sessionId)
+        {
+            try
+            {
+                var resumeConfig = SessionConfigBuilder.BuildForResume(
+                    systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
+                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
+                return (await _copilotService.ResumeSessionAsync(sessionId, resumeConfig, sessionCt), mcpServers);
+            }
+            catch (Exception ex) when (CanRetryWithoutMcp(ex))
+            {
+                MarkMcpSetupFailed(chat.Id, mcpServers, ex);
+                var fallbackConfig = SessionConfigBuilder.BuildForResume(
+                    systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
+                    null, effort, userInputHandler, onPermission: null, hooks, agentName);
+                return (await _copilotService.ResumeSessionAsync(sessionId, fallbackConfig, ct), null);
+            }
+        }
+
         if (chat.CopilotSessionId is null)
         {
             if (!allowCreateFallback)
@@ -1033,20 +1114,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             try
             {
-                var createConfig = SessionConfigBuilder.Build(
-                    systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
-                var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
+                var (createdSession, effectiveMcpServers) = await CreateSessionWithMcpFallbackAsync();
                 chat.CopilotSessionId = createdSession.SessionId;
                 _dataStore.MarkChatChanged(chat);
                 _activeSession = createdSession;
                 SubscribeToSession(createdSession, chat, workDir);
 
                 // Check MCP server status after session creation and surface errors
-                if (mcpServers is { Count: > 0 })
-                {
-                    _ = CheckMcpServerStatusAsync(createdSession, chat.Id, mcpServers, ct);
-                }
+                if (effectiveMcpServers is { Count: > 0 })
+                    _ = CheckMcpServerStatusAsync(createdSession, chat.Id, effectiveMcpServers, ct);
 
                 return true;
             }
@@ -1065,15 +1141,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             try
             {
                 SetSessionSetupStatus(chat, attempt > 0 ? Loc.Status_Reconnecting : Loc.Status_Resuming);
-                var resumeConfig = SessionConfigBuilder.BuildForResume(
-                    systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
-                var session = await _copilotService.ResumeSessionAsync(
-                    chat.CopilotSessionId, resumeConfig, sessionCt);
+                var (session, effectiveMcpServers) = await ResumeSessionWithMcpFallbackAsync(chat.CopilotSessionId);
                 _activeSession = session;
                 SubscribeToSession(session, chat, workDir);
-                if (mcpServers is { Count: > 0 })
-                    _ = CheckMcpServerStatusAsync(session, chat.Id, mcpServers, ct);
+                if (effectiveMcpServers is { Count: > 0 })
+                    _ = CheckMcpServerStatusAsync(session, chat.Id, effectiveMcpServers, ct);
 
                 // The SDK does not automatically change the session model on resume —
                 // ResumeSessionConfig.Model only sets a preference for the CLI process,
@@ -1113,15 +1185,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         try
         {
-            var createConfig = SessionConfigBuilder.Build(
-                systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
-            var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
+            var (createdSession, effectiveMcpServers) = await CreateSessionWithMcpFallbackAsync();
             chat.CopilotSessionId = createdSession.SessionId;
             _activeSession = createdSession;
             SubscribeToSession(createdSession, chat, workDir);
-            if (mcpServers is { Count: > 0 })
-                _ = CheckMcpServerStatusAsync(createdSession, chat.Id, mcpServers, ct);
+            if (effectiveMcpServers is { Count: > 0 })
+                _ = CheckMcpServerStatusAsync(createdSession, chat.Id, effectiveMcpServers, ct);
             _dataStore.MarkChatChanged(chat);
             await SaveChatAsync(chat, saveIndex: true);
             return true;
@@ -1278,8 +1347,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     enabledServersByName[server.Name] = server;
             }
 
-            // Restore project-scoped MCPs from the same context catalog used for sessions.
-            var projectContextMcpNames = GetProjectContextCatalog(chat).McpServers
+            // Restore context-discovered MCPs from the same catalog used for sessions.
+            var contextMcpNames = GetProjectContextCatalog(chat).McpServers
                 .Select(server => server.Name)
                 .ToList();
 
@@ -1292,7 +1361,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         ActiveMcpServerNames.Add(name);
                         ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name));
                     }
-                    else if (projectContextMcpNames.Contains(name))
+                    else if (contextMcpNames.Contains(name))
                     {
                         ActiveMcpServerNames.Add(name);
                         ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name, "🔌"));
@@ -1307,8 +1376,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     ActiveMcpServerNames.Add(server.Name);
                     ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(server.Name));
                 }
-                // Also include project-context MCPs by default.
-                foreach (var name in projectContextMcpNames)
+                // Also include context-discovered MCPs by default.
+                foreach (var name in contextMcpNames)
                 {
                     if (!ActiveMcpServerNames.Contains(name))
                     {

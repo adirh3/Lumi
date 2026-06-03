@@ -710,6 +710,9 @@ public sealed class ChatViewModelLeakTests
     {
         var dataStore = CreateDataStore();
         var vm = new ChatViewModel(dataStore, new CopilotService());
+        vm.ActiveMcpServerNames.Clear();
+        vm.ActiveMcpChips.Clear();
+        vm.AvailableMcpChips.Clear();
         var chat = new Chat
         {
             Title = "mcp-chat",

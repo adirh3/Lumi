@@ -216,7 +216,7 @@ public partial class ChatViewModel
     public void AddMcpServer(string name)
     {
         if (ActiveMcpServerNames.Contains(name)) return;
-        // Accept both Lumi-configured and project-context MCPs (project-context MCPs aren't in the data store)
+        // Accept both Lumi-configured and context-discovered MCPs (the latter aren't in the data store).
         var isKnown = _dataStore.Data.McpServers.Any(s => s.Name == name)
                       || AvailableMcpChips.OfType<StrataTheme.Controls.StrataComposerChip>().Any(c => c.Name == name);
         if (!isKnown) return;
@@ -229,7 +229,7 @@ public partial class ChatViewModel
     public void RegisterMcpByName(string name)
     {
         if (ActiveMcpServerNames.Contains(name)) return;
-        // Accept both Lumi-configured and project-context MCPs (project-context MCPs aren't in the data store)
+        // Accept both Lumi-configured and context-discovered MCPs (the latter aren't in the data store).
         var isKnown = _dataStore.Data.McpServers.Any(s => s.Name == name)
                       || AvailableMcpChips.OfType<StrataTheme.Controls.StrataComposerChip>().Any(c => c.Name == name);
         if (!isKnown) return;

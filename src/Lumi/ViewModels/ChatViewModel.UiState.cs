@@ -353,42 +353,42 @@ public partial class ChatViewModel
                 SecondaryText: BuildChipSearchText(s.Description, s.Content)))
             .ToList();
 
-        // Discover project-scoped and user-level Copilot agents/skills
+        // Discover project-scoped, user-level, and plugin Copilot agents/skills.
         var projectContextCatalog = GetProjectContextCatalog();
         DiscoverCopilotItems(projectContextCatalog, agentChips, skillChips);
 
         ReplaceCollection(AvailableAgentChips, agentChips);
         ReplaceCollection(AvailableSkillChips, skillChips);
 
-        // Build MCP chips: Lumi-configured MCPs + project-scoped MCPs from .vscode/mcp.json
+        // Build MCP chips: Lumi-configured MCPs plus context-discovered Copilot MCPs.
         var mcpChips = _dataStore.Data.McpServers
             .Where(s => s.IsEnabled)
             .OrderBy(s => s.Name)
             .Select(s => new StrataComposerChip(s.Name))
             .ToList();
-        var projectContextMcpNames = AddProjectContextMcpChips(projectContextCatalog.McpServers, mcpChips);
+        var contextMcpNames = AddContextMcpChips(projectContextCatalog.McpServers, mcpChips);
         ReplaceCollection(AvailableMcpChips, mcpChips);
 
-        // Remove stale project-context MCPs from the previous project, then add current ones.
-        List<StrataComposerChip> staleProjectContextMcps;
-        var addedProjectContextMcps = false;
+        // Remove stale context-discovered MCPs from the previous project, then add current ones.
+        List<StrataComposerChip> staleContextMcps;
+        var addedContextMcps = false;
         _suppressActiveMcpCollectionSync = true;
         try
         {
-            staleProjectContextMcps = ActiveMcpChips.OfType<StrataComposerChip>().Where(c => c.Glyph == "🔌").ToList();
-            foreach (var stale in staleProjectContextMcps)
+            staleContextMcps = ActiveMcpChips.OfType<StrataComposerChip>().Where(c => c.Glyph == "🔌").ToList();
+            foreach (var stale in staleContextMcps)
             {
                 ActiveMcpServerNames.Remove(stale.Name);
                 ActiveMcpChips.Remove(stale);
             }
 
-            foreach (var name in projectContextMcpNames)
+            foreach (var name in contextMcpNames)
             {
                 if (!ActiveMcpServerNames.Contains(name))
                 {
                     ActiveMcpServerNames.Add(name);
                     ActiveMcpChips.Add(new StrataComposerChip(name, "🔌"));
-                    addedProjectContextMcps = true;
+                    addedContextMcps = true;
                 }
             }
         }
@@ -397,9 +397,9 @@ public partial class ChatViewModel
             _suppressActiveMcpCollectionSync = false;
         }
 
-        // Persist project-context MCPs to the chat so they survive reload.
+        // Persist context-discovered MCPs to the chat so they survive reload.
         if (syncProjectContextMcpSelections
-            && (addedProjectContextMcps || staleProjectContextMcps.Count > 0)
+            && (addedContextMcps || staleContextMcps.Count > 0)
             && !IsLoadingChat)
             SyncActiveMcpsToChat();
 
@@ -417,7 +417,7 @@ public partial class ChatViewModel
 
     /// <summary>
     /// Discovers file-based Copilot agents and skills from the workspace and
-    /// the user's <c>~\.copilot</c> directory.
+    /// the user's <c>~\.copilot</c> directory, including installed plugins.
     /// </summary>
     private static void DiscoverCopilotItems(
         ProjectContextCatalogSnapshot catalog,
@@ -479,10 +479,10 @@ public partial class ChatViewModel
     }
 
     /// <summary>
-    /// Discovers MCP servers from .vscode/mcp.json in project context directories
-    /// and adds them to the MCP chip list. Returns the names of discovered project MCPs.
+    /// Adds context-discovered Copilot MCP servers to the MCP chip list and
+    /// returns the names of discovered context MCPs.
     /// </summary>
-    private static List<string> AddProjectContextMcpChips(
+    private static List<string> AddContextMcpChips(
         IReadOnlyList<ProjectContextMcpServerDefinition> contextMcpServers,
         List<StrataComposerChip> mcpChips)
     {
