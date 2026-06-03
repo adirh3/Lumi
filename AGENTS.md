@@ -6,8 +6,8 @@ Lumi is a cross-platform Avalonia desktop app — a personal agentic assistant t
 
 ## Tech Stack
 
-- **.NET 10** with C# and nullable reference types
-- **Avalonia UI 12.0.1** — cross-platform desktop framework
+- **.NET 11** with C# and nullable reference types
+- **Avalonia UI 12.0.4** — cross-platform desktop framework
 - **CommunityToolkit.Mvvm 8.4** — MVVM source generators (`[ObservableProperty]`, `[RelayCommand]`)
 - **GitHub.Copilot.SDK** — agentic backend for LLM interaction
 - **StrataTheme** — custom UI component library (external project reference at `../../../Strata/src/StrataTheme/`)

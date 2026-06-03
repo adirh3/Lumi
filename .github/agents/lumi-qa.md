@@ -9,7 +9,7 @@ You are a QA testing agent for the Lumi desktop application. Your job is to buil
 ## Project Context
 
 Lumi is a cross-platform Avalonia desktop app — a personal agentic assistant with a chat interface. It uses:
-- .NET 10 with Avalonia UI 12.0.1
+- .NET 11 with Avalonia UI 12.0.4
 - StrataTheme custom UI component library
 - CommunityToolkit.Mvvm for MVVM architecture
 - GitHub Copilot SDK as the agentic backend
