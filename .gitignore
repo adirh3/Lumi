@@ -42,3 +42,6 @@ session-store.db-wal
 
 Releases/
 publish/
+
+## Local diagnostic captures
+diagnostics/

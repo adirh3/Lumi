@@ -32,6 +32,9 @@ public partial class App : Application
     private MainViewModel? _mainViewModel;
     private readonly Dictionary<Guid, ChatWindow> _chatWindows = [];
     private bool _isShuttingDown;
+#if DEBUG
+    private LumiDebugBridge? _debugBridge;
+#endif
 
     public override void Initialize()
     {
@@ -109,6 +112,15 @@ public partial class App : Application
                         await McpProxyRuntime.Shared.DisposeAsync();
                     }
                     catch { }
+
+#if DEBUG
+                    try
+                    {
+                        if (_debugBridge is not null)
+                            await _debugBridge.DisposeAsync();
+                    }
+                    catch { }
+#endif
                 }).GetAwaiter().GetResult();
             };
 
@@ -122,6 +134,11 @@ public partial class App : Application
 
             var window = CreateWindow(vm, isPrimary: true);
             _mainWindow = window;
+
+#if DEBUG
+            _debugBridge = new LumiDebugBridge(dataStore, vm);
+            _debugBridge.Start();
+#endif
 
             // Apply RTL for right-to-left languages
             if (Loc.IsRightToLeft)

@@ -39,7 +39,7 @@ internal sealed class HeadlessTestSession : IDisposable
         }
         catch (NullReferenceException)
         {
-            // Avalonia.Headless 12.0.1 can throw during PerTest teardown after
+            // Avalonia.Headless can throw during PerTest teardown after
             // the test body has completed. Keep assertions meaningful while
             // avoiding random suite failures from the external harness cleanup.
         }

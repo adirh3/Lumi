@@ -18,7 +18,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia.Headless" Version="12.0.2" />
+    <PackageReference Include="Avalonia.Headless" Version="12.0.4" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
     <PackageReference Include="xunit" Version="2.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
@@ -28,6 +28,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Strata\src\StrataSearch\StrataSearch.csproj" />
     <ProjectReference Include="..\..\src\Lumi\Lumi.csproj" />
+    <ProjectReference Include="..\..\src\Lumi.Mcp\Lumi.Mcp.csproj" />
   </ItemGroup>
 
 </Project>
