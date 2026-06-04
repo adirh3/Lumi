@@ -8,6 +8,27 @@
         "avalonia-mcp"
       ],
       "rollForward": false
+    },
+    "dotnet-counters": {
+      "version": "9.0.661903",
+      "commands": [
+        "dotnet-counters"
+      ],
+      "rollForward": false
+    },
+    "dotnet-gcdump": {
+      "version": "9.0.661903",
+      "commands": [
+        "dotnet-gcdump"
+      ],
+      "rollForward": false
+    },
+    "dotnet-dump": {
+      "version": "9.0.661903",
+      "commands": [
+        "dotnet-dump"
+      ],
+      "rollForward": false
     }
   }
 }

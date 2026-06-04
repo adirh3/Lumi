@@ -4,6 +4,11 @@
       "type": "stdio",
       "command": "dotnet",
       "args": ["avalonia-mcp"]
+    },
+    "lumi-mcp": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": ["run", "--project", "src\\Lumi.Mcp\\Lumi.Mcp.csproj", "--"]
     }
   }
 }

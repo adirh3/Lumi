@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="Strata\src\StrataSearch\StrataSearch.csproj" />
   <Project Path="src\Lumi\Lumi.csproj" />
+  <Project Path="src\Lumi.Mcp\Lumi.Mcp.csproj" />
   <Project Path="src\Lumi.Generators\Lumi.Generators.csproj" />
   <Project Path="tests\Lumi.Tests\Lumi.Tests.csproj" />
 </Solution>

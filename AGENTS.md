@@ -6,8 +6,8 @@ Lumi is a cross-platform Avalonia desktop app — a personal agentic assistant t
 
 ## Tech Stack
 
-- **.NET 10** with C# and nullable reference types
-- **Avalonia UI 12.0.1** — cross-platform desktop framework
+- **.NET 11** with C# and nullable reference types
+- **Avalonia UI 12.0.4** — cross-platform desktop framework
 - **CommunityToolkit.Mvvm 8.4** — MVVM source generators (`[ObservableProperty]`, `[RelayCommand]`)
 - **GitHub.Copilot.SDK** — agentic backend for LLM interaction
 - **StrataTheme** — custom UI component library (external project reference at `../../../Strata/src/StrataTheme/`)
@@ -128,6 +128,15 @@ cd src/Lumi && dotnet run
 ```
 
 No test project exists yet. StrataTheme is referenced via the `Strata/` git submodule.
+
+### Lumi MCP and UI Testing
+
+Lumi has two repo-configured MCP servers in `.vscode/mcp.json`:
+
+- `lumi-mcp` — Lumi-specific Debug/E2E control surface. Prefer this first for app workflows: launch isolated Debug Lumi, open/create chats, send messages, wait for idle, read transcript/activity, navigate pages, list/configure features, and run harnesses.
+- `avalonia-mcp` — generic Avalonia UI diagnostics. Use this for visual/layout checks, control trees, bindings, focus, styles, screenshots, and interaction validation.
+
+For efficient agent validation, use `lumi-mcp` for stateful Lumi actions and structured assertions, then cross-check visible UI and binding health with `avalonia-mcp`.
 
 ### UI Testing with Avalonia MCP
 
