@@ -18,13 +18,33 @@ public static class ByokConfigHelper
 
     /// <summary>
     /// Returns true when BYOK is enabled and has enough configuration to be usable.
+    /// Checks trimmed values so whitespace-only fields do not create false-positive readiness.
     /// </summary>
     public static bool IsByokConfigured(UserSettings settings)
     {
         return settings.IsByokEnabled
-            && !string.IsNullOrWhiteSpace(settings.ByokProviderType)
-            && !string.IsNullOrWhiteSpace(settings.ByokBaseUrl)
-            && !string.IsNullOrWhiteSpace(settings.ByokModelId);
+            && !string.IsNullOrWhiteSpace(settings.ByokProviderType?.Trim())
+            && !string.IsNullOrWhiteSpace(settings.ByokBaseUrl?.Trim())
+            && !string.IsNullOrWhiteSpace(settings.ByokModelId?.Trim());
+    }
+
+    /// <summary>
+    /// Validates a BYOK base URL. Returns null if valid, or a validation message if not.
+    /// Accepts absolute http and https URLs. Does not require https because local
+    /// providers such as Ollama use http.
+    /// </summary>
+    public static string? ValidateBaseUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return "Base URL is required.";
+
+        if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri))
+            return "Enter a valid absolute URL (e.g. https://api.openai.com/v1).";
+
+        if (uri.Scheme is not ("http" or "https"))
+            return "URL must use http or https scheme.";
+
+        return null;
     }
 
     /// <summary>

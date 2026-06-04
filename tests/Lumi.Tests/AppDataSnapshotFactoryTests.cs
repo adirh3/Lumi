@@ -28,6 +28,50 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void CreateIndexSnapshot_PreservesByokSettings()
+    {
+        var source = new AppData
+        {
+            Settings = new UserSettings
+            {
+                IsByokEnabled = true,
+                ByokProviderType = "openai",
+                ByokBaseUrl = "https://api.openai.com/v1",
+                ByokModelId = "gpt-4o",
+                ByokWireApi = "responses",
+                ByokAzureApiVersion = "2024-02-01",
+                ByokApiKey = "sk-test-key-123",
+            }
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+
+        Assert.True(snapshot.Settings.IsByokEnabled);
+        Assert.Equal("openai", snapshot.Settings.ByokProviderType);
+        Assert.Equal("https://api.openai.com/v1", snapshot.Settings.ByokBaseUrl);
+        Assert.Equal("gpt-4o", snapshot.Settings.ByokModelId);
+        Assert.Equal("responses", snapshot.Settings.ByokWireApi);
+        Assert.Equal("2024-02-01", snapshot.Settings.ByokAzureApiVersion);
+        Assert.Equal("sk-test-key-123", snapshot.Settings.ByokApiKey);
+    }
+
+    [Fact]
+    public void CreateIndexSnapshot_PreservesExpandReasoningWhileStreaming()
+    {
+        var source = new AppData
+        {
+            Settings = new UserSettings
+            {
+                ExpandReasoningWhileStreaming = true
+            }
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+
+        Assert.True(snapshot.Settings.ExpandReasoningWhileStreaming);
+    }
+
+    [Fact]
     public void AppDataJsonContext_SerializesSettingsReasoningEffort()
     {
         var data = new AppData

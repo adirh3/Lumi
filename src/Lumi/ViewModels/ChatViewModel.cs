@@ -1124,7 +1124,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             var createConfig = SessionConfigBuilder.Build(
                 systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
+                mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName,
+                provider: byokProvider);
             var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
             chat.CopilotSessionId = createdSession.SessionId;
             _activeSession = createdSession;

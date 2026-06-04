@@ -322,7 +322,7 @@
           </sc:StrataSetting>
 
           <sc:StrataSetting Header="API key"
-                            Description="Leave blank for local models (Ollama) or set LUMI_BYOK_API_KEY env var."
+                            Description="Stored locally in plain text. For better security, leave blank and set the LUMI_BYOK_API_KEY environment variable instead."
                             IsVisible="{Binding IsByokEnabled}">
             <TextBox Text="{Binding ByokApiKey, Mode=TwoWay}"
                      PasswordChar="•"
@@ -339,6 +339,22 @@
                      PlaceholderText="2024-02-01"
                      Width="200"
                      HorizontalAlignment="Right" />
+          </sc:StrataSetting>
+
+          <!-- Test configuration button + result -->
+          <sc:StrataSetting Header="Validate configuration"
+                            Description="Check that your BYOK settings are complete and valid."
+                            IsVisible="{Binding IsByokEnabled}">
+            <StackPanel Orientation="Vertical" Spacing="6" HorizontalAlignment="Right">
+              <Button Content="Test configuration"
+                      Command="{Binding TestByokConfigCommand}"
+                      HorizontalAlignment="Right" />
+              <TextBlock Text="{Binding ByokValidationMessage}"
+                         IsVisible="{Binding IsByokValidationVisible}"
+                         TextWrapping="Wrap"
+                         MaxWidth="300"
+                         FontSize="{DynamicResource Font.SizeCaption}" />
+            </StackPanel>
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
       </StackPanel>

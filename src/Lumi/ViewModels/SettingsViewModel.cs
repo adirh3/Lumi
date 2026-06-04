@@ -103,10 +103,50 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public ObservableCollection<string> ByokWireApiOptions { get; } = ["completions", "responses"];
 
     /// <summary>Whether the BYOK configuration is fully filled out and ready to use.</summary>
-    public bool IsByokReady => IsByokEnabled
-        && !string.IsNullOrWhiteSpace(ByokProviderType)
-        && !string.IsNullOrWhiteSpace(ByokBaseUrl)
-        && !string.IsNullOrWhiteSpace(ByokModelId);
+    public bool IsByokReady => ByokConfigHelper.IsByokConfigured(_dataStore.Data.Settings);
+
+    /// <summary>Validation message from the BYOK test button.</summary>
+    [ObservableProperty] private string _byokValidationMessage = "";
+
+    /// <summary>Whether to show the BYOK validation result.</summary>
+    public bool IsByokValidationVisible => !string.IsNullOrEmpty(ByokValidationMessage);
+
+    [RelayCommand]
+    private void TestByokConfig()
+    {
+        if (!IsByokEnabled)
+        {
+            ByokValidationMessage = "❌ Custom model provider is not enabled.";
+            return;
+        }
+
+        if (!ByokConfigHelper.IsByokConfigured(_dataStore.Data.Settings))
+        {
+            var missing = new System.Collections.Generic.List<string>();
+            if (string.IsNullOrWhiteSpace(ByokProviderType)) missing.Add("Provider type");
+            if (string.IsNullOrWhiteSpace(ByokBaseUrl)) missing.Add("Base URL");
+            if (string.IsNullOrWhiteSpace(ByokModelId)) missing.Add("Model ID");
+            if (missing.Count > 0)
+                ByokValidationMessage = $"❌ Missing required fields: {string.Join(", ", missing)}";
+            else
+                ByokValidationMessage = "❌ Configuration is incomplete.";
+            return;
+        }
+
+        var urlError = ByokConfigHelper.ValidateBaseUrl(ByokBaseUrl);
+        if (urlError is not null)
+        {
+            ByokValidationMessage = $"❌ {urlError}";
+            return;
+        }
+
+        var providerLabel = ByokProviderType?.Trim() ?? "unknown";
+        var modelLabel = ByokModelId?.Trim() ?? "";
+        ByokValidationMessage = $"✅ Configuration looks good — {providerLabel}/{modelLabel}";
+    }
+
+    partial void OnByokValidationMessageChanged(string value)
+        => OnPropertyChanged(nameof(IsByokValidationVisible));
 
     /// <summary>Whether to show Azure-specific settings.</summary>
     public bool IsByokAzure => string.Equals(ByokProviderType, "azure", StringComparison.OrdinalIgnoreCase);
@@ -665,7 +705,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnByokProviderTypeChanged(string value)
     {
-        _dataStore.Data.Settings.ByokProviderType = string.IsNullOrWhiteSpace(value) ? null : value;
+        _dataStore.Data.Settings.ByokProviderType = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         Save();
         OnPropertyChanged(nameof(IsByokReady));
         OnPropertyChanged(nameof(IsByokAzure));
@@ -675,7 +715,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnByokBaseUrlChanged(string value)
     {
-        _dataStore.Data.Settings.ByokBaseUrl = string.IsNullOrWhiteSpace(value) ? null : value;
+        _dataStore.Data.Settings.ByokBaseUrl = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         Save();
         OnPropertyChanged(nameof(IsByokReady));
         NotifyByokChanged();
@@ -684,7 +724,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnByokModelIdChanged(string value)
     {
-        _dataStore.Data.Settings.ByokModelId = string.IsNullOrWhiteSpace(value) ? null : value;
+        _dataStore.Data.Settings.ByokModelId = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         Save();
         OnPropertyChanged(nameof(IsByokReady));
         NotifyByokChanged();
@@ -693,7 +733,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnByokWireApiChanged(string value)
     {
-        _dataStore.Data.Settings.ByokWireApi = string.IsNullOrWhiteSpace(value) ? null : value;
+        _dataStore.Data.Settings.ByokWireApi = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         Save();
         NotifyByokChanged();
         NotifyModified();
@@ -701,7 +741,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnByokAzureApiVersionChanged(string value)
     {
-        _dataStore.Data.Settings.ByokAzureApiVersion = string.IsNullOrWhiteSpace(value) ? null : value;
+        _dataStore.Data.Settings.ByokAzureApiVersion = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         Save();
         NotifyByokChanged();
         NotifyModified();
@@ -709,6 +749,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnByokApiKeyChanged(string value)
     {
+        // Do not trim API key — leading/trailing whitespace could be intentional
         _dataStore.Data.Settings.ByokApiKey = string.IsNullOrWhiteSpace(value) ? null : value;
         Save();
         NotifyByokChanged();
