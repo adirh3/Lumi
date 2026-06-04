@@ -15,6 +15,10 @@ namespace Lumi.Tests;
 
 public sealed class McpProxyRuntimeTests
 {
+    [Fact]
+    public void Proxy_DefaultStdioRequestTimeoutIsThreeMinutes()
+        => Assert.Equal(180_000, McpStdioServerConnection.DefaultTimeoutMilliseconds);
+
     [SkippableFact]
     public async Task Proxy_StartsStdioServerLazilyAndReusesSingletonProcess()
     {

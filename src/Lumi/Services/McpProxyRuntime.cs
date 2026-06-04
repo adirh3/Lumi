@@ -458,6 +458,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
 internal sealed class McpStdioServerConnection : IAsyncDisposable
 {
+    internal const int DefaultTimeoutMilliseconds = 180_000;
     private const int DiagnosticLineLimit = 8;
     private const int DiagnosticLineMaxLength = 500;
     private const int DiagnosticTextMaxLength = 2_000;
@@ -491,7 +492,7 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
     public McpStdioServerConnection(McpProxyServerDefinition definition)
     {
         _definition = definition;
-        _timeoutMilliseconds = definition.Config.Timeout is > 0 ? definition.Config.Timeout.Value : 60_000;
+        _timeoutMilliseconds = definition.Config.Timeout is > 0 ? definition.Config.Timeout.Value : DefaultTimeoutMilliseconds;
     }
 
     public async Task<string?> HandleClientMessageAsync(string body, CancellationToken cancellationToken)
