@@ -14,6 +14,7 @@ public sealed class LightweightSessionOptions
     public string? WorkingDirectory { get; init; }
     public string? ConfigDir { get; init; }
     public List<AIFunction>? Tools { get; init; }
+    public ProviderConfig? Provider { get; init; }
 }
 
 /// <summary>
@@ -45,7 +46,8 @@ public sealed class LightweightSessionOptions
         UserInputHandler? userInputHandler,
         PermissionRequestHandler? onPermission,
         SessionHooks? hooks,
-        string? agentName = null)
+        string? agentName = null,
+        ProviderConfig? provider = null)
     {
         var config = new SessionConfig
         {
@@ -58,6 +60,7 @@ public sealed class LightweightSessionOptions
             ExcludedTools = ExcludedBuiltInTools,
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
+            Provider = provider,
         };
 
         Populate(config, systemPrompt, reasoningEffort, skillDirectories,
@@ -81,7 +84,8 @@ public sealed class LightweightSessionOptions
         UserInputHandler? userInputHandler,
         PermissionRequestHandler? onPermission,
         SessionHooks? hooks,
-        string? agentName = null)
+        string? agentName = null,
+        ProviderConfig? provider = null)
     {
         var config = new ResumeSessionConfig
         {
@@ -94,6 +98,7 @@ public sealed class LightweightSessionOptions
             ExcludedTools = ExcludedBuiltInTools,
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
+            Provider = provider,
         };
 
         Populate(config, systemPrompt, reasoningEffort, skillDirectories,
@@ -123,7 +128,8 @@ public sealed class LightweightSessionOptions
             {
                 Content = options.SystemPrompt,
                 Mode = SystemMessageMode.Replace
-            }
+            },
+            Provider = options.Provider,
         };
 
         if (options.Tools is { Count: > 0 })

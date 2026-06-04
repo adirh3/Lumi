@@ -937,6 +937,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             sdkAgentName,
             allowSdkAgentRouting: CanRouteSdkAgentByName(chat, externalAgent, sdkAgentName));
 
+        // BYOK: If the selected model is a BYOK model, build the provider config
+        // and strip the "byok:" prefix from the model ID.
+        var byokProvider = ByokConfigHelper.TryBuildForSession(
+            _dataStore.Data.Settings, selectedModel, out var byokModelId);
+        if (byokProvider is not null)
+            selectedModel = byokModelId;
+
         // Native user input handler — wired to the existing question card UI.
         // Capture chat.Id in the closure so questions always target the owning chat,
         // even if the user switches to a different chat while this session is active.
@@ -1035,7 +1042,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 var createConfig = SessionConfigBuilder.Build(
                     systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
+                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName,
+                    provider: byokProvider);
                 var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
                 chat.CopilotSessionId = createdSession.SessionId;
                 _dataStore.MarkChatChanged(chat);
@@ -1067,7 +1075,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 SetSessionSetupStatus(chat, attempt > 0 ? Loc.Status_Reconnecting : Loc.Status_Resuming);
                 var resumeConfig = SessionConfigBuilder.BuildForResume(
                     systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
+                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName,
+                    provider: byokProvider);
                 var session = await _copilotService.ResumeSessionAsync(
                     chat.CopilotSessionId, resumeConfig, sessionCt);
                 _activeSession = session;
@@ -3314,6 +3323,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     internal static string? FormatModelDisplay(string? modelId)
     {
         if (string.IsNullOrWhiteSpace(modelId)) return null;
+
+        // BYOK model display — extract the underlying model ID from "byok:{id}"
+        if (ByokConfigHelper.IsByokModel(modelId))
+        {
+            var underlying = ByokConfigHelper.StripByokPrefix(modelId);
+            return $"{underlying} — BYOK";
+        }
 
         var segments = modelId.Split('-');
         var parts = new List<string>(segments.Length);

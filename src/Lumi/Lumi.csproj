@@ -15,7 +15,6 @@
     <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
     <PublishTrimmed>true</PublishTrimmed>
     <TrimMode>partial</TrimMode>
-    <DebugType>none</DebugType>
 
     <!-- .NET 11 Runtime Async -->
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
@@ -66,6 +65,11 @@
     <ProjectReference Include="..\..\Strata\src\StrataSearch\StrataSearch.csproj" />
     <ProjectReference Include="..\..\Strata\src\StrataTheme\StrataTheme.csproj" />
   </ItemGroup>
+
+  <!-- Strip debug symbols from Release/publish builds -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+  </PropertyGroup>
 
   <!-- Exclude test harness from Release builds -->
   <ItemGroup Condition="'$(Configuration)' != 'Debug'">
