@@ -276,6 +276,87 @@
             </sc:StrataModelPicker>
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
+
+        <!-- BYOK (Bring Your Own Key) -->
+        <sc:StrataSettingGroup Header="Custom Model Provider (BYOK)">
+          <sc:StrataSetting Header="Enable custom model provider"
+                            Description="Connect to OpenAI, Azure, Anthropic, Ollama, or any OpenAI-compatible API.">
+            <ToggleSwitch IsChecked="{Binding IsByokEnabled}" />
+          </sc:StrataSetting>
+
+          <!-- BYOK configuration fields — visible when enabled -->
+          <sc:StrataSetting Header="Provider type"
+                            Description="openai = OpenAI-compatible (including Ollama, Foundry Local). azure = Azure OpenAI. anthropic = Anthropic API."
+                            IsVisible="{Binding IsByokEnabled}">
+            <ComboBox ItemsSource="{Binding ByokProviderTypes}"
+                      SelectedItem="{Binding ByokProviderType, Mode=TwoWay}"
+                      Width="200"
+                      HorizontalAlignment="Right" />
+          </sc:StrataSetting>
+
+          <sc:StrataSetting Header="Base URL"
+                            Description="API endpoint URL. For Ollama use http://localhost:11434/v1. For Azure AI Foundry include /openai/v1/."
+                            IsVisible="{Binding IsByokEnabled}">
+            <TextBox Text="{Binding ByokBaseUrl, Mode=TwoWay}"
+                     PlaceholderText="https://api.openai.com/v1"
+                     Width="300"
+                     HorizontalAlignment="Right" />
+          </sc:StrataSetting>
+
+          <sc:StrataSetting Header="Model ID"
+                            Description="The model identifier to send to the provider (e.g. gpt-4o, claude-3-opus-20240229, llama3)."
+                            IsVisible="{Binding IsByokEnabled}">
+            <TextBox Text="{Binding ByokModelId, Mode=TwoWay}"
+                     PlaceholderText="gpt-4o"
+                     Width="200"
+                     HorizontalAlignment="Right" />
+          </sc:StrataSetting>
+
+          <sc:StrataSetting Header="Wire API"
+                            Description="completions = Chat Completions API. responses = Responses API (OpenAI only). Default: completions."
+                            IsVisible="{Binding IsByokEnabled}">
+            <ComboBox ItemsSource="{Binding ByokWireApiOptions}"
+                      SelectedItem="{Binding ByokWireApi, Mode=TwoWay}"
+                      Width="200"
+                      HorizontalAlignment="Right" />
+          </sc:StrataSetting>
+
+          <sc:StrataSetting Header="API key"
+                            Description="Stored locally in plain text. For better security, leave blank and set the LUMI_BYOK_API_KEY environment variable instead."
+                            IsVisible="{Binding IsByokEnabled}">
+            <TextBox Text="{Binding ByokApiKey, Mode=TwoWay}"
+                     PasswordChar="•"
+                     PlaceholderText="sk-..."
+                     Width="300"
+                     HorizontalAlignment="Right" />
+          </sc:StrataSetting>
+
+          <!-- Azure-specific settings -->
+          <sc:StrataSetting Header="Azure API version"
+                            Description="Required for Azure OpenAI (e.g. 2024-02-01)."
+                            IsVisible="{Binding IsByokAzure}">
+            <TextBox Text="{Binding ByokAzureApiVersion, Mode=TwoWay}"
+                     PlaceholderText="2024-02-01"
+                     Width="200"
+                     HorizontalAlignment="Right" />
+          </sc:StrataSetting>
+
+          <!-- Test configuration button + result -->
+          <sc:StrataSetting Header="Validate configuration"
+                            Description="Check that your BYOK settings are complete and valid."
+                            IsVisible="{Binding IsByokEnabled}">
+            <StackPanel Orientation="Vertical" Spacing="6" HorizontalAlignment="Right">
+              <Button Content="Test configuration"
+                      Command="{Binding TestByokConfigCommand}"
+                      HorizontalAlignment="Right" />
+              <TextBlock Text="{Binding ByokValidationMessage}"
+                         IsVisible="{Binding IsByokValidationVisible}"
+                         TextWrapping="Wrap"
+                         MaxWidth="300"
+                         FontSize="{DynamicResource Font.SizeCaption}" />
+            </StackPanel>
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
       </StackPanel>
 
     <!-- ═══ Page 5: Privacy & Data ═══ -->

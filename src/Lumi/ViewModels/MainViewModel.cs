@@ -288,6 +288,37 @@ public partial class MainViewModel : ObservableObject, IDisposable
             RefreshChatList();
         };
 
+        // Re-inject BYOK model into all model lists when BYOK config changes
+        SettingsVM.ByokConfigurationChanged += () =>
+        {
+            if (!IsConnected) return;
+            var byokModelId = ByokConfigHelper.IsByokConfigured(_dataStore.Data.Settings)
+                ? ByokConfigHelper.GetByokModelId(_dataStore.Data.Settings)
+                : null;
+            _chatSessionStore.ApplyToSurfaces(surface =>
+            {
+                // Remove any existing BYOK entry
+                for (int i = surface.AvailableModels.Count - 1; i >= 0; i--)
+                {
+                    if (ByokConfigHelper.IsByokModel(surface.AvailableModels[i]))
+                        surface.AvailableModels.RemoveAt(i);
+                }
+                // Add current BYOK entry if configured
+                if (byokModelId is not null)
+                    surface.AvailableModels.Insert(0, byokModelId);
+            });
+            // Also update settings VM model list
+            var settingsModels = SettingsVM.AvailableModels.ToList();
+            for (int i = settingsModels.Count - 1; i >= 0; i--)
+            {
+                if (ByokConfigHelper.IsByokModel(settingsModels[i]))
+                    settingsModels.RemoveAt(i);
+            }
+            if (byokModelId is not null)
+                settingsModels.Insert(0, byokModelId);
+            SettingsVM.UpdateAvailableModels(settingsModels);
+        };
+
         AttachChatViewModel(ChatVM);
 
         ProjectsVM.ProjectsChanged += () =>
@@ -483,6 +514,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
             var models = await _copilotService.GetModelsAsync();
             var modelIds = models.Select(m => m.Id).ToList();
 
+            // Inject BYOK model if configured
+            InjectByokModel(modelIds);
+
             IsConnected = true;
             ConnectionStatus = Loc.Status_Connected;
 
@@ -523,6 +557,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
             IsConnecting = false;
             _isRefreshingCopilotState = false;
         }
+    }
+
+    /// <summary>
+    /// Injects the BYOK model into the model list if BYOK is configured.
+    /// The BYOK model is inserted at the beginning of the list.
+    /// </summary>
+    private void InjectByokModel(List<string> modelIds)
+    {
+        if (!ByokConfigHelper.IsByokConfigured(_dataStore.Data.Settings)) return;
+        var byokModelId = ByokConfigHelper.GetByokModelId(_dataStore.Data.Settings);
+        if (!modelIds.Contains(byokModelId))
+            modelIds.Insert(0, byokModelId);
     }
 
     private void LoadProjects()

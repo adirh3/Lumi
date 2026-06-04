@@ -364,6 +364,15 @@ public class UserSettings
     public string PreferredModel { get; set; } = "";
     public string ReasoningEffort { get; set; } = ""; // "", "low", "medium", "high", "xhigh"
 
+    // ── BYOK (Bring Your Own Key) ──
+    public bool IsByokEnabled { get; set; }
+    public string? ByokProviderType { get; set; } // "openai", "azure", "anthropic"
+    public string? ByokBaseUrl { get; set; } // e.g. "https://api.openai.com/v1", "http://localhost:11434/v1"
+    public string? ByokModelId { get; set; } // e.g. "gpt-4o", "claude-3-opus", "llama3"
+    public string? ByokWireApi { get; set; } // "completions" or "responses" (default: "completions")
+    public string? ByokAzureApiVersion { get; set; } // Azure-specific API version
+    public string? ByokApiKey { get; set; } // Stored in data.json; also supports LUMI_BYOK_API_KEY env var as override
+
     // ── Privacy & Data ──
     public bool EnableMemoryAutoSave { get; set; } = true;
     public bool EnableMemoryAutoMaintenance { get; set; } = true;
