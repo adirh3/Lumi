@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -364,7 +364,7 @@ public partial class OnboardingViewModel : ObservableObject
                 var toolNameByCallId = new Dictionary<string, string>(StringComparer.Ordinal);
                 try
                 {
-                    subscription = session.On(evt =>
+                    subscription = session.On<SessionEvent>(evt =>
                     {
                         switch (evt)
                         {

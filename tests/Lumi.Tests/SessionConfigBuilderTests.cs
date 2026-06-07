@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.Services;
 using Xunit;
 
@@ -26,8 +26,8 @@ public sealed class SessionConfigBuilderTests
             hooks: null);
 
         Assert.Equal(workDir, config.WorkingDirectory);
-        Assert.Equal(DataStore.CopilotConfigDir, config.ConfigDir);
-        Assert.NotEqual(workDir, config.ConfigDir);
+        Assert.Equal(DataStore.CopilotConfigDir, config.ConfigDirectory);
+        Assert.NotEqual(workDir, config.ConfigDirectory);
         Assert.False(config.EnableConfigDiscovery);
         Assert.NotNull(config.McpServers);
         Assert.Empty(config.McpServers!);
@@ -52,8 +52,8 @@ public sealed class SessionConfigBuilderTests
             hooks: null);
 
         Assert.Equal(workDir, config.WorkingDirectory);
-        Assert.Equal(DataStore.CopilotConfigDir, config.ConfigDir);
-        Assert.NotEqual(workDir, config.ConfigDir);
+        Assert.Equal(DataStore.CopilotConfigDir, config.ConfigDirectory);
+        Assert.NotEqual(workDir, config.ConfigDirectory);
         Assert.False(config.EnableConfigDiscovery);
         Assert.NotNull(config.McpServers);
         Assert.Empty(config.McpServers!);
@@ -67,7 +67,7 @@ public sealed class SessionConfigBuilderTests
             SystemPrompt = "prompt"
         });
 
-        Assert.Equal(DataStore.CopilotConfigDir, config.ConfigDir);
+        Assert.Equal(DataStore.CopilotConfigDir, config.ConfigDirectory);
         Assert.False(config.EnableConfigDiscovery);
     }
 
@@ -82,7 +82,7 @@ public sealed class SessionConfigBuilderTests
             ConfigDir = configDir
         });
 
-        Assert.Equal(configDir, config.ConfigDir);
+        Assert.Equal(configDir, config.ConfigDirectory);
         Assert.False(config.EnableConfigDiscovery);
     }
 }

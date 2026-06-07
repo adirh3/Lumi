@@ -650,7 +650,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         UpdateQualityLevels(PreferredModel);
     }
 
-    public void UpdateModelCapabilities(List<GitHub.Copilot.SDK.ModelInfo> models)
+    public void UpdateModelCapabilities(List<GitHub.Copilot.ModelInfo> models)
     {
         ModelSelectionHelper.ApplyModelCapabilities(models, _modelReasoningEfforts, _modelDefaultEfforts);
         UpdateQualityLevels(PreferredModel);

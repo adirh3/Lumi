@@ -13,7 +13,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 
 namespace Lumi.Services;
 
@@ -339,7 +339,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
     {
         var builder = new StringBuilder();
         builder.AppendLine(config.Command);
-        builder.AppendLine(config.Cwd);
+        builder.AppendLine(config.WorkingDirectory);
         builder.AppendLine(config.Timeout?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         foreach (var arg in config.Args ?? [])
             builder.Append("arg:").AppendLine(arg);
@@ -635,8 +635,8 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
             CreateNoWindow = true
         };
 
-        if (!string.IsNullOrWhiteSpace(_definition.Config.Cwd))
-            startInfo.WorkingDirectory = _definition.Config.Cwd;
+        if (!string.IsNullOrWhiteSpace(_definition.Config.WorkingDirectory))
+            startInfo.WorkingDirectory = _definition.Config.WorkingDirectory;
 
         foreach (var arg in _definition.Config.Args ?? [])
             startInfo.ArgumentList.Add(arg);

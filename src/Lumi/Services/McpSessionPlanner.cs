@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.Models;
 
 namespace Lumi.Services;
@@ -95,7 +95,7 @@ public static class McpSessionPlanner
         {
             Command = server.Command,
             Args = server.Args.ToList(),
-            Cwd = workDir,
+            WorkingDirectory = workDir,
             Tools = NormalizeTools(server.Tools)
         };
 
@@ -125,7 +125,7 @@ public static class McpSessionPlanner
                 {
                     Command = local.Command,
                     Args = local.Args.ToList(),
-                    Cwd = string.IsNullOrWhiteSpace(local.Cwd) ? contextServer.SourceDirectory : local.Cwd,
+                    WorkingDirectory = string.IsNullOrWhiteSpace(local.WorkingDirectory) ? contextServer.SourceDirectory : local.WorkingDirectory,
                     Tools = NormalizeTools(local.Tools),
                     Timeout = local.Timeout
                 };

@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Xunit;
@@ -195,7 +195,7 @@ public sealed class McpSessionPlannerTests
                     {
                         Command = "node",
                         Args = ["workspace.js"],
-                        Cwd = "C:\\repo\\.github"
+                        WorkingDirectory = "C:\\repo\\.github"
                     },
                     "C:\\repo\\.vscode\\mcp.json",
                     "C:\\repo\\.vscode")
@@ -209,7 +209,7 @@ public sealed class McpSessionPlannerTests
 
         var local = Assert.IsType<McpStdioServerConfig>(servers["workspace-files"]);
         Assert.Equal("node", local.Command);
-        Assert.Equal("C:\\repo\\.github", local.Cwd);
+        Assert.Equal("C:\\repo\\.github", local.WorkingDirectory);
     }
 
     [Fact]

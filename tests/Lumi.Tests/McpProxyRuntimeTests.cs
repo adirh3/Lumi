@@ -7,7 +7,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.Services;
 using Xunit;
 
@@ -54,7 +54,7 @@ public sealed class McpProxyRuntimeTests
                 {
                     Command = GetPowerShellPath(),
                     Args = ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
-                    Cwd = root,
+                    WorkingDirectory = root,
                     Env = new Dictionary<string, string>
                     {
                         ["MCP_TEST_LOG"] = logPath
@@ -140,7 +140,7 @@ public sealed class McpProxyRuntimeTests
                 new McpStdioServerConfig
                 {
                     Command = "fake-npx",
-                    Cwd = workDir,
+                    WorkingDirectory = workDir,
                     Env = new Dictionary<string, string>
                     {
                         ["MCP_TEST_LOG"] = logPath,
@@ -199,7 +199,7 @@ public sealed class McpProxyRuntimeTests
                 {
                     Command = GetPowerShellPath(),
                     Args = ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
-                    Cwd = root,
+                    WorkingDirectory = root,
                     Tools = ["*"]
                 }));
 
@@ -237,7 +237,7 @@ public sealed class McpProxyRuntimeTests
             new McpStdioServerConfig
             {
                 Command = "lumi-missing-mcp-command-" + Guid.NewGuid().ToString("N"),
-                Cwd = Path.GetTempPath(),
+                WorkingDirectory = Path.GetTempPath(),
                 Tools = ["*"]
             }));
 
@@ -296,7 +296,7 @@ public sealed class McpProxyRuntimeTests
                 {
                     Command = GetPowerShellPath(),
                     Args = ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
-                    Cwd = root,
+                    WorkingDirectory = root,
                     Env = new Dictionary<string, string>
                     {
                         ["MCP_TEST_LOG"] = logPath,
@@ -369,7 +369,7 @@ public sealed class McpProxyRuntimeTests
                 {
                     Command = GetPowerShellPath(),
                     Args = ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
-                    Cwd = root,
+                    WorkingDirectory = root,
                     Env = new Dictionary<string, string>
                     {
                         ["MCP_TEST_LOG"] = logPath,
@@ -549,7 +549,7 @@ public sealed class McpProxyRuntimeTests
                 {
                     Command = GetPowerShellPath(),
                     Args = ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
-                    Cwd = root,
+                    WorkingDirectory = root,
                     Env = new Dictionary<string, string>
                     {
                         ["MCP_TEST_LOG"] = logPath,
@@ -688,7 +688,7 @@ public sealed class McpProxyRuntimeTests
             {
                 Command = GetPowerShellPath(),
                 Args = ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
-                Cwd = root,
+                WorkingDirectory = root,
                 Env = new Dictionary<string, string>
                 {
                     ["MCP_TEST_LOG"] = logPath,
@@ -711,7 +711,7 @@ public sealed class McpProxyRuntimeTests
             {
                 Command = GetPowerShellPath(),
                 Args = ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
-                Cwd = root,
+                WorkingDirectory = root,
                 Env = new Dictionary<string, string>
                 {
                     ["MCP_TEST_LOG"] = logPath

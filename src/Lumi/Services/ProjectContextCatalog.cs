@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Text.Json;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.Models;
 
 namespace Lumi.Services;
@@ -221,7 +221,7 @@ public static class ProjectContextCatalog
         {
             Command = command.Trim(),
             Args = args,
-            Cwd = contextDirectory,
+            WorkingDirectory = contextDirectory,
             Tools = ["*"]
         };
 

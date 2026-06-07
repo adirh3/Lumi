@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Xunit;
@@ -294,7 +294,7 @@ public sealed class CopilotConfigCatalogTests
             var shared = Assert.Single(catalog.McpServers, server => server.Name == "shared");
             var sharedConfig = Assert.IsType<McpStdioServerConfig>(shared.Config);
             Assert.Equal("primary-command", sharedConfig.Command);
-            Assert.Equal(primaryWorkDir, sharedConfig.Cwd);
+            Assert.Equal(primaryWorkDir, sharedConfig.WorkingDirectory);
             Assert.Equal(Path.Combine(primaryWorkDir, ".vscode", "mcp.json"), shared.SourcePath);
 
             var additional = Assert.Single(catalog.McpServers, server => server.Name == "additional");

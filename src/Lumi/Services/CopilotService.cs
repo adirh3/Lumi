@@ -3,13 +3,14 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.Models;
 using Microsoft.Extensions.AI;
 
@@ -22,6 +23,13 @@ public enum CopilotSignInResult
     Failed,
 }
 
+public enum ConnectionState
+{
+    Disconnected,
+    Connected,
+    Error,
+}
+
 public class CopilotService : IAsyncDisposable
 {
     private CopilotClient? _client;
@@ -30,6 +38,7 @@ public class CopilotService : IAsyncDisposable
     private List<ModelInfo>? _models;
     private string? _fastestModelId;
     private long _connectionGeneration;
+    private ConnectionState _state = ConnectionState.Disconnected;
     private readonly SemaphoreSlim _connectGate = new(1, 1);
     private Action? _cleanupProcessHandlers;
     private IDisposable? _lifecycleSub;
@@ -48,11 +57,11 @@ public class CopilotService : IAsyncDisposable
     /// Subscribers receive the deleted session ID so they can detach cleanly.</summary>
     public event Action<string>? SessionDeletedRemotely;
 
-    public bool IsConnected => _client?.State == ConnectionState.Connected;
+    public bool IsConnected => _client is not null && State == ConnectionState.Connected;
 
     /// <summary>The current connection state of the underlying CopilotClient.
     /// Useful for UI indicators and fallback disconnect detection.</summary>
-    public ConnectionState State => _client?.State ?? ConnectionState.Disconnected;
+    public ConnectionState State => _client is null ? ConnectionState.Disconnected : _state;
 
     /// <summary>Monotonically increasing generation counter. Changes every time a
     /// new CopilotClient is created, allowing consumers to detect stale sessions.</summary>
@@ -76,22 +85,22 @@ public class CopilotService : IAsyncDisposable
         await _connectGate.WaitAsync(ct);
         try
         {
-            if (!forceReconnect && _client?.State == ConnectionState.Connected)
+            if (!forceReconnect && IsConnected)
                 return;
 
             // Another caller already reconnected while we were waiting on the gate.
             // The client is fresh and healthy — no need to create yet another one.
             if (forceReconnect
                 && Interlocked.Read(ref _connectionGeneration) != generationBeforeWait
-                && _client?.State == ConnectionState.Connected)
+                && IsConnected)
                 return;
 
             oldClient = _client;
             var cliPath = FindCliPath();
             var clientOptions = new CopilotClientOptions
             {
-                CliPath = cliPath ?? "copilot",
-                LogLevel = "error",
+                Connection = RuntimeConnection.ForStdio(cliPath ?? "copilot"),
+                LogLevel = CopilotLogLevel.Error,
             };
 
             ConfigureAuthentication(clientOptions);
@@ -100,6 +109,7 @@ public class CopilotService : IAsyncDisposable
             await newClient.StartAsync(ct);
 
             _client = newClient;
+            _state = ConnectionState.Connected;
             _models = null;
             _fastestModelId = null;
             await _suggestionGate.WaitAsync(ct).ConfigureAwait(false);
@@ -124,7 +134,7 @@ public class CopilotService : IAsyncDisposable
             SubscribeToCliProcessExit(newClient);
 
             // Subscribe to client-level session lifecycle events (e.g. remote deletion)
-            _lifecycleSub = newClient.On(SessionLifecycleEventTypes.Deleted, evt =>
+            _lifecycleSub = newClient.OnLifecycle<SessionDeletedEvent>(evt =>
             {
                 if (!string.IsNullOrEmpty(evt.SessionId))
                     SessionDeletedRemotely?.Invoke(evt.SessionId);
@@ -151,7 +161,7 @@ public class CopilotService : IAsyncDisposable
     /// the client is missing, disconnected, or unresponsive.</summary>
     public async Task<bool> IsHealthyAsync(TimeSpan? timeout = null)
     {
-        if (_client is null || _client.State != ConnectionState.Connected)
+        if (_client is null || State != ConnectionState.Connected)
             return false;
         try
         {
@@ -169,7 +179,7 @@ public class CopilotService : IAsyncDisposable
     /// objects and subscribes to their exit/disconnect events.
     /// When the CLI process dies, the service automatically reconnects and then
     /// fires <see cref="CliProcessExited"/> so consumers can update UI state.
-    /// If reflection fails (SDK internals changed), falls back to polling <see cref="ConnectionState"/>.</summary>
+    /// If reflection fails (SDK internals changed), falls back to periodic ping checks.</summary>
     private void SubscribeToCliProcessExit(CopilotClient client)
     {
         var gen = ConnectionGeneration;
@@ -177,6 +187,8 @@ public class CopilotService : IAsyncDisposable
         void FireOnce()
         {
             if (Interlocked.CompareExchange(ref fired, 1, 0) != 0) return;
+            if (gen == ConnectionGeneration)
+                _state = ConnectionState.Disconnected;
             // Auto-reconnect at the service level, then notify consumers.
             // This keeps reconnect responsibility in CopilotService instead of
             // requiring every per-session handler to independently call ForceReconnectAsync.
@@ -248,12 +260,12 @@ public class CopilotService : IAsyncDisposable
         catch
         {
             // Reflection failed — SDK internals may have changed.
-            // Fall back to polling ConnectionState as a last resort.
+            // Fall back to polling the runtime as a last resort.
             StartStatePollingFallback(client, gen, FireOnce);
         }
     }
 
-    /// <summary>Polls ConnectionState every 3 seconds as a fallback when reflection-based
+    /// <summary>Pings the runtime every 3 seconds as a fallback when reflection-based
     /// process exit detection is unavailable.</summary>
     private void StartStatePollingFallback(CopilotClient client, long gen, Action fireOnce)
     {
@@ -268,7 +280,18 @@ public class CopilotService : IAsyncDisposable
                 {
                     await Task.Delay(3000, pollCts.Token);
                     if (gen != ConnectionGeneration) return;
-                    if (client.State is ConnectionState.Disconnected or ConnectionState.Error)
+                    using var pingCts = CancellationTokenSource.CreateLinkedTokenSource(pollCts.Token);
+                    pingCts.CancelAfter(TimeSpan.FromSeconds(5));
+
+                    try
+                    {
+                        await client.PingAsync(cancellationToken: pingCts.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (pollCts.Token.IsCancellationRequested)
+                    {
+                        return;
+                    }
+                    catch
                     {
                         fireOnce();
                         return;
@@ -291,6 +314,7 @@ public class CopilotService : IAsyncDisposable
         catch
         {
             // Reconnect failed — consumers still need to know the CLI died.
+            _state = ConnectionState.Error;
         }
 
         CliProcessExited?.Invoke(exitedGeneration);
@@ -440,7 +464,7 @@ public class CopilotService : IAsyncDisposable
     // ── Account API ──
 
     /// <summary>Gets the current account quota information.</summary>
-    public async Task<GitHub.Copilot.SDK.Rpc.AccountGetQuotaResult?> GetAccountQuotaAsync(CancellationToken ct = default)
+    public async Task<GitHub.Copilot.Rpc.AccountGetQuotaResult?> GetAccountQuotaAsync(CancellationToken ct = default)
     {
         if (_client is null) return null;
         return await _client.Rpc.Account.GetQuotaAsync(cancellationToken: ct);
@@ -449,7 +473,7 @@ public class CopilotService : IAsyncDisposable
     // ── Tools API ──
 
     /// <summary>Lists all available tools for the current model.</summary>
-    public async Task<List<GitHub.Copilot.SDK.Rpc.Tool>> ListToolsAsync(string? model = null, CancellationToken ct = default)
+    public async Task<List<GitHub.Copilot.Rpc.Tool>> ListToolsAsync(string? model = null, CancellationToken ct = default)
     {
         if (_client is null) return [];
         var result = await _client.Rpc.Tools.ListAsync(model, ct);
@@ -1005,9 +1029,77 @@ public class CopilotService : IAsyncDisposable
 
     public async Task DeleteSessionAsync(string sessionId, CancellationToken ct = default)
     {
-        if (_client is null) return;
-        try { await _client.DeleteSessionAsync(sessionId, ct); }
-        catch { /* Best-effort cleanup */ }
+        if (string.IsNullOrWhiteSpace(sessionId))
+            throw new ArgumentException("Session id is required.", nameof(sessionId));
+
+        ExceptionDispatchInfo? remoteDeleteError = null;
+
+        if (_client is not null)
+        {
+            try
+            {
+                await _client.DeleteSessionAsync(sessionId, ct).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex) when (IsAlreadyDeletedSessionError(ex))
+            {
+                // SDK 1.0 non-persistent helper sessions can have no server-side session file.
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                remoteDeleteError = ExceptionDispatchInfo.Capture(ex);
+            }
+        }
+
+        DeleteLocalSessionStateDirectory(sessionId);
+        remoteDeleteError?.Throw();
+    }
+
+    private static bool IsAlreadyDeletedSessionError(InvalidOperationException ex)
+        => ex.Message.Contains("Session file not found", StringComparison.OrdinalIgnoreCase);
+
+    private static void DeleteLocalSessionStateDirectory(string sessionId)
+    {
+        var sessionDirectory = GetLocalSessionStateDirectory(sessionId);
+        try
+        {
+            Directory.Delete(sessionDirectory, recursive: true);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // Already deleted by the SDK, a concurrent cleanup, or an external process.
+        }
+        catch (IOException)
+        {
+            // Best-effort cleanup: logs may still be held briefly by the runtime.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Best-effort cleanup: preserve delete idempotency if local files are locked down.
+        }
+    }
+
+    private static string GetLocalSessionStateDirectory(string sessionId)
+    {
+        if (Path.IsPathFullyQualified(sessionId)
+            || !string.Equals(Path.GetFileName(sessionId), sessionId, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Session id must be a single path segment.", nameof(sessionId));
+        }
+
+        var baseDirectory = Path.GetFullPath(Path.Combine(DataStore.CopilotConfigDir, "session-state"));
+        var sessionDirectory = Path.GetFullPath(Path.Combine(baseDirectory, sessionId));
+        var comparison = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        if (!sessionDirectory.StartsWith(baseDirectory + Path.DirectorySeparatorChar, comparison))
+            throw new ArgumentException("Session id resolves outside the session-state directory.", nameof(sessionId));
+
+        return sessionDirectory;
     }
 
     public async Task DisposeAndDeleteSessionAsync(CopilotSession? session)
@@ -1061,6 +1153,10 @@ public class CopilotService : IAsyncDisposable
                 // Graceful stop failed — force kill the CLI process.
                 try { await _client.ForceStopAsync(); }
                 catch { /* best-effort */ }
+            }
+            finally
+            {
+                _state = ConnectionState.Disconnected;
             }
         }
     }

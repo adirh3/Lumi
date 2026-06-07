@@ -1,4 +1,4 @@
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.ViewModels;
 using Xunit;
@@ -7,10 +7,10 @@ namespace Lumi.Tests;
 
 public class RebaseAttachmentPathsTests
 {
-    private static (List<UserMessageAttachment> attachments, ChatMessage msg) MakeAttachments(
+    private static (List<Attachment> attachments, ChatMessage msg) MakeAttachments(
         params string[] paths)
     {
-        var attachments = paths.Select(p => (UserMessageAttachment)new UserMessageAttachmentFile
+        var attachments = paths.Select(p => (Attachment)new AttachmentFile
         {
             Path = p,
             DisplayName = Path.GetFileName(p)
@@ -26,8 +26,8 @@ public class RebaseAttachmentPathsTests
         return (attachments, msg);
     }
 
-    private static UserMessageAttachmentFile FileAt(List<UserMessageAttachment> attachments, int index)
-        => Assert.IsType<UserMessageAttachmentFile>(attachments[index]);
+    private static AttachmentFile FileAt(List<Attachment> attachments, int index)
+        => Assert.IsType<AttachmentFile>(attachments[index]);
 
     [Fact]
     public void Rebases_paths_under_project_dir_to_worktree()
@@ -109,7 +109,7 @@ public class RebaseAttachmentPathsTests
     [Fact]
     public void Empty_attachments_is_noop()
     {
-        var attachments = new List<UserMessageAttachment>();
+        var attachments = new List<Attachment>();
         var msg = new ChatMessage { Role = "user", Content = "test", Attachments = [] };
 
         ChatViewModel.RebaseAttachmentPaths(

@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using StrataTheme.Controls;
@@ -491,10 +491,10 @@ public partial class ChatViewModel
             : null;
     }
 
-    private List<UserMessageAttachment>? TakePendingAttachments()
+    private List<Attachment>? TakePendingAttachments()
     {
         if (PendingAttachments.Count == 0) return null;
-        var items = PendingAttachments.Select(fp => (UserMessageAttachment)new UserMessageAttachmentFile
+        var items = PendingAttachments.Select(fp => (Attachment)new AttachmentFile
         {
             Path = fp,
             DisplayName = Path.GetFileName(fp)
@@ -510,7 +510,7 @@ public partial class ChatViewModel
     /// been created yet (lazy creation). This fixes those paths before sending.
     /// </summary>
     internal static void RebaseAttachmentPaths(
-        List<UserMessageAttachment> attachments,
+        List<Attachment> attachments,
         ChatMessage userMsg,
         string projectDir,
         string worktreePath)
@@ -527,7 +527,7 @@ public partial class ChatViewModel
 
         for (var i = 0; i < attachments.Count; i++)
         {
-            if (attachments[i] is not UserMessageAttachmentFile file)
+            if (attachments[i] is not AttachmentFile file)
                 continue;
 
             var path = file.Path;

@@ -7,7 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.Input;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -531,7 +531,7 @@ public partial class ChatViewModel
             TimeSpan.FromMilliseconds(StreamingUiUpdateThrottleMs),
             FlushReasoningDelta);
 
-        var sessionSubscription = session.On(evt =>
+        var sessionSubscription = session.On<SessionEvent>(evt =>
         {
             try
             {
@@ -1722,25 +1722,25 @@ public partial class ChatViewModel
                 case SessionPlanChangedEvent planChanged:
                     Dispatcher.UIThread.Post(() =>
                     {
-                    if (!IsDisplayedSession()) return;
-                    switch (planChanged.Data.Operation)
-                    {
-                        case PlanChangedOperation.Create:
-                        case PlanChangedOperation.Update:
+                        if (!IsDisplayedSession()) return;
+
+                        var operation = planChanged.Data.Operation;
+                        if (operation == PlanChangedOperation.Create || operation == PlanChangedOperation.Update)
+                        {
                             HasPlan = true;
                             _ = RefreshPlan();
                             StagePlanCard(
-                                planChanged.Data.Operation == PlanChangedOperation.Create
+                                operation == PlanChangedOperation.Create
                                     ? "Created a plan"
                                     : "Updated the plan");
                             PlanShowRequested?.Invoke();
-                            break;
-                        case PlanChangedOperation.Delete:
+                        }
+                        else if (operation == PlanChangedOperation.Delete)
+                        {
                             HasPlan = false;
                             PlanContent = null;
                             PlanHideRequested?.Invoke();
-                            break;
-                    }
+                        }
                     });
                     break;
 

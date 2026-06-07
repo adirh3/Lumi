@@ -1,8 +1,7 @@
 using System;
 using System.Net;
 using System.Text;
-using GitHub.Copilot.SDK;
-using GitHub.Copilot.SDK.Rpc;
+using GitHub.Copilot;
 using Lumi.ViewModels;
 using Xunit;
 

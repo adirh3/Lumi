@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.ViewModels;
 using Xunit;
 

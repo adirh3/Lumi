@@ -8,7 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Microsoft.Extensions.AI;
@@ -294,7 +294,7 @@ public static class DebugAgentHarness
             },
             async (session, innerCt) =>
             {
-                using var sub = session.On(evt =>
+                using var sub = session.On<SessionEvent>(evt =>
                 {
                     switch (evt)
                     {
@@ -471,7 +471,7 @@ public static class DebugAgentHarness
             try
             {
                 session = await copilotService.CreateSessionAsync(config, ct).ConfigureAwait(false);
-                using var sub = session.On(evt =>
+                using var sub = session.On<SessionEvent>(evt =>
                 {
                     switch (evt)
                     {
@@ -565,7 +565,7 @@ public static class DebugAgentHarness
                         onPermission: null,
                         hooks: null);
                     resumedSession = await copilotService.ResumeSessionAsync(resumeSessionId, resumeConfig, ct).ConfigureAwait(false);
-                    using var resumeSub = resumedSession.On(evt =>
+                    using var resumeSub = resumedSession.On<SessionEvent>(evt =>
                     {
                         switch (evt)
                         {

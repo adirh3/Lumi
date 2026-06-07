@@ -15,7 +15,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.Services;
 using Microsoft.Extensions.AI;
 
@@ -73,7 +73,7 @@ public static class OnboardingAgentTest
                 var assistantText = "";
                 var toolNameByCallId = new Dictionary<string, string>(StringComparer.Ordinal);
 
-                var sub = session.On(evt =>
+                var sub = session.On<SessionEvent>(evt =>
                 {
                     switch (evt)
                     {

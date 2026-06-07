@@ -15,7 +15,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -59,8 +59,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (mcpList?.Servers is not { Count: > 0 }) return;
 
             var unavailable = mcpList.Servers
-                .Where(s => s.Status is GitHub.Copilot.SDK.Rpc.McpServerStatus.Failed
-                    or GitHub.Copilot.SDK.Rpc.McpServerStatus.NeedsAuth)
+                .Where(s => s.Status == McpServerStatus.Failed
+                    || s.Status == McpServerStatus.NeedsAuth)
                 .ToList();
 
             if (unavailable.Count == 0) return;
@@ -102,12 +102,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     internal static async Task<string> BuildMcpStatusErrorMessageAsync(
         string serverName,
-        GitHub.Copilot.SDK.Rpc.McpServerStatus status,
+        McpServerStatus status,
         string rawError,
         McpServerConfig? config,
         CancellationToken ct)
     {
-        if (status == GitHub.Copilot.SDK.Rpc.McpServerStatus.NeedsAuth)
+        if (status == McpServerStatus.NeedsAuth)
         {
             return config is McpHttpServerConfig authRemote
                 ? $"Authentication required for MCP server '{serverName}' at {SanitizeMcpDiagnosticUrl(authRemote.Url)}. Configure the required headers or complete MCP OAuth login if this server supports it."
@@ -151,7 +151,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             || rawError.Contains("command not found", StringComparison.OrdinalIgnoreCase)
             || rawError.Contains("ENOENT", StringComparison.OrdinalIgnoreCase))
         {
-            var cwd = string.IsNullOrWhiteSpace(local.Cwd) ? Environment.CurrentDirectory : local.Cwd;
+            var cwd = string.IsNullOrWhiteSpace(local.WorkingDirectory) ? Environment.CurrentDirectory : local.WorkingDirectory;
             return $"Command not found for MCP server '{serverName}': '{local.Command}'. Working directory: '{cwd}'. Install '{local.Command}' or add it to the PATH used by Lumi.";
         }
 
@@ -941,7 +941,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // Capture chat.Id in the closure so questions always target the owning chat,
         // even if the user switches to a different chat while this session is active.
         var inputHandlerChatId = chat.Id;
-        UserInputHandler userInputHandler = async (request, invocation) =>
+        Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>> userInputHandler = async (request, invocation) =>
         {
             var questionId = Guid.NewGuid().ToString("N");
             var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -990,7 +990,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             try
             {
                 var answer = await tcs.Task;
-                return new GitHub.Copilot.SDK.UserInputResponse { Answer = answer, WasFreeform = true };
+                return new GitHub.Copilot.UserInputResponse { Answer = answer, WasFreeform = true };
             }
             finally
             {
@@ -999,19 +999,19 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         };
 
         // Session hooks for lifecycle events
-        var hooks = new GitHub.Copilot.SDK.SessionHooks
+        var hooks = new GitHub.Copilot.SessionHooks
         {
             OnPreToolUse = async (input, invocation) =>
             {
                 // Auto-allow all tools (permission UI can be added later)
-                return new GitHub.Copilot.SDK.PreToolUseHookOutput { PermissionDecision = "allow" };
+                return new GitHub.Copilot.PreToolUseHookOutput { PermissionDecision = "allow" };
             },
             OnErrorOccurred = async (input, invocation) =>
             {
                 // Retry transient errors, abort on persistent ones
                 if (input.Recoverable)
-                    return new GitHub.Copilot.SDK.ErrorOccurredHookOutput { ErrorHandling = "retry", RetryCount = 2 };
-                return new GitHub.Copilot.SDK.ErrorOccurredHookOutput { ErrorHandling = "abort" };
+                    return new GitHub.Copilot.ErrorOccurredHookOutput { ErrorHandling = "retry", RetryCount = 2 };
+                return new GitHub.Copilot.ErrorOccurredHookOutput { ErrorHandling = "abort" };
             }
         };
 
@@ -1876,7 +1876,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 Role = "user",
                 Content = prompt,
                 Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
-                Attachments = attachments?.OfType<UserMessageAttachmentFile>().Select(a => a.Path).ToList() ?? [],
+                Attachments = attachments?.OfType<AttachmentFile>().Select(a => a.Path).ToList() ?? [],
                 ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames)
             };
             targetChat.Messages.Add(userMsg);
@@ -2295,7 +2295,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         try
         {
-            return await session.GetMessagesAsync(ct);
+            return await session.GetEventsAsync(ct);
         }
         catch
         {
@@ -2403,7 +2403,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         var sawRecoveredTurnActivity = false;
         var turnActivity = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var sub = session.On(evt =>
+        using var sub = session.On<SessionEvent>(evt =>
         {
             switch (evt)
             {

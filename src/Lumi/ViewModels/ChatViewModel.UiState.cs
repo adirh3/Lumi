@@ -131,7 +131,7 @@ public partial class ChatViewModel
     /// Updates the model capabilities cache from SDK ModelInfo list.
     /// Called by MainViewModel after fetching models from the SDK.
     /// </summary>
-    public void UpdateModelCapabilities(List<GitHub.Copilot.SDK.ModelInfo> models)
+    public void UpdateModelCapabilities(List<GitHub.Copilot.ModelInfo> models)
     {
         ModelSelectionHelper.ApplyModelCapabilities(
             models,
@@ -1090,7 +1090,7 @@ public partial class ChatViewModel
                 settings.QuotaRemainingPercentage = snapshot.RemainingPercentage;
                 settings.QuotaUsedRequests = snapshot.UsedRequests;
                 settings.QuotaEntitlementRequests = snapshot.EntitlementRequests;
-                settings.QuotaResetDate = reset;
+                settings.QuotaResetDate = reset?.ToString("O");
             });
         }
         catch { /* best effort */ }

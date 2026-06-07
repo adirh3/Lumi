@@ -1,7 +1,10 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using GitHub.Copilot.SDK;
+using System.Threading.Tasks;
+using GitHub.Copilot;
+using GitHub.Copilot.Rpc;
 using Microsoft.Extensions.AI;
 
 namespace Lumi.Services;
@@ -42,8 +45,8 @@ public sealed class LightweightSessionOptions
         List<AIFunction>? tools,
         Dictionary<string, McpServerConfig>? mcpServers,
         string? reasoningEffort,
-        UserInputHandler? userInputHandler,
-        PermissionRequestHandler? onPermission,
+        Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>>? userInputHandler,
+        Func<PermissionRequest, PermissionInvocation, Task<PermissionDecision>>? onPermission,
         SessionHooks? hooks,
         string? agentName = null)
     {
@@ -53,8 +56,9 @@ public sealed class LightweightSessionOptions
             Model = model,
             Streaming = true,
             WorkingDirectory = workingDirectory,
-            ConfigDir = GetDefaultConfigDir(),
+            ConfigDirectory = GetDefaultConfigDir(),
             EnableConfigDiscovery = EnableSdkConfigDiscovery,
+            EnableSessionStore = true,
             ExcludedTools = ExcludedBuiltInTools,
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
@@ -78,8 +82,8 @@ public sealed class LightweightSessionOptions
         List<AIFunction>? tools,
         Dictionary<string, McpServerConfig>? mcpServers,
         string? reasoningEffort,
-        UserInputHandler? userInputHandler,
-        PermissionRequestHandler? onPermission,
+        Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>>? userInputHandler,
+        Func<PermissionRequest, PermissionInvocation, Task<PermissionDecision>>? onPermission,
         SessionHooks? hooks,
         string? agentName = null)
     {
@@ -89,8 +93,9 @@ public sealed class LightweightSessionOptions
             Model = model,
             Streaming = true,
             WorkingDirectory = workingDirectory,
-            ConfigDir = GetDefaultConfigDir(),
+            ConfigDirectory = GetDefaultConfigDir(),
             EnableConfigDiscovery = EnableSdkConfigDiscovery,
+            EnableSessionStore = true,
             ExcludedTools = ExcludedBuiltInTools,
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
@@ -115,8 +120,9 @@ public sealed class LightweightSessionOptions
             Model = options.Model,
             Streaming = options.Streaming,
             WorkingDirectory = options.WorkingDirectory,
-            ConfigDir = options.ConfigDir ?? GetDefaultConfigDir(),
+            ConfigDirectory = options.ConfigDir ?? GetDefaultConfigDir(),
             EnableConfigDiscovery = EnableSdkConfigDiscovery,
+            EnableSessionStore = false,
             InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
             OnPermissionRequest = PermissionHandler.ApproveAll,
             SystemMessage = new SystemMessageConfig
@@ -128,13 +134,13 @@ public sealed class LightweightSessionOptions
 
         if (options.Tools is { Count: > 0 })
         {
-            config.Tools = options.Tools;
+            config.Tools = options.Tools.Cast<AIFunctionDeclaration>().ToList();
             config.AvailableTools = options.Tools.Select(t => t.Name).ToList();
         }
         else
         {
             config.AvailableTools = [];
-            config.ExcludedTools = ["*"];
+            config.ExcludedTools = ExcludeAllToolSources();
         }
 
         return config;
@@ -148,6 +154,12 @@ public sealed class LightweightSessionOptions
         return configDir;
     }
 
+    private static ToolSet ExcludeAllToolSources()
+        => new ToolSet()
+            .AddBuiltIn("*")
+            .AddMcp("*")
+            .AddCustom("*");
+
     /// <summary>Sets the shared optional properties on a <see cref="SessionConfig"/>.</summary>
     private static void Populate(
         SessionConfig config,
@@ -157,7 +169,7 @@ public sealed class LightweightSessionOptions
         List<CustomAgentConfig>? customAgents,
         List<AIFunction>? tools,
         Dictionary<string, McpServerConfig>? mcpServers,
-        UserInputHandler? userInputHandler,
+        Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>>? userInputHandler,
         SessionHooks? hooks,
         string? agentName)
     {
@@ -174,7 +186,7 @@ public sealed class LightweightSessionOptions
             config.CustomAgents = customAgents;
 
         if (tools is { Count: > 0 })
-            config.Tools = tools;
+            config.Tools = tools.Cast<AIFunctionDeclaration>().ToList();
 
         if (mcpServers is not null)
             config.McpServers = mcpServers;
@@ -198,7 +210,7 @@ public sealed class LightweightSessionOptions
         List<CustomAgentConfig>? customAgents,
         List<AIFunction>? tools,
         Dictionary<string, McpServerConfig>? mcpServers,
-        UserInputHandler? userInputHandler,
+        Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>>? userInputHandler,
         SessionHooks? hooks,
         string? agentName)
     {
@@ -215,7 +227,7 @@ public sealed class LightweightSessionOptions
             config.CustomAgents = customAgents;
 
         if (tools is { Count: > 0 })
-            config.Tools = tools;
+            config.Tools = tools.Cast<AIFunctionDeclaration>().ToList();
 
         if (mcpServers is not null)
             config.McpServers = mcpServers;

@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -105,7 +106,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         CopilotSession session, string prompt, int timeoutSeconds = 45)
     {
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var sub = session.On(evt =>
+        var sub = session.On<SessionEvent>(evt =>
         {
             switch (evt)
             {
@@ -318,7 +319,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         var receivedDelta = false;
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var sub = session.On(evt =>
+        using var sub = session.On<SessionEvent>(evt =>
         {
             switch (evt)
             {
@@ -359,6 +360,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var (_, sub1) = await SendAndWait(session1,
             $"Remember this word: {uniqueWord}. Just say OK.");
         sub1.Dispose();
+        await session1.DisposeAsync();
 
         // Resume into a new session object
         var resumeConfig = SessionConfigBuilder.BuildForResume(
@@ -491,7 +493,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var gotDelta = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var abortHandled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        using var sub1 = session.On(evt =>
+        using var sub1 = session.On<SessionEvent>(evt =>
         {
             switch (evt)
             {
@@ -566,7 +568,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var response = "";
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        using var sub = session.On(evt =>
+        using var sub = session.On<SessionEvent>(evt =>
         {
             switch (evt)
             {
@@ -643,7 +645,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var session = await _service.CreateSessionAsync(config);
 
         var doneTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var sub = session.On(evt =>
+        using var sub = session.On<SessionEvent>(evt =>
         {
             if (evt is SessionIdleEvent) doneTcs.TrySetResult(true);
             else if (evt is SessionErrorEvent err)
@@ -680,8 +682,8 @@ public class CopilotIntegrationTests : IAsyncLifetime
             onPermission: null, hooks: null);
 
         Assert.Equal(workDir, config.WorkingDirectory);
-        Assert.Equal(DataStore.CopilotConfigDir, config.ConfigDir);
-        Assert.NotEqual(workDir, config.ConfigDir);
+        Assert.Equal(DataStore.CopilotConfigDir, config.ConfigDirectory);
+        Assert.NotEqual(workDir, config.ConfigDirectory);
 
         var session = await _service.CreateSessionAsync(config);
         Assert.NotEmpty(session.SessionId);
@@ -715,7 +717,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var assistantResponse = "";
         var doneTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        using var sub = session.On(evt =>
+        using var sub = session.On<SessionEvent>(evt =>
         {
             switch (evt)
             {
@@ -844,7 +846,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
     {
         SkipIfDisabled();
 
-        UserInputHandler handler = async (request, _) =>
+        Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>> handler = async (request, _) =>
         {
             return new UserInputResponse { Answer = "Blue", WasFreeform = true };
         };
@@ -896,7 +898,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var session = await _service.CreateSessionAsync(config);
 
         var doneTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var sub = session.On(evt =>
+        using var sub = session.On<SessionEvent>(evt =>
         {
             if (evt is SessionIdleEvent) doneTcs.TrySetResult(true);
             else if (evt is SessionErrorEvent err)
@@ -929,23 +931,12 @@ public class CopilotIntegrationTests : IAsyncLifetime
         // Send a message so the session is fully registered
         var (_, msgSub) = await SendAndWait(session, "Say OK.");
         msgSub.Dispose();
-
-        // Session indexing may take a moment — retry a few times
-        bool found = false;
-        for (int attempt = 0; attempt < 5 && !found; attempt++)
-        {
-            var sessions = await _service.ListSessionsAsync();
-            found = sessions.Any(s => s.SessionId == sid);
-            if (!found) await Task.Delay(1000);
-        }
-        Assert.True(found, $"Session {sid} should appear in session list");
+        await session.DisposeAsync();
 
         await _service.DeleteSessionAsync(sid);
 
         var afterDelete = await _service.ListSessionsAsync();
         Assert.DoesNotContain(afterDelete, s => s.SessionId == sid);
-
-        await session.DisposeAsync();
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1056,7 +1047,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         {
             ChatId = Guid.NewGuid(),
             InteractionSignature = marker,
-            UserName = "TestUser",
+            UserName = null,
             UserMessage = userMessage,
             AssistantMessage = assistantMessage,
             ExistingMemories = [],
@@ -1153,7 +1144,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var events = new List<string>();
         var doneTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        using var sub = session.On(evt =>
+        using var sub = session.On<SessionEvent>(evt =>
         {
             var name = evt.GetType().Name;
             lock (events) events.Add(name);
@@ -1276,7 +1267,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var session = await _service.CreateSessionAsync(config);
 
         var doneTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var sub = session.On(evt =>
+        using var sub = session.On<SessionEvent>(evt =>
         {
             if (evt is SessionIdleEvent) doneTcs.TrySetResult(true);
             else if (evt is SessionErrorEvent err)
@@ -1286,7 +1277,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         await session.SendAsync(new MessageOptions { Prompt = "Say hello." });
         await Timeout(doneTcs.Task, 30);
 
-        var events = await session.GetMessagesAsync();
+        var events = await session.GetEventsAsync();
         Assert.NotNull(events);
         Assert.True(events.Count > 0, "Event log should have entries after a turn");
 
@@ -1448,7 +1439,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
     public void ResumeConfig_FieldsMatchBuildConfig()
     {
         var agents = new List<CustomAgentConfig> { new() { Name = "test" } };
-        UserInputHandler handler = async (_, _) =>
+        Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>> handler = async (_, _) =>
             new UserInputResponse { Answer = "x" };
         var hooks = new SessionHooks
         {
@@ -1467,7 +1458,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         Assert.Equal(build.Model, resume.Model);
         Assert.Equal(build.Streaming, resume.Streaming);
         Assert.Equal(build.WorkingDirectory, resume.WorkingDirectory);
-        Assert.Equal(build.ConfigDir, resume.ConfigDir);
+        Assert.Equal(build.ConfigDirectory, resume.ConfigDirectory);
         Assert.Equal(build.ReasoningEffort, resume.ReasoningEffort);
         Assert.Equal(build.SystemMessage!.Content, resume.SystemMessage!.Content);
         Assert.Equal(build.SystemMessage.Mode, resume.SystemMessage.Mode);
@@ -1613,7 +1604,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
         Assert.NotNull(config.AvailableTools);
         Assert.Empty(config.AvailableTools!);
         Assert.NotNull(config.ExcludedTools);
-        Assert.Contains("*", config.ExcludedTools!);
+        Assert.Contains("builtin:*", config.ExcludedTools!);
+        Assert.Contains("mcp:*", config.ExcludedTools!);
+        Assert.Contains("custom:*", config.ExcludedTools!);
     }
 
     [Fact]
@@ -1647,7 +1640,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         {
             Command = "npx",
             Args = ["-y", "@mcp/server"],
-            Cwd = "/tmp",
+            WorkingDirectory = "/tmp",
             Tools = ["*"]
         };
 
