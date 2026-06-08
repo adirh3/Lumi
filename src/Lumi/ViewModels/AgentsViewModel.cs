@@ -122,11 +122,11 @@ public partial class AgentsViewModel : ObservableObject
     [
         ("web_search", "Web Search", "Web", "Search the web for information (SDK built-in, Bing-powered)."),
         ("lumi_fetch", "Fetch Webpage", "Web", "Fetch a webpage and return its text content."),
-        ("browser", "Open Browser", "Browser", "Open a URL in the browser with persistent cookies/sessions."),
-        ("browser_look", "Browser Look", "Browser", "Get the current page state with interactive elements."),
-        ("browser_find", "Browser Find", "Browser", "Find and rank interactive elements by query."),
-        ("browser_do", "Browser Interact", "Browser", "Click, type, press keys, select, scroll in the browser."),
-        ("browser_js", "Browser JavaScript", "Browser", "Run JavaScript in the browser page context."),
+        ("lumi_browser_open", "Open Browser", "Browser", "Open a URL in the browser with persistent cookies/sessions."),
+        ("lumi_browser_look", "Browser Look", "Browser", "Get the current page state with interactive elements."),
+        ("lumi_browser_find", "Browser Find", "Browser", "Find and rank interactive elements by query."),
+        ("lumi_browser_do", "Browser Interact", "Browser", "Click, type, press keys, select, scroll in the browser."),
+        ("lumi_browser_js", "Browser JavaScript", "Browser", "Run JavaScript in the browser page context."),
         ("ui_list_windows", "List Windows", "Desktop", "List all visible windows on the desktop."),
         ("ui_inspect", "Inspect Window", "Desktop", "Inspect the UI element tree of a window."),
         ("ui_find", "Find UI Element", "Desktop", "Find UI elements matching a search query."),
@@ -158,9 +158,27 @@ public partial class AgentsViewModel : ObservableObject
         var hasRestrictions = toolNames.Count > 0;
         foreach (var (name, displayName, group, description) in KnownTools)
         {
-            var isAssigned = !hasRestrictions || toolNames.Contains(name);
+            var isAssigned = !hasRestrictions || IsToolAssigned(toolNames, name);
             AvailableTools.Add(new ToolToggle(name, displayName, group, description, isAssigned));
         }
+    }
+
+    private static bool IsToolAssigned(List<string> toolNames, string toolName)
+    {
+        if (toolNames.Contains(toolName))
+            return true;
+
+        var legacyName = toolName switch
+        {
+            "lumi_browser_open" => "browser",
+            "lumi_browser_look" => "browser_look",
+            "lumi_browser_find" => "browser_find",
+            "lumi_browser_do" => "browser_do",
+            "lumi_browser_js" => "browser_js",
+            _ => null
+        };
+
+        return legacyName is not null && toolNames.Contains(legacyName);
     }
 
     [RelayCommand]

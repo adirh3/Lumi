@@ -23,7 +23,8 @@ public static partial class ToolDisplayHelper
         "create" or "write_file" or "create_file" or "edit" or "edit_file" or "str_replace" or "insert"
             or "replace_string_in_file" or "multi_replace_string_in_file" or "str_replace_editor" or "apply_patch" => "📝",
         "view" or "read_file" or "read" => "📄",
-        "browser" or "browser_navigate" or "browser_do" or "browser_look" or "browser_js" => "🌐",
+        "browser" or "browser_navigate" or "browser_do" or "browser_look" or "browser_find" or "browser_js"
+            or "lumi_browser_open" or "lumi_browser_do" or "lumi_browser_look" or "lumi_browser_find" or "lumi_browser_js" => "🌐",
         "web_search" or "search" => "🔎",
         "web_fetch" or "lumi_fetch" => "📚",
         "ui_inspect" or "ui_find" or "ui_click" or "ui_type" or "ui_read" => "🖥",
@@ -122,12 +123,19 @@ public static partial class ToolDisplayHelper
             case "delete_file" or "delete" or "rm":
                 return (Loc.Tool_DeletingFile, ExtractShortFileName(argsJson));
             case "browser":
+            case "lumi_browser_open":
                 return (Loc.Tool_OpeningPage, ExtractJsonField(argsJson, "url"));
             case "browser_look":
+            case "lumi_browser_look":
                 return (Loc.Tool_BrowserSnapshot, null);
+            case "browser_find":
+            case "lumi_browser_find":
+                return (Loc.Tool_SearchingWeb, ExtractJsonField(argsJson, "query"));
             case "browser_do":
+            case "lumi_browser_do":
                 return (Loc.Tool_Action, ExtractJsonField(argsJson, "action"));
             case "browser_js":
+            case "lumi_browser_js":
                 return (Loc.Tool_BrowserEvaluate, null);
             case "save_memory":
                 return (Loc.Tool_Remembering, ExtractJsonField(argsJson, "key"));

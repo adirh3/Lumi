@@ -67,7 +67,12 @@ public sealed class LumiMcpToolCatalogTests
                 """);
             var initialize = await ReadJsonLineAsync(process);
             using (var initializeDocument = JsonDocument.Parse(initialize))
+            {
                 Assert.Equal("init", initializeDocument.RootElement.GetProperty("id").GetString());
+                Assert.Equal(
+                    "LumiMcp",
+                    initializeDocument.RootElement.GetProperty("result").GetProperty("serverInfo").GetProperty("name").GetString());
+            }
 
             await WriteJsonLineAsync(process, """
                 {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}

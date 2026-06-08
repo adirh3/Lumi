@@ -1,6 +1,7 @@
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
+using Microsoft.Extensions.AI;
 using System.Reflection;
 using Xunit;
 
@@ -359,6 +360,23 @@ public sealed class ChatViewModelAgentRoutingTests
         }
     }
 
+    [Fact]
+    public void BuildCustomTools_UsesLumiBrowserNamespace()
+    {
+        using var harness = CreateHarness(new AppData());
+
+        var tools = InvokeBuildCustomTools(harness.ViewModel);
+        var toolNames = tools.Select(tool => tool.Name).ToArray();
+
+        Assert.Contains("lumi_browser_open", toolNames);
+        Assert.Contains("lumi_browser_look", toolNames);
+        Assert.Contains("lumi_browser_find", toolNames);
+        Assert.Contains("lumi_browser_do", toolNames);
+        Assert.Contains("lumi_browser_js", toolNames);
+        Assert.DoesNotContain(toolNames, static name =>
+            name.Equals("browser", StringComparison.Ordinal) || name.StartsWith("browser_", StringComparison.Ordinal));
+    }
+
     private static TestHarness CreateHarness(AppData data)
     {
         var store = new DataStore(data);
@@ -371,7 +389,7 @@ public sealed class ChatViewModelAgentRoutingTests
         {
             Id = Guid.NewGuid(),
             Title = title,
-            Messages = [new ChatMessage { Role = "user", Content = "hello" }]
+            Messages = [new Lumi.Models.ChatMessage { Role = "user", Content = "hello" }]
         };
     }
 
@@ -391,6 +409,27 @@ public sealed class ChatViewModelAgentRoutingTests
         return Assert.IsType<List<SkillReference>>(method!.Invoke(
             viewModel,
             [Array.Empty<Guid>(), externalSkillNames, workDir]));
+    }
+
+    private static List<AIFunction> InvokeBuildCustomTools(ChatViewModel viewModel)
+    {
+        var method = typeof(ChatViewModel).GetMethod(
+            "BuildCustomTools",
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            types:
+            [
+                typeof(Guid),
+                typeof(LumiAgent),
+                typeof(ProjectContextCatalogSnapshot)
+            ],
+            modifiers: null);
+
+        Assert.NotNull(method);
+        var catalog = new ProjectContextCatalogSnapshot([], [], []);
+        return Assert.IsType<List<AIFunction>>(method!.Invoke(
+            viewModel,
+            [Guid.NewGuid(), null, catalog]));
     }
 
     private sealed record TestHarness(ChatViewModel ViewModel) : IDisposable

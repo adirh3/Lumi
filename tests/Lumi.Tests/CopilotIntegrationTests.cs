@@ -1424,11 +1424,12 @@ public class CopilotIntegrationTests : IAsyncLifetime
     // ───────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void SessionConfig_ExcludesFetchButKeepsSdkWebSearch()
+    public void SessionConfig_ExcludesDuplicatedSdkBuiltInsButKeepsSdkWebSearch()
     {
         var config = SimpleConfig();
-        Assert.Contains("web_fetch", config.ExcludedTools!);
-        Assert.DoesNotContain("web_search", config.ExcludedTools!);
+        Assert.Contains("builtin:web_fetch", config.ExcludedTools!);
+        Assert.Contains("builtin:browser", config.ExcludedTools!);
+        Assert.DoesNotContain("builtin:web_search", config.ExcludedTools!);
     }
 
     // ───────────────────────────────────────────────────────────────────────

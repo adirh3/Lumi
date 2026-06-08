@@ -877,7 +877,7 @@ public sealed partial class BrowserService : IAsyncDisposable
 
     /// <summary>
     /// Find and rank interactive elements by query across text/aria/tooltip/title/href.
-    /// Returns stable element indices that can be used with browser_do(click, target).
+    /// Returns stable element indices that can be used with lumi_browser_do(click, target).
     /// </summary>
     public async Task<string> FindElementsAsync(string query, int limit = 12, bool preferDialog = true)
     {
@@ -1382,7 +1382,7 @@ public sealed partial class BrowserService : IAsyncDisposable
 
     /// <summary>
     /// Read all form fields on the page — names, values, types, required/validation state.
-    /// Returns a structured summary that eliminates the need for manual browser_js inspection.
+    /// Returns a structured summary that eliminates the need for manual lumi_browser_js inspection.
     /// </summary>
     private async Task<string> ReadFormAsync()
     {

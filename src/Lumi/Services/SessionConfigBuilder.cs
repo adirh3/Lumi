@@ -30,8 +30,10 @@ public sealed class LightweightSessionOptions
         /// <summary>Lumi owns MCP and skill selection explicitly; SDK discovery would bypass per-chat toggles.</summary>
         private const bool EnableSdkConfigDiscovery = false;
 
-    /// <summary>Tools that Lumi provides natively and should not be duplicated by the SDK.</summary>
-    private static readonly List<string> ExcludedBuiltInTools = ["web_fetch"];
+    /// <summary>Built-in SDK tools that Lumi provides itself and should not be duplicated by the runtime.</summary>
+    private static readonly ToolSet ExcludedBuiltInTools = new ToolSet()
+        .AddBuiltIn("web_fetch")
+        .AddBuiltIn("browser");
 
     /// <summary>
     /// Builds a <see cref="SessionConfig"/> for creating a new session.

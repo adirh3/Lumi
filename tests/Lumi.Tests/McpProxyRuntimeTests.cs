@@ -16,6 +16,51 @@ namespace Lumi.Tests;
 public sealed class McpProxyRuntimeTests
 {
     [SkippableFact]
+    public async Task Proxy_RewritesInvalidInitializeServerNameToConfiguredName()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "PowerShell fake MCP server is Windows-only.");
+
+        var root = Path.Combine(Path.GetTempPath(), "lumi-mcp-proxy-namespace-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var scriptPath = Path.Combine(root, "fake-mcp.ps1");
+            var logPath = Path.Combine(root, "starts.log");
+            await File.WriteAllTextAsync(scriptPath, """
+                [System.IO.File]::AppendAllText($env:MCP_TEST_LOG, "$PID`n")
+                function Write-Json($obj) {
+                    [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 30))
+                    [Console]::Out.Flush()
+                }
+                while ($null -ne ($line = [Console]::In.ReadLine())) {
+                    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                    $msg = $line | ConvertFrom-Json
+                    if ($msg.method -eq "initialize") {
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ protocolVersion = "2025-06-18"; capabilities = @{ tools = @{ listChanged = $false } }; serverInfo = @{ name = "Lumi.Mcp"; version = "1" } } }
+                    }
+                }
+                """);
+
+            await using var runtime = new McpProxyRuntime();
+            var remote = runtime.Register(CreateBasicDefinition("test:namespace", "lumi-mcp", scriptPath, root, logPath));
+
+            using var http = new HttpClient();
+            using var initialize = await PostJsonAsync(http, remote.Url, """
+                {"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+                """);
+
+            var serverInfo = initialize.RootElement.GetProperty("result").GetProperty("serverInfo");
+            Assert.Equal("lumi-mcp", serverInfo.GetProperty("name").GetString());
+            Assert.Equal("1", serverInfo.GetProperty("version").GetString());
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+        }
+    }
+
+    [SkippableFact]
     public async Task Proxy_StartsStdioServerLazilyAndReusesSingletonProcess()
     {
         Skip.IfNot(OperatingSystem.IsWindows(), "PowerShell fake MCP server is Windows-only.");

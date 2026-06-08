@@ -34,7 +34,7 @@ public partial class ChatViewModel
             };
 
             if (agent.ToolNames.Count > 0)
-                agentConfig.Tools = agent.ToolNames;
+                agentConfig.Tools = agent.ToolNames.Select(ToRuntimeToolName).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
             agents.Add(agentConfig);
         }
@@ -42,7 +42,11 @@ public partial class ChatViewModel
     }
 
     private static readonly HashSet<string> CodingToolNames = ["code_review", "generate_tests", "explain_code", "analyze_project"];
-    private static readonly HashSet<string> BrowserToolNames = ["browser", "browser_look", "browser_find", "browser_do", "browser_js"];
+    private static readonly HashSet<string> BrowserToolNames =
+    [
+        "lumi_browser_open", "lumi_browser_look", "lumi_browser_find", "lumi_browser_do", "lumi_browser_js",
+        "browser", "browser_look", "browser_find", "browser_do", "browser_js"
+    ];
     private static readonly HashSet<string> UIToolNames = ["ui_list_windows", "ui_inspect", "ui_find", "ui_click", "ui_type", "ui_press_keys", "ui_read"];
     private LumiFeatureManager? _lumiFeatureManager;
     private readonly HashSet<Guid> _pendingSessionInvalidations = [];
@@ -144,8 +148,8 @@ public partial class ChatViewModel
                     });
                     return svc.OpenAndSnapshotAsync(url);
                 },
-                "browser",
-                "Open a URL in the browser and return the page with numbered interactive elements and a text preview. The browser has persistent cookies/sessions — the user may already be logged in. Returns element numbers you can use with browser_do. If the URL triggers a file download (e.g. an export URL), the download is detected automatically and reported instead of a page snapshot."),
+                "lumi_browser_open",
+                "Open a URL in the browser and return the page with numbered interactive elements and a text preview. The browser has persistent cookies/sessions — the user may already be logged in. Returns element numbers you can use with lumi_browser_do. If the URL triggers a file download (e.g. an export URL), the download is detected automatically and reported instead of a page snapshot."),
 
             AIFunctionFactory.Create(
                 ([Description("Optional text filter to narrow elements (e.g. 'button', 'download', 'search', 'Export'). Omit to see all.")] string? filter = null) =>
@@ -153,7 +157,7 @@ public partial class ChatViewModel
                     var svc = GetOrCreateBrowserService(chatId);
                     return svc.LookAsync(filter);
                 },
-                "browser_look",
+                "lumi_browser_look",
                 "Returns the current page state: numbered interactive elements and text preview. Use filter to narrow results."),
 
             AIFunctionFactory.Create(
@@ -165,12 +169,12 @@ public partial class ChatViewModel
                     var svc = GetOrCreateBrowserService(chatId);
                     return svc.FindElementsAsync(query, limit, preferDialog: true);
                 },
-                "browser_find",
-                "Find and rank interactive elements by query. Matches against text, aria-label, tooltip, title, and href. Returns stable element indices usable with browser_do."),
+                "lumi_browser_find",
+                "Find and rank interactive elements by query. Matches against text, aria-label, tooltip, title, and href. Returns stable element indices usable with lumi_browser_do."),
 
             AIFunctionFactory.Create(
                 ([Description("Action to perform: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, steps")] string action,
-                 [Description("Target: element number from browser/browser_look (e.g. '3'), button text (e.g. 'Export'), CSS selector (e.g. '.btn'), key name (for press), direction (for scroll), or file pattern (for download). Append ' quiet' to suppress auto-snapshot (e.g. '3 quiet').")] string? target = null,
+                 [Description("Target: element number from lumi_browser_open/lumi_browser_look (e.g. '3'), button text (e.g. 'Export'), CSS selector (e.g. '.btn'), key name (for press), direction (for scroll), or file pattern (for download). Append ' quiet' to suppress auto-snapshot (e.g. '3 quiet').")] string? target = null,
                  [Description("Value: text to type (for type action), option text (for select), pixels (for scroll), JSON object for fill, JSON array for steps (e.g. [{\"action\":\"click\",\"target\":\"Next\"},{\"action\":\"click\",\"target\":\"25\"}]), or 'quiet' to suppress snapshot")] string? value = null) =>
                 {
                     var svc = GetOrCreateBrowserService(chatId);
@@ -187,7 +191,7 @@ public partial class ChatViewModel
                     }
                     return svc.DoAsync(action ?? "", target, value);
                 },
-                "browser_do",
+                "lumi_browser_do",
                 "Interact with the page. Actions: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, steps. Use 'steps' to batch multiple actions in ONE call (value: JSON array like [{\"action\":\"click\",\"target\":\"Next month\"},{\"action\":\"click\",\"target\":\"25\"}]) — only snapshots once at end, drastically reducing tokens. Append ' quiet' to target or set value='quiet' on click/press/scroll to skip the auto-snapshot entirely."),
 
             AIFunctionFactory.Create(
@@ -196,10 +200,21 @@ public partial class ChatViewModel
                     var svc = GetOrCreateBrowserService(chatId);
                     return svc.EvaluateAsync(script);
                 },
-                "browser_js",
+                "lumi_browser_js",
                 "Run JavaScript in the browser page context."),
         ];
     }
+
+    private static string ToRuntimeToolName(string toolName)
+        => toolName switch
+        {
+            "browser" => "lumi_browser_open",
+            "browser_look" => "lumi_browser_look",
+            "browser_find" => "lumi_browser_find",
+            "browser_do" => "lumi_browser_do",
+            "browser_js" => "lumi_browser_js",
+            _ => toolName
+        };
 
     /// <summary>Raised when a browser tool requests the browser panel to be visible. Carries the chat ID.</summary>
     public event Action<Guid>? BrowserShowRequested;
