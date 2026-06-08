@@ -298,6 +298,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private CopilotSession? _activeSession;
     /// <summary>Maps chat ID → locally attached CopilotSession objects for active or running chats.</summary>
     private readonly Dictionary<Guid, CopilotSession> _sessionCache = new();
+    /// <summary>Tracks SDK session disposal in progress so resume waits until the prior handle is released.</summary>
+    private readonly Dictionary<Guid, Task> _sessionReleaseTasks = new();
     /// <summary>Maps chat ID → live event subscriptions for locally attached sessions.</summary>
     private readonly Dictionary<Guid, IDisposable> _sessionSubs = new();
     /// <summary>Maps chat ID → in-progress streaming message not yet committed to Chat.Messages.</summary>
@@ -1025,6 +1027,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             : null;
         sessionCts?.CancelAfter(TimeSpan.FromSeconds(30));
         var sessionCt = sessionCts?.Token ?? ct;
+
+        if (chat.CopilotSessionId is not null)
+            await AwaitPendingSessionReleaseAsync(chat.Id, sessionCt);
 
         if (chat.CopilotSessionId is null)
         {
@@ -3727,5 +3732,3 @@ public partial class ChatMessageViewModel : ObservableObject
         ToolStatus = Message.ToolStatus;
     }
 }
-
-

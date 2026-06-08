@@ -1,6 +1,10 @@
 using System;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
+using Avalonia.Threading;
+using GitHub.Copilot;
 using Lumi.Models;
 
 namespace Lumi.ViewModels;
@@ -280,13 +284,63 @@ public partial class ChatViewModel
 
         if (_sessionCache.TryGetValue(chatId, out var session))
         {
-            if (deleteServerSession)
-                _ = _copilotService.DeleteSessionAsync(session.SessionId);
-
+            var releaseTask = DisposeReleasedSessionAsync(session, deleteServerSession);
+            _sessionReleaseTasks[chatId] = releaseTask;
+            _ = releaseTask.ContinueWith(
+                _ => Dispatcher.UIThread.Post(() =>
+                {
+                    if (_sessionReleaseTasks.TryGetValue(chatId, out var trackedTask)
+                        && ReferenceEquals(trackedTask, releaseTask))
+                    {
+                        _sessionReleaseTasks.Remove(chatId);
+                    }
+                }),
+                TaskScheduler.Default);
             _sessionCache.Remove(chatId);
         }
 
         _inProgressMessages.Remove(chatId);
+    }
+
+    private async Task DisposeReleasedSessionAsync(CopilotSession session, bool deleteServerSession)
+    {
+        try
+        {
+            if (deleteServerSession)
+                await _copilotService.DisposeAndDeleteSessionAsync(session).ConfigureAwait(false);
+            else
+                await session.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Lumi] Failed to release Copilot session {session.SessionId}: {ex.Message}");
+        }
+    }
+
+    private async Task AwaitPendingSessionReleaseAsync(Guid chatId, CancellationToken ct)
+    {
+        if (!_sessionReleaseTasks.TryGetValue(chatId, out var releaseTask))
+            return;
+
+        try
+        {
+            await releaseTask.WaitAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Lumi] Failed while waiting for released session for chat {chatId}: {ex.Message}");
+        }
+
+        if (releaseTask.IsCompleted
+            && _sessionReleaseTasks.TryGetValue(chatId, out var trackedTask)
+            && ReferenceEquals(trackedTask, releaseTask))
+        {
+            _sessionReleaseTasks.Remove(chatId);
+        }
     }
 
     private void ReleaseInactiveChatState(Chat chat)
