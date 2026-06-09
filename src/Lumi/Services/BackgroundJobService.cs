@@ -89,7 +89,15 @@ public sealed class BackgroundJobService : IDisposable
             return (liveSurface, false);
 
         if (_chatSurfaceRegistry.TryGetOwner(chatId, out var visibleSurface))
+        {
+            if (_chatSessionStore is not null)
+            {
+                _chatSessionStore.Retain(visibleSurface);
+                return (visibleSurface, true);
+            }
+
             return (visibleSurface, false);
+        }
 
         if (_chatSessionStore is not null)
         {

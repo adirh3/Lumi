@@ -419,7 +419,7 @@ public sealed class MultipleChatWindowsTests
     }
 
     [Fact]
-    public async Task ChatSessionStore_KeepsLiveUnhostedSurfaceAvailableUntilRuntimeIsIdle()
+    public async Task ChatSessionStore_KeepsRecentlyIdleSurfaceAvailableForFastSwitching()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -449,8 +449,51 @@ public sealed class MultipleChatWindowsTests
             first.IsBusy = false;
             store.Release(second);
 
-            Assert.DoesNotContain(first, store.SnapshotSurfaces());
+            Assert.Contains(first, store.SnapshotSurfaces());
+
+            var third = await store.AcquireChatAsync(chat);
+
+            Assert.Same(first, third);
+            store.Release(third);
         }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ChatSessionStore_EvictsLeastRecentlyUsedIdleSurfaceWhenCacheIsFull()
+    {
+        var firstChat = new Chat { Title = "First cached chat" };
+        var secondChat = new Chat { Title = "Second cached chat" };
+        var thirdChat = new Chat { Title = "Third cached chat" };
+        firstChat.Messages.Add(new ChatMessage { Role = "user", Content = "first" });
+        secondChat.Messages.Add(new ChatMessage { Role = "user", Content = "second" });
+        thirdChat.Messages.Add(new ChatMessage { Role = "user", Content = "third" });
+        using var registry = new ChatSurfaceRegistry();
+        using var store = new ChatSessionStore(
+            CreateDataStore(firstChat, secondChat, thirdChat),
+            new CopilotService(),
+            registry,
+            static (surface, chat) =>
+            {
+                surface.CurrentChat = chat;
+                return Task.CompletedTask;
+            },
+            maxIdleCachedSurfaces: 2);
+
+        var first = await store.AcquireChatAsync(firstChat);
+        store.Release(first);
+        var second = await store.AcquireChatAsync(secondChat);
+        store.Release(second);
+        var firstAgain = await store.AcquireChatAsync(firstChat);
+        store.Release(firstAgain);
+        var third = await store.AcquireChatAsync(thirdChat);
+        store.Release(third);
+
+        var surfaces = store.SnapshotSurfaces();
+        Assert.Same(first, firstAgain);
+        Assert.Contains(first, surfaces);
+        Assert.DoesNotContain(second, surfaces);
+        Assert.Contains(third, surfaces);
+        Assert.False(registry.TryGetOwner(secondChat.Id, out _));
     }
 
     [Fact]

@@ -11,13 +11,17 @@ namespace Lumi.ViewModels;
 
 public sealed class ChatSessionStore : IDisposable
 {
+    private const int DefaultMaxIdleCachedSurfaces = 8;
+
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
     private readonly ChatSurfaceRegistry _registry;
     private readonly Func<ChatViewModel, Chat, Task> _loadChatAsync;
+    private readonly int _maxIdleCachedSurfaces;
     private readonly Dictionary<Guid, ChatViewModel> _sessionsByChatId = [];
     private readonly Dictionary<ChatViewModel, int> _hostCounts = [];
     private readonly HashSet<ChatViewModel> _surfaces = [];
+    private readonly LinkedList<ChatViewModel> _idleSurfacesLru = new();
     private readonly SemaphoreSlim _acquireChatLock = new(1, 1);
     private bool _isDisposed;
 
@@ -33,12 +37,17 @@ public sealed class ChatSessionStore : IDisposable
         DataStore dataStore,
         CopilotService copilotService,
         ChatSurfaceRegistry registry,
-        Func<ChatViewModel, Chat, Task> loadChatAsync)
+        Func<ChatViewModel, Chat, Task> loadChatAsync,
+        int maxIdleCachedSurfaces = DefaultMaxIdleCachedSurfaces)
     {
+        if (maxIdleCachedSurfaces < 0)
+            throw new ArgumentOutOfRangeException(nameof(maxIdleCachedSurfaces));
+
         _dataStore = dataStore;
         _copilotService = copilotService;
         _registry = registry;
         _loadChatAsync = loadChatAsync;
+        _maxIdleCachedSurfaces = maxIdleCachedSurfaces;
     }
 
     public ChatViewModel AcquireDraft(Guid? projectId, Action<ChatViewModel>? configure = null)
@@ -93,6 +102,7 @@ public sealed class ChatSessionStore : IDisposable
     {
         ThrowIfDisposed();
         TrackSurface(surface);
+        RemoveFromIdleCache(surface);
         _hostCounts[surface] = _hostCounts.TryGetValue(surface, out var count) ? count + 1 : 1;
     }
 
@@ -108,7 +118,7 @@ public sealed class ChatSessionStore : IDisposable
         }
 
         _hostCounts[surface] = 0;
-        ReleaseIfIdleAndUnhosted(surface);
+        CacheOrReleaseIfIdleAndUnhosted(surface);
     }
 
     public void CleanupChat(Guid chatId)
@@ -184,6 +194,7 @@ public sealed class ChatSessionStore : IDisposable
         surface.PropertyChanged -= OnSurfacePropertyChanged;
         _registry.Detach(surface);
         _hostCounts.Remove(surface);
+        RemoveFromIdleCache(surface);
         RemoveChatOwner(surface);
 
         if (dispose)
@@ -205,7 +216,7 @@ public sealed class ChatSessionStore : IDisposable
         if (args.PropertyName is nameof(ChatViewModel.CurrentChat)
             or nameof(ChatViewModel.IsBusy)
             or nameof(ChatViewModel.IsStreaming))
-            ReleaseIfIdleAndUnhosted(surface);
+            CacheOrReleaseIfIdleAndUnhosted(surface);
     }
 
     private void RegisterChatOwner(ChatViewModel surface, Guid chatId)
@@ -230,15 +241,60 @@ public sealed class ChatSessionStore : IDisposable
             _sessionsByChatId.Remove(chatId);
     }
 
-    private void ReleaseIfIdleAndUnhosted(ChatViewModel surface)
+    private void CacheOrReleaseIfIdleAndUnhosted(ChatViewModel surface)
     {
         if (_isDisposed
-            || !_surfaces.Contains(surface)
-            || _hostCounts.GetValueOrDefault(surface) > 0
-            || surface.OwnsAnyLiveChat())
+            || !_surfaces.Contains(surface))
             return;
 
+        if (_hostCounts.GetValueOrDefault(surface) > 0 || surface.OwnsAnyLiveChat())
+        {
+            RemoveFromIdleCache(surface);
+            return;
+        }
+
+        if (CanCacheIdleSurface(surface))
+        {
+            AddToIdleCache(surface);
+            TrimIdleCache();
+            return;
+        }
+
         UntrackSurface(surface, dispose: true);
+    }
+
+    private bool CanCacheIdleSurface(ChatViewModel surface)
+        => _maxIdleCachedSurfaces > 0 && surface.CurrentChat is not null;
+
+    private void AddToIdleCache(ChatViewModel surface)
+    {
+        RemoveFromIdleCache(surface);
+        _idleSurfacesLru.AddLast(surface);
+    }
+
+    private void RemoveFromIdleCache(ChatViewModel surface)
+    {
+        var node = _idleSurfacesLru.Find(surface);
+        if (node is not null)
+            _idleSurfacesLru.Remove(node);
+    }
+
+    private void TrimIdleCache()
+    {
+        while (_idleSurfacesLru.Count > _maxIdleCachedSurfaces)
+        {
+            var surface = _idleSurfacesLru.First!.Value;
+            _idleSurfacesLru.RemoveFirst();
+
+            if (!_surfaces.Contains(surface)
+                || _hostCounts.GetValueOrDefault(surface) > 0
+                || surface.OwnsAnyLiveChat())
+            {
+                continue;
+            }
+
+            UntrackSurface(surface, dispose: true);
+        }
     }
 
     private void ThrowIfDisposed()
