@@ -68,6 +68,44 @@ public sealed class SessionConfigBuilderTests
     }
 
     [Fact]
+    public void Build_RequestsReasoningSummary_SoReasoningStaysVisible()
+    {
+        var config = SessionConfigBuilder.Build(
+            systemPrompt: "prompt",
+            model: "gpt-5.5",
+            workingDirectory: @"C:\Repo",
+            skillDirectories: [],
+            customAgents: [],
+            tools: [],
+            mcpServers: new Dictionary<string, McpServerConfig>(),
+            reasoningEffort: "high",
+            userInputHandler: null,
+            onPermission: null,
+            hooks: null);
+
+        Assert.Equal(ReasoningSummary.Detailed, config.ReasoningSummary);
+    }
+
+    [Fact]
+    public void BuildForResume_RequestsReasoningSummary_SoReasoningStaysVisible()
+    {
+        var config = SessionConfigBuilder.BuildForResume(
+            systemPrompt: "prompt",
+            model: "gpt-5.5",
+            workingDirectory: @"C:\Repo",
+            skillDirectories: [],
+            customAgents: [],
+            tools: [],
+            mcpServers: new Dictionary<string, McpServerConfig>(),
+            reasoningEffort: "high",
+            userInputHandler: null,
+            onPermission: null,
+            hooks: null);
+
+        Assert.Equal(ReasoningSummary.Detailed, config.ReasoningSummary);
+    }
+
+    [Fact]
     public void BuildLightweight_UsesLumiCopilotConfigDirByDefault()
     {
         var config = SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions

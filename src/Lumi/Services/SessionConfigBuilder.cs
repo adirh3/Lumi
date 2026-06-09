@@ -30,6 +30,15 @@ public sealed class LightweightSessionOptions
         /// <summary>Lumi owns MCP and skill selection explicitly; SDK discovery would bypass per-chat toggles.</summary>
         private const bool EnableSdkConfigDiscovery = false;
 
+        /// <summary>
+        /// Reasoning models (e.g. the GPT-5 family) never expose their raw chain-of-thought — they
+        /// only emit it as an opt-in summary that defaults to "none". Without requesting a summary the
+        /// model still reasons, but no reasoning text reaches the client, so the transcript shows none.
+        /// Request a detailed summary so reasoning stays visible; the CLI ignores this for models that
+        /// don't support configurable reasoning summaries.
+        /// </summary>
+        public static readonly ReasoningSummary DefaultReasoningSummary = ReasoningSummary.Detailed;
+
     /// <summary>Built-in namespaces that Lumi provides itself and should not be duplicated by the SDK.</summary>
     private static ToolSet ExcludedBuiltInTools()
         => new ToolSet()
@@ -180,6 +189,8 @@ public sealed class LightweightSessionOptions
         if (!string.IsNullOrWhiteSpace(reasoningEffort))
             config.ReasoningEffort = reasoningEffort;
 
+        config.ReasoningSummary = DefaultReasoningSummary;
+
         if (!string.IsNullOrWhiteSpace(systemPrompt))
             config.SystemMessage = new SystemMessageConfig { Content = systemPrompt, Mode = SystemMessageMode.Append };
 
@@ -220,6 +231,8 @@ public sealed class LightweightSessionOptions
     {
         if (!string.IsNullOrWhiteSpace(reasoningEffort))
             config.ReasoningEffort = reasoningEffort;
+
+        config.ReasoningSummary = DefaultReasoningSummary;
 
         if (!string.IsNullOrWhiteSpace(systemPrompt))
             config.SystemMessage = new SystemMessageConfig { Content = systemPrompt, Mode = SystemMessageMode.Append };

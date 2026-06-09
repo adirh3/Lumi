@@ -324,10 +324,13 @@ public partial class ChatViewModel
 
         try
         {
-            if (string.IsNullOrWhiteSpace(reasoningEffort))
-                await _activeSession.SetModelAsync(modelId);
-            else
-                await _activeSession.SetModelAsync(modelId, reasoningEffort);
+            await _activeSession.SetModelAsync(
+                modelId,
+                new SetModelOptions
+                {
+                    ReasoningEffort = string.IsNullOrWhiteSpace(reasoningEffort) ? null : reasoningEffort,
+                    ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary
+                });
         }
         catch
         {

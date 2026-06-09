@@ -1087,7 +1087,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // user's current selection (e.g. switching from gpt-5.4 to opus-4.6-1m).
                 if (!string.IsNullOrWhiteSpace(selectedModel))
                 {
-                    try { await session.SetModelAsync(selectedModel, effort, null, sessionCt); }
+                    try
+                    {
+                        await session.SetModelAsync(
+                            selectedModel,
+                            new SetModelOptions
+                            {
+                                ReasoningEffort = effort,
+                                ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary
+                            },
+                            sessionCt);
+                    }
                     catch { /* best-effort — session works with original model if this fails */ }
                 }
 
