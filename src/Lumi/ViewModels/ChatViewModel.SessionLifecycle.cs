@@ -109,7 +109,6 @@ public partial class ChatViewModel
         StreamingTextAccumulator? assistantStream = null;
         StreamingTextAccumulator? reasoningStream = null;
         var activeSubagentSelectionDepth = 0;
-        var activeSubagentExecutionDepth = 0;
         var subagentStateGate = new object();
         var activeSubagentToolCallIds = new List<string>();
         var subagentAssistantStreams = new Dictionary<string, StreamingTextAccumulator>(StringComparer.Ordinal);
@@ -224,7 +223,7 @@ public partial class ChatViewModel
 
         bool IsSubagentOutputActive()
             => Volatile.Read(ref activeSubagentSelectionDepth) > 0
-               || Volatile.Read(ref activeSubagentExecutionDepth) > 0;
+               || Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0;
 
         static string? GetSubagentToolCallIdFromParent(string? parentToolCallId)
             => string.IsNullOrWhiteSpace(parentToolCallId) ? null : parentToolCallId;
@@ -260,25 +259,28 @@ public partial class ChatViewModel
             }
         }
 
-        void UnregisterActiveSubagent(string? toolCallId)
+        bool UnregisterActiveSubagent(string? toolCallId)
         {
             if (string.IsNullOrWhiteSpace(toolCallId))
-                return;
+                return false;
 
             lock (subagentStateGate)
             {
+                var removed = false;
                 for (var i = activeSubagentToolCallIds.Count - 1; i >= 0; i--)
                 {
                     if (!string.Equals(activeSubagentToolCallIds[i], toolCallId, StringComparison.Ordinal))
                         continue;
 
                     activeSubagentToolCallIds.RemoveAt(i);
+                    removed = true;
                     break;
                 }
 
                 mostRecentSubagentToolCallId = activeSubagentToolCallIds.Count > 0
                     ? activeSubagentToolCallIds[^1]
                     : toolCallId;
+                return removed;
             }
         }
 
@@ -426,7 +428,7 @@ public partial class ChatViewModel
         void ResetSubagentOutputState()
         {
             Volatile.Write(ref activeSubagentSelectionDepth, 0);
-            Volatile.Write(ref activeSubagentExecutionDepth, 0);
+            Volatile.Write(ref runtime.ActiveSubagentExecutionDepth, 0);
             List<StreamingTextAccumulator> streamsToDispose = [];
             lock (subagentStateGate)
             {
@@ -1488,7 +1490,7 @@ public partial class ChatViewModel
                     break;
 
                 case SubagentStartedEvent subStart:
-                    Interlocked.Increment(ref activeSubagentExecutionDepth);
+                    Interlocked.Increment(ref runtime.ActiveSubagentExecutionDepth);
                     RegisterActiveSubagent(subStart.Data.ToolCallId);
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -1557,9 +1559,12 @@ public partial class ChatViewModel
                     break;
 
                 case SubagentCompletedEvent subEnd:
-                    if (Volatile.Read(ref activeSubagentExecutionDepth) > 0)
-                        Interlocked.Decrement(ref activeSubagentExecutionDepth);
-                    UnregisterActiveSubagent(subEnd.Data.ToolCallId);
+                    // Decrement once per still-registered sub-agent so duplicate or
+                    // out-of-order completion/failure events for the same tool call cannot
+                    // under-count the depth (which would clear busy while siblings run).
+                    if (UnregisterActiveSubagent(subEnd.Data.ToolCallId)
+                        && Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0)
+                        Interlocked.Decrement(ref runtime.ActiveSubagentExecutionDepth);
                     CompleteSubagentStreams(subEnd.Data.ToolCallId);
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -1576,9 +1581,9 @@ public partial class ChatViewModel
                     break;
 
                 case SubagentFailedEvent subFail:
-                    if (Volatile.Read(ref activeSubagentExecutionDepth) > 0)
-                        Interlocked.Decrement(ref activeSubagentExecutionDepth);
-                    UnregisterActiveSubagent(subFail.Data.ToolCallId);
+                    if (UnregisterActiveSubagent(subFail.Data.ToolCallId)
+                        && Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0)
+                        Interlocked.Decrement(ref runtime.ActiveSubagentExecutionDepth);
                     CompleteSubagentStreams(subFail.Data.ToolCallId);
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -1871,6 +1876,7 @@ public partial class ChatViewModel
         runtime.IsBusy = false;
         runtime.IsStreaming = false;
         runtime.HasPendingBackgroundWork = false;
+        runtime.ActiveSubagentExecutionDepth = 0;
         runtime.StatusText = statusText ?? string.Empty;
     }
 
@@ -1915,6 +1921,7 @@ public partial class ChatViewModel
     private static bool ShouldKeepRuntimeBusyUntilSessionIdle(ChatRuntimeState runtime)
         => runtime.PendingSessionUserMessageCount > 0
            || runtime.ActiveToolCount > 0
+           || runtime.ActiveSubagentExecutionDepth > 0
            || runtime.HasPendingBackgroundWork;
 
     private static bool ShouldMarkBackgroundWorkPending(ChatRuntimeState runtime)

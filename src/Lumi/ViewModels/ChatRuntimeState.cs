@@ -40,6 +40,12 @@ internal sealed class ChatRuntimeState
 
     public int ActiveToolCount { get; set; }
 
+    /// <summary>Number of sub-agents currently executing. The SDK completes the wrapping
+    /// <c>task</c> tool as soon as a sub-agent is spawned, so <see cref="ActiveToolCount"/>
+    /// drops to 0 while the sub-agent keeps streaming. This counter keeps the session busy
+    /// (and blocks idle-recovery) until the sub-agent actually finishes.</summary>
+    public int ActiveSubagentExecutionDepth;
+
     public int PendingSessionUserMessageCount { get; set; }
 
     public int PendingAssistantMessageCount { get; set; }
@@ -57,6 +63,7 @@ internal sealed class ChatRuntimeState
            || IsStreaming
            || HasPendingBackgroundWork
            || ActiveToolCount > 0
+           || ActiveSubagentExecutionDepth > 0
            || PendingSessionUserMessageCount > 0;
 
     /// <summary>True when the user explicitly clicked Stop for the current turn.

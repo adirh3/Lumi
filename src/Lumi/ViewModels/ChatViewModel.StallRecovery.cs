@@ -175,9 +175,7 @@ public partial class ChatViewModel
         long sequence;
         lock (runtime)
         {
-            var ready = treatCompletedTurnAsIdle
-                ? ShouldRecoverCompletedTurnIfIdleIsMissing(runtime)
-                : runtime.PendingSessionUserMessageCount > 0 && runtime.ActiveToolCount == 0;
+            var ready = IsPostToolReconciliationEligible(runtime, treatCompletedTurnAsIdle);
             if (!ready)
                 return;
 
@@ -209,9 +207,7 @@ public partial class ChatViewModel
 
                 lock (runtime)
                 {
-                    var stillEligible = treatCompletedTurnAsIdle
-                        ? ShouldRecoverCompletedTurnIfIdleIsMissing(runtime)
-                        : runtime.PendingSessionUserMessageCount > 0 && runtime.ActiveToolCount == 0;
+                    var stillEligible = IsPostToolReconciliationEligible(runtime, treatCompletedTurnAsIdle);
                     if (runtime.PendingTurnSequence != sequence || !stillEligible)
                         return;
                 }
@@ -324,8 +320,21 @@ public partial class ChatViewModel
     private static bool ShouldRecoverCompletedTurnIfIdleIsMissing(ChatRuntimeState runtime)
         => runtime.PendingSessionUserMessageCount > 0
            && runtime.ActiveToolCount == 0
+           && runtime.ActiveSubagentExecutionDepth == 0
            && !runtime.HasPendingBackgroundWork
            && !runtime.IsStreaming;
+
+    /// <summary>Eligibility for the post-tool reconciliation safety net. The non-idle branch
+    /// must also be blocked while a sub-agent is executing or the model is actively streaming —
+    /// the wrapping <c>task</c> tool completes immediately, so <see cref="ChatRuntimeState.ActiveToolCount"/>
+    /// alone does not reflect sub-agent work and would otherwise let recovery mark the turn terminal early.</summary>
+    private static bool IsPostToolReconciliationEligible(ChatRuntimeState runtime, bool treatCompletedTurnAsIdle)
+        => treatCompletedTurnAsIdle
+            ? ShouldRecoverCompletedTurnIfIdleIsMissing(runtime)
+            : runtime.PendingSessionUserMessageCount > 0
+              && runtime.ActiveToolCount == 0
+              && runtime.ActiveSubagentExecutionDepth == 0
+              && !runtime.IsStreaming;
 
     private static bool CanTreatCompletedTurnAsIdle(PendingTurnRecoveryAnalysis analysis)
         => analysis.UserMessageObserved
