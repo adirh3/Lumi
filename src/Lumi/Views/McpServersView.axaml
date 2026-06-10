@@ -128,6 +128,14 @@
             <TextBox Text="{Binding EditEnvVars}" AcceptsReturn="True" TextWrapping="Wrap"
                      MinHeight="56" MaxHeight="200" VerticalContentAlignment="Top"
                      PlaceholderText="API_KEY=your-key  (one per line)" />
+
+            <!-- Isolation escape hatch (local only) -->
+            <sc:StrataSettingGroup Margin="0,12,0,0">
+              <sc:StrataSetting Header="Run isolated per chat"
+                                Description="Start a dedicated process for each chat instead of sharing one. Slower to start, but required for servers that need interactive features (sampling, elicitation, roots).">
+                <ToggleSwitch IsChecked="{Binding EditRunIsolated}" OnContent="" OffContent="" />
+              </sc:StrataSetting>
+            </sc:StrataSettingGroup>
           </StackPanel>
 
           <!-- Remote server fields -->

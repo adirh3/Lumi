@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -65,10 +66,27 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             if (unavailable.Count == 0) return;
 
+            if (McpOauthDebugEnabled)
+            {
+                foreach (var s in unavailable)
+                    LogMcpOauthDebug($"CheckMcpServerStatusAsync sees {s.Name} status={s.Status} error={s.Error}");
+            }
+
             var messages = new List<(string Name, string ErrorMessage)>();
             foreach (var server in unavailable)
             {
                 configuredServers.TryGetValue(server.Name, out var config);
+
+                // CLI 1.0.60 reports a remote server's OAuth requirement through its needs-auth
+                // status (not a reliable McpOauthRequired event), so drive the interactive login
+                // from here. The login flow owns the chip message, so don't also stamp a passive
+                // error on it.
+                if (server.Status == McpServerStatus.NeedsAuth && config is McpHttpServerConfig)
+                {
+                    _ = InitiateMcpOauthLoginAsync(session, server.Name, chatId);
+                    continue;
+                }
+
                 var errorMessage = await BuildMcpStatusErrorMessageAsync(
                     server.Name,
                     server.Status,
@@ -110,8 +128,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (status == McpServerStatus.NeedsAuth)
         {
             return config is McpHttpServerConfig authRemote
-                ? $"Authentication required for MCP server '{serverName}' at {SanitizeMcpDiagnosticUrl(authRemote.Url)}. Configure the required headers or complete MCP OAuth login if this server supports it."
-                : $"Authentication required for MCP server '{serverName}'.";
+                ? $"'{serverName}' ({SanitizeMcpDiagnosticUrl(authRemote.Url)}) needs sign-in. If it supports OAuth, Lumi opens your browser automatically — finish there and the server reconnects. Otherwise add the required auth headers in the MCP server settings."
+                : $"'{serverName}' needs sign-in. If it supports OAuth, Lumi opens your browser automatically; otherwise add the required auth headers in the MCP server settings.";
         }
 
         if (config is McpHttpServerConfig remote)
@@ -302,6 +320,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly Dictionary<Guid, Task> _sessionReleaseTasks = new();
     /// <summary>Maps chat ID → live event subscriptions for locally attached sessions.</summary>
     private readonly Dictionary<Guid, IDisposable> _sessionSubs = new();
+    /// <summary>
+    /// Maps chat ID → the set of shared MCP proxy route keys its current session references.
+    /// The union across all chats is the liveness set used to reclaim proxy upstream processes
+    /// once no chat needs a given context. Guarded by <see cref="_proxyKeysGate"/> because it is
+    /// touched from both session-build (background) and teardown (UI) paths.
+    /// </summary>
+    private readonly Dictionary<Guid, IReadOnlyCollection<string>> _chatProxyKeys = new();
+    private readonly object _proxyKeysGate = new();
     /// <summary>Maps chat ID → in-progress streaming message not yet committed to Chat.Messages.</summary>
     private readonly Dictionary<Guid, ChatMessage> _inProgressMessages = new();
     /// <summary>Per-chat runtime state sourced from live session events.</summary>
@@ -547,7 +573,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public event Action<string, string, string, bool>? QuestionAsked;
 
     /// <summary>Pending question completions keyed by question ID.</summary>
-    private readonly Dictionary<string, TaskCompletionSource<string>> _pendingQuestions = new();
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingQuestions = new(StringComparer.Ordinal);
 
     /// <summary>Raised when the view should rebuild DataTemplates (e.g. settings changed).</summary>
     public event Action? TranscriptRebuilt;
@@ -996,7 +1022,69 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
             finally
             {
-                _pendingQuestions.Remove(questionId);
+                _pendingQuestions.TryRemove(questionId, out _);
+            }
+        };
+
+        // Native MCP elicitation handler — reuses the same question-card UI as user input.
+        // Servers behind the shared proxy never reach this (the proxy advertises no
+        // elicitation capability); it fires for remote servers and local servers running in
+        // isolated mode, where the SDK forwards the server's elicitation request here.
+        Func<ElicitationContext, Task<ElicitationResult>> elicitationHandler = async (context) =>
+        {
+            var props = context.RequestedSchema?.Properties?
+                .ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+            var plan = McpElicitationResolver.BuildPrompt(context.Message, props);
+
+            var questionId = Guid.NewGuid().ToString("N");
+            var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pendingQuestions[questionId] = tcs;
+
+            var optionsList = (IList<string>)plan.Options.ToList();
+            var optionsJson = System.Text.Json.JsonSerializer.Serialize(optionsList.ToList(), Lumi.Models.AppDataJsonContext.Default.ListString);
+            var freeText = plan.AllowFreeText;
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (CurrentChat?.Id != inputHandlerChatId) return;
+                _transcriptBuilder.AddQuestionToTranscript(questionId, plan.Question, optionsList, freeText);
+                QuestionAsked?.Invoke(questionId, plan.Question, optionsJson, freeText);
+                ScrollToEndRequested?.Invoke();
+            });
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                var owningChat = _dataStore.Data.Chats.Find(c => c.Id == inputHandlerChatId);
+                if (owningChat is null) return;
+                owningChat.Messages.Add(new ChatMessage
+                {
+                    Role = "tool",
+                    ToolName = "ask_question",
+                    ToolStatus = "InProgress",
+                    Content = "",
+                    QuestionId = questionId,
+                    QuestionText = plan.Question,
+                    QuestionOptions = optionsJson,
+                    QuestionAllowFreeText = freeText,
+                    QuestionAllowMultiSelect = false,
+                });
+            });
+
+            try
+            {
+                var answer = await tcs.Task;
+                var (accept, content) = McpElicitationResolver.Resolve(props, answer);
+                return new ElicitationResult
+                {
+                    Action = new GitHub.Copilot.Rpc.UIElicitationResponseAction(accept ? "accept" : "decline"),
+                    Content = content
+                        .Where(kv => kv.Value is not null)
+                        .ToDictionary(kv => kv.Key, kv => kv.Value!)
+                };
+            }
+            finally
+            {
+                _pendingQuestions.TryRemove(questionId, out _);
             }
         };
 
@@ -1040,7 +1128,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 var createConfig = SessionConfigBuilder.Build(
                     systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
+                    mcpServers, effort, userInputHandler, onPermission: null, hooks, elicitationHandler, agentName);
                 var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
                 chat.CopilotSessionId = createdSession.SessionId;
                 _dataStore.MarkChatChanged(chat);
@@ -1072,7 +1160,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 SetSessionSetupStatus(chat, attempt > 0 ? Loc.Status_Reconnecting : Loc.Status_Resuming);
                 var resumeConfig = SessionConfigBuilder.BuildForResume(
                     systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
+                    mcpServers, effort, userInputHandler, onPermission: null, hooks, elicitationHandler, agentName);
                 var session = await _copilotService.ResumeSessionAsync(
                     chat.CopilotSessionId, resumeConfig, sessionCt);
                 _activeSession = session;
@@ -1130,7 +1218,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             var createConfig = SessionConfigBuilder.Build(
                 systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
+                mcpServers, effort, userInputHandler, onPermission: null, hooks, elicitationHandler, agentName);
             var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
             chat.CopilotSessionId = createdSession.SessionId;
             _activeSession = createdSession;

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -143,7 +144,7 @@ public sealed class ChatViewModelLeakTests
         chat.Messages.Add(new ChatMessage { Role = "tool", ToolName = "ask_question", QuestionId = "q-1" });
         chat.Messages.Add(new ChatMessage { Role = "tool", ToolName = "ask_question", QuestionId = "q-2" });
 
-        var pendingQuestions = GetField<Dictionary<string, TaskCompletionSource<string>>>(vm, "_pendingQuestions");
+        var pendingQuestions = GetField<ConcurrentDictionary<string, TaskCompletionSource<string>>>(vm, "_pendingQuestions");
         var first = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var second = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         pendingQuestions["q-1"] = first;

@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using Lumi.Models;
 using Lumi.Services;
@@ -25,6 +26,45 @@ public class AppDataSnapshotFactoryTests
 
         Assert.Equal("gpt-5.4", snapshot.Settings.PreferredModel);
         Assert.Equal("high", snapshot.Settings.ReasoningEffort);
+    }
+
+    [Fact]
+    public void CreateIndexSnapshot_PreservesMcpServerRunIsolated()
+    {
+        var source = new AppData
+        {
+            McpServers =
+            [
+                new McpServer { Name = "isolated", Command = "node", RunIsolated = true },
+                new McpServer { Name = "shared", Command = "node", RunIsolated = false }
+            ]
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+
+        var isolated = snapshot.McpServers.Single(s => s.Name == "isolated");
+        var shared = snapshot.McpServers.Single(s => s.Name == "shared");
+        // Regression guard: the manual clone must copy RunIsolated, otherwise the escape-hatch
+        // flag silently resets to false on every persist and never survives a restart.
+        Assert.True(isolated.RunIsolated);
+        Assert.False(shared.RunIsolated);
+    }
+
+    [Fact]
+    public void AppDataJsonContext_SerializesMcpServerRunIsolated()
+    {
+        var data = new AppData
+        {
+            McpServers = [new McpServer { Name = "isolated", Command = "node", RunIsolated = true }]
+        };
+
+        var json = JsonSerializer.Serialize(data, AppDataJsonContext.Default.AppData);
+        using var document = JsonDocument.Parse(json);
+
+        Assert.True(document.RootElement
+            .GetProperty("mcpServers")[0]
+            .GetProperty("runIsolated")
+            .GetBoolean());
     }
 
     [Fact]

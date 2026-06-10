@@ -56,7 +56,7 @@ public sealed class McpStatusDiagnosticsTests
             new McpHttpServerConfig { Url = "https://user:password@example.com/mcp?token=super-secret-token" },
             CancellationToken.None);
 
-        Assert.Contains("Authentication required", message, StringComparison.Ordinal);
+        Assert.Contains("needs sign-in", message, StringComparison.Ordinal);
         Assert.Contains("https://example.com/mcp", message, StringComparison.Ordinal);
         Assert.DoesNotContain("super-secret-token", message, StringComparison.Ordinal);
         Assert.DoesNotContain("user:password", message, StringComparison.Ordinal);

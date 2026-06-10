@@ -22,9 +22,44 @@ public sealed record McpProxyServerDefinition(
     string Name,
     McpStdioServerConfig Config);
 
+/// <summary>
+/// Process-wide multiplexer that lets every Copilot session share a single upstream
+/// stdio MCP process instead of spawning one process per session.
+///
+/// <para><b>Why this exists.</b> The Copilot CLI starts one MCP process per session
+/// (verified empirically against CLI 1.0.60: two concurrent sessions spawn two distinct
+/// server PIDs, whether configured at client level or per session). When a user runs
+/// several chats in parallel with many MCP servers, that means re-launching every server
+/// for every chat — slow startup and wasted resources. This proxy registers each local
+/// stdio server once, exposes it as a loopback HTTP MCP endpoint, and fans the N SDK
+/// clients onto one shared upstream stdio connection, rewriting JSON-RPC ids.</para>
+///
+/// <para><b>Trade-off.</b> A single shared upstream cannot faithfully answer
+/// per-client server→client requests (sampling / elicitation / roots), because those are
+/// semantically tied to one specific client/session. The proxy therefore advertises
+/// <i>no</i> client capabilities to the upstream (see
+/// <see cref="JsonRpc.UpstreamInitializeParams"/>), so well-behaved servers never attempt
+/// those features over the shared connection. A server that genuinely needs interactive
+/// server→client features should be marked <c>RunIsolated</c> (see
+/// <see cref="Lumi.Models.McpServer.RunIsolated"/>): it then bypasses the proxy and runs
+/// natively per session, where the CLI and Lumi's elicitation/permission handlers serve
+/// those requests directly.</para>
+///
+/// <para><b>Isolation.</b> The route <i>key</i> (built by
+/// <see cref="McpSessionPlanner"/>) encodes the working directory and environment, so two
+/// chats that use the same logical server with different effective directories get
+/// independent shared pools rather than colliding on one process whose cwd is "last
+/// registered wins".</para>
+/// </summary>
 public sealed class McpProxyRuntime : IAsyncDisposable
 {
     public static McpProxyRuntime Shared { get; } = new();
+
+    /// <summary>
+    /// A newly registered route is shielded from <see cref="RetainProxyRoutes"/> for this long so
+    /// a concurrent build can't have its just-created pool reclaimed before it records the key.
+    /// </summary>
+    private static readonly TimeSpan RouteRetentionGrace = TimeSpan.FromSeconds(30);
 
     private readonly object _gate = new();
     private readonly Dictionary<string, McpProxyRegistration> _registrationsByKey = new(StringComparer.Ordinal);
@@ -89,9 +124,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
     public void RetireUserRegistrationsExcept(IEnumerable<Guid> activeLocalServerIds)
     {
         ArgumentNullException.ThrowIfNull(activeLocalServerIds);
-        var retainedKeys = activeLocalServerIds
-            .Select(id => "lumi:" + id)
-            .ToHashSet(StringComparer.Ordinal);
+        var retainedIds = activeLocalServerIds.ToHashSet();
         List<McpProxyRegistration> staleRegistrations = [];
 
         lock (_gate)
@@ -101,7 +134,15 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
             foreach (var (key, registration) in _registrationsByKey.ToArray())
             {
-                if (!key.StartsWith("lumi:", StringComparison.Ordinal) || retainedKeys.Contains(key))
+                if (!key.StartsWith("lumi:", StringComparison.Ordinal))
+                    continue;
+
+                // Keys are "lumi:{serverId}" or "lumi:{serverId}:{contextHash}". A single
+                // logical server can have several context pools alive at once (one per
+                // working directory / env), so retire by the server-id segment rather than
+                // by exact key — otherwise every context variant of an active server would
+                // be torn down on each config change.
+                if (TryParseUserServerId(key, out var serverId) && retainedIds.Contains(serverId))
                     continue;
 
                 _registrationsByKey.Remove(key);
@@ -112,6 +153,66 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
         foreach (var registration in staleRegistrations)
             RetireRegistrationInBackground(registration);
+    }
+
+    /// <summary>
+    /// Retires every user (<c>lumi:</c>) and project (<c>project:</c>) registration whose key is
+    /// not present in <paramref name="liveKeys"/>. The caller passes the union of route keys still
+    /// referenced by live chat sessions, so once every chat that used a particular context
+    /// (working directory / environment / project) is closed, its shared upstream process is
+    /// reclaimed instead of lingering for the lifetime of the app. Built-in routes (e.g. the
+    /// GitHub web-search bootstrap) use other prefixes and are never touched here.
+    /// </summary>
+    public void RetainProxyRoutes(IReadOnlyCollection<string> liveKeys)
+        => RetainProxyRoutes(liveKeys, RouteRetentionGrace);
+
+    internal void RetainProxyRoutes(IReadOnlyCollection<string> liveKeys, TimeSpan grace)
+    {
+        ArgumentNullException.ThrowIfNull(liveKeys);
+        var live = new HashSet<string>(liveKeys, StringComparer.Ordinal);
+        var now = DateTime.UtcNow;
+        List<McpProxyRegistration> staleRegistrations = [];
+
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+
+            foreach (var (key, registration) in _registrationsByKey.ToArray())
+            {
+                if (!key.StartsWith("lumi:", StringComparison.Ordinal)
+                    && !key.StartsWith("project:", StringComparison.Ordinal))
+                    continue;
+
+                if (live.Contains(key))
+                    continue;
+
+                // Protect a just-registered route: a concurrent session build may have created
+                // it but not yet published its key into the live set, so never retire one that is
+                // younger than the grace window.
+                if (now - registration.CreatedUtc < grace)
+                    continue;
+
+                _registrationsByKey.Remove(key);
+                _registrationsByRoute.Remove(registration.RouteId);
+                staleRegistrations.Add(registration);
+            }
+        }
+
+        foreach (var registration in staleRegistrations)
+            RetireRegistrationInBackground(registration);
+    }
+
+    private static bool TryParseUserServerId(string key, out Guid serverId)
+    {
+        serverId = Guid.Empty;
+        if (!key.StartsWith("lumi:", StringComparison.Ordinal))
+            return false;
+
+        var rest = key.AsSpan(5);
+        var colon = rest.IndexOf(':');
+        var idSpan = colon >= 0 ? rest[..colon] : rest;
+        return Guid.TryParse(idSpan, out serverId);
     }
 
     public async ValueTask DisposeAsync()
@@ -365,6 +466,8 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
         public string Fingerprint { get; } = Fingerprint;
 
+        public DateTime CreatedUtc { get; } = DateTime.UtcNow;
+
         public McpStdioServerConnection Connection { get; } = new(definition);
 
         public McpProxyRegistrationLease? TryAcquireLease()
@@ -602,7 +705,12 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
                 ResetStoppedProcess();
 
             StartProcess();
-            var initParams = clientParams ?? JsonRpc.DefaultInitializeParams();
+            // Capability honesty: the shared upstream serves many SDK clients at once, so
+            // it must not be told the (per-client) sampling/elicitation/roots capabilities
+            // that the proxy cannot faithfully route. Always initialize with empty client
+            // capabilities and the proxy's own identity, preserving only the negotiated
+            // protocol version from the first client.
+            var initParams = JsonRpc.UpstreamInitializeParams(clientParams);
             var initResponse = await SendRequestAsync("initialize", initParams, cancellationToken).ConfigureAwait(false);
             if (!initResponse.TryGetProperty("result", out var result))
                 throw new InvalidOperationException($"MCP server '{_definition.Name}' did not return an initialize result.");
@@ -996,9 +1104,44 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
             return;
         }
 
-        if (message.TryGetProperty("id", out var requestId) && message.TryGetProperty("method", out _))
+        if (message.TryGetProperty("id", out var requestId) && message.TryGetProperty("method", out var methodElement))
         {
-            _ = SendRawAsync(JsonRpc.Error(requestId, -32601, "Server-to-client MCP requests are not supported by Lumi's local proxy."), CancellationToken.None);
+            var method = methodElement.GetString();
+            _ = RespondToServerRequestAsync(requestId, method);
+        }
+    }
+
+    /// <summary>
+    /// Answers a server→client request on the shared upstream connection. Because the proxy
+    /// advertises no client capabilities, well-behaved servers should never ask for
+    /// sampling/elicitation here; the graceful answers below keep liveness/roots probes
+    /// working and return an actionable error for the interactive features that require
+    /// running the server in isolated (native per-session) mode.
+    /// </summary>
+    private Task RespondToServerRequestAsync(JsonElement requestId, string? method)
+    {
+        switch (method)
+        {
+            case "ping":
+                return SendRawAsync(JsonRpc.Response(requestId, JsonRpc.EmptyObject()), CancellationToken.None);
+
+            case "roots/list":
+                return SendRawAsync(JsonRpc.Response(requestId, JsonRpc.EmptyRoots()), CancellationToken.None);
+
+            case "sampling/createMessage":
+            case "elicitation/create":
+            case "elicitation/elicit":
+                return SendRawAsync(
+                    JsonRpc.Error(requestId, -32601,
+                        $"MCP server '{_definition.Name}' requested '{method}', which needs a per-session connection. " +
+                        "Enable \"Run in isolated mode\" for this server in Lumi so it runs directly instead of through the shared proxy."),
+                    CancellationToken.None);
+
+            default:
+                return SendRawAsync(
+                    JsonRpc.Error(requestId, -32601,
+                        $"Server-to-client request '{method}' is not supported on Lumi's shared MCP proxy connection."),
+                    CancellationToken.None);
         }
     }
 
@@ -1128,6 +1271,50 @@ internal static class JsonRpc
               }
             }
             """);
+        return document.RootElement.Clone();
+    }
+
+    /// <summary>
+    /// Builds the initialize params the proxy sends to a shared upstream server. The client's
+    /// protocol version is preserved when present, but capabilities are always emptied and the
+    /// client identity is replaced with the proxy's, so the upstream never sees per-client
+    /// server→client capabilities the shared connection cannot honor.
+    /// </summary>
+    public static JsonElement UpstreamInitializeParams(JsonElement? clientParams)
+    {
+        var protocolVersion = "2025-06-18";
+        if (clientParams is { } cp
+            && cp.ValueKind == JsonValueKind.Object
+            && cp.TryGetProperty("protocolVersion", out var pv)
+            && pv.ValueKind == JsonValueKind.String
+            && pv.GetString() is { Length: > 0 } requested)
+        {
+            protocolVersion = requested;
+        }
+
+        var obj = new JsonObject
+        {
+            ["protocolVersion"] = protocolVersion,
+            ["capabilities"] = new JsonObject(),
+            ["clientInfo"] = new JsonObject
+            {
+                ["name"] = "lumi-mcp-proxy",
+                ["version"] = "1"
+            }
+        };
+        using var document = JsonDocument.Parse(obj.ToJsonString());
+        return document.RootElement.Clone();
+    }
+
+    public static JsonElement EmptyObject()
+    {
+        using var document = JsonDocument.Parse("{}");
+        return document.RootElement.Clone();
+    }
+
+    public static JsonElement EmptyRoots()
+    {
+        using var document = JsonDocument.Parse("""{"roots":[]}""");
         return document.RootElement.Clone();
     }
 

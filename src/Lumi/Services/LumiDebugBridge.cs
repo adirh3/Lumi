@@ -957,6 +957,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
                 GetInt(args, "timeout"),
                 GetBool(args, "clearTimeout"),
                 GetBool(args, "isEnabled"),
+                GetBool(args, "runIsolated"),
                 GetString(args, "query")),
             "memories" or "memory" => manager.ManageMemories(
                 action,

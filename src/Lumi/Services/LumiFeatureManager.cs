@@ -100,13 +100,14 @@ public sealed class LumiFeatureManager
         int? timeout = null,
         bool? clearTimeout = null,
         bool? isEnabled = null,
+        bool? runIsolated = null,
         string? query = null)
     {
         return NormalizeAction(action) switch
         {
             "list" => new FeatureChangeResult(ListMcps(query ?? identifier)),
-            "create" => CreateMcp(name, description, serverType, command, args, url, envEntries, headerEntries, toolNames, timeout, isEnabled),
-            "update" => UpdateMcp(identifier, name, description, serverType, command, args, url, envEntries, headerEntries, toolNames, timeout, clearTimeout, isEnabled),
+            "create" => CreateMcp(name, description, serverType, command, args, url, envEntries, headerEntries, toolNames, timeout, isEnabled, runIsolated),
+            "update" => UpdateMcp(identifier, name, description, serverType, command, args, url, envEntries, headerEntries, toolNames, timeout, clearTimeout, isEnabled, runIsolated),
             "delete" => DeleteMcp(identifier),
             _ => InvalidAction("MCP servers", action)
         };
@@ -887,7 +888,8 @@ public sealed class LumiFeatureManager
         string[]? headerEntries,
         string[]? toolNames,
         int? timeout,
-        bool? isEnabled)
+        bool? isEnabled,
+        bool? runIsolated)
     {
         var normalizedName = NormalizeOrNull(name);
         if (normalizedName is null)
@@ -926,7 +928,8 @@ public sealed class LumiFeatureManager
             Headers = normalizedType == "remote" ? headers! : [],
             Tools = NormalizeList(toolNames),
             Timeout = timeout,
-            IsEnabled = isEnabled ?? true
+            IsEnabled = isEnabled ?? true,
+            RunIsolated = runIsolated ?? false
         };
 
         _dataStore.Data.McpServers.Add(server);
@@ -946,7 +949,8 @@ public sealed class LumiFeatureManager
         string[]? toolNames,
         int? timeout,
         bool? clearTimeout,
-        bool? isEnabled)
+        bool? isEnabled,
+        bool? runIsolated)
     {
         var lookup = ResolveByIdOrLabel(
             _dataStore.Data.McpServers,
@@ -960,7 +964,7 @@ public sealed class LumiFeatureManager
         var server = lookup.Item!;
         if (name is null && description is null && serverType is null && command is null && args is null
             && url is null && envEntries is null && headerEntries is null && toolNames is null
-            && timeout is null && clearTimeout != true && isEnabled is null)
+            && timeout is null && clearTimeout != true && isEnabled is null && runIsolated is null)
             return Failure("No MCP server changes were provided.");
 
         var previousName = server.Name;
@@ -1045,6 +1049,9 @@ public sealed class LumiFeatureManager
 
         if (isEnabled.HasValue)
             server.IsEnabled = isEnabled.Value;
+
+        if (runIsolated.HasValue)
+            server.RunIsolated = runIsolated.Value;
 
         if (!string.Equals(previousName, server.Name, StringComparison.Ordinal))
             RenameMcpInChats(previousName, server.Name);

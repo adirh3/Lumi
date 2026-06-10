@@ -538,7 +538,7 @@ public partial class ChatViewModel
         {
             try
             {
-            switch (evt)
+                switch (evt)
             {
                 case AssistantTurnStartEvent:
                     Dispatcher.UIThread.Post(() =>
@@ -1840,6 +1840,29 @@ public partial class ChatViewModel
 
                     StatusText = runtime.StatusText;
                     });
+                    break;
+
+                case McpOauthRequiredEvent oauthRequired:
+                    // A remote MCP server needs interactive sign-in. Note: Copilot CLI 1.0.60 does
+                    // not reliably raise this event for first-time auth (it surfaces needs-auth via
+                    // server status instead — see CheckMcpServerStatusAsync, the primary trigger).
+                    // This handler is kept for SDK/CLI versions that do raise it; the in-flight latch
+                    // makes it safe to coexist with the status-poll path.
+                    LogMcpOauthDebug($"switch matched McpOauthRequiredEvent server={oauthRequired.Data?.ServerName} req={oauthRequired.Data?.RequestId}");
+                    _ = HandleMcpOauthRequiredAsync(session, oauthRequired.Data, chat.Id);
+                    break;
+
+                case McpOauthCompletedEvent oauthCompleted:
+                    // The CLI finished the OAuth callback — reconnect the server and clear the chip.
+                    LogMcpOauthDebug($"switch matched McpOauthCompletedEvent req={oauthCompleted.Data?.RequestId}");
+                    _ = HandleMcpOauthCompletedAsync(session, oauthCompleted.Data, chat.Id);
+                    break;
+
+                default:
+                    // New SDK event types are otherwise silently dropped. Log them so an
+                    // unhandled event is discoverable instead of invisible.
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[Lumi] Unhandled session event: {evt.GetType().Name} (type={evt.Type})");
                     break;
             }
             }

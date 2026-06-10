@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Lumi.Models;
@@ -73,7 +74,7 @@ public sealed class ChatSurfaceRegistryTests
         using var surface = CreateSurface(questionChat, visible);
         using var registry = new ChatSurfaceRegistry();
         registry.Attach(surface);
-        var pendingQuestions = GetField<Dictionary<string, TaskCompletionSource<string>>>(surface, "_pendingQuestions");
+        var pendingQuestions = GetField<ConcurrentDictionary<string, TaskCompletionSource<string>>>(surface, "_pendingQuestions");
         pendingQuestions["question-1"] = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         surface.CurrentChat = visible;
 

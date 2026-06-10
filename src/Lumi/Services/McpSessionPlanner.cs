@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using GitHub.Copilot;
 using Lumi.Models;
 
@@ -17,7 +20,8 @@ public static class McpSessionPlanner
         Chat chat,
         IReadOnlyCollection<string>? currentActiveServerNames,
         LumiAgent? activeAgent,
-        McpProxyRuntime? proxyRuntime = null)
+        McpProxyRuntime? proxyRuntime = null,
+        ICollection<string>? registeredProxyKeys = null)
     {
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(projectContextCatalog);
@@ -38,12 +42,12 @@ public static class McpSessionPlanner
         }
 
         foreach (var server in configuredServers)
-            result[server.Name] = ToSdkConfig(server, workDir, proxyRuntime);
+            result[server.Name] = ToSdkConfig(server, workDir, proxyRuntime, registeredProxyKeys);
 
         foreach (var contextServer in projectContextCatalog.McpServers)
         {
             if (selectedNames.Contains(contextServer.Name) && !result.ContainsKey(contextServer.Name))
-                result[contextServer.Name] = CloneContextConfig(contextServer, proxyRuntime);
+                result[contextServer.Name] = CloneContextConfig(contextServer, proxyRuntime, registeredProxyKeys);
         }
 
         GitHubMcpWebSearchBootstrap.Ensure(result, CopilotService.TryGetGitHubTokenForMcp());
@@ -73,7 +77,7 @@ public static class McpSessionPlanner
         return names;
     }
 
-    private static McpServerConfig ToSdkConfig(McpServer server, string workDir, McpProxyRuntime? proxyRuntime)
+    private static McpServerConfig ToSdkConfig(McpServer server, string workDir, McpProxyRuntime? proxyRuntime, ICollection<string>? registeredProxyKeys = null)
     {
         if (string.Equals(server.ServerType, "remote", StringComparison.OrdinalIgnoreCase))
         {
@@ -104,18 +108,21 @@ public static class McpSessionPlanner
         if (server.Timeout.HasValue)
             local.Timeout = server.Timeout.Value;
 
-        if (proxyRuntime is not null)
-        {
-            return proxyRuntime.Register(new McpProxyServerDefinition(
-                $"lumi:{server.Id}",
-                server.Name,
-                local));
-        }
+        // Escape hatch: a server that needs interactive server→client features
+        // (sampling / elicitation / roots) opts out of the shared proxy and runs natively
+        // per session, where the CLI and Lumi's handlers can serve those requests.
+        if (server.RunIsolated || proxyRuntime is null)
+            return local;
 
-        return local;
+        // The route key encodes the working directory + environment so that two chats using
+        // the same logical server with different effective directories get independent shared
+        // pools instead of fighting over one process whose cwd is "last registered wins".
+        var key = $"lumi:{server.Id}:{ContextToken(local.WorkingDirectory, local.Env)}";
+        registeredProxyKeys?.Add(key);
+        return proxyRuntime.Register(new McpProxyServerDefinition(key, server.Name, local));
     }
 
-    private static McpServerConfig CloneContextConfig(ProjectContextMcpServerDefinition contextServer, McpProxyRuntime? proxyRuntime)
+    private static McpServerConfig CloneContextConfig(ProjectContextMcpServerDefinition contextServer, McpProxyRuntime? proxyRuntime, ICollection<string>? registeredProxyKeys = null)
     {
         switch (contextServer.Config)
         {
@@ -135,10 +142,9 @@ public static class McpSessionPlanner
 
                 if (proxyRuntime is not null)
                 {
-                    return proxyRuntime.Register(new McpProxyServerDefinition(
-                        $"project:{contextServer.SourcePath}:{contextServer.Name}",
-                        contextServer.Name,
-                        clone));
+                    var key = $"project:{contextServer.SourcePath}:{contextServer.Name}";
+                    registeredProxyKeys?.Add(key);
+                    return proxyRuntime.Register(new McpProxyServerDefinition(key, contextServer.Name, clone));
                 }
 
                 return clone;
@@ -168,5 +174,44 @@ public static class McpSessionPlanner
             .Where(tool => !string.IsNullOrWhiteSpace(tool))
             .ToList() ?? [];
         return list.Count > 0 ? list : ["*"];
+    }
+
+    /// <summary>
+    /// Stable short hash of the per-context dimensions (working directory + environment) used
+    /// to scope a proxy route to a specific execution context. The working directory is
+    /// canonicalised first so that equivalent paths (case / trailing separators) collapse to a
+    /// single shared pool rather than spawning a redundant upstream process.
+    /// </summary>
+    private static string ContextToken(string? workingDirectory, IDictionary<string, string>? env)
+    {
+        var builder = new StringBuilder();
+        builder.Append("cwd:").AppendLine(NormalizeWorkingDirectory(workingDirectory));
+        if (env is { Count: > 0 })
+        {
+            foreach (var pair in env.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
+                builder.Append("env:").Append(pair.Key).Append('=').AppendLine(pair.Value);
+        }
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
+        return Convert.ToHexString(hash, 0, 16).ToLowerInvariant();
+    }
+
+    private static string NormalizeWorkingDirectory(string? workingDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(workingDirectory))
+            return "";
+
+        var normalized = workingDirectory.Trim();
+        try
+        {
+            normalized = Path.GetFullPath(normalized);
+        }
+        catch
+        {
+            // Leave the raw value if it can't be canonicalised (e.g. invalid path chars).
+        }
+
+        normalized = normalized.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return OperatingSystem.IsWindows() ? normalized.ToLowerInvariant() : normalized;
     }
 }

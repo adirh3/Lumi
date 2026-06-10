@@ -46,6 +46,7 @@ public partial class McpServersViewModel : ObservableObject
     [ObservableProperty] private string _editEnvVars = ""; // KEY=VALUE per line
     [ObservableProperty] private string _editHeaders = ""; // KEY=VALUE per line
     [ObservableProperty] private bool _editIsEnabled = true;
+    [ObservableProperty] private bool _editRunIsolated;
     [ObservableProperty] private string _searchQuery = "";
 
     [RelayCommand]
@@ -128,6 +129,7 @@ public partial class McpServersViewModel : ObservableObject
         EditEnvVars = "";
         EditHeaders = "";
         EditIsEnabled = true;
+        EditRunIsolated = false;
         IsBrowsing = false;
         IsEditing = true;
     }
@@ -158,6 +160,7 @@ public partial class McpServersViewModel : ObservableObject
          EditEnvVars = string.Join("\n", server.Env.Select(kv => $"{kv.Key}={kv.Value}"));
          EditHeaders = string.Join("\n", server.Headers.Select(kv => $"{kv.Key}={kv.Value}"));
          EditIsEnabled = server.IsEnabled;
+         EditRunIsolated = server.RunIsolated;
 
          IsNpxCommand = server.Command is "npx" or "npx.cmd";
          if (IsNpxCommand)
@@ -229,7 +232,8 @@ public partial class McpServersViewModel : ObservableObject
             url: isLocal ? null : EditUrl.Trim(),
             envEntries: isLocal ? envEntries : [],
             headerEntries: isLocal ? [] : headerEntries,
-            isEnabled: EditIsEnabled);
+            isEnabled: EditIsEnabled,
+            runIsolated: isLocal && EditRunIsolated);
         if (!result.DataChanged)
             return;
 

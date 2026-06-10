@@ -511,6 +511,125 @@ public sealed class McpProxyRuntimeTests
     }
 
     [SkippableFact]
+    public async Task Proxy_RetainProxyRoutes_RetiresUnreferencedRouteAndKeepsLiveOne()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "PowerShell fake MCP server is Windows-only.");
+
+        var root = Path.Combine(Path.GetTempPath(), "lumi-mcp-proxy-retain-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var scriptPath = Path.Combine(root, "fake-mcp.ps1");
+            await File.WriteAllTextAsync(scriptPath, """
+                [System.IO.File]::AppendAllText($env:MCP_TEST_LOG, "$PID`n")
+                function Write-Json($obj) {
+                    [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 30))
+                    [Console]::Out.Flush()
+                }
+                while ($null -ne ($line = [Console]::In.ReadLine())) {
+                    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                    $msg = $line | ConvertFrom-Json
+                    if ($msg.method -eq "initialize") {
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ protocolVersion = "2025-06-18"; capabilities = @{ tools = @{ listChanged = $false } }; serverInfo = @{ name = "retain-test-mcp"; version = "1" } } }
+                    }
+                }
+                """);
+
+            const string initBody = """
+                {"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+                """;
+
+            var keepKey = "lumi:" + Guid.NewGuid();
+            var dropKey = "lumi:" + Guid.NewGuid();
+            var keepLog = Path.Combine(root, "keep.log");
+            var dropLog = Path.Combine(root, "drop.log");
+
+            await using var runtime = new McpProxyRuntime();
+            var keep = runtime.Register(CreateBasicDefinition(keepKey, "keep", scriptPath, root, keepLog));
+            var drop = runtime.Register(CreateBasicDefinition(dropKey, "drop", scriptPath, root, dropLog));
+
+            using var http = new HttpClient();
+            using (var initKeep = await PostJsonAsync(http, keep.Url, initBody))
+                Assert.True(initKeep.RootElement.TryGetProperty("result", out _));
+            using (var initDrop = await PostJsonAsync(http, drop.Url, initBody))
+                Assert.True(initDrop.RootElement.TryGetProperty("result", out _));
+
+            var dropPid = int.Parse(Assert.Single(await File.ReadAllLinesAsync(dropLog)), System.Globalization.CultureInfo.InvariantCulture);
+
+            // Only the keep route is still referenced by a live session. grace=0 forces immediate reclaim.
+            runtime.RetainProxyRoutes([keepKey], TimeSpan.Zero);
+            await WaitForProcessExitAsync(dropPid);
+
+            using var dropResponse = await http.PostAsync(
+                drop.Url,
+                new StringContent("""
+                    {"jsonrpc":"2.0","id":"after","method":"initialize","params":{}}
+                    """, Encoding.UTF8, "application/json"));
+            Assert.Equal(HttpStatusCode.NotFound, dropResponse.StatusCode);
+
+            // The retained route keeps serving.
+            using var keepAfter = await PostJsonAsync(http, keep.Url, initBody);
+            Assert.True(keepAfter.RootElement.TryGetProperty("result", out _));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+        }
+    }
+
+    [SkippableFact]
+    public async Task Proxy_RetainProxyRoutes_GraceWindowProtectsRecentlyRegisteredRoute()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "PowerShell fake MCP server is Windows-only.");
+
+        var root = Path.Combine(Path.GetTempPath(), "lumi-mcp-proxy-retain-grace-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var scriptPath = Path.Combine(root, "fake-mcp.ps1");
+            var logPath = Path.Combine(root, "starts.log");
+            await File.WriteAllTextAsync(scriptPath, """
+                [System.IO.File]::AppendAllText($env:MCP_TEST_LOG, "$PID`n")
+                function Write-Json($obj) {
+                    [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 30))
+                    [Console]::Out.Flush()
+                }
+                while ($null -ne ($line = [Console]::In.ReadLine())) {
+                    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                    $msg = $line | ConvertFrom-Json
+                    if ($msg.method -eq "initialize") {
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ protocolVersion = "2025-06-18"; capabilities = @{ tools = @{ listChanged = $false } }; serverInfo = @{ name = "grace-test-mcp"; version = "1" } } }
+                    }
+                }
+                """);
+
+            const string initBody = """
+                {"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+                """;
+
+            await using var runtime = new McpProxyRuntime();
+            var remote = runtime.Register(CreateBasicDefinition("lumi:" + Guid.NewGuid(), "grace", scriptPath, root, logPath));
+
+            using var http = new HttpClient();
+            using (var init = await PostJsonAsync(http, remote.Url, initBody))
+                Assert.True(init.RootElement.TryGetProperty("result", out _));
+
+            // Public overload applies the real grace window: a just-registered route must survive
+            // a retain pass that omits it (covers the build/teardown TOCTOU race).
+            runtime.RetainProxyRoutes([]);
+
+            using var after = await PostJsonAsync(http, remote.Url, initBody);
+            Assert.True(after.RootElement.TryGetProperty("result", out _));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+        }
+    }
+
+    [SkippableFact]
     public async Task Proxy_DisposeCancelsInFlightRequestAndStopsProcess()
     {
         Skip.IfNot(OperatingSystem.IsWindows(), "PowerShell fake MCP server is Windows-only.");
@@ -655,6 +774,107 @@ public sealed class McpProxyRuntimeTests
             var starts = await File.ReadAllLinesAsync(logPath);
             Assert.Contains(starts, line => line.StartsWith("FIRST|", StringComparison.Ordinal));
             Assert.Contains(starts, line => line.StartsWith("SECOND|", StringComparison.Ordinal));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+        }
+    }
+
+    [SkippableFact]
+    public async Task Proxy_AdvertisesNoCapabilitiesAndAnswersServerRequestsGracefully()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "PowerShell fake MCP server is Windows-only.");
+
+        var root = Path.Combine(Path.GetTempPath(), "lumi-mcp-caps-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var scriptPath = Path.Combine(root, "caps-mcp.ps1");
+            var capsLog = Path.Combine(root, "caps.json");
+            await File.WriteAllTextAsync(scriptPath, """
+                function Write-Json($obj) {
+                    [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 30))
+                    [Console]::Out.Flush()
+                }
+                while ($null -ne ($line = [Console]::In.ReadLine())) {
+                    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                    $msg = $line | ConvertFrom-Json
+                    if ($msg.method -eq "initialize") {
+                        $caps = if ($null -eq $msg.params.capabilities) { "null" } else { $msg.params.capabilities | ConvertTo-Json -Compress -Depth 30 }
+                        [System.IO.File]::WriteAllText($env:MCP_CAPS_LOG, $caps)
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ protocolVersion = "2025-06-18"; capabilities = @{ tools = @{ listChanged = $false } }; serverInfo = @{ name = "caps-test-mcp"; version = "1" } } }
+                    } elseif ($msg.method -eq "tools/list") {
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ tools = @(@{ name = "probe"; description = "Probe"; inputSchema = @{ type = "object"; properties = @{ kind = @{ type = "string" } } } }) } }
+                    } elseif ($msg.method -eq "tools/call") {
+                        $callId = $msg.id
+                        $kind = [string]$msg.params.arguments.kind
+                        if ($kind -eq "roots") {
+                            Write-Json @{ jsonrpc = "2.0"; id = "p-roots"; method = "roots/list"; params = @{} }
+                        } elseif ($kind -eq "sampling") {
+                            Write-Json @{ jsonrpc = "2.0"; id = "p-sampling"; method = "sampling/createMessage"; params = @{ messages = @() } }
+                        } else {
+                            Write-Json @{ jsonrpc = "2.0"; id = "p-elicit"; method = "elicitation/create"; params = @{ message = "hi" } }
+                        }
+                        $resp = [Console]::In.ReadLine()
+                        Write-Json @{ jsonrpc = "2.0"; id = $callId; result = @{ content = @(@{ type = "text"; text = $resp }) } }
+                    }
+                }
+                """);
+
+            await using var runtime = new McpProxyRuntime();
+            var remote = runtime.Register(new McpProxyServerDefinition(
+                "test:caps",
+                "caps-test",
+                new McpStdioServerConfig
+                {
+                    Command = GetPowerShellPath(),
+                    Args = ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
+                    WorkingDirectory = root,
+                    Env = new Dictionary<string, string>
+                    {
+                        ["MCP_CAPS_LOG"] = capsLog
+                    },
+                    Tools = ["*"]
+                }));
+
+            using var http = new HttpClient();
+
+            // The client advertises rich capabilities; the shared proxy must strip them so a
+            // compliant upstream never attempts sampling/elicitation/roots on this connection.
+            using var init = await PostJsonAsync(http, remote.Url, """
+                {"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"roots":{"listChanged":true},"sampling":{},"elicitation":{}},"clientInfo":{"name":"test","version":"1"}}}
+                """);
+            Assert.True(init.RootElement.TryGetProperty("result", out _));
+
+            await WaitForFileAsync(capsLog);
+            var upstreamCaps = (await File.ReadAllTextAsync(capsLog)).Trim();
+            Assert.Equal("{}", upstreamCaps);
+
+            // A server-initiated roots/list is answered with an empty roots set (graceful).
+            using var rootsCall = await PostJsonAsync(http, remote.Url, """
+                {"jsonrpc":"2.0","id":"c1","method":"tools/call","params":{"name":"probe","arguments":{"kind":"roots"}}}
+                """);
+            var rootsText = rootsCall.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString();
+            Assert.Contains("\"roots\":[]", rootsText);
+            Assert.DoesNotContain("error", rootsText!);
+
+            // sampling/createMessage is rejected with an actionable "run isolated" hint.
+            using var samplingCall = await PostJsonAsync(http, remote.Url, """
+                {"jsonrpc":"2.0","id":"c2","method":"tools/call","params":{"name":"probe","arguments":{"kind":"sampling"}}}
+                """);
+            var samplingText = samplingCall.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString();
+            Assert.Contains("-32601", samplingText!);
+            Assert.Contains("isolated", samplingText!, StringComparison.OrdinalIgnoreCase);
+
+            // elicitation/create is likewise rejected with the same guidance.
+            using var elicitCall = await PostJsonAsync(http, remote.Url, """
+                {"jsonrpc":"2.0","id":"c3","method":"tools/call","params":{"name":"probe","arguments":{"kind":"elicit"}}}
+                """);
+            var elicitText = elicitCall.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString();
+            Assert.Contains("-32601", elicitText!);
+            Assert.Contains("isolated", elicitText!, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

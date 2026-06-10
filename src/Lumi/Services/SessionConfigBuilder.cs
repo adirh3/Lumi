@@ -61,6 +61,7 @@ public sealed class LightweightSessionOptions
         Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>>? userInputHandler,
         Func<PermissionRequest, PermissionInvocation, Task<PermissionDecision>>? onPermission,
         SessionHooks? hooks,
+        Func<ElicitationContext, Task<ElicitationResult>>? elicitationHandler = null,
         string? agentName = null)
     {
         var config = new SessionConfig
@@ -75,10 +76,11 @@ public sealed class LightweightSessionOptions
             ExcludedTools = ExcludedBuiltInTools(),
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
+            McpOAuthTokenStorage = McpOAuthTokenStorageMode.Persistent,
         };
 
         Populate(config, systemPrompt, reasoningEffort, skillDirectories,
-            customAgents, tools, mcpServers, userInputHandler, hooks, agentName);
+            customAgents, tools, mcpServers, userInputHandler, elicitationHandler, hooks, agentName);
 
         return config;
     }
@@ -98,6 +100,7 @@ public sealed class LightweightSessionOptions
         Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>>? userInputHandler,
         Func<PermissionRequest, PermissionInvocation, Task<PermissionDecision>>? onPermission,
         SessionHooks? hooks,
+        Func<ElicitationContext, Task<ElicitationResult>>? elicitationHandler = null,
         string? agentName = null)
     {
         var config = new ResumeSessionConfig
@@ -112,10 +115,11 @@ public sealed class LightweightSessionOptions
             ExcludedTools = ExcludedBuiltInTools(),
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
+            McpOAuthTokenStorage = McpOAuthTokenStorageMode.Persistent,
         };
 
         Populate(config, systemPrompt, reasoningEffort, skillDirectories,
-            customAgents, tools, mcpServers, userInputHandler, hooks, agentName);
+            customAgents, tools, mcpServers, userInputHandler, elicitationHandler, hooks, agentName);
 
         return config;
     }
@@ -183,6 +187,7 @@ public sealed class LightweightSessionOptions
         List<AIFunction>? tools,
         Dictionary<string, McpServerConfig>? mcpServers,
         Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>>? userInputHandler,
+        Func<ElicitationContext, Task<ElicitationResult>>? elicitationHandler,
         SessionHooks? hooks,
         string? agentName)
     {
@@ -208,6 +213,9 @@ public sealed class LightweightSessionOptions
 
         if (userInputHandler is not null)
             config.OnUserInputRequest = userInputHandler;
+
+        if (elicitationHandler is not null)
+            config.OnElicitationRequest = elicitationHandler;
 
         if (hooks is not null)
             config.Hooks = hooks;
@@ -226,6 +234,7 @@ public sealed class LightweightSessionOptions
         List<AIFunction>? tools,
         Dictionary<string, McpServerConfig>? mcpServers,
         Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>>? userInputHandler,
+        Func<ElicitationContext, Task<ElicitationResult>>? elicitationHandler,
         SessionHooks? hooks,
         string? agentName)
     {
@@ -251,6 +260,9 @@ public sealed class LightweightSessionOptions
 
         if (userInputHandler is not null)
             config.OnUserInputRequest = userInputHandler;
+
+        if (elicitationHandler is not null)
+            config.OnElicitationRequest = elicitationHandler;
 
         if (hooks is not null)
             config.Hooks = hooks;

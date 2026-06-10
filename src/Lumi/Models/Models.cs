@@ -210,6 +210,15 @@ public class McpServer
     public List<string> Tools { get; set; } = [];
     public int? Timeout { get; set; }
     public bool IsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// When true, a local (stdio) server bypasses Lumi's shared MCP proxy and runs natively
+    /// per session. This restores full interactive server→client features (sampling,
+    /// elicitation, roots) at the cost of starting a separate process per chat. Ignored for
+    /// remote servers, which always run natively.
+    /// </summary>
+    public bool RunIsolated { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
 }
 

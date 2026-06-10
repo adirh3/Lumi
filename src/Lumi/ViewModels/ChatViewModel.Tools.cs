@@ -110,14 +110,61 @@ public partial class ChatViewModel
         if (CurrentChat?.Id == chat.Id)
             selectedServerNames = ActiveMcpServerNames.ToList();
 
-        return McpSessionPlanner.Build(
+        var proxyKeys = new List<string>();
+        var servers = McpSessionPlanner.Build(
             _dataStore.Data,
             workDir,
             projectContextCatalog,
             chat,
             selectedServerNames,
             activeAgent,
-            McpProxyRuntime.Shared);
+            McpProxyRuntime.Shared,
+            proxyKeys);
+
+        TrackChatProxyKeys(chat.Id, proxyKeys);
+        return servers;
+    }
+
+    /// <summary>
+    /// Records the proxy route keys a chat's freshly built session references and reclaims any
+    /// shared upstream process no chat needs anymore. Called on every session (re)build so that
+    /// changing a chat's working directory or server selection releases the previous context.
+    /// </summary>
+    private void TrackChatProxyKeys(Guid chatId, IReadOnlyCollection<string> proxyKeys)
+    {
+        HashSet<string> live;
+        lock (_proxyKeysGate)
+        {
+            if (proxyKeys.Count == 0)
+                _chatProxyKeys.Remove(chatId);
+            else
+                _chatProxyKeys[chatId] = proxyKeys;
+
+            live = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var keys in _chatProxyKeys.Values)
+                foreach (var key in keys)
+                    live.Add(key);
+        }
+
+        McpProxyRuntime.Shared.RetainProxyRoutes(live);
+    }
+
+    /// <summary>Drops a chat's proxy route references on teardown and reclaims now-unused pools.</summary>
+    private void ReleaseChatProxyKeys(Guid chatId)
+    {
+        HashSet<string> live;
+        lock (_proxyKeysGate)
+        {
+            if (!_chatProxyKeys.Remove(chatId))
+                return;
+
+            live = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var keys in _chatProxyKeys.Values)
+                foreach (var key in keys)
+                    live.Add(key);
+        }
+
+        McpProxyRuntime.Shared.RetainProxyRoutes(live);
     }
 
     private List<AIFunction> BuildWebTools()
@@ -506,7 +553,7 @@ public partial class ChatViewModel
                 }
                 finally
                 {
-                    _pendingQuestions.Remove(questionId);
+                    _pendingQuestions.TryRemove(questionId, out _);
                 }
             },
             "ask_question",
@@ -608,7 +655,7 @@ public partial class ChatViewModel
                     [Description("Whether the MCP server should be enabled.")] bool? isEnabled = null,
                     [Description("Optional text query for list filtering.")] string? query = null) =>
                 {
-                    var result = FeatureManager.ManageMcps(action, identifier, name, description, serverType, command, args, url, envEntries, headerEntries, toolNames, timeout, clearTimeout, isEnabled, query);
+                    var result = FeatureManager.ManageMcps(action, identifier, name, description, serverType, command, args, url, envEntries, headerEntries, toolNames, timeout, clearTimeout, isEnabled, query: query);
                     return await ApplyFeatureChangeAsync(result);
                 },
                 "manage_mcps",

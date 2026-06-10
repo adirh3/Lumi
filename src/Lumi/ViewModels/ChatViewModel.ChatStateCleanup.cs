@@ -217,7 +217,7 @@ public partial class ChatViewModel
             if (_pendingQuestions.TryGetValue(questionId, out var tcs))
             {
                 tcs.TrySetCanceled();
-                _pendingQuestions.Remove(questionId);
+                _pendingQuestions.TryRemove(questionId, out _);
             }
         }
 
@@ -283,6 +283,7 @@ public partial class ChatViewModel
         ReleaseChatCancellation(chatId, cancelActiveRequest);
         ClearPendingTurnTracking(chatId);
         DisposeSessionSubscription(chatId);
+        ReleaseChatProxyKeys(chatId);
 
         if (_sessionCache.TryGetValue(chatId, out var session))
         {

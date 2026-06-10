@@ -105,6 +105,7 @@ internal static class AppDataSnapshotFactory
                     Tools = [..s.Tools],
                     Timeout = s.Timeout,
                     IsEnabled = s.IsEnabled,
+                    RunIsolated = s.RunIsolated,
                     CreatedAt = s.CreatedAt
                 })
                 .ToList(),
