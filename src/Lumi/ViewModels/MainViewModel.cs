@@ -99,7 +99,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         "Debug-only agent map\n" +
         "Nav: #NavChat=0, #NavJobs=1, #NavProjects=2, #NavSkills=3, #NavAgents=4, #NavMemories=5, #NavMcpServers=6, #NavSettings=7\n" +
         "Chat controls: #PageChat, #ChatShell, #Transcript, #Composer, #SearchInput\n" +
-        "CLI: --debug-agent-harness opens fixture, --test-chat-stress checks tools, --test-mcp-native checks SDK MCP";
+        "CLI: --skip-onboarding --debug-agent-harness opens fixture, --test-chat-stress checks tools, --test-mcp-native checks SDK MCP";
 
     partial void OnSelectedNavIndexChanged(int value)
     {
@@ -160,7 +160,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ChatSurfaceRegistry? chatSurfaceRegistry = null,
         ChatSessionStore? chatSessionStore = null
 #if DEBUG
-        , bool openAgentDebugHarness = false
+        , bool openAgentDebugHarness = false,
+        bool skipOnboarding = false
 #endif
         )
     {
@@ -176,7 +177,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _isDarkTheme = settings.IsDarkTheme;
         _isCompactDensity = settings.IsCompactDensity;
         _userName = settings.UserName ?? "";
+#if DEBUG
+        _isOnboarded = !forceOnboarding && (settings.IsOnboarded || skipOnboarding);
+#else
         _isOnboarded = settings.IsOnboarded && !forceOnboarding;
+#endif
 
         // Shared GitHub login ViewModel
         LoginVM = new GitHubLoginViewModel(copilotService);

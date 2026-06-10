@@ -37,12 +37,13 @@ public sealed class LumiMcpTools
             ("appDataDir", appDataDir)));
 
     [McpServerTool(Name = "lumi_launch")]
-    [Description("Launch a Debug Lumi instance, optionally into the transcript fixture harness, then wait for the Lumi debug bridge.")]
+    [Description("Launch a Debug Lumi instance without onboarding by default, optionally into the transcript fixture harness, then wait for the Lumi debug bridge.")]
     public Task<string> Launch(
         [Description("Launch mode: normal or fixture.")] string? harness = "fixture",
         [Description("When true, return the existing debug bridge if one is already running.")] bool reuseExisting = true,
         [Description("How long to wait for the bridge to appear.")] int timeoutMs = 90000,
         [Description("Optional app-data root for isolated smoke tests. Passed to Lumi as LUMI_APPDATA_DIR.")] string? appDataDir = null,
+        [Description("When true, force Lumi's onboarding flow instead of skipping it for debug automation.")] bool showOnboarding = false,
         [Description("Optional existing debug bridge instance id to target when reuseExisting is true.")] string? targetInstanceId = null,
         [Description("Optional existing Lumi app/debug bridge process id to target when reuseExisting is true.")] int? targetProcessId = null,
         [Description("Optional existing app-data root to target when reuseExisting is true. Defaults to appDataDir when provided.")] string? targetAppDataDir = null)
@@ -51,6 +52,7 @@ public sealed class LumiMcpTools
             ("reuseExisting", reuseExisting),
             ("timeoutMs", timeoutMs),
             ("appDataDir", appDataDir),
+            ("showOnboarding", showOnboarding),
             ("targetInstanceId", targetInstanceId),
             ("targetProcessId", targetProcessId),
             ("targetAppDataDir", targetAppDataDir ?? appDataDir)));

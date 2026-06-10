@@ -53,7 +53,7 @@ public sealed class LumiDebugBridgeClient
                 statusFilePath = StatusFilePath,
                 statusDirectory = StatusDirectory,
                 target = TargetSelector.From(arguments),
-                message = "No Lumi debug bridge discovery file was found. Start Lumi Debug with lumi_launch or dotnet run --project src\\Lumi\\Lumi.csproj -- --debug-agent-harness."
+                message = "No Lumi debug bridge discovery file was found. Start Lumi Debug with lumi_launch or dotnet run --project src\\Lumi\\Lumi.csproj -- --skip-onboarding --debug-agent-harness."
             };
         }
 

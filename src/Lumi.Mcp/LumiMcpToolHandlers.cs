@@ -49,11 +49,13 @@ public sealed class LumiMcpToolHandlers
         var args = arguments ?? default;
         var timeoutMs = GetInt(args, "timeoutMs") ?? 90000;
         var appDataDir = GetString(args, "appDataDir");
+        var launchAppDataDir = appDataDir ?? GetString(args, "targetAppDataDir");
+        var showOnboarding = GetBool(args, "showOnboarding") ?? false;
         var reuseExisting = GetBool(args, "reuseExisting") ?? string.IsNullOrWhiteSpace(appDataDir);
         if (reuseExisting)
         {
             var existing = await _bridgeClient.GetStatusOrOfflineAsync(args, cancellationToken).ConfigureAwait(false);
-            if (IsBridgeAvailable(existing))
+            if (IsBridgeAvailable(existing) && IsExistingLaunchCompatible(existing, showOnboarding))
                 return existing;
         }
 
@@ -73,10 +75,10 @@ public sealed class LumiMcpToolHandlers
                 CreateNoWindow = true
             }
         };
-        if (!string.IsNullOrWhiteSpace(appDataDir))
+        if (!string.IsNullOrWhiteSpace(launchAppDataDir))
         {
-            Directory.CreateDirectory(appDataDir);
-            process.StartInfo.Environment["LUMI_APPDATA_DIR"] = Path.GetFullPath(appDataDir);
+            Directory.CreateDirectory(launchAppDataDir);
+            process.StartInfo.Environment["LUMI_APPDATA_DIR"] = Path.GetFullPath(launchAppDataDir);
         }
         process.StartInfo.ArgumentList.Add("run");
         process.StartInfo.ArgumentList.Add("--project");
@@ -84,6 +86,7 @@ public sealed class LumiMcpToolHandlers
         process.StartInfo.ArgumentList.Add("--configuration");
         process.StartInfo.ArgumentList.Add("Debug");
         process.StartInfo.ArgumentList.Add("--");
+        process.StartInfo.ArgumentList.Add(showOnboarding ? "--onboarding" : "--skip-onboarding");
         if (harness is "fixture" or "debug" or "debug-agent-harness")
             process.StartInfo.ArgumentList.Add("--debug-agent-harness");
 
@@ -104,7 +107,12 @@ public sealed class LumiMcpToolHandlers
         process.BeginErrorReadLine();
         TrackLaunchedProcess(process);
 
-        var status = await WaitForBridgeAsync(args, timeoutMs, launchStartedAt, cancellationToken).ConfigureAwait(false);
+        var status = await WaitForBridgeAsync(
+            args,
+            timeoutMs,
+            launchStartedAt,
+            launchAppDataDir,
+            cancellationToken).ConfigureAwait(false);
         var launchStatus = ExtractLaunchStatus(status);
         return new
         {
@@ -115,7 +123,8 @@ public sealed class LumiMcpToolHandlers
             bridgeInstanceId = launchStatus.InstanceId,
             bridgeUrl = launchStatus.Url,
             harness,
-            appDataDir = launchStatus.AppDataDir ?? (string.IsNullOrWhiteSpace(appDataDir) ? null : Path.GetFullPath(appDataDir)),
+            showOnboarding,
+            appDataDir = launchStatus.AppDataDir ?? (string.IsNullOrWhiteSpace(launchAppDataDir) ? null : Path.GetFullPath(launchAppDataDir)),
             startupOutputPreview = StartupPreview(outputLines),
             startupErrorPreview = StartupPreview(errorLines),
             status
@@ -237,6 +246,7 @@ public sealed class LumiMcpToolHandlers
         JsonElement args,
         int timeoutMs,
         DateTimeOffset? launchedAfter,
+        string? launchedAppDataDir,
         CancellationToken cancellationToken)
     {
         var deadline = Stopwatch.StartNew();
@@ -244,7 +254,9 @@ public sealed class LumiMcpToolHandlers
         {
             if (launchedAfter.HasValue)
             {
-                var appDataDir = GetString(args, "targetAppDataDir") ?? GetString(args, "appDataDir");
+                var appDataDir = launchedAppDataDir
+                    ?? GetString(args, "targetAppDataDir")
+                    ?? GetString(args, "appDataDir");
                 var candidates = _bridgeClient.EnumerateDiscoveries()
                     .Where(discovery => LumiDebugBridgeClient.IsProcessAlive(discovery.ProcessId))
                     .Where(discovery => discovery.StartedAt >= launchedAfter.Value);
@@ -384,6 +396,20 @@ public sealed class LumiMcpToolHandlers
         using var document = JsonSerializer.SerializeToDocument(status);
         return document.RootElement.TryGetProperty("bridgeAvailable", out var available)
             && available.ValueKind == JsonValueKind.True;
+    }
+
+    private static bool IsExistingLaunchCompatible(object status, bool showOnboarding)
+    {
+        using var document = JsonSerializer.SerializeToDocument(status);
+        if (!TryGetProperty(document.RootElement, ["status", "app", "isOnboarded"], out var isOnboarded)
+            || isOnboarded.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            return false;
+        }
+
+        return showOnboarding
+            ? isOnboarded.ValueKind == JsonValueKind.False
+            : isOnboarded.ValueKind == JsonValueKind.True;
     }
 
     private static string FindRepositoryRoot()

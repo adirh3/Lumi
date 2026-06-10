@@ -62,7 +62,8 @@ public partial class App : Application
                 forceOnboarding: Program.ForceOnboarding,
                 startBackgroundJobs: true
 #if DEBUG
-                , openAgentDebugHarness: Program.OpenAgentDebugHarness
+                , openAgentDebugHarness: Program.OpenAgentDebugHarness,
+                skipOnboarding: Program.SkipOnboarding
 #endif
             );
             _backgroundJobService = vm.BackgroundJobService;
@@ -185,7 +186,8 @@ public partial class App : Application
         bool forceOnboarding = false,
         bool startBackgroundJobs = false
 #if DEBUG
-        , bool openAgentDebugHarness = false
+        , bool openAgentDebugHarness = false,
+        bool skipOnboarding = false
 #endif
         )
     {
@@ -207,7 +209,8 @@ public partial class App : Application
             _chatSurfaceRegistry,
             _chatSessionStore
 #if DEBUG
-            , openAgentDebugHarness
+            , openAgentDebugHarness,
+            skipOnboarding
 #endif
         );
     }
@@ -339,7 +342,11 @@ public partial class App : Application
             return;
         }
 
-        var window = CreateWindow(CreateMainViewModel(), isPrimary: false);
+        var window = CreateWindow(CreateMainViewModel(
+#if DEBUG
+            skipOnboarding: Program.SkipOnboarding
+#endif
+        ), isPrimary: false);
         if (_mainWindow is { IsVisible: true } owner)
             window.SecondaryWindowAnchorPosition = owner.Position;
 

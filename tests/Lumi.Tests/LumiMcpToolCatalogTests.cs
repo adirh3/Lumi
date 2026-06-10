@@ -1,9 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text.RegularExpressions;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Lumi.Mcp;
@@ -34,17 +34,40 @@ public sealed class LumiMcpToolCatalogTests
         Assert.Contains("lumi_run_harness", toolNames);
     }
 
+    [Theory]
+    [InlineData(false, true, true)]
+    [InlineData(false, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
+    public void LaunchReuseCompatibility_MatchesRequestedOnboardingMode(
+        bool showOnboarding,
+        bool isOnboarded,
+        bool expected)
+    {
+        var status = new
+        {
+            bridgeAvailable = true,
+            status = new
+            {
+                app = new
+                {
+                    isOnboarded
+                }
+            }
+        };
+        var method = typeof(LumiMcpToolHandlers).GetMethod(
+            "IsExistingLaunchCompatible",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.NotNull(method);
+        var actual = Assert.IsType<bool>(method.Invoke(null, [status, showOnboarding]));
+        Assert.Equal(expected, actual);
+    }
+
     [Fact]
     public async Task OfficialSdkStdioServer_ListsLumiTools()
     {
-        var serverAssemblyPath = Path.Combine(
-            FindRepositoryRoot(),
-            "src",
-            "Lumi.Mcp",
-            "bin",
-            "Debug",
-            GetMcpTargetFramework(),
-            "Lumi.Mcp.dll");
+        var serverAssemblyPath = FindRunnableMcpAssembly(typeof(LumiMcpTools).Assembly.Location);
         Assert.True(File.Exists(serverAssemblyPath));
 
         using var process = new Process
@@ -110,6 +133,7 @@ public sealed class LumiMcpToolCatalogTests
                 .GetProperty("inputSchema")
                 .GetProperty("properties");
             Assert.True(launchProperties.TryGetProperty("targetAppDataDir", out _));
+            Assert.True(launchProperties.TryGetProperty("showOnboarding", out _));
 
             var instanceProperties = toolByName["lumi_list_instances"]
                 .GetProperty("inputSchema")
@@ -152,6 +176,39 @@ public sealed class LumiMcpToolCatalogTests
         throw new TimeoutException("Timed out waiting for MCP server JSON response.");
     }
 
+    private static string FindRunnableMcpAssembly(string referencedAssemblyPath)
+    {
+        foreach (var candidate in GetMcpAssemblyCandidates(referencedAssemblyPath)
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!File.Exists(candidate))
+                continue;
+
+            var runtimeConfigPath = Path.ChangeExtension(candidate, ".runtimeconfig.json");
+            if (File.Exists(runtimeConfigPath))
+                return candidate;
+        }
+
+        throw new FileNotFoundException("Could not find a runnable Lumi.Mcp assembly.", referencedAssemblyPath);
+    }
+
+    private static IEnumerable<string> GetMcpAssemblyCandidates(string referencedAssemblyPath)
+    {
+        var fileName = Path.GetFileName(referencedAssemblyPath);
+        var directory = Path.GetDirectoryName(referencedAssemblyPath);
+        if (directory is not null)
+        {
+            var parent = Directory.GetParent(directory);
+            if (parent is not null)
+                yield return Path.Combine(parent.FullName, "net11.0", fileName);
+        }
+
+        yield return referencedAssemblyPath;
+
+        var repoRoot = FindRepositoryRoot();
+        yield return Path.Combine(repoRoot, "src", "Lumi.Mcp", "bin", "Debug", "net11.0", fileName);
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -164,15 +221,5 @@ public sealed class LumiMcpToolCatalogTests
         }
 
         throw new DirectoryNotFoundException("Could not find Lumi repository root.");
-    }
-
-    private static string GetMcpTargetFramework()
-    {
-        var projectPath = Path.Combine(FindRepositoryRoot(), "src", "Lumi.Mcp", "Lumi.Mcp.csproj");
-        var projectText = File.ReadAllText(projectPath);
-        var match = Regex.Match(projectText, @"<TargetFramework>([^<]+)</TargetFramework>");
-        return match.Success
-            ? match.Groups[1].Value
-            : throw new InvalidDataException("Could not read Lumi.Mcp target framework.");
     }
 }
