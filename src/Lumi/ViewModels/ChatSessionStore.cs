@@ -125,7 +125,9 @@ public sealed class ChatSessionStore : IDisposable
     {
         foreach (var surface in _surfaces.ToArray())
         {
-            if (surface.CurrentChat?.Id == chatId || surface.OwnsLiveChat(chatId))
+            if (surface.CurrentChat?.Id == chatId
+                || surface.OwnsLiveChat(chatId)
+                || surface.HasBrowserService(chatId))
                 surface.CleanupSession(chatId);
         }
 

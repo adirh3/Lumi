@@ -49,8 +49,6 @@ internal sealed class ChatRuntimeState
 
     public string? ActiveContextWindowTier { get; set; }
 
-    public bool HasUsedBrowser { get; set; }
-
     public int ActiveToolCount { get; set; }
 
     /// <summary>Number of sub-agents currently executing. The SDK completes the wrapping

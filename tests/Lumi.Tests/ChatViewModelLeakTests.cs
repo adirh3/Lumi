@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -30,8 +31,7 @@ public sealed class ChatViewModelLeakTests
 
         GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[inactiveChat.Id] = new ChatRuntimeState
         {
-            Chat = inactiveChat,
-            HasUsedBrowser = true
+            Chat = inactiveChat
         };
         GetField<Dictionary<Guid, CancellationTokenSource>>(vm, "_ctsSources")[inactiveChat.Id] = new CancellationTokenSource();
         var subscription = new CountingDisposable();
@@ -40,7 +40,7 @@ public sealed class ChatViewModelLeakTests
             new ChatMessage { Role = "assistant", Content = "streaming" };
         GetField<HashSet<Guid>>(vm, "_suggestionGenerationInFlightChats").Add(inactiveChat.Id);
         GetField<Dictionary<Guid, Guid>>(vm, "_lastSuggestedAssistantMessageByChat")[inactiveChat.Id] = Guid.NewGuid();
-        GetField<Dictionary<Guid, BrowserService>>(vm, "_chatBrowserServices")[inactiveChat.Id] = new BrowserService();
+        GetField<ConcurrentDictionary<Guid, BrowserService>>(vm, "_chatBrowserServices")[inactiveChat.Id] = new BrowserService();
 
         InvokePrivate(vm, "ReleaseInactiveChatState", inactiveChat);
 
@@ -53,7 +53,40 @@ public sealed class ChatViewModelLeakTests
         Assert.False(GetField<Dictionary<Guid, ChatMessage>>(vm, "_inProgressMessages").ContainsKey(inactiveChat.Id));
         Assert.DoesNotContain(inactiveChat.Id, GetField<HashSet<Guid>>(vm, "_suggestionGenerationInFlightChats"));
         Assert.DoesNotContain(inactiveChat.Id, GetField<Dictionary<Guid, Guid>>(vm, "_lastSuggestedAssistantMessageByChat").Keys);
-        Assert.False(GetField<Dictionary<Guid, BrowserService>>(vm, "_chatBrowserServices").ContainsKey(inactiveChat.Id));
+        // Browser sessions belong to the chat's lifetime, not its transient runtime state, so they
+        // survive an inactive-state release and are reattached when the user switches back.
+        Assert.True(GetField<ConcurrentDictionary<Guid, BrowserService>>(vm, "_chatBrowserServices").ContainsKey(inactiveChat.Id));
+    }
+
+    [Fact]
+    public void BrowserService_SurvivesInactiveReleaseButIsDisposedOnCleanup()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var activeChat = new Chat { Title = "active" };
+        var browserChat = new Chat { Title = "browser" };
+        browserChat.Messages.Add(new ChatMessage { Role = "assistant", Content = "kept" });
+
+        dataStore.Data.Chats.Add(activeChat);
+        dataStore.Data.Chats.Add(browserChat);
+        vm.CurrentChat = activeChat;
+
+        var services = GetField<ConcurrentDictionary<Guid, BrowserService>>(vm, "_chatBrowserServices");
+        services[browserChat.Id] = new BrowserService();
+        GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[browserChat.Id] =
+            new ChatRuntimeState { Chat = browserChat };
+
+        // Going inactive releases the runtime state but preserves the browser session so the user
+        // can return to the chat and find the browser exactly as they left it.
+        InvokePrivate(vm, "ReleaseInactiveChatState", browserChat);
+        Assert.False(GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates").ContainsKey(browserChat.Id));
+        Assert.True(services.ContainsKey(browserChat.Id));
+
+        // Deleting the chat tears the browser session down for good.
+        vm.CleanupSession(browserChat.Id);
+        Assert.False(services.ContainsKey(browserChat.Id));
+
+        vm.Dispose();
     }
 
     [Fact]

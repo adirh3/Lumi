@@ -144,8 +144,6 @@ public partial class ChatViewModel
                 ([Description("The full URL to navigate to (e.g. https://mail.google.com)")] string url) =>
                 {
                     var svc = GetOrCreateBrowserService(chatId);
-                    var runtime = GetOrCreateRuntimeState(chatId);
-                    runtime.HasUsedBrowser = true;
                     Dispatcher.UIThread.Post(() =>
                     {
                         if (CurrentChat?.Id == chatId) HasUsedBrowser = true;
@@ -186,8 +184,6 @@ public partial class ChatViewModel
                     var act = (action ?? "").Trim().ToLowerInvariant();
                     if (act is "click" or "type" or "press" or "select" or "download" or "back" or "clear" or "fill" or "steps")
                     {
-                        var runtime = GetOrCreateRuntimeState(chatId);
-                        runtime.HasUsedBrowser = true;
                         Dispatcher.UIThread.Post(() =>
                         {
                             if (CurrentChat?.Id == chatId) HasUsedBrowser = true;

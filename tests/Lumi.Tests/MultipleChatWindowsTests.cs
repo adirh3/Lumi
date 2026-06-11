@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
@@ -465,6 +466,40 @@ public sealed class MultipleChatWindowsTests
             Assert.False(visibleSurface.IsLoadingChat);
             Assert.Same(targetChat, viewModel.ChatVM.CurrentChat);
             viewModel.Dispose();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ChatSessionStore_DisposesBrowserOnDeleteAfterRuntimeSwept()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var browserChat = new Chat { Title = "Browser chat" };
+            var otherChat = new Chat { Title = "Other chat" };
+            browserChat.Messages.Add(new ChatMessage { Role = "user", Content = "browse" });
+            otherChat.Messages.Add(new ChatMessage { Role = "user", Content = "other" });
+            using var registry = new ChatSurfaceRegistry();
+            using var store = new ChatSessionStore(CreateDataStore(browserChat, otherChat), new CopilotService(), registry);
+
+            var surface = await store.AcquireChatAsync(browserChat);
+
+            // Give the chat a live per-chat browser session.
+            var services = GetPrivateField<ConcurrentDictionary<Guid, BrowserService>>(surface, "_chatBrowserServices");
+            services[browserChat.Id] = new BrowserService();
+
+            // Switch the surface to a different chat: this sweeps the browser chat's runtime state,
+            // but the browser session is intentionally kept alive for when the user returns.
+            await surface.LoadChatAsync(otherChat);
+            Assert.True(services.ContainsKey(browserChat.Id));
+            Assert.NotEqual(browserChat.Id, surface.CurrentChat?.Id);
+            Assert.False(surface.OwnsLiveChat(browserChat.Id));
+
+            // Deleting the chat must tear its browser down instead of leaking it until app shutdown,
+            // even though the surface neither displays nor owns the chat anymore.
+            store.CleanupChat(browserChat.Id);
+            Assert.False(services.ContainsKey(browserChat.Id));
         }, CancellationToken.None);
     }
 

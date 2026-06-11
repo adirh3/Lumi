@@ -35,6 +35,7 @@ public partial class ChatViewModel
         foreach (var chatId in _sessionCache.Keys
                      .Concat(_ctsSources.Keys)
                      .Concat(_runtimeStates.Keys)
+                     .Concat(_chatBrowserServices.Keys)
                      .Distinct()
                      .ToList())
         {
@@ -80,6 +81,11 @@ public partial class ChatViewModel
             && message.QuestionId is { Length: > 0 } questionId
             && _pendingQuestions.ContainsKey(questionId)) == true;
     }
+
+    // A browser session outlives its chat's runtime state (it persists across chat switches), so a
+    // surface can still hold one for a chat it no longer "owns". Deletion paths use this to ensure
+    // the browser is torn down rather than leaking until app shutdown.
+    internal bool HasBrowserService(Guid chatId) => _chatBrowserServices.ContainsKey(chatId);
 
     internal bool OwnsAnyLiveChat()
     {
@@ -197,10 +203,9 @@ public partial class ChatViewModel
 
     private void DisposeBrowserService(Guid chatId)
     {
-        if (_chatBrowserServices.TryGetValue(chatId, out var browserSvc))
+        if (_chatBrowserServices.TryRemove(chatId, out var browserSvc))
         {
             _ = browserSvc.DisposeAsync();
-            _chatBrowserServices.Remove(chatId);
         }
     }
 
@@ -353,7 +358,10 @@ public partial class ChatViewModel
         CancelPendingQuestions(chat);
         ReleaseSessionResources(chat.Id, cancelActiveRequest: false, deleteServerSession: false);
         RemoveSuggestionTracking(chat.Id);
-        DisposeBrowserService(chat.Id);
+        // Intentionally keep the chat's BrowserService alive. A browser session belongs to the
+        // chat, not its transient runtime state, so switching away and back restores the page
+        // instead of losing the browser (and its toggle button). The service is disposed when the
+        // chat is deleted (CleanupSession) or the app shuts down (Dispose).
         _runtimeStates.Remove(chat.Id);
     }
 

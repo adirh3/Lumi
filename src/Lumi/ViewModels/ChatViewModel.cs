@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -307,7 +308,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>Per-chat runtime state sourced from live session events.</summary>
     private readonly Dictionary<Guid, ChatRuntimeState> _runtimeStates = new();
     /// <summary>Maps chat ID → per-chat BrowserService instance. Created lazily on first browser tool use.</summary>
-    private readonly Dictionary<Guid, BrowserService> _chatBrowserServices = new();
+    private readonly ConcurrentDictionary<Guid, BrowserService> _chatBrowserServices = new();
     /// <summary>Skills activated mid-chat (after session exists). Consumed on next SendMessage to inject into prompt.</summary>
     private readonly List<Guid> _pendingSkillInjections = new();
     /// <summary>Per-chat guard so suggestion generation is queued at most once concurrently.</summary>
@@ -321,16 +322,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>Tracks the last assistant message ID that already produced suggestions per chat.</summary>
     private readonly Dictionary<Guid, Guid> _lastSuggestedAssistantMessageByChat = new();
 
-    /// <summary>Gets or lazily creates a per-chat BrowserService instance.</summary>
+    /// <summary>Gets or lazily creates a per-chat BrowserService instance. Browser tool callbacks run
+    /// off the UI thread while chat-switch/cleanup code touches this map on the UI thread, so the
+    /// backing store is a ConcurrentDictionary and creation goes through an atomic GetOrAdd.</summary>
     private BrowserService GetOrCreateBrowserService(Guid chatId)
-    {
-        if (!_chatBrowserServices.TryGetValue(chatId, out var service))
-        {
-            service = new BrowserService();
-            _chatBrowserServices[chatId] = service;
-        }
-        return service;
-    }
+        => _chatBrowserServices.GetOrAdd(chatId, static _ => new BrowserService());
 
     /// <summary>Gets the BrowserService for a chat if one exists, without creating.</summary>
     public BrowserService? GetBrowserServiceForChat(Guid chatId)
@@ -1361,7 +1357,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             TotalOutputTokens = runtime.TotalOutputTokens;
             ContextCurrentTokens = runtime.ContextCurrentTokens;
             ContextTokenLimit = runtime.ContextTokenLimit;
-            HasUsedBrowser = runtime.HasUsedBrowser;
+            // The browser toggle/panel follow the live BrowserService, which persists across chat
+            // switches, so derive visibility from the service rather than the transient runtime flag.
+            HasUsedBrowser = _chatBrowserServices.ContainsKey(chat.Id);
 
             _isBulkLoadingMessages = true;
             try
@@ -1390,7 +1388,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
                 // If this chat has an active browser, show its panel (after CurrentChat is set
                 // so ActiveChatId is already updated when the MainWindow handler runs)
-                if (runtime.HasUsedBrowser && _chatBrowserServices.ContainsKey(chat.Id))
+                if (_chatBrowserServices.ContainsKey(chat.Id))
                     BrowserShowRequested?.Invoke(chat.Id);
 
                 // Rebuild transcript items from the fully loaded message list before
