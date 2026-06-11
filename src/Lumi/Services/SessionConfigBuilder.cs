@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using GitHub.Copilot;
 using GitHub.Copilot.Rpc;
+using Lumi.Models;
 using Microsoft.Extensions.AI;
 
 namespace Lumi.Services;
@@ -61,7 +62,8 @@ public sealed class LightweightSessionOptions
         Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>>? userInputHandler,
         Func<PermissionRequest, PermissionInvocation, Task<PermissionDecision>>? onPermission,
         SessionHooks? hooks,
-        string? agentName = null)
+        string? agentName = null,
+        string? contextTier = null)
     {
         var config = new SessionConfig
         {
@@ -75,6 +77,7 @@ public sealed class LightweightSessionOptions
             ExcludedTools = ExcludedBuiltInTools(),
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
+            ContextTier = CreateContextTier(contextTier),
         };
 
         Populate(config, systemPrompt, reasoningEffort, skillDirectories,
@@ -98,7 +101,8 @@ public sealed class LightweightSessionOptions
         Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>>? userInputHandler,
         Func<PermissionRequest, PermissionInvocation, Task<PermissionDecision>>? onPermission,
         SessionHooks? hooks,
-        string? agentName = null)
+        string? agentName = null,
+        string? contextTier = null)
     {
         var config = new ResumeSessionConfig
         {
@@ -112,6 +116,7 @@ public sealed class LightweightSessionOptions
             ExcludedTools = ExcludedBuiltInTools(),
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
+            ContextTier = CreateContextTier(contextTier),
         };
 
         Populate(config, systemPrompt, reasoningEffort, skillDirectories,
@@ -172,6 +177,19 @@ public sealed class LightweightSessionOptions
             .AddBuiltIn("*")
             .AddMcp("*")
             .AddCustom("*");
+
+    internal static ContextTier? CreateContextTier(string? contextTier)
+    {
+        if (string.IsNullOrWhiteSpace(contextTier))
+            return null;
+
+        return contextTier.Trim().ToLowerInvariant() switch
+        {
+            ModelContextWindowTiers.Default => ContextTier.Default,
+            ModelContextWindowTiers.LongContext => ContextTier.LongContext,
+            var tier => new ContextTier(tier)
+        };
+    }
 
     /// <summary>Sets the shared optional properties on a <see cref="SessionConfig"/>.</summary>
     private static void Populate(

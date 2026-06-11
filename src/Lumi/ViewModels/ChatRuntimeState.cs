@@ -2,6 +2,13 @@ using Lumi.Models;
 
 namespace Lumi.ViewModels;
 
+internal enum ContextTokenLimitSource
+{
+    Unknown,
+    Catalog,
+    Session
+}
+
 internal sealed class ChatRuntimeState
 {
     private bool _isBusy;
@@ -33,8 +40,14 @@ internal sealed class ChatRuntimeState
     /// <summary>Latest turn's input tokens — best proxy for current context window usage.</summary>
     public long ContextCurrentTokens { get; set; }
 
-    /// <summary>Context window token limit from SessionUsageInfoEvent.</summary>
+    /// <summary>Context window token limit from the active session, or catalog fallback before a session reports usage.</summary>
     public long ContextTokenLimit { get; set; }
+
+    public ContextTokenLimitSource ContextTokenLimitSource { get; set; }
+
+    public string? ActiveModelId { get; set; }
+
+    public string? ActiveContextWindowTier { get; set; }
 
     public bool HasUsedBrowser { get; set; }
 

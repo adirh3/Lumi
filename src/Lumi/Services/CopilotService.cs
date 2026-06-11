@@ -30,12 +30,19 @@ public enum ConnectionState
     Error,
 }
 
+public readonly record struct ModelContextWindowLimits(long Default, long? LongContext);
+
+public sealed record ModelContextWindowCatalog(
+    IReadOnlySet<string> LongContextModelIds,
+    IReadOnlyDictionary<string, ModelContextWindowLimits> Limits);
+
 public class CopilotService : IAsyncDisposable
 {
     private CopilotClient? _client;
     /// <summary>Exposes the underlying CopilotClient for advanced usage (e.g. test harness).</summary>
     public CopilotClient? Client => _client;
     private List<ModelInfo>? _models;
+    private ModelContextWindowCatalog? _contextWindowCatalog;
     private string? _fastestModelId;
     private long _connectionGeneration;
     private ConnectionState _state = ConnectionState.Disconnected;
@@ -111,6 +118,7 @@ public class CopilotService : IAsyncDisposable
             _client = newClient;
             _state = ConnectionState.Connected;
             _models = null;
+            _contextWindowCatalog = null;
             _fastestModelId = null;
             await _suggestionGate.WaitAsync(ct).ConfigureAwait(false);
             try
@@ -325,6 +333,67 @@ public class CopilotService : IAsyncDisposable
         if (_client is null) throw new InvalidOperationException("Not connected");
         _models ??= (await _client.ListModelsAsync(ct)).ToList();
         return _models;
+    }
+
+    public async Task<IReadOnlySet<string>> GetLongContextModelIdsAsync(CancellationToken ct = default)
+        => (await GetContextWindowCatalogAsync(ct).ConfigureAwait(false)).LongContextModelIds;
+
+    public async Task<ModelContextWindowCatalog> GetContextWindowCatalogAsync(CancellationToken ct = default)
+    {
+        if (_client is null) throw new InvalidOperationException("Not connected");
+        if (_contextWindowCatalog is not null)
+            return _contextWindowCatalog;
+
+        try
+        {
+#pragma warning disable GHCP001
+            var rawModels = await _client.Rpc.Models.ListAsync(null, ct).ConfigureAwait(false);
+#pragma warning restore GHCP001
+            var longContextModelIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var limits = new Dictionary<string, ModelContextWindowLimits>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var model in rawModels.Models)
+            {
+                if (string.IsNullOrWhiteSpace(model.Id))
+                    continue;
+
+                var tokenPrices = model.Billing?.TokenPrices;
+                var defaultContextMax = NormalizeContextMax(tokenPrices?.ContextMax);
+                var longContextMax = NormalizeContextMax(tokenPrices?.LongContext?.ContextMax);
+                if (longContextMax > 0)
+                    longContextModelIds.Add(model.Id);
+
+                if (defaultContextMax > 0 || longContextMax > 0)
+                {
+                    limits[model.Id] = new ModelContextWindowLimits(
+                        defaultContextMax > 0 ? defaultContextMax : 0,
+                        longContextMax > 0 ? longContextMax : null);
+                }
+            }
+
+            _contextWindowCatalog = new ModelContextWindowCatalog(longContextModelIds, limits);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Failed to load context window model catalog: {ex}");
+            _contextWindowCatalog = new ModelContextWindowCatalog(
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                new Dictionary<string, ModelContextWindowLimits>(StringComparer.OrdinalIgnoreCase));
+        }
+
+        return _contextWindowCatalog;
+    }
+
+    private static long NormalizeContextMax(double? tokens)
+    {
+        if (tokens is null || double.IsNaN(tokens.Value) || double.IsInfinity(tokens.Value) || tokens.Value <= 0)
+            return 0;
+
+        return (long)Math.Round(tokens.Value);
     }
 
     /// <summary>Returns the cheapest/fastest model ID from the cached model list.

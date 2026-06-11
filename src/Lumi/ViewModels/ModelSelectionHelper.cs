@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using GitHub.Copilot;
 using Lumi.Localization;
+using Lumi.Models;
 
 namespace Lumi.ViewModels;
 
@@ -125,5 +126,79 @@ internal static class ModelSelectionHelper
         if (display == Loc.Quality_High)
             return "high";
         return display.ToLowerInvariant();
+    }
+
+    public static string[]? GetContextWindowTiers(
+        string? modelId,
+        IReadOnlySet<string> longContextModelIds)
+    {
+        if (!SupportsContextWindowTiers(modelId, longContextModelIds))
+            return null;
+
+        return
+        [
+            ContextWindowTierToDisplay(ModelContextWindowTiers.Default),
+            ContextWindowTierToDisplay(ModelContextWindowTiers.LongContext)
+        ];
+    }
+
+    public static string? ResolveSelectedContextWindowTierDisplay(
+        string? tier,
+        string? modelId,
+        IReadOnlySet<string> longContextModelIds)
+    {
+        var normalizedTier = NormalizeContextWindowTier(tier, modelId, longContextModelIds);
+        return normalizedTier is null ? null : ContextWindowTierToDisplay(normalizedTier);
+    }
+
+    public static string? NormalizeContextWindowTier(
+        string? tier,
+        string? modelId,
+        IReadOnlySet<string> longContextModelIds)
+    {
+        if (!SupportsContextWindowTiers(modelId, longContextModelIds))
+            return null;
+
+        var normalizedTier = DisplayToContextWindowTier(tier);
+        return string.Equals(normalizedTier, ModelContextWindowTiers.LongContext, StringComparison.OrdinalIgnoreCase)
+            ? ModelContextWindowTiers.LongContext
+            : ModelContextWindowTiers.Default;
+    }
+
+    public static string ContextWindowTierToDisplay(string tier) => tier.ToLowerInvariant() switch
+    {
+        ModelContextWindowTiers.Default => Loc.ContextWindow_Default,
+        ModelContextWindowTiers.LongContext => Loc.ContextWindow_Long,
+        _ => CultureInfo.CurrentCulture.TextInfo.ToTitleCase(tier.Replace('_', ' '))
+    };
+
+    public static string? DisplayToContextWindowTier(string? display)
+    {
+        if (string.IsNullOrWhiteSpace(display))
+            return null;
+
+        if (display == Loc.ContextWindow_Default)
+            return ModelContextWindowTiers.Default;
+        if (display == Loc.ContextWindow_Long)
+            return ModelContextWindowTiers.LongContext;
+
+        return display.Trim().ToLowerInvariant().Replace('-', '_').Replace(' ', '_') switch
+        {
+            "standard" or "default" => ModelContextWindowTiers.Default,
+            "long" or "longcontext" or "long_context" => ModelContextWindowTiers.LongContext,
+            var tier => tier
+        };
+    }
+
+    private static bool SupportsContextWindowTiers(
+        string? modelId,
+        IReadOnlySet<string> longContextModelIds)
+    {
+        if (string.IsNullOrWhiteSpace(modelId))
+            return false;
+
+        var normalizedModel = modelId.Trim();
+        return longContextModelIds.Contains(normalizedModel)
+            || longContextModelIds.Any(candidate => string.Equals(candidate, normalizedModel, StringComparison.OrdinalIgnoreCase));
     }
 }

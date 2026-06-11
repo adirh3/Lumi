@@ -267,7 +267,9 @@
                                   Models="{Binding AvailableModels}"
                                   SelectedModel="{Binding PreferredModel, Mode=TwoWay}"
                                   QualityLevels="{Binding QualityLevels}"
-                                  SelectedQuality="{Binding SelectedQuality, Mode=TwoWay}">
+                                  SelectedQuality="{Binding SelectedQuality, Mode=TwoWay}"
+                                  ContextWindowTiers="{Binding ContextWindowTiers}"
+                                  SelectedContextWindowTier="{Binding SelectedContextWindowTier, Mode=TwoWay}">
               <sc:StrataModelPicker.ModelItemTemplate>
                 <DataTemplate>
                   <TextBlock Text="{Binding Converter={StaticResource ModelDisplayConverter}}" />

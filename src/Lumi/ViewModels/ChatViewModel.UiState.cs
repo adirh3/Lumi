@@ -39,8 +39,11 @@ public partial class ChatViewModel
     [ObservableProperty] private string? _agentBadgeText;
     [ObservableProperty] private string[]? _qualityLevels;
     [ObservableProperty] private string? _selectedQuality;
+    [ObservableProperty] private string[]? _contextWindowTiers;
+    [ObservableProperty] private string? _selectedContextWindowTier;
     private bool _suppressModelSelectionSideEffects;
     private bool _suppressSelectedQualitySync;
+    private bool _suppressSelectedContextWindowTierSync;
 
     // ── Plan (server may still generate plans) ──
     [ObservableProperty] private bool _hasPlan;
@@ -131,19 +134,27 @@ public partial class ChatViewModel
     private Dictionary<string, List<string>> _modelReasoningEfforts = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _modelDefaultEfforts = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, long> _modelContextTokenLimits = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, long> _modelLongContextTokenLimits = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _modelsWithLongContext = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Updates the model capabilities cache from SDK ModelInfo list.
     /// Called by MainViewModel after fetching models from the SDK.
     /// </summary>
-    public void UpdateModelCapabilities(List<GitHub.Copilot.ModelInfo> models)
+    public void UpdateModelCapabilities(
+        List<GitHub.Copilot.ModelInfo> models,
+        IReadOnlySet<string>? longContextModelIds = null,
+        IReadOnlyDictionary<string, ModelContextWindowLimits>? contextWindowLimits = null)
     {
         ModelSelectionHelper.ApplyModelCapabilities(
             models,
             _modelReasoningEfforts,
             _modelDefaultEfforts,
             _modelContextTokenLimits);
+        ApplyContextWindowLimits(contextWindowLimits);
+        _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
         UpdateQualityLevels(SelectedModel);
+        UpdateContextWindowTiers(SelectedModel);
 
         if (CurrentChat is { } chat)
         {
@@ -170,13 +181,54 @@ public partial class ChatViewModel
         _modelContextTokenLimits = new Dictionary<string, long>(
             source._modelContextTokenLimits,
             StringComparer.OrdinalIgnoreCase);
+        _modelLongContextTokenLimits = new Dictionary<string, long>(
+            source._modelLongContextTokenLimits,
+            StringComparer.OrdinalIgnoreCase);
+        _modelsWithLongContext = new HashSet<string>(
+            source._modelsWithLongContext,
+            StringComparer.OrdinalIgnoreCase);
         UpdateQualityLevels(SelectedModel);
+        UpdateContextWindowTiers(SelectedModel);
     }
 
     private void UpdateQualityLevels(string? modelId)
     {
         QualityLevels = ModelSelectionHelper.GetQualityLevels(modelId, _modelReasoningEfforts);
         SyncSelectedQualityFromState(modelId);
+    }
+
+    private void UpdateContextWindowTiers(string? modelId)
+    {
+        ContextWindowTiers = ModelSelectionHelper.GetContextWindowTiers(modelId, _modelsWithLongContext);
+        SyncSelectedContextWindowTierFromState(modelId);
+    }
+
+    private static HashSet<string> CopyModelIdSet(IEnumerable<string>? modelIds)
+        => modelIds?
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Select(static id => id.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    private void ApplyContextWindowLimits(IReadOnlyDictionary<string, ModelContextWindowLimits>? contextWindowLimits)
+    {
+        _modelLongContextTokenLimits.Clear();
+        if (contextWindowLimits is null)
+            return;
+
+        foreach (var (modelId, limits) in contextWindowLimits)
+        {
+            if (string.IsNullOrWhiteSpace(modelId))
+                continue;
+
+            if (limits.Default > 0)
+                _modelContextTokenLimits[modelId] = limits.Default;
+            else if (limits.LongContext is > 0)
+                _modelContextTokenLimits.Remove(modelId);
+
+            if (limits.LongContext is > 0 and var longContextLimit)
+                _modelLongContextTokenLimits[modelId] = longContextLimit;
+        }
     }
 
     private string? GetStoredReasoningEffortPreference()
@@ -221,6 +273,28 @@ public partial class ChatViewModel
         return GetStoredReasoningEffortPreference();
     }
 
+    private string? GetStoredContextWindowTierPreference()
+    {
+        if (CurrentChat is { LastContextWindowTierUsed: { Length: > 0 } chatTier })
+            return chatTier;
+
+        return string.IsNullOrWhiteSpace(_dataStore.Data.Settings.ContextWindowTier)
+            ? ModelContextWindowTiers.Default
+            : _dataStore.Data.Settings.ContextWindowTier;
+    }
+
+    internal string? GetSelectedContextWindowTier()
+    {
+        var explicitTier = ModelSelectionHelper.DisplayToContextWindowTier(SelectedContextWindowTier);
+        if (!string.IsNullOrWhiteSpace(explicitTier))
+            return ModelSelectionHelper.NormalizeContextWindowTier(explicitTier, SelectedModel, _modelsWithLongContext);
+
+        return ModelSelectionHelper.NormalizeContextWindowTier(
+            GetStoredContextWindowTierPreference(),
+            SelectedModel,
+            _modelsWithLongContext);
+    }
+
     internal string? ResolveSelectedModelForChat(Chat chat)
     {
         if (!string.IsNullOrWhiteSpace(chat.LastModelUsed))
@@ -253,6 +327,17 @@ public partial class ChatViewModel
             _modelDefaultEfforts) ?? storedEffort;
     }
 
+    internal string? ResolveSelectedContextWindowTierForChat(Chat chat, string? modelId)
+    {
+        var storedTier = CurrentChat?.Id == chat.Id
+            ? GetSelectedContextWindowTier()
+            : !string.IsNullOrWhiteSpace(chat.LastContextWindowTierUsed)
+                ? chat.LastContextWindowTierUsed
+                : _dataStore.Data.Settings.ContextWindowTier;
+
+        return ModelSelectionHelper.NormalizeContextWindowTier(storedTier, modelId, _modelsWithLongContext);
+    }
+
     private void SyncSelectedQualityFromState(string? modelId = null, string? preferredEffort = null)
     {
         if (QualityLevels is null)
@@ -270,6 +355,22 @@ public partial class ChatViewModel
         SetSelectedQualityValue(display);
     }
 
+    private void SyncSelectedContextWindowTierFromState(string? modelId = null, string? preferredTier = null)
+    {
+        if (ContextWindowTiers is null)
+        {
+            SetSelectedContextWindowTierValue(null);
+            return;
+        }
+
+        var display = ModelSelectionHelper.ResolveSelectedContextWindowTierDisplay(
+            preferredTier ?? GetStoredContextWindowTierPreference(),
+            modelId ?? SelectedModel,
+            _modelsWithLongContext);
+
+        SetSelectedContextWindowTierValue(display);
+    }
+
     private void SetSelectedQualityValue(string? value)
     {
         if (SelectedQuality == value)
@@ -280,13 +381,24 @@ public partial class ChatViewModel
         _suppressSelectedQualitySync = false;
     }
 
-    internal void ApplyModelSelection(string? modelId, string? reasoningEffort)
+    private void SetSelectedContextWindowTierValue(string? value)
+    {
+        if (SelectedContextWindowTier == value)
+            return;
+
+        _suppressSelectedContextWindowTierSync = true;
+        SelectedContextWindowTier = value;
+        _suppressSelectedContextWindowTierSync = false;
+    }
+
+    internal void ApplyModelSelection(string? modelId, string? reasoningEffort, string? contextWindowTier = null)
     {
         _suppressModelSelectionSideEffects = true;
         try
         {
             SetSelectedModelValue(modelId);
             SyncSelectedQualityFromState(modelId, reasoningEffort);
+            SyncSelectedContextWindowTierFromState(modelId, contextWindowTier);
         }
         finally
         {
@@ -310,12 +422,40 @@ public partial class ChatViewModel
                 _dataStore.Save();
             }
 
-            DefaultModelSelectionChanged?.Invoke(SelectedModel ?? string.Empty, effort);
+            DefaultModelSelectionChanged?.Invoke(SelectedModel ?? string.Empty, effort, GetSelectedContextWindowTier());
             return;
         }
 
         if (CurrentChat.LastReasoningEffortUsed != effort)
             CurrentChat.LastReasoningEffortUsed = effort;
+
+        QueueModelSelectionSave();
+        QueueMidSessionModelSelectionSync();
+    }
+
+    partial void OnSelectedContextWindowTierChanged(string? value)
+    {
+        if (_suppressSelectedContextWindowTierSync || _suppressModelSelectionSideEffects)
+            return;
+
+        var contextTier = GetSelectedContextWindowTier();
+        if (contextTier is null)
+            return;
+
+        if (CurrentChat is null || CurrentChat.Messages.Count == 0)
+        {
+            if (_dataStore.Data.Settings.ContextWindowTier != contextTier)
+            {
+                _dataStore.Data.Settings.ContextWindowTier = contextTier;
+                _dataStore.Save();
+            }
+
+            DefaultModelSelectionChanged?.Invoke(SelectedModel ?? string.Empty, GetPersistedReasoningEffortPreference(), contextTier);
+            return;
+        }
+
+        if (CurrentChat.LastContextWindowTierUsed != contextTier)
+            CurrentChat.LastContextWindowTierUsed = contextTier;
 
         QueueModelSelectionSave();
         QueueMidSessionModelSelectionSync();
@@ -335,6 +475,7 @@ public partial class ChatViewModel
         RefreshProjectBadge();
         RefreshAgentBadge();
         UpdateQualityLevels(SelectedModel);
+        UpdateContextWindowTiers(SelectedModel);
         QueueRefreshCodingProjectState();
     }
 

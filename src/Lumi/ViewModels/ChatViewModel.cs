@@ -386,6 +386,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public string TokenOutputDisplay => $"{TotalOutputTokens:N0}";
     public string TokenTotalDisplay => $"{TotalInputTokens + TotalOutputTokens:N0}";
     public bool HasContextUsage => ContextCurrentTokens > 0 && ContextTokenLimit > 0;
+    public string? ActiveSessionModelId => CurrentChat is not null && _runtimeStates.TryGetValue(CurrentChat.Id, out var runtime)
+        ? runtime.ActiveModelId
+        : null;
+    public string? ActiveSessionContextWindowTier => CurrentChat is not null && _runtimeStates.TryGetValue(CurrentChat.Id, out var runtime)
+        ? runtime.ActiveContextWindowTier
+        : null;
+    public string ContextTokenLimitSourceDisplay => CurrentChat is not null && _runtimeStates.TryGetValue(CurrentChat.Id, out var runtime)
+        ? runtime.ContextTokenLimitSource.ToString()
+        : ContextTokenLimitSource.Unknown.ToString();
     public int ContextUsagePercent => ContextTokenLimit > 0
         ? (int)Math.Round(100.0 * ContextCurrentTokens / ContextTokenLimit)
         : 0;
@@ -408,6 +417,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(TokenOutputDisplay));
         OnPropertyChanged(nameof(TokenTotalDisplay));
         OnPropertyChanged(nameof(HasContextUsage));
+        OnPropertyChanged(nameof(ContextTokenLimitSourceDisplay));
         OnPropertyChanged(nameof(ContextUsagePercent));
         OnPropertyChanged(nameof(ContextUsageDisplay));
     }
@@ -427,14 +437,118 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return (long)Math.Round(tokens);
     }
 
-    private long ResolveKnownContextTokenLimit(string? modelId)
+    internal static (long TokenLimit, ContextTokenLimitSource Source) ResolveContextTokenLimitFromSessionUsage(
+        long sessionTokenLimit,
+        long catalogTokenLimit)
+    {
+        if (sessionTokenLimit > 0)
+            return (sessionTokenLimit, ContextTokenLimitSource.Session);
+
+        return catalogTokenLimit > 0
+            ? (catalogTokenLimit, ContextTokenLimitSource.Catalog)
+            : (0, ContextTokenLimitSource.Unknown);
+    }
+
+    private long ResolveKnownContextTokenLimit(string? modelId, string? contextTier = null)
     {
         if (string.IsNullOrWhiteSpace(modelId))
             return 0;
 
+        if (string.Equals(contextTier, ModelContextWindowTiers.LongContext, StringComparison.OrdinalIgnoreCase)
+            && _modelLongContextTokenLimits.TryGetValue(modelId, out var longTokenLimit))
+        {
+            return longTokenLimit;
+        }
+
         return _modelContextTokenLimits.TryGetValue(modelId, out var tokenLimit)
             ? tokenLimit
             : 0;
+    }
+
+    internal (string? ModelId, string? ContextTier) ResolveCatalogFallbackContextWindowSelection(
+        Chat chat,
+        ChatRuntimeState runtime,
+        string? requestedModelId)
+    {
+        if (!string.IsNullOrWhiteSpace(runtime.ActiveModelId))
+        {
+            var activeTier = !string.IsNullOrWhiteSpace(runtime.ActiveContextWindowTier)
+                ? runtime.ActiveContextWindowTier
+                : _modelsWithLongContext.Contains(runtime.ActiveModelId)
+                    ? ModelContextWindowTiers.Default
+                    : null;
+            return (runtime.ActiveModelId, activeTier);
+        }
+
+        return (requestedModelId, ResolveSelectedContextWindowTierForChat(chat, requestedModelId));
+    }
+
+    private string? ResolveSessionContextWindowTier(string? modelId, object? sessionContextTier)
+    {
+        var tierValue = GetSessionContextTierValue(sessionContextTier);
+        if (!string.IsNullOrWhiteSpace(tierValue))
+            return ModelSelectionHelper.NormalizeContextWindowTier(tierValue, modelId, _modelsWithLongContext);
+
+        return !string.IsNullOrWhiteSpace(modelId) && _modelsWithLongContext.Contains(modelId)
+            ? ModelContextWindowTiers.Default
+            : null;
+    }
+
+    private static string? GetSessionContextTierValue(object? sessionContextTier)
+    {
+        if (sessionContextTier is null)
+            return null;
+
+        if (sessionContextTier is ContextTier contextTier)
+            return contextTier.Value;
+
+        return sessionContextTier.ToString();
+    }
+
+    private void ApplySessionModelState(
+        Chat chat,
+        ChatRuntimeState runtime,
+        string? modelId,
+        string? reasoningEffort,
+        object? sessionContextTier,
+        bool updateDisplayed)
+    {
+        var effectiveModel = string.IsNullOrWhiteSpace(modelId)
+            ? ResolveSelectedModelForChat(chat)
+            : modelId;
+        var effectiveContextTier = ResolveSessionContextWindowTier(effectiveModel, sessionContextTier);
+        var modelStateChanged = !string.Equals(runtime.ActiveModelId, effectiveModel, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(runtime.ActiveContextWindowTier, effectiveContextTier, StringComparison.OrdinalIgnoreCase);
+
+        if (modelStateChanged && runtime.ContextTokenLimitSource == ContextTokenLimitSource.Session)
+        {
+            runtime.ContextTokenLimit = 0;
+            runtime.ContextTokenLimitSource = ContextTokenLimitSource.Unknown;
+            chat.ContextTokenLimit = 0;
+            if (updateDisplayed)
+                ContextTokenLimit = 0;
+        }
+
+        runtime.ActiveModelId = effectiveModel;
+        runtime.ActiveContextWindowTier = effectiveContextTier;
+        OnPropertyChanged(nameof(ActiveSessionModelId));
+        OnPropertyChanged(nameof(ActiveSessionContextWindowTier));
+        OnPropertyChanged(nameof(ContextTokenLimitSourceDisplay));
+
+        if (!string.IsNullOrWhiteSpace(effectiveModel))
+            chat.LastModelUsed = effectiveModel;
+
+        chat.LastReasoningEffortUsed = ModelSelectionHelper.NormalizeEffort(
+            reasoningEffort,
+            effectiveModel,
+            _modelReasoningEfforts,
+            _modelDefaultEfforts);
+        chat.LastContextWindowTierUsed = effectiveContextTier;
+
+        if (updateDisplayed && !string.IsNullOrWhiteSpace(effectiveModel))
+            ApplyModelSelection(effectiveModel, chat.LastReasoningEffortUsed, effectiveContextTier);
+
+        ApplyKnownContextTokenLimit(chat, runtime, effectiveModel, updateDisplayed);
     }
 
     private void ApplyKnownContextTokenLimit(
@@ -443,14 +557,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         string? modelId,
         bool updateDisplayed)
     {
-        var tokenLimit = ResolveKnownContextTokenLimit(modelId);
+        if (runtime.ContextTokenLimitSource == ContextTokenLimitSource.Session)
+            return;
+
+        var (fallbackModelId, contextTier) = ResolveCatalogFallbackContextWindowSelection(chat, runtime, modelId);
+        var tokenLimit = ResolveKnownContextTokenLimit(fallbackModelId, contextTier);
         if (tokenLimit <= 0)
             return;
 
         var currentTokens = runtime.ContextCurrentTokens <= 0 && chat.ContextCurrentTokens > 0
             ? chat.ContextCurrentTokens
             : (long?)null;
-        ApplyContextUsage(chat, runtime, currentTokens, tokenLimit, updateDisplayed);
+        ApplyContextUsage(chat, runtime, currentTokens, tokenLimit, ContextTokenLimitSource.Catalog, updateDisplayed);
     }
 
     private void ApplyContextUsage(
@@ -458,6 +576,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ChatRuntimeState runtime,
         long? currentTokens,
         long? tokenLimit,
+        ContextTokenLimitSource tokenLimitSource,
         bool updateDisplayed)
     {
         if (currentTokens is > 0 and var currentTokenValue)
@@ -468,8 +587,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         if (tokenLimit is > 0 and var tokenLimitValue)
         {
-            runtime.ContextTokenLimit = tokenLimitValue;
-            chat.ContextTokenLimit = tokenLimitValue;
+            var canApplyTokenLimit = tokenLimitSource != ContextTokenLimitSource.Catalog
+                || runtime.ContextTokenLimitSource != ContextTokenLimitSource.Session;
+            if (canApplyTokenLimit)
+            {
+                runtime.ContextTokenLimit = tokenLimitValue;
+                runtime.ContextTokenLimitSource = tokenLimitSource;
+                chat.ContextTokenLimit = tokenLimitValue;
+                OnPropertyChanged(nameof(ContextTokenLimitSourceDisplay));
+            }
         }
 
         if (updateDisplayed)
@@ -539,7 +665,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public event Action? PlanShowRequested;
 
     /// <summary>Raised when a model/effort change in a new chat updates the global default selection.</summary>
-    public event Action<string, string?>? DefaultModelSelectionChanged;
+    public event Action<string, string?, string?>? DefaultModelSelectionChanged;
     /// <summary>Raised to hide the plan preview island.</summary>
     public event Action? PlanHideRequested;
 
@@ -625,7 +751,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         ApplyModelSelection(
             _dataStore.Data.Settings.PreferredModel,
-            _dataStore.Data.Settings.ReasoningEffort);
+            _dataStore.Data.Settings.ReasoningEffort,
+            _dataStore.Data.Settings.ContextWindowTier);
     }
 
     partial void OnIsBusyChanged(bool value)
@@ -933,6 +1060,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             chat.LastReasoningEffortUsed = persistedEffort;
 
         var effort = persistedEffort;
+        var contextTier = ResolveSelectedContextWindowTierForChat(chat, selectedModel);
         var agentName = ResolveSessionAgentName(
             activeAgent,
             externalAgent,
@@ -1040,7 +1168,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 var createConfig = SessionConfigBuilder.Build(
                     systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
+                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName, contextTier);
                 var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
                 chat.CopilotSessionId = createdSession.SessionId;
                 _dataStore.MarkChatChanged(chat);
@@ -1072,7 +1200,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 SetSessionSetupStatus(chat, attempt > 0 ? Loc.Status_Reconnecting : Loc.Status_Resuming);
                 var resumeConfig = SessionConfigBuilder.BuildForResume(
                     systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
+                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName, contextTier);
                 var session = await _copilotService.ResumeSessionAsync(
                     chat.CopilotSessionId, resumeConfig, sessionCt);
                 _activeSession = session;
@@ -1094,7 +1222,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                             new SetModelOptions
                             {
                                 ReasoningEffort = effort,
-                                ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary
+                                ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
+                                ContextTier = SessionConfigBuilder.CreateContextTier(contextTier)
                             },
                             sessionCt);
                     }
@@ -1130,7 +1259,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             var createConfig = SessionConfigBuilder.Build(
                 systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName);
+                mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName, contextTier);
             var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
             chat.CopilotSessionId = createdSession.SessionId;
             _activeSession = createdSession;
@@ -1344,7 +1473,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // Restore per-chat model selection (falls back to global preferred model)
             ApplyModelSelection(
                 chat.LastModelUsed ?? _dataStore.Data.Settings.PreferredModel,
-                chat.LastReasoningEffortUsed ?? _dataStore.Data.Settings.ReasoningEffort);
+                chat.LastReasoningEffortUsed ?? _dataStore.Data.Settings.ReasoningEffort,
+                chat.LastContextWindowTierUsed ?? _dataStore.Data.Settings.ContextWindowTier);
 
             // Git status can be slow in large repos/worktrees. Do not keep the chat
             // loading overlay up after the transcript is already interactive.
@@ -1588,6 +1718,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var targetEffort = ResolvePersistedReasoningEffortForChat(targetChat, targetChat.LastModelUsed);
             if (!string.IsNullOrWhiteSpace(targetEffort))
                 targetChat.LastReasoningEffortUsed = targetEffort;
+        }
+
+        if (string.IsNullOrWhiteSpace(targetChat.LastContextWindowTierUsed))
+        {
+            var targetTier = ResolveSelectedContextWindowTierForChat(targetChat, targetChat.LastModelUsed);
+            if (!string.IsNullOrWhiteSpace(targetTier))
+                targetChat.LastContextWindowTierUsed = targetTier;
         }
 
         var prompt = BuildBackgroundJobPrompt(job, triggerContext);
@@ -1834,6 +1971,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
         ClearSuggestions();
         var selectedReasoningEffort = GetPersistedReasoningEffortPreference();
+        var selectedContextTier = GetSelectedContextWindowTier();
 
         // Expire any pending question cards — the user chose to type instead
         if (CurrentChat is not null)
@@ -1858,7 +1996,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 SdkAgentName = SelectedSdkAgentName,
                 WorktreePath = IsWorktreeMode ? WorktreePath : null,
                 LastModelUsed = SelectedModel,
-                LastReasoningEffortUsed = selectedReasoningEffort
+                LastReasoningEffortUsed = selectedReasoningEffort,
+                LastContextWindowTierUsed = selectedContextTier
             };
             _pendingProjectId = null;
             _dataStore.Data.Chats.Add(chat);
@@ -1872,6 +2011,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ClearPersistedSuggestions(targetChat);
         targetChat.LastModelUsed = SelectedModel;
         targetChat.LastReasoningEffortUsed = selectedReasoningEffort;
+        targetChat.LastContextWindowTierUsed = selectedContextTier;
 
         // Add user message immediately so it appears before async worktree creation
         var isSilentRetry = _silentRetryPrompt is not null && prompt == _silentRetryPrompt;

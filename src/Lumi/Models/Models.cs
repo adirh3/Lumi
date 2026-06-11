@@ -36,6 +36,12 @@ public class SkillReference
     public string Description { get; set; } = "";
 }
 
+public static class ModelContextWindowTiers
+{
+    public const string Default = "default";
+    public const string LongContext = "long_context";
+}
+
 public class SearchSource
 {
     public string Title { get; set; } = "";
@@ -93,6 +99,9 @@ public class Chat : INotifyPropertyChanged
 
     /// <summary>Last reasoning effort used in this chat. Restored alongside the selected model when reopened.</summary>
     public string? LastReasoningEffortUsed { get; set; }
+
+    /// <summary>Last context window tier used in this chat. Restored alongside the selected model when reopened.</summary>
+    public string? LastContextWindowTierUsed { get; set; }
 
     /// <summary>Cumulative input tokens consumed across all turns of this chat.</summary>
     public long TotalInputTokens { get; set; }
@@ -363,6 +372,7 @@ public class UserSettings
     // ── AI & Models ──
     public string PreferredModel { get; set; } = "";
     public string ReasoningEffort { get; set; } = ""; // "", "low", "medium", "high", "xhigh"
+    public string ContextWindowTier { get; set; } = ModelContextWindowTiers.Default;
 
     // ── MCP ──
     // When true, local MCP servers are routed through Lumi's shared proxy so they

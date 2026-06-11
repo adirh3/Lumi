@@ -388,6 +388,8 @@
   "Quality_Low": "Low",
   "Quality_Medium": "Medium",
   "Quality_High": "High",
+  "ContextWindow_Default": "Default",
+  "ContextWindow_Long": "Long",
 
   "FieldLabel_URL": "URL",
   "FieldLabel_File": "File",
@@ -514,7 +516,7 @@
   "Setting_AutoGenerateTitles": "Auto-Generate Titles",
   "SettingDesc_AutoGenerateTitles": "Let the AI automatically name new conversations",
   "Setting_PreferredModel": "Default Model & Reasoning",
-  "SettingDesc_PreferredModel": "Choose the default model and reasoning effort for new conversations",
+  "SettingDesc_PreferredModel": "Choose the default model, reasoning effort, and context window for new conversations",
   "Setting_UseMcpProxy": "Fast MCP Initialization",
   "SettingDesc_UseMcpProxy": "Keep MCP servers running in a shared local proxy and reuse them across chats so they start faster. When off, MCP servers are passed directly to Copilot and started fresh for each session.",
   "Setting_ReasoningEffort": "Reasoning Effort",

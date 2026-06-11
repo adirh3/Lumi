@@ -243,7 +243,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             else if (args.PropertyName == nameof(SettingsViewModel.IsCompactDensity))
                 IsCompactDensity = SettingsVM.IsCompactDensity;
             else if ((args.PropertyName == nameof(SettingsViewModel.PreferredModel)
-                      || args.PropertyName == nameof(SettingsViewModel.ReasoningEffort))
+                      || args.PropertyName == nameof(SettingsViewModel.ReasoningEffort)
+                      || args.PropertyName == nameof(SettingsViewModel.ContextWindowTier))
                      && !_isSyncingDefaultModelSelectionFromChat
                      && !string.IsNullOrWhiteSpace(SettingsVM.PreferredModel)
                      && (ChatVM.CurrentChat is null || ChatVM.CurrentChat.Messages.Count == 0))
@@ -385,15 +386,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _chatSessionStore.Release(previous);
     }
 
-    private void OnChatDefaultModelSelectionChanged(string model, string? reasoningEffort)
+    private void OnChatDefaultModelSelectionChanged(string model, string? reasoningEffort, string? contextWindowTier)
     {
-        if (SettingsVM.PreferredModel == model && SettingsVM.ReasoningEffort == (reasoningEffort ?? string.Empty))
+        if (SettingsVM.PreferredModel == model
+            && SettingsVM.ReasoningEffort == (reasoningEffort ?? string.Empty)
+            && SettingsVM.ContextWindowTier == (contextWindowTier ?? SettingsVM.ContextWindowTier))
             return;
 
         _isSyncingDefaultModelSelectionFromChat = true;
         try
         {
-            SettingsVM.SyncDefaultModelSelectionFromChat(model, reasoningEffort);
+            SettingsVM.SyncDefaultModelSelectionFromChat(model, reasoningEffort, contextWindowTier);
         }
         finally
         {
@@ -401,8 +404,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    public void SyncDefaultModelSelectionFromChatSurface(string model, string? reasoningEffort)
-        => OnChatDefaultModelSelectionChanged(model, reasoningEffort);
+    public void SyncDefaultModelSelectionFromChatSurface(string model, string? reasoningEffort, string? contextWindowTier)
+        => OnChatDefaultModelSelectionChanged(model, reasoningEffort, contextWindowTier);
 
     private void OnChatUpdated()
     {
@@ -486,6 +489,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 await SettingsVM.RefreshAuthStatusAsync();
 
             var models = await _copilotService.GetModelsAsync();
+            var contextWindowCatalog = await _copilotService.GetContextWindowCatalogAsync();
+            var longContextModelIds = contextWindowCatalog.LongContextModelIds;
             var modelIds = models.Select(m => m.Id).ToList();
 
             IsConnected = true;
@@ -503,10 +508,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 surface.AvailableModels.Clear();
                 foreach (var id in modelIds)
                     surface.AvailableModels.Add(id);
-                surface.UpdateModelCapabilities(models);
+                surface.UpdateModelCapabilities(models, longContextModelIds, contextWindowCatalog.Limits);
                 surface.SelectedModel = selected;
             });
-            SettingsVM.UpdateModelCapabilities(models);
+            SettingsVM.UpdateModelCapabilities(models, longContextModelIds);
 
             SettingsVM.UpdateAvailableModels(modelIds);
             if (isCleanState && selected is not null)

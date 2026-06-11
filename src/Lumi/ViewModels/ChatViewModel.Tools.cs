@@ -251,6 +251,7 @@ public partial class ChatViewModel
     partial void OnSelectedModelChanged(string? value)
     {
         UpdateQualityLevels(value);
+        UpdateContextWindowTiers(value);
         if (CurrentChat is { } activeChat)
         {
             var runtime = GetOrCreateRuntimeState(activeChat.Id);
@@ -261,6 +262,7 @@ public partial class ChatViewModel
             return;
 
         var reasoningEffort = GetPersistedReasoningEffortPreference();
+        var contextTier = GetSelectedContextWindowTier();
 
         // New chats (no messages yet) update the global default model.
         // Existing chats only update their per-chat model.
@@ -268,14 +270,18 @@ public partial class ChatViewModel
         {
             _dataStore.Data.Settings.PreferredModel = value;
             _dataStore.Data.Settings.ReasoningEffort = reasoningEffort ?? string.Empty;
+            if (contextTier is not null)
+                _dataStore.Data.Settings.ContextWindowTier = contextTier;
             _dataStore.Save();
-            DefaultModelSelectionChanged?.Invoke(value, reasoningEffort);
+            DefaultModelSelectionChanged?.Invoke(value, reasoningEffort, contextTier);
         }
 
         if (CurrentChat is { } chat)
         {
             chat.LastModelUsed = value;
             chat.LastReasoningEffortUsed = reasoningEffort;
+            if (contextTier is not null)
+                chat.LastContextWindowTierUsed = contextTier;
         }
 
         QueueModelSelectionSave();
@@ -310,16 +316,17 @@ public partial class ChatViewModel
 
         var modelId = SelectedModel;
         var reasoningEffort = GetSelectedReasoningEffort();
+        var contextTier = GetSelectedContextWindowTier();
         _modelSelectionSyncCts = new CancellationTokenSource();
         var cts = _modelSelectionSyncCts;
         _ = Task.Delay(75, cts.Token).ContinueWith(
-            _ => SwitchModelMidSessionAsync(modelId, reasoningEffort),
+            _ => SwitchModelMidSessionAsync(modelId, reasoningEffort, contextTier),
             cts.Token,
             TaskContinuationOptions.OnlyOnRanToCompletion,
             TaskScheduler.Default).Unwrap();
     }
 
-    private async Task SwitchModelMidSessionAsync(string modelId, string? reasoningEffort)
+    private async Task SwitchModelMidSessionAsync(string modelId, string? reasoningEffort, string? contextTier)
     {
         if (_activeSession is null)
             return;
@@ -331,7 +338,8 @@ public partial class ChatViewModel
                 new SetModelOptions
                 {
                     ReasoningEffort = string.IsNullOrWhiteSpace(reasoningEffort) ? null : reasoningEffort,
-                    ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary
+                    ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
+                    ContextTier = SessionConfigBuilder.CreateContextTier(contextTier)
                 });
         }
         catch

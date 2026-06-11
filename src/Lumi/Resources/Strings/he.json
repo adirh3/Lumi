@@ -389,6 +389,8 @@
   "Quality_Low": "נמוך",
   "Quality_Medium": "בינוני",
   "Quality_High": "גבוה",
+  "ContextWindow_Default": "ברירת מחדל",
+  "ContextWindow_Long": "ארוך",
 
   "FieldLabel_URL": "כתובת URL",
   "FieldLabel_File": "קובץ",
@@ -515,7 +517,7 @@
   "Setting_AutoGenerateTitles": "יצירת כותרות אוטומטית",
   "SettingDesc_AutoGenerateTitles": "לאפשר לבינה המלאכותית לתת שם אוטומטי לשיחות חדשות",
   "Setting_PreferredModel": "מודל וחשיבה כברירת מחדל",
-  "SettingDesc_PreferredModel": "בחירת מודל ברירת המחדל ומאמץ החשיבה לשיחות חדשות",
+  "SettingDesc_PreferredModel": "בחירת מודל ברירת המחדל, מאמץ החשיבה וחלון ההקשר לשיחות חדשות",
   "Setting_UseMcpProxy": "אתחול MCP מהיר",
   "SettingDesc_UseMcpProxy": "השאר שרתי MCP פעילים בפרוקסי מקומי משותף ועשה בהם שימוש חוזר בין צ׳אטים כדי שיעלו מהר יותר. כשהאפשרות כבויה, שרתי MCP מועברים ישירות ל-Copilot ומאותחלים מחדש בכל הפעלה.",
   "Setting_ReasoningEffort": "מאמץ חשיבה",

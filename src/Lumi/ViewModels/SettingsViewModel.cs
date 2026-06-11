@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Localization;
+using Lumi.Models;
 using Lumi.Services;
 
 namespace Lumi.ViewModels;
@@ -85,9 +86,14 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _reasoningEffort;
     [ObservableProperty] private string[]? _qualityLevels;
     [ObservableProperty] private string? _selectedQuality;
+    [ObservableProperty] private string _contextWindowTier;
+    [ObservableProperty] private string[]? _contextWindowTiers;
+    [ObservableProperty] private string? _selectedContextWindowTier;
     private bool _suppressSelectedQualitySync;
+    private bool _suppressSelectedContextWindowTierSync;
     private readonly Dictionary<string, List<string>> _modelReasoningEfforts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _modelDefaultEfforts = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _modelsWithLongContext = new(StringComparer.OrdinalIgnoreCase);
     public ObservableCollection<string> AvailableModels { get; } = [];
 
     // ── MCP ──
@@ -331,9 +337,13 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         // AI
         _preferredModel = s.PreferredModel;
         _reasoningEffort = s.ReasoningEffort;
+        _contextWindowTier = string.IsNullOrWhiteSpace(s.ContextWindowTier)
+            ? ModelContextWindowTiers.Default
+            : s.ContextWindowTier;
         if (!string.IsNullOrWhiteSpace(_preferredModel))
             AvailableModels.Add(_preferredModel);
         UpdateQualityLevels(_preferredModel);
+        UpdateContextWindowTiers(_preferredModel);
 
         // MCP
         _useMcpProxy = s.UseMcpProxy;
@@ -538,6 +548,12 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         SyncSelectedQualityFromState(modelId);
     }
 
+    private void UpdateContextWindowTiers(string? modelId)
+    {
+        ContextWindowTiers = ModelSelectionHelper.GetContextWindowTiers(modelId, _modelsWithLongContext);
+        SyncSelectedContextWindowTierFromState(modelId);
+    }
+
     private string? GetSelectedReasoningEffort()
     {
         var explicitEffort = ModelSelectionHelper.DisplayToEffort(SelectedQuality);
@@ -557,6 +573,18 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             _modelDefaultEfforts);
     }
 
+    private string? GetSelectedContextWindowTier()
+    {
+        var explicitTier = ModelSelectionHelper.DisplayToContextWindowTier(SelectedContextWindowTier);
+        if (!string.IsNullOrWhiteSpace(explicitTier))
+            return ModelSelectionHelper.NormalizeContextWindowTier(explicitTier, PreferredModel, _modelsWithLongContext);
+
+        return ModelSelectionHelper.NormalizeContextWindowTier(
+            string.IsNullOrWhiteSpace(ContextWindowTier) ? ModelContextWindowTiers.Default : ContextWindowTier,
+            PreferredModel,
+            _modelsWithLongContext);
+    }
+
     private void SyncSelectedQualityFromState(string? modelId = null, string? preferredEffort = null)
     {
         if (QualityLevels is null)
@@ -574,6 +602,22 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         SetSelectedQualityValue(display);
     }
 
+    private void SyncSelectedContextWindowTierFromState(string? modelId = null, string? preferredTier = null)
+    {
+        if (ContextWindowTiers is null)
+        {
+            SetSelectedContextWindowTierValue(null);
+            return;
+        }
+
+        var display = ModelSelectionHelper.ResolveSelectedContextWindowTierDisplay(
+            preferredTier ?? (string.IsNullOrWhiteSpace(ContextWindowTier) ? ModelContextWindowTiers.Default : ContextWindowTier),
+            modelId ?? PreferredModel,
+            _modelsWithLongContext);
+
+        SetSelectedContextWindowTierValue(display);
+    }
+
     private void SetSelectedQualityValue(string? value)
     {
         if (SelectedQuality == value)
@@ -584,6 +628,16 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _suppressSelectedQualitySync = false;
     }
 
+    private void SetSelectedContextWindowTierValue(string? value)
+    {
+        if (SelectedContextWindowTier == value)
+            return;
+
+        _suppressSelectedContextWindowTierSync = true;
+        SelectedContextWindowTier = value;
+        _suppressSelectedContextWindowTierSync = false;
+    }
+
     partial void OnPreferredModelChanged(string value)
     {
         _dataStore.Data.Settings.PreferredModel = value;
@@ -591,6 +645,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             AvailableModels.Add(value);
 
         UpdateQualityLevels(value);
+        UpdateContextWindowTiers(value);
         var resolvedEffort = GetSelectedReasoningEffort() ?? string.Empty;
         if (ReasoningEffort != resolvedEffort)
         {
@@ -618,6 +673,25 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         NotifyModified();
     }
 
+    partial void OnSelectedContextWindowTierChanged(string? value)
+    {
+        if (_suppressSelectedContextWindowTierSync)
+            return;
+
+        var resolvedTier = GetSelectedContextWindowTier();
+        if (resolvedTier is null)
+            return;
+
+        if (ContextWindowTier != resolvedTier)
+        {
+            ContextWindowTier = resolvedTier;
+            return;
+        }
+
+        Save();
+        NotifyModified();
+    }
+
     partial void OnReasoningEffortChanged(string value)
     {
         _dataStore.Data.Settings.ReasoningEffort = value;
@@ -628,7 +702,16 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnUseMcpProxyChanged(bool value) { _dataStore.Data.Settings.UseMcpProxy = value; Save(); NotifyModified(); }
 
-    public void SyncDefaultModelSelectionFromChat(string model, string? reasoningEffort)
+    partial void OnContextWindowTierChanged(string value)
+    {
+        var tier = string.IsNullOrWhiteSpace(value) ? ModelContextWindowTiers.Default : value;
+        _dataStore.Data.Settings.ContextWindowTier = tier;
+        SyncSelectedContextWindowTierFromState(PreferredModel, tier);
+        Save();
+        NotifyModified();
+    }
+
+    public void SyncDefaultModelSelectionFromChat(string model, string? reasoningEffort, string? contextWindowTier)
     {
         if (string.IsNullOrWhiteSpace(model))
             return;
@@ -644,6 +727,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
         if (ReasoningEffort != normalizedEffort)
             ReasoningEffort = normalizedEffort;
+
+        if (!string.IsNullOrWhiteSpace(contextWindowTier) && ContextWindowTier != contextWindowTier)
+            ContextWindowTier = contextWindowTier;
     }
 
     public void UpdateAvailableModels(System.Collections.Generic.List<string> models)
@@ -656,13 +742,25 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             AvailableModels.Add(PreferredModel);
 
         UpdateQualityLevels(PreferredModel);
+        UpdateContextWindowTiers(PreferredModel);
     }
 
-    public void UpdateModelCapabilities(List<GitHub.Copilot.ModelInfo> models)
+    public void UpdateModelCapabilities(
+        List<GitHub.Copilot.ModelInfo> models,
+        IReadOnlySet<string>? longContextModelIds = null)
     {
         ModelSelectionHelper.ApplyModelCapabilities(models, _modelReasoningEfforts, _modelDefaultEfforts);
+        _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
         UpdateQualityLevels(PreferredModel);
+        UpdateContextWindowTiers(PreferredModel);
     }
+
+    private static HashSet<string> CopyModelIdSet(IEnumerable<string>? modelIds)
+        => modelIds?
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Select(static id => id.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     [RelayCommand]
     private async Task SignInAsync()
@@ -774,10 +872,13 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsShowReasoningModified => ShowReasoning != _defaults.ShowReasoning;
     public bool IsExpandReasoningWhileStreamingModified => ExpandReasoningWhileStreaming != _defaults.ExpandReasoningWhileStreaming;
     public bool IsAutoGenerateTitlesModified => AutoGenerateTitles != _defaults.AutoGenerateTitles;
-    public bool IsDefaultModelSelectionModified => PreferredModel != _defaults.PreferredModel || ReasoningEffort != _defaults.ReasoningEffort;
+    public bool IsDefaultModelSelectionModified => PreferredModel != _defaults.PreferredModel
+        || ReasoningEffort != _defaults.ReasoningEffort
+        || ContextWindowTier != _defaults.ContextWindowTier;
     public bool IsPreferredModelModified=> PreferredModel != _defaults.PreferredModel;
     public bool IsReasoningEffortModified => ReasoningEffort != _defaults.ReasoningEffort;
     public bool IsUseMcpProxyModified => UseMcpProxy != _defaults.UseMcpProxy;
+    public bool IsContextWindowTierModified => ContextWindowTier != _defaults.ContextWindowTier;
     public bool IsEnableMemoryAutoSaveModified => EnableMemoryAutoSave != _defaults.EnableMemoryAutoSave;
     public bool IsEnableMemoryAutoMaintenanceModified => EnableMemoryAutoMaintenance != _defaults.EnableMemoryAutoMaintenance;
     public bool IsAutoSaveChatsModified => AutoSaveChats != _defaults.AutoSaveChats;
@@ -803,6 +904,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsPreferredModelModified));
         OnPropertyChanged(nameof(IsReasoningEffortModified));
         OnPropertyChanged(nameof(IsUseMcpProxyModified));
+        OnPropertyChanged(nameof(IsContextWindowTierModified));
         OnPropertyChanged(nameof(IsEnableMemoryAutoSaveModified));
         OnPropertyChanged(nameof(IsEnableMemoryAutoMaintenanceModified));
         OnPropertyChanged(nameof(IsAutoSaveChatsModified));
@@ -829,6 +931,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     {
         PreferredModel = _defaults.PreferredModel;
         ReasoningEffort = _defaults.ReasoningEffort;
+        ContextWindowTier = _defaults.ContextWindowTier;
     }
     [RelayCommand] private void RevertUseMcpProxy() => UseMcpProxy = _defaults.UseMcpProxy;
     [RelayCommand] private void RevertEnableMemoryAutoSave() => EnableMemoryAutoSave = _defaults.EnableMemoryAutoSave;
@@ -959,6 +1062,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         PreferredModel = defaults.PreferredModel;
         ReasoningEffort = defaults.ReasoningEffort;
         UseMcpProxy = defaults.UseMcpProxy;
+        ContextWindowTier = defaults.ContextWindowTier;
         EnableMemoryAutoSave = defaults.EnableMemoryAutoSave;
         EnableMemoryAutoMaintenance = defaults.EnableMemoryAutoMaintenance;
         AutoSaveChats = defaults.AutoSaveChats;

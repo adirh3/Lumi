@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using GitHub.Copilot;
+using Lumi.Models;
 using Lumi.Services;
 using Xunit;
 
@@ -87,6 +88,26 @@ public sealed class SessionConfigBuilderTests
     }
 
     [Fact]
+    public void Build_AppliesContextTier()
+    {
+        var config = SessionConfigBuilder.Build(
+            systemPrompt: "prompt",
+            model: "gpt-5.5",
+            workingDirectory: @"C:\Repo",
+            skillDirectories: [],
+            customAgents: [],
+            tools: [],
+            mcpServers: new Dictionary<string, McpServerConfig>(),
+            reasoningEffort: "high",
+            userInputHandler: null,
+            onPermission: null,
+            hooks: null,
+            contextTier: ModelContextWindowTiers.LongContext);
+
+        Assert.Equal(ModelContextWindowTiers.LongContext, config.ContextTier?.Value);
+    }
+
+    [Fact]
     public void BuildForResume_RequestsReasoningSummary_SoReasoningStaysVisible()
     {
         var config = SessionConfigBuilder.BuildForResume(
@@ -103,6 +124,26 @@ public sealed class SessionConfigBuilderTests
             hooks: null);
 
         Assert.Equal(ReasoningSummary.Detailed, config.ReasoningSummary);
+    }
+
+    [Fact]
+    public void BuildForResume_AppliesContextTier()
+    {
+        var config = SessionConfigBuilder.BuildForResume(
+            systemPrompt: "prompt",
+            model: "gpt-5.5",
+            workingDirectory: @"C:\Repo",
+            skillDirectories: [],
+            customAgents: [],
+            tools: [],
+            mcpServers: new Dictionary<string, McpServerConfig>(),
+            reasoningEffort: "high",
+            userInputHandler: null,
+            onPermission: null,
+            hooks: null,
+            contextTier: ModelContextWindowTiers.Default);
+
+        Assert.Equal(ModelContextWindowTiers.Default, config.ContextTier?.Value);
     }
 
     [Fact]

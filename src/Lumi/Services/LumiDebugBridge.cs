@@ -260,6 +260,18 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
                 isStreaming = _mainViewModel.ChatVM.IsStreaming,
                 statusText = _mainViewModel.ChatVM.StatusText
             },
+            context = new
+            {
+                selectedModel = _mainViewModel.ChatVM.SelectedModel,
+                selectedContextWindowTier = _mainViewModel.ChatVM.SelectedContextWindowTier,
+                activeSessionModel = _mainViewModel.ChatVM.ActiveSessionModelId,
+                activeSessionContextWindowTier = _mainViewModel.ChatVM.ActiveSessionContextWindowTier,
+                currentTokens = _mainViewModel.ChatVM.ContextCurrentTokens,
+                tokenLimit = _mainViewModel.ChatVM.ContextTokenLimit,
+                tokenLimitSource = _mainViewModel.ChatVM.ContextTokenLimitSourceDisplay,
+                usageDisplay = _mainViewModel.ChatVM.ContextUsageDisplay,
+                usagePercent = _mainViewModel.ChatVM.ContextUsagePercent
+            },
             activeChat = chat is null ? null : ChatSummary(chat),
             counts = new
             {
@@ -392,7 +404,8 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             ActiveMcpServerNames = mcpServerNames,
             HasExplicitMcpServerSelection = mcpServerNames.Count > 0,
             LastModelUsed = GetString(args, "model") ?? _dataStore.Data.Settings.PreferredModel,
-            LastReasoningEffortUsed = GetString(args, "reasoningEffort") ?? _dataStore.Data.Settings.ReasoningEffort
+            LastReasoningEffortUsed = GetString(args, "reasoningEffort") ?? _dataStore.Data.Settings.ReasoningEffort,
+            LastContextWindowTierUsed = GetString(args, "contextWindowTier") ?? _dataStore.Data.Settings.ContextWindowTier
         };
 
         _dataStore.Data.Chats.Add(chat);
@@ -1058,6 +1071,11 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             _mainViewModel.SettingsVM.ReasoningEffort = value;
         });
         SetBool("useMcpProxy", value => settings.UseMcpProxy = _mainViewModel.SettingsVM.UseMcpProxy = value);
+        SetString("contextWindowTier", value =>
+        {
+            settings.ContextWindowTier = value;
+            _mainViewModel.SettingsVM.ContextWindowTier = value;
+        });
         SetBool("enableMemoryAutoSave", value => settings.EnableMemoryAutoSave = _mainViewModel.SettingsVM.EnableMemoryAutoSave = value);
         SetBool("enableMemoryAutoMaintenance", value => settings.EnableMemoryAutoMaintenance = _mainViewModel.SettingsVM.EnableMemoryAutoMaintenance = value);
         SetBool("autoSaveChats", value => settings.AutoSaveChats = _mainViewModel.SettingsVM.AutoSaveChats = value);
@@ -1608,6 +1626,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             chat.HasExplicitMcpServerSelection,
             chat.LastModelUsed,
             chat.LastReasoningEffortUsed,
+            chat.LastContextWindowTierUsed,
             chat.TotalInputTokens,
             chat.TotalOutputTokens
         };
@@ -1819,6 +1838,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             _dataStore.Data.Settings.AutoGenerateTitles,
             _dataStore.Data.Settings.PreferredModel,
             _dataStore.Data.Settings.ReasoningEffort,
+            _dataStore.Data.Settings.ContextWindowTier,
             _dataStore.Data.Settings.EnableMemoryAutoSave,
             _dataStore.Data.Settings.EnableMemoryAutoMaintenance,
             _dataStore.Data.Settings.AutoSaveChats

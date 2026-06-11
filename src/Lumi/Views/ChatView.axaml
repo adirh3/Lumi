@@ -1478,6 +1478,8 @@
                              SelectedModel="{Binding SelectedModel, Mode=TwoWay}"
                              QualityLevels="{Binding QualityLevels}"
                              SelectedQuality="{Binding SelectedQuality, Mode=TwoWay}"
+                             ContextWindowTiers="{Binding ContextWindowTiers}"
+                             SelectedContextWindowTier="{Binding SelectedContextWindowTier, Mode=TwoWay}"
                              AgentName="{Binding SelectedAgentName, Mode=TwoWay}"
                              AgentGlyph="{Binding SelectedAgentGlyph}"
                              ProjectName="{Binding SelectedProjectName, Mode=TwoWay}"

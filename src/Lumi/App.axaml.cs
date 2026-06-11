@@ -471,8 +471,8 @@ public partial class App : Application
         request.ReleaseSurface();
     }
 
-    private void OnDetachedDefaultModelSelectionChanged(string model, string? reasoningEffort)
-        => _mainViewModel?.SyncDefaultModelSelectionFromChatSurface(model, reasoningEffort);
+    private void OnDetachedDefaultModelSelectionChanged(string model, string? reasoningEffort, string? contextWindowTier)
+        => _mainViewModel?.SyncDefaultModelSelectionFromChatSurface(model, reasoningEffort, contextWindowTier);
 
     private bool FocusDetachedChatWindow(Chat chat)
     {
