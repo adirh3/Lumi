@@ -21,6 +21,9 @@ class Program
 
     /// <summary>When true, debug automation starts in the main app without first-run onboarding.</summary>
     public static bool SkipOnboarding { get; private set; }
+
+    /// <summary>Parsed options for the UI responsiveness harness (enabled via CLI flag, debug only).</summary>
+    public static UiPerf.UiHarnessOptions? UiHarnessOptions { get; private set; }
 #endif
 
     [STAThread]
@@ -35,6 +38,17 @@ class Program
         OpenAgentDebugHarness = args.Any(DebugAgentHarness.IsUiHarnessFlag);
         SkipOnboarding = args.Contains("--skip-onboarding", StringComparer.OrdinalIgnoreCase)
             || args.Contains("--no-onboarding", StringComparer.OrdinalIgnoreCase);
+
+        // The UI responsiveness harness boots the real headed app, so it integrates with normal
+        // startup. It must run in an isolated app-data dir (set BEFORE any DataStore access) so the
+        // user's real Lumi data is never touched, and it skips onboarding on the fresh data dir.
+        UiHarnessOptions = UiPerf.UiHarnessOptions.Parse(args);
+        if (UiHarnessOptions.Enabled)
+        {
+            AttachParentConsole();
+            EnsureIsolatedUiHarnessAppDataDir();
+            SkipOnboarding = true;
+        }
 
         if (args.Any(DebugAgentHarness.IsChatStressFlag))
         {
@@ -142,6 +156,22 @@ class Program
 
         Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
         Console.SetError(new StreamWriter(Console.OpenStandardError()) { AutoFlush = true });
+    }
+
+    /// <summary>Points Lumi at a throwaway app-data directory so the harness never touches real data.</summary>
+    private static void EnsureIsolatedUiHarnessAppDataDir()
+    {
+        var existing = Environment.GetEnvironmentVariable("LUMI_APPDATA_DIR");
+        if (!string.IsNullOrWhiteSpace(existing))
+        {
+            Console.WriteLine($"[ui-perf] Using caller-provided LUMI_APPDATA_DIR: {existing}");
+            return;
+        }
+
+        var dir = Path.Combine(Path.GetTempPath(), "Lumi-ui-perf-appdata", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        Environment.SetEnvironmentVariable("LUMI_APPDATA_DIR", dir);
+        Console.WriteLine($"[ui-perf] Using isolated app-data dir: {dir}");
     }
 #endif
 

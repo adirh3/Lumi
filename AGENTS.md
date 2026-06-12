@@ -156,10 +156,26 @@ Lumi includes focused Debug-only harnesses for coding agents:
 
 - `dotnet run --project src\Lumi\Lumi.csproj -- --debug-agent-harness` opens Lumi directly into a synthetic transcript fixture chat. The fixture is not saved to normal chat history and exercises user/assistant messages, reasoning, tools, subagents, questions, errors, sources, attachments, plan content, token metadata, and generated files.
 - `dotnet run --project src\Lumi\Lumi.csproj -- --test-chat-stress` runs a headless real Copilot stress check. It requires a deterministic tool invocation and exits nonzero if the expected `LUMI_CHAT_STRESS_OK` response is not produced.
+- `dotnet run --project src\Lumi\Lumi.csproj -- --ui-perf-harness` runs the **UI responsiveness harness**: it measures how laggy the UI feels *from the user's perspective* under a full stress load, then prints a console report and writes JSON ranking the worst UX actions/categories. Details below.
 - When running a Debug build, the top-right `#AgentDebugMap` overlay shows stable navigation indices, current page landmarks, chat control IDs, and an `Open fixture` button.
 - Stable MCP/UI automation landmarks are available by name: `#NavChat`, `#NavProjects`, `#NavSkills`, `#NavAgents`, `#NavMemories`, `#NavMcpServers`, `#NavSettings`, `#PageChat`, `#ChatShell`, `#Transcript`, and `#Composer`.
 
 Use these harnesses before making transcript or chat UI changes, and keep the specific debug PID running when the user should inspect the visible result.
+
+#### UI responsiveness harness (`--ui-perf-harness`)
+
+A DEBUG-only harness that quantifies **UI responsiveness from the user's perspective**. It boots the real headed Avalonia app in an **isolated** appdata dir (your real Lumi data is never touched), seeds ~147 varied scenario chats in memory (tiny → huge, tool-heavy, markdown-heavy), then drives a catalog of real UX actions through the actual ViewModels/Views while a background probe continuously samples **UI-thread dispatcher latency** (at `Background` priority). High latency == the UI thread is busy / has little idle headroom == clicks/keystrokes/repaints would feel laggy or frozen. Samples are sliced per-action, aggregated into per-action and per-category stats, classified by impact (Good / Moderate / High / Critical), and ranked worst-first.
+
+- **What it measures (and what it doesn't)**: the probe is a UI-thread **starvation proxy** — it detects when the UI thread is too busy to service work promptly, which correlates strongly with perceived lag and freezes. It does **not** directly measure input-to-pixel or GPU/render-thread time. Treat absolute milliseconds as **relative/regression** signal, not an exact UX latency SLA — especially in Debug builds, where JIT/no-optimization inflates numbers. Use it for ranking, trend tracking, and regression gating.
+- **Self-contained & safe**: runs in its own process, seeds its own data in a temp appdata dir, skips onboarding, and **shuts itself down** when finished. It never sends real Copilot messages and never touches other Lumi instances. One failing action is logged and skipped — it never aborts the whole run.
+- **Full mode** (default): runs every UX category — `--ui-perf-harness`.
+- **Filtered mode**: limit to specific categories — `--ui-perf-harness --ui-perf-filter navigation,composer` (category names are matched case/separator-insensitively, e.g. `chat-open` == `Chat Open`). Categories: `Navigation`, `Chat open`, `Chat switch`, `Transcript scroll`, `Composer`, `Chat list`, `New chat`, `Search`.
+- **Tuning flags**: `--ui-perf-iterations N` (default 6), `--ui-perf-warmup N` (default 2), `--ui-perf-sample-ms N` (probe interval, default 8), `--ui-perf-settle-ms N` (quiet window, default 120), `--ui-perf-keep-open` (leave the window open for inspection instead of self-shutdown), `--ui-perf-output <path>` (override JSON path). Aliases for the main flag: `--ui-responsiveness-harness`, `--stress-ui`, `--ui-perf`.
+- **Regression gate**: `--ui-perf-fail-on <good|moderate|high|critical>` (aliases `--ui-perf-failon`, `--ui-perf-gate`) makes the process exit **3** if any action's impact is at or above the given level (exit **1** on harness error, **0** otherwise). Use this in CI to fail a build when a UX action regresses past a threshold.
+- **Metrics**: latency stats are `p50/p95/p99/max` of probe samples within each action's window. `post(ms)` is the post-action drain time (UI-thread busy time *after* the action delegate returned, **excluding** the fixed quiet padding) — it is **not** a fixed floor. `IterationsWithStall` reports how many iterations hit a High-level stall, a consistency signal (a one-off spike vs. a reliable freeze).
+- **Output**: a console report plus a JSON report at `%TEMP%\Lumi-ui-perf\report-<timestamp>.json` (with a `report-latest.json` copy). The JSON is the authoritative machine-readable artifact; use it to decide which UX section to optimize next. When a gate is set, `summary.gate` carries `{ level, failed, offenders }`.
+- **Pure-logic core is unit-tested** in `tests/Lumi.Tests` (`UiResponsivenessMetricsTests`, `UiHarnessOptionsTests`, `UiResponsivenessReportTests`). The metrics/options/report types live in `src/Lumi/UiPerf/` and are always compiled; the probe/scenarios/harness are DEBUG-only and excluded from Release builds.
+
 
 #### What to test and how
 

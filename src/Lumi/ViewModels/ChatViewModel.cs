@@ -339,7 +339,25 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public IReadOnlyDictionary<Guid, BrowserService> ChatBrowserServices => _chatBrowserServices;
 
     /// <summary>True while a chat is being loaded and the loading overlay is shown.</summary>
-    [ObservableProperty] private bool _isLoadingChat;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsChatSurfaceLoading))]
+    private bool _isLoadingChat;
+
+    /// <summary>
+    /// True while a freshly opened transcript is still realizing its mounted turns (the deferred,
+    /// frame-budgeted layout pass that runs after the placeholders mount). The view drives this so
+    /// the loading overlay stays up until the transcript is actually measured and pinned, rather
+    /// than flashing blank for a frame.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsChatSurfaceLoading))]
+    private bool _isTranscriptRealizing;
+
+    /// <summary>
+    /// Drives the chat loading overlay: visible while either the chat history is loading or the
+    /// transcript is still realizing its mounted turns after an open/switch.
+    /// </summary>
+    public bool IsChatSurfaceLoading => IsLoadingChat || IsTranscriptRealizing;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CurrentChatTitle))]

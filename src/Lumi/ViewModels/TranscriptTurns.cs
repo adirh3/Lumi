@@ -5,6 +5,7 @@ using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Templates;
 using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Threading;
@@ -30,10 +31,28 @@ public sealed class TranscriptTurn : ObservableObject
         set => SetProperty(ref _measuredHeight, value);
     }
 
+    /// <summary>
+    /// The realized item-host (a StackPanel of ContentPresenters) for this turn, cached on the
+    /// stable turn object so switching away from and back to a chat reuses the already-built and
+    /// already-parsed transcript controls instead of rebuilding them. Owned by the turn; adopted
+    /// by whichever <see cref="TranscriptTurnControl"/> currently renders it, and released by
+    /// <see cref="ReleaseRealizedHost"/> when the turn leaves the mounted window.
+    /// </summary>
+    internal StackPanel? RealizedItemsHost { get; set; }
+
     public int IndexOf(TranscriptItem item) => Items.IndexOf(item);
 
     public bool Remove(TranscriptItem item) => Items.Remove(item);
 
+    /// <summary>Tears down and drops the cached realized host so its controls can be collected.</summary>
+    internal void ReleaseRealizedHost()
+    {
+        if (RealizedItemsHost is null)
+            return;
+
+        TranscriptTurnControl.ReleaseHost(RealizedItemsHost);
+        RealizedItemsHost = null;
+    }
 }
 
 public readonly record struct TranscriptTurnControlDiagnosticsSnapshot(
@@ -42,18 +61,39 @@ public readonly record struct TranscriptTurnControlDiagnosticsSnapshot(
 
 public sealed class TranscriptTurnControl : UserControl
 {
-    private readonly StackPanel _itemsHost;
     private TranscriptTurn? _turn;
+    private StackPanel? _host;
     private bool _isAttachedToVisualTree;
     private bool _isSubscribedToTurnItems;
+    private bool _realizationPending;
     private static int _controlCreateCount;
     private static int _itemHostCreateCount;
+
+    // Matches TranscriptPagingOptions.EstimatedPixelsPerWeightUnit so a placeholder reserves roughly
+    // the same height the pager assumes for an unmeasured turn.
+    private const double PlaceholderPixelsPerWeightUnit = 56d;
 
     public static readonly StyledProperty<TranscriptTurn?> TurnProperty =
         AvaloniaProperty.Register<TranscriptTurnControl, TranscriptTurn?>(nameof(Turn));
 
     private static readonly AttachedProperty<IDisposable?> ItemVisibilityBindingProperty =
-        AvaloniaProperty.RegisterAttached<TranscriptTurnControl, ContentPresenter, IDisposable?>("ItemVisibilityBinding");
+        AvaloniaProperty.RegisterAttached<TranscriptTurnControl, Control, IDisposable?>("ItemVisibilityBinding");
+
+    // Tracks which TranscriptItem a host child renders, so a retained host can be reconciled
+    // back to the live item list by identity. Set on the built view (or fallback presenter)
+    // rather than relying on ContentPresenter.Content, since host children are now the
+    // directly-built item views, not ContentPresenters.
+    private static readonly AttachedProperty<TranscriptItem?> HostedItemProperty =
+        AvaloniaProperty.RegisterAttached<TranscriptTurnControl, Control, TranscriptItem?>("HostedItem");
+
+    /// <summary>
+    /// The <see cref="TranscriptItem"/> a realized host child renders (null on any other control).
+    /// Item hosts are directly-built item views carrying this attached property rather than
+    /// <see cref="ContentPresenter"/>s whose Content is the item, so callers that need to locate a
+    /// specific item's visual (e.g. in-chat search) must match on this instead of
+    /// <c>ContentPresenter.Content</c>.
+    /// </summary>
+    internal static TranscriptItem? GetHostedItem(Control host) => host.GetValue(HostedItemProperty);
 
     static TranscriptTurnControl()
     {
@@ -64,13 +104,6 @@ public sealed class TranscriptTurnControl : UserControl
     public TranscriptTurnControl()
     {
         Interlocked.Increment(ref _controlCreateCount);
-
-        _itemsHost = new StackPanel
-        {
-            Spacing = TranscriptLayoutMetrics.TurnSpacing
-        };
-
-        Content = _itemsHost;
         SizeChanged += OnSizeChanged;
     }
 
@@ -101,6 +134,7 @@ public sealed class TranscriptTurnControl : UserControl
 
         VerifyUiThread();
         UnsubscribeFromTurnItems(oldTurn);
+        ReleaseAdoptedHost();
 
         _turn = newTurn;
 
@@ -108,7 +142,7 @@ public sealed class TranscriptTurnControl : UserControl
         if (newTurn is not null && Bounds.Height > 0)
             newTurn.MeasuredHeight = Bounds.Height;
 
-        RebuildItemHosts();
+        AdoptHost();
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -116,14 +150,14 @@ public sealed class TranscriptTurnControl : UserControl
         base.OnAttachedToVisualTree(e);
         _isAttachedToVisualTree = true;
         SubscribeToTurnItems(_turn);
-        RebuildItemHosts();
+        AdoptHost();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         UnsubscribeFromTurnItems(_turn);
         _isAttachedToVisualTree = false;
-        ClearItemHosts();
+        ReleaseAdoptedHost();
         base.OnDetachedFromVisualTree(e);
     }
 
@@ -136,29 +170,38 @@ public sealed class TranscriptTurnControl : UserControl
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         VerifyUiThread();
+
+        var host = _host;
+        if (host is null)
+        {
+            // No adopted host yet (e.g. detached); a later AdoptHost builds/reconciles it.
+            AdoptHost();
+            return;
+        }
+
         switch (e.Action)
         {
             case NotifyCollectionChangedAction.Add when e.NewItems is not null && e.NewStartingIndex >= 0:
-                if (e.NewStartingIndex > _itemsHost.Children.Count)
+                if (e.NewStartingIndex > host.Children.Count)
                 {
-                    RebuildItemHosts();
+                    RebuildHostChildren();
                     break;
                 }
 
                 for (var i = 0; i < e.NewItems.Count; i++)
-                    InsertItemHost(e.NewStartingIndex + i, GetTranscriptItem(e.NewItems[i]));
+                    host.Children.Insert(e.NewStartingIndex + i, CreateItemHost(GetTranscriptItem(e.NewItems[i])));
                 break;
             case NotifyCollectionChangedAction.Remove when e.OldItems is not null && e.OldStartingIndex >= 0:
-                if (e.OldStartingIndex + e.OldItems.Count > _itemsHost.Children.Count)
+                if (e.OldStartingIndex + e.OldItems.Count > host.Children.Count)
                 {
-                    RebuildItemHosts();
+                    RebuildHostChildren();
                     break;
                 }
 
                 for (var i = 0; i < e.OldItems.Count; i++)
                 {
-                    ClearItemHost(_itemsHost.Children[e.OldStartingIndex]);
-                    _itemsHost.Children.RemoveAt(e.OldStartingIndex);
+                    ClearItemHost(host.Children[e.OldStartingIndex]);
+                    host.Children.RemoveAt(e.OldStartingIndex);
                 }
                 break;
             case NotifyCollectionChangedAction.Replace
@@ -167,75 +210,224 @@ public sealed class TranscriptTurnControl : UserControl
                      && e.OldStartingIndex >= 0
                      && e.NewStartingIndex == e.OldStartingIndex
                      && e.OldItems.Count == e.NewItems.Count
-                     && e.NewStartingIndex + e.NewItems.Count <= _itemsHost.Children.Count:
+                     && e.NewStartingIndex + e.NewItems.Count <= host.Children.Count:
                 for (var i = 0; i < e.NewItems.Count; i++)
-                    ReplaceItemHost(e.NewStartingIndex + i, GetTranscriptItem(e.NewItems[i]));
+                {
+                    var index = e.NewStartingIndex + i;
+                    ClearItemHost(host.Children[index]);
+                    host.Children[index] = CreateItemHost(GetTranscriptItem(e.NewItems[i]));
+                }
                 break;
             case NotifyCollectionChangedAction.Move
                 when e.OldItems is not null
                      && e.OldItems.Count == 1
                      && e.OldStartingIndex >= 0
                      && e.NewStartingIndex >= 0
-                     && e.OldStartingIndex < _itemsHost.Children.Count:
-                var child = _itemsHost.Children[e.OldStartingIndex];
-                _itemsHost.Children.RemoveAt(e.OldStartingIndex);
-                if (e.NewStartingIndex <= _itemsHost.Children.Count)
-                    _itemsHost.Children.Insert(e.NewStartingIndex, child);
+                     && e.OldStartingIndex < host.Children.Count:
+                var child = host.Children[e.OldStartingIndex];
+                host.Children.RemoveAt(e.OldStartingIndex);
+                if (e.NewStartingIndex <= host.Children.Count)
+                    host.Children.Insert(e.NewStartingIndex, child);
                 else
-                    RebuildItemHosts();
+                    RebuildHostChildren();
                 break;
             case NotifyCollectionChangedAction.Move:
             case NotifyCollectionChangedAction.Reset:
             default:
-                RebuildItemHosts();
+                RebuildHostChildren();
                 break;
         }
     }
 
-    private void RebuildItemHosts()
+    // Adopt the current turn's retained host (building it once if absent) as our Content, so
+    // switching away from and back to a chat reuses already-built/parsed transcript controls
+    // instead of rebuilding them. Hosts only matter while attached: their content templates
+    // inflate (and markdown parses) on measure, which only happens in the visual tree.
+    private void AdoptHost()
     {
         VerifyUiThread();
-        ClearItemHosts();
+
+        if (!_isAttachedToVisualTree || _turn is null)
+            return;
+
+        // Already realized and shown for this turn: just keep its children in sync (the cheap
+        // streaming/reconcile path) without re-queuing a realization.
+        if (_host is not null && ReferenceEquals(Content, _host))
+        {
+            ReconcileHostChildren(_host, _turn.Items);
+            return;
+        }
+
+        // Defer the heavy realization (host build for a fresh turn, or visual-tree re-measure for a
+        // retained one) so a chat switch doesn't measure every mounted turn in one synchronous layout
+        // pass — the long freeze the user feels. Reserve the turn's known height meanwhile so the
+        // scrollbar and scroll anchor stay correct, then let the scheduler realize bottom-first in
+        // small frame-budgeted batches.
+        ReservePlaceholderHeight();
+        _realizationPending = true;
+        TranscriptRealizationScheduler.Instance.Request(this);
+    }
+
+    // Performs the deferred heavy work for this turn. Invoked by the realization scheduler (or
+    // directly when an immediate realize is required, e.g. scrolling to a searched turn).
+    internal void RealizePendingHost()
+    {
+        VerifyUiThread();
+        _realizationPending = false;
+
+        if (!_isAttachedToVisualTree || _turn is null)
+            return;
+
+        var host = _turn.RealizedItemsHost;
+        if (host is null)
+        {
+            host = new StackPanel
+            {
+                Spacing = TranscriptLayoutMetrics.TurnSpacing
+            };
+
+            foreach (var item in _turn.Items)
+                host.Children.Add(CreateItemHost(item));
+
+            _turn.RealizedItemsHost = host;
+        }
+        else
+        {
+            // Defensive: detach from any stale owner before re-parenting (one-parent rule).
+            if (host.Parent is ContentControl owner && !ReferenceEquals(owner, this))
+                owner.Content = null;
+
+            // The host may have gone stale while un-parented (e.g. background streaming changed
+            // the turn's items); reconcile it back to the live item list before reuse.
+            ReconcileHostChildren(host, _turn.Items);
+        }
+
+        _host = host;
+        if (!ReferenceEquals(Content, host))
+            Content = host;
+        ClearPlaceholderHeight();
+    }
+
+    // Reserve the turn's known (or estimated) height with empty content so the placeholder occupies
+    // the right space until the real subtree is measured. Exact for a switch-back (cached
+    // MeasuredHeight) → no reflow; an estimate on first realization.
+    private void ReservePlaceholderHeight()
+    {
         if (_turn is null)
             return;
 
+        MinHeight = TranscriptPageWeightEstimator.EstimateTurnHeight(_turn, PlaceholderPixelsPerWeightUnit);
+        if (Content is not null)
+            Content = null;
+    }
+
+    private void ClearPlaceholderHeight() => ClearValue(MinHeightProperty);
+
+    // Un-parent the adopted host but leave it cached on the turn for reuse on a later re-adopt.
+    // The retained host is torn down only when the turn is evicted (TranscriptTurn.ReleaseRealizedHost).
+    private void ReleaseAdoptedHost()
+    {
+        if (_realizationPending)
+        {
+            _realizationPending = false;
+            TranscriptRealizationScheduler.Instance.Cancel(this);
+        }
+
+        ClearPlaceholderHeight();
+
+        if (_host is null)
+            return;
+
+        if (ReferenceEquals(Content, _host))
+            Content = null;
+        _host = null;
+    }
+
+    private void RebuildHostChildren()
+    {
+        VerifyUiThread();
+        if (!_isAttachedToVisualTree || _host is null || _turn is null)
+            return;
+
+        for (var i = _host.Children.Count - 1; i >= 0; i--)
+            ClearItemHost(_host.Children[i]);
+        _host.Children.Clear();
+
         foreach (var item in _turn.Items)
-            _itemsHost.Children.Add(CreateItemHost(item));
+            _host.Children.Add(CreateItemHost(item));
     }
 
-    private void ClearItemHosts()
+    // Brings a retained host's children back in sync with the live item list. Fast no-op when the
+    // children already match by identity (the common switch-back case); otherwise rebuilds.
+    private void ReconcileHostChildren(StackPanel host, ObservableCollection<TranscriptItem> items)
     {
-        for (var i = _itemsHost.Children.Count - 1; i >= 0; i--)
-            ClearItemHost(_itemsHost.Children[i]);
+        var matches = host.Children.Count == items.Count;
+        if (matches)
+        {
+            for (var i = 0; i < items.Count; i++)
+            {
+                if (ReferenceEquals(host.Children[i].GetValue(HostedItemProperty), items[i]))
+                    continue;
 
-        _itemsHost.Children.Clear();
+                matches = false;
+                break;
+            }
+        }
+
+        if (matches)
+            return;
+
+        for (var i = host.Children.Count - 1; i >= 0; i--)
+            ClearItemHost(host.Children[i]);
+        host.Children.Clear();
+
+        foreach (var item in items)
+            host.Children.Add(CreateItemHost(item));
     }
 
-    private void InsertItemHost(int index, TranscriptItem item)
+    // Tears down a cached host's children (disposing visibility bindings) so its controls
+    // can be collected. Called when the owning turn is evicted from the mounted window.
+    internal static void ReleaseHost(StackPanel host)
     {
-        _itemsHost.Children.Insert(index, CreateItemHost(item));
-    }
-
-    private void ReplaceItemHost(int index, TranscriptItem item)
-    {
-        ClearItemHost(_itemsHost.Children[index]);
-        _itemsHost.Children[index] = CreateItemHost(item);
+        for (var i = host.Children.Count - 1; i >= 0; i--)
+            ClearItemHost(host.Children[i]);
+        host.Children.Clear();
     }
 
     [UnconditionalSuppressMessage(
         "Trimming",
         "IL2026",
         Justification = "Runtime transcript hosts bind to internal TranscriptItem properties; this desktop app is not trimmed and binding avoids leak-prone view-capturing event handlers.")]
-    private static ContentPresenter CreateItemHost(TranscriptItem item)
+    private Control CreateItemHost(TranscriptItem item)
     {
         Interlocked.Increment(ref _itemHostCreateCount);
-        var presenter = new ContentPresenter
-        {
-            Content = item,
-            HorizontalAlignment = HorizontalAlignment.Stretch
-        };
 
-        var binding = presenter.Bind(
+        // Build the item's view directly from its matching DataTemplate (resolved off this
+        // control's place in the visual tree) and hold the concrete view -- NOT a ContentPresenter
+        // whose Content is the data item. A ContentPresenter re-inflates its templated child every
+        // time it leaves and re-enters the visual tree, which happens on every chat switch; that
+        // re-parses all markdown and rebuilds the whole subtree. Holding the built view directly
+        // means a switch-away/switch-back re-parents the SAME instances, so retained markdown
+        // (StrataMarkdown.RetainContentOnDetach) and the rest of the subtree are reused, not rebuilt.
+        Control host;
+        var template = this.FindDataTemplate(item);
+        if (template?.Build(item) is { } view)
+        {
+            view.DataContext = item;
+            host = view;
+        }
+        else
+        {
+            host = new ContentPresenter
+            {
+                Content = item,
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+        }
+
+        host.SetValue(HostedItemProperty, item);
+
+        var binding = host.Bind(
             IsVisibleProperty,
             new Binding
             {
@@ -243,20 +435,22 @@ public sealed class TranscriptTurnControl : UserControl
                 Source = item,
                 Mode = BindingMode.OneWay
             });
-        presenter.SetValue(ItemVisibilityBindingProperty, binding);
+        host.SetValue(ItemVisibilityBindingProperty, binding);
 
-        return presenter;
+        return host;
     }
 
     private static void ClearItemHost(Control host)
     {
-        if (host is not ContentPresenter presenter)
-            return;
+        host.GetValue(ItemVisibilityBindingProperty)?.Dispose();
+        host.ClearValue(ItemVisibilityBindingProperty);
+        host.ClearValue(HostedItemProperty);
+        host.ClearValue(IsVisibleProperty);
 
-        presenter.GetValue(ItemVisibilityBindingProperty)?.Dispose();
-        presenter.ClearValue(ItemVisibilityBindingProperty);
-        presenter.ClearValue(IsVisibleProperty);
-        presenter.Content = null;
+        if (host is ContentPresenter presenter)
+            presenter.Content = null;
+        else
+            host.DataContext = null;
     }
 
     private static TranscriptItem GetTranscriptItem(object? value)

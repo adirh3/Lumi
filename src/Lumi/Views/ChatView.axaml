@@ -1027,12 +1027,27 @@
       </StackPanel>
     </Panel>
 
-    <!-- Loading overlay shown while chat history is being rebuilt (outside ChatPanel so it's visible even from welcome screen) -->
-    <Panel x:Name="LoadingOverlay" IsVisible="{Binding IsLoadingChat}" ZIndex="50" IsHitTestVisible="False">
-      <Border Background="{DynamicResource Brush.Surface0}" Opacity="0.85" />
+    <!-- Loading overlay shown while chat history is being rebuilt or the transcript is still
+         realizing its turns (outside ChatPanel so it's visible even from the welcome screen). -->
+    <Panel x:Name="LoadingOverlay" ZIndex="50"
+           IsHitTestVisible="{Binding IsChatSurfaceLoading}"
+           Opacity="{Binding IsChatSurfaceLoading, Converter={x:Static conv:BoolToOpacityConverter.Instance}}">
+      <!-- Driven by Opacity (not IsVisible) so it can cross-fade. The overlay stays present at
+           Opacity 0 when idle; the DoubleTransition fades it IN fast to cover a switch and OUT
+           gently to reveal the already-settled, bottom-pinned transcript (no hard cut). The Border
+           is fully opaque while shown so the under-overlay realization settle (turn growth + scroll
+           re-pin) is never visible; on fast/small switches the overlay only briefly pulses, so there
+           is no hard flash. IsHitTestVisible follows the flag so clicks can't reach a settling
+           transcript while it's up, and pass straight through once it has faded. -->
+      <Panel.Transitions>
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.14" Easing="CubicEaseOut" />
+        </Transitions>
+      </Panel.Transitions>
+      <Border Background="{DynamicResource Brush.Surface0}" />
       <sc:StrataTypingIndicator x:Name="LoadingIndicator"
                                 Label="{loc:Str Chat_Loading}"
-                                IsActive="True"
+                                IsActive="{Binding IsChatSurfaceLoading}"
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center" />
     </Panel>

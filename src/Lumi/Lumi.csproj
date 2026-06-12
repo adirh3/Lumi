@@ -74,6 +74,15 @@
     <Compile Remove="DebugAgentHarness.cs" />
     <Compile Remove="Services\LumiDebugBridge.cs" />
     <Compile Remove="ViewModels\ChatViewModel.Debug.cs" />
+    <Compile Remove="UiPerf\UiResponsivenessProbe.cs" />
+    <Compile Remove="UiPerf\UiWorkloadScenarios.cs" />
+    <Compile Remove="UiPerf\UiResponsivenessHarness.cs" />
+    <Compile Remove="UiPerf\UiStreamingLoad.cs" />
+    <!-- UiHarnessOptions/UiResponsivenessMetrics/UiResponsivenessReport are intentionally NOT removed:
+         they are pure-logic, side-effect-free types that the Lumi.Tests project references, and
+         pr-validation.yml builds AND runs the whole solution in Release config. Removing them would
+         break the Release test compile. They are unreachable from production code (every caller in
+         Program.cs/App is #if DEBUG), so they are inert dead code in the shipped app. -->
   </ItemGroup>
 
 </Project>

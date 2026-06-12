@@ -271,6 +271,7 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         _pages.Clear();
         _firstMountedPageIndex = -1;
         _lastMountedPageIndex = -1;
+        ReleaseAllMountedHosts();
         MountedTurns.Clear();
         UpdateDiagnostics("clear", reason);
     }
@@ -285,6 +286,7 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         {
             _firstMountedPageIndex = -1;
             _lastMountedPageIndex = -1;
+            ReleaseAllMountedHosts();
             MountedTurns.Clear();
             stopwatch.Stop();
             _initialLoadMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
@@ -548,6 +550,7 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         if (_sourceTurns is not null)
             _sourceTurns.CollectionChanged -= OnSourceTurnsCollectionChanged;
 
+        ReleaseAllMountedHosts();
         _disposed = true;
     }
 
@@ -575,6 +578,7 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         {
             _firstMountedPageIndex = -1;
             _lastMountedPageIndex = -1;
+            ReleaseAllMountedHosts();
             MountedTurns.Clear();
             UpdateDiagnostics("source-change", e.Action.ToString());
             return;
@@ -712,10 +716,22 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         }
 
         for (var i = currentSuffix; i >= prefix; i--)
+        {
+            var removed = MountedTurns[i];
             MountedTurns.RemoveAt(i);
+            // The turn left the mounted window: tear down its retained realized host so its
+            // controls/parsed markdown are released (bounds retention to mounted turns).
+            removed.ReleaseRealizedHost();
+        }
 
         for (var i = prefix; i <= desiredSuffix; i++)
             MountedTurns.Insert(i, desiredTurns[i]);
+    }
+
+    private void ReleaseAllMountedHosts()
+    {
+        for (var i = 0; i < MountedTurns.Count; i++)
+            MountedTurns[i].ReleaseRealizedHost();
     }
 
     private double GetMountedHeight()

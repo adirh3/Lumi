@@ -274,6 +274,10 @@ public partial class ChatView : UserControl
         _subscribedVm.ClipboardPasteRequested -= OnClipboardPasteRequested;
         _subscribedVm.CopyToClipboardRequested -= OnCopyToClipboardRequested;
         _subscribedVm.FocusComposerRequested -= FocusComposer;
+        // Clear the realizing gate so a view detach mid-open can't leave the overlay stuck up on the VM:
+        // a suspended OpenTranscriptAtLatestAsync won't reach its gate-clearing finally once _subscribedVm
+        // is null / the sync version has been bumped below.
+        _subscribedVm.IsTranscriptRealizing = false;
         _subscribedVm = null;
         _lastObservedCurrentChat = null;
         _initialTranscriptTailSyncVersion++;
@@ -425,12 +429,17 @@ public partial class ChatView : UserControl
         if (_subscribedVm is { IsBusy: true })
         {
             QueueTranscriptViewportEvaluation();
-            if (_chatShell.IsPinnedToBottom)
+            // Re-pin on follow-tail INTENT, not the distance-based IsPinnedToBottom: a turn growing
+            // past its placeholder height (deferred realization, tool expand, streaming) can itself
+            // push us >8px from the bottom in a single frame, which flips IsPinnedToBottom false and
+            // would strand the scroll part-way up. As long as the user hasn't deliberately scrolled
+            // away, snap back to the bottom.
+            if (_chatShell.IsFollowingTail)
                 Dispatcher.UIThread.Post(() => _chatShell?.ScrollToEnd(), DispatcherPriority.Loaded);
             return;
         }
 
-        if (_chatShell.IsPinnedToBottom)
+        if (_chatShell.IsFollowingTail)
         {
             QueueTranscriptViewportEvaluation();
             Dispatcher.UIThread.Post(() => _chatShell?.ScrollToEnd(), DispatcherPriority.Loaded);
@@ -510,6 +519,16 @@ public partial class ChatView : UserControl
 
     private async void OnTranscriptRebuilt()
     {
+        // Only a load/switch-driven rebuild may raise the loading overlay. RebuildTranscript also fires
+        // on incidental in-place rebuilds of the visible chat (stream completion attaching web sources,
+        // settings toggles like ShowReasoning/ShowToolCalls, edit/resend) where IsLoadingChat is false —
+        // those must NOT flash the full-surface overlay or absorb clicks while the transcript re-realizes.
+        // During a genuine load IsLoadingChat is already true here (RebuildTranscript runs inside
+        // LoadChatAsync before its finally clears the flag), so raising the gate synchronously keeps the
+        // overlay continuously up from load → realization with no blank frame in between.
+        if (_subscribedVm is { IsLoadingChat: true })
+            _subscribedVm.IsTranscriptRealizing = true;
+
         var syncVersion = ++_initialTranscriptTailSyncVersion;
         await OpenTranscriptAtLatestAsync(focusComposer: true, searchAfterOpen: true, syncVersion);
     }
@@ -538,6 +557,7 @@ public partial class ChatView : UserControl
         if (viewModel.CurrentChat is null || viewModel.MountedTranscriptTurns.Count == 0)
             return;
 
+        viewModel.IsTranscriptRealizing = true;
         var syncVersion = ++_initialTranscriptTailSyncVersion;
         Dispatcher.UIThread.Post(
             () => _ = OpenTranscriptAtLatestAsync(focusComposer: false, searchAfterOpen: false, syncVersion),
@@ -549,38 +569,117 @@ public partial class ChatView : UserControl
         if (_subscribedVm is null || _chatShell is null)
             return;
 
-        var ready = await EnsureTranscriptScrollViewerReadyAsync();
-        if (!ready || _subscribedVm is null || _chatShell is null || syncVersion != _initialTranscriptTailSyncVersion)
-            return;
+        try
+        {
+            var ready = await EnsureTranscriptScrollViewerReadyAsync();
+            if (!ready || _subscribedVm is null || _chatShell is null || syncVersion != _initialTranscriptTailSyncVersion)
+                return;
 
-        var chatShell = _chatShell;
-        var viewModel = _subscribedVm;
-        if (viewModel.CurrentChat is null)
-            return;
+            var chatShell = _chatShell;
+            var viewModel = _subscribedVm;
+            if (viewModel.CurrentChat is null)
+                return;
 
-        chatShell.EnterFollowTailMode();
-        viewModel.InitializeMountedTranscript(chatShell.ViewportHeight);
-        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+            chatShell.EnterFollowTailMode();
+            viewModel.InitializeMountedTranscript(chatShell.ViewportHeight);
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+            if (syncVersion != _initialTranscriptTailSyncVersion || !ReferenceEquals(viewModel, _subscribedVm))
+                return;
+
+            viewModel.EnsureMountedTranscriptCoverage(chatShell.ViewportHeight, chatShell.ExtentHeight);
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+            if (syncVersion != _initialTranscriptTailSyncVersion || !ReferenceEquals(viewModel, _subscribedVm))
+                return;
+
+            chatShell.JumpToLatest();
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+            if (syncVersion != _initialTranscriptTailSyncVersion || !ReferenceEquals(viewModel, _subscribedVm))
+                return;
+
+            SyncTranscriptPinnedState();
+            if (focusComposer)
+                FocusComposer();
+            QueueTranscriptViewportEvaluation();
+
+            if (searchAfterOpen && !string.IsNullOrWhiteSpace(_searchInput?.Text))
+                ExecuteSearch();
+
+            // Keep the loading overlay up (and absorbing clicks) until the deferred, frame-budgeted
+            // realization of the mounted turns has finished, then make a final authoritative re-pin to
+            // the now fully-measured bottom. Without this the overlay would clear while turns are still
+            // height-only placeholders → the user sees a blank/jumping transcript, and because the
+            // bottom turn grows after the initial pin the scroll otherwise settles part-way up.
+            await WaitForTranscriptRealizationAsync(chatShell, viewModel, syncVersion);
+        }
+        finally
+        {
+            // Only the newest open clears the gate; a superseded open leaves it set for whichever open
+            // replaced it (that one clears it once its own realization completes).
+            if (syncVersion == _initialTranscriptTailSyncVersion && _subscribedVm is not null)
+                _subscribedVm.IsTranscriptRealizing = false;
+        }
+    }
+
+    private async Task WaitForTranscriptRealizationAsync(StrataChatShell chatShell, ChatViewModel viewModel, int syncVersion)
+    {
+        var scheduler = TranscriptRealizationScheduler.Instance;
+
+        // Bounded so the overlay can never get stuck if work keeps arriving (e.g. opening a chat that
+        // is actively streaming). The UI thread is never blocked: we yield at Background priority,
+        // interleaving with the scheduler's own drain and the re-pin posts.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+
+        // Reveal the transcript only once it has STOPPED growing, not merely when the realization queue
+        // empties. The scheduler dequeues a turn one frame before its (retained) subtree finishes
+        // measuring, so HasPendingWork hits 0 a beat before the layout settles; if we revealed then, the
+        // final growth would re-pin the scroll AFTER the overlay cleared — a visible jump to the bottom.
+        // Instead we keep snapping to the bottom every frame (so all of the growth happens UNDER the
+        // overlay) and wait for the scroll extent to hold steady for a couple of frames before revealing.
+        // A streaming chat grows continuously, so for it we only wait for the queue to drain.
+        var requireExtentStability = !viewModel.IsBusy;
+        var lastExtent = double.NaN;
+        var stableFrames = 0;
+        const int requiredStableFrames = 2;
+
+        while (DateTime.UtcNow < deadline)
+        {
+            // Stay glued to the bottom while the turns grow underneath the overlay.
+            if (chatShell.IsFollowingTail)
+                chatShell.JumpToLatest();
+
+            await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Background);
+            if (syncVersion != _initialTranscriptTailSyncVersion || !ReferenceEquals(viewModel, _subscribedVm))
+                return;
+
+            var extent = chatShell.ExtentHeight;
+            var extentStable = !double.IsNaN(lastExtent) && Math.Abs(extent - lastExtent) < 0.5;
+            lastExtent = extent;
+
+            var settled = !scheduler.HasPendingWork && (!requireExtentStability || extentStable);
+            if (settled)
+            {
+                if (++stableFrames >= requiredStableFrames)
+                    break;
+            }
+            else
+            {
+                stableFrames = 0;
+            }
+        }
+
         if (syncVersion != _initialTranscriptTailSyncVersion || !ReferenceEquals(viewModel, _subscribedVm))
             return;
 
-        viewModel.EnsureMountedTranscriptCoverage(chatShell.ViewportHeight, chatShell.ExtentHeight);
-        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-        if (syncVersion != _initialTranscriptTailSyncVersion || !ReferenceEquals(viewModel, _subscribedVm))
-            return;
-
-        chatShell.JumpToLatest();
-        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-        if (syncVersion != _initialTranscriptTailSyncVersion || !ReferenceEquals(viewModel, _subscribedVm))
-            return;
+        // Final authoritative pin to the now fully-measured bottom before the overlay clears.
+        if (chatShell.IsFollowingTail)
+        {
+            chatShell.JumpToLatest();
+            await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Loaded);
+            if (syncVersion != _initialTranscriptTailSyncVersion || !ReferenceEquals(viewModel, _subscribedVm))
+                return;
+        }
 
         SyncTranscriptPinnedState();
-        if (focusComposer)
-            FocusComposer();
-        QueueTranscriptViewportEvaluation();
-
-        if (searchAfterOpen && !string.IsNullOrWhiteSpace(_searchInput?.Text))
-            ExecuteSearch();
     }
 
     private void OnTranscriptViewportChanged(object? sender, StrataTranscriptViewportChangedEventArgs e)
@@ -1543,8 +1642,24 @@ public partial class ChatView : UserControl
         // Ensure the turn's page is mounted
         _subscribedVm.MountTranscriptPageContainingTurn(hit.Turn);
 
-        // Wait for layout so the newly mounted controls are in the visual tree
-        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+        // Mounted turns realize lazily under a frame budget, so the freshly mounted target may still
+        // be a height-only placeholder. Wait for its control to attach, force that turn to realize now
+        // (its markdown then re-parses at Loaded priority), then wait once more so the realized item
+        // views are parsed/laid out before we scroll to and highlight the match.
+        await Dispatcher.UIThread.InvokeAsync(
+            () =>
+            {
+                if (FindRealizedTurnControl(hit.Turn.StableId) is { } control)
+                    TranscriptRealizationScheduler.Instance.FlushControl(control);
+            },
+            DispatcherPriority.Loaded);
+
+        // The forced realization above causes StrataMarkdown to post its text rebuild at Loaded
+        // priority. Waiting again at Loaded is the same priority as that rebuild, so whether the
+        // SelectableTextBlocks exist when HighlightHit runs depends on dispatcher FIFO ordering — a race
+        // that silently drops the highlight. Wait at the strictly-lower Background priority instead, which
+        // is guaranteed to run only after the entire Loaded queue (including the reparse) has drained.
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
 
         HighlightHit(hit);
     }
@@ -1554,13 +1669,14 @@ public partial class ChatView : UserControl
         var query = hit.Query;
         if (string.IsNullOrEmpty(query) || _transcript is null) return;
 
-        // Find the visual for this item
+        // Find the visual for this item. Host children are directly-built item views carrying the
+        // HostedItem attached property (no longer ContentPresenters whose Content is the item), so a
+        // retained switch-back reuses the same instances; match on HostedItem to locate the hit.
         Control? itemVisual = null;
         foreach (var d in _transcript.GetVisualDescendants())
         {
-            if (d is Avalonia.Controls.Presenters.ContentPresenter cp &&
-                ReferenceEquals(cp.Content, hit.Item))
-            { itemVisual = cp; break; }
+            if (d is Control c && ReferenceEquals(TranscriptTurnControl.GetHostedItem(c), hit.Item))
+            { itemVisual = c; break; }
         }
         if (itemVisual is null) return;
 

@@ -82,7 +82,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsAgentDebugMapVisible));
     }
 
-    public string AgentDebugCurrentPage => SelectedNavIndex switch
+    public string AgentDebugCurrentPage => DescribeNavPage(SelectedNavIndex);
+
+    /// <summary>
+    /// Single source of truth for the nav-index → page mapping. Consumed by the debug overlay and
+    /// by the UI responsiveness harness so the two can never silently drift apart.
+    /// </summary>
+    internal static string DescribeNavPage(int index) => index switch
     {
         0 => "0 Chat (#PageChat, #Composer, #Transcript)",
         1 => "1 Jobs (#PageJobs)",
@@ -92,7 +98,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         5 => "5 Memories (#PageMemories)",
         6 => "6 MCP Servers (#PageMcpServers)",
         7 => "7 Settings (#PageSettings)",
-        _ => $"{SelectedNavIndex} Unknown"
+        _ => $"{index} Unknown"
     };
 
     public string AgentDebugMapText =>

@@ -174,6 +174,11 @@ public partial class App : Application
                     // Start checking for updates in background
                     updateService.StartPeriodicChecks();
                 }, DispatcherPriority.Background);
+
+#if DEBUG
+                if (Program.UiHarnessOptions is { Enabled: true } uiHarnessOptions)
+                    StartUiResponsivenessHarness(desktop, vm, dataStore, uiHarnessOptions);
+#endif
             };
 
             desktop.MainWindow = window;
@@ -181,6 +186,43 @@ public partial class App : Application
 
         base.OnFrameworkInitializationCompleted();
     }
+
+#if DEBUG
+    private void StartUiResponsivenessHarness(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        MainViewModel vm,
+        DataStore dataStore,
+        UiPerf.UiHarnessOptions options)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // Let the first frame and lazy view realization settle before measuring.
+                await Task.Delay(900);
+                var harness = new UiPerf.UiResponsivenessHarness(
+                    vm,
+                    dataStore,
+                    options,
+                    requestShutdown: exitCode => Dispatcher.UIThread.Post(() =>
+                    {
+                        try { Environment.ExitCode = exitCode; desktop.Shutdown(exitCode); }
+                        catch { /* already shutting down */ }
+                    }));
+                await harness.RunAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("[ui-perf] Harness host failed: " + ex);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    try { Environment.ExitCode = 1; desktop.Shutdown(1); }
+                    catch { /* already shutting down */ }
+                });
+            }
+        });
+    }
+#endif
 
     private MainViewModel CreateMainViewModel(
         bool forceOnboarding = false,
