@@ -777,10 +777,19 @@ public class CopilotService : IAsyncDisposable
             || text.Contains("authenticatetoken authentication failed"))
             return true;
 
-        // A 401/unauthorized that co-occurs with a server-internal/transient marker — as opposed
-        // to a definitive credential rejection such as "bad credentials".
-        var unauthorized = text.Contains("401") || text.Contains("unauthorized");
-        if (!unauthorized)
+        // A bare 403 "forbidden" with an empty message body is a spurious mid-session edge
+        // rejection (observed verbatim in CLI logs as 403 {"message":"","code":"forbidden"}),
+        // not a real authorization denial — genuine denials always carry a descriptive message.
+        var compact = text.Replace(" ", string.Empty);
+        if (compact.Contains("\"code\":\"forbidden\"") && compact.Contains("\"message\":\"\""))
+            return true;
+
+        // A 401/unauthorized or 403/forbidden that co-occurs with a server-internal/transient
+        // marker — as opposed to a definitive rejection such as "bad credentials" or a genuine
+        // "missing scopes" forbidden (both of which carry an explanatory message and no marker).
+        var authStatus = text.Contains("401") || text.Contains("unauthorized")
+            || text.Contains("403") || text.Contains("forbidden");
+        if (!authStatus)
             return false;
 
         return text.Contains("internal")
@@ -790,6 +799,64 @@ public class CopilotService : IAsyncDisposable
             || text.Contains("timeout")
             || text.Contains("timed out")
             || text.Contains("try again later");
+    }
+
+    /// <summary>
+    /// Structured variant used for SDK <c>session.error</c> events, which expose the upstream HTTP
+    /// <paramref name="statusCode"/> and error <paramref name="errorType"/> ("authentication",
+    /// "authorization", "quota", "rate_limit", "context_limit", "query") in addition to the message.
+    /// A spurious mid-session 401/403 (e.g. a bare <c>forbidden</c> with an empty body, or the
+    /// internal <c>twirp</c>/<c>usersd</c> failures) is treated as retryable, whereas genuine denials
+    /// — which always carry an explanatory message — and quota/rate-limit errors (handled elsewhere)
+    /// are not.
+    /// </summary>
+    internal static bool IsTransientServerAuthError(int? statusCode, string? errorType, string? message)
+    {
+        var type = errorType?.ToLowerInvariant();
+
+        // Quota / rate-limit / context errors have dedicated handling (e.g. auto model switch);
+        // retrying them immediately as if they were an auth blip would be wrong.
+        if (type is "quota" or "rate_limit" or "context_limit")
+            return false;
+
+        var isAuthClass = statusCode is 401 or 403
+            || type is "authentication" or "authorization";
+
+        // An authentication/authorization failure with no genuine-denial wording is the spurious
+        // server-side case: the credential is still valid and a resend recovers.
+        if (isAuthClass && !LooksLikeGenuineAuthDenial(message))
+            return true;
+
+        // Fall back to message inspection for transport-wrapped errors that lack a status/type.
+        return IsTransientServerAuthError(message);
+    }
+
+    /// <summary>
+    /// True when an auth-class error message describes a permanent denial that a resend cannot fix
+    /// (bad credentials, missing scopes, no access, expired/revoked token, SSO enforcement, etc.),
+    /// so it must surface instead of being retried. An empty/absent message is the spurious
+    /// bare-"forbidden" case and is therefore NOT treated as genuine.
+    /// </summary>
+    private static bool LooksLikeGenuineAuthDenial(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return false;
+
+        var text = message.ToLowerInvariant();
+        return text.Contains("bad credentials")
+            || text.Contains("scope")
+            || text.Contains("not accessible")
+            || text.Contains("do not have access")
+            || text.Contains("does not have access")
+            || text.Contains("no access")
+            || text.Contains("not allowed")
+            || text.Contains("not authorized to")
+            || text.Contains("saml")
+            || text.Contains("sso")
+            || text.Contains("suspended")
+            || text.Contains("disabled")
+            || text.Contains("expired")
+            || text.Contains("revoked");
     }
 
     internal static string? TryGetGitHubTokenForMcp()
