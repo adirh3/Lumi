@@ -302,6 +302,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         AttachChatViewModel(ChatVM);
 
+        // Feature-management changes can originate from any chat surface (the visible chat,
+        // a chat still running after the user navigated away, a background-job chat, or a
+        // detached window). Subscribe at the store level so the main window's collections
+        // refresh no matter which surface executed the change.
+        _chatSessionStore.SurfaceFeatureManagementStateChanged += OnChatFeatureManagementStateChanged;
+
         ProjectsVM.ProjectsChanged += () =>
         {
             _chatSessionStore.ApplyToSurfaces(surface =>
@@ -361,7 +367,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.ChatUpdated += OnChatUpdated;
         chatVm.ChatTitleChanged += OnChatTitleChanged;
         chatVm.PropertyChanged += OnChatViewModelPropertyChanged;
-        chatVm.FeatureManagementStateChanged += OnChatFeatureManagementStateChanged;
         chatVm.ComposerProjectFilterRequested += OnComposerProjectFilterRequested;
     }
 
@@ -371,7 +376,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.ChatUpdated -= OnChatUpdated;
         chatVm.ChatTitleChanged -= OnChatTitleChanged;
         chatVm.PropertyChanged -= OnChatViewModelPropertyChanged;
-        chatVm.FeatureManagementStateChanged -= OnChatFeatureManagementStateChanged;
         chatVm.ComposerProjectFilterRequested -= OnComposerProjectFilterRequested;
     }
 
@@ -464,6 +468,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         _isDisposed = true;
         _backgroundJobService.JobsChanged -= OnBackgroundJobServiceJobsChanged;
+        _chatSessionStore.SurfaceFeatureManagementStateChanged -= OnChatFeatureManagementStateChanged;
         if (_ownsBackgroundJobService)
             _backgroundJobService.Dispose();
         DetachChatViewModel(ChatVM);

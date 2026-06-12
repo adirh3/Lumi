@@ -438,7 +438,6 @@ public partial class App : Application
 
         chatVm.ChatUpdated += OnDetachedChatUpdated;
         chatVm.ChatTitleChanged += OnDetachedChatTitleChanged;
-        chatVm.FeatureManagementStateChanged += OnDetachedChatUpdated;
         chatVm.DefaultModelSelectionChanged += OnDetachedDefaultModelSelectionChanged;
 
         Guid? trackedChatId = initialChatId;
@@ -479,7 +478,6 @@ public partial class App : Application
             chatVm.PropertyChanged -= OnDetachedCurrentChatChanged;
             chatVm.ChatUpdated -= OnDetachedChatUpdated;
             chatVm.ChatTitleChanged -= OnDetachedChatTitleChanged;
-            chatVm.FeatureManagementStateChanged -= OnDetachedChatUpdated;
             chatVm.DefaultModelSelectionChanged -= OnDetachedDefaultModelSelectionChanged;
             windowVm.Dispose();
             request.ReleaseSurface();

@@ -50,6 +50,15 @@ public sealed class ChatSessionStore : IDisposable
         _maxIdleCachedSurfaces = maxIdleCachedSurfaces;
     }
 
+    /// <summary>
+    /// Raised when any tracked surface reports a feature-management change (a project, skill,
+    /// agent, MCP server, memory, or job created/updated/deleted through a chat tool).
+    /// This lets the main window refresh its bound collections regardless of which surface
+    /// executed the change — including chats running in the background, background-job chats,
+    /// and detached chat windows.
+    /// </summary>
+    public event Action? SurfaceFeatureManagementStateChanged;
+
     public ChatViewModel AcquireDraft(Guid? projectId, Action<ChatViewModel>? configure = null)
     {
         ThrowIfDisposed();
@@ -184,6 +193,7 @@ public sealed class ChatSessionStore : IDisposable
         _hostCounts.TryAdd(surface, 0);
         _registry.Attach(surface);
         surface.PropertyChanged += OnSurfacePropertyChanged;
+        surface.FeatureManagementStateChanged += OnSurfaceFeatureManagementStateChanged;
         if (surface.CurrentChat is { } chat)
             RegisterChatOwner(surface, chat.Id);
     }
@@ -194,6 +204,7 @@ public sealed class ChatSessionStore : IDisposable
             return;
 
         surface.PropertyChanged -= OnSurfacePropertyChanged;
+        surface.FeatureManagementStateChanged -= OnSurfaceFeatureManagementStateChanged;
         _registry.Detach(surface);
         _hostCounts.Remove(surface);
         RemoveFromIdleCache(surface);
@@ -202,6 +213,8 @@ public sealed class ChatSessionStore : IDisposable
         if (dispose)
             surface.Dispose();
     }
+
+    private void OnSurfaceFeatureManagementStateChanged() => SurfaceFeatureManagementStateChanged?.Invoke();
 
     private void OnSurfacePropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
