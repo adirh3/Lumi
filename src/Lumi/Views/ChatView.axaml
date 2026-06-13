@@ -14,6 +14,10 @@
 
   <UserControl.Resources>
     <conv:ModelDisplayConverter x:Key="ModelDisplayConverter" />
+    <!-- Shared reading-column width: the transcript and composer both cap at this
+         and center, so on large/maximized windows content stays a balanced column
+         instead of clinging to the edges. On narrow windows it grows to full width. -->
+    <x:Double x:Key="Chat.ReadingColumnWidth">900</x:Double>
   </UserControl.Resources>
 
   <UserControl.Styles>
@@ -156,8 +160,9 @@
           <ThicknessTransition Property="Margin" Duration="0:0:0.55" Easing="0.2,0 0,1" />
         </Transitions>
       </Setter>
-      <!-- Default (active chat) state -->
-      <Setter Property="MaxWidth" Value="5000" />
+      <!-- Default (active chat) state — capped to the reading column so the composer
+           shares a vertical spine with the centered transcript on wide screens -->
+      <Setter Property="MaxWidth" Value="{DynamicResource Chat.ReadingColumnWidth}" />
       <Setter Property="Margin" Value="12,8,12,10" />
     </Style>
     <Style Selector="StackPanel#ComposerContainer.welcome">
@@ -942,6 +947,19 @@
   </UserControl.DataTemplates>
 
   <Panel DragDrop.AllowDrop="True">
+    <!-- Ambient accent backdrop — a soft top-center glow so the margins around the
+         centered column read as a designed backdrop rather than empty space on large screens. -->
+    <Panel x:Name="AmbientBackdrop" IsHitTestVisible="False" ZIndex="0">
+      <Border Opacity="0.13">
+        <Border.Background>
+          <RadialGradientBrush Center="50%,-8%" GradientOrigin="50%,-8%" RadiusX="70%" RadiusY="65%">
+            <GradientStop Offset="0" Color="{DynamicResource Color.AccentDefault}" />
+            <GradientStop Offset="1" Color="Transparent" />
+          </RadialGradientBrush>
+        </Border.Background>
+      </Border>
+    </Panel>
+
     <!-- Drop overlay -->
     <Panel x:Name="DropOverlay" IsVisible="False" IsHitTestVisible="False"
            ZIndex="100">
@@ -1125,6 +1143,8 @@
 
         <sc:StrataChatShell.Transcript>
           <ItemsControl x:Name="Transcript"
+                        HorizontalAlignment="Stretch"
+                        MaxWidth="{DynamicResource Chat.ReadingColumnWidth}"
                         ItemsSource="{Binding MountedTranscriptTurns}">
             <ItemsControl.ItemTemplate>
               <DataTemplate DataType="vm:TranscriptTurn">
