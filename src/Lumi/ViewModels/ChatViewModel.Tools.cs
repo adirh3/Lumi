@@ -91,6 +91,8 @@ public partial class ChatViewModel
         tools.Add(BuildAskQuestionTool(chatId));
         tools.AddRange(BuildLumiManagementTools(chatId));
         tools.AddRange(BuildWebTools());
+        if (ReleaseManagerService.IsReleaseManagerAgent(activeAgent))
+            tools.AddRange(_releaseManagerService.BuildTools(chatId, workDir));
         if (AgentAllows(activeAgent, BrowserToolNames))
             tools.AddRange(BuildBrowserTools(chatId));
         if (AgentAllows(activeAgent, CodingToolNames))
