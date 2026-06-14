@@ -536,6 +536,7 @@
   "Status_GitHubSignInFailed": "GitHub Copilot sign-in did not complete. Please try again.",
   "Status_GitHubSignInRefreshFailed": "Sign-in completed, but Lumi could not refresh the GitHub Copilot session. Try signing in again.",
   "Status_GitHubSignInUnexpectedError": "GitHub Copilot sign-in failed: {0}",
+  "Status_GitHubSignOutFailed": "GitHub Copilot sign-out did not complete. You are still signed in \u2014 please try again.",
   "Button_SignIn": "Sign In",
   "Button_SigningIn": "Signing in\u2026",
   "Setting_AutoSaveMemories": "Auto-Save Memories",

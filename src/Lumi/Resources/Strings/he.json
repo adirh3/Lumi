@@ -537,6 +537,7 @@
   "Status_GitHubSignInFailed": "ההתחברות ל-GitHub Copilot לא הושלמה. נסה שוב.",
   "Status_GitHubSignInRefreshFailed": "ההתחברות הושלמה, אבל לומי לא הצליחה לרענן את סשן GitHub Copilot. נסה להתחבר שוב.",
   "Status_GitHubSignInUnexpectedError": "ההתחברות ל-GitHub Copilot נכשלה: {0}",
+  "Status_GitHubSignOutFailed": "ההתנתקות מ-GitHub Copilot לא הושלמה. אתה עדיין מחובר \u2014 נסה שוב.",
   "Button_SignIn": "התחברות",
   "Button_SigningIn": "מתחבר…",
   "Setting_AutoSaveMemories": "שמירת זיכרונות אוטומטית",

@@ -1273,11 +1273,11 @@ public partial class ChatViewModel
                         }
                         reasoningStream.Clear();
 
-                        // A spurious server-side 401/403 (GitHub backend twirp/usersd internal
-                        // failure, or a bare "forbidden") is not a real logout: the credential is
-                        // still valid and a plain resend recovers. Surface it as a one-click retry
-                        // affordance (same as a connection loss) instead of a terminal error, so the
-                        // user can "continue" without re-authenticating.
+                        // A PROVABLY transient backend-internal failure (twirp/usersd, or a 5xx
+                        // "unavailable") is not a real logout: the credential is still valid and a
+                        // plain resend recovers. Surface it as a one-click retry affordance instead
+                        // of a terminal error. A bare/ambiguous 401/403 is NOT matched, so a genuine
+                        // logout falls through to the terminal error path below and routes to re-auth.
                         if (CopilotService.IsTransientServerAuthError(
                                 err.Data.StatusCode, err.Data.ErrorType, err.Data.Message))
                         {

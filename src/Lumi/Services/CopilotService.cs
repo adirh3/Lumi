@@ -75,12 +75,22 @@ public class CopilotService : IAsyncDisposable
     public long ConnectionGeneration => Interlocked.Read(ref _connectionGeneration);
 
     public async Task ConnectAsync(CancellationToken ct = default)
-        => await ConnectCoreAsync(forceReconnect: false, ct);
+        => await ConnectCoreAsync(forceReconnect: false, allowCoalesce: true, ct);
 
     public async Task ForceReconnectAsync(CancellationToken ct = default)
-        => await ConnectCoreAsync(forceReconnect: true, ct);
+        => await ConnectCoreAsync(forceReconnect: true, allowCoalesce: true, ct);
 
-    private async Task ConnectCoreAsync(bool forceReconnect, CancellationToken ct)
+    /// <summary>
+    /// Reconnects after the stored credential changed (sign-in / sign-out), guaranteeing a brand
+    /// new client created strictly AFTER the credential write. Unlike <see cref="ForceReconnectAsync"/>
+    /// this never coalesces with an in-flight reconnect: a reconnect that began before the credential
+    /// changed may have read the PREVIOUS credential, and accepting it would strand the app on stale
+    /// auth state — e.g. a fresh login still appearing logged out, or a logout still appearing signed in.
+    /// </summary>
+    public async Task ReconnectForCredentialChangeAsync(CancellationToken ct = default)
+        => await ConnectCoreAsync(forceReconnect: true, allowCoalesce: false, ct);
+
+    private async Task ConnectCoreAsync(bool forceReconnect, bool allowCoalesce, CancellationToken ct)
     {
         CopilotClient? oldClient = null;
         CopilotSession? oldSuggestionSession = null;
@@ -95,9 +105,11 @@ public class CopilotService : IAsyncDisposable
             if (!forceReconnect && IsConnected)
                 return;
 
-            // Another caller already reconnected while we were waiting on the gate.
-            // The client is fresh and healthy — no need to create yet another one.
-            if (forceReconnect
+            // Another caller already reconnected while we were waiting on the gate. The client is
+            // fresh and healthy — no need to create yet another one. This coalescing is SKIPPED for
+            // credential-change reconnects (allowCoalesce == false): the winning reconnect may have
+            // read the PREVIOUS credential and must not be accepted as our post-change client.
+            if (forceReconnect && allowCoalesce
                 && Interlocked.Read(ref _connectionGeneration) != generationBeforeWait
                 && IsConnected)
                 return;
@@ -160,6 +172,66 @@ public class CopilotService : IAsyncDisposable
         if (oldClient is not null && !ReferenceEquals(oldClient, _client))
         {
             Reconnected?.Invoke();
+            try { await oldClient.DisposeAsync(); }
+            catch { /* best-effort */ }
+        }
+    }
+
+    /// <summary>
+    /// Tears down the current client and CLI process, leaving the service cleanly disconnected and
+    /// still reusable (gates are not disposed). Used after a successful sign-out when the follow-up
+    /// unauthenticated reconnect fails, to guarantee no authenticated session lingers in memory.
+    /// </summary>
+    public async Task DisconnectAsync()
+    {
+        CopilotClient? oldClient;
+        CopilotSession? oldSuggestionSession;
+
+        await _connectGate.WaitAsync();
+        try
+        {
+            // Detach process/RPC watchers BEFORE dropping the client so the subsequent dispose can't
+            // trip the CLI-process-exit handler into an auto-reconnect.
+            _cleanupProcessHandlers?.Invoke();
+            _cleanupProcessHandlers = null;
+            _lifecycleSub?.Dispose();
+            _lifecycleSub = null;
+
+            oldClient = _client;
+            _client = null;
+            _state = ConnectionState.Disconnected;
+            _models = null;
+            _contextWindowCatalog = null;
+            _fastestModelId = null;
+            Interlocked.Increment(ref _connectionGeneration);
+        }
+        finally
+        {
+            _connectGate.Release();
+        }
+
+        await _suggestionGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            oldSuggestionSession = _suggestionSession;
+            _suggestionSession = null;
+        }
+        finally
+        {
+            _suggestionGate.Release();
+        }
+
+        if (oldSuggestionSession is not null)
+        {
+            // Best-effort: a failure tearing down the suggestion session must NOT prevent the
+            // authenticated client below from being disposed (that would leave a signed-in CLI
+            // process alive after a confirmed logout).
+            try { await DisposeAndDeleteSessionAsync(oldSuggestionSession).ConfigureAwait(false); }
+            catch { /* best-effort */ }
+        }
+
+        if (oldClient is not null)
+        {
             try { await oldClient.DisposeAsync(); }
             catch { /* best-effort */ }
         }
@@ -613,7 +685,8 @@ public class CopilotService : IAsyncDisposable
             if (legacyProcess is null) return CopilotSignInResult.Failed;
             await legacyProcess.WaitForExitAsync(ct);
             if (legacyProcess.ExitCode != 0) return CopilotSignInResult.Failed;
-            await ConnectAsync(ct);
+            // Build a fresh client that loads the just-written credential (see ReconnectAfterSignInAsync).
+            await ReconnectAfterSignInAsync(ct);
             return CopilotSignInResult.Success;
         }
 
@@ -687,8 +760,35 @@ public class CopilotService : IAsyncDisposable
         if (process.ExitCode != 0)
             return CopilotSignInResult.Failed;
 
-        await ConnectAsync(ct);
+        // Build a fresh client that loads the just-written credential (see ReconnectAfterSignInAsync).
+        await ReconnectAfterSignInAsync(ct);
         return CopilotSignInResult.Success;
+    }
+
+    /// <summary>
+    /// Reconnects after a successful sign-in so the new client loads the freshly written credential.
+    /// Uses a non-coalescing reconnect so an older in-flight reconnect that read the pre-login
+    /// credential cannot satisfy it (which would leave a fresh login still looking logged out).
+    /// Sign-in already succeeded once the credential is on disk, so a transient failure to spin up
+    /// the new client is intentionally swallowed rather than reported as a sign-in failure — the
+    /// previous no-op <c>ConnectAsync</c> never threw here. Cancellation still propagates, and the
+    /// caller's auth-status refresh reconciles the real connection state (it never fabricates a
+    /// logged-in state).
+    /// </summary>
+    private async Task ReconnectAfterSignInAsync(CancellationToken ct)
+    {
+        try
+        {
+            await ReconnectForCredentialChangeAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            // Credential is valid; connection state is reconciled by the follow-up refresh.
+        }
     }
 
     private static void ParseDeviceCodeLine(string line, ref string? deviceCode, ref string? verificationUrl)
@@ -746,9 +846,23 @@ public class CopilotService : IAsyncDisposable
         if (process is null) return false;
 
         await process.WaitForExitAsync(ct);
+        if (process.ExitCode != 0)
+            return false;
 
-        // Reconnect so the client picks up the new (unauthenticated) state
-        await ForceReconnectAsync(ct);
+        // Logout succeeded: the stored credential is gone, so the user IS signed out regardless of
+        // what happens next. Tear down the authenticated client immediately so a signed-in session
+        // can never linger, then rebuild on the fresh unauthenticated state as a best-effort step. A
+        // failed (or cancelled) reconnect must NOT report logout as failed — that would leave the UI
+        // showing "signed in" over a wiped credential (the unsafe direction).
+        await DisconnectAsync();
+        try
+        {
+            await ReconnectForCredentialChangeAsync(ct);
+        }
+        catch
+        {
+            // Best-effort: already disconnected above, so any reconnect failure is safe to ignore.
+        }
         return true;
     }
 
@@ -791,15 +905,21 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
-    /// Detects transient, server-side authentication failures that are safe to retry with the
-    /// <em>same</em> credential. GitHub's backend intermittently returns a spurious <c>401</c>
-    /// that actually wraps an internal RPC failure (e.g. <c>twirp error internal: ... failed to
-    /// do request</c> against the <c>usersd</c> user-service) on long-running sessions. These are
-    /// NOT a logout — the stored token is still valid and simply re-issuing the request (what a
-    /// manual "continue" does) succeeds once the backend recovers. The CLI marks them
-    /// non-recoverable ("Retry after is not set. Giving up."), so Lumi must recognise and retry
-    /// them itself. Genuine credential rejections (e.g. "Bad credentials") deliberately return
-    /// <c>false</c> so they surface instead of retrying in a loop.
+    /// Detects <em>provably</em> transient, server-side failures that are safe to retry with the
+    /// <em>same</em> credential. GitHub's backend occasionally wraps an internal RPC failure in a
+    /// <c>401</c> (e.g. <c>twirp error internal: ... failed to do request</c> against the
+    /// <c>usersd</c> user-service) on long-running sessions; the stored token is still valid and a
+    /// plain resend (what a manual "continue" does) succeeds once the backend recovers.
+    /// <para>
+    /// This is an ALLOW-LIST by design: it returns <c>true</c> ONLY when the text carries an
+    /// unambiguous backend-internal / transient marker. Everything else — a bare
+    /// <c>401 unauthorized</c>, a bare <c>403 forbidden</c>, an empty body, an expired/revoked/SSO
+    /// message, or <c>AuthenticateToken authentication failed</c> on its own — returns <c>false</c>
+    /// so a genuine logout SURFACES and routes the user to re-authenticate instead of being masked
+    /// behind a silent retry loop. On the login path this asymmetric default is the only safe one:
+    /// a misclassified transient error costs the user one manual retry, whereas a misclassified
+    /// logout strands them.
+    /// </para>
     /// </summary>
     internal static bool IsTransientServerAuthError(string? errorText)
     {
@@ -808,92 +928,43 @@ public class CopilotService : IAsyncDisposable
 
         var text = errorText.ToLowerInvariant();
 
-        // GitHub backend internal failures surfaced as a 401 (observed verbatim in CLI logs).
-        if (text.Contains("twirp error internal")
+        // Unambiguous GitHub backend-internal RPC failures (observed verbatim in CLI logs as a 401
+        // wrapping a twirp/usersd error) plus plain 5xx-style transient phrases. Auth status words
+        // (401/403/unauthorized/forbidden) are deliberately NOT markers on their own, because a
+        // genuine logout looks identical and must be allowed to surface.
+        return text.Contains("twirp error internal")
             || text.Contains("failed to do request")
-            || text.Contains("authenticatetoken authentication failed"))
-            return true;
-
-        // A bare 403 "forbidden" with an empty message body is a spurious mid-session edge
-        // rejection (observed verbatim in CLI logs as 403 {"message":"","code":"forbidden"}),
-        // not a real authorization denial — genuine denials always carry a descriptive message.
-        var compact = text.Replace(" ", string.Empty);
-        if (compact.Contains("\"code\":\"forbidden\"") && compact.Contains("\"message\":\"\""))
-            return true;
-
-        // A 401/unauthorized or 403/forbidden that co-occurs with a server-internal/transient
-        // marker — as opposed to a definitive rejection such as "bad credentials" or a genuine
-        // "missing scopes" forbidden (both of which carry an explanatory message and no marker).
-        var authStatus = text.Contains("401") || text.Contains("unauthorized")
-            || text.Contains("403") || text.Contains("forbidden");
-        if (!authStatus)
-            return false;
-
-        return text.Contains("internal")
             || text.Contains("usersd")
-            || text.Contains("temporarily")
-            || text.Contains("unavailable")
-            || text.Contains("timeout")
-            || text.Contains("timed out")
-            || text.Contains("try again later");
+            || text.Contains("service unavailable")
+            || text.Contains("temporarily unavailable")
+            || text.Contains("gateway timeout");
     }
 
     /// <summary>
-    /// Structured variant used for SDK <c>session.error</c> events, which expose the upstream HTTP
+    /// Structured variant for SDK <c>session.error</c> events, which expose the upstream HTTP
     /// <paramref name="statusCode"/> and error <paramref name="errorType"/> ("authentication",
-    /// "authorization", "quota", "rate_limit", "context_limit", "query") in addition to the message.
-    /// A spurious mid-session 401/403 (e.g. a bare <c>forbidden</c> with an empty body, or the
-    /// internal <c>twirp</c>/<c>usersd</c> failures) is treated as retryable, whereas genuine denials
-    /// — which always carry an explanatory message — and quota/rate-limit errors (handled elsewhere)
-    /// are not.
+    /// "authorization", "quota", "rate_limit", "context_limit", "query") alongside the message.
+    /// <para>
+    /// Like the string overload this is an ALLOW-LIST: a 401/403 status or an
+    /// "authentication"/"authorization" category is NOT transient on its own — only a provable
+    /// backend-internal marker in the message is. This guarantees a genuine logout (bare 401/403,
+    /// empty body, expired/revoked/SSO) surfaces so the user can sign in again. Quota / rate-limit /
+    /// context errors (which can legitimately contain phrases like "try again later") have dedicated
+    /// handling and are never routed through the auth-retry path.
+    /// </para>
     /// </summary>
     internal static bool IsTransientServerAuthError(int? statusCode, string? errorType, string? message)
     {
         var type = errorType?.ToLowerInvariant();
 
-        // Quota / rate-limit / context errors have dedicated handling (e.g. auto model switch);
-        // retrying them immediately as if they were an auth blip would be wrong.
+        // Quota / rate-limit / context errors have dedicated handling (e.g. auto model switch) and
+        // can carry transient-sounding wording; never treat them as an auth blip.
         if (type is "quota" or "rate_limit" or "context_limit")
             return false;
 
-        var isAuthClass = statusCode is 401 or 403
-            || type is "authentication" or "authorization";
-
-        // An authentication/authorization failure with no genuine-denial wording is the spurious
-        // server-side case: the credential is still valid and a resend recovers.
-        if (isAuthClass && !LooksLikeGenuineAuthDenial(message))
-            return true;
-
-        // Fall back to message inspection for transport-wrapped errors that lack a status/type.
+        // The status code / category alone is never enough to call an auth failure "transient" —
+        // require a provable backend-internal marker in the message.
         return IsTransientServerAuthError(message);
-    }
-
-    /// <summary>
-    /// True when an auth-class error message describes a permanent denial that a resend cannot fix
-    /// (bad credentials, missing scopes, no access, expired/revoked token, SSO enforcement, etc.),
-    /// so it must surface instead of being retried. An empty/absent message is the spurious
-    /// bare-"forbidden" case and is therefore NOT treated as genuine.
-    /// </summary>
-    private static bool LooksLikeGenuineAuthDenial(string? message)
-    {
-        if (string.IsNullOrWhiteSpace(message))
-            return false;
-
-        var text = message.ToLowerInvariant();
-        return text.Contains("bad credentials")
-            || text.Contains("scope")
-            || text.Contains("not accessible")
-            || text.Contains("do not have access")
-            || text.Contains("does not have access")
-            || text.Contains("no access")
-            || text.Contains("not allowed")
-            || text.Contains("not authorized to")
-            || text.Contains("saml")
-            || text.Contains("sso")
-            || text.Contains("suspended")
-            || text.Contains("disabled")
-            || text.Contains("expired")
-            || text.Contains("revoked");
     }
 
     internal static string? TryGetGitHubTokenForMcp()

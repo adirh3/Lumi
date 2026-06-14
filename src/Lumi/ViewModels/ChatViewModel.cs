@@ -1359,9 +1359,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             OnErrorOccurred = async (input, invocation) =>
             {
                 // Retry transient errors, abort on persistent ones. Besides the SDK's own
-                // Recoverable flag, GitHub's backend intermittently returns spurious 401s/403s
-                // (internal "twirp" RPC failures, bare "forbidden") on long sessions that the CLI
-                // marks non-recoverable but which succeed on a plain resend — retry those too.
+                // Recoverable flag, GitHub's backend occasionally wraps an internal RPC failure
+                // (twirp/usersd "failed to do request") in a 401 on long sessions; the CLI marks it
+                // non-recoverable but a plain resend recovers, so retry those too. Bare/ambiguous
+                // 401/403s are deliberately NOT matched — they may be a genuine logout and must
+                // surface (abort) so the user can re-authenticate.
                 if (input.Recoverable || CopilotService.IsTransientServerAuthError(input.Error))
                     return new GitHub.Copilot.ErrorOccurredHookOutput { ErrorHandling = "retry", RetryCount = 3 };
                 return new GitHub.Copilot.ErrorOccurredHookOutput { ErrorHandling = "abort" };
@@ -2997,10 +2999,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (chat is not null)
             ClearPendingTurnTracking(chat.Id);
 
-        // A spurious server-side 401/403 (GitHub backend "twirp" internal error, AuthenticateToken,
-        // or a bare "forbidden") is not a real logout: the credential is still valid and a simple
-        // resend recovers. Surface it as a one-click-retryable failure (same affordance as a
-        // connection loss) instead of a terminal error, so the user can "continue" without re-auth.
+        // A PROVABLY transient backend-internal failure (twirp/usersd "failed to do request", or a
+        // 5xx "unavailable") is not a logout: the credential is still valid and a resend recovers.
+        // Surface it as a one-click-retryable failure (same affordance as a connection loss) instead
+        // of a terminal error. A bare/ambiguous 401/403 is NOT matched here, so a genuine logout
+        // falls through to the normal error path below and the user can re-authenticate.
         if (overrideMessage is null && chat is not null
             && CopilotService.IsTransientServerAuthError(FlattenExceptionMessages(ex)))
         {

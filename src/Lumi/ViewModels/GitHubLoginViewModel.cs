@@ -144,7 +144,14 @@ public partial class GitHubLoginViewModel : ObservableObject
         ErrorText = null;
         try
         {
-            await _copilotService.SignOutAsync();
+            // SignOutAsync returns false when `copilot logout` did not complete. Honor that result:
+            // never clear the signed-in UI state unless the credential was actually removed,
+            // otherwise Lumi would show "signed out" while the token is still valid on disk.
+            if (!await _copilotService.SignOutAsync())
+            {
+                ErrorText = Loc.Status_GitHubSignOutFailed;
+                return;
+            }
             IsAuthenticated = false;
             GitHubLogin = "";
         }
