@@ -149,7 +149,14 @@ public partial class ChatViewModel
             pendingFetchedSources.Clear();
 
             if (updatedMessage is not null && IsDisplayedSession())
-                RebuildTranscript();
+            {
+                // Update the sources section in place. A full RebuildTranscript() here would
+                // re-parse the entire mounted tail's markdown (heavy for long answers), which is
+                // the stutter felt when a web-search chat finishes writing. Fall back to a rebuild
+                // only if the live assistant item can't be found.
+                if (!_transcriptBuilder.RefreshAssistantSources(updatedMessage))
+                    RebuildTranscript();
+            }
         }
 
         bool IsDisplayedSession() => CurrentChat?.Id == chat.Id && _activeSession == session;

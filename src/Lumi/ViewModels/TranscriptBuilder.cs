@@ -101,6 +101,33 @@ public class TranscriptBuilder
         return result;
     }
 
+    /// <summary>
+    /// Refreshes the sources section of the live transcript's assistant message matching
+    /// <paramref name="targetMessage"/> in place, without rebuilding the transcript. Returns true
+    /// if a matching item was found and refreshed. This avoids re-parsing the entire mounted tail's
+    /// markdown when web sources are attached on session idle.
+    /// </summary>
+    public bool RefreshAssistantSources(ChatMessage targetMessage)
+    {
+        if (_liveTarget is null)
+            return false;
+
+        for (var t = _liveTarget.Count - 1; t >= 0; t--)
+        {
+            var items = _liveTarget[t].Items;
+            for (var i = items.Count - 1; i >= 0; i--)
+            {
+                if (items[i] is AssistantMessageItem assistant && assistant.MessageId == targetMessage.Id)
+                {
+                    assistant.RefreshSources();
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     public void ResetState()
     {
         // Unsubscribe all pending PropertyChanged handlers to prevent leaking

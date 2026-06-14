@@ -252,6 +252,7 @@ public partial class AssistantMessageItem : TranscriptItem
 
     public string? Author => _source.Author;
     public string? ModelName => _source.ModelName;
+    internal Guid MessageId => _source.Message.Id;
     public ObservableCollection<SkillReference> Skills { get; } = [];
     public ObservableCollection<FileAttachmentItem> FileAttachments { get; } = [];
     public ObservableCollection<SourceItem> Sources { get; } = [];
@@ -318,6 +319,20 @@ public partial class AssistantMessageItem : TranscriptItem
         HasFileAttachments = FileAttachments.Count > 0;
 
         // Sources come from the persisted model
+        Sources.Clear();
+        foreach (var src in _source.Message.Sources)
+            Sources.Add(new SourceItem(src));
+        HasSources = Sources.Count > 0;
+        SourcesLabel = Sources.Count == 1 ? Loc.Sources_One : string.Format(Loc.Sources_N, Sources.Count);
+    }
+
+    /// <summary>
+    /// Re-reads sources from the persisted model and updates the observable sources section in
+    /// place. Used when web sources are attached after the turn completes (on session idle) so the
+    /// sources can appear without rebuilding — and re-parsing — the whole transcript.
+    /// </summary>
+    public void RefreshSources()
+    {
         Sources.Clear();
         foreach (var src in _source.Message.Sources)
             Sources.Add(new SourceItem(src));
