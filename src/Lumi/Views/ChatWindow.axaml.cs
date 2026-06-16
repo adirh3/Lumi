@@ -19,6 +19,7 @@ public partial class ChatWindow : Window
     public ChatWindow()
     {
         InitializeComponent();
+        WindowChromeInterop.EnableNativeMinMaxAnimations(this);
         ExtendClientAreaToDecorationsHint = true;
         ExtendClientAreaTitleBarHeightHint = 38;
         Background = Brushes.Transparent;
