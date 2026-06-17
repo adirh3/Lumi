@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -985,7 +986,7 @@ public sealed partial class BrowserService : IAsyncDisposable
         }
 
         // Actions that change page state — auto-append a snapshot so the LLM sees the result.
-        var autoLook = !quiet && act is "click" or "type" or "press" or "select" or "back" or "clear";
+        var autoLook = !quiet && act is "click" or "type" or "press" or "select" or "back" or "clear" or "upload";
 
         // Record time before the action so we can detect click-triggered downloads.
         var beforeAction = DateTime.UtcNow;
@@ -1006,7 +1007,8 @@ public sealed partial class BrowserService : IAsyncDisposable
             "clear" => await ClearFieldAsync(target),
             "fill" => await FillFormAsync(value),
             "read_form" => await ReadFormAsync(),
-            _ => $"Unknown action '{act}'. Valid: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, steps"
+            "upload" => await UploadFileAsync(target, value),
+            _ => $"Unknown action '{act}'. Valid: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, upload, steps"
         };
 
         if (result.StartsWith("Error", StringComparison.Ordinal))
@@ -1095,6 +1097,7 @@ public sealed partial class BrowserService : IAsyncDisposable
                 "clear" => await ClearFieldAsync(step.Target),
                 "fill" => await FillFormAsync(step.Value),
                 "read_form" => await ReadFormAsync(),
+                "upload" => await UploadFileAsync(step.Target, step.Value),
                 _ => $"Unknown action: {act}"
             };
 
@@ -1210,6 +1213,227 @@ public sealed partial class BrowserService : IAsyncDisposable
         {
             _actionLock.Release();
         }
+    }
+
+
+    /// <summary>
+    /// Attach local file(s) to a file input on the page WITHOUT opening the native OS file picker.
+    /// Uses the Chrome DevTools Protocol (Runtime.evaluate to locate the input, then
+    /// DOM.setFileInputFiles to set the files) — the same technique Playwright/Puppeteer use.
+    /// This is the only reliable way to upload because the native file dialog is an OS window that
+    /// JavaScript cannot drive.
+    /// <paramref name="target"/> is an optional locator for the file input: a CSS selector, or the
+    /// visible text/aria-label of the upload button or label. If omitted, the first visible (or first)
+    /// <c>input[type=file]</c> on the page is used.
+    /// <paramref name="filesValue"/> is one or more absolute file paths: a JSON array, or paths
+    /// separated by newline, comma, semicolon, or pipe.
+    /// </summary>
+    public async Task<string> UploadFileAsync(string? target, string? filesValue)
+    {
+        var paths = ParseFilePaths(filesValue);
+        if (paths.Count == 0)
+            return "Error: upload needs file path(s) in the value parameter (absolute paths; JSON array or comma/newline-separated)";
+        foreach (var p in paths)
+        {
+            if (!File.Exists(p))
+                return $"Error: file not found: {p}";
+        }
+
+        await EnsureInitializedAsync();
+        await WaitForActionLockAsync();
+        try
+        {
+            // 1. Locate the file input element and obtain a CDP remote objectId for it.
+            var locator = BuildFileInputLocatorExpression(target);
+            var evalParams = "{\"expression\":" + JsonQuote(locator) + ",\"returnByValue\":false}";
+            string evalJson;
+            try
+            {
+                evalJson = await InvokeOnUiThreadAsync(() =>
+                    _webView!.CallDevToolsProtocolMethodAsync("Runtime.evaluate", evalParams));
+            }
+            catch (Exception ex)
+            {
+                return $"Error: could not evaluate page to find the file input — {ex.Message}";
+            }
+
+            string? objectId = null;
+            try
+            {
+                using var doc = JsonDocument.Parse(evalJson);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("exceptionDetails", out _))
+                    return "Error: page script error while locating the file input";
+                if (root.TryGetProperty("result", out var resObj))
+                {
+                    var subtype = resObj.TryGetProperty("subtype", out var st) ? st.GetString() : null;
+                    if (subtype != "null" && resObj.TryGetProperty("objectId", out var oid))
+                        objectId = oid.GetString();
+                }
+            }
+            catch
+            {
+                // fall through to the not-found error below
+            }
+
+            if (string.IsNullOrEmpty(objectId))
+            {
+                return target is null
+                    ? "Error: no file input (<input type=file>) found on the page. Click the page's upload button first so the input appears, then retry — or pass a CSS selector / button text as the target."
+                    : $"Error: no file input found for target '{target}'. Pass a CSS selector for the <input type=file>, the upload button's visible text, or omit the target to use the page's only file input.";
+            }
+
+            // 2. Set the files directly on the input — no native dialog is shown. CDP dispatches the
+            //    input/change events itself, so framework-controlled components pick up the files.
+            var filesJson = string.Join(",", paths.Select(JsonQuote));
+            var setParams = "{\"objectId\":" + JsonQuote(objectId) + ",\"files\":[" + filesJson + "]}";
+            try
+            {
+                await InvokeOnUiThreadAsync(() =>
+                    _webView!.CallDevToolsProtocolMethodAsync("DOM.setFileInputFiles", setParams));
+            }
+            catch (Exception ex)
+            {
+                return $"Error: failed to set files on the input — {ex.Message}";
+            }
+
+            // 3. Read back what actually got attached for a trustworthy confirmation.
+            var attached = string.Join(", ", paths.Select(Path.GetFileName));
+            try
+            {
+                var fnParams = "{\"objectId\":" + JsonQuote(objectId) +
+                    ",\"functionDeclaration\":" + JsonQuote("function(){return Array.from(this.files||[]).map(function(f){return f.name;}).join(', ');}") +
+                    ",\"returnByValue\":true}";
+                var fnJson = await InvokeOnUiThreadAsync(() =>
+                    _webView!.CallDevToolsProtocolMethodAsync("Runtime.callFunctionOn", fnParams));
+                using var doc = JsonDocument.Parse(fnJson);
+                if (doc.RootElement.TryGetProperty("result", out var r) &&
+                    r.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.String)
+                {
+                    var names = v.GetString();
+                    if (!string.IsNullOrWhiteSpace(names))
+                        attached = names!;
+                }
+            }
+            catch
+            {
+                // confirmation read-back is best-effort
+            }
+
+            await Task.Delay(200);
+            return $"Uploaded {paths.Count} file(s) to the file input: {attached}";
+        }
+        finally
+        {
+            _actionLock.Release();
+        }
+    }
+
+    /// <summary>Builds a single JS expression (for Runtime.evaluate) that resolves to a file input element or null.</summary>
+    private static string BuildFileInputLocatorExpression(string? target)
+    {
+        var targetLiteral = string.IsNullOrWhiteSpace(target) ? "null" : JsonQuote(target.Trim());
+        return
+            "(function(){" +
+            " var target=" + targetLiteral + ";" +
+            " function asFileInput(el){" +
+            "  if(!el) return null;" +
+            "  if(el.tagName==='INPUT' && (el.type||'').toLowerCase()==='file') return el;" +
+            "  if(el.tagName==='LABEL'){ if(el.htmlFor){var lf=document.getElementById(el.htmlFor); if(lf&&(lf.type||'').toLowerCase()==='file')return lf;} var li=el.querySelector('input[type=file]'); if(li)return li; }" +
+            "  if(el.querySelector){var qi=el.querySelector('input[type=file]'); if(qi)return qi;}" +
+            "  if(el.closest){var lab=el.closest('label'); if(lab){var lq=lab.querySelector('input[type=file]'); if(lq)return lq; if(lab.htmlFor){var lg=document.getElementById(lab.htmlFor); if(lg&&(lg.type||'').toLowerCase()==='file')return lg;}}}" +
+            "  return null;" +
+            " }" +
+            " var el=null;" +
+            " if(target){" +
+            "  try{ el=asFileInput(document.querySelector(target)); }catch(e){}" +
+            "  if(!el){" +
+            "   var cands=Array.from(document.querySelectorAll('button,label,a,[role=\"button\"],div,span,input'));" +
+            "   var tl=target.toLowerCase();" +
+            "   for(var i=0;i<cands.length;i++){ var c=cands[i]; var t=((c.textContent||'')+' '+(c.getAttribute&&c.getAttribute('aria-label')||'')).replace(/\\s+/g,' ').trim().toLowerCase(); if(t && t.indexOf(tl)>=0){ var f=asFileInput(c); if(f){el=f;break;} } }" +
+            "  }" +
+            " }" +
+            " if(!el){" +
+            "  var inputs=Array.from(document.querySelectorAll('input[type=file]'));" +
+            "  if(inputs.length===0) return null;" +
+            "  var vis=inputs.filter(function(x){var r=x.getBoundingClientRect();return r.width>0&&r.height>0;});" +
+            "  el=vis.length>0?vis[0]:inputs[0];" +
+            " }" +
+            " return el;" +
+            "})()";
+    }
+
+    /// <summary>Parses one or more file paths from a JSON array or a newline/comma/semicolon/pipe separated string.</summary>
+    private static List<string> ParseFilePaths(string? value)
+    {
+        var result = new List<string>();
+        if (string.IsNullOrWhiteSpace(value))
+            return result;
+        value = value.Trim();
+
+        if (value.StartsWith('['))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(value);
+                if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var el in doc.RootElement.EnumerateArray())
+                    {
+                        var s = el.ValueKind == JsonValueKind.String ? el.GetString() : el.ToString();
+                        if (!string.IsNullOrWhiteSpace(s))
+                            result.Add(s!.Trim());
+                    }
+                    return result;
+                }
+            }
+            catch
+            {
+                // not valid JSON — fall through to delimiter parsing
+            }
+        }
+
+        foreach (var part in value.Split(new[] { '\n', '\r', ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var s = part.Trim().Trim('"');
+            if (s.Length > 0)
+                result.Add(s);
+        }
+        if (result.Count == 0)
+        {
+            var single = value.Trim().Trim('"');
+            if (single.Length > 0)
+                result.Add(single);
+        }
+        return result;
+    }
+
+    /// <summary>Produces a JSON-encoded, double-quoted string literal (trim-safe, no reflection).</summary>
+    private static string JsonQuote(string value)
+    {
+        var sb = new StringBuilder(value.Length + 2);
+        sb.Append('"');
+        foreach (var c in value)
+        {
+            switch (c)
+            {
+                case '"': sb.Append("\\\""); break;
+                case '\\': sb.Append("\\\\"); break;
+                case '\b': sb.Append("\\b"); break;
+                case '\f': sb.Append("\\f"); break;
+                case '\n': sb.Append("\\n"); break;
+                case '\r': sb.Append("\\r"); break;
+                case '\t': sb.Append("\\t"); break;
+                default:
+                    if (c < 0x20)
+                        sb.Append("\\u").Append(((int)c).ToString("x4"));
+                    else
+                        sb.Append(c);
+                    break;
+            }
+        }
+        sb.Append('"');
+        return sb.ToString();
     }
 
 
