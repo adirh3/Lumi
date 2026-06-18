@@ -94,6 +94,37 @@ public sealed partial class BrowserService : IAsyncDisposable
     /// <summary>Raised when the browser is first initialized or needs to show.</summary>
     public event Action? BrowserReady;
 
+    // ----- File upload policy (security limits enforced before any DOM.setFileInputFiles) -----
+
+    /// <summary>Maximum number of files that may be attached in a single upload action.</summary>
+    private const int MaxUploadFiles = 20;
+
+    /// <summary>Maximum size of any single uploaded file (100 MB).</summary>
+    private const long MaxUploadFileBytes = 100L * 1024 * 1024;
+
+    /// <summary>Maximum combined size of all files in a single upload action (250 MB).</summary>
+    private const long MaxTotalUploadBytes = 250L * 1024 * 1024;
+
+    /// <summary>A file the model wants to attach to a page's file input.</summary>
+    public readonly record struct UploadFileInfo(string Path, string Name, long SizeBytes);
+
+    /// <summary>
+    /// Describes a pending upload so a UI layer can show the user what is about to be sent and to where.
+    /// </summary>
+    public sealed record UploadApprovalRequest(
+        string Origin,
+        string PageTitle,
+        IReadOnlyList<UploadFileInfo> Files);
+
+    /// <summary>
+    /// Optional authorization gate invoked immediately before files are attached to a page input.
+    /// When set, returning <c>false</c> aborts the upload. When null, only the hard policy limits
+    /// (fully-qualified canonical paths, max count, max size) are enforced. Because uploads are
+    /// driven by LLM tool calls, hosts are encouraged to wire this to a user-approval prompt that
+    /// shows the destination origin and the file names.
+    /// </summary>
+    public Func<UploadApprovalRequest, Task<bool>>? UploadApprovalHandler { get; set; }
+
     /// <summary>The current URL loaded in the browser.</summary>
     public string CurrentUrl => _webView?.Source ?? "about:blank";
 
@@ -1222,69 +1253,137 @@ public sealed partial class BrowserService : IAsyncDisposable
     /// DOM.setFileInputFiles to set the files) — the same technique Playwright/Puppeteer use.
     /// This is the only reliable way to upload because the native file dialog is an OS window that
     /// JavaScript cannot drive.
+    ///
+    /// Security: because this is reachable from LLM tool calls it is a potential local-file
+    /// exfiltration vector, so it enforces a policy before attaching anything — paths must be
+    /// fully-qualified and are canonicalized, the file count and per-file/total sizes are capped, and
+    /// an optional <see cref="UploadApprovalHandler"/> can require explicit user approval.
+    ///
     /// <paramref name="target"/> is an optional locator for the file input: a CSS selector, or the
-    /// visible text/aria-label of the upload button or label. If omitted, the first visible (or first)
-    /// <c>input[type=file]</c> on the page is used.
-    /// <paramref name="filesValue"/> is one or more absolute file paths: a JSON array, or paths
-    /// separated by newline, comma, semicolon, or pipe.
+    /// visible text/aria-label of the upload button or label. If it is omitted and the page has more
+    /// than one file input, an ambiguity error listing the candidates is returned instead of guessing.
+    /// <paramref name="filesValue"/> is one or more absolute file paths: a JSON array (preferred for
+    /// multiple files), or — for a single file — a plain path. Non-JSON input is split only on
+    /// newlines so paths containing commas remain intact.
     /// </summary>
     public async Task<string> UploadFileAsync(string? target, string? filesValue)
     {
-        var paths = ParseFilePaths(filesValue);
-        if (paths.Count == 0)
-            return "Error: upload needs file path(s) in the value parameter (absolute paths; JSON array or comma/newline-separated)";
-        foreach (var p in paths)
-        {
-            if (!File.Exists(p))
-                return $"Error: file not found: {p}";
-        }
+        var rawPaths = ParseFilePaths(filesValue);
+        if (rawPaths.Count == 0)
+            return "Error: upload needs file path(s) in the value parameter (absolute paths; a JSON array for multiple files, or a single path)";
+
+        var paths = ValidateUploadPaths(rawPaths, out var policyError);
+        if (policyError is not null)
+            return policyError;
 
         await EnsureInitializedAsync();
         await WaitForActionLockAsync();
+        string? objectId = null;
         try
         {
-            // 1. Locate the file input element and obtain a CDP remote objectId for it.
-            var locator = BuildFileInputLocatorExpression(target);
-            var evalParams = "{\"expression\":" + JsonQuote(locator) + ",\"returnByValue\":false}";
-            string evalJson;
+            // 1. Resolve the file input by value first so we can detect ambiguity / capability issues
+            //    BEFORE obtaining a remote handle or attaching anything.
+            var metaExpr = BuildFileInputMetaExpression(target);
+            var metaParams = "{\"expression\":" + JsonQuote(metaExpr) + ",\"returnByValue\":true}";
+            string metaJson;
             try
             {
-                evalJson = await InvokeOnUiThreadAsync(() =>
-                    _webView!.CallDevToolsProtocolMethodAsync("Runtime.evaluate", evalParams));
+                metaJson = await InvokeOnUiThreadAsync(() =>
+                    _webView!.CallDevToolsProtocolMethodAsync("Runtime.evaluate", metaParams));
             }
             catch (Exception ex)
             {
                 return $"Error: could not evaluate page to find the file input — {ex.Message}";
             }
 
-            string? objectId = null;
+            string status;
+            bool inputMultiple;
+            JsonElement candidates = default;
+            var hasCandidates = false;
             try
             {
-                using var doc = JsonDocument.Parse(evalJson);
+                using var doc = JsonDocument.Parse(metaJson);
                 var root = doc.RootElement;
                 if (root.TryGetProperty("exceptionDetails", out _))
                     return "Error: page script error while locating the file input";
-                if (root.TryGetProperty("result", out var resObj))
+                var meta = root.GetProperty("result").GetProperty("value");
+                status = meta.TryGetProperty("status", out var st) ? st.GetString() ?? "none" : "none";
+                inputMultiple = meta.TryGetProperty("multiple", out var mu) && mu.ValueKind == JsonValueKind.True;
+                if (meta.TryGetProperty("candidates", out var cand) && cand.ValueKind == JsonValueKind.Array)
                 {
-                    var subtype = resObj.TryGetProperty("subtype", out var st) ? st.GetString() : null;
-                    if (subtype != "null" && resObj.TryGetProperty("objectId", out var oid))
-                        objectId = oid.GetString();
+                    candidates = cand.Clone();
+                    hasCandidates = true;
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // fall through to the not-found error below
+                return $"Error: could not interpret file-input lookup result — {ex.Message}";
             }
 
-            if (string.IsNullOrEmpty(objectId))
+            if (status == "none")
             {
                 return target is null
                     ? "Error: no file input (<input type=file>) found on the page. Click the page's upload button first so the input appears, then retry — or pass a CSS selector / button text as the target."
-                    : $"Error: no file input found for target '{target}'. Pass a CSS selector for the <input type=file>, the upload button's visible text, or omit the target to use the page's only file input.";
+                    : $"Error: no file input found for target '{target}'. Pass a CSS selector for the <input type=file>, the upload button's visible text, or omit the target if the page has exactly one file input.";
             }
 
-            // 2. Set the files directly on the input — no native dialog is shown. CDP dispatches the
-            //    input/change events itself, so framework-controlled components pick up the files.
+            if (status == "ambiguous")
+                return BuildAmbiguityError(candidates, hasCandidates);
+
+            // 2. Enforce the input's own capability: a single-file input must not receive many files.
+            if (paths.Count > 1 && !inputMultiple)
+                return $"Error: the selected file input does not accept multiple files, but {paths.Count} were provided. Upload a single file, or target an input with the 'multiple' attribute.";
+
+            // 3. Authorization gate — show the user what is about to be sent and to where.
+            if (UploadApprovalHandler is { } approve)
+            {
+                var origin = OriginOf(CurrentUrl);
+                var fileInfos = paths
+                    .Select(p => new UploadFileInfo(p, Path.GetFileName(p), SafeFileLength(p)))
+                    .ToList();
+                bool approved;
+                try
+                {
+                    approved = await approve(new UploadApprovalRequest(origin, CurrentTitle, fileInfos));
+                }
+                catch (Exception ex)
+                {
+                    return $"Error: upload authorization failed — {ex.Message}";
+                }
+                if (!approved)
+                    return $"Error: the user declined the upload of {paths.Count} file(s) to {origin}.";
+            }
+
+            // 4. Obtain a CDP remote handle for the resolved input, then set the files on it. No native
+            //    dialog is shown; CDP dispatches input/change events so framework components react.
+            var elemExpr = BuildFileInputElementExpression(target);
+            var elemParams = "{\"expression\":" + JsonQuote(elemExpr) + ",\"returnByValue\":false}";
+            string elemJson;
+            try
+            {
+                elemJson = await InvokeOnUiThreadAsync(() =>
+                    _webView!.CallDevToolsProtocolMethodAsync("Runtime.evaluate", elemParams));
+            }
+            catch (Exception ex)
+            {
+                return $"Error: could not obtain a handle to the file input — {ex.Message}";
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(elemJson);
+                if (doc.RootElement.TryGetProperty("result", out var resObj) &&
+                    resObj.TryGetProperty("objectId", out var oid))
+                    objectId = oid.GetString();
+            }
+            catch
+            {
+                // handled by the null check below
+            }
+
+            if (string.IsNullOrEmpty(objectId))
+                return "Error: the file input could not be resolved to a live element (the page may have changed). Re-open the page and retry.";
+
             var filesJson = string.Join(",", paths.Select(JsonQuote));
             var setParams = "{\"objectId\":" + JsonQuote(objectId) + ",\"files\":[" + filesJson + "]}";
             try
@@ -1297,7 +1396,7 @@ public sealed partial class BrowserService : IAsyncDisposable
                 return $"Error: failed to set files on the input — {ex.Message}";
             }
 
-            // 3. Read back what actually got attached for a trustworthy confirmation.
+            // 5. Read back what actually got attached for a trustworthy confirmation.
             var attached = string.Join(", ", paths.Select(Path.GetFileName));
             try
             {
@@ -1325,17 +1424,154 @@ public sealed partial class BrowserService : IAsyncDisposable
         }
         finally
         {
+            // Always release the DevTools remote object so repeated uploads don't leak handles.
+            if (!string.IsNullOrEmpty(objectId))
+            {
+                try
+                {
+                    var releaseParams = "{\"objectId\":" + JsonQuote(objectId) + "}";
+                    await InvokeOnUiThreadAsync(() =>
+                        _webView!.CallDevToolsProtocolMethodAsync("Runtime.releaseObject", releaseParams));
+                }
+                catch
+                {
+                    // best-effort cleanup
+                }
+            }
             _actionLock.Release();
         }
     }
 
-    /// <summary>Builds a single JS expression (for Runtime.evaluate) that resolves to a file input element or null.</summary>
-    private static string BuildFileInputLocatorExpression(string? target)
+    /// <summary>Formats the multi-file-input ambiguity error with enough metadata to choose a target.</summary>
+    private static string BuildAmbiguityError(JsonElement candidates, bool hasCandidates)
+    {
+        var sb = new StringBuilder();
+        sb.Append("Error: the page has multiple file inputs — specify a target to choose one. Candidates:");
+        if (hasCandidates)
+        {
+            foreach (var c in candidates.EnumerateArray())
+            {
+                var id = c.TryGetProperty("id", out var idv) ? idv.GetString() : "";
+                var name = c.TryGetProperty("name", out var nv) ? nv.GetString() : "";
+                var accept = c.TryGetProperty("accept", out var av) ? av.GetString() : "";
+                var mult = c.TryGetProperty("multiple", out var mv) && mv.ValueKind == JsonValueKind.True;
+                var visible = c.TryGetProperty("visible", out var vv) && vv.ValueKind == JsonValueKind.True;
+                var label = c.TryGetProperty("label", out var lv) ? lv.GetString() : "";
+                var sel = !string.IsNullOrEmpty(id) ? $"#{id}" :
+                          !string.IsNullOrEmpty(name) ? $"input[name=\"{name}\"]" : "(no id/name)";
+                sb.Append("\n - ").Append(sel);
+                if (!string.IsNullOrEmpty(label)) sb.Append($" label=\"{label}\"");
+                if (!string.IsNullOrEmpty(accept)) sb.Append($" accept=\"{accept}\"");
+                sb.Append(mult ? " [multiple]" : "");
+                sb.Append(visible ? " [visible]" : " [hidden]");
+            }
+            sb.Append("\nPass one of the selectors above (or its label text) as the target.");
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Returns the scheme+host+port origin of a URL, or a friendly fallback if it cannot be parsed.</summary>
+    private static string OriginOf(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return uri.IsFile ? "local file" : uri.GetLeftPart(UriPartial.Authority);
+        return string.IsNullOrWhiteSpace(url) ? "the current page" : url;
+    }
+
+    private static long SafeFileLength(string path)
+    {
+        try { return new FileInfo(path).Length; }
+        catch { return 0; }
+    }
+
+    /// <summary>
+    /// Validates and canonicalizes the requested upload paths against the upload policy. Returns the
+    /// canonical paths to hand to CDP, or sets <paramref name="error"/> (and returns an empty list).
+    /// </summary>
+    private static List<string> ValidateUploadPaths(List<string> rawPaths, out string? error)
+    {
+        error = null;
+        var canonical = new List<string>(rawPaths.Count);
+
+        if (rawPaths.Count > MaxUploadFiles)
+        {
+            error = $"Error: too many files ({rawPaths.Count}); the maximum per upload is {MaxUploadFiles}.";
+            return canonical;
+        }
+
+        long total = 0;
+        foreach (var raw in rawPaths)
+        {
+            var p = raw.Trim();
+            if (p.Length == 0)
+                continue;
+
+            if (!Path.IsPathFullyQualified(p))
+            {
+                error = $"Error: upload paths must be absolute (fully-qualified). '{p}' is not — pass a full path like C:\\Users\\you\\file.pdf.";
+                return [];
+            }
+
+            string full;
+            try
+            {
+                full = Path.GetFullPath(p);
+            }
+            catch (Exception ex)
+            {
+                error = $"Error: invalid file path '{p}' — {ex.Message}";
+                return [];
+            }
+
+            if (!File.Exists(full))
+            {
+                error = $"Error: file not found: {full}";
+                return [];
+            }
+
+            long len;
+            try
+            {
+                len = new FileInfo(full).Length;
+            }
+            catch (Exception ex)
+            {
+                error = $"Error: could not read file '{full}' — {ex.Message}";
+                return [];
+            }
+
+            if (len > MaxUploadFileBytes)
+            {
+                error = $"Error: '{Path.GetFileName(full)}' is {len / (1024 * 1024)} MB, over the {MaxUploadFileBytes / (1024 * 1024)} MB per-file limit.";
+                return [];
+            }
+
+            total += len;
+            canonical.Add(full);
+        }
+
+        if (canonical.Count == 0)
+        {
+            error = "Error: no valid file path was provided.";
+            return [];
+        }
+
+        if (total > MaxTotalUploadBytes)
+        {
+            error = $"Error: total upload size {total / (1024 * 1024)} MB exceeds the {MaxTotalUploadBytes / (1024 * 1024)} MB limit.";
+            return [];
+        }
+
+        return canonical;
+    }
+
+    /// <summary>JS that defines the shared file-input resolution logic and leaves the chosen element in `resolved`.</summary>
+    private static string FileInputResolutionPreambleJs(string? target)
     {
         var targetLiteral = string.IsNullOrWhiteSpace(target) ? "null" : JsonQuote(target.Trim());
         return
-            "(function(){" +
             " var target=" + targetLiteral + ";" +
+            " function vis(el){if(!el)return false;var r=el.getBoundingClientRect();if(r.width<=0||r.height<=0)return false;var cs=getComputedStyle(el);return cs.display!=='none'&&cs.visibility!=='hidden'&&cs.opacity!=='0';}" +
             " function asFileInput(el){" +
             "  if(!el) return null;" +
             "  if(el.tagName==='INPUT' && (el.type||'').toLowerCase()==='file') return el;" +
@@ -1344,26 +1580,38 @@ public sealed partial class BrowserService : IAsyncDisposable
             "  if(el.closest){var lab=el.closest('label'); if(lab){var lq=lab.querySelector('input[type=file]'); if(lq)return lq; if(lab.htmlFor){var lg=document.getElementById(lab.htmlFor); if(lg&&(lg.type||'').toLowerCase()==='file')return lg;}}}" +
             "  return null;" +
             " }" +
-            " var el=null;" +
+            " function lbl(el){ try{ if(el.labels&&el.labels.length){return (el.labels[0].textContent||'').replace(/\\s+/g,' ').trim().slice(0,60);} }catch(e){} return ((el.getAttribute&&el.getAttribute('aria-label'))||el.name||el.id||'').slice(0,60); }" +
+            " var allInputs=Array.from(document.querySelectorAll('input[type=file]'));" +
+            " var resolved=null; var status='none'; var cands=[];" +
             " if(target){" +
-            "  try{ el=asFileInput(document.querySelector(target)); }catch(e){}" +
-            "  if(!el){" +
-            "   var cands=Array.from(document.querySelectorAll('button,label,a,[role=\"button\"],div,span,input'));" +
+            "  try{ resolved=asFileInput(document.querySelector(target)); }catch(e){}" +
+            "  if(!resolved){" +
+            "   var c2=Array.from(document.querySelectorAll('button,label,a,[role=\"button\"],div,span,input'));" +
             "   var tl=target.toLowerCase();" +
-            "   for(var i=0;i<cands.length;i++){ var c=cands[i]; var t=((c.textContent||'')+' '+(c.getAttribute&&c.getAttribute('aria-label')||'')).replace(/\\s+/g,' ').trim().toLowerCase(); if(t && t.indexOf(tl)>=0){ var f=asFileInput(c); if(f){el=f;break;} } }" +
+            "   for(var i=0;i<c2.length;i++){ var c=c2[i]; var t=((c.textContent||'')+' '+((c.getAttribute&&c.getAttribute('aria-label'))||'')).replace(/\\s+/g,' ').trim().toLowerCase(); if(t && t.indexOf(tl)>=0){ var f=asFileInput(c); if(f){resolved=f;break;} } }" +
             "  }" +
-            " }" +
-            " if(!el){" +
-            "  var inputs=Array.from(document.querySelectorAll('input[type=file]'));" +
-            "  if(inputs.length===0) return null;" +
-            "  var vis=inputs.filter(function(x){var r=x.getBoundingClientRect();return r.width>0&&r.height>0;});" +
-            "  el=vis.length>0?vis[0]:inputs[0];" +
-            " }" +
-            " return el;" +
-            "})()";
+            "  status=resolved?'ok':'none';" +
+            " } else {" +
+            "  if(allInputs.length===0){ status='none'; }" +
+            "  else if(allInputs.length===1){ resolved=allInputs[0]; status='ok'; }" +
+            "  else { status='ambiguous'; cands=allInputs.map(function(el,i){ return {index:i+1,id:el.id||'',name:el.name||'',accept:(el.getAttribute('accept')||''),multiple:!!el.multiple,visible:vis(el),label:lbl(el)}; }); }" +
+            " }";
     }
 
-    /// <summary>Parses one or more file paths from a JSON array or a newline/comma/semicolon/pipe separated string.</summary>
+    /// <summary>JS expression returning a by-value description of the file-input resolution (status, capability, candidates).</summary>
+    private static string BuildFileInputMetaExpression(string? target) =>
+        "(function(){" + FileInputResolutionPreambleJs(target) +
+        " return {status:status, multiple: resolved?!!resolved.multiple:false," +
+        " candidates:cands};" +
+        "})()";
+
+    /// <summary>JS expression returning the resolved file-input element itself (for a CDP remote objectId).</summary>
+    private static string BuildFileInputElementExpression(string? target) =>
+        "(function(){" + FileInputResolutionPreambleJs(target) + " return resolved;})()";
+
+    /// <summary>Parses upload paths: a JSON array (preferred for multiple files), otherwise a single
+    /// path or newline-separated paths. Commas/semicolons are NOT treated as separators so paths
+    /// containing them (e.g. "report, final.pdf") stay intact.</summary>
     private static List<string> ParseFilePaths(string? value)
     {
         var result = new List<string>();
@@ -1389,21 +1637,15 @@ public sealed partial class BrowserService : IAsyncDisposable
             }
             catch
             {
-                // not valid JSON — fall through to delimiter parsing
+                // not valid JSON — fall through to newline parsing
             }
         }
 
-        foreach (var part in value.Split(new[] { '\n', '\r', ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var part in value.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
         {
             var s = part.Trim().Trim('"');
             if (s.Length > 0)
                 result.Add(s);
-        }
-        if (result.Count == 0)
-        {
-            var single = value.Trim().Trim('"');
-            if (single.Length > 0)
-                result.Add(single);
         }
         return result;
     }
