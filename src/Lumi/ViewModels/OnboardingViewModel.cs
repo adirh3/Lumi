@@ -764,6 +764,9 @@ public partial class OnboardingViewModel : ObservableObject
             QuestionAnswered = false;
             AgentOutput = "";
             QuestionAsked?.Invoke(question, options);
+
+            if (_dataStore.Data.Settings.NotificationsEnabled)
+                NotificationService.ShowQuestion(question);
         });
 
         try

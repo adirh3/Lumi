@@ -1305,10 +1305,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             Dispatcher.UIThread.Post(() =>
             {
-                if (CurrentChat?.Id != inputHandlerChatId) return;
-                _transcriptBuilder.AddQuestionToTranscript(questionId, request.Question, optionsList, freeText);
-                QuestionAsked?.Invoke(questionId, request.Question, optionsJson, freeText);
-                ScrollToEndRequested?.Invoke();
+                NotifyQuestionAsked(inputHandlerChatId, request.Question);
+
+                if (CurrentChat?.Id == inputHandlerChatId)
+                {
+                    _transcriptBuilder.AddQuestionToTranscript(questionId, request.Question, optionsList, freeText);
+                    QuestionAsked?.Invoke(questionId, request.Question, optionsJson, freeText);
+                    ScrollToEndRequested?.Invoke();
+                }
             });
 
             // Persist question data on the tool message so rebuild can recreate the question card.

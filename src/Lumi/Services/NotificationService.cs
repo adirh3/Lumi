@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Avalonia.Controls.ApplicationLifetimes;
+using Lumi.Localization;
 
 namespace Lumi.Services;
 
@@ -42,6 +43,20 @@ public static class NotificationService
         {
             Trace.TraceWarning($"[Notification] Failed: {ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    public static void ShowQuestion(string question, string? contextTitle = null, Guid? chatId = null)
+        => Show(Loc.Notification_QuestionTitle, FormatQuestionNotificationBody(contextTitle, question), chatId);
+
+    internal static string FormatQuestionNotificationBody(string? contextTitle, string question)
+    {
+        var body = string.IsNullOrWhiteSpace(question)
+            ? Loc.Notification_QuestionBody
+            : question.Trim();
+
+        return string.IsNullOrWhiteSpace(contextTitle)
+            ? body
+            : $"{contextTitle.Trim()} — {body}";
     }
 
     private static bool IsMainWindowActive()

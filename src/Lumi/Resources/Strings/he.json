@@ -494,7 +494,7 @@
   "Setting_MinimizeToTray": "סגירה למגש",
   "SettingDesc_MinimizeToTray": "שמירת לומי פעילה במגש המערכת בעת סגירת החלון",
   "Setting_EnableNotifications": "הפעלת התראות",
-  "SettingDesc_EnableNotifications": "הצגת התראות שולחן עבודה למשימות שהושלמו",
+  "SettingDesc_EnableNotifications": "הצגת התראות שולחן עבודה למשימות שהושלמו ולשאלות שממתינות לתשובה",
   "Setting_GlobalHotkey": "קיצור מקש גלובלי",
   "SettingDesc_GlobalHotkey": "קיצור מערכתי להצגת או הסתרת לומי",
   "Setting_GlobalHotkeyNotSet": "לא מוגדר",
@@ -578,6 +578,8 @@
   "Tray_Exit": "יציאה",
 
   "Notification_ResponseReady": "התגובה מוכנה",
+  "Notification_QuestionTitle": "ללומי יש שאלה",
+  "Notification_QuestionBody": "ענה בלומי",
 
   "DragDrop_Hint": "שחרר קבצים לצירוף",
   "DragDrop_Subhint": "הקבצים יצורפו להודעה שלך",

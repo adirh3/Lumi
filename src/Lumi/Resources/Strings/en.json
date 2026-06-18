@@ -493,7 +493,7 @@
   "Setting_MinimizeToTray": "Close to Tray",
   "SettingDesc_MinimizeToTray": "Keep Lumi running in the system tray when the window is closed",
   "Setting_EnableNotifications": "Enable Notifications",
-  "SettingDesc_EnableNotifications": "Show desktop notifications for completed tasks",
+  "SettingDesc_EnableNotifications": "Show desktop notifications for completed tasks and questions that need answers",
   "Setting_GlobalHotkey": "Global Hotkey",
   "SettingDesc_GlobalHotkey": "System-wide shortcut to show or hide Lumi",
   "Setting_GlobalHotkeyNotSet": "Not set",
@@ -577,6 +577,8 @@
   "Tray_Exit": "Exit",
 
   "Notification_ResponseReady": "Response ready",
+  "Notification_QuestionTitle": "Lumi has a question",
+  "Notification_QuestionBody": "Please answer in Lumi",
   "BackgroundTask_Completed": "Background task completed",
 
   "DragDrop_Hint": "Drop files to attach",

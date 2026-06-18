@@ -459,10 +459,14 @@ public partial class ChatViewModel
 
                 Dispatcher.UIThread.Post(() =>
                 {
-                    if (CurrentChat?.Id != chatId) return;
-                    _transcriptBuilder.AddQuestionToTranscript(questionId, question, optionsList, freeText, multiSelect);
-                    QuestionAsked?.Invoke(questionId, question, optionsJson, freeText);
-                    ScrollToEndRequested?.Invoke();
+                    NotifyQuestionAsked(chatId, question);
+
+                    if (CurrentChat?.Id == chatId)
+                    {
+                        _transcriptBuilder.AddQuestionToTranscript(questionId, question, optionsList, freeText, multiSelect);
+                        QuestionAsked?.Invoke(questionId, question, optionsJson, freeText);
+                        ScrollToEndRequested?.Invoke();
+                    }
                 });
 
                 // Store questionId and question data on the tool message so it can be recovered during rebuild.
@@ -528,6 +532,15 @@ public partial class ChatViewModel
     {
         if (_pendingQuestions.TryGetValue(questionId, out var tcs))
             tcs.TrySetResult(answer);
+    }
+
+    private void NotifyQuestionAsked(Guid chatId, string question)
+    {
+        if (!_dataStore.Data.Settings.NotificationsEnabled)
+            return;
+
+        var chatTitle = _dataStore.Data.Chats.FirstOrDefault(c => c.Id == chatId)?.Title;
+        NotificationService.ShowQuestion(question, chatTitle, chatId);
     }
 
     private List<AIFunction> BuildLumiManagementTools(Guid chatId)

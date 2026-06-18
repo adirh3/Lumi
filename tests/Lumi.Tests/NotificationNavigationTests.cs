@@ -1,4 +1,5 @@
 using System.Threading;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -26,6 +27,22 @@ public sealed class NotificationNavigationArgumentTests
         Assert.Null(NotificationService.ParseChatIdFromActivationArguments(string.Empty));
         Assert.Null(NotificationService.ParseChatIdFromActivationArguments("kind=main"));
         Assert.Null(NotificationService.ParseChatIdFromActivationArguments("chatId=not-a-guid"));
+    }
+
+    [Fact]
+    public void QuestionNotificationBody_IncludesChatTitleAndQuestion()
+    {
+        var body = NotificationService.FormatQuestionNotificationBody("Trip planning", "Which hotel should I check?");
+
+        Assert.Equal("Trip planning \u2014 Which hotel should I check?", body);
+    }
+
+    [Fact]
+    public void QuestionNotificationBody_UsesFallbackWhenQuestionIsBlank()
+    {
+        var body = NotificationService.FormatQuestionNotificationBody("", " ");
+
+        Assert.Equal(Loc.Notification_QuestionBody, body);
     }
 }
 
