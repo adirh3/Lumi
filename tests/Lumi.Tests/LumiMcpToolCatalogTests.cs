@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Lumi.Mcp;
@@ -77,6 +78,9 @@ public sealed class LumiMcpToolCatalogTests
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                StandardInputEncoding = Encoding.UTF8,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
                 UseShellExecute = false,
                 CreateNoWindow = true
             }
@@ -189,24 +193,34 @@ public sealed class LumiMcpToolCatalogTests
                 return candidate;
         }
 
-        throw new FileNotFoundException("Could not find a runnable Lumi.Mcp assembly.", referencedAssemblyPath);
+        throw new FileNotFoundException("Could not find a runnable Lumi.Mcp project output assembly.", referencedAssemblyPath);
     }
 
     private static IEnumerable<string> GetMcpAssemblyCandidates(string referencedAssemblyPath)
     {
         var fileName = Path.GetFileName(referencedAssemblyPath);
-        var directory = Path.GetDirectoryName(referencedAssemblyPath);
-        if (directory is not null)
+        var repoRoot = FindRepositoryRoot();
+        foreach (var configuration in GetBuildConfigurations(referencedAssemblyPath)
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            var parent = Directory.GetParent(directory);
-            if (parent is not null)
-                yield return Path.Combine(parent.FullName, "net11.0", fileName);
+            yield return Path.Combine(repoRoot, "src", "Lumi.Mcp", "bin", configuration, "net11.0", fileName);
+        }
+    }
+
+    private static IEnumerable<string> GetBuildConfigurations(string referencedAssemblyPath)
+    {
+        var directory = Path.GetDirectoryName(referencedAssemblyPath);
+        while (directory is not null)
+        {
+            var info = new DirectoryInfo(directory);
+            if (string.Equals(info.Parent?.Name, "bin", StringComparison.OrdinalIgnoreCase))
+                yield return info.Name;
+
+            directory = info.Parent?.FullName;
         }
 
-        yield return referencedAssemblyPath;
-
-        var repoRoot = FindRepositoryRoot();
-        yield return Path.Combine(repoRoot, "src", "Lumi.Mcp", "bin", "Debug", "net11.0", fileName);
+        yield return "Release";
+        yield return "Debug";
     }
 
     private static string FindRepositoryRoot()
