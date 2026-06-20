@@ -2,7 +2,11 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using StrataTheme.Controls;
@@ -372,6 +376,165 @@ public sealed class StrataChatShellScrollTests
 
             window.Close();
         }, CancellationToken.None);
+    }
+
+    // ── Regression: a left-click in the transcript must not scroll it ──
+    //
+    // Avalonia's ScrollViewer.OnGotFocus calls BringIntoView() on whichever focusable descendant
+    // received focus (gated by ScrollViewer.BringIntoViewOnFocusChange, default true). Transcript
+    // items (StrataChatMessage, tool cards, etc.) are Focusable=True, so a plain left-click on one
+    // whose top sits above the viewport made the ScrollViewer jump up to reveal that top. The shell
+    // template disables BringIntoViewOnFocusChange on PART_TranscriptScroll to stop this.
+
+    [Fact]
+    public async Task LeftClickOnFocusableTranscriptItem_DoesNotScroll()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        double before = 0;
+        double after = 0;
+        bool targetFound = false;
+        bool clickedItemFocused = false;
+
+        await session.Dispatch(async () =>
+        {
+            var transcript = new StackPanel { Spacing = 8 };
+            for (var i = 0; i < 40; i++)
+            {
+                transcript.Children.Add(new Border
+                {
+                    Height = 120,
+                    Focusable = true,                 // mirrors StrataChatMessage (Focusable=True)
+                    Background = Brushes.Transparent,  // hit-testable surface for the click
+                    Child = new TextBlock { Text = $"Turn {i}" }
+                });
+            }
+
+            var shell = new StrataChatShell
+            {
+                Header = new TextBlock { Text = "Scroll Test" },
+                Transcript = transcript,
+                Composer = new Border { Height = 48 }
+            };
+
+            var window = new Window { Width = 720, Height = 520, Content = shell };
+            window.Show();
+            await PumpAsync();
+            await PumpAsync();
+
+            var scrollViewer = (ScrollViewer)shell.TranscriptScrollViewer!;
+
+            shell.JumpToLatest();
+            await PumpAsync();
+
+            // Park the reader in the middle so there is content above and below.
+            var bottomOffset = scrollViewer.Offset.Y;
+            scrollViewer.Offset = scrollViewer.Offset.WithY(Math.Max(0, bottomOffset - 200));
+            await PumpAsync();
+            await PumpAsync();
+
+            // Pick a focusable item straddling the TOP edge: its top is above the viewport, so the
+            // buggy focus-driven BringIntoView would scroll UP to reveal it.
+            Border? targetItem = null;
+            Point clickPoint = default;
+            foreach (var child in transcript.Children.OfType<Border>())
+            {
+                var top = child.TranslatePoint(new Point(0, 0), scrollViewer);
+                if (top is null) continue;
+
+                var topY = top.Value.Y;
+                var bottomY = topY + child.Bounds.Height;
+                if (topY < -10 && bottomY > 20 && bottomY < scrollViewer.Viewport.Height)
+                {
+                    var visibleMidY = bottomY / 2;
+                    var pt = child.TranslatePoint(new Point(child.Bounds.Width / 2, visibleMidY - topY), window);
+                    if (pt is null) continue;
+
+                    targetItem = child;
+                    clickPoint = pt.Value;
+                    break;
+                }
+            }
+
+            targetFound = targetItem is not null;
+            if (targetItem is null)
+            {
+                window.Close();
+                return;
+            }
+
+            before = scrollViewer.Offset.Y;
+            window.MouseDown(clickPoint, MouseButton.Left, RawInputModifiers.None);
+            window.MouseUp(clickPoint, MouseButton.Left, RawInputModifiers.None);
+            await PumpAsync();
+            await PumpAsync();
+
+            after = scrollViewer.Offset.Y;
+            clickedItemFocused = targetItem.IsFocused;
+
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.True(targetFound, "Test setup should find a focusable item straddling the viewport top.");
+        // The regression: the offset must stay put when the user simply clicks a transcript item.
+        Assert.InRange(Math.Abs(after - before), 0, 1.0);
+        // Focus still moves to the clicked item — only the auto-scroll side effect is suppressed.
+        Assert.True(clickedItemFocused, "Clicked transcript item should still receive focus.");
+    }
+
+    [Fact]
+    public async Task ExplicitBringIntoView_StillScrollsTranscript()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        double before = 0;
+        double after = 0;
+
+        await session.Dispatch(async () =>
+        {
+            var transcript = new StackPanel { Spacing = 8 };
+            for (var i = 0; i < 40; i++)
+            {
+                transcript.Children.Add(new Border
+                {
+                    Height = 120,
+                    Focusable = true,
+                    Background = Brushes.Transparent,
+                    Child = new TextBlock { Text = $"Turn {i}" }
+                });
+            }
+
+            var shell = new StrataChatShell
+            {
+                Header = new TextBlock { Text = "Scroll Test" },
+                Transcript = transcript,
+                Composer = new Border { Height = 48 }
+            };
+
+            var window = new Window { Width = 720, Height = 520, Content = shell };
+            window.Show();
+            await PumpAsync();
+            await PumpAsync();
+
+            var scrollViewer = (ScrollViewer)shell.TranscriptScrollViewer!;
+
+            // Anchor at the very top, then explicitly bring a far-below item into view. Disabling
+            // BringIntoViewOnFocusChange must NOT break intentional BringIntoView() calls (used by
+            // Ctrl+F search highlight and reasoning reveal).
+            scrollViewer.Offset = scrollViewer.Offset.WithY(0);
+            await PumpAsync();
+            before = scrollViewer.Offset.Y;
+
+            var target = transcript.Children.OfType<Border>().Last();
+            target.BringIntoView();
+            await PumpAsync();
+            await PumpAsync();
+
+            after = scrollViewer.Offset.Y;
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.True(after > before + 10, "Explicit BringIntoView() should still scroll the transcript.");
     }
 
     private static async Task PumpAsync()
