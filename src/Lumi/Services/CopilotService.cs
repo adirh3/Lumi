@@ -1174,7 +1174,15 @@ public class CopilotService : IAsyncDisposable
         text.Length <= maxLength ? text : text[..maxLength];
 
     private const string SuggestionSystemPrompt =
-        "You generate follow-up suggestions for a chat assistant. Use the latest conversation plus the user's historical request patterns across chats. Prefer recurring historical requests when they are plausible next actions. Produce exactly 3 short messages the user might want to send next. Each suggestion must be concise (under 60 characters) and actionable. Output ONLY a JSON array of 3 strings, nothing else. Example: [\"Run code review\", \"Push to main\", \"What are the alternatives?\"]";
+        "You generate follow-up suggestions for a chat assistant. Propose exactly 3 short messages the user would naturally send next, grounded in the CURRENT conversation. " +
+        "QUALITY RULES (most important): " +
+        "1. Ground every suggestion in the specifics of THIS conversation — reference the actual topics, names, entities, files, or details discussed. Avoid vague filler like \"What should I do next?\", \"Run the app\", \"Show a summary\", \"Check for errors\", or \"Tell me more\". " +
+        "2. Advance the conversation — never re-ask something the assistant already answered; build on it instead. " +
+        "3. Follow the user's actual intent and task, not just the broad theme (e.g. in a lesson about learning kanji, suggest a sharper way to study kanji — not an unrelated ramen recipe that merely shares the 'Japanese' theme). " +
+        "4. Make the 3 meaningfully different from each other (e.g. go deeper, take the next concrete action, explore a related angle) — not three rephrasings of one idea. " +
+        "5. Each must be concise (under 60 characters), specific, and something the user would actually click. " +
+        "FREQUENT-REQUESTS LIST: you may also receive a list of the user's frequently-typed requests. Treat it as low-priority reference, NOT a menu: include one only if it is a genuinely natural next step for THIS conversation. Usually none fit — then ignore the list entirely. Never suggest something merely because it is frequent, and ignore any list item that looks like a test, debug, setup, or system command, or is unrelated to the current topic. " +
+        "Output ONLY a JSON array of exactly 3 strings, nothing else. Example: [\"Compare the LG G4 and Sony A95L\", \"Which handles glare better?\", \"Show cheaper alternatives under $1500\"]";
 
     private async Task<CopilotSession> GetOrCreateSuggestionSessionAsync(CancellationToken ct)
     {
@@ -1221,7 +1229,7 @@ public class CopilotService : IAsyncDisposable
         if (!string.IsNullOrWhiteSpace(userHistorySummary))
         {
             contextBuilder.AppendLine();
-            contextBuilder.AppendLine("Historical user requests across all chats:");
+            contextBuilder.AppendLine("The user's frequently-typed requests from other chats (reference only — include one ONLY if it is a natural next step for THIS conversation; otherwise ignore this list entirely):");
             contextBuilder.AppendLine(Truncate(userHistorySummary.Trim(), 1400));
         }
 

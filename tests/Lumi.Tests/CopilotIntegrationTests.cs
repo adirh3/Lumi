@@ -13,6 +13,7 @@ using Lumi.Services;
 using Lumi.ViewModels;
 using Microsoft.Extensions.AI;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Lumi.Tests;
 
@@ -62,6 +63,9 @@ namespace Lumi.Tests;
 public class CopilotIntegrationTests : IAsyncLifetime
 {
     private CopilotService _service = null!;
+    private readonly ITestOutputHelper _output;
+
+    public CopilotIntegrationTests(ITestOutputHelper output) => _output = output;
 
     private static bool IsEnabled =>
         Environment.GetEnvironmentVariable("LUMI_INTEGRATION_TESTS") == "1";
@@ -1100,6 +1104,92 @@ public class CopilotIntegrationTests : IAsyncLifetime
         Assert.NotNull(suggestions);
         Assert.True(suggestions!.Count >= 1, "Should return at least 1 suggestion");
         Assert.All(suggestions, s => Assert.False(string.IsNullOrWhiteSpace(s)));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 16b. Context-aware suggestions — a frequently-typed prompt must NOT leak
+    //      into unrelated conversations, but SHOULD remain available when the
+    //      current conversation is actually about that topic. Drives the real
+    //      ranker + real model end-to-end across several distinct topics.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [SkippableFact]
+    public async Task SuggestionGeneration_RespectsConversationContextAcrossTopics()
+    {
+        SkipIfDisabled();
+
+        // The user types coding prompts constantly, but also has other recurring requests. The ranker
+        // hands the model ONE global, conversation-agnostic list; the model must decide what fits.
+        var history = new List<UserPromptHistoryItem>();
+        var origin = new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero);
+        void Add(string content, int times, TimeSpan offset)
+        {
+            for (var i = 0; i < times; i++)
+                history.Add(new UserPromptHistoryItem(Guid.NewGuid(), Guid.NewGuid(), content, origin.Add(offset).AddMinutes(i)));
+        }
+        Add("commit and push to main", 14, TimeSpan.Zero);
+        Add("run code review", 9, TimeSpan.FromHours(1));
+        Add("plan my day", 5, TimeSpan.FromHours(2));
+        Add("write me a story", 4, TimeSpan.FromHours(3));
+
+        // The SAME global block is sent for every conversation — exactly as production does it.
+        var block = SuggestionHistoryRanker.BuildFrequentRequestsBlock(history, 8);
+        Assert.NotNull(block);
+        Assert.Contains("commit and push to main", block!, StringComparison.OrdinalIgnoreCase);
+        _output.WriteLine($"[Global block]\n{block}\n");
+
+        // Words that would only appear if the coding history leaked into an unrelated chat.
+        string[] codingLeakTerms = ["commit", "push", "git", "code review", "pull request", "repository"];
+
+        var unrelated = new[]
+        {
+            (Topic: "TV shopping",
+             User: "Which 65-inch OLED TV should I buy for a bright living room?",
+             Assistant: "For a bright room the LG G4 and Samsung S95D QD-OLED have the highest peak brightness, while the Sony Bravia 8 trades brightness for excellent processing. Expect to pay between $1,800 and $2,600."),
+            (Topic: "Cooking",
+             User: "How do I make a good sourdough starter from scratch?",
+             Assistant: "Mix equal parts flour and water, leave it loosely covered at room temperature, and feed it daily. After about a week it should be bubbly and double in size, ready to leaven bread."),
+            (Topic: "Travel",
+             User: "What are the best neighborhoods to stay in when visiting Lisbon?",
+             Assistant: "Alfama is historic and atmospheric, Baixa is central and walkable, and Príncipe Real is trendy with great restaurants. Each offers a different vibe for exploring the city."),
+            (Topic: "TV shopping (Hebrew)",
+             User: "איזו טלוויזיית OLED בגודל 65 אינץ' הכי משתלמת לסלון מואר?",
+             Assistant: "לסלון מואר ה-LG G4 וה-Samsung S95D בולטים בבהירות שיא גבוהה, בעוד שה-Sony Bravia 8 מציעה עיבוד תמונה מצוין במחיר נמוך יותר. טווח המחירים הוא בערך 6,000 עד 9,000 שקלים."),
+        };
+
+        foreach (var (topic, user, assistant) in unrelated)
+        {
+            // Same global block every time — the model must ignore it as irrelevant here.
+            var suggestions = await _service.GenerateSuggestionsAsync(assistant, user, block);
+            Assert.NotNull(suggestions);
+            Assert.NotEmpty(suggestions!);
+
+            _output.WriteLine($"[{topic}] suggestions: {string.Join(" | ", suggestions!)}");
+
+            var joined = string.Join("\n", suggestions!).ToLowerInvariant();
+            foreach (var term in codingLeakTerms)
+            {
+                Assert.False(
+                    joined.Contains(term, StringComparison.Ordinal),
+                    $"[{topic}] coding term '{term}' leaked into suggestions: {string.Join(" | ", suggestions!)}");
+            }
+        }
+
+        // ── Coding conversation: now the recurring coding prompt IS a natural next step ──
+        var codeUser = "I finished the feature on my branch. What's the git workflow to ship it?";
+        var codeAssistant = "Your local commits look good. Next, commit any remaining changes, push the branch to the remote, open a pull request against main, and merge once review passes.";
+
+        var codeSuggestions = await _service.GenerateSuggestionsAsync(codeAssistant, codeUser, block);
+        Assert.NotNull(codeSuggestions);
+        Assert.NotEmpty(codeSuggestions!);
+        _output.WriteLine($"[Coding] suggestions: {string.Join(" | ", codeSuggestions!)}");
+
+        // For a git-workflow conversation the model should produce a shipping-related suggestion.
+        string[] shipTerms = ["commit", "push", "pr", "pull request", "merge", "review", "main", "branch", "remote", "ship"];
+        var codeJoined = string.Join("\n", codeSuggestions!).ToLowerInvariant();
+        Assert.True(
+            shipTerms.Any(term => codeJoined.Contains(term, StringComparison.Ordinal)),
+            $"[Coding] expected a git/ship-related suggestion, got: {string.Join(" | ", codeSuggestions!)}");
     }
 
     // ═══════════════════════════════════════════════════════════════════════

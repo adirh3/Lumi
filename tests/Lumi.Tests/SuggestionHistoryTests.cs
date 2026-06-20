@@ -1,8 +1,6 @@
 using System;
-using System.Reflection;
 using Lumi.Models;
 using Lumi.Services;
-using Lumi.ViewModels;
 using Xunit;
 
 namespace Lumi.Tests;
@@ -63,28 +61,5 @@ public class SuggestionHistoryTests
 
         Assert.Equal(["Push to main", "Run code review"], history.Select(static item => item.Content));
         Assert.Equal([pushMessageId, codeReviewMessageId], history.Select(static item => item.MessageId));
-    }
-
-    [Fact]
-    public void FormatSuggestionHistorySummary_PrioritizesRepeatedRequests()
-    {
-        var now = new DateTimeOffset(2026, 4, 23, 8, 0, 0, TimeSpan.Zero);
-        var history = new[]
-        {
-            new UserPromptHistoryItem(Guid.NewGuid(), Guid.NewGuid(), "run code review", now),
-            new UserPromptHistoryItem(Guid.NewGuid(), Guid.NewGuid(), "Run code review", now.AddMinutes(1)),
-            new UserPromptHistoryItem(Guid.NewGuid(), Guid.NewGuid(), "Push to main", now.AddMinutes(2))
-        };
-        var method = typeof(ChatViewModel).GetMethod(
-            "FormatSuggestionHistorySummary",
-            BindingFlags.NonPublic | BindingFlags.Static);
-
-        Assert.NotNull(method);
-        var summary = Assert.IsType<string>(method!.Invoke(null, new object?[] { history, 6 }));
-
-        Assert.Contains("Frequent user requests:", summary);
-        Assert.Contains("- Run code review (used 2x)", summary);
-        Assert.Contains("Recent user requests:", summary);
-        Assert.Contains("- Push to main", summary);
     }
 }

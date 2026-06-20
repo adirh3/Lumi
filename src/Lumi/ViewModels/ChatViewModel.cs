@@ -29,8 +29,7 @@ namespace Lumi.ViewModels;
 public partial class ChatViewModel : ObservableObject, IDisposable
 {
     private const int SuggestionHistoryScanLimit = 1000;
-    private const int SuggestionHistorySummaryMaxItems = 24;
-    private const int SuggestionHistoryDisplayMaxLength = 160;
+    private const int SuggestionFrequentRequestMaxItems = 8;
     private static readonly HttpClient McpDiagnosticsHttp = new()
     {
         Timeout = TimeSpan.FromSeconds(5)
@@ -3406,101 +3405,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var historyItems = userPromptHistory
             .Where(item => item.MessageId != latestUserMessageId);
 
-        return FormatSuggestionHistorySummary(historyItems, SuggestionHistorySummaryMaxItems);
+        // Deterministic, conversation-agnostic prep only: the model decides what (if anything) fits.
+        return SuggestionHistoryRanker.BuildFrequentRequestsBlock(
+            historyItems,
+            SuggestionFrequentRequestMaxItems);
     }
-
-    private static string? FormatSuggestionHistorySummary(
-        IEnumerable<UserPromptHistoryItem> historyItems,
-        int maxItems)
-    {
-        ArgumentNullException.ThrowIfNull(historyItems);
-        if (maxItems <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxItems), "History item limit must be greater than zero.");
-
-        var groups = historyItems
-            .Select(static item => new
-            {
-                Key = NormalizeSuggestionHistoryContent(item.Content),
-                Content = TrimSuggestionHistoryContent(item.Content),
-                item.Timestamp
-            })
-            .Where(static item => !string.IsNullOrWhiteSpace(item.Key)
-                                  && !string.IsNullOrWhiteSpace(item.Content))
-            .GroupBy(static item => item.Key, StringComparer.Ordinal)
-            .Select(static group =>
-            {
-                var latest = group.OrderByDescending(static item => item.Timestamp).First();
-                return new SuggestionHistoryGroup(
-                    group.Key,
-                    latest.Content,
-                    group.Count(),
-                    group.Max(static item => item.Timestamp));
-            })
-            .OrderByDescending(static group => group.LastUsedAt)
-            .ToList();
-
-        if (groups.Count == 0)
-            return null;
-
-        var frequentGroups = groups
-            .Where(static group => group.Count > 1)
-            .OrderByDescending(static group => group.Count)
-            .ThenByDescending(static group => group.LastUsedAt)
-            .Take(Math.Min(8, maxItems))
-            .ToList();
-
-        var frequentKeys = frequentGroups
-            .Select(static group => group.Key)
-            .ToHashSet(StringComparer.Ordinal);
-
-        var recentGroups = groups
-            .Where(group => !frequentKeys.Contains(group.Key))
-            .OrderByDescending(static group => group.LastUsedAt)
-            .Take(Math.Max(0, maxItems - frequentGroups.Count))
-            .ToList();
-
-        var summary = new StringBuilder();
-        if (frequentGroups.Count > 0)
-        {
-            summary.AppendLine("Frequent user requests:");
-            foreach (var group in frequentGroups)
-                summary.AppendLine($"- {group.Content} (used {group.Count}x)");
-        }
-
-        if (recentGroups.Count > 0)
-        {
-            if (summary.Length > 0)
-                summary.AppendLine();
-
-            summary.AppendLine("Recent user requests:");
-            foreach (var group in recentGroups)
-                summary.AppendLine($"- {group.Content}");
-        }
-
-        return summary.Length > 0 ? summary.ToString().TrimEnd() : null;
-    }
-
-    private static string CollapseSuggestionHistoryWhitespace(string content)
-        => Regex.Replace(content.Trim(), @"\s+", " ");
-
-    private static string NormalizeSuggestionHistoryContent(string content)
-        => CollapseSuggestionHistoryWhitespace(content)
-            .Trim(' ', '.', '!', '?', ':', ';', '"', '\'')
-            .ToLowerInvariant();
-
-    private static string TrimSuggestionHistoryContent(string content)
-    {
-        var singleLine = CollapseSuggestionHistoryWhitespace(content);
-        return singleLine.Length <= SuggestionHistoryDisplayMaxLength
-            ? singleLine
-            : singleLine[..(SuggestionHistoryDisplayMaxLength - 3)].TrimEnd() + "...";
-    }
-
-    private sealed record SuggestionHistoryGroup(
-        string Key,
-        string Content,
-        int Count,
-        DateTimeOffset LastUsedAt);
 
     private sealed record SuggestionGenerationContext(
         string AssistantMessage,
