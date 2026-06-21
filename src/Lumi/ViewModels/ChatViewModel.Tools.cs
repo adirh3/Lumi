@@ -181,7 +181,7 @@ public partial class ChatViewModel
             AIFunctionFactory.Create(
                 ([Description("Action to perform: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, upload, steps")] string action,
                  [Description("Target: element number from lumi_browser_open/lumi_browser_look (e.g. '3'), button text (e.g. 'Export'), CSS selector (e.g. '.btn'), key name (for press), direction (for scroll), or file pattern (for download). For upload: optional locator for the <input type=file> (CSS selector or the upload button/label text) — omit to use the page's only file input. Append ' quiet' to suppress auto-snapshot (e.g. '3 quiet').")] string? target = null,
-                 [Description("Value: text to type (for type action), option text (for select), pixels (for scroll), JSON object for fill, absolute file path(s) for upload (JSON array or comma/newline-separated), JSON array for steps (e.g. [{\"action\":\"click\",\"target\":\"Next\"},{\"action\":\"click\",\"target\":\"25\"}]), or 'quiet' to suppress snapshot")] string? value = null) =>
+                 [Description("Value: text to type (for type action), option text (for select), pixels (for scroll), JSON object for fill, absolute file path(s) for upload (a JSON array for multiple files, or a single path; multiple paths may also be newline-separated — commas are NOT separators), JSON array for steps (e.g. [{\"action\":\"click\",\"target\":\"Next\"},{\"action\":\"click\",\"target\":\"25\"}]), or 'quiet' to suppress snapshot")] string? value = null) =>
                 {
                     var svc = GetOrCreateBrowserService(chatId);
                     var act = (action ?? "").Trim().ToLowerInvariant();

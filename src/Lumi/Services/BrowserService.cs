@@ -105,26 +105,6 @@ public sealed partial class BrowserService : IAsyncDisposable
     /// <summary>Maximum combined size of all files in a single upload action (250 MB).</summary>
     private const long MaxTotalUploadBytes = 250L * 1024 * 1024;
 
-    /// <summary>A file the model wants to attach to a page's file input.</summary>
-    public readonly record struct UploadFileInfo(string Path, string Name, long SizeBytes);
-
-    /// <summary>
-    /// Describes a pending upload so a UI layer can show the user what is about to be sent and to where.
-    /// </summary>
-    public sealed record UploadApprovalRequest(
-        string Origin,
-        string PageTitle,
-        IReadOnlyList<UploadFileInfo> Files);
-
-    /// <summary>
-    /// Optional authorization gate invoked immediately before files are attached to a page input.
-    /// When set, returning <c>false</c> aborts the upload. When null, only the hard policy limits
-    /// (fully-qualified canonical paths, max count, max size) are enforced. Because uploads are
-    /// driven by LLM tool calls, hosts are encouraged to wire this to a user-approval prompt that
-    /// shows the destination origin and the file names.
-    /// </summary>
-    public Func<UploadApprovalRequest, Task<bool>>? UploadApprovalHandler { get; set; }
-
     /// <summary>The current URL loaded in the browser.</summary>
     public string CurrentUrl => _webView?.Source ?? "about:blank";
 
@@ -1256,8 +1236,7 @@ public sealed partial class BrowserService : IAsyncDisposable
     ///
     /// Security: because this is reachable from LLM tool calls it is a potential local-file
     /// exfiltration vector, so it enforces a policy before attaching anything — paths must be
-    /// fully-qualified and are canonicalized, the file count and per-file/total sizes are capped, and
-    /// an optional <see cref="UploadApprovalHandler"/> can require explicit user approval.
+    /// fully-qualified and are canonicalized, and the file count and per-file/total sizes are capped.
     ///
     /// <paramref name="target"/> is an optional locator for the file input: a CSS selector, or the
     /// visible text/aria-label of the upload button or label. If it is omitted and the page has more
@@ -1334,27 +1313,7 @@ public sealed partial class BrowserService : IAsyncDisposable
             if (paths.Count > 1 && !inputMultiple)
                 return $"Error: the selected file input does not accept multiple files, but {paths.Count} were provided. Upload a single file, or target an input with the 'multiple' attribute.";
 
-            // 3. Authorization gate — show the user what is about to be sent and to where.
-            if (UploadApprovalHandler is { } approve)
-            {
-                var origin = OriginOf(CurrentUrl);
-                var fileInfos = paths
-                    .Select(p => new UploadFileInfo(p, Path.GetFileName(p), SafeFileLength(p)))
-                    .ToList();
-                bool approved;
-                try
-                {
-                    approved = await approve(new UploadApprovalRequest(origin, CurrentTitle, fileInfos));
-                }
-                catch (Exception ex)
-                {
-                    return $"Error: upload authorization failed — {ex.Message}";
-                }
-                if (!approved)
-                    return $"Error: the user declined the upload of {paths.Count} file(s) to {origin}.";
-            }
-
-            // 4. Obtain a CDP remote handle for the resolved input, then set the files on it. No native
+            // 3. Obtain a CDP remote handle for the resolved input, then set the files on it. No native
             //    dialog is shown; CDP dispatches input/change events so framework components react.
             var elemExpr = BuildFileInputElementExpression(target);
             var elemParams = "{\"expression\":" + JsonQuote(elemExpr) + ",\"returnByValue\":false}";
@@ -1396,7 +1355,7 @@ public sealed partial class BrowserService : IAsyncDisposable
                 return $"Error: failed to set files on the input — {ex.Message}";
             }
 
-            // 5. Read back what actually got attached for a trustworthy confirmation.
+            // 4. Read back what actually got attached for a trustworthy confirmation.
             var attached = string.Join(", ", paths.Select(Path.GetFileName));
             try
             {
@@ -1468,20 +1427,6 @@ public sealed partial class BrowserService : IAsyncDisposable
             sb.Append("\nPass one of the selectors above (or its label text) as the target.");
         }
         return sb.ToString();
-    }
-
-    /// <summary>Returns the scheme+host+port origin of a URL, or a friendly fallback if it cannot be parsed.</summary>
-    private static string OriginOf(string url)
-    {
-        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
-            return uri.IsFile ? "local file" : uri.GetLeftPart(UriPartial.Authority);
-        return string.IsNullOrWhiteSpace(url) ? "the current page" : url;
-    }
-
-    private static long SafeFileLength(string path)
-    {
-        try { return new FileInfo(path).Length; }
-        catch { return 0; }
     }
 
     /// <summary>
