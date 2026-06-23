@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -12,8 +13,10 @@ using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.VisualTree;
 using Lumi.Models;
+using Lumi.Presence;
 using Lumi.Services;
 using Lumi.ViewModels;
+using StrataTheme.Controls;
 
 namespace Lumi.Views;
 
@@ -35,6 +38,10 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
     private DataStore? _dataStore;
     private DataStore? _attachedDataStore;
     private ChatViewModel? _attachedChatViewModel;
+
+    // The decoupled ambient-glow layer: a single self-contained controller owns the visual and
+    // observes already-public view-model state. No production view pushes to it.
+    private PresenceController? _presenceController;
 
     private const double RailMinHostWidth = 1040;
     private Border? _workspaceRail;
@@ -239,6 +246,11 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
         _attachedDataStore = _dataStore;
         _attachedChatViewModel = chatViewModel;
 
+        // Inject the single decoupled glow layer behind the whole workspace grid and let it observe
+        // the view-model. The grid (and its translucent islands) never reference the glow.
+        _presenceController = new PresenceController(contentGrid);
+        _presenceController.Attach(chatViewModel);
+
         AttachWorkspaceRail(chatViewModel);
     }
 
@@ -442,6 +454,8 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
     {
         DetachWorkspaceRail();
         DisposeCts(ref _railAnimCts);
+        _presenceController?.Dispose();
+        _presenceController = null;
         _previewPanel?.Dispose();
         _previewPanel = null;
         _attachedDataStore = null;

@@ -17,7 +17,7 @@
   <UserControl.Styles>
     <Style Selector="Border#ChatIsland.workspace-island">
       <Setter Property="CornerRadius" Value="{DynamicResource Radius.Overlay}" />
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface1Translucent}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface1Glass}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="BoxShadow" Value="0 18 44 0 #14000000, 0 3 12 0 #0A000000" />
       <Setter Property="ClipToBounds" Value="True" />
@@ -205,7 +205,7 @@
             MaxWidth="{Binding Bounds.Width, RelativeSource={RelativeSource AncestorType=Grid}}"
             Margin="{Binding PreviewIslandMargin, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
             CornerRadius="{DynamicResource Radius.Overlay}"
-            Background="{DynamicResource Brush.SurfaceCard}"
+            Background="{DynamicResource Brush.Surface1Glass}"
             BorderBrush="{DynamicResource Brush.BorderSubtle}"
             BorderThickness="1"
             BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000"
@@ -243,7 +243,7 @@
             MaxWidth="{Binding Bounds.Width, RelativeSource={RelativeSource AncestorType=Grid}}"
             Margin="{Binding PreviewIslandMargin, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
             CornerRadius="{DynamicResource Radius.Overlay}"
-            Background="{DynamicResource Brush.SurfaceCard}"
+            Background="{DynamicResource Brush.Surface1Glass}"
             BorderBrush="{DynamicResource Brush.BorderSubtle}"
             BorderThickness="1"
             BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000"
@@ -284,7 +284,7 @@
             MaxWidth="{Binding Bounds.Width, RelativeSource={RelativeSource AncestorType=Grid}}"
             Margin="{Binding PreviewIslandMargin, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
             CornerRadius="{DynamicResource Radius.Overlay}"
-            Background="{DynamicResource Brush.SurfaceCard}"
+            Background="{DynamicResource Brush.Surface1Glass}"
             BorderBrush="{DynamicResource Brush.BorderSubtle}"
             BorderThickness="1"
             BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000"
@@ -332,14 +332,15 @@
             Width="340"
             Margin="12,0,0,0"
             CornerRadius="{DynamicResource Radius.Overlay}"
-            Background="{DynamicResource Brush.Surface1Translucent}"
+            Background="{DynamicResource Brush.Surface1Glass}"
             BorderThickness="1"
             BoxShadow="0 18 44 0 #14000000, 0 3 12 0 #0A000000"
             ClipToBounds="True">
       <Border.BorderBrush>
         <SolidColorBrush Color="{DynamicResource Color.TextPrimary}" Opacity="0.08" />
       </Border.BorderBrush>
-      <DockPanel>
+      <Grid>
+        <DockPanel ZIndex="1">
         <!-- Header -->
         <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="15,12,9,11">
           <PathIcon Grid.Column="0" Width="15" Height="15" VerticalAlignment="Center"
@@ -674,7 +675,8 @@
             </ScrollViewer>
           </DockPanel>
         </Grid>
-      </DockPanel>
+        </DockPanel>
+      </Grid>
     </Border>
   </Grid>
 </UserControl>

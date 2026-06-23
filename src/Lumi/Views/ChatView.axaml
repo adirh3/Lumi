@@ -954,18 +954,10 @@
   </UserControl.DataTemplates>
 
   <Panel DragDrop.AllowDrop="True">
-    <!-- Ambient accent backdrop — a soft top-center glow so the margins around the
-         centered column read as a designed backdrop rather than empty space on large screens. -->
-    <Panel x:Name="AmbientBackdrop" IsHitTestVisible="False" ZIndex="0">
-      <Border Opacity="0.13">
-        <Border.Background>
-          <RadialGradientBrush Center="50%,-8%" GradientOrigin="50%,-8%" RadiusX="70%" RadiusY="65%">
-            <GradientStop Offset="0" Color="{DynamicResource Color.AccentDefault}" />
-            <GradientStop Offset="1" Color="Transparent" />
-          </RadialGradientBrush>
-        </Border.Background>
-      </Border>
-    </Panel>
+    <!-- Lumi's ambient "presence" glow is NOT here: it lives as a single decoupled layer
+         behind this whole chat/workspace surface, owned and driven by PresenceController
+         (Lumi.Presence). This view stays presence-free and shows the glow through its
+         translucent surfaces. -->
 
     <!-- Drop overlay -->
     <Panel x:Name="DropOverlay" IsVisible="False" IsHitTestVisible="False"

@@ -550,8 +550,12 @@ public partial class ChatView : UserControl
         if (e.PropertyName == nameof(ChatViewModel.IsWorktreeMode))
             QueueWorktreeToggleHighlightUpdate();
 
-        if (e.PropertyName == nameof(ChatViewModel.IsBusy) && _subscribedVm?.IsBusy == false)
-            QueueCompletedAssistantTailRecovery();
+        if (e.PropertyName == nameof(ChatViewModel.IsBusy))
+        {
+            var busy = _subscribedVm?.IsBusy ?? false;
+            if (!busy)
+                QueueCompletedAssistantTailRecovery();
+        }
     }
 
     private void QueueInitialTranscriptTailSyncIfNeeded(ChatViewModel viewModel)
