@@ -339,6 +339,162 @@ public static class MemoryStatuses
     public const string Archived = "archived";
 }
 
+public class ReleaseServiceProfile
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string ServiceName { get; set; } = "";
+    public string RepoPath { get; set; } = "";
+    public string AdoOrgUrl { get; set; } = "";
+    public string AdoProjectName { get; set; } = "";
+    public List<ReleasePipelineConfig> Pipelines { get; set; } = [];
+    public List<ReleaseHealthQuery> HealthQueries { get; set; } = [];
+    public List<ReleasePipelineDependency> Dependencies { get; set; } = [];
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
+}
+
+public class ReleasePipelineConfig
+{
+    public string Name { get; set; } = "";
+    public string PipelineId { get; set; } = "";
+    public string PipelineType { get; set; } = "";
+    public string Stage { get; set; } = "";
+    public string Ring { get; set; } = "";
+    public string Environment { get; set; } = "";
+    public string Region { get; set; } = "";
+    public string Stamp { get; set; } = "";
+}
+
+public class ReleaseHealthQuery
+{
+    public string Name { get; set; } = "";
+    public string Query { get; set; } = "";
+    public string Scope { get; set; } = "";
+    public string DashboardUrl { get; set; } = "";
+}
+
+public class ReleasePipelineDependency
+{
+    public string Source { get; set; } = "";
+    public string Target { get; set; } = "";
+    public string Reason { get; set; } = "";
+}
+
+public class ReleaseEvidencePacket
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid? ChatId { get; set; }
+    public string Service { get; set; } = "";
+    public string Goal { get; set; } = "";
+    public string TargetScope { get; set; } = "";
+    public ReleaseCandidateEvidence? Candidate { get; set; }
+    public List<ReleaseProofLink> ProofChain { get; set; } = [];
+    public ReleaseRiskAssessment Risk { get; set; } = new();
+    public ReleaseStateSnapshot State { get; set; } = new();
+    public List<string> MissingProof { get; set; } = [];
+    public string RecommendedNextAction { get; set; } = "";
+    public bool RequiresUserApproval { get; set; }
+    public Guid? SafeFlyDraftId { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
+}
+
+public class ReleaseCandidateEvidence
+{
+    public string Version { get; set; } = "";
+    public string BuildId { get; set; } = "";
+    public string Branch { get; set; } = "";
+    public string CommitSha { get; set; } = "";
+    public List<string> PullRequests { get; set; } = [];
+    public List<string> WorkItems { get; set; } = [];
+    public string Rationale { get; set; } = "";
+}
+
+public class ReleaseProofLink
+{
+    public string LinkType { get; set; } = "";
+    public string Label { get; set; } = "";
+    public string Evidence { get; set; } = "";
+    public string Status { get; set; } = "";
+}
+
+public class ReleaseRiskAssessment
+{
+    public string Summary { get; set; } = "";
+    public string ChangeType { get; set; } = "";
+    public string ReviewPathRecommendation { get; set; } = "";
+    public int Confidence { get; set; }
+    public List<string> Signals { get; set; } = [];
+}
+
+public class ReleaseStateSnapshot
+{
+    public string CandidateState { get; set; } = "";
+    public string PipelineState { get; set; } = "";
+    public string DeploymentState { get; set; } = "";
+    public string HealthState { get; set; } = "";
+    public string ChangeValidationState { get; set; } = "";
+    public string DependencyState { get; set; } = "";
+    public string R2DState { get; set; } = "";
+    public string CommunicationsState { get; set; } = "";
+    public string ApprovalState { get; set; } = "";
+}
+
+public class ReleaseSafeFlyDraft
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid? ChatId { get; set; }
+    public Guid? EvidencePacketId { get; set; }
+    public string Service { get; set; } = "";
+    public string CandidateVersion { get; set; } = "";
+    public string TargetScope { get; set; } = "";
+    public string ChangeType { get; set; } = "";
+    public string AutoCreateCapability { get; set; } = "";
+    public string RiskSummary { get; set; } = "";
+    public string ValidationSummary { get; set; } = "";
+    public string HealthSummary { get; set; } = "";
+    public string BakeTimeSummary { get; set; } = "";
+    public string RollbackPlan { get; set; } = "";
+    public string CommunicationsPlan { get; set; } = "";
+    public string ReviewPathRecommendation { get; set; } = "";
+    public string Status { get; set; } = "Draft";
+    public string ExternalRequestId { get; set; } = "";
+    public string RequestStatus { get; set; } = "";
+    public string StatusUrl { get; set; } = "";
+    public string LastStatusSummary { get; set; } = "";
+    public DateTimeOffset? LastStatusCheckedAt { get; set; }
+    public List<string> MissingFields { get; set; } = [];
+    public List<string> Links { get; set; } = [];
+    public bool RequiresUserApprovalForCreate { get; set; } = true;
+    public bool RequiresUserApprovalForSubmit { get; set; } = true;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
+}
+
+public class ReleaseLease
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Service { get; set; } = "";
+    public string Scope { get; set; } = "";
+    public string EligibilityState { get; set; } = "";
+    public string MonitoringState { get; set; } = "";
+    public string LifecycleState { get; set; } = "";
+    public DateTimeOffset? ExpiresAt { get; set; }
+    public string RevocationPath { get; set; } = "";
+}
+
+public class ReleaseRiskSignal
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid? EvidencePacketId { get; set; }
+    public string Service { get; set; } = "";
+    public string SignalType { get; set; } = "";
+    public string Scope { get; set; } = "";
+    public string Value { get; set; } = "";
+    public string Source { get; set; } = "";
+    public DateTimeOffset CapturedAt { get; set; } = DateTimeOffset.Now;
+}
+
 public class UserSettings
 {
     // ── General ──
@@ -421,4 +577,9 @@ public class AppData
     public List<McpServer> McpServers { get; set; } = [];
     public List<BackgroundJob> BackgroundJobs { get; set; } = [];
     public List<Memory> Memories { get; set; } = [];
+    public List<ReleaseServiceProfile> ReleaseServiceProfiles { get; set; } = [];
+    public List<ReleaseEvidencePacket> ReleaseEvidencePackets { get; set; } = [];
+    public List<ReleaseSafeFlyDraft> ReleaseSafeFlyDrafts { get; set; } = [];
+    public List<ReleaseLease> ReleaseLeases { get; set; } = [];
+    public List<ReleaseRiskSignal> ReleaseRiskSignals { get; set; } = [];
 }

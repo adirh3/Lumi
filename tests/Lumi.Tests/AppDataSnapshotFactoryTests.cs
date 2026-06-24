@@ -339,6 +339,120 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void AppDataJsonContext_SerializesReleaseState()
+    {
+        var packetId = Guid.NewGuid();
+        var data = new AppData
+        {
+            ReleaseEvidencePackets =
+            [
+                new ReleaseEvidencePacket
+                {
+                    Id = packetId,
+                    Service = "Sherlock Diagnostics",
+                    Goal = "Create R2D draft",
+                    MissingProof = ["runtime version"],
+                    RequiresUserApproval = true
+                }
+            ],
+            ReleaseSafeFlyDrafts =
+            [
+                new ReleaseSafeFlyDraft
+                {
+                    EvidencePacketId = packetId,
+                    Service = "Sherlock Diagnostics",
+                    CandidateVersion = "1.2.3",
+                    TargetScope = "INT canary",
+                    ExternalRequestId = "SF-123",
+                    RequestStatus = "waiting-for-info",
+                    StatusUrl = "https://safefly/requests/SF-123",
+                    LastStatusSummary = "Reviewer requested health proof.",
+                    LastStatusCheckedAt = new DateTimeOffset(2026, 5, 7, 10, 0, 0, TimeSpan.Zero)
+                }
+            ]
+        };
+
+        var json = JsonSerializer.Serialize(data, AppDataJsonContext.Default.AppData);
+        using var document = JsonDocument.Parse(json);
+
+        Assert.Equal("Sherlock Diagnostics", document.RootElement
+            .GetProperty("releaseEvidencePackets")[0]
+            .GetProperty("service")
+            .GetString());
+        Assert.Equal("1.2.3", document.RootElement
+            .GetProperty("releaseSafeFlyDrafts")[0]
+            .GetProperty("candidateVersion")
+            .GetString());
+        Assert.Equal("SF-123", document.RootElement
+            .GetProperty("releaseSafeFlyDrafts")[0]
+            .GetProperty("externalRequestId")
+            .GetString());
+        Assert.Equal("waiting-for-info", document.RootElement
+            .GetProperty("releaseSafeFlyDrafts")[0]
+            .GetProperty("requestStatus")
+            .GetString());
+    }
+
+    [Fact]
+    public void CreateIndexSnapshot_PreservesReleaseState()
+    {
+        var packetId = Guid.NewGuid();
+        var source = new AppData
+        {
+            ReleaseServiceProfiles =
+            [
+                new ReleaseServiceProfile
+                {
+                    ServiceName = "Sherlock Diagnostics",
+                    Pipelines = [new ReleasePipelineConfig { Name = "Build" }],
+                    HealthQueries = [new ReleaseHealthQuery { Name = "Errors" }],
+                    Dependencies = [new ReleasePipelineDependency { Source = "Build", Target = "Deploy" }]
+                }
+            ],
+            ReleaseEvidencePackets =
+            [
+                new ReleaseEvidencePacket
+                {
+                    Id = packetId,
+                    Service = "Sherlock Diagnostics",
+                    ProofChain = [new ReleaseProofLink { LinkType = "build", Status = "Captured" }],
+                    MissingProof = ["change validation"],
+                    Risk = new ReleaseRiskAssessment { Summary = "Low", Signals = ["Payload Risk: low"] }
+                }
+            ],
+            ReleaseSafeFlyDrafts =
+            [
+                new ReleaseSafeFlyDraft
+                {
+                    EvidencePacketId = packetId,
+                    Service = "Sherlock Diagnostics",
+                    MissingFields = ["rollback plan"],
+                    ExternalRequestId = "SF-123",
+                    RequestStatus = "waiting-for-info",
+                    StatusUrl = "https://safefly/requests/SF-123",
+                    LastStatusSummary = "Reviewer requested health proof.",
+                    LastStatusCheckedAt = new DateTimeOffset(2026, 5, 7, 10, 0, 0, TimeSpan.Zero)
+                }
+            ],
+            ReleaseLeases = [new ReleaseLease { Service = "Sherlock Diagnostics", EligibilityState = "eligible" }],
+            ReleaseRiskSignals = [new ReleaseRiskSignal { Service = "Sherlock Diagnostics", SignalType = "AuRA V4", Value = "low" }]
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+
+        Assert.Single(snapshot.ReleaseServiceProfiles);
+        Assert.Single(snapshot.ReleaseEvidencePackets);
+        Assert.Single(snapshot.ReleaseSafeFlyDrafts);
+        Assert.Single(snapshot.ReleaseLeases);
+        Assert.Single(snapshot.ReleaseRiskSignals);
+        Assert.Equal("Payload Risk: low", snapshot.ReleaseEvidencePackets[0].Risk.Signals[0]);
+        Assert.Equal("rollback plan", snapshot.ReleaseSafeFlyDrafts[0].MissingFields[0]);
+        Assert.Equal("SF-123", snapshot.ReleaseSafeFlyDrafts[0].ExternalRequestId);
+        Assert.Equal("waiting-for-info", snapshot.ReleaseSafeFlyDrafts[0].RequestStatus);
+        Assert.Equal("Reviewer requested health proof.", snapshot.ReleaseSafeFlyDrafts[0].LastStatusSummary);
+    }
+
+    [Fact]
     public void CreateIndexSnapshot_PreservesBackgroundJobs()
     {
         var chatId = Guid.NewGuid();
