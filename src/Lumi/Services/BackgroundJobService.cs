@@ -130,7 +130,15 @@ public sealed class BackgroundJobService : IDisposable
         if (Interlocked.Exchange(ref _started, 1) == 1)
             return;
 
+#if DEBUG
+        // The automatic scheduler is intentionally disabled in Debug builds. When Lumi is
+        // debugged from multiple git worktrees, every open debug window would otherwise fire
+        // each scheduled job, running it many times over. Manual "Run now" (RunDueJobsNowAsync)
+        // still works for testing jobs while debugging.
+        return;
+#else
         _runnerTask = Task.Run(RunAsync);
+#endif
     }
 
     public async Task RunDueJobsNowAsync(CancellationToken cancellationToken = default)
