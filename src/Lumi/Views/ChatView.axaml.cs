@@ -13,8 +13,10 @@ using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
@@ -55,6 +57,8 @@ public partial class ChatView : UserControl
     private bool _viewportEvaluationRequested;
     private bool _heightCompensationQueued;
     private bool _tailRecoveryQueued;
+    private bool _isTranscriptScrollbarDragging;
+    private Control? _transcriptScrollbarCaptureSource;
     private int _initialTranscriptTailSyncVersion;
     private double _pendingHeightCompensationDelta;
     private ScrollAnchorState? _pendingResizeAnchor;
@@ -319,6 +323,8 @@ public partial class ChatView : UserControl
         _chatShell.TranscriptViewportChanged += OnTranscriptViewportChanged;
         _chatShell.JumpToLatestRequested += OnJumpToLatestRequested;
         _transcriptScrollViewer.SizeChanged += OnTranscriptViewportSizeChanged;
+        _transcriptScrollViewer.AddHandler(InputElement.PointerPressedEvent, OnTranscriptScrollViewerPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
+        _transcriptScrollViewer.AddHandler(InputElement.PointerReleasedEvent, OnTranscriptScrollViewerPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
     private void DetachTranscriptScrollViewer()
@@ -332,7 +338,10 @@ public partial class ChatView : UserControl
             _chatShell.JumpToLatestRequested -= OnJumpToLatestRequested;
         }
         _transcriptScrollViewer.SizeChanged -= OnTranscriptViewportSizeChanged;
+        _transcriptScrollViewer.RemoveHandler(InputElement.PointerPressedEvent, OnTranscriptScrollViewerPointerPressed);
+        _transcriptScrollViewer.RemoveHandler(InputElement.PointerReleasedEvent, OnTranscriptScrollViewerPointerReleased);
         _transcriptScrollViewer = null;
+        ClearTranscriptScrollbarDrag();
     }
 
     private void OnMountedTurnsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -466,6 +475,71 @@ public partial class ChatView : UserControl
     }
 
     private void OnScrollToEndRequested() => _chatShell?.ScrollToEnd();
+
+    private void OnTranscriptScrollViewerPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        var captureSource = FindScrollbarInteractionControl(e.Source);
+        if (captureSource is null)
+            return;
+
+        _isTranscriptScrollbarDragging = true;
+        SetTranscriptScrollbarCaptureSource(captureSource);
+    }
+
+    private void OnTranscriptScrollViewerPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        EndTranscriptScrollbarDrag();
+    }
+
+    private void OnTranscriptScrollbarPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+    {
+        EndTranscriptScrollbarDrag();
+    }
+
+    private void EndTranscriptScrollbarDrag()
+    {
+        if (!_isTranscriptScrollbarDragging)
+            return;
+
+        ClearTranscriptScrollbarDrag();
+        QueueTranscriptViewportEvaluation();
+    }
+
+    private void ClearTranscriptScrollbarDrag()
+    {
+        _isTranscriptScrollbarDragging = false;
+        SetTranscriptScrollbarCaptureSource(null);
+    }
+
+    private void SetTranscriptScrollbarCaptureSource(Control? captureSource)
+    {
+        if (ReferenceEquals(_transcriptScrollbarCaptureSource, captureSource))
+            return;
+
+        _transcriptScrollbarCaptureSource?.RemoveHandler(
+            InputElement.PointerCaptureLostEvent,
+            OnTranscriptScrollbarPointerCaptureLost);
+        _transcriptScrollbarCaptureSource = captureSource;
+        _transcriptScrollbarCaptureSource?.AddHandler(
+            InputElement.PointerCaptureLostEvent,
+            OnTranscriptScrollbarPointerCaptureLost,
+            RoutingStrategies.Direct,
+            handledEventsToo: true);
+    }
+
+    private static Control? FindScrollbarInteractionControl(object? source)
+    {
+        if (source is not Control control)
+            return null;
+
+        if (control is Thumb or RepeatButton or Track or ScrollBar)
+            return control;
+
+        return control.FindAncestorOfType<Thumb>()
+            ?? (Control?)control.FindAncestorOfType<RepeatButton>()
+            ?? (Control?)control.FindAncestorOfType<Track>()
+            ?? control.FindAncestorOfType<ScrollBar>();
+    }
 
     private void SyncTranscriptPinnedState()
     {
@@ -695,6 +769,12 @@ public partial class ChatView : UserControl
 
         _subscribedVm.UpdateTranscriptPinnedState(e.IsPinnedToBottom, e.DistanceFromBottom);
 
+        if (_isTranscriptScrollbarDragging)
+        {
+            _viewportEvaluationRequested = true;
+            return;
+        }
+
         if (_isApplyingTranscriptMutation)
         {
             _viewportEvaluationRequested = true;
@@ -710,6 +790,9 @@ public partial class ChatView : UserControl
     private void QueueTranscriptViewportEvaluation()
     {
         _viewportEvaluationRequested = true;
+        if (_isTranscriptScrollbarDragging)
+            return;
+
         if (_viewportEvaluationQueued)
             return;
 
@@ -725,7 +808,11 @@ public partial class ChatView : UserControl
             {
                 _viewportEvaluationRequested = false;
 
-                if (_isApplyingTranscriptMutation || _subscribedVm is null || _chatShell is null || _transcriptScrollViewer is null)
+                if (_isTranscriptScrollbarDragging
+                    || _isApplyingTranscriptMutation
+                    || _subscribedVm is null
+                    || _chatShell is null
+                    || _transcriptScrollViewer is null)
                     return;
 
                 var anchor = _chatShell.IsPinnedToBottom ? null : CaptureAnchor();
@@ -764,7 +851,7 @@ public partial class ChatView : UserControl
         finally
         {
             _viewportEvaluationQueued = false;
-            if (_viewportEvaluationRequested)
+            if (_viewportEvaluationRequested && !_isTranscriptScrollbarDragging)
                 QueueTranscriptViewportEvaluation();
         }
     }

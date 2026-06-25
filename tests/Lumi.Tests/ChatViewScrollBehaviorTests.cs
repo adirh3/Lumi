@@ -2,8 +2,14 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Layout;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -297,6 +303,116 @@ public sealed class ChatViewScrollBehaviorTests
         }, CancellationToken.None);
     }
 
+    [Fact]
+    public async Task ScrollbarThumbDrag_DefersViewportPagingUntilReleaseOrCaptureLoss()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var chat = CreateLongChat(pairCount: 36);
+            var data = new AppData
+            {
+                Settings = new UserSettings
+                {
+                    AutoSaveChats = false,
+                    EnableMemoryAutoSave = false
+                }
+            };
+            data.Chats.Add(chat);
+
+            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+            var view = new ChatView { DataContext = viewModel };
+            var window = new Window
+            {
+                Width = 1100,
+                Height = 820,
+                Content = view,
+            };
+
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                await PumpAsync();
+
+                await viewModel.LoadChatAsync(chat);
+                await WaitUntilAsync(() => view.FindControl<StrataChatShell>("ChatShell")?.TranscriptScrollViewer is not null);
+
+                var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
+                var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
+
+                shell.JumpToLatest();
+                await PumpAsync();
+                await PumpAsync();
+
+                Assert.True(scrollViewer.Extent.Height > scrollViewer.Viewport.Height);
+                Assert.True(viewModel.MountedTranscriptTurns.Count < viewModel.TranscriptTurns.Count);
+
+                var mountedBefore = viewModel.MountedTranscriptTurns
+                    .Select(static turn => turn.StableId)
+                    .ToArray();
+
+                var verticalScrollBar = scrollViewer.GetVisualDescendants()
+                    .OfType<ScrollBar>()
+                    .FirstOrDefault(static scrollBar => scrollBar.Orientation == Orientation.Vertical);
+                Assert.NotNull(verticalScrollBar);
+
+                var thumb = verticalScrollBar.GetVisualDescendants().OfType<Thumb>().FirstOrDefault();
+                Assert.NotNull(thumb);
+
+                var thumbCenter = GetCenterPoint(window, thumb);
+                window.MouseDown(thumbCenter, MouseButton.Left, RawInputModifiers.None);
+                await PumpAsync();
+
+                scrollViewer.Offset = scrollViewer.Offset.WithY(0);
+                await PumpAsync();
+                await PumpAsync();
+
+                Assert.Equal(
+                    mountedBefore,
+                    viewModel.MountedTranscriptTurns.Select(static turn => turn.StableId).ToArray());
+
+                window.MouseUp(thumbCenter, MouseButton.Left, RawInputModifiers.None);
+                await WaitUntilAsync(() =>
+                    viewModel.MountedTranscriptTurns.Count > 0
+                    && viewModel.MountedTranscriptTurns[0].StableId != mountedBefore[0]);
+
+                shell.JumpToLatest();
+                await PumpAsync();
+                await PumpAsync();
+
+                var mountedBeforeCaptureLost = viewModel.MountedTranscriptTurns
+                    .Select(static turn => turn.StableId)
+                    .ToArray();
+                thumb = verticalScrollBar.GetVisualDescendants().OfType<Thumb>().FirstOrDefault();
+                Assert.NotNull(thumb);
+
+                thumbCenter = GetCenterPoint(window, thumb);
+                window.MouseDown(thumbCenter, MouseButton.Left, RawInputModifiers.None);
+                await PumpAsync();
+
+                scrollViewer.Offset = scrollViewer.Offset.WithY(0);
+                await PumpAsync();
+                await PumpAsync();
+
+                Assert.Equal(
+                    mountedBeforeCaptureLost,
+                    viewModel.MountedTranscriptTurns.Select(static turn => turn.StableId).ToArray());
+
+                thumb.RaiseEvent(new PointerCaptureLostEventArgs(thumb, null!));
+                await WaitUntilAsync(() =>
+                    viewModel.MountedTranscriptTurns.Count > 0
+                    && viewModel.MountedTranscriptTurns[0].StableId != mountedBeforeCaptureLost[0]);
+                window.MouseUp(thumbCenter, MouseButton.Left, RawInputModifiers.None);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     private static Chat CreateLongChat(int pairCount = 18)
     {
         var chat = new Chat { Title = "Scroll regression" };
@@ -340,6 +456,14 @@ public sealed class ChatViewScrollBehaviorTests
         }
 
         return turn;
+    }
+
+    private static Point GetCenterPoint(Window window, Control target)
+    {
+        var topLeft = target.TranslatePoint(new Point(0, 0), window)
+            ?? throw new InvalidOperationException("Target is not attached to the test window.");
+
+        return topLeft + new Point(target.Bounds.Width / 2, target.Bounds.Height / 2);
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 2000)
