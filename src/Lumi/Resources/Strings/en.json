@@ -598,6 +598,12 @@
   "FileChange_Created": "Created",
   "FileChange_Modified": "Modified",
 
+  "FileMenu_Open": "Open",
+  "FileMenu_ShowInFolder": "Show in folder",
+  "FileMenu_Copy": "Copy",
+  "FileMenu_CopyPath": "Copy path",
+  "FileMenu_CopyName": "Copy name",
+
   "Git_NoChanges": "No changes",
   "Git_OneChange": "1 change",
   "Git_NChanges": "{0} changes",

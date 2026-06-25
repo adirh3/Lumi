@@ -462,6 +462,36 @@
                   <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="vm:FileAttachmentItem">
                       <Button Classes="rail-row" Command="{Binding OpenCommand}" ToolTip.Tip="{Binding FilePath}">
+                        <Button.ContextMenu>
+                          <ContextMenu x:CompileBindings="False">
+                            <MenuItem Header="{loc:Str FileMenu_Open}" Command="{Binding OpenCommand}">
+                              <MenuItem.Icon>
+                                <PathIcon Width="14" Height="14" Data="M14 3h7v7h-2V6.41l-8.29 8.3-1.42-1.42L17.59 5H14V3zM5 5h5v2H5v12h12v-5h2v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
+                              </MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="{loc:Str FileMenu_ShowInFolder}" Command="{Binding ShowInFolderCommand}">
+                              <MenuItem.Icon>
+                                <PathIcon Width="14" Height="14" Data="M2 6a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z" />
+                              </MenuItem.Icon>
+                            </MenuItem>
+                            <Separator />
+                            <MenuItem Header="{loc:Str FileMenu_Copy}" Command="{Binding CopyCommand}">
+                              <MenuItem.Icon>
+                                <PathIcon Width="14" Height="14" Data="M16 1H4a2 2 0 0 0-2 2v12a1 1 0 0 0 2 0V3h12a1 1 0 0 0 0-2zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z" />
+                              </MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="{loc:Str FileMenu_CopyPath}" Command="{Binding CopyPathCommand}">
+                              <MenuItem.Icon>
+                                <PathIcon Width="14" Height="14" Data="M3.9 12a3.1 3.1 0 0 1 3.1-3.1h4V7H7a5 5 0 0 0 0 10h4v-1.9H7A3.1 3.1 0 0 1 3.9 12zM8 13h8v-2H8v2zm5-6h4a5 5 0 0 1 0 10h-4v-1.9h4a3.1 3.1 0 0 0 0-6.2h-4V7z" />
+                              </MenuItem.Icon>
+                            </MenuItem>
+                            <MenuItem Header="{loc:Str FileMenu_CopyName}" Command="{Binding CopyNameCommand}">
+                              <MenuItem.Icon>
+                                <PathIcon Width="14" Height="14" Data="M21.41 11.58l-9-9A2 2 0 0 0 11 2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 .59 1.42l9 9a2 2 0 0 0 2.82 0l7-7a2 2 0 0 0 0-2.84zM6.5 8A1.5 1.5 0 1 1 8 6.5 1.5 1.5 0 0 1 6.5 8z" />
+                              </MenuItem.Icon>
+                            </MenuItem>
+                          </ContextMenu>
+                        </Button.ContextMenu>
                         <Grid ColumnDefinitions="Auto,*,Auto">
                           <Border Width="34" Height="34" VerticalAlignment="Center"
                                   CornerRadius="{DynamicResource Radius.Interactive}"

@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -803,6 +804,45 @@ public partial class FileAttachmentItem : ObservableObject
         try { Process.Start(new ProcessStartInfo(FilePath) { UseShellExecute = true }); }
         catch { /* ignore if file doesn't exist */ }
     }
+
+    /// <summary>Opens the containing folder, selecting the file when it still exists.</summary>
+    [RelayCommand]
+    private void ShowInFolder()
+    {
+        try
+        {
+            // explorer.exe /select only honors backslash separators, and announced paths
+            // frequently arrive with forward slashes from tool output — normalize first.
+            var path = FilePath;
+            try { path = Path.GetFullPath(FilePath); } catch { /* keep original */ }
+
+            if (OperatingSystem.IsWindows() && File.Exists(path))
+            {
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"")
+                {
+                    UseShellExecute = true
+                });
+                return;
+            }
+
+            var folder = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(folder) && Directory.Exists(folder))
+                Process.Start(new ProcessStartInfo(folder) { UseShellExecute = true });
+        }
+        catch { /* ignore */ }
+    }
+
+    /// <summary>Copies the file itself so it can be pasted into another folder.</summary>
+    [RelayCommand]
+    private Task Copy() => Services.ClipboardHelper.CopyFileAsync(FilePath);
+
+    /// <summary>Copies the full file path as text.</summary>
+    [RelayCommand]
+    private Task CopyPath() => Services.ClipboardHelper.CopyTextAsync(FilePath);
+
+    /// <summary>Copies just the file name as text.</summary>
+    [RelayCommand]
+    private Task CopyName() => Services.ClipboardHelper.CopyTextAsync(FileName);
 
     [RelayCommand]
     private void Remove()

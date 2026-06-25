@@ -598,6 +598,12 @@
   "FileChange_Created": "נוצר",
   "FileChange_Modified": "שונה",
 
+  "FileMenu_Open": "פתח",
+  "FileMenu_ShowInFolder": "הצג בתיקייה",
+  "FileMenu_Copy": "העתק",
+  "FileMenu_CopyPath": "העתק נתיב",
+  "FileMenu_CopyName": "העתק שם",
+
   "Git_NoChanges": "אין שינויים",
   "Git_OneChange": "שינוי אחד",
   "Git_NChanges": "{0} שינויים",
