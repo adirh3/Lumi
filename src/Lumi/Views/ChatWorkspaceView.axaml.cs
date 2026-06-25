@@ -121,6 +121,12 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
 
     public void HidePlanPanel() => _previewPanel?.HidePlanPanel();
 
+    public bool IsSkillOpen => _previewPanel?.IsSkillOpen == true;
+
+    public void ShowSkillPanel() => _previewPanel?.ShowSkillPanel();
+
+    public void HideSkillPanel() => _previewPanel?.HideSkillPanel();
+
     public void Dispose()
     {
         DisposePreviewPanel();
@@ -179,6 +185,8 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
             closeDiffButton.Click += (_, _) => HideDiffPanel();
         if (this.FindControl<Button>("ClosePlanButton") is { } closePlanButton)
             closePlanButton.Click += (_, _) => HidePlanPanel();
+        if (this.FindControl<Button>("CloseSkillButton") is { } closeSkillButton)
+            closeSkillButton.Click += (_, _) => HideSkillPanel();
 
         ApplyChatIslandChrome();
     }
@@ -227,6 +235,8 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
             ?? throw new InvalidOperationException("Chat workspace is missing DiffFileNameText.");
         var planPanel = this.FindControl<Border>("PlanIsland")
             ?? throw new InvalidOperationException("Chat workspace is missing PlanIsland.");
+        var skillPanel = this.FindControl<Border>("SkillIsland")
+            ?? throw new InvalidOperationException("Chat workspace is missing SkillIsland.");
 
         _previewPanel = new ChatPreviewPanelController(
             this,
@@ -241,6 +251,7 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
             diffHost,
             diffFileNameText,
             planPanel,
+            skillPanel,
             ensureChatVisible: () => EnsureChatVisible?.Invoke(),
             canShowBrowserPanel: chatId => CanShowBrowserPanel?.Invoke(chatId) != false);
 

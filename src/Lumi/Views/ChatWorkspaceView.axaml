@@ -321,6 +321,59 @@
       </DockPanel>
     </Border>
 
+    <Border x:Name="SkillIsland"
+            Grid.Column="2"
+            IsVisible="False"
+            MinWidth="{StaticResource ChatWorkspace.SplitPaneMinWidth}"
+            MaxWidth="{Binding Bounds.Width, RelativeSource={RelativeSource AncestorType=Grid}}"
+            Margin="{Binding PreviewIslandMargin, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
+            CornerRadius="{DynamicResource Radius.Overlay}"
+            Background="{DynamicResource Brush.Surface1Glass}"
+            BorderBrush="{DynamicResource Brush.BorderSubtle}"
+            BorderThickness="1"
+            BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000"
+            ClipToBounds="True">
+      <DockPanel>
+        <DockPanel DockPanel.Dock="Top" Margin="12,8,12,0">
+          <Button DockPanel.Dock="Right"
+                  x:Name="CloseSkillButton"
+                  Classes="subtle"
+                  Padding="6"
+                  MinHeight="0"
+                  MinWidth="0"
+                  ToolTip.Tip="{loc:Str Skill_Close}">
+            <PathIcon Width="14"
+                      Height="14"
+                      Foreground="{DynamicResource Brush.TextPrimary}"
+                      Data="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+          </Button>
+          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Border Width="22"
+                    Height="22"
+                    CornerRadius="7"
+                    Background="{DynamicResource Brush.AccentSubtle}"
+                    VerticalAlignment="Center">
+              <PathIcon Width="12"
+                        Height="12"
+                        Foreground="{DynamicResource Brush.AccentDefault}"
+                        Data="M7 2v11h3v9l7-12h-4l4-8z" />
+            </Border>
+            <TextBlock Text="{Binding SkillPreviewTitle}"
+                       Classes="body-strong"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+          </StackPanel>
+        </DockPanel>
+        <ScrollViewer Margin="12,8,12,12"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto">
+          <sc:StrataMarkdown x:Name="SkillMarkdown"
+                             IsInline="True"
+                             Markdown="{Binding SkillPreviewContent}" />
+        </ScrollViewer>
+      </DockPanel>
+    </Border>
+
     <!-- ===== Companion Workspace panel =====
          A first-class, tabbed, searchable index of what Lumi produced/referenced this chat:
          Deliverables, Sources, Activity (intents + searches, jump-to-transcript) and Changes.

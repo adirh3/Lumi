@@ -61,6 +61,71 @@
         </sc:StrataFileAttachment.ContextMenu>
       </sc:StrataFileAttachment>
     </DataTemplate>
+
+    <!-- ── Loaded-skill chip (Strata-style, clickable → opens the skill markdown in the right island) ── -->
+    <ControlTheme x:Key="SkillChipButton" TargetType="Button">
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Focusable" Value="True" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Name="PART_Root"
+                  Background="{DynamicResource Brush.SurfaceCard}"
+                  BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                  BorderThickness="1"
+                  CornerRadius="999"
+                  Padding="4,3,10,3"
+                  RenderTransformOrigin="0.5,0.5"
+                  RenderTransform="scale(1)">
+            <Border.Transitions>
+              <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.14" />
+                <BrushTransition Property="BorderBrush" Duration="0:0:0.14" />
+                <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.18" />
+                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.12" Easing="CubicEaseOut" />
+              </Transitions>
+            </Border.Transitions>
+            <ContentPresenter Content="{TemplateBinding Content}"
+                              VerticalAlignment="Center"
+                              HorizontalAlignment="Center" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+
+      <Style Selector="^:pointerover /template/ Border#PART_Root">
+        <Setter Property="Background" Value="{DynamicResource Brush.SurfaceCardHover}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
+        <Setter Property="BoxShadow" Value="0 2 6 0 #0D000000" />
+      </Style>
+      <Style Selector="^:pressed /template/ Border#PART_Root">
+        <Setter Property="RenderTransform" Value="scale(0.97)" />
+        <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+      </Style>
+    </ControlTheme>
+
+    <DataTemplate x:Key="SkillChipTemplate" x:DataType="vm:SkillChipItem">
+      <Button Theme="{StaticResource SkillChipButton}"
+              Name="SkillChip"
+              Command="{Binding OpenCommand}"
+              Margin="0,0,6,6"
+              ToolTip.Tip="{Binding Description}">
+        <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+          <Border Width="20" Height="20" CornerRadius="6"
+                  Background="{DynamicResource Brush.AccentSubtle}"
+                  VerticalAlignment="Center">
+            <PathIcon Width="11" Height="11"
+                      Foreground="{DynamicResource Brush.AccentDefault}"
+                      Data="M7 2v11h3v9l7-12h-4l4-8z" />
+          </Border>
+          <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"
+                     Foreground="{DynamicResource Brush.TextPrimary}"
+                     VerticalAlignment="Center" />
+          <PathIcon Width="9" Height="9" VerticalAlignment="Center"
+                    Foreground="{DynamicResource Brush.TextTertiary}"
+                    Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z" />
+        </StackPanel>
+      </Button>
+    </DataTemplate>
   </UserControl.Resources>
 
   <UserControl.Styles>
@@ -489,24 +554,11 @@
               </ItemsControl.ItemsPanel>
             </ItemsControl>
             <ItemsControl ItemsSource="{Binding DisplaySkills}"
-                          IsVisible="{Binding HasSkills}">
+                          IsVisible="{Binding HasSkills}"
+                          ItemTemplate="{StaticResource SkillChipTemplate}">
               <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
               </ItemsControl.ItemsPanel>
-              <ItemsControl.ItemTemplate>
-                <DataTemplate DataType="model:SkillReference">
-                  <Border Background="{DynamicResource Brush.AccentSubtle}"
-                          CornerRadius="14" Padding="8,4,10,4" Margin="0,0,4,4">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                      <TextBlock Text="{Binding Glyph}" FontSize="12"
-                                 VerticalAlignment="Center" />
-                      <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="Medium"
-                                 Foreground="{DynamicResource Brush.TextSecondary}"
-                                 VerticalAlignment="Center" />
-                    </StackPanel>
-                  </Border>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
             </ItemsControl>
           </StackPanel>
         </sc:StrataChatMessage.Content>
@@ -529,24 +581,11 @@
 
             <!-- Skills section -->
             <ItemsControl ItemsSource="{Binding DisplaySkills}"
-                          IsVisible="{Binding HasSkills}">
+                          IsVisible="{Binding HasSkills}"
+                          ItemTemplate="{StaticResource SkillChipTemplate}">
               <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
               </ItemsControl.ItemsPanel>
-              <ItemsControl.ItemTemplate>
-                <DataTemplate DataType="model:SkillReference">
-                  <Border Background="{DynamicResource Brush.AccentSubtle}"
-                          CornerRadius="14" Padding="8,4,10,4" Margin="0,0,4,4">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                      <TextBlock Text="{Binding Glyph}" FontSize="12"
-                                 VerticalAlignment="Center" />
-                      <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="Medium"
-                                 Foreground="{DynamicResource Brush.TextSecondary}"
-                                 VerticalAlignment="Center" />
-                    </StackPanel>
-                  </Border>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
             </ItemsControl>
 
             <!-- File attachments -->
@@ -677,6 +716,15 @@
                      VerticalAlignment="Center" />
         </StackPanel>
       </Button>
+    </DataTemplate>
+
+    <!-- ── Loaded-skill chip (inline in transcript when a skill is fetched at runtime) ── -->
+    <DataTemplate DataType="vm:SkillLoadedItem">
+      <ContentControl x:Name="SkillLoadedChip"
+                      Content="{Binding Chip}"
+                      ContentTemplate="{StaticResource SkillChipTemplate}"
+                      HorizontalAlignment="Left"
+                      Margin="0,2,0,2" />
     </DataTemplate>
 
     <!-- ── Error message ─────────────────────────────── -->

@@ -60,10 +60,11 @@ public partial class UserMessageItem : TranscriptItem
     public ChatMessage Message => _source.Message;
     public List<FileAttachmentItem> Attachments { get; }
     public List<SkillReference> Skills { get; }
+    public List<SkillChipItem> SkillChips { get; }
     public bool HasAttachments => Attachments.Count > 0;
     public bool HasSkills => Skills.Count > 0;
     public List<FileAttachmentItem>? DisplayAttachments => HasAttachments ? Attachments : null;
-    public List<SkillReference>? DisplaySkills => HasSkills ? Skills : null;
+    public List<SkillChipItem>? DisplaySkills => HasSkills ? SkillChips : null;
 
     /// <summary>Command invoked when user clicks Edit on the message. Sets EditText to current content.</summary>
     public ICommand BeginEditCommand { get; }
@@ -74,7 +75,7 @@ public partial class UserMessageItem : TranscriptItem
     /// <summary>Command invoked when user clicks Regenerate/Retry on the message.</summary>
     public ICommand ResendCommand { get; }
 
-    public UserMessageItem(ChatMessageViewModel source, bool showTimestamps, List<SkillReference>? filteredSkills = null, Action<ChatMessage, bool>? resendAction = null)
+    public UserMessageItem(ChatMessageViewModel source, bool showTimestamps, List<SkillReference>? filteredSkills = null, Action<ChatMessage, bool>? resendAction = null, Action<SkillReference>? openSkillAction = null)
         : base($"message:user:{source.Message.Id}")
     {
         _source = source;
@@ -83,6 +84,7 @@ public partial class UserMessageItem : TranscriptItem
         _timestampText = showTimestamps ? source.TimestampText : "";
         Attachments = source.Message.Attachments.Select(fp => new FileAttachmentItem(fp)).ToList();
         Skills = filteredSkills ?? source.Message.ActiveSkills.ToList();
+        SkillChips = Skills.Select(s => new SkillChipItem(s, () => openSkillAction?.Invoke(s))).ToList();
 
         BeginEditCommand = new RelayCommand(() => { /* Strata handles entering edit mode internally */ });
         ConfirmEditCommand = new RelayCommand<string>(text => EditAndResend(text ?? Content));
@@ -97,6 +99,47 @@ public partial class UserMessageItem : TranscriptItem
         _source.NotifyContentChanged();
         Content = newContent;
         _resendAction?.Invoke(_source.Message, true);
+    }
+}
+
+// ── Skill chip (clickable; opens the skill markdown in the right-side island) ──
+
+/// <summary>
+/// A loaded-skill chip shown under a message. Clicking it opens the skill's
+/// markdown in the preview island (same surface used for plans).
+/// </summary>
+public partial class SkillChipItem
+{
+    private readonly Action? _openAction;
+
+    public string Name { get; }
+    public string Description { get; }
+
+    public SkillChipItem(SkillReference skill, Action? openAction)
+    {
+        Name = skill.Name;
+        Description = skill.Description;
+        _openAction = openAction;
+    }
+
+    [RelayCommand]
+    private void Open() => _openAction?.Invoke();
+}
+
+// ── Inline "skill loaded" chip (shown mid-turn when a skill is fetched at runtime) ──
+
+/// <summary>
+/// A turn-level item that renders a single skill chip inline, at the point in the
+/// conversation where the skill was loaded (e.g. via a fetch_skill tool call).
+/// </summary>
+public sealed class SkillLoadedItem : TranscriptItem
+{
+    public SkillChipItem Chip { get; }
+
+    public SkillLoadedItem(SkillChipItem chip, string? stableId = null)
+        : base(stableId ?? TranscriptIds.Create("skill-loaded"))
+    {
+        Chip = chip;
     }
 }
 
@@ -234,6 +277,7 @@ public sealed class JobWakeItem : TranscriptItem
 public partial class AssistantMessageItem : TranscriptItem
 {
     private readonly ChatMessageViewModel _source;
+    private readonly Action<SkillReference>? _openSkillAction;
 
     [ObservableProperty] private string _content;
     [ObservableProperty] private string _timestampText;
@@ -255,16 +299,18 @@ public partial class AssistantMessageItem : TranscriptItem
     public string? ModelName => _source.ModelName;
     internal Guid MessageId => _source.Message.Id;
     public ObservableCollection<SkillReference> Skills { get; } = [];
+    public ObservableCollection<SkillChipItem> SkillChips { get; } = [];
     public ObservableCollection<FileAttachmentItem> FileAttachments { get; } = [];
     public ObservableCollection<SourceItem> Sources { get; } = [];
-    public ObservableCollection<SkillReference>? DisplaySkills => HasSkills ? Skills : null;
+    public ObservableCollection<SkillChipItem>? DisplaySkills => HasSkills ? SkillChips : null;
     public ObservableCollection<FileAttachmentItem>? DisplayFileAttachments => HasFileAttachments ? FileAttachments : null;
     public AssistantMessageItem? DisplaySourcesSection => HasSources ? this : null;
 
-    public AssistantMessageItem(ChatMessageViewModel source, bool showTimestamps)
+    public AssistantMessageItem(ChatMessageViewModel source, bool showTimestamps, Action<SkillReference>? openSkillAction = null)
         : base($"message:assistant:{source.Message.Id}")
     {
         _source = source;
+        _openSkillAction = openSkillAction;
         _content = source.Content;
         _timestampText = showTimestamps ? source.TimestampText : "";
         _isStreaming = source.IsStreaming;
@@ -302,14 +348,23 @@ public partial class AssistantMessageItem : TranscriptItem
         List<FileAttachmentItem>? fileChips,
         HashSet<string>? shownSkillNames = null)
     {
-        // Skills come from the persisted model — only show first occurrence
+        // Skills come from the persisted model. Keep the full list for data (clipboard).
+        // Render a chip for each skill not already shown earlier in the transcript — e.g.
+        // a skill attached to the user message, or one surfaced inline at its fetch_skill
+        // load point. Skills the SDK reports via SkillInvokedEvent (no inline tool call)
+        // still surface here at the end of the turn.
         Skills.Clear();
+        SkillChips.Clear();
         foreach (var skill in _source.Message.ActiveSkills)
         {
+            Skills.Add(skill);
             if (shownSkillNames is null || shownSkillNames.Add(skill.Name))
-                Skills.Add(skill);
+            {
+                var captured = skill;
+                SkillChips.Add(new SkillChipItem(captured, () => _openSkillAction?.Invoke(captured)));
+            }
         }
-        HasSkills = Skills.Count > 0;
+        HasSkills = SkillChips.Count > 0;
 
         // File attachments
         if (fileChips is { Count: > 0 })

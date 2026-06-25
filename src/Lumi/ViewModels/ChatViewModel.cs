@@ -893,6 +893,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>Raised to hide the plan preview island.</summary>
     public event Action? PlanHideRequested;
 
+    /// <summary>Raised when the user clicks a transcript skill chip to open it in the right panel.</summary>
+    public event Action? SkillShowRequested;
+    /// <summary>Raised to hide the skill preview island.</summary>
+    public event Action? SkillHideRequested;
+
     /// <summary>Raised when the LLM calls ask_question. Args: questionId, question, options (JSON array string), allowFreeText.</summary>
     public event Action<string, string, string, bool>? QuestionAsked;
 
@@ -922,6 +927,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             showDiffAction: item => DiffShowRequested?.Invoke(item),
             submitQuestionAnswerAction: SubmitQuestionAnswer,
             resendFromMessageAction: ResendFromMessageAsync,
+            openSkillAction: OpenSkillPreview,
+            resolveSkill: name => FindSkillReferenceByName(name),
             getSelectedModel: () => SelectedModel);
         _transcriptBuilder.SetLiveTarget(_transcriptTurns);
         _transcriptWindow.BindTranscript(_transcriptTurns, "ctor");
@@ -1602,7 +1609,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // Clear pending state from any previous chat
             _pendingSkillInjections.Clear();
             _activeExternalSkillNames.Clear();
-            _transcriptBuilder.PendingFetchedSkillRefs.Clear();
 
             // Restore real runtime state for this session/chat
             var runtime = GetOrCreateRuntimeState(chat.Id);
@@ -1799,6 +1805,43 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _transcriptBuilder.SetPendingPlanCard(statusText, () => PlanShowRequested?.Invoke());
     }
 
+    /// <summary>
+    /// Opens a loaded skill's markdown in the right-side preview island (same surface as the plan).
+    /// Invoked when the user clicks a skill chip in the transcript.
+    /// </summary>
+    public void OpenSkillPreview(SkillReference? skill)
+    {
+        if (skill is null || string.IsNullOrWhiteSpace(skill.Name))
+            return;
+
+        SkillPreviewTitle = skill.Name;
+        SkillPreviewContent = ResolveSkillMarkdown(skill);
+        SkillShowRequested?.Invoke();
+    }
+
+    /// <summary>Resolves the markdown body for a skill chip — internal skills first, then external catalog skills.</summary>
+    private string ResolveSkillMarkdown(SkillReference skill)
+    {
+        var internalSkill = _dataStore.Data.Skills
+            .FirstOrDefault(s => s.Name.Equals(skill.Name, StringComparison.OrdinalIgnoreCase));
+        if (internalSkill is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(internalSkill.Content))
+                return internalSkill.Content;
+            return string.IsNullOrWhiteSpace(internalSkill.Description)
+                ? "_This skill has no content yet._"
+                : internalSkill.Description;
+        }
+
+        var externalSkill = GetProjectContextCatalog().FindSkill(skill.Name);
+        if (externalSkill is not null && !string.IsNullOrWhiteSpace(externalSkill.Content))
+            return externalSkill.Content;
+
+        return string.IsNullOrWhiteSpace(skill.Description)
+            ? "_No content is available for this skill._"
+            : skill.Description;
+    }
+
     public void ClearChat()
     {
         lock (_chatLoadSync)
@@ -1818,6 +1861,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         BrowserHideRequested?.Invoke();
         DiffHideRequested?.Invoke();
         PlanHideRequested?.Invoke();
+        SkillHideRequested?.Invoke();
         HasUsedBrowser = false;
 
         // Detach from the visible chat; inactive chat state is released later when it is safe.
@@ -1858,6 +1902,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         HasPlan = false;
         PlanContent = null;
         IsPlanOpen = false;
+        IsSkillOpen = false;
+        SkillPreviewContent = null;
         SelectedSdkAgentName = null;
         SdkAgentChips.Clear();
 
@@ -3791,7 +3837,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         RebuildTranscript();
 
         _transcriptBuilder.ShownFileChips.Clear();
-        _transcriptBuilder.PendingFetchedSkillRefs.Clear();
 
         // For edits: there is currently no public SDK API to rewind/remove prior
         // turns from the server-side history. To avoid leaking the pre-edit prompt,

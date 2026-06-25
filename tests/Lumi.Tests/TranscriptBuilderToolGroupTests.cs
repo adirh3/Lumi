@@ -691,6 +691,65 @@ public sealed class TranscriptBuilderToolGroupTests
         Assert.Equal("−2", summary.TotalStatsRemoved);
     }
 
+    [Fact]
+    public void ProcessMessageToTranscript_FetchSkillTool_ShowsInlineSkillChipMidTurn()
+    {
+        var builder = CreateBuilder();
+        var liveTurns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(liveTurns);
+
+        var fetchSkill = CreateToolVm("tool-1", "fetch_skill", "Completed", "{\"name\":\"Code Helper\"}");
+        builder.ProcessMessageToTranscript(fetchSkill);
+
+        var turn = Assert.Single(liveTurns);
+        var loaded = Assert.IsType<SkillLoadedItem>(Assert.Single(turn.Items));
+        Assert.Equal("Code Helper", loaded.Chip.Name);
+    }
+
+    [Fact]
+    public void ProcessMessageToTranscript_FetchSkillTwice_ShowsInlineChipOnce()
+    {
+        var builder = CreateBuilder();
+        var liveTurns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(liveTurns);
+
+        builder.ProcessMessageToTranscript(CreateToolVm("tool-1", "fetch_skill", "Completed", "{\"name\":\"Code Helper\"}"));
+        builder.ProcessMessageToTranscript(CreateToolVm("tool-2", "fetch_skill", "Completed", "{\"name\":\"Code Helper\"}"));
+
+        var chips = liveTurns.SelectMany(t => t.Items).OfType<SkillLoadedItem>().ToList();
+        Assert.Single(chips);
+    }
+
+    [Fact]
+    public void ProcessMessageToTranscript_AssistantSkillFromSdk_ShowsChipOnAssistantMessage()
+    {
+        var builder = CreateBuilder();
+        var liveTurns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(liveTurns);
+
+        var assistant = CreateAssistantVm("Done.");
+        assistant.Message.ActiveSkills.Add(new SkillReference { Name = "Document Creator" });
+        builder.ProcessMessageToTranscript(assistant);
+
+        var item = liveTurns.SelectMany(t => t.Items).OfType<AssistantMessageItem>().Single();
+        Assert.True(item.HasSkills);
+        Assert.Contains(item.SkillChips, c => c.Name == "Document Creator");
+    }
+
+    [Fact]
+    public void ProcessMessageToTranscript_FetchSkillUnknownName_ShowsNoChip()
+    {
+        var builder = CreateBuilder();
+        var liveTurns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(liveTurns);
+
+        // "No Such Skill" is not in the data store and there is no external resolver,
+        // so a not-found fetch_skill must not leave behind a misleading chip.
+        builder.ProcessMessageToTranscript(CreateToolVm("tool-1", "fetch_skill", "Completed", "{\"name\":\"No Such Skill\"}"));
+
+        Assert.DoesNotContain(liveTurns.SelectMany(t => t.Items), i => i is SkillLoadedItem);
+    }
+
     private static TranscriptBuilder CreateBuilder(bool showToolCalls = true)
         => new(CreateDataStore(showToolCalls), _ => { }, (_, _) => { }, (_, _) => Task.CompletedTask, () => null);
 
@@ -749,6 +808,7 @@ public sealed class TranscriptBuilderToolGroupTests
 #pragma warning restore SYSLIB0050
         var data = new AppData();
         data.Settings.ShowToolCalls = showToolCalls;
+        data.Skills.Add(new Skill { Name = "Code Helper" });
         typeof(DataStore)
             .GetField("_data", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(store, data);

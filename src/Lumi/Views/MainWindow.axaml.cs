@@ -889,6 +889,7 @@ public partial class MainWindow : Window
         HideBrowserPanel();
         HideDiffPanel();
         HidePlanPanel();
+        HideSkillPanel();
     }
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -995,6 +996,7 @@ public partial class MainWindow : Window
                     HideBrowserPanel();
                     HideDiffPanel();
                     HidePlanPanel();
+                    HideSkillPanel();
                     Dispatcher.UIThread.Post(() => SyncListBoxSelection(vm.ActiveChatId),
                         DispatcherPriority.Loaded);
                 }
@@ -1099,6 +1101,7 @@ public partial class MainWindow : Window
             HideBrowserPanel();
             HideDiffPanel();
             HidePlanPanel();
+            HideSkillPanel();
         }
         else if (_chatWorkspace?.IsBrowserOpen == true)
         {
@@ -3045,4 +3048,8 @@ public partial class MainWindow : Window
     private bool IsPlanOpen => _chatWorkspace?.IsPlanOpen == true;
     private void ShowPlanPanel() => _chatWorkspace?.ShowPlanPanel();
     private void HidePlanPanel() => _chatWorkspace?.HidePlanPanel();
+
+    private bool IsSkillOpen => _chatWorkspace?.IsSkillOpen == true;
+    private void ShowSkillPanel() => _chatWorkspace?.ShowSkillPanel();
+    private void HideSkillPanel() => _chatWorkspace?.HideSkillPanel();
 }

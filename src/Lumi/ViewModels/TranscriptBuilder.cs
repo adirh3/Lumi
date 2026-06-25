@@ -19,6 +19,8 @@ public class TranscriptBuilder
     private readonly Action<FileChangeItem> _showDiffAction;
     private readonly Action<string, string> _submitQuestionAnswerAction;
     private readonly Func<ChatMessage, bool, Task> _resendFromMessageAction;
+    private readonly Action<SkillReference>? _openSkillAction;
+    private readonly Func<string, SkillReference?>? _resolveSkill;
     private readonly Func<string?> _getSelectedModel;
 
     private ToolGroupItem? _currentToolGroup;
@@ -46,7 +48,6 @@ public class TranscriptBuilder
     public bool IsRebuildingTranscript { get; set; }
 
     public HashSet<string> ShownFileChips { get; } = new(StringComparer.OrdinalIgnoreCase);
-    public List<SkillReference> PendingFetchedSkillRefs { get; } = [];
     private readonly HashSet<string> _shownSkillNames = new(StringComparer.OrdinalIgnoreCase);
     private PlanCardItem? _pendingPlanCard;
     private string? _pendingModelName;
@@ -68,13 +69,37 @@ public class TranscriptBuilder
         Action<FileChangeItem> showDiffAction,
         Action<string, string> submitQuestionAnswerAction,
         Func<ChatMessage, bool, Task> resendFromMessageAction,
-        Func<string?> getSelectedModel)
+        Func<string?> getSelectedModel,
+        Action<SkillReference>? openSkillAction = null,
+        Func<string, SkillReference?>? resolveSkill = null)
     {
         _dataStore = dataStore;
         _showDiffAction = showDiffAction;
         _submitQuestionAnswerAction = submitQuestionAnswerAction;
         _resendFromMessageAction = resendFromMessageAction;
         _getSelectedModel = getSelectedModel;
+        _openSkillAction = openSkillAction;
+        _resolveSkill = resolveSkill;
+    }
+
+    /// <summary>
+    /// Resolves a fetched skill name to a display reference. Internal skills are matched
+    /// first (cheap); otherwise the optional external resolver is consulted. Returns null
+    /// when the skill cannot be resolved, so failed/not-found fetch_skill calls render no chip.
+    /// </summary>
+    private SkillReference? ResolveFetchedSkill(string skillName)
+    {
+        var internalSkill = _dataStore.Data.Skills
+            .FirstOrDefault(s => s.Name.Equals(skillName, StringComparison.OrdinalIgnoreCase));
+        if (internalSkill is not null)
+            return new SkillReference
+            {
+                Name = internalSkill.Name,
+                Glyph = internalSkill.IconGlyph,
+                Description = internalSkill.Description
+            };
+
+        return _resolveSkill?.Invoke(skillName);
     }
 
     public ObservableCollection<TranscriptTurn> Rebuild(IEnumerable<ChatMessageViewModel> messages)
@@ -158,7 +183,6 @@ public class TranscriptBuilder
         PendingFileEdits.Clear();
         _pendingFileOriginalContents.Clear();
         _pendingWorkspaceFileChanges.Clear();
-        PendingFetchedSkillRefs.Clear();
         ShownFileChips.Clear();
         _shownSkillNames.Clear();
     }
@@ -275,15 +299,16 @@ public class TranscriptBuilder
         if (toolName == "fetch_skill")
         {
             var skillName = ToolDisplayHelper.ExtractJsonField(msgVm.Content, "name");
-            if (!string.IsNullOrEmpty(skillName))
+            // Surface a runtime-loaded skill as an inline chip at the point it was fetched
+            // (mid-turn), de-duplicated against skills already shown earlier in the transcript.
+            // Only emit when the skill actually resolves — a not-found/failed fetch_skill call
+            // must not leave behind a misleading "loaded skill" chip.
+            if (!string.IsNullOrEmpty(skillName) && _shownSkillNames.Add(skillName)
+                && ResolveFetchedSkill(skillName) is { } skillRef)
             {
-                var skill = _dataStore.Data.Skills.FirstOrDefault(s => s.Name.Equals(skillName, StringComparison.OrdinalIgnoreCase));
-                PendingFetchedSkillRefs.Add(new SkillReference
-                {
-                    Name = skillName,
-                    Glyph = skill?.IconGlyph ?? "\u26A1",
-                    Description = skill?.Description ?? string.Empty
-                });
+                var chip = new SkillChipItem(skillRef, () => _openSkillAction?.Invoke(skillRef));
+                CloseCurrentToolGroup();
+                AppendToCurrentTurn(new SkillLoadedItem(chip), TurnStableIdFor($"skill-loaded:{skillName}"));
             }
             return;
         }
@@ -916,7 +941,7 @@ public class TranscriptBuilder
             var newSkills = msgVm.Message.ActiveSkills
                 .Where(s => _shownSkillNames.Add(s.Name))
                 .ToList();
-            var userItem = new UserMessageItem(msgVm, showTimestamps, newSkills, (msg, edited) => _ = _resendFromMessageAction(msg, edited));
+            var userItem = new UserMessageItem(msgVm, showTimestamps, newSkills, (msg, edited) => _ = _resendFromMessageAction(msg, edited), _openSkillAction);
             AppendToCurrentTurn(userItem, TurnStableIdFor($"message:{msgVm.Message.Id}"));
             FinalizeCurrentTurn();
             return;
@@ -928,13 +953,12 @@ public class TranscriptBuilder
             return;
         }
 
-        var assistantItem = new AssistantMessageItem(msgVm, showTimestamps);
+        var assistantItem = new AssistantMessageItem(msgVm, showTimestamps, _openSkillAction);
         _pendingModelName = ChatViewModel.FormatModelDisplay(msgVm.Message.Model);
         if (!msgVm.IsStreaming && (PendingToolFileChips.Count > 0 || msgVm.Message.Sources.Count > 0 || msgVm.Message.ActiveSkills.Count > 0))
         {
             assistantItem.ApplyExtras(PendingToolFileChips.Count > 0 ? PendingToolFileChips.ToList() : null, _shownSkillNames);
             PendingToolFileChips.Clear();
-            PendingFetchedSkillRefs.Clear();
         }
 
         var turn = AppendAssistantMessageToCurrentTurn(assistantItem, TurnStableIdFor($"message:{msgVm.Message.Id}"));
@@ -950,7 +974,6 @@ public class TranscriptBuilder
                 {
                     capturedItem.ApplyExtras(PendingToolFileChips.Count > 0 ? PendingToolFileChips.ToList() : null, _shownSkillNames);
                     PendingToolFileChips.Clear();
-                    PendingFetchedSkillRefs.Clear();
 
                     CollapseCompletedTurnBlocks(capturedTurn, capturedItem);
                     FlushPendingPlanCard();

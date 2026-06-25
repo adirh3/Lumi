@@ -59,6 +59,11 @@ public partial class ChatViewModel
         QueueSaveChat(CurrentChat, saveIndex: true);
     }
 
+    // ── Skill preview (opened from a transcript skill chip) ──
+    [ObservableProperty] private bool _isSkillOpen;
+    [ObservableProperty] private string? _skillPreviewContent;
+    [ObservableProperty] private string? _skillPreviewTitle;
+
     // ── SDK-discovered agents ──
     [ObservableProperty] private string? _selectedSdkAgentName;
     public ObservableCollection<StrataComposerChip> SdkAgentChips { get; } = [];

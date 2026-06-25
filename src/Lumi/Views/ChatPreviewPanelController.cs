@@ -41,6 +41,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
     private readonly ContentControl _diffHost;
     private readonly TextBlock _diffTitleText;
     private readonly Border _planPanel;
+    private readonly Border _skillPanel;
     private readonly Action? _ensureChatVisible;
     private readonly Func<Guid, bool>? _canShowBrowserPanel;
     private BrowserView? _browserView;
@@ -63,6 +64,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
         ContentControl diffHost,
         TextBlock diffTitleText,
         Border planPanel,
+        Border skillPanel,
         Action? ensureChatVisible = null,
         Func<Guid, bool>? canShowBrowserPanel = null)
     {
@@ -78,6 +80,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _diffHost = diffHost;
         _diffTitleText = diffTitleText;
         _planPanel = planPanel;
+        _skillPanel = skillPanel;
         _ensureChatVisible = ensureChatVisible;
         _canShowBrowserPanel = canShowBrowserPanel;
         WireViewModel();
@@ -86,6 +89,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
     public bool IsBrowserOpen => _browserPanel.IsVisible;
     public bool IsDiffOpen => _diffPanel.IsVisible;
     public bool IsPlanOpen => _planPanel.IsVisible;
+    public bool IsSkillOpen => _skillPanel.IsVisible;
 
     public void Dispose()
     {
@@ -108,6 +112,8 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _viewModel.GitChangesShowRequested += OnGitChangesShowRequested;
         _viewModel.PlanShowRequested += OnPlanShowRequested;
         _viewModel.PlanHideRequested += OnPlanHideRequested;
+        _viewModel.SkillShowRequested += OnSkillShowRequested;
+        _viewModel.SkillHideRequested += OnSkillHideRequested;
     }
 
     private void UnwireViewModel()
@@ -119,6 +125,8 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _viewModel.GitChangesShowRequested -= OnGitChangesShowRequested;
         _viewModel.PlanShowRequested -= OnPlanShowRequested;
         _viewModel.PlanHideRequested -= OnPlanHideRequested;
+        _viewModel.SkillShowRequested -= OnSkillShowRequested;
+        _viewModel.SkillHideRequested -= OnSkillHideRequested;
     }
 
     private void PostIfActive(Action action)
@@ -142,6 +150,8 @@ internal sealed class ChatPreviewPanelController : IDisposable
     private void OnGitChangesShowRequested(List<GitFileChangeViewModel> files) => PostIfActive(() => ShowGitChangesPanel(files));
     private void OnPlanShowRequested() => PostIfActive(ShowPlanPanel);
     private void OnPlanHideRequested() => PostIfActive(HidePlanPanel);
+    private void OnSkillShowRequested() => PostIfActive(ShowSkillPanel);
+    private void OnSkillHideRequested() => PostIfActive(HideSkillPanel);
 
     public void ShowCurrentBrowserController()
     {
@@ -253,6 +263,28 @@ internal sealed class ChatPreviewPanelController : IDisposable
         }
 
         _ = HidePreviewPanelAsync(_planPanel, () => _viewModel.IsPlanOpen = false);
+    }
+
+    public void ShowSkillPanel()
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(ShowSkillPanel);
+            return;
+        }
+
+        _ = ShowSkillPanelAsync();
+    }
+
+    public void HideSkillPanel()
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(HideSkillPanel);
+            return;
+        }
+
+        _ = HidePreviewPanelAsync(_skillPanel, () => _viewModel.IsSkillOpen = false);
     }
 
     private async Task ShowBrowserPanelAsync(Guid chatId)
@@ -393,6 +425,37 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _viewModel.IsPlanOpen = true;
     }
 
+    private async Task ShowSkillPanelAsync()
+    {
+        HidePreviewPanelsExcept(_skillPanel);
+        _ensureChatVisible?.Invoke();
+        EnsureSplitLayout(_skillPanel);
+
+        _skillPanel.RenderTransform = new TranslateTransform(PreviewOffsetX, 0);
+        _skillPanel.Opacity = 0;
+        _skillPanel.IsVisible = true;
+        if (_splitter is not null)
+            _splitter.IsVisible = true;
+
+        var ct = ReplaceCancellationTokenSource(ref _previewAnimCts).Token;
+        try
+        {
+            await CreatePreviewAnimation(PreviewOffsetX, 0, 0, 1, ShowDuration, new CubicEaseOut())
+                .RunAsync(_skillPanel, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (ct.IsCancellationRequested)
+            return;
+
+        _skillPanel.Opacity = 1;
+        _skillPanel.RenderTransform = null;
+        _viewModel.IsSkillOpen = true;
+    }
+
     private async Task HidePreviewPanelAsync(Border panel, Action markClosed)
     {
         if (!panel.IsVisible)
@@ -432,7 +495,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
 
     private void CollapseSplitLayoutIfIdle()
     {
-        if (_browserPanel.IsVisible || _diffPanel.IsVisible || _planPanel.IsVisible)
+        if (_browserPanel.IsVisible || _diffPanel.IsVisible || _planPanel.IsVisible || _skillPanel.IsVisible)
             return;
 
         var defs = _contentGrid.ColumnDefinitions;
@@ -466,6 +529,12 @@ internal sealed class ChatPreviewPanelController : IDisposable
         {
             HideImmediately(_planPanel);
             _viewModel.IsPlanOpen = false;
+        }
+
+        if (!ReferenceEquals(keep, _skillPanel))
+        {
+            HideImmediately(_skillPanel);
+            _viewModel.IsSkillOpen = false;
         }
     }
 

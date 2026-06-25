@@ -76,6 +76,44 @@ public static class DebugAgentHarness
             Description = codingSkill.Description
         };
 
+        // A second, distinct skill that is loaded at runtime (via fetch_skill) mid-turn —
+        // intentionally NOT attached to the user message, so the inline "skill loaded" chip
+        // is visible in the fixture instead of being de-duplicated away.
+        var researchSkill = dataStore.Data.Skills.FirstOrDefault(s =>
+            s.Name.Equals("Web Researcher", StringComparison.OrdinalIgnoreCase))
+            ?? new Skill
+            {
+                Name = "Web Researcher",
+                Description = "Searches the web and summarizes findings on any topic.",
+                IconGlyph = "\U0001F50E"
+            };
+
+        var fetchedSkillRef = new SkillReference
+        {
+            Name = researchSkill.Name,
+            Glyph = researchSkill.IconGlyph,
+            Description = researchSkill.Description
+        };
+
+        // A third, distinct skill reported by the SDK on the assistant message (the
+        // SkillInvokedEvent path, with no inline fetch_skill tool call). It surfaces as a
+        // chip at the end of the assistant turn.
+        var documentSkill = dataStore.Data.Skills.FirstOrDefault(s =>
+            s.Name.Equals("Document Creator", StringComparison.OrdinalIgnoreCase))
+            ?? new Skill
+            {
+                Name = "Document Creator",
+                Description = "Creates Word, Excel, and PowerPoint documents from descriptions.",
+                IconGlyph = "\U0001F4C4"
+            };
+
+        var assistantSkillRef = new SkillReference
+        {
+            Name = documentSkill.Name,
+            Glyph = documentSkill.IconGlyph,
+            Description = documentSkill.Description
+        };
+
         var chat = new Chat
         {
             Title = "Debug transcript fixture (not saved)",
@@ -146,7 +184,7 @@ public static class DebugAgentHarness
             """);
         firstAssistant.Author = "Lumi";
         firstAssistant.Model = "gpt-5.5";
-        firstAssistant.ActiveSkills.Add(skillRef);
+        firstAssistant.ActiveSkills.Add(assistantSkillRef);
         firstAssistant.Sources.Add(new SearchSource
         {
             Title = "Lumi debug fixture",
@@ -174,7 +212,7 @@ public static class DebugAgentHarness
         chat.Messages.Add(Tool("report_intent", JsonObject(
             JsonProperty("intent", JsonString("Summarizing the best deals"))), "Completed"));
         chat.Messages.Add(Tool("fetch_skill", JsonObject(
-            JsonProperty("name", JsonString(skillRef.Name))), "Completed", output: $"Fetched skill: {skillRef.Name}"));
+            JsonProperty("name", JsonString(fetchedSkillRef.Name))), "Completed", output: $"Fetched skill: {fetchedSkillRef.Name}"));
         chat.Messages.Add(Tool("powershell", JsonObject(
             JsonProperty("command", JsonString("Write-Output 'fixture terminal output'")),
             JsonProperty("description", JsonString("Emit fixture output"))), "Completed", output: "fixture terminal output\nexit code: 0"));
