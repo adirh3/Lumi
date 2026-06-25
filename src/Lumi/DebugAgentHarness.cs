@@ -130,6 +130,30 @@ public static class DebugAgentHarness
             | Sources | visible below |
             | Model label | visible after turn |
 
+            Wide markdown tables should keep readable columns, wrap long cells, and scroll only when column count makes it necessary:
+
+            | Model | Store | Size | Panel | Brightness | Gaming | Warranty | Notes |
+            | --- | --- | --- | --- | --- | --- | --- | --- |
+            | LG C4 | Best Buy | 65 inch | OLED evo | Excellent HDR | 144Hz VRR | 1 year | Best mixed-use value |
+            | Samsung S90D | Amazon | 65 inch | QD-OLED | Very bright highlights | 144Hz VRR | 1 year | Strong color volume |
+            | Sony Bravia 8 | Costco | 65 inch | WOLED | Accurate cinema mode | 120Hz VRR | 2 years | Best image processing |
+
+            Long-cell wrapping example:
+
+            | Area | Problem | Recommended next step |
+            | --- | --- | --- |
+            | Markdown tables | A single verbose cell used to make the whole table extremely wide and hard to read in chat. | Keep columns compact, wrap prose inside cells, and reserve horizontal scrolling for genuinely wide datasets. |
+            | Tool summaries | Some agent outputs include long paths, status details, or explanations that should remain readable without dragging the transcript sideways. | Let the cell grow vertically before expanding horizontally, so the chat keeps a comfortable reading rhythm. |
+            | Research notes | Comparison tables often mix short labels with paragraph-like notes and tradeoffs. | Prefer readable wrapping with stable copy buttons and no extra visual hint competing with the data. |
+
+            Dense mixed-width example:
+
+            | Rank | Option | Price | Fit | Risk | Setup | Notes |
+            | --- | --- | --- | --- | --- | --- | --- |
+            | 1 | Native Strata table | Low | Best | Low | Built in | Keeps styling, copy options, and transcript behavior consistent. |
+            | 2 | DataGrid table | Medium | Heavy | Medium | More work | Powerful but too app-like for quick markdown responses. |
+            | 3 | Plain markdown text | Low | Poor | Low | None | Easy to copy, but weak scanning and no responsive layout. |
+
             The two-option comparison control (StrataFork) should switch when either tab is clicked:
 
             ```comparison
