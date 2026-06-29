@@ -177,65 +177,7 @@ public sealed class ChatViewModelAgentRoutingTests
     }
 
     [Fact]
-    public void BuildSkillReferences_UsesTargetWorkDirForHiddenChatExternalSkills()
-    {
-        var tempRoot = Path.Combine(Path.GetTempPath(), $"lumi-skill-route-test-{Guid.NewGuid():N}");
-        var targetWorkDir = Path.Combine(tempRoot, "target");
-        var visibleWorkDir = Path.Combine(tempRoot, "visible");
-
-        try
-        {
-            Directory.CreateDirectory(Path.Combine(targetWorkDir, ".github", "skills"));
-            Directory.CreateDirectory(Path.Combine(visibleWorkDir, ".github", "skills"));
-            File.WriteAllText(
-                Path.Combine(targetWorkDir, ".github", "skills", "target-skill.md"),
-                """
-                ---
-                name: Target Skill
-                description: Skill from the target project
-                ---
-
-                Use the target project's context.
-                """);
-            File.WriteAllText(
-                Path.Combine(visibleWorkDir, ".github", "skills", "visible-skill.md"),
-                """
-                ---
-                name: Visible Skill
-                description: Skill from the visible project
-                ---
-
-                Use the visible project's context.
-                """);
-
-            var visibleProject = new Project { Id = Guid.NewGuid(), Name = "Visible", WorkingDirectory = visibleWorkDir };
-            var visibleChat = CreateChatWithMessage("Visible chat");
-            visibleChat.ProjectId = visibleProject.Id;
-            using var harness = CreateHarness(new AppData
-            {
-                Projects = [visibleProject],
-                Chats = [visibleChat]
-            });
-            harness.ViewModel.CurrentChat = visibleChat;
-
-            var references = InvokeBuildSkillReferences(
-                harness.ViewModel,
-                externalSkillNames: ["Target Skill"],
-                workDir: targetWorkDir);
-
-            var skill = Assert.Single(references);
-            Assert.Equal("Target Skill", skill.Name);
-            Assert.Equal("Skill from the target project", skill.Description);
-        }
-        finally
-        {
-            if (Directory.Exists(tempRoot))
-                Directory.Delete(tempRoot, recursive: true);
-        }
-    }
-
-    [Fact]
-    public void FindSkillReferenceByName_UsesExplicitWorkDirForExternalSkills()
+    public void FindSkillReferenceByName_DoesNotResolveExternalSkills()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"lumi-fetch-skill-route-test-{Guid.NewGuid():N}");
         var targetWorkDir = Path.Combine(tempRoot, "target");
@@ -276,113 +218,7 @@ public sealed class ChatViewModelAgentRoutingTests
             });
             harness.ViewModel.CurrentChat = visibleChat;
 
-            var reference = harness.ViewModel.FindSkillReferenceByName("Shared Skill", targetWorkDir);
-
-            Assert.NotNull(reference);
-            Assert.Equal("Shared Skill", reference!.Name);
-            Assert.Equal("Target project version", reference.Description);
-        }
-        finally
-        {
-            if (Directory.Exists(tempRoot))
-                Directory.Delete(tempRoot, recursive: true);
-        }
-    }
-
-    [Fact]
-    public void FindSkillReferenceByName_ExplicitWorkDir_DoesNotUseCurrentProjectAdditionalFolders()
-    {
-        var tempRoot = Path.Combine(Path.GetTempPath(), $"lumi-fetch-skill-leak-test-{Guid.NewGuid():N}");
-        var targetWorkDir = Path.Combine(tempRoot, "target");
-        var visibleWorkDir = Path.Combine(tempRoot, "visible");
-        var visibleAdditionalDir = Path.Combine(tempRoot, "visible-additional");
-
-        try
-        {
-            Directory.CreateDirectory(targetWorkDir);
-            Directory.CreateDirectory(visibleWorkDir);
-            Directory.CreateDirectory(Path.Combine(visibleAdditionalDir, ".github", "skills"));
-            File.WriteAllText(
-                Path.Combine(visibleAdditionalDir, ".github", "skills", "leaked-skill.md"),
-                """
-                ---
-                name: Leaked Skill
-                description: Should not leak into explicit workdir lookup
-                ---
-
-                Use only with the visible project.
-                """);
-
-            var visibleProject = new Project
-            {
-                Id = Guid.NewGuid(),
-                Name = "Visible",
-                WorkingDirectory = visibleWorkDir,
-                AdditionalContextDirectories = [visibleAdditionalDir]
-            };
-            var visibleChat = CreateChatWithMessage("Visible chat");
-            visibleChat.ProjectId = visibleProject.Id;
-            using var harness = CreateHarness(new AppData
-            {
-                Projects = [visibleProject],
-                Chats = [visibleChat]
-            });
-            harness.ViewModel.CurrentChat = visibleChat;
-
-            var reference = harness.ViewModel.FindSkillReferenceByName("Leaked Skill", targetWorkDir);
-
-            Assert.Null(reference);
-        }
-        finally
-        {
-            if (Directory.Exists(tempRoot))
-                Directory.Delete(tempRoot, recursive: true);
-        }
-    }
-
-    [Fact]
-    public void FindSkillReferenceByName_UsesCurrentProjectAdditionalContextDirectories()
-    {
-        var tempRoot = Path.Combine(Path.GetTempPath(), $"lumi-additional-skill-route-test-{Guid.NewGuid():N}");
-        var workDir = Path.Combine(tempRoot, "work");
-        var additionalDir = Path.Combine(tempRoot, "additional");
-
-        try
-        {
-            Directory.CreateDirectory(workDir);
-            Directory.CreateDirectory(Path.Combine(additionalDir, ".github", "skills"));
-            File.WriteAllText(
-                Path.Combine(additionalDir, ".github", "skills", "additional-skill.md"),
-                """
-                ---
-                name: Additional Skill
-                description: Skill from an additional folder
-                ---
-
-                Use the additional folder context.
-                """);
-
-            var project = new Project
-            {
-                Id = Guid.NewGuid(),
-                Name = "Multi folder project",
-                WorkingDirectory = workDir,
-                AdditionalContextDirectories = [additionalDir]
-            };
-            var chat = CreateChatWithMessage("Project chat");
-            chat.ProjectId = project.Id;
-            using var harness = CreateHarness(new AppData
-            {
-                Projects = [project],
-                Chats = [chat]
-            });
-            harness.ViewModel.CurrentChat = chat;
-
-            var reference = harness.ViewModel.FindSkillReferenceByName("Additional Skill");
-
-            Assert.NotNull(reference);
-            Assert.Equal("Additional Skill", reference!.Name);
-            Assert.Equal("Skill from an additional folder", reference.Description);
+            Assert.Null(harness.ViewModel.FindSkillReferenceByName("Shared Skill", targetWorkDir));
         }
         finally
         {
@@ -423,24 +259,6 @@ public sealed class ChatViewModelAgentRoutingTests
             Title = title,
             Messages = [new Lumi.Models.ChatMessage { Role = "user", Content = "hello" }]
         };
-    }
-
-    private static List<SkillReference> InvokeBuildSkillReferences(
-        ChatViewModel viewModel,
-        IReadOnlyCollection<string> externalSkillNames,
-        string workDir)
-    {
-        var method = typeof(ChatViewModel).GetMethod(
-            "BuildSkillReferences",
-            BindingFlags.Instance | BindingFlags.NonPublic,
-            binder: null,
-            types: [typeof(IReadOnlyCollection<Guid>), typeof(IReadOnlyCollection<string>), typeof(string)],
-            modifiers: null);
-
-        Assert.NotNull(method);
-        return Assert.IsType<List<SkillReference>>(method!.Invoke(
-            viewModel,
-            [Array.Empty<Guid>(), externalSkillNames, workDir]));
     }
 
     private static List<AIFunction> InvokeBuildCustomTools(ChatViewModel viewModel)

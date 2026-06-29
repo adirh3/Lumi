@@ -116,7 +116,7 @@ public partial class ChatViewModel
         var tools = new List<AIFunction>();
         tools.AddRange(BuildMemoryTools());
         tools.Add(BuildAnnounceFileTool(chatId));
-        tools.Add(BuildFetchSkillTool(projectContextCatalog));
+        tools.Add(BuildFetchSkillTool());
         tools.Add(BuildAskQuestionTool(chatId));
         tools.AddRange(BuildLumiManagementTools(chatId));
         tools.AddRange(BuildWebTools());
@@ -447,7 +447,7 @@ public partial class ChatViewModel
             "Show a file attachment chip to the user for a file you created or produced. Call this ONCE for each final deliverable file (e.g. the PDF, DOCX, PPTX, image, etc.). Do NOT call for intermediate/temporary files like scripts.");
     }
 
-    private AIFunction BuildFetchSkillTool(ProjectContextCatalogSnapshot projectContextCatalog)
+    private AIFunction BuildFetchSkillTool()
     {
         return AIFunctionFactory.Create(
             ([Description("The exact name of the skill to retrieve (as listed in Available Skills)")] string name) =>
@@ -456,10 +456,6 @@ public partial class ChatViewModel
                     .FirstOrDefault(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
                 if (skill is not null)
                     return $"# {skill.Name}\n\n{skill.Content}";
-
-                var externalSkill = projectContextCatalog.FindSkill(name);
-                if (externalSkill is not null)
-                    return externalSkill.Content;
 
                 return $"Skill not found: {name}. Check the Available Skills list for exact names.";
             },
@@ -793,11 +789,7 @@ public partial class ChatViewModel
     private bool RefreshActiveSkillChipsFromState()
     {
         var skillsById = _dataStore.Data.Skills.ToDictionary(skill => skill.Id);
-        var projectContextCatalog = GetProjectContextCatalog();
-        var externalSkillsByName = projectContextCatalog.Skills
-            .ToDictionary(skill => skill.Name, StringComparer.OrdinalIgnoreCase);
         var filteredIds = new List<Guid>();
-        var filteredExternalNames = new List<string>();
         var chips = new List<StrataTheme.Controls.StrataComposerChip>();
 
         foreach (var skillId in ActiveSkillIds.ToList())
@@ -809,32 +801,21 @@ public partial class ChatViewModel
             chips.Add(new StrataTheme.Controls.StrataComposerChip(skill.Name, skill.IconGlyph));
         }
 
-        foreach (var skillName in _activeExternalSkillNames.ToList())
-        {
-            if (!externalSkillsByName.TryGetValue(skillName, out var skill))
-                continue;
-
-            filteredExternalNames.Add(skill.Name);
-            chips.Add(new StrataTheme.Controls.StrataComposerChip(skill.Name, ExternalSkillGlyph));
-        }
-
         ActiveSkillIds.Clear();
         _activeExternalSkillNames.Clear();
         ActiveSkillChips.Clear();
         foreach (var skillId in filteredIds)
             ActiveSkillIds.Add(skillId);
-        foreach (var skillName in filteredExternalNames)
-            _activeExternalSkillNames.Add(skillName);
         foreach (var chip in chips)
             ActiveSkillChips.Add(chip);
 
         var changed = false;
         if (CurrentChat is not null
             && (!CurrentChat.ActiveSkillIds.SequenceEqual(filteredIds)
-                || !SkillNameListsEqual(CurrentChat.ActiveExternalSkillNames, filteredExternalNames)))
+                || CurrentChat.ActiveExternalSkillNames.Count > 0))
         {
             CurrentChat.ActiveSkillIds = new List<Guid>(filteredIds);
-            CurrentChat.ActiveExternalSkillNames = new List<string>(filteredExternalNames);
+            CurrentChat.ActiveExternalSkillNames = [];
             _dataStore.MarkChatChanged(CurrentChat);
             changed = true;
         }

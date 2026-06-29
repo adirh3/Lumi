@@ -19,7 +19,7 @@ When the user asks to publish or release a new version of Lumi:
      - **🔧 Improvements** — polish, performance, refactors that affect UX
    - Each entry should be a concise, user-friendly sentence (not a commit message). Group related commits into a single entry when appropriate.
    - Save the changelog text — it will be used as the GitHub Release body.
-5. **Commit and push**: 
+5. **Commit and push**:
    ```
    git add src/Lumi/Lumi.csproj
    git commit -m "bump version to X.Y.Z"
@@ -29,7 +29,7 @@ When the user asks to publish or release a new version of Lumi:
    ```powershell
    gh workflow run release.yml -f version=X.Y.Z
    ```
-7. **Monitor the build**: 
+7. **Monitor the build**:
    ```powershell
    gh run list --workflow="release.yml" -L 1
    gh run watch <run-id> --exit-status
@@ -44,6 +44,7 @@ When the user asks to publish or release a new version of Lumi:
    ```
 
 ## Important Notes
+
 - The version must be valid SemVer (e.g., 1.0.0, 0.2.0)
 - The release workflow builds for Windows x64, signs with Azure Trusted Signing (sign CLI), and publishes to GitHub Releases
 - The `gh` CLI must be authenticated (`gh auth status`)

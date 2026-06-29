@@ -322,6 +322,7 @@ public sealed class ChatHistoryServiceTests
         var skill = new Skill { Name = "Web Researcher" };
         var chat = Chat("Tooled chat", Now.AddHours(-1), Msg("user", "hi"));
         chat.ActiveSkillIds = [skill.Id];
+        // Legacy file-skill selections should no longer be surfaced as active skills.
         chat.ActiveExternalSkillNames = ["Azure Image Generator"];
         chat.ActiveMcpServerNames = ["github", "playwright"];
         var service = CreateService(new AppData { Chats = [chat], Skills = [skill] }, withSearch: false);
@@ -330,7 +331,7 @@ public sealed class ChatHistoryServiceTests
 
         Assert.Contains("skills: ", result);
         Assert.Contains("Web Researcher", result);
-        Assert.Contains("Azure Image Generator", result);
+        Assert.DoesNotContain("Azure Image Generator", result);
         Assert.Contains("mcp servers: github, playwright", result);
     }
 

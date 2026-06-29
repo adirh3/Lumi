@@ -22,12 +22,12 @@ public sealed class CopilotConfigCatalogTests
 
         try
         {
-            Directory.CreateDirectory(Path.Combine(workDir, ".github", "skills"));
+            Directory.CreateDirectory(Path.Combine(workDir, ".github", "skills", "workspace-skill"));
             Directory.CreateDirectory(Path.Combine(copilotRoot, "skills", "user-skill"));
             Directory.CreateDirectory(Path.Combine(copilotRoot, "pkg", "universal", LatestPackagedVersion, "builtin-skills", "package-skill"));
 
             File.WriteAllText(
-                Path.Combine(workDir, ".github", "skills", "workspace-skill.md"),
+                Path.Combine(workDir, ".github", "skills", "workspace-skill", "SKILL.md"),
                 """
                 ---
                 name: Workspace Skill
@@ -36,6 +36,17 @@ public sealed class CopilotConfigCatalogTests
 
                 # Workspace Skill
                 Use workspace-specific context.
+                """);
+            File.WriteAllText(
+                Path.Combine(workDir, ".github", "skills", "loose-skill.md"),
+                """
+                ---
+                name: Loose Skill
+                description: Invalid non-canonical skill
+                ---
+
+                # Loose Skill
+                This loose file is ignored by the SDK-native skill path.
                 """);
 
             File.WriteAllText(
@@ -69,6 +80,7 @@ public sealed class CopilotConfigCatalogTests
             Assert.Contains(skills, skill => skill.Name == "Workspace Skill" && skill.Description == "Skill from the workspace");
             Assert.Contains(skills, skill => skill.Name == "User Skill" && skill.Description == "Skill loaded from the user's Copilot config");
             Assert.Contains(skills, skill => skill.Name == "Package Skill" && skill.Description == "Skill bundled with Copilot");
+            Assert.DoesNotContain(skills, skill => skill.Name == "Loose Skill");
         }
         finally
         {
@@ -150,13 +162,14 @@ public sealed class CopilotConfigCatalogTests
 
         try
         {
-            Directory.CreateDirectory(Path.Combine(primaryWorkDir, ".github", "skills"));
-            Directory.CreateDirectory(Path.Combine(additionalDir, ".github", "skills"));
+            Directory.CreateDirectory(Path.Combine(primaryWorkDir, ".github", "skills", "shared-skill"));
+            Directory.CreateDirectory(Path.Combine(additionalDir, ".github", "skills", "shared-skill"));
+            Directory.CreateDirectory(Path.Combine(additionalDir, ".github", "skills", "additional-skill"));
             Directory.CreateDirectory(Path.Combine(additionalDir, ".github", "agents"));
             Directory.CreateDirectory(copilotRoot);
 
             File.WriteAllText(
-                Path.Combine(primaryWorkDir, ".github", "skills", "shared-skill.md"),
+                Path.Combine(primaryWorkDir, ".github", "skills", "shared-skill", "SKILL.md"),
                 """
                 ---
                 name: Shared Skill
@@ -167,7 +180,7 @@ public sealed class CopilotConfigCatalogTests
                 """);
 
             File.WriteAllText(
-                Path.Combine(additionalDir, ".github", "skills", "shared-skill.md"),
+                Path.Combine(additionalDir, ".github", "skills", "shared-skill", "SKILL.md"),
                 """
                 ---
                 name: Shared Skill
@@ -178,7 +191,7 @@ public sealed class CopilotConfigCatalogTests
                 """);
 
             File.WriteAllText(
-                Path.Combine(additionalDir, ".github", "skills", "additional-skill.md"),
+                Path.Combine(additionalDir, ".github", "skills", "additional-skill", "SKILL.md"),
                 """
                 ---
                 name: Additional Skill
@@ -223,14 +236,14 @@ public sealed class CopilotConfigCatalogTests
 
         try
         {
-            Directory.CreateDirectory(Path.Combine(primaryWorkDir, ".github", "skills"));
+            Directory.CreateDirectory(Path.Combine(primaryWorkDir, ".github", "skills", "primary-skill"));
             Directory.CreateDirectory(Path.Combine(primaryWorkDir, ".vscode"));
             Directory.CreateDirectory(Path.Combine(additionalDir, ".github", "agents"));
             Directory.CreateDirectory(Path.Combine(additionalDir, ".vscode"));
             Directory.CreateDirectory(copilotRoot);
 
             File.WriteAllText(
-                Path.Combine(primaryWorkDir, ".github", "skills", "primary-skill.md"),
+                Path.Combine(primaryWorkDir, ".github", "skills", "primary-skill", "SKILL.md"),
                 """
                 ---
                 name: Primary Skill

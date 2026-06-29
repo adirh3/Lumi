@@ -523,12 +523,6 @@ public sealed class ChatHistoryService
                 names.Add(skill.Name.Trim());
         }
 
-        foreach (var external in SnapshotList(chat.ActiveExternalSkillNames))
-        {
-            if (!string.IsNullOrWhiteSpace(external))
-                names.Add(external.Trim());
-        }
-
         var distinct = names.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         return distinct.Count > 0 ? string.Join(", ", distinct) : null;
     }

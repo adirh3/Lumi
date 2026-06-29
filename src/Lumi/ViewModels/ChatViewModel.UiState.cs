@@ -504,9 +504,10 @@ public partial class ChatViewModel
                 SecondaryText: BuildChipSearchText(s.Description, s.Content)))
             .ToList();
 
-        // Discover project-scoped and user-level Copilot agents/skills
+        // Discover project-scoped and user-level Copilot agents. Skills remain either Lumi-owned
+        // or SDK-native through SkillDirectories; Lumi does not advertise file skills itself.
         var projectContextCatalog = GetProjectContextCatalog();
-        DiscoverCopilotItems(projectContextCatalog, agentChips, skillChips);
+        DiscoverCopilotAgents(projectContextCatalog, agentChips);
 
         ReplaceCollection(AvailableAgentChips, agentChips);
         ReplaceCollection(AvailableSkillChips, skillChips);
@@ -567,16 +568,14 @@ public partial class ChatViewModel
     }
 
     /// <summary>
-    /// Discovers file-based Copilot agents and skills from the workspace and
-    /// the user's <c>~\.copilot</c> directory.
+    /// Discovers file-based Copilot agents from the workspace and the user's
+    /// <c>~\.copilot</c> directory.
     /// </summary>
-    private static void DiscoverCopilotItems(
+    private static void DiscoverCopilotAgents(
         ProjectContextCatalogSnapshot catalog,
-        List<StrataComposerChip> agentChips,
-        List<StrataComposerChip> skillChips)
+        List<StrataComposerChip> agentChips)
     {
         var existingAgentNames = agentChips.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var existingSkillNames = skillChips.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var agent in catalog.Agents)
         {
@@ -588,18 +587,6 @@ public partial class ChatViewModel
                 ExternalAgentGlyph,
                 SecondaryText: BuildChipSearchText(agent.Description, agent.Content)));
             existingAgentNames.Add(agent.Name);
-        }
-
-        foreach (var skill in catalog.Skills)
-        {
-            if (existingSkillNames.Contains(skill.Name))
-                continue;
-
-            skillChips.Add(new StrataComposerChip(
-                skill.Name,
-                ExternalSkillGlyph,
-                SecondaryText: BuildChipSearchText(skill.Description, skill.Content)));
-            existingSkillNames.Add(skill.Name);
         }
     }
 

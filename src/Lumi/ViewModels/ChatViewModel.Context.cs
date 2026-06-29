@@ -152,7 +152,7 @@ public partial class ChatViewModel
         SyncActiveSkillsToChat();
     }
 
-    /// <summary>File-based Copilot skill names currently active for this chat.</summary>
+    /// <summary>Legacy file-based Copilot skill names from older chat metadata. New selections are not added.</summary>
     private readonly List<string> _activeExternalSkillNames = new();
 
     /// <summary>Registers a skill ID without adding a chip (composer already added it).</summary>
@@ -168,18 +168,6 @@ public partial class ChatViewModel
                 _pendingSkillInjections.Add(skill.Id);
             SyncActiveSkillsToChat();
         }
-        else
-        {
-            var externalSkill = FindExternalSkillByName(name);
-            if (externalSkill is null)
-                return;
-
-            if (_activeExternalSkillNames.Any(existing => existing.Equals(externalSkill.Name, StringComparison.OrdinalIgnoreCase)))
-                return;
-
-            _activeExternalSkillNames.Add(externalSkill.Name);
-            SyncActiveSkillsToChat();
-        }
     }
 
     private void SyncActiveSkillsToChat()
@@ -187,7 +175,7 @@ public partial class ChatViewModel
         if (CurrentChat is not null)
         {
             CurrentChat.ActiveSkillIds = new List<Guid>(ActiveSkillIds);
-            CurrentChat.ActiveExternalSkillNames = new List<string>(_activeExternalSkillNames);
+            CurrentChat.ActiveExternalSkillNames = [];
             QueueSaveChat(CurrentChat, saveIndex: true);
         }
     }
@@ -365,25 +353,27 @@ public partial class ChatViewModel
     }
 
     public SkillReference? FindSkillReferenceByName(string name)
-        => FindSkillReferenceByName(name, workDir: null);
+    {
+        var skill = FindSkillByName(name);
+        if (skill is null)
+            return null;
+
+        return new SkillReference
+        {
+            Name = skill.Name,
+            Glyph = skill.IconGlyph,
+            Description = skill.Description
+        };
+    }
 
     public SkillReference? FindSkillReferenceByName(string name, string? workDir)
-        => FindSkillReferenceByName(
-            name,
-            workDir is { Length: > 0 } ? GetProjectContextCatalog(workDir) : GetProjectContextCatalog());
+        => FindSkillReferenceByName(name);
 
     private SkillReference? FindSkillReferenceByName(string name, ProjectContextCatalogSnapshot projectContextCatalog)
     {
-        var skill = FindSkillByName(name);
+        var skill = FindSkillReferenceByName(name);
         if (skill is not null)
-        {
-            return new SkillReference
-            {
-                Name = skill.Name,
-                Glyph = skill.IconGlyph,
-                Description = skill.Description
-            };
-        }
+            return skill;
 
         var externalSkill = projectContextCatalog.FindSkill(name);
         if (externalSkill is null)

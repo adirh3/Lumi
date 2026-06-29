@@ -1227,18 +1227,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             .ToList();
     }
 
-    private async Task<string?> SyncActiveSkillDirectoryAsync(CancellationToken ct)
-        => await SyncSkillDirectoryAsync(ActiveSkillIds, ct);
-
-    private async Task<string?> SyncSkillDirectoryAsync(IReadOnlyCollection<Guid> skillIds, CancellationToken ct)
-    {
-        if (skillIds.Count == 0)
-            return null;
-
-        var activeSkillIds = skillIds.ToList();
-        return await _dataStore.SyncSkillFilesForIdsAsync(activeSkillIds, ct);
-    }
-
     private (long RequestId, CancellationTokenSource Source) BeginChatLoad(CancellationToken outerCancellationToken)
     {
         CancellationTokenSource? previous;
@@ -1279,19 +1267,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             : null;
         var workDir = GetEffectiveWorkingDirectory(chat);
         var projectContextCatalog = GetProjectContextCatalog(chat, workDir);
-        var externalSkills = projectContextCatalog.Skills;
         var activeAgent = chat.AgentId.HasValue
             ? _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == chat.AgentId.Value)
             : null;
         var systemPrompt = SystemPromptBuilder.Build(
             _dataStore.Data.Settings, activeAgent, project, allSkills, activeSkills, memories, _dataStore.SnapshotBackgroundJobs());
-        systemPrompt = AppendAvailableExternalSkillsToPrompt(systemPrompt, externalSkills, chat.ActiveExternalSkillNames, projectContextCatalog.SkillDirectories);
 
         var sdkAgentName = GetSessionSdkAgentName(chat, CurrentChat, SelectedSdkAgentName);
         var externalAgent = activeAgent is null
             ? FindExternalAgentByName(projectContextCatalog, sdkAgentName)
             : null;
-        var skillDirTask = SyncSkillDirectoryAsync(chat.ActiveSkillIds, ct);
         var mcpServers = BuildMcpServers(workDir, projectContextCatalog, chat, activeAgent);
 
         var customAgents = BuildCustomAgents(projectContextCatalog);
@@ -1300,13 +1285,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             systemPrompt = (systemPrompt ?? "") + "\n\n--- Active Agent: " + externalAgent.Name + " ---\n" + externalAgent.Content;
 
         var skillDirs = new List<string>();
-        var dir = await skillDirTask;
-        if (!string.IsNullOrWhiteSpace(dir))
-            skillDirs.Add(dir);
-
-        // Surface workspace .github/skills (including monorepo subfolders the CLI's git-root-anchored
-        // discovery would miss) to the native skill tool, so they load directly instead of via the
-        // deferred fetch_skill fallback.
+        // Lumi app skills are Lumi-owned: active skills are injected into the system prompt,
+        // and inactive ones are loaded lazily through fetch_skill. Canonical workspace
+        // .github/skills roots are handed to the SDK instead of being re-advertised by Lumi.
         foreach (var nativeSkillDir in projectContextCatalog.SkillDirectories)
         {
             if (!skillDirs.Contains(nativeSkillDir, StringComparer.OrdinalIgnoreCase))
@@ -1677,8 +1658,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ActiveSkillChips.Clear();
             foreach (var skillId in chat.ActiveSkillIds)
                 ActiveSkillIds.Add(skillId);
-            foreach (var skillName in chat.ActiveExternalSkillNames)
-                _activeExternalSkillNames.Add(skillName);
+            if (chat.ActiveExternalSkillNames.Count > 0)
+            {
+                chat.ActiveExternalSkillNames = [];
+                _dataStore.MarkChatChanged(chat);
+            }
             RefreshActiveSkillChipsFromState();
 
             // Restore active MCP servers from chat (default to all enabled for older chats with no saved selection)
@@ -2013,8 +1997,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (!_copilotService.IsConnected)
             await _copilotService.ConnectAsync(cancellationToken);
 
-        var targetWorkDir = GetEffectiveWorkingDirectory(targetChat);
-        var targetContextCatalog = GetProjectContextCatalog(targetChat, targetWorkDir);
         if (string.IsNullOrWhiteSpace(targetChat.LastModelUsed))
         {
             var targetModel = ResolveSelectedModelForChat(targetChat);
@@ -2042,7 +2024,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             Role = "user",
             Content = prompt,
             Author = $"Lumi Job - {job.Name}",
-            ActiveSkills = BuildSkillReferences(targetChat.ActiveSkillIds, targetChat.ActiveExternalSkillNames, targetContextCatalog)
+            ActiveSkills = BuildSkillReferences(targetChat.ActiveSkillIds)
         };
 
         targetChat.Messages.Add(userMsg);
@@ -2063,10 +2045,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         MessageOptions? sendOptions = null;
         CopilotSession? sendSession = null;
         var retainedContext = targetChat.Messages.Take(Math.Max(targetChat.Messages.Count - 1, 0)).ToList();
-        var promptAdditions = BuildSendPromptAdditions(
-            externalSkillNames: targetChat.ActiveExternalSkillNames,
-            consumePendingSkillInjections: false,
-            projectContextCatalog: targetContextCatalog);
+        var promptAdditions = BuildSendPromptAdditions(consumePendingSkillInjections: false);
         var localUserMessageCount = 0;
         var localAssistantMessageCount = 0;
 
@@ -2299,7 +2278,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 AgentId = ActiveAgent?.Id,
                 ProjectId = _pendingProjectId ?? ActiveProjectFilterId,
                 ActiveSkillIds = new List<Guid>(ActiveSkillIds),
-                ActiveExternalSkillNames = new List<string>(_activeExternalSkillNames),
+                ActiveExternalSkillNames = [],
                 ActiveMcpServerNames = new List<string>(ActiveMcpServerNames),
                 HasExplicitMcpServerSelection = true,
                 SdkAgentName = SelectedSdkAgentName,
@@ -2335,7 +2314,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 Content = prompt,
                 Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
                 Attachments = attachments?.OfType<AttachmentFile>().Select(a => a.Path).ToList() ?? [],
-                ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames)
+                ActiveSkills = BuildSkillReferences(ActiveSkillIds)
             };
             targetChat.Messages.Add(userMsg);
             Messages.Add(new ChatMessageViewModel(userMsg));
@@ -3003,10 +2982,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _dataStore.MarkChatChanged(chat);
     }
 
-    private string BuildSendPromptAdditions(
-        IReadOnlyCollection<string>? externalSkillNames = null,
-        bool consumePendingSkillInjections = true,
-        ProjectContextCatalogSnapshot? projectContextCatalog = null)
+    private string BuildSendPromptAdditions(bool consumePendingSkillInjections = true)
     {
         var builder = new StringBuilder();
         var hasActivatedSkillsSection = false;
@@ -3029,27 +3005,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 AppendActivatedSkillsHeader();
                 foreach (var skill in injectedSkills)
-                {
-                    builder.Append("\n### ")
-                        .Append(skill.Name)
-                        .Append('\n')
-                        .Append(skill.Content)
-                        .Append('\n');
-                }
-            }
-        }
-
-        var externalNames = externalSkillNames ?? _activeExternalSkillNames;
-        if (externalNames.Count > 0)
-        {
-            var externalSkills = ResolveExternalSkills(
-                projectContextCatalog ?? GetProjectContextCatalog(),
-                externalNames);
-
-            if (externalSkills.Count > 0)
-            {
-                AppendActivatedSkillsHeader();
-                foreach (var skill in externalSkills)
                 {
                     builder.Append("\n### ")
                         .Append(skill.Name)

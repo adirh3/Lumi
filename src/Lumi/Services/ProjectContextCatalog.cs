@@ -45,7 +45,7 @@ public sealed class ProjectContextCatalogSnapshot
     /// <summary>
     /// Workspace <c>.github/skills</c> root directories discovered from the effective working
     /// directory (including monorepo subfolders). Passed to <c>config.SkillDirectories</c> so the
-    /// native Copilot skill tool can load these skills directly instead of via a deferred fallback.
+    /// native Copilot skill tool can load these skills directly.
     /// </summary>
     public IReadOnlyList<string> SkillDirectories { get; }
 

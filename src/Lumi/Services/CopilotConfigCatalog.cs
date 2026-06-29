@@ -68,12 +68,14 @@ public static class CopilotConfigCatalog
             sources,
             static source => source.SkillDirectories,
             "SKILL.md",
+            false,
             LoadSkillDefinition,
             static skill => skill.Name);
         var agents = DiscoverDefinitions(
             sources,
             static source => source.AgentDirectories,
             "AGENT.md",
+            true,
             LoadAgentDefinition,
             static agent => agent.Name);
 
@@ -106,7 +108,7 @@ public static class CopilotConfigCatalog
     /// skill lookup at the project/git root, so skills living under a subfolder <c>.github</c>
     /// (e.g. a monorepo app) are invisible to it; surfacing these roots through
     /// <c>config.SkillDirectories</c> lets such skills load through the always-present native
-    /// skill tool instead of a deferred fallback.
+    /// skill tool.
     /// </summary>
     public static IReadOnlyList<string> GetWorkspaceSkillDirectories(IReadOnlyList<string> workDirs)
     {
@@ -132,6 +134,7 @@ public static class CopilotConfigCatalog
         IReadOnlyList<CopilotCatalogSource> sources,
         Func<CopilotCatalogSource, IReadOnlyList<string>> selectDirectories,
         string nestedFileName,
+        bool includeLooseMarkdownFiles,
         Func<string, string, TDefinition?> loadDefinition,
         Func<TDefinition, string> getName)
         where TDefinition : class
@@ -140,7 +143,7 @@ public static class CopilotConfigCatalog
         foreach (var source in sources)
         {
             foreach (var directory in selectDirectories(source))
-                AddMarkdownDirectory(directory, nestedFileName, loadDefinition, getName, definitions);
+                AddMarkdownDirectory(directory, nestedFileName, includeLooseMarkdownFiles, loadDefinition, getName, definitions);
         }
 
         return definitions.Values
@@ -232,6 +235,7 @@ public static class CopilotConfigCatalog
     private static void AddMarkdownDirectory<TDefinition>(
         string? directory,
         string nestedFileName,
+        bool includeLooseMarkdownFiles,
         Func<string, string, TDefinition?> loadDefinition,
         Func<TDefinition, string> getName,
         Dictionary<string, TDefinition> definitions)
@@ -240,8 +244,11 @@ public static class CopilotConfigCatalog
         if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
             return;
 
-        foreach (var file in Directory.GetFiles(directory, "*.md"))
-            AddMarkdownFile(file, Path.GetFileNameWithoutExtension(file), loadDefinition, getName, definitions);
+        if (includeLooseMarkdownFiles)
+        {
+            foreach (var file in Directory.GetFiles(directory, "*.md"))
+                AddMarkdownFile(file, Path.GetFileNameWithoutExtension(file), loadDefinition, getName, definitions);
+        }
 
         foreach (var nestedDirectory in Directory.GetDirectories(directory))
         {
