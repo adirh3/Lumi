@@ -36,7 +36,6 @@ public static class McpSessionPlanner
         ArgumentNullException.ThrowIfNull(chat);
 
         var selectedNames = ResolveSelectedNames(data, projectContextCatalog, chat, currentActiveServerNames);
-        var result = new Dictionary<string, McpServerConfig>(NameComparer);
 
         var configuredServers = data.McpServers
             .Where(server => server.IsEnabled)
@@ -49,14 +48,33 @@ public static class McpSessionPlanner
             configuredServers = configuredServers.Where(server => allowedIds.Contains(server.Id)).ToList();
         }
 
+        // Phase 1: select servers keyed by their raw name so the original precedence is preserved —
+        // a configured server wins over an identically named project-context server, and duplicate
+        // names collapse to a single entry (configured: last wins; context: first wins).
+        var selected = new Dictionary<string, McpServerConfig>(NameComparer);
+        var order = new List<string>();
+
         foreach (var server in configuredServers)
-            result[server.Name] = ToSdkConfig(server, workDir, proxyRuntime);
+        {
+            if (!selected.ContainsKey(server.Name))
+                order.Add(server.Name);
+            selected[server.Name] = ToSdkConfig(server, workDir, proxyRuntime);
+        }
 
         foreach (var contextServer in projectContextCatalog.McpServers)
         {
-            if (selectedNames.Contains(contextServer.Name) && !result.ContainsKey(contextServer.Name))
-                result[contextServer.Name] = CloneContextConfig(contextServer, proxyRuntime);
+            if (selectedNames.Contains(contextServer.Name) && !selected.ContainsKey(contextServer.Name))
+            {
+                order.Add(contextServer.Name);
+                selected[contextServer.Name] = CloneContextConfig(contextServer, proxyRuntime);
+            }
         }
+
+        // Phase 2: project each distinct server onto a CAPI-safe, collision-free namespace. The
+        // dictionary key is sent to the backend as the tool namespace and must match ^[a-zA-Z0-9_-]+$.
+        var result = new Dictionary<string, McpServerConfig>(NameComparer);
+        foreach (var rawName in order)
+            result[ToNamespace(rawName, result)] = selected[rawName];
 
         GitHubMcpWebSearchBootstrap.Ensure(result, CopilotService.TryGetGitHubTokenForMcp());
         return result;
@@ -180,5 +198,38 @@ public static class McpSessionPlanner
             .Where(tool => !string.IsNullOrWhiteSpace(tool))
             .ToList() ?? [];
         return list.Count > 0 ? list : ["*"];
+    }
+
+    /// <summary>
+    /// The dictionary key Lumi passes for each MCP server becomes the tool namespace sent to the
+    /// Copilot backend, which requires it to match <c>^[a-zA-Z0-9_-]+$</c>. User-defined names with
+    /// spaces or symbols (e.g. "Avalonia MCP") otherwise trip a CAPI 400 that fails every request in
+    /// the chat. Sanitize to a safe namespace and de-duplicate so distinct servers never collide.
+    /// </summary>
+    private static string ToNamespace(string name, IReadOnlyDictionary<string, McpServerConfig> existing)
+    {
+        var safe = SanitizeNamespace(name);
+        if (!existing.ContainsKey(safe))
+            return safe;
+
+        for (var i = 2; ; i++)
+        {
+            var candidate = $"{safe}_{i}";
+            if (!existing.ContainsKey(candidate))
+                return candidate;
+        }
+    }
+
+    private static string SanitizeNamespace(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "mcp";
+
+        // Replace only characters outside the backend pattern; leading/trailing '_'/'-' are valid
+        // and must be preserved, otherwise a user name could be trimmed into a reserved namespace
+        // (e.g. "github-mcp-server") and suppress built-in tools.
+        var chars = name.Select(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-' ? c : '_').ToArray();
+        var safe = new string(chars);
+        return safe.Length > 0 ? safe : "mcp";
     }
 }

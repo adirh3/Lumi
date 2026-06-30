@@ -254,6 +254,91 @@ public sealed class McpSessionPlannerTests
         Assert.False(servers.ContainsKey("workspace-files"));
     }
 
+    [Fact]
+    public void Build_SanitizesNamespacesWithInvalidCharactersForCapi()
+    {
+        var server = new McpServer
+        {
+            Name = "Avalonia MCP",
+            Command = "dotnet",
+            Args = ["avalonia-mcp"]
+        };
+        var data = new AppData { McpServers = [server] };
+        var chat = new Chat { ActiveMcpServerNames = ["Avalonia MCP"] };
+
+        var servers = McpSessionPlanner.Build(data, "C:\\repo", EmptyCatalog(), chat, null, null);
+
+        Assert.All(servers.Keys, key => Assert.Matches("^[a-zA-Z0-9_-]+$", key));
+        Assert.True(servers.ContainsKey("Avalonia_MCP"));
+        Assert.False(servers.ContainsKey("Avalonia MCP"));
+    }
+
+    [Fact]
+    public void Build_DeduplicatesNamespacesThatCollideAfterSanitizing()
+    {
+        var data = new AppData
+        {
+            McpServers =
+            [
+                new McpServer { Name = "Avalonia MCP", Command = "dotnet" },
+                new McpServer { Name = "Avalonia/MCP", Command = "dotnet" }
+            ]
+        };
+        var chat = new Chat { ActiveMcpServerNames = ["Avalonia MCP", "Avalonia/MCP"] };
+
+        var servers = McpSessionPlanner.Build(data, "C:\\repo", EmptyCatalog(), chat, null, null);
+
+        Assert.All(servers.Keys, key => Assert.Matches("^[a-zA-Z0-9_-]+$", key));
+        Assert.True(servers.ContainsKey("Avalonia_MCP"));
+        Assert.True(servers.ContainsKey("Avalonia_MCP_2"));
+    }
+
+    [Fact]
+    public void Build_DoesNotDuplicateWhenConfiguredAndContextServerShareName()
+    {
+        var data = new AppData
+        {
+            McpServers = [new McpServer { Name = "shared", Command = "node", Args = ["configured.js"] }]
+        };
+        var catalog = new ProjectContextCatalogSnapshot(
+            [],
+            [],
+            [
+                new ProjectContextMcpServerDefinition(
+                    "shared",
+                    new McpStdioServerConfig { Command = "node", Args = ["context.js"] },
+                    "C:\\repo\\.vscode\\mcp.json",
+                    "C:\\repo\\.vscode")
+            ]);
+        var chat = new Chat { ActiveMcpServerNames = ["shared"] };
+
+        var servers = McpSessionPlanner.Build(data, "C:\\repo", catalog, chat, null, null);
+
+        Assert.True(servers.ContainsKey("shared"));
+        Assert.False(servers.ContainsKey("shared_2"));
+        // The configured server wins over the identically named project-context server.
+        var local = Assert.IsType<McpStdioServerConfig>(servers["shared"]);
+        Assert.Equal(["configured.js"], local.Args);
+    }
+
+    [Fact]
+    public void Build_PreservesValidLeadingAndTrailingNamespaceCharacters()
+    {
+        // Leading/trailing '_' and '-' are valid per ^[a-zA-Z0-9_-]+$, so they must be preserved.
+        // Trimming them could collide a user server with a reserved namespace (e.g. github-mcp-server)
+        // and suppress built-in tools.
+        var data = new AppData
+        {
+            McpServers = [new McpServer { Name = "_keep-this-", Command = "node" }]
+        };
+        var chat = new Chat { ActiveMcpServerNames = ["_keep-this-"] };
+
+        var servers = McpSessionPlanner.Build(data, "C:\\repo", EmptyCatalog(), chat, null, null);
+
+        Assert.All(servers.Keys, key => Assert.Matches("^[a-zA-Z0-9_-]+$", key));
+        Assert.True(servers.ContainsKey("_keep-this-"));
+    }
+
     private static ProjectContextCatalogSnapshot EmptyCatalog()
         => new([], [], []);
 }
