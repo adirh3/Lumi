@@ -1,8 +1,10 @@
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using Avalonia;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Templates;
@@ -159,6 +161,31 @@ public sealed class TranscriptTurnControl : UserControl
         _isAttachedToVisualTree = false;
         ReleaseAdoptedHost();
         base.OnDetachedFromVisualTree(e);
+    }
+
+    // Keep the recycled transcript subtree OUT of the UI Automation (accessibility) tree.
+    // When a UIA client is active, Avalonia (12.0.5) lazily creates a managed AutomationPeer plus a
+    // Win32 AutomationNode for every control it walks, pins the node in a ConditionalWeakTable keyed
+    // by the peer, and does NOT release either when the control is later detached. The transcript
+    // constantly streams, rebuilds, and recycles its per-message controls, so those orphaned
+    // peers/nodes accumulate without bound — each one pinning a whole detached StrataChatMessage
+    // subtree and its render-thread composition visuals. Over a long session that flood starves the
+    // UI/render thread: animations break, the navigation menu stops compositing, and everything slows
+    // (the reported cumulative degradation). Turn controls are bounded and reused, so exposing each as
+    // an automation LEAF (no children) prevents per-message peers from ever being created while
+    // keeping the app's real landmarks — nav, composer, the transcript container — accessible.
+    protected override AutomationPeer OnCreateAutomationPeer()
+        => new TranscriptTurnAutomationPeer(this);
+
+    // A control peer that deliberately reports no automation children, pruning the message subtree
+    // from the UIA tree without removing the turn node itself.
+    private sealed class TranscriptTurnAutomationPeer : ControlAutomationPeer
+    {
+        public TranscriptTurnAutomationPeer(Control owner) : base(owner)
+        {
+        }
+
+        protected override IReadOnlyList<AutomationPeer> GetChildrenCore() => [];
     }
 
     private void OnSizeChanged(object? sender, SizeChangedEventArgs e)
