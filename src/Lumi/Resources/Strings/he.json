@@ -269,8 +269,6 @@
   "Watermark_AgentSystemPrompt": "הנחיות שמגדירות את האישיות וההתנהגות של לומי זה\u2026",
   "Watermark_ProjectName": "לדוגמה: האפליקציה שלי",
   "Watermark_ProjectInstructions": "הנחיות מיוחדות לצ׳אטים בפרויקט הזה\u2026",
-  "Watermark_ProjectWorkingDir": "C:\\Projects\\MyApp",
-  "Watermark_ProjectAdditionalContextDirs": "C:\\Projects\\SharedSkills\nD:\\McpConfigs",
   "Field_WorkingDirectory": "ספריית עבודה",
   "Field_AdditionalContextFolders": "תיקיות הקשר נוספות",
   "Project_Browse": "עיון",

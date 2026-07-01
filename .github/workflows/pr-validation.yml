@@ -15,9 +15,23 @@ permissions:
 
 jobs:
   validate:
-    name: Validate
-    runs-on: windows-latest
+    name: Validate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows is the primary/shipping platform: full build + test suite.
+          - os: windows-latest
+            run_tests: true
+          # Linux and macOS validate that the cross-platform (net11.0) target compiles.
+          # The unit-test suite still carries Windows-only path/host assumptions, so it is
+          # gated on Windows for now.
+          - os: ubuntu-latest
+            run_tests: false
+          - os: macos-latest
+            run_tests: false
 
     steps:
       - name: Checkout
@@ -38,10 +52,11 @@ jobs:
         run: dotnet build Lumi.slnx --configuration Release --no-restore
 
       - name: Test
+        if: ${{ matrix.run_tests }}
         run: dotnet test Lumi.slnx --configuration Release --no-build --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
 
       - name: Upload test results
-        if: ${{ always() }}
+        if: ${{ always() && matrix.run_tests }}
         uses: actions/upload-artifact@v4
         with:
           name: test-results

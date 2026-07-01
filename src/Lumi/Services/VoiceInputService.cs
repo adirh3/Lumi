@@ -1,3 +1,4 @@
+#if WINDOWS
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -158,3 +159,35 @@ internal sealed class VoiceInputService : IDisposable
         Cleanup();
     }
 }
+
+#else
+namespace Lumi.Services;
+
+/// <summary>
+/// Non-Windows stub. Push-to-talk voice input uses the WinRT speech recognizer,
+/// which is Windows-only. <see cref="IsAvailable"/> is false on Linux/macOS and the
+/// UI hides the mic button, so these members are inert.
+/// </summary>
+internal sealed class VoiceInputService : IDisposable
+{
+#pragma warning disable CS0067 // Events are part of the shared API surface; never raised in the stub.
+    public event Action<string>? HypothesisGenerated;
+    public event Action<string>? ResultGenerated;
+    public event Action? Stopped;
+    public event Action<string>? Error;
+#pragma warning restore CS0067
+
+    public bool IsRecording => false;
+    public bool IsAvailable => false;
+
+    public Task StartAsync(string language = "")
+    {
+        Error?.Invoke("Voice input is only available on Windows.");
+        Stopped?.Invoke();
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync() => Task.CompletedTask;
+    public void Dispose() { }
+}
+#endif

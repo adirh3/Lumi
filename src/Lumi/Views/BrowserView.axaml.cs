@@ -24,7 +24,7 @@ public partial class BrowserView : UserControl
     private bool _isInitialized;
     private bool _isImportInProgress;
     private BrowserCookieService.BrowserProfile? _selectedProfile;
-    private EventHandler<Microsoft.Web.WebView2.Core.CoreWebView2SourceChangedEventArgs>? _sourceChangedHandler;
+    private Action? _urlChangedHandler;
 
     public BrowserView()
     {
@@ -84,13 +84,12 @@ public partial class BrowserView : UserControl
         if (_browserService is not null)
         {
             _browserService.BrowserReady -= OnBrowserReady;
-            if (_browserService.Controller is not null)
-                _browserService.Controller.IsVisible = false;
-            if (_browserService.WebView is not null && _sourceChangedHandler is not null)
-                _browserService.WebView.SourceChanged -= _sourceChangedHandler;
+            _browserService.SetControllerVisible(false);
+            if (_urlChangedHandler is not null)
+                _browserService.UrlChanged -= _urlChangedHandler;
         }
 
-        _sourceChangedHandler = null;
+        _urlChangedHandler = null;
         _browserService = null;
         _dataStore = null;
         _isInitialized = false;
@@ -99,15 +98,13 @@ public partial class BrowserView : UserControl
     /// <summary>Hides the current browser service's controller overlay.</summary>
     public void HideCurrentController()
     {
-        if (_browserService?.Controller is not null)
-            _browserService.Controller.IsVisible = false;
+        _browserService?.SetControllerVisible(false);
     }
 
     /// <summary>Shows the current browser service's controller overlay.</summary>
     public void ShowCurrentController()
     {
-        if (_browserService?.Controller is not null)
-            _browserService.Controller.IsVisible = true;
+        _browserService?.SetControllerVisible(true);
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -156,13 +153,11 @@ public partial class BrowserView : UserControl
             {
                 TryInitialize();
                 UpdateWebViewBounds();
-                if (_browserService?.Controller is not null)
-                    _browserService.Controller.IsVisible = true;
+                _browserService?.SetControllerVisible(true);
             }
             else
             {
-                if (_browserService?.Controller is not null)
-                    _browserService.Controller.IsVisible = false;
+                _browserService?.SetControllerVisible(false);
             }
         }
     }
@@ -202,14 +197,14 @@ public partial class BrowserView : UserControl
                 _loadingOverlay.IsVisible = false;
             _isInitialized = true;
 
-            if (_browserService?.WebView is not null)
+            if (_browserService is not null)
             {
                 // Unsub old handler if switching services
-                if (_sourceChangedHandler is not null)
-                    _browserService.WebView.SourceChanged -= _sourceChangedHandler;
+                if (_urlChangedHandler is not null)
+                    _browserService.UrlChanged -= _urlChangedHandler;
 
-                _sourceChangedHandler = (_, _) => Dispatcher.UIThread.Post(UpdateUrl);
-                _browserService.WebView.SourceChanged += _sourceChangedHandler;
+                _urlChangedHandler = () => Dispatcher.UIThread.Post(UpdateUrl);
+                _browserService.UrlChanged += _urlChangedHandler;
             }
 
             // Show cookie onboarding if user hasn't imported yet
@@ -231,11 +226,11 @@ public partial class BrowserView : UserControl
 
     private void UpdateWebViewBounds()
     {
-        if (_browserService?.Controller is null) return;
+        if (_browserService is null || !_browserService.HasController) return;
         if (!IsEffectivelyVisible || Bounds.Width < 1 || Bounds.Height < 1)
         {
             // Not on screen — hide the native overlay
-            _browserService.Controller.IsVisible = false;
+            _browserService.SetControllerVisible(false);
             return;
         }
 
@@ -261,8 +256,7 @@ public partial class BrowserView : UserControl
         if (urlBarHeight < 1) urlBarHeight = 36.0; // Guard against unmeasured layout
 
         // Sync rasterization scale with Avalonia's render scaling for sharp text
-        if (Math.Abs(_browserService.Controller.RasterizationScale - scaling) > 0.01)
-            _browserService.Controller.RasterizationScale = scaling;
+        _browserService.SyncRasterizationScale(scaling);
 
         // Corner radius in physical pixels matching BrowserIsland's inner CornerRadius
         // (Radius.Overlay=14 minus BorderThickness=1 = 13 logical pixels)
@@ -300,8 +294,7 @@ public partial class BrowserView : UserControl
         }
 
         // Hide WebView2 while onboarding is visible
-        if (_browserService?.Controller is not null)
-            _browserService.Controller.IsVisible = false;
+        _browserService?.SetControllerVisible(false);
 
         _profilePicker.Children.Clear();
         _selectedProfile = null;
@@ -351,8 +344,7 @@ public partial class BrowserView : UserControl
             _cookieOnboardingOverlay.IsVisible = false;
 
         // Restore WebView2 visibility
-        if (_browserService?.Controller is not null)
-            _browserService.Controller.IsVisible = true;
+        _browserService?.SetControllerVisible(true);
         UpdateWebViewBounds();
     }
 
@@ -394,7 +386,7 @@ public partial class BrowserView : UserControl
 
             if (_importProgressPanel is not null) _importProgressPanel.IsVisible = false;
             HideCookieOnboarding();
-            _browserService.WebView?.Reload();
+            _browserService.Reload();
         }
         catch (TimeoutException)
         {
@@ -447,6 +439,6 @@ public partial class BrowserView : UserControl
 
     private void OnRefreshClick(object? sender, RoutedEventArgs e)
     {
-        _browserService?.WebView?.Reload();
+        _browserService?.Reload();
     }
 }

@@ -1,3 +1,43 @@
+# Release pipeline — builds, signs and publishes Velopack installers + auto-update
+# feeds for Windows, Linux and macOS from a single workflow_dispatch run.
+#
+# Auto-update: Lumi's UpdateService uses Velopack's GithubSource, which automatically
+# selects the per-OS/arch "channel" feed (releases.<channel>.json) matching the installed
+# build. Each job below packs and uploads its own channel, so Windows, Linux and macOS
+# users all receive in-app updates with no application code change.
+#
+#   Channel     Platform                       Installer produced by Velopack
+#   --------    ---------------------------    ------------------------------------------
+#   win         Windows x64                    Lumi-win-Setup.exe (+ delta nupkg)
+#   linux       Linux x64                      Lumi.AppImage
+#   osx-arm64   macOS Apple Silicon            Lumi.pkg + Lumi.app (Portable zip)
+#   osx-x64     macOS Intel                    Lumi.pkg + Lumi.app (Portable zip)
+#
+# Orchestration / "don't break Windows": the Windows job creates AND publishes the GitHub
+# release itself (unchanged from before, signed via Azure Trusted Signing). The Linux and
+# macOS jobs run AFTER it (needs: release-windows) and MERGE their assets onto that same
+# release with `vpk upload --merge`. This keeps the established, signed Windows release path
+# completely independent — a Linux/macOS runner outage can never block or alter what Windows
+# users receive — while still producing one multi-platform GitHub release. Sequencing via
+# `needs:` also avoids Velopack's concurrent create-release race: Windows creates the release,
+# every other platform only appends its own channel feed.
+#
+# vpk CLI is pinned to 0.0.1298 to exactly match the Velopack library referenced by the app
+# (src/Lumi/Lumi.csproj). Velopack recommends matching CLI and library versions so the
+# generated feed/installer format stays compatible with already-installed clients' updater.
+#
+# macOS code signing + notarization is OPTIONAL: it auto-enables when the Apple secrets below
+# are present, otherwise macOS installers are produced UNSIGNED (they work, but Gatekeeper
+# shows a first-launch warning). Required secrets to enable signed/notarized macOS builds:
+#   APPLE_BUILD_CERT_BASE64      base64 of the "Developer ID Application" certificate (.p12)
+#   APPLE_INSTALLER_CERT_BASE64  base64 of the "Developer ID Installer" certificate (.p12)
+#   APPLE_CERT_PASSWORD          export password shared by both .p12 files
+#   APPLE_SIGN_IDENTITY          e.g. "Developer ID Application: Your Name (TEAMID)"
+#   APPLE_INSTALLER_IDENTITY     e.g. "Developer ID Installer: Your Name (TEAMID)"
+#   APPLE_ID                     Apple ID email used for notarization
+#   APPLE_APP_PASSWORD           app-specific password for that Apple ID
+#   APPLE_TEAM_ID                Apple Developer Team ID
+
 name: Release
 
 on:
@@ -13,6 +53,7 @@ permissions:
   contents: write
 
 jobs:
+  # Windows is the authoritative job: it creates and publishes the GitHub release.
   release-windows:
     runs-on: windows-latest
     steps:
@@ -21,7 +62,15 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup .NET
+      # Velopack's vpk CLI is multi-targeted; its tool host selects the net9.0 build when a
+      # newer runtime is present, so install the .NET 9 runtime rather than relying on the
+      # runner image shipping it. The build still uses the highest SDK installed (.NET 11).
+      - name: Setup .NET 9 (runtime for the Velopack vpk CLI)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Setup .NET 11 (SDK for building Lumi)
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '11.0.x'
@@ -56,13 +105,14 @@ jobs:
             -v Information
 
       - name: Install Velopack CLI
-        run: dotnet tool install -g vpk
+        run: dotnet tool install -g vpk --version 0.0.1298
 
       - name: Download previous release (for delta generation)
         run: >
           vpk download github
           --repoUrl https://github.com/${{ github.repository }}
           --token ${{ secrets.GITHUB_TOKEN }}
+          --channel win
         continue-on-error: true
 
       - name: Pack Velopack release
@@ -73,6 +123,7 @@ jobs:
           -p publish
           --mainExe Lumi.exe
           --icon src/Lumi/Assets/lumi-icon.ico
+          --channel win
 
       - name: Sign Setup.exe
         shell: pwsh
@@ -84,7 +135,7 @@ jobs:
             -act azure-cli `
             -v Information
 
-      - name: Upload to GitHub Releases
+      - name: Upload to GitHub Releases (creates + publishes the release)
         run: >
           vpk upload github
           --repoUrl https://github.com/${{ github.repository }}
@@ -92,3 +143,225 @@ jobs:
           --publish
           --releaseName "Lumi v${{ inputs.version }}"
           --tag v${{ inputs.version }}
+          --channel win
+
+  # Linux: self-contained AppImage (channel "linux"), merged onto the Windows release.
+  # The AppImage bundles the app's own dependencies but relies on base desktop libraries
+  # (libX11/libICE/libSM/fontconfig) being present on the user's machine — standard on a
+  # Linux desktop.
+  release-linux:
+    needs: release-windows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET 9 (runtime for the Velopack vpk CLI)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Setup .NET 11 (SDK for building Lumi)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install Velopack CLI
+        run: |
+          dotnet tool install -g vpk --version 0.0.1298
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Publish (Single-file, self-contained, linux-x64)
+        run: >
+          dotnet publish src/Lumi/Lumi.csproj
+          -c Release
+          -r linux-x64
+          -o publish-linux
+          /p:Version=${{ inputs.version }}
+
+      - name: Download previous release (for delta generation)
+        run: >
+          vpk download github
+          --repoUrl https://github.com/${{ github.repository }}
+          --token ${{ secrets.GITHUB_TOKEN }}
+          --channel linux
+        continue-on-error: true
+
+      - name: Pack Velopack release (linux)
+        run: >
+          vpk pack
+          -u Lumi
+          -v ${{ inputs.version }}
+          -p publish-linux
+          -o Releases
+          -e Lumi
+          -i src/Lumi/Assets/lumi-icon.png
+          --channel linux
+
+      - name: Merge onto GitHub release
+        run: >
+          vpk upload github
+          --repoUrl https://github.com/${{ github.repository }}
+          --token ${{ secrets.GITHUB_TOKEN }}
+          --tag v${{ inputs.version }}
+          --channel linux
+          --merge
+
+  # macOS: native build per architecture (Apple Silicon + Intel). Each arch is its own
+  # Velopack channel (osx-arm64 / osx-x64); GithubSource auto-selects the right one for the
+  # user's Mac. macOS packaging MUST run on macOS (codesign/xcrun/productbuild are required),
+  # so each arch builds on its native runner.
+  release-macos:
+    needs: release-windows
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: osx-arm64
+            runner: macos-latest
+          - rid: osx-x64
+            runner: macos-13
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET 9 (runtime for the Velopack vpk CLI)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Setup .NET 11 (SDK for building Lumi)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install Velopack CLI
+        run: |
+          dotnet tool install -g vpk --version 0.0.1298
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Generate .icns icon
+        run: |
+          set -eo pipefail
+          ICONSET="$RUNNER_TEMP/lumi.iconset"
+          SRC=src/Lumi/Assets/lumi-icon.png
+          mkdir -p "$ICONSET"
+          sips -z 16 16     "$SRC" --out "$ICONSET/icon_16x16.png"
+          sips -z 32 32     "$SRC" --out "$ICONSET/icon_16x16@2x.png"
+          sips -z 32 32     "$SRC" --out "$ICONSET/icon_32x32.png"
+          sips -z 64 64     "$SRC" --out "$ICONSET/icon_32x32@2x.png"
+          sips -z 128 128   "$SRC" --out "$ICONSET/icon_128x128.png"
+          sips -z 256 256   "$SRC" --out "$ICONSET/icon_128x128@2x.png"
+          sips -z 256 256   "$SRC" --out "$ICONSET/icon_256x256.png"
+          sips -z 512 512   "$SRC" --out "$ICONSET/icon_256x256@2x.png"
+          sips -z 512 512   "$SRC" --out "$ICONSET/icon_512x512.png"
+          cp "$SRC" "$ICONSET/icon_512x512@2x.png"
+          iconutil -c icns "$ICONSET" -o "$RUNNER_TEMP/lumi-icon.icns"
+
+      - name: Set up Apple code signing (skipped when secrets are absent)
+        id: applesign
+        env:
+          APPLE_BUILD_CERT_BASE64: ${{ secrets.APPLE_BUILD_CERT_BASE64 }}
+          APPLE_INSTALLER_CERT_BASE64: ${{ secrets.APPLE_INSTALLER_CERT_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          APPLE_SIGN_IDENTITY: ${{ secrets.APPLE_SIGN_IDENTITY }}
+          APPLE_INSTALLER_IDENTITY: ${{ secrets.APPLE_INSTALLER_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -eo pipefail
+          # Signing requires the FULL set of Apple secrets. Treat "none set" as an intentional
+          # unsigned build, but "some but not all set" as a misconfiguration and fail loudly
+          # (rather than silently building unsigned or entering the signed path and failing deep
+          # inside vpk with a confusing keychain/identity error).
+          required="APPLE_BUILD_CERT_BASE64 APPLE_INSTALLER_CERT_BASE64 APPLE_CERT_PASSWORD APPLE_SIGN_IDENTITY APPLE_INSTALLER_IDENTITY APPLE_ID APPLE_APP_PASSWORD APPLE_TEAM_ID"
+          present=0; missing=""
+          for name in $required; do
+            if [ -n "${!name:-}" ]; then present=$((present+1)); else missing="$missing $name"; fi
+          done
+          if [ "$present" -eq 0 ]; then
+            echo "No Apple signing secrets configured -> building UNSIGNED (Gatekeeper shows a first-launch warning)."
+            echo "signing=unsigned" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "$missing" ]; then
+            echo "::error::Apple signing is partially configured. Missing:$missing. Set all 8 APPLE_* secrets to sign, or none to build unsigned."
+            exit 1
+          fi
+          KEYCHAIN_PATH="$RUNNER_TEMP/lumi-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo -n "$APPLE_BUILD_CERT_BASE64" | base64 --decode -o "$RUNNER_TEMP/build_cert.p12"
+          echo -n "$APPLE_INSTALLER_CERT_BASE64" | base64 --decode -o "$RUNNER_TEMP/installer_cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$RUNNER_TEMP/build_cert.p12" -P "$APPLE_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security import "$RUNNER_TEMP/installer_cert.p12" -P "$APPLE_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          xcrun notarytool store-credentials velopack-profile \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" \
+            --keychain "$KEYCHAIN_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "signing=signed" >> "$GITHUB_OUTPUT"
+
+      - name: Publish (Single-file, self-contained, ${{ matrix.rid }})
+        run: >
+          dotnet publish src/Lumi/Lumi.csproj
+          -c Release
+          -r ${{ matrix.rid }}
+          -o publish-${{ matrix.rid }}
+          /p:Version=${{ inputs.version }}
+
+      - name: Download previous release (for delta generation)
+        run: >
+          vpk download github
+          --repoUrl https://github.com/${{ github.repository }}
+          --token ${{ secrets.GITHUB_TOKEN }}
+          --channel ${{ matrix.rid }}
+        continue-on-error: true
+
+      - name: Pack Velopack release (${{ matrix.rid }})
+        env:
+          APPLE_SIGN_IDENTITY: ${{ secrets.APPLE_SIGN_IDENTITY }}
+          APPLE_INSTALLER_IDENTITY: ${{ secrets.APPLE_INSTALLER_IDENTITY }}
+        run: |
+          set -eo pipefail
+          SIGN_ARGS=()
+          if [ "${{ steps.applesign.outputs.signing }}" = "signed" ]; then
+            SIGN_ARGS=(--signAppIdentity "$APPLE_SIGN_IDENTITY" \
+                       --signInstallIdentity "$APPLE_INSTALLER_IDENTITY" \
+                       --notaryProfile velopack-profile \
+                       --keychain "$KEYCHAIN_PATH")
+          fi
+          vpk pack \
+            -u Lumi \
+            -v ${{ inputs.version }} \
+            -p "publish-${{ matrix.rid }}" \
+            -o Releases \
+            -e Lumi \
+            -i "$RUNNER_TEMP/lumi-icon.icns" \
+            --bundleId com.lumi.app \
+            --channel ${{ matrix.rid }} \
+            "${SIGN_ARGS[@]}"
+
+      - name: Merge onto GitHub release
+        run: >
+          vpk upload github
+          --repoUrl https://github.com/${{ github.repository }}
+          --token ${{ secrets.GITHUB_TOKEN }}
+          --tag v${{ inputs.version }}
+          --channel ${{ matrix.rid }}
+          --merge
+
+      - name: Clean up signing keychain
+        if: always() && steps.applesign.outputs.signing == 'signed'
+        run: security delete-keychain "$RUNNER_TEMP/lumi-signing.keychain-db" || true

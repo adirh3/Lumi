@@ -1088,20 +1088,51 @@ public class CopilotService : IAsyncDisposable
         // Check runtimes/{rid}/native/ (standard SDK output location)
         var rid = RuntimeInformation.RuntimeIdentifier;
         var runtimePath = Path.Combine(appDir, "runtimes", rid, "native", binary);
-        if (File.Exists(runtimePath)) return runtimePath;
+        if (File.Exists(runtimePath)) return EnsureExecutable(runtimePath);
 
         // Fallback: try portable rid
         var os = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "win" :
                  RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "osx" : "linux";
         var arch = RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "arm64" : "x64";
         var portablePath = Path.Combine(appDir, "runtimes", $"{os}-{arch}", "native", binary);
-        if (File.Exists(portablePath)) return portablePath;
+        if (File.Exists(portablePath)) return EnsureExecutable(portablePath);
 
         // Fallback: check app directory directly
         var directPath = Path.Combine(appDir, binary);
-        if (File.Exists(directPath)) return directPath;
+        if (File.Exists(directPath)) return EnsureExecutable(directPath);
 
         return null;
+    }
+
+    /// <summary>
+    /// Ensures the bundled Copilot CLI carries the Unix executable bit before the SDK spawns it.
+    /// With <c>PublishSingleFile</c> + <c>IncludeNativeLibrariesForSelfExtract</c>, the CLI is
+    /// unpacked at runtime into the self-extraction directory, and .NET does not set +x on extracted
+    /// native *executables*; packaging archives (Velopack nupkg/zip) and cross-OS publishes can drop
+    /// the bit too. Without it, the SDK's <c>Process.Start</c> fails with "Permission denied" on
+    /// Linux/macOS. No-op on Windows. Best-effort: any failure leaves the file untouched so the spawn
+    /// behaves exactly as it did before (no regression).
+    /// </summary>
+    private static string EnsureExecutable(string path)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            return path;
+
+        try
+        {
+            const UnixFileMode executeBits =
+                UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute;
+            var mode = File.GetUnixFileMode(path);
+            if ((mode & executeBits) != executeBits)
+                File.SetUnixFileMode(path, mode | executeBits);
+        }
+        catch
+        {
+            // Best-effort: if perms can't be adjusted, fall through — the spawn will surface the
+            // original error rather than a new one.
+        }
+
+        return path;
     }
 
     private static void ConfigureAuthentication(CopilotClientOptions options)

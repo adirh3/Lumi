@@ -459,12 +459,12 @@ public partial class OnboardingViewModel : ObservableObject
 
             // Run a command to dig deeper
             AIFunctionFactory.Create(
-                async ([Description("PowerShell command to execute (must be read-only, no mutations)")] string command) =>
+                async ([Description("Read-only shell command to execute (no mutations)")] string command) =>
                 {
                     return await RunSafeCommandAsync(command, ct);
                 },
                 "run_command",
-                "Execute a read-only PowerShell command to investigate the user's PC. Use this to dig deeper into specific areas of interest discovered in the scan data. Examples: read config files, check git repos, inspect app settings, list recent browser history."),
+                $"Execute a read-only {OnboardingShellLabel} command to investigate the user's PC. Use this to dig deeper into specific areas of interest discovered in the scan data. Examples: read config files, check git repos, inspect app settings, list recent browser history."),
 
             // Read a specific file
             AIFunctionFactory.Create(
@@ -822,7 +822,7 @@ public partial class OnboardingViewModel : ObservableObject
 
             var info = new FileInfo(path);
             if (info.Length > 512 * 1024)
-                return $"File too large ({info.Length / 1024}KB). Try reading a smaller file or using run_command with Select-String.";
+                return $"File too large ({info.Length / 1024}KB). Try reading a smaller file or using run_command with {(OperatingSystem.IsWindows() ? "Select-String" : "grep")}.";
 
             var lines = await File.ReadAllLinesAsync(path, ct);
             var taken = lines.Take(maxLines).ToArray();
@@ -891,7 +891,7 @@ public partial class OnboardingViewModel : ObservableObject
             You have scan data as a starting point, but scan/tool output is only evidence for questions — not memory material by itself.
 
             ## Your tools
-            - run_command: Run safe PowerShell commands to gather light context
+            - run_command: Run safe {OnboardingShellLabel} commands to gather light context
             - read_file: Read small files only when needed for context
             - list_directory: Explore folders only when needed for context
             - save_memory: Save a durable personal fact the user explicitly states or chooses (key + content + category)
@@ -1023,19 +1023,31 @@ public partial class OnboardingViewModel : ObservableObject
     private static string Truncate(string text, int maxLength) =>
         text.Length <= maxLength ? text : text[..maxLength] + "…";
 
+    /// <summary>Label for the platform shell, used in agent-facing tool descriptions.</summary>
+    private static string OnboardingShellLabel => OperatingSystem.IsWindows() ? "PowerShell" : "bash";
+
     private static async Task<string> RunPowerShellAsync(string command, CancellationToken ct)
     {
-        using var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
+        // Use the platform's default shell: PowerShell on Windows, bash elsewhere.
+        var startInfo = OperatingSystem.IsWindows()
+            ? new ProcessStartInfo
             {
                 FileName = "powershell",
                 Arguments = $"-NoProfile -NoLogo -NonInteractive -Command {command}",
                 RedirectStandardOutput = true, RedirectStandardError = true,
                 UseShellExecute = false, CreateNoWindow = true
             }
-        };
-        process.Start();
+            : new ProcessStartInfo
+            {
+                FileName = "/bin/bash",
+                ArgumentList = { "-c", command },
+                RedirectStandardOutput = true, RedirectStandardError = true,
+                UseShellExecute = false, CreateNoWindow = true
+            };
+
+        using var process = new Process { StartInfo = startInfo };
+        try { process.Start(); }
+        catch { return ""; } // Shell unavailable — scans degrade gracefully.
         var output = await process.StandardOutput.ReadToEndAsync(ct);
         try { await process.WaitForExitAsync(ct); }
         catch (OperationCanceledException) { try { process.Kill(); } catch { } throw; }

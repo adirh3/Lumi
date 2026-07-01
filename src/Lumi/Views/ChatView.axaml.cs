@@ -1659,7 +1659,10 @@ public partial class ChatView : UserControl
         base.OnKeyDown(e);
         if (e.Handled) return;
 
-        var ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+        // Command modifier: Cmd on macOS, Ctrl on Windows/Linux (unchanged on Windows/Linux).
+        var ctrl = OperatingSystem.IsMacOS()
+            ? (e.KeyModifiers & KeyModifiers.Meta) != 0
+            : (e.KeyModifiers & KeyModifiers.Control) != 0;
 
         if (ctrl && e.Key == Key.F)
         {

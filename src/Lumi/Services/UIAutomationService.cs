@@ -1,3 +1,4 @@
+#if WINDOWS
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -686,3 +687,26 @@ public sealed class UIAutomationService : IDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool IsIconic(IntPtr hWnd);
 }
+
+#else
+namespace Lumi.Services;
+
+/// <summary>
+/// Non-Windows stub. Desktop UI Automation relies on the Windows-only FlaUI/UIA3
+/// stack, so the ui_* tools are never registered on Linux/macOS and these members
+/// are inert. The type still exists so cross-platform callers compile unchanged.
+/// </summary>
+public sealed class UIAutomationService : IDisposable
+{
+    private const string NotSupported = "Desktop UI automation is only available on Windows.";
+
+    public string ListWindows() => NotSupported;
+    public string InspectWindow(string titleQuery, int depth = 3) => NotSupported;
+    public string FindElements(string titleQuery, string query) => NotSupported;
+    public string ClickElement(int elementId) => NotSupported;
+    public string TypeText(int elementId, string text) => NotSupported;
+    public string SendKeys(string keys, int? elementId = null) => NotSupported;
+    public string ReadElement(int elementId) => NotSupported;
+    public void Dispose() { }
+}
+#endif

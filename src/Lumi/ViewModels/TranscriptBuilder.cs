@@ -470,7 +470,7 @@ public class TranscriptBuilder
         if (toolCallId is not null && initialStatus == StrataAiToolCallStatus.InProgress)
             _toolStartTimes[toolCallId] = Stopwatch.GetTimestamp();
 
-        if (toolName == "powershell")
+        if (ToolDisplayHelper.IsShellCommandTool(toolName))
         {
             var command = ToolDisplayHelper.ExtractJsonField(msgVm.Content, "command") ?? "";
             var termPreview = new TerminalPreviewItem(friendlyName, command, initialStatus, $"terminal:{toolStableIdSeed}")

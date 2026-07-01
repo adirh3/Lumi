@@ -127,7 +127,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>State-aware tooltip for the sidebar collapse/expand toggle.</summary>
     public string SidebarToggleTooltip =>
-        IsSidebarCollapsed ? Loc.Sidebar_ExpandTooltip : Loc.Sidebar_CollapseTooltip;
+        Loc.AdaptKeyboardHint(IsSidebarCollapsed ? Loc.Sidebar_ExpandTooltip : Loc.Sidebar_CollapseTooltip);
 
     /// <summary>
     /// Whether the collapsed icon rail (quick nav shortcuts shown in place of the hidden sidebar)

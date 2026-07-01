@@ -152,9 +152,22 @@ public static partial class ToolDisplayHelper
             or "insert" or "write" or "save_file";
     }
 
+    /// <summary>
+    /// The primary shell-command invocation tool: <c>powershell</c> on Windows, <c>bash</c>/<c>shell</c>
+    /// on Linux/macOS. These start a terminal session (get a live preview) and frequently mutate the
+    /// repo (git, builds, file moves), so they also drive live git/file-chip refresh. On Windows the
+    /// CLI only ever emits <c>powershell</c>, so this matches the previous <c>== "powershell"</c> checks
+    /// exactly there; the extra names only ever appear on Linux/macOS.
+    /// </summary>
+    public static bool IsShellCommandTool(string? toolName)
+    {
+        return toolName is "powershell" or "bash" or "shell";
+    }
+
     public static bool IsTerminalStreamingTool(string? toolName)
     {
-        return toolName is "powershell" or "read_powershell" or "write_powershell" or "stop_powershell";
+        return IsShellCommandTool(toolName)
+            || toolName is "read_powershell" or "write_powershell" or "stop_powershell";
     }
 
     public static bool IsSearchTool(string? toolName)

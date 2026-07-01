@@ -323,9 +323,13 @@ public static partial class ToolDisplayHelper
                     return sb.ToString().TrimEnd();
                 }
                 case "powershell":
+                case "bash":
+                case "shell":
                 {
                     var cmd = GetString(root, "command");
-                    return !string.IsNullOrEmpty(cmd) ? $"```powershell\n{cmd.Trim()}\n```" : null;
+                    if (string.IsNullOrEmpty(cmd)) return null;
+                    var lang = toolName == "powershell" ? "powershell" : "bash";
+                    return $"```{lang}\n{cmd.Trim()}\n```";
                 }
                 case "sql":
                 {

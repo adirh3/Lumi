@@ -133,7 +133,7 @@
                 <TextBlock Text="✕" FontSize="12" Foreground="{DynamicResource Brush.TextTertiary}" />
               </Button>
             </StackPanel>
-            <TextBox Text="{Binding EditWorkingDirectory}" PlaceholderText="{loc:Str Watermark_ProjectWorkingDir}" />
+            <TextBox Text="{Binding EditWorkingDirectory}" PlaceholderText="{Binding WorkingDirectoryPlaceholder}" />
           </DockPanel>
 
           <!-- Coding project indicator -->
@@ -246,7 +246,7 @@
                    MinHeight="62"
                    MaxHeight="140"
                    VerticalContentAlignment="Top"
-                   PlaceholderText="{loc:Str Watermark_ProjectAdditionalContextDirs}" />
+                   PlaceholderText="{Binding AdditionalContextDirsPlaceholder}" />
 
           <!-- Instructions -->
           <TextBlock Text="{loc:Str Field_Instructions}" Classes="field-label" Margin="0,12,0,4" />

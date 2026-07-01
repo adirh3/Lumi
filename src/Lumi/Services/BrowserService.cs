@@ -11,10 +11,13 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
+#if WINDOWS
 using Microsoft.Web.WebView2.Core;
+#endif
 
 namespace Lumi.Services;
 
+#if WINDOWS
 /// <summary>
 /// Manages an embedded WebView2 browser instance and exposes automation tool methods
 /// that the LLM can invoke (navigate, click, type, screenshot, JS eval, etc.).
@@ -242,6 +245,34 @@ public sealed partial class BrowserService : IAsyncDisposable
     /// <summary>The underlying controller (for resize/bounds).</summary>
     public CoreWebView2Controller? Controller => _controller;
 
+    // ── Cross-platform view surface ───────────────────────────────────────
+    // These wrappers let the shared BrowserView / preview-panel code drive the
+    // native overlay WITHOUT referencing WebView2 types, so the same view code
+    // compiles on Linux/macOS (where BrowserService is a stub).
+
+    /// <summary>Raised (on the WebView2 UI thread) when the page URL changes.</summary>
+    public event Action? UrlChanged;
+
+    /// <summary>True once the native controller has been created.</summary>
+    public bool HasController => _controller is not null;
+
+    /// <summary>Shows or hides the native browser overlay, if present.</summary>
+    public void SetControllerVisible(bool visible)
+    {
+        if (_controller is not null)
+            _controller.IsVisible = visible;
+    }
+
+    /// <summary>Syncs the native overlay's rasterization scale with Avalonia's render scaling.</summary>
+    public void SyncRasterizationScale(double scale)
+    {
+        if (_controller is not null && Math.Abs(_controller.RasterizationScale - scale) > 0.01)
+            _controller.RasterizationScale = scale;
+    }
+
+    /// <summary>Reloads the current page, if initialized.</summary>
+    public void Reload() => _webView?.Reload();
+
     /// <summary>
     /// Initializes the WebView2 environment and controller with a persistent user data folder.
     /// Uses a shared environment so all per-chat instances share cookies/sessions.
@@ -353,6 +384,7 @@ public sealed partial class BrowserService : IAsyncDisposable
     {
         var url = _webView?.Source ?? "about:blank";
         _sourceChangedTcs?.TrySetResult(url);
+        UrlChanged?.Invoke();
     }
 
     private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
@@ -2486,3 +2518,49 @@ public sealed partial class BrowserService : IAsyncDisposable
         }
     }
 }
+
+#else
+/// <summary>
+/// Non-Windows stub. The embedded browser is built on WebView2 (Windows-only), so the
+/// lumi_browser_* tools are not registered on Linux/macOS and the browser panel is never
+/// shown. This stub preserves the public API so shared ViewModels/Views compile unchanged;
+/// every operation is an inert no-op or returns an "unsupported" message.
+/// </summary>
+public sealed class BrowserService : IAsyncDisposable
+{
+    private const string NotSupported = "The embedded browser is only available on Windows.";
+
+#pragma warning disable CS0067 // Part of the shared API surface; never raised in the stub.
+    public event Action? BrowserReady;
+    public event Action? UrlChanged;
+#pragma warning restore CS0067
+
+    public string CurrentUrl => "about:blank";
+    public string CurrentTitle => "";
+    public bool IsInitialized => false;
+    public bool HasController => false;
+
+    public void SetTheme(bool isDark) { }
+    public void SetControllerVisible(bool visible) { }
+    public void SyncRasterizationScale(double scale) { }
+    public void Reload() { }
+    public void SetParentHwnd(IntPtr hwnd) { }
+    public void SetBounds(int x, int y, int width, int height, int cornerRadiusPx = 0) { }
+
+    public Task InitializeAsync(IntPtr parentHwnd) => Task.CompletedTask;
+    public Task<string> OpenAndSnapshotAsync(string url) => Task.FromResult(NotSupported);
+    public Task<string> LookAsync(string? filter = null) => Task.FromResult(NotSupported);
+    public Task<string> FindElementsAsync(string query, int limit = 12, bool preferDialog = true) => Task.FromResult(NotSupported);
+    public Task<string> DoAsync(string action, string? target = null, string? value = null) => Task.FromResult(NotSupported);
+    public Task<string> EvaluateAsync(string javascript) => Task.FromResult(NotSupported);
+    public Task<string> PressKeyAsync(string key, string? selector = null) => Task.FromResult(NotSupported);
+    public Task<string> WaitForAsync(string selector, int timeoutMs = 10000) => Task.FromResult(NotSupported);
+    public Task<string> GoBackAsync() => Task.FromResult(NotSupported);
+    public Task<string> ScrollAsync(string direction, int pixels = 500) => Task.FromResult(NotSupported);
+    public Task<string> UploadFileAsync(string? target, string? filesValue) => Task.FromResult(NotSupported);
+    public Task ClearCookiesAsync() => Task.CompletedTask;
+    public Task<int> ImportCookiesAsync(BrowserCookieService.BrowserProfile profile) => Task.FromResult(0);
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+#endif

@@ -357,11 +357,23 @@ public sealed class ChatViewModelAgentRoutingTests
             .Select(tool => tool.Name)
             .ToArray();
 
-        Assert.Contains(ToolDisplayHelper.BrowserOpenToolName, toolNames);
-        Assert.Contains(ToolDisplayHelper.BrowserLookToolName, toolNames);
-        Assert.Contains(ToolDisplayHelper.BrowserFindToolName, toolNames);
-        Assert.Contains(ToolDisplayHelper.BrowserDoToolName, toolNames);
-        Assert.Contains(ToolDisplayHelper.BrowserJsToolName, toolNames);
+        // The embedded browser (WebView2) is Windows-only, so the lumi_browser_* tools are only
+        // registered on Windows. Elsewhere they must be absent so the agent isn't told about them.
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Contains(ToolDisplayHelper.BrowserOpenToolName, toolNames);
+            Assert.Contains(ToolDisplayHelper.BrowserLookToolName, toolNames);
+            Assert.Contains(ToolDisplayHelper.BrowserFindToolName, toolNames);
+            Assert.Contains(ToolDisplayHelper.BrowserDoToolName, toolNames);
+            Assert.Contains(ToolDisplayHelper.BrowserJsToolName, toolNames);
+        }
+        else
+        {
+            Assert.DoesNotContain(ToolDisplayHelper.BrowserOpenToolName, toolNames);
+            Assert.DoesNotContain(ToolDisplayHelper.BrowserJsToolName, toolNames);
+        }
+
+        // Regardless of platform, no tool should use the bare "browser" namespace.
         Assert.DoesNotContain("browser", toolNames);
         Assert.DoesNotContain(toolNames, static name => name.StartsWith("browser_", StringComparison.Ordinal));
     }

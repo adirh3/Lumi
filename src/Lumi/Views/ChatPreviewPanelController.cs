@@ -300,8 +300,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
         {
             _viewModel.IsBrowserOpen = true;
             _browserView?.RefreshBounds();
-            if (browserService.Controller is not null)
-                browserService.Controller.IsVisible = true;
+            browserService.SetControllerVisible(true);
             return;
         }
 
@@ -332,8 +331,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _browserPanel.RenderTransform = null;
         _viewModel.IsBrowserOpen = true;
 
-        if (browserService.Controller is not null)
-            browserService.Controller.IsVisible = true;
+        browserService.SetControllerVisible(true);
         Dispatcher.UIThread.Post(() => _browserView?.RefreshBounds(), DispatcherPriority.Loaded);
     }
 

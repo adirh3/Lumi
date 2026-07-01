@@ -40,6 +40,15 @@ public partial class ProjectsViewModel : ObservableObject
             ? string.Format(Loc.Project_DefaultBranchDetected, DetectedDefaultBranch)
             : Loc.Project_DefaultBranchUnknown;
 
+    // OS-appropriate example paths for the working-dir / context-dir placeholders. Windows keeps the
+    // exact prior C:\ examples; Linux/macOS show native-style paths so no Windows-only path appears
+    // in the UI on other platforms.
+    public string WorkingDirectoryPlaceholder =>
+        OperatingSystem.IsWindows() ? @"C:\Projects\MyApp" : "/home/you/projects/myapp";
+    public string AdditionalContextDirsPlaceholder =>
+        OperatingSystem.IsWindows() ? "C:\\Projects\\SharedSkills\nD:\\McpConfigs" : "/home/you/shared-skills\n/home/you/mcp-configs";
+        OperatingSystem.IsWindows() ? "C:\\Projects\\SharedSkills\nD:\\McpConfigs" : "/home/you/shared-skills\n/home/you/mcp-configs";
+
     [RelayCommand]
     private void ClearSearch() => SearchQuery = "";
 

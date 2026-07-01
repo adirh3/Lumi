@@ -13,7 +13,9 @@ namespace Lumi.Services;
 public static class NotificationService
 {
     private const string ChatActivationArgumentKey = "chatId";
+#if WINDOWS
     private static bool _compatListenerRegistered;
+#endif
 
     /// <summary>Shows a native desktop notification if the main window is not active.</summary>
     public static void ShowIfInactive(string title, string body, Guid? chatId = null)
@@ -23,8 +25,9 @@ public static class NotificationService
 
         Show(title, body, chatId);
 
-        if (OperatingSystem.IsWindows())
-            FlashMainWindow();
+#if WINDOWS
+        FlashMainWindow();
+#endif
     }
 
     /// <summary>Shows a native desktop notification unconditionally.</summary>
@@ -32,12 +35,14 @@ public static class NotificationService
     {
         try
         {
-            if (OperatingSystem.IsWindows())
-                ShowWindows(title, body, chatId);
-            else if (OperatingSystem.IsMacOS())
+#if WINDOWS
+            ShowWindows(title, body, chatId);
+#else
+            if (OperatingSystem.IsMacOS())
                 ShowMacOS(title, body);
             else if (OperatingSystem.IsLinux())
                 ShowLinux(title, body);
+#endif
         }
         catch (Exception ex)
         {
@@ -110,6 +115,7 @@ public static class NotificationService
     }
 
     // ── Windows toast ──────────────────────────────────────────────
+#if WINDOWS
 
     /// <summary>Ensures the CommunityToolkit compat layer is set up (AUMID + COM activation).
     /// Must be called before creating a notifier. Safe to call multiple times.</summary>
@@ -247,6 +253,7 @@ public static class NotificationService
         public uint uCount;
         public uint dwTimeout;
     }
+#endif
 
     // ── macOS / Linux ──────────────────────────────────────────────
 

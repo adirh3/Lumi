@@ -946,7 +946,7 @@ public partial class ChatViewModel
                     var startToolCallId = toolStart.Data.ToolCallId;
 #pragma warning disable CS0618 // ParentToolCallId is deprecated in GitHub.Copilot.SDK 1.0.1 with no replacement; still required for sub-agent tool grouping.
                     toolParentById[startToolCallId] = toolStart.Data.ParentToolCallId;
-                    if (toolStart.Data.ToolName == "powershell")
+                    if (ToolDisplayHelper.IsShellCommandTool(toolStart.Data.ToolName))
                     {
                         terminalRootByToolCallId[startToolCallId] = startToolCallId;
                     }
@@ -1115,10 +1115,10 @@ public partial class ChatViewModel
                             // Keep the coding strip's git change count live as the agent
                             // edits files, independent of the IsBusy turn lifecycle. This
                             // tool-completion signal is reliable; SessionWorkspaceFileChangedEvent
-                            // is not always emitted. powershell is included because the agent
+                            // is not always emitted. The shell tool is included because the agent
                             // frequently mutates the repo (git, builds, file moves) through it.
                             if (IsDisplayedSession()
-                                && (ToolDisplayHelper.IsFileCreationTool(toolName) || toolName == "powershell"))
+                                && (ToolDisplayHelper.IsFileCreationTool(toolName) || ToolDisplayHelper.IsShellCommandTool(toolName)))
                             {
                                 QueueLiveGitRefresh();
                             }
@@ -1132,7 +1132,7 @@ public partial class ChatViewModel
                             }
 
                             if (IsDisplayedSession()
-                                && (ToolDisplayHelper.IsFileCreationTool(toolName) || toolName == "powershell")
+                                && (ToolDisplayHelper.IsFileCreationTool(toolName) || ToolDisplayHelper.IsShellCommandTool(toolName))
                                 && toolEnd.Data.Result?.Contents is { Length: > 0 } contents)
                             {
                                 foreach (var item in contents)
@@ -1165,7 +1165,7 @@ public partial class ChatViewModel
                             // An async shell's tool call returns in a fraction of a second while the OS
                             // process keeps running. Keep the card honestly "Running in background"
                             // (instead of flipping to "Completed") and let the Tasks-API monitor track it.
-                            if (toolName == "powershell" && LooksLikeBackgroundShellArgs(toolMsg.Content))
+                            if (ToolDisplayHelper.IsShellCommandTool(toolName) && LooksLikeBackgroundShellArgs(toolMsg.Content))
                             {
                                 var command = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "command") ?? string.Empty;
                                 TrackBackgroundShell(rootToolCallId, command);

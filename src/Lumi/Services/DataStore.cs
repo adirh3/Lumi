@@ -1036,6 +1036,56 @@ public class DataStore
         if (_data.Settings.DefaultsSeeded) return;
 
         // ── Default Skills ──
+        // A few built-in skills reference OS-specific mechanics (PowerShell COM automation, the
+        // Windows-only embedded browser, Windows path formats). The Windows wording is preserved
+        // verbatim so the Windows system prompt stays byte-for-byte unchanged; other platforms get
+        // a portable equivalent that never advertises a Windows-only tool.
+        var isWindows = OperatingSystem.IsWindows();
+
+        var docWord = isWindows
+            ? "Use PowerShell with COM automation or python-docx to create Word documents."
+            : "Use `python-docx` to create Word documents.";
+        var docExcel = isWindows
+            ? "Use PowerShell with COM automation or openpyxl to create spreadsheets."
+            : "Use `openpyxl` to create spreadsheets.";
+        var docPptx = isWindows
+            ? "Use PowerShell with COM automation or python-pptx to create presentations."
+            : "Use `python-pptx` to create presentations.";
+
+        var siteDescription = isWindows
+            ? "Creates beautiful interactive websites from chat content and opens them in Lumi's browser"
+            : "Creates beautiful interactive websites from chat content and opens them in a browser";
+        var sitePresentBrowser = isWindows ? "Lumi's built-in browser" : "a browser";
+        var siteSaveStep = isWindows
+            ? """
+              5. **Save the file** — Use the `create` tool to write the HTML file. Use this exact path format:
+                 - Path: `C:\Users\<username>\Documents\lumi-website-<short-slug>.html`
+                 - Use the user's Documents folder (resolve from `$env:USERPROFILE` if needed via a quick PowerShell call).
+                 - Use a short descriptive slug (e.g., `lumi-website-tokyo-itinerary.html`).
+              """
+            : """
+              5. **Save the file** — Use the `create` tool to write the HTML file:
+                 - Save it into the user's Documents folder, resolving the real path for the current OS
+                   (e.g. `~/Documents` on macOS/Linux, `%USERPROFILE%\Documents` on Windows). Do NOT hardcode a drive letter.
+                 - Use a short descriptive slug (e.g., `lumi-website-tokyo-itinerary.html`).
+              """;
+        var siteOpenStep = isWindows
+            ? """
+              6. **Open in Lumi's browser** — Use the `lumi_browser_open` tool to navigate to the local file URL:
+                 - Convert the file path to a `file:///` URL: replace backslashes with forward slashes and prefix with `file:///`.
+                 - Example: `C:\Users\John\Documents\lumi-website-tokyo.html` → `file:///C:/Users/John/Documents/lumi-website-tokyo.html`
+                 - This opens the website inside Lumi's built-in browser panel so the user sees it immediately.
+              """
+            : """
+              6. **Open it so the user sees it immediately** — Convert the saved path to a `file://` URL
+                 (forward slashes; prefix `file://`). Then open it in a browser:
+                 - On Windows, use the `lumi_browser_open` tool to show it in Lumi's built-in browser panel.
+                 - On macOS/Linux, open the `file://` URL in the user's default browser (e.g. `open <url>` on macOS, `xdg-open <url>` on Linux).
+              """;
+        var siteOpenRule = isWindows
+            ? "Never use `localhost` or start a web server. Just save an `.html` file and open it with the `lumi_browser_open` tool."
+            : "Never use `localhost` or start a web server. Just save an `.html` file and open it in a browser (see step 6 for the per-OS way to open it).";
+
         _data.Skills.AddRange([
             new Skill
             {
@@ -1043,16 +1093,16 @@ public class DataStore
                 Description = "Creates Word, Excel, and PowerPoint documents from user descriptions",
                 IconGlyph = "📄",
                 IsBuiltIn = true,
-                Content = """
+                Content = $"""
                     # Document Creator
 
                     You can create Office documents for the user. When asked to create a document:
 
-                    1. **Word (.docx)**: Use PowerShell with COM automation or python-docx to create Word documents.
+                    1. **Word (.docx)**: {docWord}
                        Write the content with proper headings, formatting, and structure.
-                    2. **Excel (.xlsx)**: Use PowerShell with COM automation or openpyxl to create spreadsheets.
+                    2. **Excel (.xlsx)**: {docExcel}
                        Include headers, data formatting, and formulas where appropriate.
-                    3. **PowerPoint (.pptx)**: Use PowerShell with COM automation or python-pptx to create presentations.
+                    3. **PowerPoint (.pptx)**: {docPptx}
                        Create slides with titles, content, and professional layout.
 
                     Always save files to the user's working directory and report the file path.
@@ -1145,13 +1195,13 @@ public class DataStore
             new Skill
             {
                 Name = "Website Creator",
-                Description = "Creates beautiful interactive websites from chat content and opens them in Lumi's browser",
+                Description = siteDescription,
                 IconGlyph = "🌐",
                 IsBuiltIn = true,
-                Content = """
+                Content = $"""
                     # Website Creator
 
-                    Transform any content from the conversation into a beautiful, modern, interactive single-page website and present it in Lumi's built-in browser.
+                    Transform any content from the conversation into a beautiful, modern, interactive single-page website and present it in {sitePresentBrowser}.
 
                     ## When to Use
                     Use this skill whenever the user asks you to visualize, present, or turn conversation content into a website or webpage. This works for any content type: itineraries, reports, plans, guides, comparisons, portfolios, dashboards, timelines, recipes, study notes, or anything else.
@@ -1191,21 +1241,15 @@ public class DataStore
                        - **Profiles/portfolios**: Hero banner with bio, grid of work/projects
                        - **Study notes/knowledge**: Table of contents sidebar, collapsible sections, highlight boxes for key concepts
 
-                    5. **Save the file** — Use the `create` tool to write the HTML file. Use this exact path format:
-                       - Path: `C:\Users\<username>\Documents\lumi-website-<short-slug>.html`
-                       - Use the user's Documents folder (resolve from `$env:USERPROFILE` if needed via a quick PowerShell call).
-                       - Use a short descriptive slug (e.g., `lumi-website-tokyo-itinerary.html`).
+                    {siteSaveStep}
 
-                    6. **Open in Lumi's browser** — Use the `lumi_browser_open` tool to navigate to the local file URL:
-                       - Convert the file path to a `file:///` URL: replace backslashes with forward slashes and prefix with `file:///`.
-                       - Example: `C:\Users\John\Documents\lumi-website-tokyo.html` → `file:///C:/Users/John/Documents/lumi-website-tokyo.html`
-                       - This opens the website inside Lumi's built-in browser panel so the user sees it immediately.
+                    {siteOpenStep}
 
                     7. **Announce it** — Call `announce_file(filePath)` with the HTML file path so the user gets a clickable attachment. Then tell the user the website is ready and summarize what it contains.
 
                     ## Important Rules
                     - The HTML file MUST be fully self-contained and valid. All styles and scripts are inlined or loaded from CDNs.
-                    - Never use `localhost` or start a web server. Just save an `.html` file and open it with the `lumi_browser_open` tool.
+                    - {siteOpenRule}
                     - Make the website genuinely impressive — not a basic page with plain text. Use modern CSS, animations, and interactivity.
                     - If the conversation content is long, organize it into navigable sections with a sticky navigation bar or sidebar.
                     - Always include a header/hero section with a title and brief description.

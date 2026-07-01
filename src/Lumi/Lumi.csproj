@@ -51,18 +51,27 @@
     <PackageReference Include="Avalonia.Themes.Simple" Version="12.1.0" />
     <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.1.0" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
-    <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
     <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.7" />
     <PackageReference Include="StreamJsonRpc" Version="2.25.29" />
-    <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.3" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.5" />
     <!-- Override the transitive SQLitePCLRaw.bundle_e_sqlite3 2.1.10 (vulnerable SQLite < 3.50.2, CVE-2025-6965 / GHSA-2m69-gcr7-jv3q).
          3.0.x ships the patched native binary via SourceGear.sqlite3. -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3124.44" />
     <PackageReference Include="System.Drawing.Common" Version="9.0.5" />
     <PackageReference Include="Velopack" Version="0.0.1298" />
     <PackageReference Include="AvaloniaMcp.Diagnostics" Version="0.4.0" Condition="'$(Configuration)' == 'Debug'" />
+  </ItemGroup>
+
+  <!-- Windows-only packages: native UI automation (FlaUI), the embedded WebView2 browser,
+       and WinRT toast notifications. These either force the Windows target platform or only
+       ship Windows assets, so they are excluded on Linux/macOS. The matching source code is
+       gated behind `#if WINDOWS` (defined automatically by the net*-windows TFM).
+       Keyed off the TARGET platform of the TFM (not the host $(OS)) so it stays correct even
+       if the Windows TFM is ever built from a non-Windows host. -->
+  <ItemGroup Condition="'$([MSBuild]::GetTargetPlatformIdentifier($(TargetFramework)))' == 'windows'">
+    <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
+    <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.3" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3124.44" />
   </ItemGroup>
 
   <ItemGroup>
