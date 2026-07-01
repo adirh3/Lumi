@@ -182,6 +182,12 @@ public static class DebugAgentHarness
             {"optionA":{"title":"LG C4","content":"- OLED evo panel\n- Excellent for gaming\n- **$1,799**"},"optionB":{"title":"Samsung S90D","content":"- QD-OLED panel\n- Brighter highlights\n- **$1,899**"}}
             ```
 
+            This next comparison block is intentionally **malformed** (the model dropped the final closing brace). Before the tolerant-parse fix it collapsed to a ⚖️ placeholder; now it must still render a working StrataFork:
+
+            ```comparison
+            {"optionA":{"title":"Ship the fix now","content":"- Comparison renders again\n- **Lower user-visible risk**"},"optionB":{"title":"Wait for more testing","content":"- Extra soak time\n- **Slower to land**"}
+            ```
+
             A native Mermaid **architecture diagram** verifies subgraph containers and distributed (fan-out / fan-in) arrows:
 
             ```mermaid
