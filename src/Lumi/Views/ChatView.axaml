@@ -1300,21 +1300,21 @@
 
 
         <sc:StrataChatShell.Transcript>
-          <ItemsControl x:Name="Transcript"
+          <vm:TranscriptItemsControl x:Name="Transcript"
                         HorizontalAlignment="Stretch"
                         MaxWidth="{DynamicResource Chat.ReadingColumnWidth}"
                         ItemsSource="{Binding MountedTranscriptTurns}">
-            <ItemsControl.ItemTemplate>
+            <vm:TranscriptItemsControl.ItemTemplate>
               <DataTemplate DataType="vm:TranscriptTurn">
                 <vm:TranscriptTurnControl Turn="{Binding}" />
               </DataTemplate>
-            </ItemsControl.ItemTemplate>
-            <ItemsControl.ItemsPanel>
+            </vm:TranscriptItemsControl.ItemTemplate>
+            <vm:TranscriptItemsControl.ItemsPanel>
               <ItemsPanelTemplate>
                 <StackPanel Spacing="8" />
               </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-          </ItemsControl>
+            </vm:TranscriptItemsControl.ItemsPanel>
+          </vm:TranscriptItemsControl>
         </sc:StrataChatShell.Transcript>
 
         <sc:StrataChatShell.Composer>
