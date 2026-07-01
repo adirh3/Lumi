@@ -108,13 +108,15 @@ internal sealed class UiThrottler(
         {
             // Token was cancelled — the caller has already scheduled a replacement.
         }
-        catch
+        catch (Exception ex)
         {
             // Unexpected error — reset _scheduled so future requests aren't permanently blocked.
             lock (_gate)
             {
                 _scheduled = false;
             }
+
+            Trace.TraceError("UiThrottler scheduling failed: {0}", ex);
         }
     }
 

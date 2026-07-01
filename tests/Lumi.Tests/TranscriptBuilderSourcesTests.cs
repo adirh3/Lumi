@@ -119,7 +119,7 @@ public sealed class TranscriptBuilderSourcesTests
     }
 
     private static TranscriptBuilder CreateBuilder()
-        => new(CreateDataStore(), _ => { }, (_, _) => { }, (_, _) => Task.CompletedTask, () => null);
+        => new(CreateDataStore(), _ => { }, (_, _) => { }, _ => { }, (_, _) => Task.CompletedTask, () => null);
 
     private static ChatMessageViewModel CreateAssistantVm(string content, bool isStreaming = false)
         => new(new ChatMessage

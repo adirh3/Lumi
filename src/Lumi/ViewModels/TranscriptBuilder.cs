@@ -18,6 +18,7 @@ public class TranscriptBuilder
     private readonly DataStore _dataStore;
     private readonly Action<FileChangeItem> _showDiffAction;
     private readonly Action<string, string> _submitQuestionAnswerAction;
+    private readonly Action<ChatMessage> _beginEditMessageAction;
     private readonly Func<ChatMessage, bool, Task> _resendFromMessageAction;
     private readonly Action<SkillReference>? _openSkillAction;
     private readonly Func<string, SkillReference?>? _resolveSkill;
@@ -68,6 +69,7 @@ public class TranscriptBuilder
         DataStore dataStore,
         Action<FileChangeItem> showDiffAction,
         Action<string, string> submitQuestionAnswerAction,
+        Action<ChatMessage> beginEditMessageAction,
         Func<ChatMessage, bool, Task> resendFromMessageAction,
         Func<string?> getSelectedModel,
         Action<SkillReference>? openSkillAction = null,
@@ -76,6 +78,7 @@ public class TranscriptBuilder
         _dataStore = dataStore;
         _showDiffAction = showDiffAction;
         _submitQuestionAnswerAction = submitQuestionAnswerAction;
+        _beginEditMessageAction = beginEditMessageAction;
         _resendFromMessageAction = resendFromMessageAction;
         _getSelectedModel = getSelectedModel;
         _openSkillAction = openSkillAction;
@@ -1044,7 +1047,13 @@ public class TranscriptBuilder
             var newSkills = msgVm.Message.ActiveSkills
                 .Where(s => _shownSkillNames.Add(s.Name))
                 .ToList();
-            var userItem = new UserMessageItem(msgVm, showTimestamps, newSkills, (msg, edited) => _ = _resendFromMessageAction(msg, edited), _openSkillAction);
+            var userItem = new UserMessageItem(
+                msgVm,
+                showTimestamps,
+                newSkills,
+                msg => _beginEditMessageAction(msg),
+                (msg, edited) => _ = _resendFromMessageAction(msg, edited),
+                _openSkillAction);
             AppendToCurrentTurn(userItem, TurnStableIdFor($"message:{msgVm.Message.Id}"));
             FinalizeCurrentTurn();
             return;

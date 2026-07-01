@@ -122,6 +122,8 @@
   "Chat_SuggestionB": "Research a topic",
   "Chat_SuggestionC": "Create a document",
   "Chat_AvatarLetter": "L",
+  "Chat_EditPlaceholder": "Edit your message...",
+  "Chat_EditStatus": "Editing message - adjust text, attachments, agent, model, or MCPs, then send.",
 
   "Editor_Lumi": "Lumi Editor",
   "Editor_Project": "Project Editor",

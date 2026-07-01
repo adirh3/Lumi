@@ -268,6 +268,12 @@ public class DataStore
                 QuestionAllowMultiSelect = m.QuestionAllowMultiSelect,
                 IsStreaming = m.IsStreaming,
                 Model = m.Model,
+                ReasoningEffort = m.ReasoningEffort,
+                AgentId = m.AgentId,
+                SdkAgentName = m.SdkAgentName,
+                HasAgentSelection = m.HasAgentSelection,
+                ActiveMcpServerNames = [..m.ActiveMcpServerNames],
+                HasMcpSelection = m.HasMcpSelection,
                 Attachments = [..m.Attachments],
                 ActiveSkills = [..m.ActiveSkills.Select(static s => new SkillReference
                 {

@@ -51,6 +51,7 @@ public abstract partial class TranscriptItem : ObservableObject
 public partial class UserMessageItem : TranscriptItem
 {
     private readonly ChatMessageViewModel _source;
+    private readonly Action<ChatMessage>? _beginEditAction;
     private readonly Action<ChatMessage, bool>? _resendAction;
 
     [ObservableProperty] private string _content;
@@ -75,10 +76,17 @@ public partial class UserMessageItem : TranscriptItem
     /// <summary>Command invoked when user clicks Regenerate/Retry on the message.</summary>
     public ICommand ResendCommand { get; }
 
-    public UserMessageItem(ChatMessageViewModel source, bool showTimestamps, List<SkillReference>? filteredSkills = null, Action<ChatMessage, bool>? resendAction = null, Action<SkillReference>? openSkillAction = null)
+    public UserMessageItem(
+        ChatMessageViewModel source,
+        bool showTimestamps,
+        List<SkillReference>? filteredSkills = null,
+        Action<ChatMessage>? beginEditAction = null,
+        Action<ChatMessage, bool>? resendAction = null,
+        Action<SkillReference>? openSkillAction = null)
         : base($"message:user:{source.Message.Id}")
     {
         _source = source;
+        _beginEditAction = beginEditAction;
         _resendAction = resendAction;
         _content = source.Content;
         _timestampText = showTimestamps ? source.TimestampText : "";
@@ -86,7 +94,7 @@ public partial class UserMessageItem : TranscriptItem
         Skills = filteredSkills ?? source.Message.ActiveSkills.ToList();
         SkillChips = Skills.Select(s => new SkillChipItem(s, () => openSkillAction?.Invoke(s))).ToList();
 
-        BeginEditCommand = new RelayCommand(() => { /* Strata handles entering edit mode internally */ });
+        BeginEditCommand = new RelayCommand(() => _beginEditAction?.Invoke(_source.Message));
         ConfirmEditCommand = new RelayCommand<string>(text => EditAndResend(text ?? Content));
         ResendCommand = new RelayCommand(ResendFromMessage);
     }

@@ -532,6 +532,20 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>0/1 guard ensuring at most one background history refresh runs at a time.</summary>
     private int _userPromptHistoryRefreshing;
 
+    private sealed record ComposerEditSnapshot(
+        string PromptText,
+        List<string> PendingAttachments,
+        List<Guid> ActiveSkillIds,
+        List<string> ActiveExternalSkillNames,
+        Guid? AgentId,
+        string? SdkAgentName,
+        string? SelectedModel,
+        string? SelectedReasoningEffort,
+        List<string> ActiveMcpServerNames);
+
+    private ComposerEditSnapshot? _preEditComposerSnapshot;
+    private ChatMessage? _editingUserMessage;
+
     /// <summary>Gets or lazily creates a per-chat BrowserService instance. Browser tool callbacks run
     /// off the UI thread while chat-switch/cleanup code touches this map on the UI thread, so the
     /// backing store is a ConcurrentDictionary and creation goes through an atomic GetOrAdd.</summary>
@@ -581,6 +595,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _isStreaming;
     [ObservableProperty] private string _statusText = "";
     [ObservableProperty] private string? _selectedModel;
+    [ObservableProperty] private bool _isEditingMessage;
+    [ObservableProperty] private string _editingMessageStatusText = "";
+    public string ComposerPlaceholder => IsEditingMessage ? Loc.Get("Chat_EditPlaceholder") : Loc.Chat_Placeholder;
 
     partial void OnIsBusyChanging(bool value)
     {
@@ -926,6 +943,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             dataStore,
             showDiffAction: item => DiffShowRequested?.Invoke(item),
             submitQuestionAnswerAction: SubmitQuestionAnswer,
+            beginEditMessageAction: BeginComposerEdit,
             resendFromMessageAction: ResendFromMessageAsync,
             openSkillAction: OpenSkillPreview,
             resolveSkill: name => FindSkillReferenceByName(name),
@@ -1014,6 +1032,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // Newly produced files / sources may have arrived this turn.
             RebuildWorkspacePanel();
         }
+    }
+
+    partial void OnIsEditingMessageChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ComposerPlaceholder));
     }
 
     partial void OnStatusTextChanged(string value)
@@ -1225,6 +1248,37 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 Description = s.Description
             })
             .ToList();
+    }
+
+    /// <summary>
+    /// Builds skill references for a message from both internal skill ids and external
+    /// (file/project-context) skill names, so edited messages can restore the full skill
+    /// selection through the composer.
+    /// </summary>
+    private List<SkillReference> BuildSkillReferences(
+        IReadOnlyCollection<Guid> skillIds,
+        IReadOnlyCollection<string> externalSkillNames)
+    {
+        var references = BuildSkillReferences(skillIds);
+        if (externalSkillNames.Count == 0)
+            return references;
+
+        var projectContextCatalog = GetProjectContextCatalog();
+        foreach (var name in externalSkillNames
+                     .Where(static n => !string.IsNullOrWhiteSpace(n))
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            references.Add(
+                FindSkillReferenceByName(name, projectContextCatalog)
+                ?? new SkillReference
+                {
+                    Name = name,
+                    Glyph = ExternalSkillGlyph,
+                    Description = string.Empty
+                });
+        }
+
+        return references;
     }
 
     private (long RequestId, CancellationTokenSource Source) BeginChatLoad(CancellationToken outerCancellationToken)
@@ -1566,6 +1620,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat?.Id != chat.Id)
         {
             _suggestionDisplayChatId = chat.Id;
+            if (IsEditingMessage)
+                CancelComposerEditInternal(restoreComposer: true, focusComposer: false);
 
             // Save unsent composer draft for the chat we're leaving
             var leavingId = CurrentChat?.Id ?? Guid.Empty;
@@ -1842,6 +1898,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             try { _chatLoadCts?.Cancel(); }
             catch (ObjectDisposedException) { }
         }
+
+        if (IsEditingMessage)
+            CancelComposerEditInternal(restoreComposer: true, focusComposer: false);
 
         // Save unsent composer draft for the chat we're leaving
         var leavingId = CurrentChat?.Id ?? Guid.Empty;
@@ -2210,9 +2269,339 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return builder.ToString();
     }
 
+    private void BeginComposerEdit(ChatMessage userMessage)
+    {
+        if (CurrentChat is null || userMessage.Role != "user")
+            return;
+
+        if (_editingUserMessage?.Id == userMessage.Id && IsEditingMessage)
+        {
+            FocusComposerRequested?.Invoke();
+            return;
+        }
+
+        if (_editingUserMessage is not null && _editingUserMessage.Id != userMessage.Id)
+            CancelComposerEditInternal(restoreComposer: true, focusComposer: false);
+
+        _preEditComposerSnapshot ??= CaptureComposerEditSnapshot();
+        _editingUserMessage = userMessage;
+        IsEditingMessage = true;
+        EditingMessageStatusText = Loc.Get("Chat_EditStatus");
+        ClearSuggestions();
+
+        PromptText = userMessage.Content;
+        ReplacePendingAttachments(userMessage.Attachments);
+        ReplaceActiveSkillsFromMessage(userMessage);
+        ApplyMessageAgentSelection(userMessage);
+        ApplyMessageModelSelection(userMessage);
+        ApplyMessageMcpSelection(userMessage);
+
+        FocusComposerRequested?.Invoke();
+    }
+
+    private ComposerEditSnapshot CaptureComposerEditSnapshot()
+        => new(
+            PromptText ?? string.Empty,
+            PendingAttachments.ToList(),
+            ActiveSkillIds.ToList(),
+            _activeExternalSkillNames.ToList(),
+            ActiveAgent?.Id,
+            SelectedSdkAgentName,
+            SelectedModel,
+            GetSelectedReasoningEffort(),
+            ActiveMcpServerNames.ToList());
+
+    private void RestoreComposerEditSnapshot(ComposerEditSnapshot snapshot)
+    {
+        PromptText = snapshot.PromptText;
+        ReplacePendingAttachments(snapshot.PendingAttachments);
+        ReplaceActiveSkills(snapshot.ActiveSkillIds, snapshot.ActiveExternalSkillNames, syncToChat: true);
+        ApplyAgentSelection(snapshot.AgentId, snapshot.SdkAgentName);
+        ApplyModelSelection(snapshot.SelectedModel, snapshot.SelectedReasoningEffort);
+        ReplaceActiveMcpSelection(snapshot.ActiveMcpServerNames, syncToChat: true);
+    }
+
+    [RelayCommand]
+    private void CancelComposerEdit()
+        => CancelComposerEditInternal(restoreComposer: true, focusComposer: true);
+
+    private void CancelComposerEditInternal(bool restoreComposer, bool focusComposer)
+    {
+        var snapshot = _preEditComposerSnapshot;
+        _editingUserMessage = null;
+        _preEditComposerSnapshot = null;
+        IsEditingMessage = false;
+        EditingMessageStatusText = string.Empty;
+
+        if (restoreComposer && snapshot is not null)
+            RestoreComposerEditSnapshot(snapshot);
+
+        if (focusComposer)
+            FocusComposerRequested?.Invoke();
+    }
+
+    private async Task SendEditedMessage()
+    {
+        if (CurrentChat is null || _editingUserMessage is not { } userMessage)
+            return;
+
+        if (string.IsNullOrWhiteSpace(PromptText))
+            return;
+
+        var prompt = PromptText.Trim();
+        var selectedReasoningEffort = GetPersistedReasoningEffortPreference();
+        var attachments = TakePendingAttachments() ?? [];
+
+        userMessage.Content = prompt;
+        userMessage.Attachments = attachments
+            .OfType<AttachmentFile>()
+            .Select(static attachment => attachment.Path)
+            .ToList();
+        ApplyCurrentComposerSelectionsToMessage(userMessage, selectedReasoningEffort);
+        ApplyCurrentComposerSelectionsToChat(CurrentChat, selectedReasoningEffort);
+
+        _editingUserMessage = null;
+        _preEditComposerSnapshot = null;
+        IsEditingMessage = false;
+        EditingMessageStatusText = string.Empty;
+        PromptText = string.Empty;
+        _chatDrafts.Remove(CurrentChat.Id);
+
+        await ResendFromMessageAsync(userMessage, wasEdited: true, attachments);
+    }
+
+    private void ReplacePendingAttachments(IEnumerable<string> paths)
+    {
+        PendingAttachments.Clear();
+        PendingAttachmentItems.Clear();
+
+        foreach (var path in paths.Where(static p => !string.IsNullOrWhiteSpace(p)).Distinct(StringComparer.OrdinalIgnoreCase))
+            AddAttachment(path);
+    }
+
+    private void ReplaceActiveSkillsFromMessage(ChatMessage message)
+    {
+        var (skillIds, externalSkillNames) = ResolveSkillSelectionsFromReferences(message.ActiveSkills);
+        ReplaceActiveSkills(skillIds, externalSkillNames, syncToChat: true);
+    }
+
+    private (List<Guid> SkillIds, List<string> ExternalSkillNames) ResolveSkillSelectionsFromReferences(
+        IEnumerable<SkillReference> skillReferences)
+    {
+        var skillIds = new List<Guid>();
+        var externalSkillNames = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var skillRef in skillReferences)
+        {
+            if (string.IsNullOrWhiteSpace(skillRef.Name) || !seen.Add(skillRef.Name))
+                continue;
+
+            var skill = FindSkillByName(skillRef.Name);
+            if (skill is not null)
+                skillIds.Add(skill.Id);
+            else
+                externalSkillNames.Add(skillRef.Name);
+        }
+
+        return (skillIds, externalSkillNames);
+    }
+
+    private void ReplaceActiveSkills(
+        IEnumerable<Guid> skillIds,
+        IEnumerable<string> externalSkillNames,
+        bool syncToChat)
+    {
+        ActiveSkillIds.Clear();
+        ActiveSkillChips.Clear();
+        _activeExternalSkillNames.Clear();
+
+        foreach (var skillId in skillIds.Distinct())
+        {
+            var skill = _dataStore.Data.Skills.FirstOrDefault(s => s.Id == skillId);
+            if (skill is null)
+                continue;
+
+            ActiveSkillIds.Add(skill.Id);
+            ActiveSkillChips.Add(new StrataComposerChip(skill.Name, skill.IconGlyph));
+        }
+
+        foreach (var name in externalSkillNames.Where(static n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            _activeExternalSkillNames.Add(name);
+            var reference = FindSkillReferenceByName(name);
+            ActiveSkillChips.Add(new StrataComposerChip(reference?.Name ?? name, reference?.Glyph ?? ExternalSkillGlyph));
+        }
+
+        if (syncToChat)
+            SyncActiveSkillsToChat();
+    }
+
+    private void ApplyMessageAgentSelection(ChatMessage message)
+    {
+        if (!message.HasAgentSelection)
+            return;
+
+        ApplyAgentSelection(message.AgentId, message.SdkAgentName);
+    }
+
+    private void ApplyAgentSelection(Guid? agentId, string? sdkAgentName)
+    {
+        if (agentId.HasValue)
+        {
+            var agent = _dataStore.Data.Agents.FirstOrDefault(a => a.Id == agentId.Value);
+            if (agent is not null)
+            {
+                SelectedSdkAgentName = null;
+                SetActiveAgent(agent);
+                return;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(sdkAgentName))
+        {
+            SetActiveAgent(null);
+            SelectedSdkAgentName = sdkAgentName;
+            return;
+        }
+
+        SelectedSdkAgentName = null;
+        SetActiveAgent(null);
+    }
+
+    private void ApplyMessageModelSelection(ChatMessage message)
+    {
+        var model = !string.IsNullOrWhiteSpace(message.Model)
+            ? message.Model
+            : ResolveModelForMessageEdit(message);
+
+        ApplyModelSelection(model, message.ReasoningEffort ?? CurrentChat?.LastReasoningEffortUsed);
+    }
+
+    private string? ResolveModelForMessageEdit(ChatMessage message)
+    {
+        if (CurrentChat is not { } chat)
+            return SelectedModel;
+
+        var index = chat.Messages.IndexOf(message);
+        if (index >= 0)
+        {
+            for (var i = index + 1; i < chat.Messages.Count; i++)
+            {
+                var next = chat.Messages[i];
+                if (next.Role == "user")
+                    break;
+
+                if (next.Role == "assistant" && !string.IsNullOrWhiteSpace(next.Model))
+                    return next.Model;
+            }
+        }
+
+        return chat.LastModelUsed ?? SelectedModel ?? _dataStore.Data.Settings.PreferredModel;
+    }
+
+    private void ApplyMessageMcpSelection(ChatMessage message)
+    {
+        if (!message.HasMcpSelection)
+            return;
+
+        ReplaceActiveMcpSelection(message.ActiveMcpServerNames, syncToChat: true);
+    }
+
+    private void ReplaceActiveMcpSelection(IEnumerable<string> serverNames, bool syncToChat)
+    {
+        _suppressActiveMcpCollectionSync = true;
+        try
+        {
+            ActiveMcpServerNames.Clear();
+            ActiveMcpChips.Clear();
+
+            foreach (var name in serverNames.Where(static n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                ActiveMcpServerNames.Add(name);
+                ActiveMcpChips.Add(CreateMcpChip(name));
+            }
+        }
+        finally
+        {
+            _suppressActiveMcpCollectionSync = false;
+        }
+
+        if (syncToChat)
+            SyncActiveMcpsToChat();
+    }
+
+    private StrataComposerChip CreateMcpChip(string name)
+        => AvailableMcpChips
+            .OfType<StrataComposerChip>()
+            .FirstOrDefault(chip => chip.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+           ?? new StrataComposerChip(name);
+
+    private void ApplyCurrentComposerSelectionsToMessage(ChatMessage message, string? selectedReasoningEffort)
+    {
+        message.Model = SelectedModel;
+        message.ReasoningEffort = selectedReasoningEffort;
+        message.AgentId = ActiveAgent?.Id;
+        message.SdkAgentName = SelectedSdkAgentName;
+        message.HasAgentSelection = true;
+        message.ActiveMcpServerNames = new List<string>(ActiveMcpServerNames);
+        message.HasMcpSelection = true;
+        message.ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames);
+    }
+
+    private void ApplyCurrentComposerSelectionsToChat(Chat chat, string? selectedReasoningEffort)
+    {
+        chat.AgentId = ActiveAgent?.Id;
+        chat.SdkAgentName = SelectedSdkAgentName;
+        chat.ActiveSkillIds = new List<Guid>(ActiveSkillIds);
+        chat.ActiveExternalSkillNames = new List<string>(_activeExternalSkillNames);
+        chat.ActiveMcpServerNames = new List<string>(ActiveMcpServerNames);
+        chat.LastModelUsed = SelectedModel;
+        chat.LastReasoningEffortUsed = selectedReasoningEffort;
+        QueueSaveChat(chat, saveIndex: true);
+    }
+
+    private void ApplyMessageSelectionsToChat(Chat chat, ChatMessage message, string? selectedReasoningEffort)
+    {
+        if (message.HasAgentSelection)
+        {
+            chat.AgentId = message.AgentId;
+            chat.SdkAgentName = message.SdkAgentName;
+        }
+
+        var (skillIds, externalSkillNames) = ResolveSkillSelectionsFromReferences(message.ActiveSkills);
+        chat.ActiveSkillIds = skillIds;
+        chat.ActiveExternalSkillNames = externalSkillNames;
+
+        if (message.HasMcpSelection)
+            chat.ActiveMcpServerNames = new List<string>(message.ActiveMcpServerNames);
+
+        if (!string.IsNullOrWhiteSpace(message.Model))
+            chat.LastModelUsed = message.Model;
+        chat.LastReasoningEffortUsed = selectedReasoningEffort;
+        QueueSaveChat(chat, saveIndex: true);
+    }
+
+    private static List<Attachment> BuildUserMessageAttachments(IEnumerable<string> attachmentPaths)
+        => attachmentPaths
+            .Where(static path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(static path => (Attachment)new AttachmentFile
+            {
+                Path = path,
+                DisplayName = Path.GetFileName(path)
+            })
+            .ToList();
+
     [RelayCommand]
     private async Task SendMessage()
     {
+        if (_editingUserMessage is not null)
+        {
+            await SendEditedMessage();
+            return;
+        }
+
         await SendMessageCore(PromptText, consumeComposerPrompt: true);
     }
 
@@ -2313,8 +2702,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 Role = "user",
                 Content = prompt,
                 Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
+                Model = SelectedModel,
+                ReasoningEffort = selectedReasoningEffort,
+                AgentId = ActiveAgent?.Id,
+                SdkAgentName = SelectedSdkAgentName,
+                HasAgentSelection = true,
+                ActiveMcpServerNames = new List<string>(ActiveMcpServerNames),
+                HasMcpSelection = true,
                 Attachments = attachments?.OfType<AttachmentFile>().Select(a => a.Path).ToList() ?? [],
-                ActiveSkills = BuildSkillReferences(ActiveSkillIds)
+                ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames)
             };
             targetChat.Messages.Add(userMsg);
             Messages.Add(new ChatMessageViewModel(userMsg));
@@ -3768,6 +4164,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// The message content may have been edited before calling this.
     /// </summary>
     public async Task ResendFromMessageAsync(ChatMessage userMessage, bool wasEdited)
+        => await ResendFromMessageAsync(userMessage, wasEdited, attachmentsOverride: null);
+
+    private async Task ResendFromMessageAsync(
+        ChatMessage userMessage,
+        bool wasEdited,
+        List<Attachment>? attachmentsOverride)
     {
         if (CurrentChat is null) return;
 
@@ -3779,6 +4181,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (idx < 0) return;
 
         var prompt = userMessage.Content;
+        var attachments = attachmentsOverride ?? BuildUserMessageAttachments(userMessage.Attachments);
+        var selectedReasoningEffort = userMessage.ReasoningEffort ?? GetPersistedReasoningEffortPreference();
+        ApplyMessageSelectionsToChat(CurrentChat, userMessage, selectedReasoningEffort);
 
         // Remove the user message and everything after it
         while (CurrentChat.Messages.Count > idx)
@@ -3811,7 +4216,23 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             Role = "user",
             Content = prompt,
-            Author = userMessage.Author
+            Author = userMessage.Author,
+            Model = userMessage.Model,
+            ReasoningEffort = userMessage.ReasoningEffort,
+            AgentId = userMessage.AgentId,
+            SdkAgentName = userMessage.SdkAgentName,
+            HasAgentSelection = userMessage.HasAgentSelection,
+            ActiveMcpServerNames = new List<string>(userMessage.ActiveMcpServerNames),
+            HasMcpSelection = userMessage.HasMcpSelection,
+            Attachments = userMessage.Attachments.ToList(),
+            ActiveSkills = userMessage.ActiveSkills
+                .Select(static skill => new SkillReference
+                {
+                    Name = skill.Name,
+                    Glyph = skill.Glyph,
+                    Description = skill.Description
+                })
+                .ToList()
         };
         CurrentChat.Messages.Add(newUserMsg);
         Messages.Add(new ChatMessageViewModel(newUserMsg));
@@ -3842,7 +4263,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         MessageOptions? resendOptions = null;
-        var promptAdditions = BuildSendPromptAdditions();
+        var promptAdditions = BuildSendPromptAdditions(consumePendingSkillInjections: false);
         var localUserMessageCount = 0;
         var localAssistantMessageCount = 0;
         try
@@ -3911,6 +4332,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
             ApplyDisplayedRuntimeState(runtime);
 
+            if (WorktreePath is { Length: > 0 } wtPath && attachments.Count > 0)
+            {
+                var projDir = GetProjectWorkingDirectory();
+                RebaseAttachmentPaths(attachments, newUserMsg, projDir, wtPath);
+            }
+
             var resendPrompt = BuildResendPrompt(
                 retainedContext,
                 prompt,
@@ -3919,6 +4346,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 promptAdditions);
 
             resendOptions = new MessageOptions { Prompt = resendPrompt };
+            if (attachments.Count > 0)
+                resendOptions.Attachments = attachments;
+
             localUserMessageCount = CurrentChat.Messages.Count(m => m.Role == "user");
             localAssistantMessageCount = CountCompletedAssistantMessages(CurrentChat);
             var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
@@ -3957,6 +4387,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     shouldReplayPrompt: !wasEdited,
                     promptAdditions);
                 resendOptions = new MessageOptions { Prompt = resendPrompt2 };
+                if (attachments.Count > 0)
+                    resendOptions.Attachments = attachments;
+
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                     _activeSession!,
                     localUserMessageCount,
