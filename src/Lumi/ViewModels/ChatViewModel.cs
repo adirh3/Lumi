@@ -1825,6 +1825,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 : internalSkill.Description;
         }
 
+        // The chip carries its own markdown (captured when the skill loaded), so the preview
+        // renders even when the source folder isn't present at its original path (e.g. another PC).
+        if (!string.IsNullOrWhiteSpace(skill.Content))
+            return skill.Content;
+
         var externalSkill = GetProjectContextCatalog().FindSkill(skill.Name);
         if (externalSkill is not null && !string.IsNullOrWhiteSpace(externalSkill.Content))
             return externalSkill.Content;

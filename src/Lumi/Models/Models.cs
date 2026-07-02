@@ -34,6 +34,13 @@ public class SkillReference
     public string Name { get; set; } = "";
     public string Glyph { get; set; } = "\u26A1";
     public string Description { get; set; } = "";
+
+    /// <summary>
+    /// The skill's markdown body, captured when the chip is created so its preview renders
+    /// without re-discovering the source file. This keeps repo/workspace skill chips working
+    /// even when the originating folder isn't present at its original path (e.g. another PC).
+    /// </summary>
+    public string? Content { get; set; }
 }
 
 public static class ModelContextWindowTiers
