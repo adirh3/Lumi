@@ -943,7 +943,10 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
                 GetString(args, "description"),
                 GetString(args, "content"),
                 GetString(args, "iconGlyph"),
-                GetString(args, "query")),
+                GetString(args, "query"),
+                GetString(args, "updateMode"),
+                GetString(args, "editOldString"),
+                GetString(args, "editNewString")),
             "lumis" or "agents" or "agent" or "lumi" => manager.ManageLumis(
                 action,
                 GetString(args, "identifier"),

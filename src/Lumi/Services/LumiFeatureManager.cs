@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using Lumi.Models;
 
 namespace Lumi.Services;
@@ -11,7 +15,9 @@ public sealed record FeatureChangeResult(
     bool SyncSkillFiles = false,
     string? RenamedMcpOldName = null,
     string? RenamedMcpNewName = null,
-    string? DeletedMcpName = null);
+    string? DeletedMcpName = null,
+    int? SkillContentBytes = null,
+    string? SkillContentHash = null);
 
 public sealed class LumiFeatureManager
 {
@@ -51,13 +57,17 @@ public sealed class LumiFeatureManager
         string? description = null,
         string? content = null,
         string? iconGlyph = null,
-        string? query = null)
+        string? query = null,
+        string? updateMode = null,
+        string? editOldString = null,
+        string? editNewString = null)
     {
         return NormalizeAction(action) switch
         {
             "list" => new FeatureChangeResult(ListSkills(query ?? identifier)),
-            "create" => CreateSkill(name, description, content, iconGlyph),
-            "update" => UpdateSkill(identifier, name, description, content, iconGlyph),
+            "create" => CreateSkill(name, description, content, iconGlyph, updateMode),
+            "update" => UpdateSkill(identifier, name, description, content, iconGlyph, updateMode, editOldString, editNewString),
+            "import" => ImportSkill(identifier),
             "delete" => DeleteSkill(identifier),
             _ => InvalidAction("skills", action)
         };
@@ -611,8 +621,16 @@ public sealed class LumiFeatureManager
         return "Projects:\n" + string.Join("\n", projects.Select(DescribeProject));
     }
 
-    private FeatureChangeResult CreateSkill(string? name, string? description, string? content, string? iconGlyph)
+    private const int SkillOversizeWarningBytes = 12_288; // 12 KB
+
+    private FeatureChangeResult CreateSkill(string? name, string? description, string? content, string? iconGlyph, string? updateMode)
     {
+        var mode = NormalizeUpdateMode(updateMode);
+        if (mode is null)
+            return Failure($"Unknown updateMode \"{updateMode}\". Use replace, patch, append, prepend, or replaceSection.");
+        if (mode != "replace")
+            return Failure($"updateMode '{mode}' requires an existing skill. Create the skill with full content first, then edit it.");
+
         var normalizedName = NormalizeOrNull(name);
         var normalizedContent = NormalizeOrNull(content);
         if (normalizedName is null)
@@ -631,7 +649,7 @@ public sealed class LumiFeatureManager
         };
 
         _dataStore.Data.Skills.Add(skill);
-        return Success($"Skill created.\n{DescribeSkill(skill)}", syncSkillFiles: true);
+        return SkillSuccess(skill, "Skill created.");
     }
 
     private FeatureChangeResult UpdateSkill(
@@ -639,7 +657,10 @@ public sealed class LumiFeatureManager
         string? name,
         string? description,
         string? content,
-        string? iconGlyph)
+        string? iconGlyph,
+        string? updateMode,
+        string? editOldString,
+        string? editNewString)
     {
         var lookup = ResolveByIdOrLabel(
             _dataStore.Data.Skills,
@@ -651,9 +672,17 @@ public sealed class LumiFeatureManager
             return Failure(lookup.Error!);
 
         var skill = lookup.Item!;
-        if (name is null && description is null && content is null && iconGlyph is null)
+
+        var mode = NormalizeUpdateMode(updateMode);
+        if (mode is null)
+            return Failure($"Unknown updateMode \"{updateMode}\". Use replace, patch, append, prepend, or replaceSection.");
+
+        var contentEditRequested = mode != "replace" || content is not null;
+        var metadataChange = name is not null || description is not null || iconGlyph is not null;
+        if (!contentEditRequested && !metadataChange)
             return Failure("No skill changes were provided.");
 
+        // Metadata edits first so a rename + content edit in one call yields the correct .md filename.
         if (name is not null)
         {
             var normalizedName = NormalizeOrNull(name);
@@ -667,18 +696,291 @@ public sealed class LumiFeatureManager
         if (description is not null)
             skill.Description = NormalizeOrNull(description) ?? "";
 
-        if (content is not null)
-        {
-            var normalizedContent = NormalizeOrNull(content);
-            if (normalizedContent is null)
-                return Failure("Skill content cannot be empty.");
-            skill.Content = normalizedContent;
-        }
-
         if (iconGlyph is not null)
             skill.IconGlyph = NormalizeOrNull(iconGlyph) ?? "⚡";
 
-        return Success($"Skill updated.\n{DescribeSkill(skill)}", syncSkillFiles: true);
+        if (contentEditRequested)
+        {
+            var (ok, newContent, error) = ComputeEditedContent(mode, skill.Content, content, editOldString, editNewString);
+            if (!ok)
+                return Failure(error!);
+            if (string.IsNullOrWhiteSpace(newContent))
+                return Failure("Skill content cannot be empty.");
+            ApplySkillContentChange(skill, newContent!);
+        }
+
+        return SkillSuccess(skill, "Skill updated.");
+    }
+
+    private FeatureChangeResult ImportSkill(string? identifier)
+    {
+        var lookup = ResolveByIdOrLabel(
+            _dataStore.Data.Skills,
+            identifier,
+            static skill => skill.Id,
+            static skill => skill.Name,
+            "skill");
+        if (!lookup.Success)
+            return Failure(lookup.Error!);
+
+        var skill = lookup.Item!;
+        var path = _dataStore.GetSkillFilePath(skill.Name);
+        if (!File.Exists(path))
+            return Failure($"Skill file not found on disk: {path}. Nothing to import.");
+
+        string raw;
+        try
+        {
+            raw = File.ReadAllText(path);
+        }
+        catch (IOException ex)
+        {
+            return Failure($"Failed to read skill file: {ex.Message}");
+        }
+
+        var (ok, importedName, importedDescription, body, error) = ParseSkillMarkdown(raw);
+        if (!ok)
+            return Failure(error!);
+        if (string.IsNullOrWhiteSpace(body))
+            return Failure("Imported skill body is empty.");
+
+        var newName = importedName!;
+        if (!string.Equals(newName, skill.Name, StringComparison.Ordinal)
+            && HasConflictingLabel(_dataStore.Data.Skills, newName, static item => item.Name, static item => item.Id, skill.Id))
+        {
+            return Failure($"A skill named \"{newName}\" already exists.");
+        }
+
+        skill.Name = newName;
+        skill.Description = importedDescription ?? "";
+        ApplySkillContentChange(skill, body!);
+        return SkillSuccess(skill, $"Skill imported from {Path.GetFileName(path)}.");
+    }
+
+    private void ApplySkillContentChange(Skill skill, string newContent)
+    {
+        if (!string.IsNullOrEmpty(skill.Content)
+            && !string.Equals(skill.Content, newContent, StringComparison.Ordinal))
+        {
+            _dataStore.BackupSkillContent(skill.Id, skill.Content);
+        }
+
+        skill.Content = newContent;
+    }
+
+    private FeatureChangeResult SkillSuccess(Skill skill, string headline)
+    {
+        var bytes = Encoding.UTF8.GetByteCount(skill.Content);
+        var hash = ShortHash(skill.Content);
+
+        var message = new StringBuilder();
+        message.Append(headline).Append('\n').Append(DescribeSkill(skill));
+        message.Append($"\nVerified {bytes} bytes saved (sha256:{hash}).");
+        if (bytes > SkillOversizeWarningBytes)
+            message.Append($"\n⚠ Skill is {FormatKb(bytes)}; the model may not load the full body — consider compressing.");
+
+        return Success(message.ToString(), syncSkillFiles: true, skillContentBytes: bytes, skillContentHash: hash);
+    }
+
+    private static (bool Ok, string? Content, string? Error) ComputeEditedContent(
+        string mode,
+        string currentContent,
+        string? content,
+        string? editOldString,
+        string? editNewString)
+    {
+        switch (mode)
+        {
+            case "replace":
+                var normalized = NormalizeOrNull(content);
+                return normalized is null
+                    ? (false, null, "Skill content cannot be empty.")
+                    : (true, normalized, null);
+            case "patch":
+                return ApplyPatch(currentContent, editOldString, editNewString);
+            case "append":
+                return string.IsNullOrEmpty(editNewString)
+                    ? (false, null, "editNewString is required for updateMode 'append'.")
+                    : (true, currentContent + "\n" + editNewString, null);
+            case "prepend":
+                return string.IsNullOrEmpty(editNewString)
+                    ? (false, null, "editNewString is required for updateMode 'prepend'.")
+                    : (true, editNewString + "\n" + currentContent, null);
+            case "replacesection":
+                return ApplyReplaceSection(currentContent, editOldString, editNewString);
+            default:
+                return (false, null, $"Unsupported updateMode '{mode}'.");
+        }
+    }
+
+    private static (bool Ok, string? Content, string? Error) ApplyPatch(string content, string? editOldString, string? editNewString)
+    {
+        if (string.IsNullOrEmpty(editOldString))
+            return (false, null, "editOldString is required for updateMode 'patch'.");
+
+        var replacement = editNewString ?? "";
+        var count = CountOccurrences(content, editOldString);
+        if (count == 0)
+            return (false, null, "Patch failed: old string not found in the skill content.");
+        if (count > 1)
+            return (false, null, $"Patch failed: old string matched {count} times; add more surrounding context to make it unique.");
+
+        var idx = content.IndexOf(editOldString, StringComparison.Ordinal);
+        var result = string.Concat(content.AsSpan(0, idx), replacement, content.AsSpan(idx + editOldString.Length));
+        return (true, result, null);
+    }
+
+    private static (bool Ok, string? Content, string? Error) ApplyReplaceSection(string content, string? headingLine, string? editNewString)
+    {
+        var heading = NormalizeOrNull(headingLine);
+        if (heading is null)
+            return (false, null, "editOldString (the section heading, e.g. \"## Deliver via M365\") is required for updateMode 'replaceSection'.");
+
+        var level = HeadingLevel(heading);
+        if (level <= 0)
+            return (false, null, $"editOldString \"{heading}\" is not a markdown heading (it must start with '#').");
+
+        var lines = content.Split('\n');
+        var start = -1;
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (string.Equals(lines[i].Trim(), heading, StringComparison.Ordinal))
+            {
+                start = i;
+                break;
+            }
+        }
+        if (start < 0)
+            return (false, null, $"Section heading not found: \"{heading}\".");
+
+        var end = lines.Length;
+        for (var j = start + 1; j < lines.Length; j++)
+        {
+            var lvl = HeadingLevel(lines[j].Trim());
+            if (lvl > 0 && lvl <= level)
+            {
+                end = j;
+                break;
+            }
+        }
+
+        var rebuilt = new List<string>(lines.Length);
+        rebuilt.AddRange(lines[..start]);
+        rebuilt.Add(editNewString ?? "");
+        rebuilt.AddRange(lines[end..]);
+        return (true, string.Join('\n', rebuilt), null);
+    }
+
+    private static int HeadingLevel(string line)
+    {
+        var trimmed = line.TrimStart();
+        var hashes = 0;
+        while (hashes < trimmed.Length && trimmed[hashes] == '#')
+            hashes++;
+        if (hashes == 0)
+            return 0;
+        // A valid ATX heading has a space (or line end) after the leading hashes.
+        if (hashes < trimmed.Length && trimmed[hashes] != ' ')
+            return 0;
+        return hashes;
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        var i = 0;
+        while ((i = haystack.IndexOf(needle, i, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            i += needle.Length;
+        }
+        return count;
+    }
+
+    private static (bool Ok, string? Name, string? Description, string? Body, string? Error) ParseSkillMarkdown(string raw)
+    {
+        if (string.IsNullOrEmpty(raw))
+            return (false, null, null, null, "Malformed frontmatter: file is empty.");
+
+        var (first, firstNext) = ReadLine(raw, 0);
+        if (first.Trim() != "---")
+            return (false, null, null, null, "Malformed frontmatter: file must begin with a '---' line.");
+
+        var pos = firstNext;
+        string? name = null;
+        string? description = null;
+        var closed = false;
+        while (pos < raw.Length)
+        {
+            var (line, next) = ReadLine(raw, pos);
+            pos = next;
+            if (line.Trim() == "---")
+            {
+                closed = true;
+                break;
+            }
+
+            var colon = line.IndexOf(':');
+            if (colon <= 0)
+                continue;
+            var key = line[..colon].Trim();
+            var value = line[(colon + 1)..].Trim();
+            if (key.Equals("name", StringComparison.OrdinalIgnoreCase))
+                name = value;
+            else if (key.Equals("description", StringComparison.OrdinalIgnoreCase))
+                description = value;
+        }
+
+        if (!closed)
+            return (false, null, null, null, "Malformed frontmatter: missing closing '---'.");
+        if (string.IsNullOrWhiteSpace(name))
+            return (false, null, null, null, "Malformed frontmatter: missing 'name'.");
+
+        // Skip exactly one blank separator line between frontmatter and body (matches the mirror layout).
+        if (pos < raw.Length)
+        {
+            var (sep, next) = ReadLine(raw, pos);
+            if (sep.Length == 0)
+                pos = next;
+        }
+
+        var body = pos <= raw.Length ? raw[pos..] : "";
+        return (true, name, description, body, null);
+    }
+
+    // Returns the line WITHOUT its trailing newline, and the index just past the newline.
+    private static (string Line, int Next) ReadLine(string text, int start)
+    {
+        var nl = text.IndexOf('\n', start);
+        if (nl < 0)
+            return (text[start..], text.Length);
+        var line = text[start..nl];
+        if (line.EndsWith('\r'))
+            line = line[..^1];
+        return (line, nl + 1);
+    }
+
+    private static string FormatKb(int bytes)
+        => (bytes / 1024.0).ToString("0.0", CultureInfo.InvariantCulture) + " KB";
+
+    private static string ShortHash(string content)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(content));
+        return Convert.ToHexString(hash, 0, 4).ToLowerInvariant();
+    }
+
+    private static string? NormalizeUpdateMode(string? updateMode)
+    {
+        var normalized = NormalizeOrNull(updateMode)?.ToLowerInvariant().Replace("_", "", StringComparison.Ordinal).Replace("-", "", StringComparison.Ordinal);
+        return normalized switch
+        {
+            null or "replace" or "full" or "set" => "replace",
+            "patch" or "strreplace" => "patch",
+            "append" => "append",
+            "prepend" => "prepend",
+            "replacesection" or "section" => "replacesection",
+            _ => null
+        };
     }
 
     private FeatureChangeResult DeleteSkill(string? identifier)
@@ -1277,6 +1579,7 @@ public sealed class LumiFeatureManager
             "list" or "show" or "search" => "list",
             "create" or "add" or "new" => "create",
             "update" or "edit" or "rename" or "modify" => "update",
+            "import" or "ingest" or "reload" => "import",
             "delete" or "remove" => "delete",
             _ => ""
         };
@@ -1339,9 +1642,12 @@ public sealed class LumiFeatureManager
         bool syncSkillFiles = false,
         string? renamedMcpOldName = null,
         string? renamedMcpNewName = null,
-        string? deletedMcpName = null)
+        string? deletedMcpName = null,
+        int? skillContentBytes = null,
+        string? skillContentHash = null)
         => new(message, DataChanged: true, SyncSkillFiles: syncSkillFiles,
-            RenamedMcpOldName: renamedMcpOldName, RenamedMcpNewName: renamedMcpNewName, DeletedMcpName: deletedMcpName);
+            RenamedMcpOldName: renamedMcpOldName, RenamedMcpNewName: renamedMcpNewName, DeletedMcpName: deletedMcpName,
+            SkillContentBytes: skillContentBytes, SkillContentHash: skillContentHash);
 
     private static LookupResult<T> ResolveByIdOrLabel<T>(
         IEnumerable<T> items,

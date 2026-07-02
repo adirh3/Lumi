@@ -599,19 +599,22 @@ public partial class ChatViewModel
 
             AIFunctionFactory.Create(
                 async (
-                    [Description("Action: list, create, update, or delete")] string action,
-                    [Description("Skill ID or exact name for update/delete. Omit for create/list.")] string? identifier = null,
+                    [Description("Action: list, create, update, delete, import")] string action,
+                    [Description("Skill ID or exact name for update/delete/import. Omit for create/list.")] string? identifier = null,
                     [Description("Skill name for create, or the new name for update.")] string? name = null,
                     [Description("Short skill description shown in the Available Skills list.")] string? description = null,
-                    [Description("Full markdown content for the skill. Required when creating a skill.")] string? content = null,
+                    [Description("Full markdown content. Required for create. For editing an EXISTING skill, PREFER updateMode='patch' with editOldString/editNewString instead of resending the whole body — safer for large skills.")] string? content = null,
                     [Description("Optional icon glyph, e.g. ⚡ or 📄.")] string? iconGlyph = null,
-                    [Description("Optional text query for list filtering.")] string? query = null) =>
+                    [Description("Optional text query for list filtering.")] string? query = null,
+                    [Description("Edit mode for update: 'replace' (default, full body), 'patch' (surgical single-occurrence swap via editOldString/editNewString), 'append', 'prepend', or 'replaceSection'. PREFER 'patch' for edits to existing skills.")] string? updateMode = null,
+                    [Description("For updateMode='patch': the exact existing substring to replace (must occur exactly once). For updateMode='replaceSection': the markdown heading line, e.g. '## Deliver via M365'.")] string? editOldString = null,
+                    [Description("For updateMode='patch'/'append'/'prepend'/'replaceSection': the replacement/added text.")] string? editNewString = null) =>
                 {
-                    var result = FeatureManager.ManageSkills(action, identifier, name, description, content, iconGlyph, query);
+                    var result = FeatureManager.ManageSkills(action, identifier, name, description, content, iconGlyph, query, updateMode, editOldString, editNewString);
                     return await ApplyFeatureChangeAsync(result);
                 },
                 "manage_skills",
-                "List, create, update, or delete Lumi skills. Use this only when the user explicitly asks to manage Lumi's internal skills.",
+                "List, create, update, delete, or import Lumi skills. Use this only when the user explicitly asks to manage Lumi's internal skills. For edits to an EXISTING skill, PREFER updateMode='patch' with editOldString/editNewString (or 'append'/'prepend'/'replaceSection') instead of resending the full content — it is safer and avoids truncation on large skills. Use full content only for create or an intentional full rewrite.",
                 Lumi.Models.AppDataJsonContext.Default.Options),
 
             AIFunctionFactory.Create(

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -52,8 +53,15 @@ public class DataStore
     private string? _activeSkillSyncDirectory;
     private long _nextChatChangeVersion;
 
+    /// <summary>
+    /// Directory the skill markdown mirror and backups are written to. Defaults to the
+    /// process-wide <see cref="SkillsDir"/>; tests can point it at an isolated folder.
+    /// </summary>
+    public string SkillsDirectory { get; }
+
     public DataStore()
     {
+        SkillsDirectory = SkillsDir;
         Directory.CreateDirectory(AppDir);
         Directory.CreateDirectory(SkillsDir);
         Directory.CreateDirectory(ChatsDir);
@@ -65,10 +73,11 @@ public class DataStore
         EnsureFeatureManagerSkill();
     }
 
-    internal DataStore(AppData data)
+    internal DataStore(AppData data, string? skillsDirectoryOverride = null)
     {
         _usesPersistentStorage = false;
         _data = data ?? new AppData();
+        SkillsDirectory = string.IsNullOrWhiteSpace(skillsDirectoryOverride) ? SkillsDir : skillsDirectoryOverride;
     }
 
     public AppData Data => _data;
@@ -773,10 +782,10 @@ public class DataStore
     /// </summary>
     public void SyncSkillFiles()
     {
-        Directory.CreateDirectory(SkillsDir);
+        Directory.CreateDirectory(SkillsDirectory);
 
         // Remove old files that no longer correspond to a skill
-        var existingFiles = Directory.GetFiles(SkillsDir, "*.md");
+        var existingFiles = Directory.GetFiles(SkillsDirectory, "*.md");
         var validFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var skill in _data.Skills)
@@ -785,15 +794,8 @@ public class DataStore
             var fileName = $"{safeName}.md";
             validFileNames.Add(fileName);
 
-            var filePath = Path.Combine(SkillsDir, fileName);
-            var content = $"""
-                ---
-                name: {skill.Name}
-                description: {skill.Description}
-                ---
-
-                {skill.Content}
-                """;
+            var filePath = Path.Combine(SkillsDirectory, fileName);
+            var content = BuildSkillMarkdown(skill);
             File.WriteAllText(filePath, content);
         }
 
@@ -802,6 +804,73 @@ public class DataStore
             if (!validFileNames.Contains(Path.GetFileName(file)))
                 File.Delete(file);
         }
+    }
+
+    /// <summary>Renders a skill's on-disk markdown (frontmatter + body), matching the mirror layout.</summary>
+    public static string BuildSkillMarkdown(Skill skill)
+    {
+        return $"""
+            ---
+            name: {skill.Name}
+            description: {skill.Description}
+            ---
+
+            {skill.Content}
+            """;
+    }
+
+    /// <summary>Absolute path of a skill's markdown mirror file for the given skill name.</summary>
+    public string GetSkillFilePath(string skillName)
+        => Path.Combine(SkillsDirectory, $"{SanitizeFileName(skillName)}.md");
+
+    /// <summary>Directory holding rolling per-skill content backups.</summary>
+    public string SkillBackupsDirectory => Path.Combine(SkillsDirectory, ".backups");
+
+    private const int MaxSkillBackupsPerSkill = 10;
+
+    /// <summary>
+    /// Writes the prior skill body to a timestamped backup and prunes to the most recent
+    /// <see cref="MaxSkillBackupsPerSkill"/> backups for that skill. Returns the backup path.
+    /// </summary>
+    public string BackupSkillContent(Guid skillId, string priorContent)
+    {
+        var backupsDir = SkillBackupsDirectory;
+        Directory.CreateDirectory(backupsDir);
+
+        var baseName = $"{skillId}-{DateTime.Now:yyyyMMdd-HHmmss}";
+        var path = Path.Combine(backupsDir, baseName + ".md");
+        var attempt = 0;
+        while (File.Exists(path))
+        {
+            attempt++;
+            path = Path.Combine(backupsDir, $"{baseName}-{attempt}.md");
+        }
+        WriteAllTextAtomic(path, priorContent);
+
+        var existing = new DirectoryInfo(backupsDir)
+            .GetFiles($"{skillId}-*.md")
+            .OrderByDescending(f => f.LastWriteTimeUtc)
+            .ThenByDescending(f => f.Name, StringComparer.Ordinal)
+            .ToList();
+        foreach (var stale in existing.Skip(MaxSkillBackupsPerSkill))
+        {
+            try { stale.Delete(); }
+            catch (IOException) { /* best-effort prune */ }
+        }
+
+        return path;
+    }
+
+    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
+
+    private static void WriteAllTextAtomic(string path, string contents)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var tempPath = Path.Combine(
+            Path.GetDirectoryName(path)!,
+            $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        File.WriteAllText(tempPath, contents, Utf8NoBom);
+        File.Move(tempPath, path, overwrite: true);
     }
 
     /// <summary>

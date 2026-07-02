@@ -356,14 +356,14 @@ public sealed class LumiMcpTools
             ("targetProcessId", targetProcessId)));
 
     [McpServerTool(Name = "lumi_configure_feature")]
-    [Description("Create/update/delete Lumi projects, skills, Lumis, MCP servers, memories, jobs, or update settings via Lumi's feature manager.")]
+    [Description("Create/update/delete Lumi projects, skills, Lumis, MCP servers, memories, jobs, or update settings via Lumi's feature manager. For edits to an EXISTING skill, PREFER updateMode='patch' with editOldString/editNewString instead of resending the whole content — it is safer for large skills.")]
     public Task<string> ConfigureFeature(
         [Description("Resource: projects, skills, lumis, mcps, memories, jobs, or settings.")] string resource,
-        [Description("Action for managed resources: list, create, update, delete, pause, resume, run_now.")] string? action = null,
+        [Description("Action for managed resources: list, create, update, delete, import, pause, resume, run_now.")] string? action = null,
         [Description("Id/name/key for update/delete/list filtering.")] string? identifier = null,
         [Description("Name for create/update.")] string? name = null,
         [Description("Description for create/update.")] string? description = null,
-        [Description("Skill or memory content.")] string? content = null,
+        [Description("Skill or memory content. For editing an EXISTING skill, prefer updateMode='patch' with editOldString/editNewString over resending the full body.")] string? content = null,
         [Description("Project instructions.")] string? instructions = null,
         [Description("Project working directory.")] string? workingDirectory = null,
         [Description("Clear a project working directory.")] bool? clearWorkingDirectory = null,
@@ -371,6 +371,9 @@ public sealed class LumiMcpTools
         [Description("Clear project additional context directories.")] bool? clearAdditionalContextDirectories = null,
         [Description("Lumi agent system prompt.")] string? systemPrompt = null,
         [Description("Icon glyph for skills/Lumis.")] string? iconGlyph = null,
+        [Description("Skill edit mode: 'replace' (default, full body), 'patch' (surgical single-occurrence swap), 'append', 'prepend', or 'replaceSection'. PREFER 'patch' for edits to existing skills.")] string? updateMode = null,
+        [Description("For skill updateMode='patch': the exact existing substring to replace (must occur exactly once). For 'replaceSection': the markdown heading line, e.g. '## Deliver via M365'.")] string? editOldString = null,
+        [Description("For skill updateMode='patch'/'append'/'prepend'/'replaceSection': the replacement/added text.")] string? editNewString = null,
         [Description("Skill ids/names for Lumi agents.")] string[]? skillIdentifiers = null,
         [Description("Allowed tool names for Lumi agents or MCP server tool filters.")] string[]? toolNames = null,
         [Description("MCP server ids/names for Lumi agents.")] string[]? mcpServerIdentifiers = null,
@@ -426,6 +429,9 @@ public sealed class LumiMcpTools
             ("name", name),
             ("description", description),
             ("content", content),
+            ("updateMode", updateMode),
+            ("editOldString", editOldString),
+            ("editNewString", editNewString),
             ("instructions", instructions),
             ("workingDirectory", workingDirectory),
             ("clearWorkingDirectory", clearWorkingDirectory),
