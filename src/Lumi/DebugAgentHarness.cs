@@ -114,6 +114,26 @@ public static class DebugAgentHarness
             Description = documentSkill.Description
         };
 
+        // A fourth skill representing a *builtin / plugin / remote* Copilot skill whose full body
+        // is delivered by the SDK's skill.invoked event. It is NOT a Lumi appdata skill and has NO
+        // SKILL.md anywhere Lumi scans on disk, so its preview can only render from the Content the
+        // SDK handed us on the chip. It rides on the fixture's active-skill turn (as the first chip)
+        // and is the live regression guard for the "standard skill chip shows an empty preview" bug.
+        var builtinSkillRef = new SkillReference
+        {
+            Name = "Remote Copilot Skill",
+            Glyph = "\U0001F310",
+            Description = "A builtin/remote Copilot skill with no SKILL.md on this machine.",
+            Content = """
+                # Remote Copilot Skill
+
+                This body was delivered by the Copilot SDK `skill.invoked` event — it was **not**
+                read from a `SKILL.md` on disk. Builtin, plugin, and remote skills have no local
+                file where Lumi scans, so the preview must render this SDK-provided content
+                directly instead of re-scanning the filesystem.
+                """
+        };
+
         var chat = new Chat
         {
             Title = "Debug transcript fixture (not saved)",
@@ -151,6 +171,7 @@ public static class DebugAgentHarness
             """);
         user.Author = userName;
         user.Attachments.Add(attachmentPath);
+        user.ActiveSkills.Add(builtinSkillRef);
         user.ActiveSkills.Add(skillRef);
         chat.Messages.Add(user);
 

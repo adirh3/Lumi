@@ -34,6 +34,13 @@ public class SkillReference
     public string Name { get; set; } = "";
     public string Glyph { get; set; } = "\u26A1";
     public string Description { get; set; } = "";
+
+    /// <summary>
+    /// Full skill markdown as delivered by the SDK's <c>skill.invoked</c> event. Persisted on the
+    /// chip so the preview renders directly, without re-scanning the filesystem — which is the only
+    /// way builtin/plugin/remote skills (that have no reachable SKILL.md on this machine) resolve.
+    /// </summary>
+    public string? Content { get; set; }
 }
 
 public static class ModelContextWindowTiers

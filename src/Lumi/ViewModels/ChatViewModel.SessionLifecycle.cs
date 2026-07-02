@@ -1732,7 +1732,10 @@ public partial class ChatViewModel
                         {
                             Name = skill?.Name ?? skillInvoked.Data.Name,
                             Glyph = skill?.Glyph ?? "\u26A1",
-                            Description = skill?.Description ?? string.Empty
+                            Description = !string.IsNullOrWhiteSpace(skillInvoked.Data.Description)
+                                ? skillInvoked.Data.Description
+                                : skill?.Description ?? string.Empty,
+                            Content = skillInvoked.Data.Content
                         });
                     }
                     });

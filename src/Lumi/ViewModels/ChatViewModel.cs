@@ -1827,6 +1827,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 : internalSkill.Description;
         }
 
+        // Content captured from the SDK's skill.invoked event renders directly — this is the only
+        // path that works for builtin/plugin/remote skills, which have no SKILL.md to re-discover.
+        if (!string.IsNullOrWhiteSpace(skill.Content))
+            return skill.Content;
+
         var externalSkill = GetProjectContextCatalog().FindSkill(skill.Name);
         if (externalSkill is not null && !string.IsNullOrWhiteSpace(externalSkill.Content))
             return externalSkill.Content;
