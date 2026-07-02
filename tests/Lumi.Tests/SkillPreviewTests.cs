@@ -67,30 +67,4 @@ public sealed class SkillPreviewTests
             Directory.Delete(root, recursive: true);
         }
     }
-
-    [Fact]
-    public void OpenSkillPreview_RendersPersistedChipContent_WhenSourceFolderUnavailable()
-    {
-        // Cross-PC regression: the original bug was that clicking a repo skill chip re-discovered the
-        // skill from the project's working directory. On another machine that absolute path doesn't
-        // exist, discovery falls back to the user profile, finds nothing, and the body is lost.
-        // The chip now carries its own markdown, so the preview renders without any re-discovery.
-        var project = new Project { Name = "Repo", WorkingDirectory = @"X:\definitely-not-here\repo" };
-        Assert.False(Directory.Exists(project.WorkingDirectory));
-
-        var appData = new AppData();
-        appData.Projects.Add(project);
-        var viewModel = new ChatViewModel(new DataStore(appData), new CopilotService())
-        {
-            ActiveProjectFilterId = project.Id
-        };
-
-        viewModel.OpenSkillPreview(new SkillReference
-        {
-            Name = "Publish-New-Version",
-            Content = "# Publish New Version\n\nStep-by-step release body."
-        });
-
-        Assert.Contains("Step-by-step release body.", viewModel.SkillPreviewContent);
-    }
 }

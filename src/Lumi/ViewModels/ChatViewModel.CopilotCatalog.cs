@@ -77,8 +77,7 @@ public partial class ChatViewModel
         {
             Name = skill.Name,
             Glyph = ExternalSkillGlyph,
-            Description = skill.Description,
-            Content = skill.Content
+            Description = skill.Description
         };
     }
 }

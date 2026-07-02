@@ -273,8 +273,7 @@ public class DataStore
                 {
                     Name = s.Name,
                     Glyph = s.Glyph,
-                    Description = s.Description,
-                    Content = s.Content
+                    Description = s.Description
                 })],
                 Sources = [..m.Sources.Select(static s => new SearchSource
                 {
