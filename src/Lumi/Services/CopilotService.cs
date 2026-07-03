@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -51,6 +52,15 @@ public class CopilotService : IAsyncDisposable
     private IDisposable? _lifecycleSub;
     private CopilotSession? _suggestionSession;
     private readonly SemaphoreSlim _suggestionGate = new(1, 1);
+
+    // Tracks in-flight session releases keyed by SERVER SESSION ID, shared across every
+    // ChatViewModel surface. DisposeAsync sends session.destroy scoped to the session id but leaves
+    // it resumable, so a destroy started by one (e.g. disposed/evicted) surface can still be in
+    // flight when a *different* surface resumes the same id — and a late destroy would tear down the
+    // freshly resumed live session. ResumeSessionAsync awaits any matching pending release first,
+    // sequencing destroy-before-resume across surfaces. Concurrent because releases and resumes run
+    // from independent surfaces / continuations.
+    private readonly ConcurrentDictionary<string, Task> _pendingReleasesBySessionId = new(StringComparer.Ordinal);
 
     /// <summary>Fires after the CopilotClient has been replaced (reconnection).
     /// Consumers should discard any cached CopilotSession objects.</summary>
@@ -589,11 +599,116 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>Resumes an existing Copilot session by ID.</summary>
+    /// <remarks>
+    /// THREADING INVARIANT: callers are expected to be UI-thread-serialized with
+    /// <see cref="ReleaseSessionAsync"/> — Lumi drives all Copilot session lifecycle (create,
+    /// resume, release) on the Avalonia UI thread, which is also why <c>ChatViewModel._sessionCache</c>
+    /// and <c>_sessionReleaseTasks</c> can be plain (non-concurrent) dictionaries. That serialization
+    /// is what lets the destroy-before-resume gate below stay lock-free: on a single thread a release
+    /// publishes itself into <c>_pendingReleasesBySessionId</c> synchronously before returning, so a
+    /// later resume of the SAME id always observes the in-flight destroy and waits for it here. If
+    /// this is ever called concurrently with a release from a DIFFERENT thread, the registry alone
+    /// does not make check-then-resume atomic against a racing release — add per-session-id
+    /// serialization (e.g. a keyed SemaphoreSlim spanning both release and resume) at that point.
+    /// </remarks>
     public async Task<CopilotSession> ResumeSessionAsync(
         string sessionId, ResumeSessionConfig config, CancellationToken ct = default)
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
+        // Sequence destroy-before-resume across surfaces: if any surface is still releasing this
+        // exact server session, wait for that destroy to complete before resuming, otherwise the
+        // late destroy could reap the session we are about to hand back live.
+        await AwaitPendingReleaseAsync(sessionId, ct).ConfigureAwait(false);
         return await _client.ResumeSessionAsync(sessionId, config, ct);
+    }
+
+    /// <summary>
+    /// Releases a dropped session (sends <c>session.destroy</c>, reaping its host process + MCP
+    /// subprocesses) while registering the in-flight release by server session id so a concurrent
+    /// <see cref="ResumeSessionAsync"/> of the same id — potentially from a different ChatViewModel
+    /// surface — waits for the destroy to finish first. Exceptions are swallowed so best-effort
+    /// fire-and-forget releases can never fault their caller. When <paramref name="deleteServerSession"/>
+    /// is true the on-disk session data is also deleted (not just destroyed/resumable).
+    /// </summary>
+    /// <remarks>
+    /// THREADING INVARIANT: expected to run on the same (UI) thread that drives
+    /// <see cref="ResumeSessionAsync"/>. Two properties depend on it and would otherwise require a
+    /// per-session-id lock: (1) the release is published into <c>_pendingReleasesBySessionId</c>
+    /// synchronously right after <c>session.destroy</c> is dispatched (no <c>await</c> in between),
+    /// so a same-thread resume can never observe the destroy without also observing its registry
+    /// entry; and (2) only one surface holds a given server session at a time, so releases of the
+    /// same id never overlap (which is why awaiting the single tracked task per id is sufficient).
+    /// A note on hung destroys: <see cref="AwaitPendingReleaseAsync"/> waits only as long as the
+    /// caller's cancellation token allows. In session setup that token is the turn's cancellation
+    /// plus a 30s bound ONLY when the chat has MCP servers — a chat without MCP servers has no
+    /// automatic bound, so a destroy that never completes blocks resume of that same id until the
+    /// turn is cancelled. On timeout/cancel the wait surfaces cancellation out of session setup (the
+    /// turn fails) rather than auto-creating a fresh session, and the stale registry entry clears
+    /// only when the hung destroy finally settles or at process exit. This needs a live-but-
+    /// unresponsive CLI to occur (a dead transport faults fast and self-cleans), so it is a rare
+    /// degradation of that one id, not an app deadlock.
+    /// </remarks>
+    public Task ReleaseSessionAsync(CopilotSession session, bool deleteServerSession)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+
+        var sessionId = session.SessionId;
+        var releaseTask = ReleaseSessionCoreAsync(session, deleteServerSession);
+
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return releaseTask;
+
+        _pendingReleasesBySessionId[sessionId] = releaseTask;
+        // Remove our own entry when the release settles. The KeyValuePair overload only removes when
+        // the tracked task is still THIS task, so a newer release that overwrote the entry is kept.
+        _ = releaseTask.ContinueWith(
+            static (completed, state) =>
+            {
+                var (map, key) = ((ConcurrentDictionary<string, Task>, string))state!;
+                map.TryRemove(new KeyValuePair<string, Task>(key, completed));
+            },
+            (_pendingReleasesBySessionId, sessionId),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        return releaseTask;
+    }
+
+    private async Task ReleaseSessionCoreAsync(CopilotSession session, bool deleteServerSession)
+    {
+        try
+        {
+            if (deleteServerSession)
+                await DisposeAndDeleteSessionAsync(session).ConfigureAwait(false);
+            else
+                await session.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Lumi] Failed to release Copilot session {session.SessionId}: {ex.Message}");
+        }
+    }
+
+    private async Task AwaitPendingReleaseAsync(string sessionId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId)
+            || !_pendingReleasesBySessionId.TryGetValue(sessionId, out var release))
+            return;
+
+        try
+        {
+            // ReleaseSessionCoreAsync swallows its own faults, so this only surfaces cancellation.
+            await release.WaitAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Lumi] Failed awaiting pending release for session {sessionId}: {ex.Message}");
+        }
     }
 
     /// <summary>

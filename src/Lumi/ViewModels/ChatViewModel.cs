@@ -2960,7 +2960,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// re-establish it via ResumeSessionAsync, preserving server-side context.</summary>
     private void InvalidateLocalSessionCache(Chat chat)
     {
-        _sessionCache.Remove(chat.Id);
+        // Best-effort release the evicted session so its MCP subprocesses are reaped instead of
+        // orphaned. chat.CopilotSessionId is intentionally left intact, so the next EnsureSessionAsync
+        // resumes the SAME server session — and its AwaitPendingSessionReleaseAsync gate first awaits
+        // this release (tracked per chat), which safely sequences destroy-then-resume for the same id.
+        if (_sessionCache.Remove(chat.Id, out var staleSession))
+            TrackSessionRelease(chat.Id, staleSession, deleteServerSession: false);
         if (_sessionSubs.TryGetValue(chat.Id, out var sub))
         {
             sub.Dispose();
@@ -2978,7 +2983,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         var detachedSessionId = sessionId ?? chat.CopilotSessionId;
         DisposeSessionSubscription(chat.Id);
-        _sessionCache.Remove(chat.Id);
+
+        // Best-effort release the detached session so its MCP subprocesses are reaped rather than
+        // orphaned. Every caller either recreates a FRESH session with a new id (resume failed /
+        // send hit session-not-found) or is reacting to a server-side deletion — and we null
+        // CopilotSessionId below — so no same-id resume can race this destroy.
+        if (_sessionCache.Remove(chat.Id, out var detachedSession))
+            TrackSessionRelease(chat.Id, detachedSession, deleteServerSession: false);
         if (!string.IsNullOrWhiteSpace(detachedSessionId)
             && string.Equals(_activeSession?.SessionId, detachedSessionId, StringComparison.Ordinal))
         {

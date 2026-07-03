@@ -114,6 +114,33 @@ public partial class ChatViewModel
         // Dispose previous subscription for this chat (e.g., session was resumed)
         if (_sessionSubs.TryGetValue(chat.Id, out var oldSub))
             oldSub.Dispose();
+
+        // A resume/create for this chat can hand us a new CopilotSession object for a *different*
+        // server session than the one still cached here (the send guard only re-enters session setup
+        // when the cached handle's id no longer matches, and create assigns a brand-new id).
+        // Overwriting the cache entry would drop that old session WITHOUT sending session.destroy,
+        // orphaning its host process and MCP subprocesses forever — GC never reaps them because
+        // CopilotSession's finalizer only calls RemoveFromClient. Release it explicitly. We guard on
+        // the server id: a same-id handle shares the one server session (and its MCP) with the
+        // incoming one, so destroying it would tear down the session we are about to use.
+        if (_sessionCache.TryGetValue(chat.Id, out var previousSession)
+            && !ReferenceEquals(previousSession, session)
+            && !string.Equals(previousSession.SessionId, session.SessionId, StringComparison.Ordinal))
+        {
+            _sessionCache.Remove(chat.Id);
+            TrackSessionRelease(chat.Id, previousSession, deleteServerSession: false);
+        }
+
+        // This surface may have been disposed while the session was being created/resumed (the user
+        // switched away and the pool evicted us mid-await). Dispose() already swept _sessionCache, so
+        // caching now would strand this session: nothing would ever release it, leaking its MCP
+        // subprocesses. Release it immediately instead of subscribing.
+        if (_isDisposed)
+        {
+            TrackSessionRelease(chat.Id, session, deleteServerSession: false);
+            return;
+        }
+
         _sessionCache[chat.Id] = session;
 
         // Per-session streaming state — captured by closure, independent per subscription
@@ -2053,6 +2080,10 @@ public partial class ChatViewModel
     private void DetachSessionAfterRemoteShutdown(Chat chat, bool wasActive)
     {
         DisposeSessionSubscription(chat.Id);
+        // The session already ended server-side (SessionShutdownEvent), so its host runtime and MCP
+        // subprocesses are already reaped — dropping the handle here leaks nothing, and a destroy RPC
+        // would just fail. The persisted CopilotSessionId is intentionally kept so a later send can
+        // resume once the CLI/server recovers.
         _sessionCache.Remove(chat.Id);
         if (wasActive)
             _activeSession = null;
@@ -2106,7 +2137,10 @@ public partial class ChatViewModel
             sub.Dispose();
         _sessionSubs.Clear();
 
-        // Clear session cache (objects reference the dead client)
+        // Clear session cache: every cached session belongs to the OLD CLI process, which has died
+        // (that is why we are reconnecting). Its child MCP subprocesses died with it, and a destroy
+        // RPC can't be delivered over the dead connection anyway, so there is nothing to reap here —
+        // dropping the handles is correct. Persisted CopilotSessionIds remain resumable on the new client.
         _sessionCache.Clear();
         _activeSession = null;
 

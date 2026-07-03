@@ -162,6 +162,220 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public async Task SubscribeToSession_WhenSurfaceDisposedMidSetup_ReleasesSessionInsteadOfCaching()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "raced" };
+        dataStore.Data.Chats.Add(chat);
+
+        // Reproduce the disposal race: the pool evicted+disposed this surface while a session was
+        // still being created/resumed. Dispose() already swept _sessionCache; then the in-flight
+        // create resolves and calls SubscribeToSession. Before the fix this re-populated the cache of
+        // a dead VM, stranding the session — nothing was left to dispose it, so its host + MCP
+        // subprocesses leaked forever (GC's finalizer only removes it from the client dictionary).
+        SetPrivateField(vm, "_isDisposed", true);
+        var stranded = CreateDetachedSession("sid-raced");
+
+        InvokePrivate(vm, "SubscribeToSession", stranded, chat, "C:\\work");
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        Assert.True(SessionWasDisposed(stranded));
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache").ContainsKey(chat.Id));
+        Assert.False(GetField<Dictionary<Guid, IDisposable>>(vm, "_sessionSubs").ContainsKey(chat.Id));
+    }
+
+    [Fact]
+    public async Task SubscribeToSession_WhenDifferentServerSessionCached_ReleasesStaleSessionBeforeReplacing()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "overwrite" };
+        dataStore.Data.Chats.Add(chat);
+
+        var stale = CreateDetachedSession("sid-old");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = stale;
+
+        // The overwrite guard runs first and unconditionally for a different server session id. We
+        // also flag the surface disposed so the method returns before the full event-subscription
+        // body (which needs a live session); that path is covered above.
+        SetPrivateField(vm, "_isDisposed", true);
+        var replacement = CreateDetachedSession("sid-new");
+
+        InvokePrivate(vm, "SubscribeToSession", replacement, chat, "C:\\work");
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        // The stale, different-id session must be destroyed (reaping its MCP), not silently dropped
+        // when the cache entry is overwritten.
+        Assert.True(SessionWasDisposed(stale));
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache").ContainsValue(stale));
+    }
+
+    [Fact]
+    public async Task SubscribeToSession_WhenSameServerSessionCached_DoesNotDestroySharedSession()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "same-id" };
+        dataStore.Data.Chats.Add(chat);
+
+        var existing = CreateDetachedSession("sid-shared");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = existing;
+
+        SetPrivateField(vm, "_isDisposed", true);
+        var resumedSameId = CreateDetachedSession("sid-shared");
+
+        InvokePrivate(vm, "SubscribeToSession", resumedSameId, chat, "C:\\work");
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        // destroy is scoped to the SERVER session id, so destroying a handle that shares the id with
+        // the incoming one would tear down the very session we are about to use. The overwrite guard
+        // must skip the same-id handle rather than reap it.
+        Assert.False(SessionWasDisposed(existing));
+    }
+
+    [Fact]
+    public async Task InvalidateLocalSessionCache_ReleasesEvictedSessionToReapMcp()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "invalidate", CopilotSessionId = "sid-inv" };
+        dataStore.Data.Chats.Add(chat);
+
+        var evicted = CreateDetachedSession("sid-inv");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = evicted;
+
+        InvokePrivate(vm, "InvalidateLocalSessionCache", chat);
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        Assert.True(SessionWasDisposed(evicted));
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache").ContainsKey(chat.Id));
+        // The persisted id is kept so EnsureSessionAsync resumes the same server session next send.
+        Assert.Equal("sid-inv", chat.CopilotSessionId);
+    }
+
+    [Fact]
+    public async Task DetachPersistedSession_ReleasesDetachedSessionToReapMcp()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "detach", CopilotSessionId = "sid-det" };
+        dataStore.Data.Chats.Add(chat);
+
+        var detached = CreateDetachedSession("sid-det");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = detached;
+
+        InvokePrivate(vm, "DetachPersistedSession", chat, null);
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        Assert.True(SessionWasDisposed(detached));
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache").ContainsKey(chat.Id));
+        // The id is cleared so the caller creates a FRESH session (new id) — no same-id resume race.
+        Assert.Null(chat.CopilotSessionId);
+    }
+
+    // --- Cross-surface (cross-ChatViewModel) destroy-before-resume sequencing ---
+    // Every ChatViewModel surface shares ONE CopilotService (ChatSessionStore hands the same instance
+    // to each surface it creates). A session destroy started by a disposed/evicted surface leaves the
+    // server session resumable, so a *different* surface can resume the same id while that destroy is
+    // still in flight — and a late destroy would reap the freshly resumed live session. The fix tracks
+    // releases by server session id inside the shared CopilotService and makes ResumeSessionAsync wait
+    // for a matching in-flight release. These tests pin that mechanism.
+
+    [Fact]
+    public async Task ReleaseSessionAsync_DisposesSessionAndSelfCleansRegistry()
+    {
+        var service = new CopilotService();
+        var session = CreateDetachedSession("sid-reap");
+
+        await service.ReleaseSessionAsync(session, deleteServerSession: false);
+
+        // The dropped session was actually disposed (destroy → reaps its host + MCP subprocesses)...
+        Assert.True(SessionWasDisposed(session));
+        // ...and the id-keyed registry cleaned its own entry, so it neither leaks nor falsely blocks a
+        // future resume of that id once the destroy has completed.
+        var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
+        Assert.False(registry.ContainsKey("sid-reap"));
+    }
+
+    [Fact]
+    public async Task ResumeGate_WaitsForInFlightReleaseOfSameSessionId()
+    {
+        var service = new CopilotService();
+        var destroyInFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Simulate a destroy of session "S" still running (started by another surface being disposed).
+        var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
+        registry["S"] = destroyInFlight.Task;
+
+        // A resume of the SAME id must block until that destroy settles.
+        var gate = InvokePrivate<Task>(service, "AwaitPendingReleaseAsync", "S", CancellationToken.None);
+        Assert.False(gate.IsCompleted);
+
+        destroyInFlight.SetResult();
+        await gate.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(gate.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task ResumeGate_DoesNotWaitForReleaseOfDifferentSessionId()
+    {
+        var service = new CopilotService();
+        var destroyInFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
+        registry["S"] = destroyInFlight.Task;
+
+        // Resuming an unrelated id must not be held up by S's release.
+        var gate = InvokePrivate<Task>(service, "AwaitPendingReleaseAsync", "OTHER", CancellationToken.None);
+        await gate.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(gate.IsCompletedSuccessfully);
+
+        destroyInFlight.SetResult();
+    }
+
+    [Fact]
+    public async Task ResumeGate_HonorsCancellation()
+    {
+        var service = new CopilotService();
+        var destroyInFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
+        registry["S"] = destroyInFlight.Task;
+        using var cts = new CancellationTokenSource();
+
+        var gate = InvokePrivate<Task>(service, "AwaitPendingReleaseAsync", "S", cts.Token);
+        cts.Cancel();
+
+        // A hung destroy must not pin the resume forever — cancellation (e.g. the session timeout)
+        // propagates so EnsureSessionAsync can fall back instead of blocking the UI.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => gate);
+
+        destroyInFlight.SetResult();
+    }
+
+    [Fact]
+    public void AllSurfacesShareOneCopilotService_SoReleaseRegistryIsGlobal()
+    {
+        // The cross-surface guarantee only holds if surfaces share the CopilotService whose registry
+        // sequences releases. Guard that ChatSessionStore invariant so a future refactor can't silently
+        // give each surface its own service (which would reopen the cross-instance race).
+        var dataStore = CreateDataStore();
+        var copilotService = new CopilotService();
+        var registry = new ChatSurfaceRegistry();
+        var store = new ChatSessionStore(dataStore, copilotService, registry);
+
+        var surfaceA = store.AcquireDraft(projectId: null);
+        var surfaceB = store.AcquireDraft(projectId: null);
+
+        Assert.NotSame(surfaceA, surfaceB);
+        Assert.Same(
+            GetField<CopilotService>(surfaceA, "_copilotService"),
+            GetField<CopilotService>(surfaceB, "_copilotService"));
+        Assert.Same(copilotService, GetField<CopilotService>(surfaceA, "_copilotService"));
+
+        store.Dispose();
+    }
+
+    [Fact]
     public void ReleaseInactiveChatState_LeavesBusyChatAttached()
     {
         var dataStore = CreateDataStore();
@@ -1355,13 +1569,49 @@ public sealed class ChatViewModelLeakTests
             }
         });
 
+    // Builds a CopilotSession without running its constructor (which needs a live JsonRpc transport)
+    // so tests can exercise Lumi's session-teardown paths. Only SessionId is set. Calling
+    // DisposeAsync() on it flips the internal _isDisposed flag (before it NREs on the null transport,
+    // which DisposeReleasedSessionAsync swallows), giving a direct signal that Lumi actually invoked
+    // DisposeAsync() — the reap step that was missing when sessions leaked.
+    private static CopilotSession CreateDetachedSession(string sessionId)
+    {
+        var session = (CopilotSession)System.Runtime.CompilerServices.RuntimeHelpers
+            .GetUninitializedObject(typeof(CopilotSession));
+        typeof(CopilotSession)
+            .GetField("<SessionId>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(session, sessionId);
+        // This object never ran its constructor, so its finalizer (which calls RemoveFromClient on a
+        // null client) would NRE and crash the test host during GC.RunFinalizers at shutdown. We drive
+        // disposal explicitly in these tests, so suppress the real finalizer.
+        GC.SuppressFinalize(session);
+        return session;
+    }
+
+    private static bool SessionWasDisposed(CopilotSession session)
+        => (int)typeof(CopilotSession)
+            .GetField("_isDisposed", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(session)! != 0;
+
+    private static void SetPrivateField(object instance, string name, object? value)
+        => instance.GetType()
+            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?.SetValue(instance, value);
+
+    private static async Task DrainSessionReleaseAsync(ChatViewModel vm, Guid chatId)
+    {
+        var releaseTasks = GetField<Dictionary<Guid, Task>>(vm, "_sessionReleaseTasks");
+        if (releaseTasks.TryGetValue(chatId, out var release))
+            await release.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     private static T GetField<T>(object instance, string name) where T : class
         => (T)(instance.GetType()
             .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
             ?.GetValue(instance)
             ?? throw new InvalidOperationException($"Field {name} was not found."));
 
-    private static void InvokePrivate(object instance, string name, params object[] args)
+    private static void InvokePrivate(object instance, string name, params object?[] args)
     {
         instance.GetType()
             .GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)

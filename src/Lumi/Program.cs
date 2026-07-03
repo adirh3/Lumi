@@ -71,6 +71,13 @@ class Program
             return;
         }
 
+        if (args.Any(DebugAgentHarness.IsSessionReapFlag))
+        {
+            AttachParentConsole();
+            RunSessionReapStressAsync().GetAwaiter().GetResult();
+            return;
+        }
+
         // Headless agent test mode — no UI, just runs the onboarding agent and prints output
         if (args.Contains("--test-onboarding-agent", StringComparer.OrdinalIgnoreCase))
         {
@@ -149,6 +156,17 @@ class Program
     {
         var copilotService = new Services.CopilotService();
         var exitCode = await DebugAgentHarness.RunProxyMcpStressAsync(copilotService, default);
+        Environment.ExitCode = exitCode;
+    }
+
+    private static async System.Threading.Tasks.Task RunSessionReapStressAsync()
+    {
+        var copilotService = new Services.CopilotService();
+        // Bound the whole harness so a hung transport / session.destroy RPC can never wedge CI: on
+        // timeout the ct fires, the awaits (all ct- or WaitAsync(ct)-bounded) surface cancellation,
+        // and the harness reports FAIL (exit 1) instead of hanging indefinitely.
+        using var cts = new System.Threading.CancellationTokenSource(System.TimeSpan.FromMinutes(10));
+        var exitCode = await DebugAgentHarness.RunSessionReapStressAsync(copilotService, cts.Token);
         Environment.ExitCode = exitCode;
     }
 
