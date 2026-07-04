@@ -309,6 +309,54 @@ public sealed class TranscriptPagingHeadlessTests
         }, CancellationToken.None);
     }
 
+    [Fact]
+    public async Task ReleaseRealizedHosts_ShedsEveryMountedHost_ButKeepsMountStructure()
+    {
+        // The idle-surface memory fix. When a chat surface is cached but no longer visible, the
+        // session store sheds its realized transcript controls so a deep pool of idle chats doesn't
+        // retain hundreds of live Avalonia controls each. ReleaseRealizedHosts must drop every mounted
+        // turn's built host — so the heavy StrataChatMessage/markdown subtrees become collectible —
+        // WITHOUT tearing down the paging/mount structure, so switching back re-realizes from the very
+        // same turns (through the normal frame-budgeted path) instead of showing a blank transcript.
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            var controller = new TranscriptWindowController(new TranscriptPagingOptions
+            {
+                MaxPageWeight = 1000,
+                MaxTurnsPerPage = 1,
+                MinInitialPages = 1,
+                MaxMountedPages = 3,
+            });
+            var source = CreateVisualTurns(6);
+            controller.BindTranscript(source, "shed");
+            controller.ResetToLatest(2000, "shed");
+            controller.UpdatePinnedState(true, 0, "shed");
+
+            // Full mounted window tracking the tail: [t3, t4, t5]. Stand in for "these mounted turns
+            // have already realized (parsed and built) their content".
+            var mountedBefore = controller.MountedTurns.ToArray();
+            Assert.Equal(new[] { "turn:0003", "turn:0004", "turn:0005" }, mountedBefore.Select(static t => t.StableId).ToArray());
+            foreach (var turn in mountedBefore)
+                turn.RealizedItemsHost = new StackPanel();
+            Assert.All(mountedBefore, turn => Assert.NotNull(turn.RealizedItemsHost));
+
+            controller.ReleaseRealizedHosts("surface-idle");
+
+            // Every realized host is dropped (across the whole source) so the controls can be collected.
+            Assert.All(source, turn => Assert.Null(turn.RealizedItemsHost));
+
+            // The mount structure is untouched: the same turns stay mounted, in order, ready to
+            // re-realize from their items when the surface is shown again — no blank transcript.
+            Assert.Equal(
+                mountedBefore.Select(static t => t.StableId).ToArray(),
+                controller.MountedTurns.Select(static t => t.StableId).ToArray());
+
+            return Task.CompletedTask;
+        }, CancellationToken.None);
+    }
+
     private static async Task<(Window Window, StrataChatShell Shell, ScrollViewer ScrollViewer)> CreateHostAsync(TranscriptWindowController controller)
     {
         var transcript = new ItemsControl

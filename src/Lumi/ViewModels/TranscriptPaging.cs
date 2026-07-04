@@ -280,6 +280,21 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         UpdateDiagnostics("clear", reason);
     }
 
+    /// <summary>
+    /// Sheds the realized (built) Avalonia control subtrees for every mounted turn while keeping the
+    /// paging/mount structure and the turn view-models intact. Used to release the heavy rendered
+    /// transcript of a surface that is cached but no longer visible, so idle chats retain only their
+    /// lightweight view-models instead of hundreds of live controls each. The hosts rebuild lazily
+    /// from the turns' live items — through the normal frame-budgeted realization path — the next
+    /// time the surface is attached to the visual tree, so switching back is not a blank transcript.
+    /// Must be called on the UI thread (it mutates Avalonia controls).
+    /// </summary>
+    public void ReleaseRealizedHosts(string reason)
+    {
+        ReleaseAllMountedHosts();
+        UpdateDiagnostics("release-hosts", reason);
+    }
+
     public TranscriptWindowMutation ResetToLatest(double viewportHeight, string reason)
     {
         viewportHeight = SanitizeViewportHeight(viewportHeight);

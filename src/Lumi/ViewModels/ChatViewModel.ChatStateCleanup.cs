@@ -73,6 +73,31 @@ public partial class ChatViewModel
         _gitRefreshThrottleCts = null;
     }
 
+    /// <summary>
+    /// Sheds this surface's realized transcript controls — the built StrataChatMessage / markdown /
+    /// tool-call subtrees cached on each mounted turn — while keeping the surface's view-models and
+    /// paging state intact. Called by <see cref="ChatSessionStore"/> for chats that are cached but no
+    /// longer visible, so a pool of idle surfaces doesn't retain hundreds of live Avalonia controls
+    /// each. The transcript re-realizes from its items through the normal frame-budgeted path the next
+    /// time the surface is shown, so switching back stays smooth and never shows a blank transcript.
+    /// </summary>
+    internal void ReleaseRealizedTranscriptControls()
+    {
+        if (_isDisposed)
+            return;
+
+        // Mutating the cached hosts touches Avalonia controls, so it must run on the UI thread.
+        // Surface caching happens during UI-thread navigation; guard defensively in case a caller
+        // reaches here off-thread (e.g. a background streaming path releasing an idle surface).
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(ReleaseRealizedTranscriptControls);
+            return;
+        }
+
+        _transcriptWindow.ReleaseRealizedHosts("surface-idle");
+    }
+
     private bool IsChatRuntimeActive(Guid chatId)
         => _runtimeStates.TryGetValue(chatId, out var runtime)
            && runtime.HasActiveWork;
