@@ -53,6 +53,15 @@ public partial class SettingsView : UserControl
 
     public bool IsRecordingHotkey => _isRecordingHotkey;
 
+    private async void OnByokApiKeyModeSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is SettingsViewModel viewModel
+            && sender is ComboBox { SelectedItem: ByokApiKeyModeOption option })
+        {
+            await viewModel.ChangeByokApiKeyModeCommand.ExecuteAsync(option);
+        }
+    }
+
     // Page header elements for search mode styling
     private (TextBlock Title, TextBlock Description)[] _pageHeaders = [];
 

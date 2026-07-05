@@ -73,6 +73,41 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void CreateIndexSnapshot_PreservesSessionProviderSignature()
+    {
+        var source = new AppData
+        {
+            Chats =
+            [
+                new Chat
+                {
+                    CopilotSessionId = "session-1",
+                    SessionProviderSignature = "provider-signature-1",
+                }
+            ]
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+
+        Assert.Equal("provider-signature-1", Assert.Single(snapshot.Chats).SessionProviderSignature);
+    }
+
+    [Fact]
+    public void AppDataJsonContext_RoundTripsSessionProviderSignature()
+    {
+        var source = new AppData
+        {
+            Chats = [new Chat { SessionProviderSignature = "provider-signature-1" }]
+        };
+
+        var json = JsonSerializer.Serialize(source, AppDataJsonContext.Default.AppData);
+        var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData);
+
+        Assert.NotNull(restored);
+        Assert.Equal("provider-signature-1", Assert.Single(restored.Chats).SessionProviderSignature);
+    }
+
+    [Fact]
     public void AppDataJsonContext_SerializesMemoryScopeAndMaintenanceFields()
     {
         var projectId = Guid.NewGuid();
@@ -202,6 +237,38 @@ public class AppDataSnapshotFactoryTests
             .GetProperty("agents")[0]
             .GetProperty("hasExplicitToolSelection")
             .GetBoolean());
+    }
+
+    [Fact]
+    public void CreateIndexSnapshot_PreservesByokModelAdvancedSettings()
+    {
+        // Regression: the BYOK Advanced fields (token limits + RPM) were omitted from the
+        // ByokModel clone in CreateIndexSnapshot, so every save dropped them and data.json
+        // always showed null even though the in-memory model held the value.
+        var source = new AppData
+        {
+            Settings = new UserSettings
+            {
+                ByokModels =
+                [
+                    new ByokModel
+                    {
+                        ModelId = "gpt-test",
+                        DisplayName = "Test",
+                        MaxOutputTokens = 4096,
+                        MaxPromptTokens = 128000,
+                        MaxRequestsPerMinute = 60
+                    }
+                ]
+            }
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+
+        var model = Assert.Single(snapshot.Settings.ByokModels);
+        Assert.Equal(4096, model.MaxOutputTokens);
+        Assert.Equal(128000, model.MaxPromptTokens);
+        Assert.Equal(60, model.MaxRequestsPerMinute);
     }
 
     [Fact]
@@ -785,6 +852,112 @@ public class AppDataSnapshotFactoryTests
 
         return (AppData)(createMethod.Invoke(null, [source])
             ?? throw new InvalidOperationException("CreateIndexSnapshot returned null."));
+    }
+
+    [Fact]
+    public void CreateIndexSnapshot_DeepCopiesByokEndpointsAndModels()
+    {
+        var source = new AppData
+        {
+            Settings = new UserSettings
+            {
+                ByokEndpoints =
+                [
+                    new ByokEndpoint
+                    {
+                        Id = "ep1",
+                        Name = "Endpoint 1",
+                        ProviderType = "openai",
+                        BaseUrl = "https://api.example.com/v1",
+                        WireApi = "openai",
+                        ApiKeyMode = ByokApiKeyMode.Stored,
+                        ApiKeyEnvVar = "MY_KEY",
+                        ApiKey = "secret",
+                    }
+                ],
+                ByokModels =
+                [
+                    new ByokModel
+                    {
+                        Id = "mod1",
+                        EndpointId = "ep1",
+                        ModelId = "gpt-4o",
+                        DisplayName = "My GPT",
+                        IsEnabled = true,
+                    }
+                ],
+            }
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+
+        Assert.Single(snapshot.Settings.ByokEndpoints);
+        Assert.Single(snapshot.Settings.ByokModels);
+        var snapEp = snapshot.Settings.ByokEndpoints[0];
+        var snapMod = snapshot.Settings.ByokModels[0];
+        Assert.Equal("ep1", snapEp.Id);
+        Assert.Equal("Endpoint 1", snapEp.Name);
+        Assert.Equal("secret", snapEp.ApiKey);
+        Assert.Equal(ByokApiKeyMode.Stored, snapEp.ApiKeyMode);
+        Assert.Equal("mod1", snapMod.Id);
+        Assert.Equal("ep1", snapMod.EndpointId);
+        Assert.Equal("gpt-4o", snapMod.ModelId);
+        Assert.Equal("My GPT", snapMod.DisplayName);
+
+        // Mutating the snapshot must not affect the source.
+        snapEp.Name = "Mutated";
+        snapMod.DisplayName = "Mutated";
+        Assert.Equal("Endpoint 1", source.Settings.ByokEndpoints[0].Name);
+        Assert.Equal("My GPT", source.Settings.ByokModels[0].DisplayName);
+    }
+
+    [Fact]
+    public void AppDataJsonContext_SerializesByokCollections()
+    {
+        var data = new AppData
+        {
+            Settings = new UserSettings
+            {
+                ByokEndpoints =
+                [
+                    new ByokEndpoint
+                    {
+                        Id = "ep1",
+                        Name = "Endpoint 1",
+                        ProviderType = "openai",
+                        BaseUrl = "https://api.example.com/v1",
+                        WireApi = "openai",
+                    }
+                ],
+                ByokModels =
+                [
+                    new ByokModel
+                    {
+                        Id = "mod1",
+                        EndpointId = "ep1",
+                        ModelId = "gpt-4o",
+                        DisplayName = "My GPT",
+                    }
+                ],
+            }
+        };
+
+        var json = JsonSerializer.Serialize(data, AppDataJsonContext.Default.AppData);
+        using var document = JsonDocument.Parse(json);
+
+        var endpoints = document.RootElement
+            .GetProperty("settings")
+            .GetProperty("byokEndpoints");
+        Assert.Equal(1, endpoints.GetArrayLength());
+        Assert.Equal("ep1", endpoints[0].GetProperty("id").GetString());
+        Assert.Equal("openai", endpoints[0].GetProperty("providerType").GetString());
+
+        var models = document.RootElement
+            .GetProperty("settings")
+            .GetProperty("byokModels");
+        Assert.Equal(1, models.GetArrayLength());
+        Assert.Equal("mod1", models[0].GetProperty("id").GetString());
+        Assert.Equal("gpt-4o", models[0].GetProperty("modelId").GetString());
     }
 
     private static AppData InvokeMergeChatIndexChanges(

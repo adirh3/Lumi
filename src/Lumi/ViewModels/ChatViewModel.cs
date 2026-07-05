@@ -483,6 +483,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly MemoryAgentService _memoryAgentService;
     private readonly CodingToolService _codingToolService;
     private readonly UIAutomationService _uiAutomation = new();
+    /// <summary>
+    /// OS credential store for resolving <see cref="ByokApiKeyMode.CredentialStore"/> endpoint
+    /// keys at session-build time. May be <c>null</c> in tests, in which case that mode
+    /// degrades to the env-var/stored-key fallback chain (see <see cref="ByokConfigHelper.ResolveApiKey"/>).
+    /// </summary>
+    private readonly Lumi.Services.Byok.ISecureKeyStore? _secureKeyStore;
     private readonly object _chatLoadSync = new();
     private CancellationTokenSource? _chatLoadCts;
     private long _chatLoadRequestId;
@@ -495,8 +501,30 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         EnableDiagnostics = TranscriptDiagnosticsEnabled,
     });
 
+    /// <summary>
+    /// Client-side RPM limiter for BYOK models with a configured
+    /// <see cref="ByokModel.MaxRequestsPerMinute"/>. Lazily consulted on each send; a pure
+    /// passthrough (no allocation, no lock) when the selected model has no limit set.
+    /// </summary>
+    private readonly ByokRateLimiter _byokRateLimiter;
+
     /// <summary>The CopilotSession for the currently displayed chat. Events for this session update the UI.</summary>
     private CopilotSession? _activeSession;
+    /// <summary>
+    /// Routing signature of the <see cref="GitHub.Copilot.ProviderConfig"/> that <see cref="_activeSession"/>
+    /// was created with (see <see cref="ByokConfigHelper.BuildProviderSignature"/>). Compared against the
+    /// newly selected model's resolved signature in <see cref="SwitchModelMidSessionAsync"/> so a mid-session
+    /// model change to a DIFFERENT endpoint (e.g. switching from OpenAI to Anthropic BYOK, or from a BYOK
+    /// endpoint to a non-BYOK Copilot model) forces a session recreation instead of asking the SDK to
+    /// keep using the old provider.
+    /// </summary>
+    private string? _activeSessionProviderSignature;
+    /// <summary>
+    /// Per-chat provider signature for every cached session in <see cref="_sessionCache"/>. Used to
+    /// detect provider mismatches when a chat is reopened or reused (the cached session was created
+    /// against one endpoint, but the user's selected model now points at a different one).
+    /// </summary>
+    private readonly Dictionary<Guid, string?> _sessionProviderSignatures = new();
     /// <summary>Maps chat ID → locally attached CopilotSession objects for active or running chats.</summary>
     private readonly Dictionary<Guid, CopilotSession> _sessionCache = new();
     /// <summary>
@@ -768,6 +796,24 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var effectiveModel = string.IsNullOrWhiteSpace(modelId)
             ? ResolveSelectedModelForChat(chat)
             : modelId;
+        var persistedModel = effectiveModel;
+        if (ByokConfigHelper.IsByokModel(chat.LastModelUsed)
+            && ByokConfigHelper.TryResolveModel(
+                _dataStore.Data.Settings,
+                chat.LastModelUsed,
+                out _,
+                out _,
+                out var currentWireModelId)
+            && string.Equals(currentWireModelId, effectiveModel, StringComparison.Ordinal))
+        {
+            persistedModel = chat.LastModelUsed;
+        }
+        else
+        {
+            var route = ResolveModelRouteForChat(effectiveModel, chat, allowLegacyByWireId: true);
+            if (route.IsByok)
+                persistedModel = route.SelectionToken;
+        }
         var effectiveContextTier = ResolveSessionContextWindowTier(effectiveModel, sessionContextTier);
         var modelStateChanged = !string.Equals(runtime.ActiveModelId, effectiveModel, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(runtime.ActiveContextWindowTier, effectiveContextTier, StringComparison.OrdinalIgnoreCase);
@@ -787,8 +833,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ActiveSessionContextWindowTier));
         OnPropertyChanged(nameof(ContextTokenLimitSourceDisplay));
 
-        if (!string.IsNullOrWhiteSpace(effectiveModel))
-            chat.LastModelUsed = effectiveModel;
+        if (!string.IsNullOrWhiteSpace(persistedModel))
+            chat.LastModelUsed = persistedModel;
 
         // Mirror the effectiveModel fallback above: a session event that omits the reasoning effort
         // (e.g. SessionStart/ModelChange for a background/orchestrated send, which does not always echo
@@ -806,8 +852,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _modelDefaultEfforts);
         chat.LastContextWindowTierUsed = effectiveContextTier;
 
-        if (updateDisplayed && !string.IsNullOrWhiteSpace(effectiveModel))
-            ApplyModelSelection(effectiveModel, chat.LastReasoningEffortUsed, effectiveContextTier);
+        if (updateDisplayed && !string.IsNullOrWhiteSpace(persistedModel))
+            ApplyModelSelection(persistedModel, chat.LastReasoningEffortUsed, effectiveContextTier);
 
         ApplyKnownContextTokenLimit(chat, runtime, effectiveModel, updateDisplayed);
     }
@@ -950,11 +996,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>Raised when the Workspace panel open/closed preference changes so the view re-evaluates visibility.</summary>
     public event Action? WorkspacePanelPreferenceChanged;
 
-    public ChatViewModel(DataStore dataStore, CopilotService copilotService, GlobalSearchService? globalSearchService = null)
+    public ChatViewModel(
+        DataStore dataStore,
+        CopilotService copilotService,
+        GlobalSearchService? globalSearchService = null,
+        Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null,
+        ByokRateLimiter? byokRateLimiter = null)
     {
         _dataStore = dataStore;
         _copilotService = copilotService;
         _globalSearchService = globalSearchService;
+        _secureKeyStore = secureKeyStore;
+        _byokRateLimiter = byokRateLimiter ?? new ByokRateLimiter();
         _memoryAgentService = new MemoryAgentService(dataStore, copilotService);
         _codingToolService = new CodingToolService(copilotService, GetCurrentCancellationToken);
         _selectedModel = dataStore.Data.Settings.PreferredModel;
@@ -1430,6 +1483,120 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     /// <summary>Creates or resumes a Copilot session for the given chat, building
     /// system prompt, tools, agents, skill dirs, and MCP servers as needed.</summary>
+    /// <summary>
+    /// Checks whether the non-BYOK block is active AND the given model is not a valid BYOK
+    /// model (no canonical <c>byok:</c> token AND no matching BYOK model entry by wire id).
+    /// Returns true when the model would route to GitHub's endpoints while the BYOK Only block is on.
+    /// Call this at every message-send entry point so the block holds regardless of whether
+    /// a session is already cached (which would otherwise skip <see cref="EnsureSessionAsync"/>
+    /// and its model-resolution guard).
+    /// </summary>
+    private SessionModelRoute ResolveModelRouteForChat(
+        string? model,
+        Chat? chat = null,
+        bool allowLegacyByWireId = false)
+    {
+        chat ??= CurrentChat;
+        allowLegacyByWireId = allowLegacyByWireId
+            && chat is not null
+            && !_pendingSessionInvalidations.Contains(chat.Id);
+        return ByokConfigHelper.ResolveSessionModelRoute(
+            _dataStore.Data.Settings,
+            model,
+            chat?.CopilotSessionId,
+            chat?.SessionProviderSignature,
+            _secureKeyStore,
+            allowLegacyByWireId);
+    }
+
+    private bool IsModelBlockedByByokOnlyFlag(string? model, Chat? chat = null)
+    {
+        if (!_dataStore.Data.Settings.UseBYOKOnly)
+            return false;
+
+        var route = ResolveModelRouteForChat(model, chat, allowLegacyByWireId: true);
+        return !route.IsByok || route.IsInvalidByok;
+    }
+
+    /// <summary>
+    /// Acquires a BYOK requests-per-minute slot for the chat's selected model, blocking until a
+    /// slot is free under the model's configured <see cref="ByokModel.MaxRequestsPerMinute"/>.
+    /// Pure no-op (returns synchronously, allocates nothing) when the model is non-BYOK, has no
+    /// limit configured, or the limit is &lt;= 0 — so chats that never opted into rate limiting
+    /// see zero behavioral change. Surfaces a localized "rate limited / waiting" status while
+    /// blocked so the user understands why a send appears paused instead of silently hanging.
+    /// </summary>
+    private async Task AcquireByokRateSlotAsync(Chat chat, CancellationToken ct)
+    {
+        // Resolve the selected model token the same way the send path does, then look up the
+        // matching ByokModel to read its RPM limit. We don't pass the wire model id to the
+        // limiter because two different wire ids could share an endpoint+key — the stable
+        // ByokModel.Id is the correct per-model key.
+        var modelToken = ResolveSelectedModelForChat(chat);
+        if (!ByokConfigHelper.IsByokModel(modelToken))
+            return; // Non-BYOK: GitHub's backend manages its own rate limits.
+
+        if (!ByokConfigHelper.TryResolveModel(
+                _dataStore.Data.Settings, modelToken, out var model, out _, out _))
+            return; // Stale/invalid token — let EnsureSessionAsync surface the real error.
+
+        var rpm = model?.MaxRequestsPerMinute;
+        if (rpm is null || rpm <= 0)
+            return; // No limit configured: pure passthrough, nothing to throttle.
+
+        // Show the user why the send is paused. We set this on the visible runtime state so the
+        // chat shell reflects it immediately; EnsureSessionAsync/SendAsync overwrite it once the
+        // turn actually starts. Use a short-lived status that does not persist on the chat.
+        if (_byokRateLimiter.IsRateLimited(model!.Id) && CurrentChat?.Id == chat.Id)
+            StatusText = Loc.Byok_Status_RateLimited;
+
+        await _byokRateLimiter.AcquireSendSlotAsync(model!.Id, rpm, ct).ConfigureAwait(false);
+    }
+
+    private void AppendByokOnlyBlockedMessage(Chat? chat)
+    {
+        if (chat is null)
+            return;
+
+        var message = Loc.Byok_Error_ByokOnly;
+        var last = chat.Messages.LastOrDefault();
+        if (last is not null
+            && string.Equals(last.Role, "error", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(last.Content, message, StringComparison.Ordinal))
+            return;
+
+        var errorMsg = new ChatMessage
+        {
+            Role = "error",
+            Author = Loc.Author_Lumi,
+            Content = message
+        };
+        chat.Messages.Add(errorMsg);
+        if (CurrentChat?.Id == chat.Id)
+            Messages.Add(new ChatMessageViewModel(errorMsg));
+
+        QueueSaveChat(chat, saveIndex: true, touchIndex: true);
+        ChatUpdated?.Invoke();
+        ScrollToEndRequested?.Invoke();
+    }
+
+    private bool BlockSendForByokOnly(Chat? chat, string? model, string prompt, bool consumeComposerPrompt)
+    {
+        if (!IsModelBlockedByByokOnlyFlag(model, chat))
+            return false;
+
+        StatusText = Loc.Byok_Error_ByokOnly;
+        AppendByokOnlyBlockedMessage(chat);
+        if (consumeComposerPrompt)
+        {
+            if (chat is not null)
+                _chatDrafts[chat.Id] = prompt;
+            PromptText = prompt;
+        }
+
+        return true;
+    }
+
     private async Task<bool> EnsureSessionAsync(
         Chat chat,
         CancellationToken ct,
@@ -1581,6 +1748,69 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         sessionCts?.CancelAfter(TimeSpan.FromSeconds(30));
         var sessionCt = sessionCts?.Token ?? ct;
 
+        // Resolve the BYOK provider for the selected model (if any). When the user has a BYOK
+        // token selected, route the wire model id through SessionConfig.Model and pass the
+        // provider config (URL, API key, etc.) through SessionConfig.Provider. If the token is
+        // stale (deleted model/endpoint, validation failure), surface a clear error instead of
+        // silently routing through Copilot.
+        var modelRoute = ResolveModelRouteForChat(selectedModel, chat, allowLegacyByWireId: true);
+        if (modelRoute.IsInvalidByok)
+        {
+            SetSessionSetupStatus(chat, Loc.Byok_Error_StaleModel);
+            return false;
+        }
+
+        var byokProvider = modelRoute.Provider;
+        selectedModel = modelRoute.WireModelId;
+        if (modelRoute.IsByok
+            && !string.Equals(chat.LastModelUsed, modelRoute.SelectionToken, StringComparison.Ordinal))
+        {
+            chat.LastModelUsed = modelRoute.SelectionToken;
+            _dataStore.MarkChatChanged(chat);
+        }
+
+        if (_dataStore.Data.Settings.UseBYOKOnly && !modelRoute.IsByok)
+        {
+            // Non-BYOK model (no BYOK endpoint URL resolved) while the BYOK Only block is on. Refuse up
+            // front with a clear error instead of letting the request reach GitHub's endpoints
+            // (the chokepoint in CopilotService would also throw, but this gives a friendly,
+            // localized message).
+            SetSessionSetupStatus(chat, Loc.Byok_Error_ByokOnly);
+            return false;
+        }
+
+        // Provider-routing guard: if this chat has an existing Copilot session but the session
+        // was created on a DIFFERENT provider than what the user has selected now (e.g. the chat
+        // started on GitHub's default backend with claude-haiku-4.5, then the user switched to a
+        // BYOK GLM endpoint), resuming the old session would silently keep routing requests to
+        // the original backend — the BYOK provider config passed to ResumeSessionConfig does NOT
+        // re-route an already-established server-side session. Drop the stale session ID so a
+        // fresh session is created against the correct endpoint. This check is critical after an
+        // app restart, when in-memory signature caches (_sessionProviderSignatures) are empty and
+        // only the persisted SessionProviderSignature on the Chat survives.
+        var currentByokSignature = ByokConfigHelper.BuildProviderSignature(byokProvider);
+        if (chat.CopilotSessionId is not null
+            && !string.Equals(chat.SessionProviderSignature, currentByokSignature, StringComparison.Ordinal))
+        {
+            DetachPersistedSession(chat);
+        }
+
+        // Local helpers: capture the shared session-config arguments (system prompt, model,
+        // tooling, MCP, reasoning/context settings, and the resolved BYOK provider) so the three
+        // create/resume call sites below don't repeat the long argument list — they stay in sync
+        // automatically on future signature changes, and the BYOK provider wiring lives in one place.
+        SessionConfig buildSessionConfig() =>
+            SessionConfigBuilder.Build(
+                systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
+                mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
+                provider: byokProvider);
+
+        ResumeSessionConfig buildResumeConfig() =>
+            SessionConfigBuilder.BuildForResume(
+                systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
+                mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
+                provider: byokProvider);
+
         if (chat.CopilotSessionId is not null)
             await AwaitPendingSessionReleaseAsync(chat.Id, sessionCt);
 
@@ -1591,11 +1821,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             try
             {
-                var createConfig = SessionConfigBuilder.Build(
-                    systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName, contextTier);
+                var createConfig = buildSessionConfig();
                 var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
                 chat.CopilotSessionId = createdSession.SessionId;
+                RecordSessionProviderSignature(chat, currentByokSignature);
                 _dataStore.MarkChatChanged(chat);
                 if (!SubscribeToSession(createdSession, chat, workDir))
                 {
@@ -1629,9 +1858,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             try
             {
                 SetSessionSetupStatus(chat, attempt > 0 ? Loc.Status_Reconnecting : Loc.Status_Resuming);
-                var resumeConfig = SessionConfigBuilder.BuildForResume(
-                    systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                    mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName, contextTier);
+                var resumeConfig = buildResumeConfig();
                 var session = await _copilotService.ResumeSessionAsync(
                     chat.CopilotSessionId, resumeConfig, sessionCt);
                 if (!SubscribeToSession(session, chat, workDir))
@@ -1641,6 +1868,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     return false;
                 }
                 _activeSession = session;
+
+                // Record the routing signature so a later mid-session model change to a
+                // different endpoint can be detected and force a recreate instead of
+                // silently routing the request to the wrong provider.
+                RecordSessionProviderSignature(chat, currentByokSignature);
+                _dataStore.MarkChatChanged(chat);
+
                 if (mcpServers is { Count: > 0 })
                     _ = CheckMcpServerStatusAsync(session, chat.Id, mcpServers, ct);
 
@@ -1693,9 +1927,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         try
         {
-            var createConfig = SessionConfigBuilder.Build(
-                systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName, contextTier);
+            var createConfig = buildSessionConfig();
             var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
             chat.CopilotSessionId = createdSession.SessionId;
             if (!SubscribeToSession(createdSession, chat, workDir))
@@ -1707,6 +1939,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _activeSession = createdSession;
             if (mcpServers is { Count: > 0 })
                 _ = CheckMcpServerStatusAsync(createdSession, chat.Id, mcpServers, ct);
+            RecordSessionProviderSignature(chat, currentByokSignature);
             _dataStore.MarkChatChanged(chat);
             await SaveChatAsync(chat, saveIndex: true);
             return true;
@@ -1788,6 +2021,34 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // Reuse the cached session only while the current CLI connection can still talk to it.
             // Inactive chats are evicted separately, and AutoRestart can still leave stale session handles.
             _activeSession = await TryGetReusableCachedSessionAsync(chat, loadToken);
+
+            // If the cached session was created against a different BYOK endpoint than what the
+            // user has selected for this chat now (e.g. the chat was previously sent through the
+            // z.ai Anthropic endpoint and the user has since switched its model to a Kimi-K2.6
+            // OpenAI-completions endpoint), invalidate it. The next SendMessage will recreate the
+            // session with the new provider config — resuming a session bound to the old endpoint
+            // would route the new model's id to the wrong URL.
+            //
+            // After an app restart, _activeSession is null and _sessionProviderSignatures is empty,
+            // so we fall back to the persisted chat.SessionProviderSignature to detect the mismatch
+            // (e.g. a chat that ran on GitHub's backend with claude-haiku-4.5, then the user
+            // selected a BYOK model). EnsureSessionAsync has a second authoritative check for the
+            // same condition, but clearing here avoids a wasteful resume attempt.
+            {
+                var currentSignature = _activeSession is not null
+                    ? _sessionProviderSignatures.GetValueOrDefault(chat.Id)
+                    : chat.SessionProviderSignature;
+                var expectedSignature = ByokConfigHelper.BuildProviderSignature(
+                    ResolveModelRouteForChat(
+                        ResolveSelectedModelForChat(chat),
+                        chat,
+                        allowLegacyByWireId: true).Provider);
+                if (!string.Equals(currentSignature, expectedSignature, StringComparison.Ordinal))
+                {
+                    InvalidateLocalSessionCache(chat);
+                    ClearActiveSessionState();
+                }
+            }
 
             // Clear pending state from any previous chat
             _pendingSkillInjections.Clear();
@@ -2201,6 +2462,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ReleaseSessionResources(chatId, cancelActiveRequest: true, deleteServerSession: true);
         RemoveSuggestionTracking(chatId);
         CurrentChat.CopilotSessionId = null;
+        CurrentChat.SessionProviderSignature = null;
         _dataStore.MarkChatChanged(CurrentChat);
         _activeSession = null;
     }
@@ -2265,36 +2527,46 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var targetChat = _dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == job.ChatId)
             ?? throw new InvalidOperationException($"Background job chat not found: {job.ChatId}");
 
-        var prompt = BuildBackgroundJobPrompt(job, triggerContext);
-        return SendExternalMessageAsync(targetChat, prompt, $"Lumi Job - {job.Name}", cancellationToken);
-    }
+        // ── Non-BYOK block ──
+        // Background jobs run without a UI prompt, so enforce the block explicitly before any
+        // network activity to avoid leaking job content to GitHub's endpoints.
+        var bgModel = string.IsNullOrWhiteSpace(targetChat.LastModelUsed)
+            ? ResolveSelectedModelForChat(targetChat)
+            : targetChat.LastModelUsed;
+        if (IsModelBlockedByByokOnlyFlag(bgModel, targetChat))
+        {
+            throw new ByokOnlyRequestBlockedException(
+                "Background job was blocked because \"Block internal Copilot requests (BYOK Only)\" is on and " +
+                "the chat's model is not a BYOK model. Assign a BYOK model to this chat.");
+        }
 
-    /// <summary>
-    /// Sends an externally-authored message (a background job trigger, or an orchestrated instruction
-    /// from Lumi acting as a manager over another chat) to <paramref name="targetChat"/> and runs a full
-    /// turn, whether or not the chat is the currently displayed one. This is the shared, robust
-    /// target-chat send path: it loads the chat, ensures/recreates its Copilot session, tracks the
-    /// pending turn, and streams the response — updating the visible surface when the target chat is the
-    /// active one and marking it unread otherwise. <paramref name="author"/> labels the injected user
-    /// message so the transcript shows where it came from.
-    /// </summary>
-    public async Task SendExternalMessageAsync(
-        Chat targetChat,
-        string prompt,
-        string author,
-        CancellationToken cancellationToken = default,
-        string? modelOverride = null,
-        string? reasoningEffortOverride = null)
-    {
-        ArgumentNullException.ThrowIfNull(targetChat);
+            var prompt = BuildBackgroundJobPrompt(job, triggerContext);
+            return SendExternalMessageAsync(targetChat, prompt, $"Lumi Job - {job.Name}", cancellationToken);
+            }
+
+            /// <summary>
+            /// Sends an externally-authored message (a background job trigger, or an orchestrated instruction
+            /// from Lumi acting as a manager over another chat) to <paramref name="targetChat"/> and runs a full
+            /// turn, whether or not the chat is the currently displayed one. This is the shared, robust
+            /// target-chat send path: it loads the chat, ensures/recreates its Copilot session, tracks the
+            /// pending turn, and streams the response — updating the visible surface when the target chat is the
+            /// active one and marking it unread otherwise. <paramref name="author"/> labels the injected user
+            /// message so the transcript shows where it came from.
+            /// </summary>
+            public async Task SendExternalMessageAsync(
+            Chat targetChat,
+            string prompt,
+            string author,
+            CancellationToken cancellationToken = default,
+            string? modelOverride = null,
+            string? reasoningEffortOverride = null)
+            {
+            ArgumentNullException.ThrowIfNull(targetChat);
 
         if (IsChatBusy(targetChat.Id))
             throw new InvalidOperationException($"Chat \"{targetChat.Title}\" is already running.");
 
         await _dataStore.LoadChatMessagesAsync(targetChat, cancellationToken);
-
-        if (!_copilotService.IsConnected)
-            await _copilotService.ConnectAsync(cancellationToken);
 
         // Explicit per-send model / reasoning-effort override (used by manage_chats send). Overwriting the
         // chat's persisted selection makes both a fresh session (applied via EnsureSessionAsync) and an
@@ -2303,10 +2575,34 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // default (Settings.PreferredModel / Settings.ReasoningEffort).
         var hasModelOverride = !string.IsNullOrWhiteSpace(modelOverride);
         var hasEffortOverride = !string.IsNullOrWhiteSpace(reasoningEffortOverride);
-        if (hasModelOverride)
-            targetChat.LastModelUsed = modelOverride!.Trim();
+        var requestedModel = hasModelOverride
+            ? modelOverride!.Trim()
+            : ResolveSelectedModelForChat(targetChat);
+        var modelRoute = ResolveModelRouteForChat(
+            requestedModel,
+            targetChat,
+            allowLegacyByWireId: !hasModelOverride);
+        if (modelRoute.IsInvalidByok)
+            throw new InvalidOperationException(Loc.Byok_Error_StaleModel);
+        if (_dataStore.Data.Settings.UseBYOKOnly && !modelRoute.IsByok)
+            throw new ByokOnlyRequestBlockedException(Loc.Byok_Error_ByokOnly);
+
+        var requestedProviderSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider);
+        if (targetChat.CopilotSessionId is not null
+            && !string.Equals(
+                targetChat.SessionProviderSignature,
+                requestedProviderSignature,
+                StringComparison.Ordinal))
+        {
+            DetachPersistedSession(targetChat);
+        }
+
+        targetChat.LastModelUsed = modelRoute.SelectionToken;
         if (hasEffortOverride)
             targetChat.LastReasoningEffortUsed = reasoningEffortOverride!.Trim();
+
+        if (!_copilotService.IsConnected)
+            await _copilotService.ConnectAsync(cancellationToken);
 
         if (string.IsNullOrWhiteSpace(targetChat.LastModelUsed))
         {
@@ -2404,7 +2700,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             sendSession = _sessionCache.TryGetValue(chatId, out var sessionForChat)
                 ? sessionForChat
-                : _activeSession!;
+                : _activeSession;
+            if (sendSession is null)
+                throw new InvalidOperationException(Loc.Status_OriginalSessionUnavailable);
             RestoreActiveSessionIfSwitched(targetChat);
 
             // EnsureSessionAsync re-resolves the effort via ResolvePersistedReasoningEffortForChat, which for a
@@ -2418,14 +2716,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             //  - cached session: EnsureSessionAsync never ran, so nothing has applied the override yet;
             //  - fresh/resumed session: the model was already applied inside EnsureSessionAsync, but an effort
             //    override can be dropped (see above), so re-apply whenever the effort was overridden.
-            if (sendSession is not null
-                && !string.IsNullOrWhiteSpace(targetChat.LastModelUsed)
+            if (!string.IsNullOrWhiteSpace(targetChat.LastModelUsed)
                 && (hasEffortOverride || (hasModelOverride && !needsSessionSetup)))
             {
-                var overrideModel = targetChat.LastModelUsed!;
+                var overrideRoute = ResolveModelRouteForChat(targetChat.LastModelUsed, targetChat);
+                if (overrideRoute.IsInvalidByok || string.IsNullOrWhiteSpace(overrideRoute.WireModelId))
+                    throw new InvalidOperationException(Loc.Byok_Error_StaleModel);
+                var overrideModel = overrideRoute.WireModelId;
                 var overrideEffort = ResolveReasoningEffortForModel(
                     targetChat.LastReasoningEffortUsed,
-                    overrideModel);
+                    targetChat.LastModelUsed);
                 try
                 {
                     await sendSession.SetModelAsync(
@@ -2454,6 +2754,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 sendSession,
                 localUserMessageCount,
                 cts.Token);
+            // Apply the BYOK model's per-minute request limit (if configured) before this turn
+            // consumes a network slot. No-op for non-BYOK models or models without a limit, so
+            // existing chats are unaffected. Retries below reuse this turn's slot.
+            await AcquireByokRateSlotAsync(targetChat, cts.Token);
             PreparePendingTurnTracking(targetChat, expectedSessionUserMessageCount, localAssistantMessageCount);
             await sendSession.SendAsync(sendOptions, cts.Token);
         }
@@ -3068,6 +3372,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return;
 
         var prompt = promptText.Trim();
+        var guardChat = CurrentChat;
+        var selectedModelForSend = guardChat is not null
+            ? ResolveSelectedModelForChat(guardChat)
+            : SelectedModel;
+        if (BlockSendForByokOnly(guardChat, selectedModelForSend, prompt, consumeComposerPrompt))
+            return;
+
         if (CurrentChat is { } activeChat && IsChatRuntimeActive(activeChat.Id))
         {
             await SteerActiveTurnAsync(activeChat, prompt, consumeComposerPrompt);
@@ -3097,6 +3408,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             PromptText = "";
             _chatDrafts.Remove(CurrentChat?.Id ?? Guid.Empty);
         }
+
         ClearSuggestions();
         var selectedReasoningEffort = GetPersistedReasoningEffortPreference();
         var selectedContextTier = GetSelectedContextWindowTier();
@@ -3267,7 +3579,27 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (CurrentChat?.Id == targetChat.Id)
                 ApplyDisplayedRuntimeState(runtime);
 
-            var needsSessionSetup = _activeSession?.SessionId != targetChat.CopilotSessionId
+            // A cached _activeSession can become unusable between chat load and this send: the CLI
+            // process may die and reconnect (replacing the client), tearing down every CopilotSession
+            // it owned, but _activeSession only gets nulled on the Reconnected callback — which can
+            // race with this send. Probe the handle defensively: accessing SessionId on a disposed
+            // CopilotSession throws ObjectDisposedException, and a null/unmatched id means we must set
+            // up a fresh session. This is the last-resort guard that turns a hard
+            // "Cannot access a disposed object" into a clean session rebuild.
+            string? activeSessionId;
+            try
+            {
+                activeSessionId = _activeSession?.SessionId;
+            }
+            catch (ObjectDisposedException)
+            {
+                activeSessionId = null;
+                if (CurrentChat is not null)
+                    InvalidateLocalSessionCache(CurrentChat);
+                ClearActiveSessionState();
+            }
+
+            var needsSessionSetup = activeSessionId != targetChat.CopilotSessionId
                                     || targetChat.CopilotSessionId is null;
             if (ConsumePendingSessionInvalidation(targetChat))
                 needsSessionSetup = true;
@@ -3331,6 +3663,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 sendSession,
                 localUserMessageCount,
                 cts.Token);
+            // Apply the BYOK model's per-minute request limit (if configured) before this turn
+            // consumes a network slot. No-op for non-BYOK models or models without a limit.
+            await AcquireByokRateSlotAsync(targetChat, cts.Token);
             PreparePendingTurnTracking(
                 targetChat,
                 expectedSessionUserMessageCount,
@@ -3748,6 +4083,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         try
         {
             await _copilotService.ReadSessionPlanAsync(cachedSession, ct);
+            // Refresh the active-session provider signature from the cached entry so the next
+            // mid-session model switch can detect when the cached session's endpoint no longer
+            // matches the user's selected model.
+            _activeSessionProviderSignature = _sessionProviderSignatures.GetValueOrDefault(chat.Id);
             return cachedSession;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -3764,10 +4103,24 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             InvalidateLocalSessionCache(chat);
             return null;
         }
+        catch (ObjectDisposedException)
+        {
+            // The cached CopilotSession handle was disposed (its owning client was replaced on a
+            // reconnect, or the session was torn down out-of-band) but _sessionCache still holds the
+            // stale reference. Reusing it would surface "Cannot access a disposed object" on the next
+            // send. Drop the cache entry and force EnsureSessionAsync to resume/create fresh.
+            InvalidateLocalSessionCache(chat);
+            return null;
+        }
         catch
         {
-            // Non-session-specific plan RPC failures should not discard a healthy cached session.
-            return cachedSession;
+            // A cached session that throws on a probe RPC is by definition not safely reusable.
+            // Previously this returned the throwing session, which let a disposed/dead handle reach
+            // _activeSession and broke every subsequent send with ObjectDisposedException. Invalidate
+            // instead so the next send rebuilds the session; the persisted CopilotSessionId is kept by
+            // InvalidateLocalSessionCache so the server-side session can still be resumed.
+            InvalidateLocalSessionCache(chat);
+            return null;
         }
     }
 
@@ -3820,12 +4173,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return;
         }
 
+        _sessionProviderSignatures.Remove(chat.Id);
         DisposeSessionSubscription(chat.Id);
 
         if (CurrentChat?.Id == chat.Id
             || string.Equals(_activeSession?.SessionId, chat.CopilotSessionId, StringComparison.Ordinal))
         {
-            _activeSession = null;
+            ClearActiveSessionState();
         }
 
         // Do not send session.destroy on invalidation: every caller intends an immediate same-ID
@@ -3848,6 +4202,29 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         _sessionsPendingResume[chat.Id] = invalidatedSession;
+    }
+
+    /// <summary>
+    /// Clears the in-memory active session and its provider routing signature. The two are
+    /// always cleared together because the signature describes the active session's provider.
+    /// </summary>
+    private void ClearActiveSessionState()
+    {
+        _activeSession = null;
+        _activeSessionProviderSignature = null;
+    }
+
+    /// <summary>
+    /// Records the provider routing signature for a session on both the persisted
+    /// <see cref="Chat.SessionProviderSignature"/> and the in-memory caches, so a later
+    /// mid-session model change or app restart can detect a different endpoint and force
+    /// a session recreation instead of silently routing requests to the wrong provider.
+    /// </summary>
+    private void RecordSessionProviderSignature(Chat chat, string? signature)
+    {
+        chat.SessionProviderSignature = signature;
+        _activeSessionProviderSignature = signature;
+        _sessionProviderSignatures[chat.Id] = signature;
     }
 
     private void DetachPersistedSession(Chat chat, string? sessionId = null)
@@ -3882,14 +4259,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 TrackSessionRelease(chat.Id, pendingSession, deleteServerSession: false);
             }
         }
-
+        _sessionProviderSignatures.Remove(chat.Id);
         if (!string.IsNullOrWhiteSpace(detachedSessionId)
             && string.Equals(_activeSession?.SessionId, detachedSessionId, StringComparison.Ordinal))
         {
-            _activeSession = null;
+            ClearActiveSessionState();
         }
 
         chat.CopilotSessionId = null;
+        chat.SessionProviderSignature = null;
         _dataStore.MarkChatChanged(chat);
     }
 
@@ -4679,10 +5057,23 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>
     /// Formats a model ID into a display name by splitting on hyphens and applying
     /// known token mappings (e.g. "claude-opus-4.6-1m" → "Claude Opus 4.6 1M").
+    /// For BYOK tokens (e.g. "byok:abc123") the display is resolved from the
+    /// display-name cache maintained by <see cref="MainViewModel"/>.
     /// </summary>
     internal static string? FormatModelDisplay(string? modelId)
     {
         if (string.IsNullOrWhiteSpace(modelId)) return null;
+
+        // BYOK tokens have their own canonical display: "{DisplayName} — BYOK" (cached) or
+        // a fallback of "BYOK ({modelEntryId})" when the entry is missing/stale.
+        if (ByokConfigHelper.IsByokModel(modelId))
+        {
+            if (MainViewModel.ByokDisplayCache.TryGetValue(modelId, out var cached))
+                return cached;
+            if (ByokConfigHelper.TryParseModelToken(modelId, out var id))
+                return string.Format(Loc.Byok_ModelDisplay_Fallback, id);
+            return modelId;
+        }
 
         var segments = modelId.Split('-');
         var parts = new List<string>(segments.Length);
@@ -4748,6 +5139,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         bool requiresSessionRebuild = false)
     {
         if (CurrentChat is null) return;
+
+        // ── Non-BYOK block ──
+        // Enforce before doing any transcript/session work, independent of session caching.
+        if (IsModelBlockedByByokOnlyFlag(ResolveSelectedModelForChat(CurrentChat)))
+        {
+            StatusText = Loc.Byok_Error_ByokOnly;
+            AppendByokOnlyBlockedMessage(CurrentChat);
+            return;
+        }
 
         // Stop any active generation first
         if (IsBusy)
@@ -4869,9 +5269,29 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 }
             }
 
-            var needsSessionSetup = _activeSession?.SessionId != CurrentChat.CopilotSessionId
-                                    || CurrentChat.CopilotSessionId is null;
-            if (ConsumePendingSessionInvalidation(CurrentChat))
+            // Defensive disposed-session probe (see SendMessageCore for rationale): the cached
+            // _activeSession may have been torn down by a reconnect that hasn't fired Reconnected
+            // yet. Accessing SessionId on a disposed CopilotSession throws ObjectDisposedException,
+            // so probe safely and invalidate the stale handle instead of faulting the edit-resend.
+            string? activeSessionId;
+            try
+            {
+                activeSessionId = _activeSession?.SessionId;
+            }
+            catch (ObjectDisposedException)
+            {
+                activeSessionId = null;
+                if (CurrentChat is not null)
+                    InvalidateLocalSessionCache(CurrentChat);
+                ClearActiveSessionState();
+            }
+
+            if (CurrentChat is not { } resendChat)
+                return;
+
+            var needsSessionSetup = activeSessionId != resendChat.CopilotSessionId
+                                    || resendChat.CopilotSessionId is null;
+            if (ConsumePendingSessionInvalidation(resendChat))
                 needsSessionSetup = true;
 
             // For an edited turn, prefer rewinding the live session's server-side history to
@@ -5000,15 +5420,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             localUserMessageCount = CurrentChat.Messages.Count(m => m.Role == "user");
             localAssistantMessageCount = CountCompletedAssistantMessages(CurrentChat);
+            var resendSession = _activeSession
+                ?? throw new InvalidOperationException(Loc.Status_OriginalSessionUnavailable);
             var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
-                _activeSession!,
+                resendSession,
                 localUserMessageCount,
                 cts.Token);
+            await AcquireByokRateSlotAsync(CurrentChat, cts.Token);
             PreparePendingTurnTracking(
                 CurrentChat,
                 expectedSessionUserMessageCount,
                 localAssistantMessageCount);
-            await _activeSession!.SendAsync(resendOptions, cts.Token);
+            await resendSession.SendAsync(resendOptions, cts.Token);
         }
         catch (Exception ex) when (IsSessionNotFoundError(ex) && CurrentChat is not null)
         {

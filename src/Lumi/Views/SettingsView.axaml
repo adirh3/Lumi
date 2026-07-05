@@ -2,6 +2,7 @@
              xmlns:sa="using:StrataTheme.Animation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.ViewModels"
+             xmlns:m="using:Lumi.Models"
              xmlns:conv="using:Lumi.Converters"
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:ctrl="using:Lumi.Views.Controls"
@@ -12,6 +13,9 @@
 
   <UserControl.Resources>
     <conv:ModelDisplayConverter x:Key="ModelDisplayConverter" />
+    <conv:ByokEndpointByIdConverter x:Key="ByokEndpointByIdConverter"
+                                    EndpointSource="{Binding ByokEndpoints}" />
+    <conv:StringToNullableIntConverter x:Key="StringToNullableIntConverter" />
   </UserControl.Resources>
 
   <UserControl.Styles>
@@ -278,6 +282,352 @@
               </sc:StrataModelPicker.ModelItemTemplate>
             </sc:StrataModelPicker>
           </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+
+        <!-- ═══ BYOK ═══ -->
+        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Byok}">
+          <StackPanel Spacing="16">
+            <TextBlock Text="{loc:Str Settings_Byok_Description}"
+                       FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextTertiary}"
+                       TextWrapping="Wrap" />
+
+            <!-- ── Privacy guard: block all non-BYOK requests ── -->
+            <Border Background="{DynamicResource Brush.SurfaceCard}"
+                    CornerRadius="8"
+                    Padding="12,10">
+              <StackPanel Spacing="4">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <ToggleSwitch IsChecked="{Binding UseBYOKOnly}" />
+                  <TextBlock Text="{loc:Str Settings_Byok_UseByokOnly}"
+                             FontWeight="SemiBold"
+                             VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Text="{loc:Str Settings_Byok_UseByokOnlyHint}"
+                           FontSize="{DynamicResource Font.SizeCaption}"
+                           Foreground="{DynamicResource Brush.TextTertiary}"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <!-- ── Endpoints ── -->
+            <StackPanel Spacing="8">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="{loc:Str SettingsGroup_ByokEndpoints}" FontWeight="SemiBold"
+                           VerticalAlignment="Center" />
+                <Button Padding="8,3" MinHeight="0"
+                        Classes="subtle motion-action"
+                        Command="{Binding AddByokEndpointCommand}">
+                      <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="＋" /><TextBlock Text="{loc:Str Settings_Byok_AddEndpoint}" />
+                      </StackPanel>
+                    </Button>
+              </StackPanel>
+
+              <ListBox ItemsSource="{Binding ByokEndpoints}"
+                       SelectedItem="{Binding SelectedByokEndpoint, Mode=TwoWay}"
+                       MinHeight="60" MaxHeight="180"
+                       Background="{DynamicResource Brush.Surface2}"
+                       BorderBrush="{DynamicResource Brush.Border1}"
+                       BorderThickness="1" CornerRadius="6">
+                <ListBox.ItemTemplate>
+                  <DataTemplate DataType="m:ByokEndpoint">
+                    <StackPanel Spacing="2">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding ProviderType}" FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextTertiary}" />
+                      </StackPanel>
+                      <TextBlock Text="{Binding BaseUrl}" FontSize="{DynamicResource Font.SizeCaption}"
+                                 Foreground="{DynamicResource Brush.TextTertiary}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <TextBlock Text="{loc:Str Settings_Byok_EmptyEndpoints}"
+                         IsVisible="{Binding !ByokEndpoints.Count}"
+                         Foreground="{DynamicResource Brush.TextTertiary}"
+                         FontSize="{DynamicResource Font.SizeCaption}"
+                         TextWrapping="Wrap" />
+
+              <!-- Endpoint editor -->
+              <Border IsVisible="{Binding IsByokEndpointSelected}"
+                      Padding="14" CornerRadius="8" Margin="0,4,0,0"
+                      Background="{DynamicResource Brush.Surface2}"
+                      BorderBrush="{DynamicResource Brush.Border1}"
+                      BorderThickness="1">
+                <StackPanel Spacing="10">
+                  <DockPanel LastChildFill="False">
+                    <Button DockPanel.Dock="Left" Padding="8,3" MinHeight="0"
+                            Classes="subtle motion-action"
+                            Command="{Binding CloseByokEndpointCommand}"
+                            ToolTip.Tip="{loc:Str Settings_Byok_CloseEndpoint}">
+                      <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="✕" /><TextBlock Text="{loc:Str Settings_Byok_CloseEndpoint}" />
+                      </StackPanel>
+                    </Button>
+                    <StackPanel Orientation="Horizontal" Spacing="8" DockPanel.Dock="Right">
+                      <Button Content="{loc:Str Settings_Byok_DuplicateEndpoint}" Padding="8,3" MinHeight="0"
+                              Classes="subtle motion-action"
+                              Command="{Binding DuplicateByokEndpointCommand}" />
+                      <Button Content="{loc:Str Settings_Byok_DeleteEndpoint}" Padding="8,3" MinHeight="0"
+                              Classes="danger subtle motion-action"
+                              Command="{Binding DeleteByokEndpointCommand}" />
+                    </StackPanel>
+                  </DockPanel>
+
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="{loc:Str Settings_Byok_EndpointName}" FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <TextBox Text="{Binding SelectedByokEndpoint.Name, Mode=TwoWay}"
+                             PlaceholderText="{loc:Str Settings_Byok_EndpointNamePlaceholder}" />
+                  </StackPanel>
+
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="{loc:Str Settings_Byok_ProviderType}" FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <ComboBox ItemsSource="{Binding ByokProviderTypes}"
+                              SelectedItem="{Binding SelectedByokEndpoint.ProviderType, Mode=TwoWay}"
+                              HorizontalAlignment="Stretch" />
+                  </StackPanel>
+
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="{loc:Str Settings_Byok_BaseUrl}" FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <TextBox Text="{Binding SelectedByokEndpoint.BaseUrl, Mode=TwoWay}"
+                             PlaceholderText="{loc:Str Settings_Byok_BaseUrlPlaceholder}" />
+                  </StackPanel>
+
+                  <StackPanel Spacing="4" IsVisible="{Binding IsSelectedByokWireApiVisible}">
+                    <TextBlock Text="{loc:Str Settings_Byok_WireApi}" FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <ComboBox ItemsSource="{Binding ByokWireApiOptions}"
+                              SelectedItem="{Binding SelectedByokEndpoint.WireApi, Mode=TwoWay}"
+                              HorizontalAlignment="Stretch" />
+                    <TextBlock Text="{loc:Str Settings_Byok_WireApiHint}"
+                               FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextTertiary}" />
+                  </StackPanel>
+
+                  <StackPanel Spacing="4" IsVisible="{Binding IsSelectedByokAzure}">
+                    <TextBlock Text="{loc:Str Settings_Byok_AzureApiVersion}" FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <TextBox Text="{Binding SelectedByokEndpoint.AzureApiVersion, Mode=TwoWay}"
+                             PlaceholderText="{loc:Str Settings_Byok_AzureApiVersionPlaceholder}" />
+                  </StackPanel>
+
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="{loc:Str Settings_Byok_ApiKeyMode}" FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <ComboBox Name="ByokApiKeyModePicker"
+                              ItemsSource="{Binding ByokApiKeyModeOptions}"
+                              SelectedItem="{Binding SelectedByokEndpointApiKeyModeOption, Mode=OneWay}"
+                              SelectionChanged="OnByokApiKeyModeSelectionChanged"
+                              HorizontalAlignment="Stretch" />
+                  </StackPanel>
+
+                  <StackPanel Spacing="4" IsVisible="{Binding UsesEnvVarApiKey}">
+                    <TextBlock Text="{loc:Str Settings_Byok_ApiKeyEnvVar}" FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <TextBox Text="{Binding SelectedByokEndpoint.ApiKeyEnvVar, Mode=TwoWay}"
+                             PlaceholderText="{loc:Str Settings_Byok_ApiKeyEnvVarPlaceholder}" />
+                    <TextBlock Text="{loc:Str Settings_Byok_ApiKeyEnvVarHint}"
+                               FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextTertiary}" />
+                  </StackPanel>
+
+                  <StackPanel Spacing="4" IsVisible="{Binding UsesStoredApiKey}">
+                    <TextBlock Text="{loc:Str Settings_Byok_ApiKey}" FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <TextBox Text="{Binding SelectedByokEndpoint.ApiKey, Mode=TwoWay}"
+                             PasswordChar="•" RevealPassword="False" />
+                    <Border Background="{DynamicResource Brush.WarningSubtle}" CornerRadius="4" Padding="8,4">
+                      <TextBlock Text="{loc:Str Settings_Byok_ApiKeyInsecureWarning}"
+                                 Foreground="{DynamicResource Brush.Warning}"
+                                 FontSize="{DynamicResource Font.SizeCaption}"
+                                 TextWrapping="Wrap" />
+                    </Border>
+                  </StackPanel>
+
+                  <StackPanel Spacing="4" IsVisible="{Binding UsesCredentialStoreApiKey}">
+                    <TextBlock Text="{loc:Str Settings_Byok_CredentialStoreKey}" FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <TextBox Text="{Binding ByokCredentialStoreKeyEntry, Mode=TwoWay}"
+                             PasswordChar="•" RevealPassword="False"
+                             PlaceholderText="{loc:Str Settings_Byok_CredentialStoreKeyPlaceholder}" />
+                    <TextBlock Text="{loc:Str Settings_Byok_CredentialStoreKeyHint}"
+                               FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextTertiary}"
+                               TextWrapping="Wrap" />
+                    <TextBlock IsVisible="{Binding HasByokCredentialStoreEntry}"
+                               Text="{loc:Str Settings_Byok_CredentialStoreKeyPresent}"
+                               FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.Success}" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
+                      <Button Content="{loc:Str Settings_Byok_CredentialStoreKeySave}"
+                              Command="{Binding SaveByokCredentialStoreKeyCommand}" />
+                      <Button Content="{loc:Str Settings_Byok_CredentialStoreKeyClear}"
+                              Command="{Binding ClearByokCredentialStoreKeyCommand}"
+                              IsVisible="{Binding HasByokCredentialStoreEntry}" />
+                    </StackPanel>
+                  </StackPanel>
+
+                  <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
+                    <ToggleSwitch IsChecked="{Binding SelectedByokEndpoint.IsEnabled, Mode=TwoWay}" />
+                    <TextBlock Text="{loc:Str Settings_Byok_IsEnabled}" VerticalAlignment="Center" />
+                  </StackPanel>
+
+                  <Button Content="{loc:Str Settings_Byok_TestEndpoint}" Padding="10,4" MinHeight="0"
+                          Classes="subtle motion-action" HorizontalAlignment="Left"
+                          Command="{Binding TestByokEndpointCommand}" />
+                  <TextBlock Text="{Binding ByokValidationMessage}"
+                             IsVisible="{Binding IsByokValidationVisible}"
+                             FontSize="{DynamicResource Font.SizeCaption}"
+                             Foreground="{DynamicResource Brush.TextSecondary}"
+                             TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+            </StackPanel>
+
+            <!-- ── Models ── -->
+            <StackPanel Spacing="8">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="{loc:Str SettingsGroup_ByokModels}" FontWeight="SemiBold"
+                           VerticalAlignment="Center" />
+                <Button Padding="8,3" MinHeight="0"
+                        Classes="subtle motion-action"
+                        Command="{Binding AddByokModelCommand}">
+                      <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="＋" /><TextBlock Text="{loc:Str Settings_Byok_AddModel}" />
+                      </StackPanel>
+                    </Button>
+              </StackPanel>
+
+              <ListBox ItemsSource="{Binding ByokModels}"
+                       SelectedItem="{Binding SelectedByokModel, Mode=TwoWay}"
+                       MinHeight="60" MaxHeight="180"
+                       Background="{DynamicResource Brush.Surface2}"
+                       BorderBrush="{DynamicResource Brush.Border1}"
+                       BorderThickness="1" CornerRadius="6">
+                <ListBox.ItemTemplate>
+                  <DataTemplate DataType="m:ByokModel">
+                    <StackPanel Spacing="2">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                      </StackPanel>
+                      <TextBlock Text="{Binding ModelId}" FontSize="{DynamicResource Font.SizeCaption}"
+                                 Foreground="{DynamicResource Brush.TextTertiary}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <TextBlock Text="{loc:Str Settings_Byok_EmptyModels}"
+                         IsVisible="{Binding !ByokModels.Count}"
+                         Foreground="{DynamicResource Brush.TextTertiary}"
+                         FontSize="{DynamicResource Font.SizeCaption}" />
+
+              <!-- Model editor -->
+              <Border IsVisible="{Binding SelectedByokModel, Converter={x:Static ObjectConverters.IsNotNull}}"
+                      Padding="14" CornerRadius="8" Margin="0,4,0,0"
+                      Background="{DynamicResource Brush.Surface2}"
+                      BorderBrush="{DynamicResource Brush.Border1}"
+                      BorderThickness="1">
+                <StackPanel Spacing="10">
+                  <DockPanel LastChildFill="False">
+                    <Button DockPanel.Dock="Left" Padding="8,3" MinHeight="0"
+                            Classes="subtle motion-action"
+                            Command="{Binding CloseByokModelCommand}"
+                            ToolTip.Tip="{loc:Str Settings_Byok_CloseModel}">
+                      <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="✕" /><TextBlock Text="{loc:Str Settings_Byok_CloseModel}" />
+                      </StackPanel>
+                    </Button>
+                    <StackPanel Orientation="Horizontal" Spacing="8" DockPanel.Dock="Right">
+                      <Button Content="{loc:Str Settings_Byok_DuplicateModel}" Padding="8,3" MinHeight="0"
+                              Classes="subtle motion-action"
+                              Command="{Binding DuplicateByokModelCommand}" />
+                      <Button Content="{loc:Str Settings_Byok_DeleteModel}" Padding="8,3" MinHeight="0"
+                              Classes="danger subtle motion-action"
+                              Command="{Binding DeleteByokModelCommand}" />
+                    </StackPanel>
+                  </DockPanel>
+
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="{loc:Str Settings_Byok_ModelName}" FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <TextBox Text="{Binding SelectedByokModel.DisplayName, Mode=TwoWay}"
+                             PlaceholderText="{loc:Str Settings_Byok_ModelNamePlaceholder}" />
+                  </StackPanel>
+
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="{loc:Str Settings_Byok_ModelId}" FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <TextBox Text="{Binding SelectedByokModel.ModelId, Mode=TwoWay}"
+                             PlaceholderText="gpt-4o" />
+                  </StackPanel>
+
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="{loc:Str Settings_Byok_Endpoint}" FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <ComboBox ItemsSource="{Binding ByokEndpoints}"
+                              SelectedValueBinding="{Binding Id}"
+                              SelectedItem="{Binding SelectedByokModel.EndpointId, Converter={StaticResource ByokEndpointByIdConverter}, Mode=TwoWay}"
+                              DisplayMemberBinding="{Binding Name}"
+                              HorizontalAlignment="Stretch" />
+                  </StackPanel>
+
+                  <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
+                    <ToggleSwitch IsChecked="{Binding SelectedByokModel.IsEnabled, Mode=TwoWay}" />
+                    <TextBlock Text="{loc:Str Settings_Byok_IsEnabled}" VerticalAlignment="Center" />
+                  </StackPanel>
+
+                  <!-- Advanced inference / rate-limit settings. All optional — empty (null) means
+                       "inherit the provider/SDK default" so existing users see no behavior change. -->
+                  <Border Background="{DynamicResource Brush.Surface1}"
+                          BorderBrush="{DynamicResource Brush.Border1}"
+                          BorderThickness="1" CornerRadius="6" Padding="10">
+                    <StackPanel Spacing="8">
+                      <TextBlock Text="{loc:Str Settings_Byok_Advanced}" FontWeight="SemiBold"
+                                 Foreground="{DynamicResource Brush.TextSecondary}" />
+
+                      <StackPanel Spacing="4">
+                        <TextBlock Text="{loc:Str Settings_Byok_Context}" FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextSecondary}" />
+                        <TextBox Text="{Binding SelectedByokModel.MaxPromptTokens, Mode=TwoWay, Converter={StaticResource StringToNullableIntConverter}, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="128000" />
+                        <TextBlock Text="{loc:Str Settings_Byok_ContextHint}"
+                                   FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextTertiary}"
+                                   TextWrapping="Wrap" />
+                      </StackPanel>
+
+                      <StackPanel Spacing="4">
+                        <TextBlock Text="{loc:Str Settings_Byok_MaxOutputTokens}" FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextSecondary}" />
+                        <TextBox Text="{Binding SelectedByokModel.MaxOutputTokens, Mode=TwoWay, Converter={StaticResource StringToNullableIntConverter}, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="4096" />
+                        <TextBlock Text="{loc:Str Settings_Byok_MaxOutputTokensHint}"
+                                   FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextTertiary}"
+                                   TextWrapping="Wrap" />
+                      </StackPanel>
+
+                      <StackPanel Spacing="4">
+                        <TextBlock Text="{loc:Str Settings_Byok_Rpm}" FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextSecondary}" />
+                        <TextBox Text="{Binding SelectedByokModel.MaxRequestsPerMinute, Mode=TwoWay, Converter={StaticResource StringToNullableIntConverter}, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="0" />
+                        <TextBlock Text="{loc:Str Settings_Byok_RpmHint}"
+                                   FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextTertiary}"
+                                   TextWrapping="Wrap" />
+                      </StackPanel>
+                    </StackPanel>
+                  </Border>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </StackPanel>
         </sc:StrataSettingGroup>
 
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_McpServers}">

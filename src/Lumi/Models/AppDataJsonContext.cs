@@ -18,4 +18,8 @@ namespace Lumi.Models;
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(string))]
+[JsonSerializable(typeof(ByokEndpoint))]
+[JsonSerializable(typeof(List<ByokEndpoint>))]
+[JsonSerializable(typeof(ByokModel))]
+[JsonSerializable(typeof(List<ByokModel>))]
 internal partial class AppDataJsonContext : JsonSerializerContext;

@@ -27,6 +27,8 @@ public sealed class ChatSessionStore : IDisposable
     // drives the same manage_chats backend; no per-window owner can dispose it out from under another.
     private readonly ChatOrchestrationService _orchestrationService;
     private readonly GlobalSearchService? _globalSearchService;
+    private readonly Lumi.Services.Byok.ISecureKeyStore? _secureKeyStore;
+    private readonly ByokRateLimiter _byokRateLimiter = new();
     private readonly Func<ChatViewModel, Chat, Task> _loadChatAsync;
     private readonly int _maxIdleCachedSurfaces;
     private readonly Dictionary<Guid, ChatViewModel> _sessionsByChatId = [];
@@ -40,8 +42,9 @@ public sealed class ChatSessionStore : IDisposable
         DataStore dataStore,
         CopilotService copilotService,
         ChatSurfaceRegistry registry,
-        GlobalSearchService? globalSearchService = null)
-        : this(dataStore, copilotService, registry, static (surface, chat) => surface.LoadChatAsync(chat), globalSearchService: globalSearchService)
+        GlobalSearchService? globalSearchService = null,
+        Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null)
+        : this(dataStore, copilotService, registry, static (surface, chat) => surface.LoadChatAsync(chat), globalSearchService: globalSearchService, secureKeyStore: secureKeyStore)
     {
     }
 
@@ -51,7 +54,8 @@ public sealed class ChatSessionStore : IDisposable
         ChatSurfaceRegistry registry,
         Func<ChatViewModel, Chat, Task> loadChatAsync,
         int maxIdleCachedSurfaces = DefaultMaxIdleCachedSurfaces,
-        GlobalSearchService? globalSearchService = null)
+        GlobalSearchService? globalSearchService = null,
+        Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null)
     {
         if (maxIdleCachedSurfaces < 0)
             throw new ArgumentOutOfRangeException(nameof(maxIdleCachedSurfaces));
@@ -60,6 +64,7 @@ public sealed class ChatSessionStore : IDisposable
         _copilotService = copilotService;
         _registry = registry;
         _globalSearchService = globalSearchService;
+        _secureKeyStore = secureKeyStore;
         _loadChatAsync = loadChatAsync;
         _maxIdleCachedSurfaces = maxIdleCachedSurfaces;
         // Pass `this`: the service only stores the reference (it makes no store calls during construction).
@@ -208,7 +213,12 @@ public sealed class ChatSessionStore : IDisposable
 
     private ChatViewModel CreateTrackedSurface(Action<ChatViewModel>? configure = null)
     {
-        var surface = new ChatViewModel(_dataStore, _copilotService, _globalSearchService)
+        var surface = new ChatViewModel(
+            _dataStore,
+            _copilotService,
+            _globalSearchService,
+            _secureKeyStore,
+            _byokRateLimiter)
         {
             SendWithEnter = _dataStore.Data.Settings.SendWithEnter,
             OrchestrationService = OrchestrationService

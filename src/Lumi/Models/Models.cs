@@ -77,6 +77,233 @@ public static class ModelContextWindowTiers
     public const string LongContext = "long_context";
 }
 
+/// <summary>
+/// How a <see cref="ByokEndpoint"/> resolves its API key at runtime.
+/// </summary>
+public enum ByokApiKeyMode
+{
+    /// <summary>No key is sent (e.g. local Ollama or public endpoints).</summary>
+    None = 0,
+    /// <summary>Read the key from a process environment variable.</summary>
+    EnvVar = 1,
+    /// <summary>Use a plaintext key stored in data.json. Insecure — UI must warn.</summary>
+    Stored = 2,
+    /// <summary>
+    /// Store the key in the OS credential store (Windows Credential Manager). Nothing
+    /// sensitive reaches <c>data.json</c>. Default mode on platforms that support it; the
+    /// UI hides this option where <c>ISecureKeyStore.IsSupported</c> is false.
+    /// </summary>
+    CredentialStore = 3,
+}
+
+/// <summary>
+/// BYOK endpoint: a reusable connection configuration (URL, provider type, auth) shared by one
+/// or more <see cref="ByokModel"/> entries. The <see cref="Id"/> is the stable identity that
+/// persists across renames — do not regenerate it on edit. Implements
+/// <see cref="INotifyPropertyChanged"/> so the Settings UI can react to field edits live
+/// (e.g. showing/hiding the API-key field when <see cref="ApiKeyMode"/> changes).
+/// </summary>
+public sealed class ByokEndpoint : INotifyPropertyChanged
+{
+    private string _id = Guid.NewGuid().ToString("N");
+    private string _name = "";
+    private string _providerType = "";
+    private string _baseUrl = "";
+    private string _wireApi = "";
+    private string? _azureApiVersion;
+    private bool _isEnabled = true;
+    private ByokApiKeyMode _apiKeyMode = ByokApiKeyMode.CredentialStore;
+    private string? _apiKeyEnvVar;
+    private string? _apiKey;
+    private Dictionary<string, string> _headers = new(StringComparer.OrdinalIgnoreCase);
+
+    public string Id
+    {
+        get => _id;
+        set { if (_id != value) { _id = value; OnPropertyChanged(nameof(Id)); } }
+    }
+
+    public string Name
+    {
+        get => _name;
+        set { var v = value ?? ""; if (_name != v) { _name = v; OnPropertyChanged(nameof(Name)); } }
+    }
+
+    /// <summary>"openai" | "azure" | "anthropic" — normalized to lower-case.</summary>
+    public string ProviderType
+    {
+        get => _providerType;
+        set { var v = value ?? ""; if (_providerType != v) { _providerType = v; OnPropertyChanged(nameof(ProviderType)); } }
+    }
+
+    public string BaseUrl
+    {
+        get => _baseUrl;
+        set { var v = value ?? ""; if (_baseUrl != v) { _baseUrl = v; OnPropertyChanged(nameof(BaseUrl)); } }
+    }
+
+    /// <summary>"completions" | "responses" — request format for openai/azure providers. Anthropic omits it.</summary>
+    public string WireApi
+    {
+        get => _wireApi;
+        set { var v = value ?? ""; if (_wireApi != v) { _wireApi = v; OnPropertyChanged(nameof(WireApi)); } }
+    }
+
+    /// <summary>Required when <see cref="ProviderType"/> == "azure".</summary>
+    public string? AzureApiVersion
+    {
+        get => _azureApiVersion;
+        set { if (_azureApiVersion != value) { _azureApiVersion = value; OnPropertyChanged(nameof(AzureApiVersion)); } }
+    }
+
+    public bool IsEnabled
+    {
+        get => _isEnabled;
+        set { if (_isEnabled != value) { _isEnabled = value; OnPropertyChanged(nameof(IsEnabled)); } }
+    }
+
+    public ByokApiKeyMode ApiKeyMode
+    {
+        get => _apiKeyMode;
+        set { if (_apiKeyMode != value) { _apiKeyMode = value; OnPropertyChanged(nameof(ApiKeyMode)); } }
+    }
+
+    public string? ApiKeyEnvVar
+    {
+        get => _apiKeyEnvVar;
+        set { if (_apiKeyEnvVar != value) { _apiKeyEnvVar = value; OnPropertyChanged(nameof(ApiKeyEnvVar)); } }
+    }
+
+    /// <summary>
+    /// Stored API key. Plaintext in data.json — INSECURE. Only used when
+    /// <see cref="ApiKeyMode"/> == <see cref="ByokApiKeyMode.Stored"/>.
+    /// UI must warn the user. Plan DPAPI wrapping for v2.
+    /// </summary>
+    public string? ApiKey
+    {
+        get => _apiKey;
+        set { if (_apiKey != value) { _apiKey = value; OnPropertyChanged(nameof(ApiKey)); } }
+    }
+
+    /// <summary>
+    /// Custom HTTP headers to include in every request to this endpoint's API. Use this for
+    /// provider-specific extras like <c>api-key</c> on Azure AI Foundry, custom auth schemes,
+    /// or tenant routing headers. The <see cref="ApiKey"/> (when set) is sent separately as
+    /// <c>Authorization: Bearer</c> by the OpenAI-compatible client — Lumi no longer auto-injects
+    /// any provider-specific auth headers.
+    /// <para>Header NAMES are case-insensitive (RFC 7230 §3.2); values are sent verbatim.</para>
+    /// </summary>
+    public Dictionary<string, string> Headers
+    {
+        get => _headers;
+        set
+        {
+            _headers = value ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            // Normalize any pre-existing case-insensitive dictionary to a case-insensitive one so
+            // edits and JSON round-trips stay consistent.
+            if (!_headers.Comparer.Equals(StringComparer.OrdinalIgnoreCase))
+            {
+                _headers = new Dictionary<string, string>(_headers, StringComparer.OrdinalIgnoreCase);
+            }
+            OnPropertyChanged(nameof(Headers));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    private void OnPropertyChanged(string propertyName) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+}
+
+/// <summary>
+/// BYOK model entry: a user-selectable model attached to a <see cref="ByokEndpoint"/> via
+/// <see cref="EndpointId"/>. The <see cref="Id"/> is the stable identity used in the
+/// <c>byok:{Id}</c> picker token — do not regenerate it on edit/rename. Implements
+/// <see cref="INotifyPropertyChanged"/> for live UI binding.
+/// </summary>
+public sealed class ByokModel : INotifyPropertyChanged
+{
+    private string _id = Guid.NewGuid().ToString("N");
+    private string _endpointId = "";
+    private string _modelId = "";
+    private string _displayName = "";
+    private bool _isEnabled = true;
+    private int? _maxOutputTokens;
+    private int? _maxPromptTokens;
+    private int? _maxRequestsPerMinute;
+
+    public string Id
+    {
+        get => _id;
+        set { if (_id != value) { _id = value; OnPropertyChanged(nameof(Id)); } }
+    }
+
+    public string EndpointId
+    {
+        get => _endpointId;
+        set { var v = value ?? ""; if (_endpointId != v) { _endpointId = v; OnPropertyChanged(nameof(EndpointId)); } }
+    }
+
+    /// <summary>Wire model id sent to the provider API (e.g. "gpt-4o", deployment name).</summary>
+    public string ModelId
+    {
+        get => _modelId;
+        set { var v = value ?? ""; if (_modelId != v) { _modelId = v; OnPropertyChanged(nameof(ModelId)); } }
+    }
+
+    /// <summary>Human-readable name shown in the picker. Independent of <see cref="ModelId"/>.</summary>
+    public string DisplayName
+    {
+        get => _displayName;
+        set { var v = value ?? ""; if (_displayName != v) { _displayName = v; OnPropertyChanged(nameof(DisplayName)); } }
+    }
+
+    public bool IsEnabled
+    {
+        get => _isEnabled;
+        set { if (_isEnabled != value) { _isEnabled = value; OnPropertyChanged(nameof(IsEnabled)); } }
+    }
+
+    /// <summary>
+    /// Maximum number of output (completion) tokens the provider may generate per turn.
+    /// <c>null</c> (the default) means "inherit the provider/SDK default" — Lumi does not
+    /// set <c>ProviderConfig.MaxOutputTokens</c> at all, so existing behavior is preserved
+    /// for users who never configure this field. Verified to reach the provider via
+    /// <c>ProviderConfig.MaxOutputTokens</c> (GitHub.Copilot.SDK 1.0.1).
+    /// </summary>
+    public int? MaxOutputTokens
+    {
+        get => _maxOutputTokens;
+        set { if (!Nullable.Equals(_maxOutputTokens, value)) { _maxOutputTokens = value; OnPropertyChanged(nameof(MaxOutputTokens)); } }
+    }
+
+    /// <summary>
+    /// Maximum number of input (prompt) tokens allowed for a turn — caps the context window.
+    /// <c>null</c> (the default) means "inherit the provider/SDK default". Applied through
+    /// <c>ProviderConfig.MaxPromptTokens</c>.
+    /// </summary>
+    public int? MaxPromptTokens
+    {
+        get => _maxPromptTokens;
+        set { if (!Nullable.Equals(_maxPromptTokens, value)) { _maxPromptTokens = value; OnPropertyChanged(nameof(MaxPromptTokens)); } }
+    }
+
+    /// <summary>
+    /// Optional client-side requests-per-minute throttle for this model. <c>null</c> or
+    /// <c>0</c> means "no limit" — the rate limiter is a pure passthrough and
+    /// <c>session.SendAsync</c> is not wrapped/throttled at all (identical to current
+    /// behavior). A positive value activates a sliding-window limiter keyed by
+    /// <see cref="Id"/>. This is a per-model local guard, not a shared quota: if several
+    /// BYOK models share one endpoint+key, each tracks its own budget.
+    /// </summary>
+    public int? MaxRequestsPerMinute
+    {
+        get => _maxRequestsPerMinute;
+        set { if (!Nullable.Equals(_maxRequestsPerMinute, value)) { _maxRequestsPerMinute = value; OnPropertyChanged(nameof(MaxRequestsPerMinute)); } }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    private void OnPropertyChanged(string propertyName) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+}
+
 public class SearchSource
 {
     public string Title { get; set; } = "";
@@ -141,6 +368,16 @@ public class Chat : INotifyPropertyChanged
 
     /// <summary>Last model used in this chat. Restored as the selected model when the chat is reopened.</summary>
     public string? LastModelUsed { get; set; }
+
+    /// <summary>
+    /// Provider routing signature (<see cref="Lumi.Services.ByokConfigHelper.BuildProviderSignature"/>
+    /// of the BYOK endpoint this chat's Copilot session was created/resumed with. Null means the
+    /// session was created on GitHub's default backend (non-BYOK). Persists across restarts so
+    /// <c>EnsureSessionAsync</c> can detect when a chat's existing server-side session belongs to
+    /// a different endpoint than the user's current BYOK selection and force a fresh session create
+    /// instead of resuming the old one (which would silently keep routing to the wrong backend).
+    /// </summary>
+    public string? SessionProviderSignature { get; set; }
 
     /// <summary>Last reasoning effort used in this chat. Restored alongside the selected model when reopened.</summary>
     public string? LastReasoningEffortUsed { get; set; }
@@ -596,6 +833,23 @@ public class UserSettings
     public string PreferredModel { get; set; } = "";
     public string ReasoningEffort { get; set; } = ""; // "", "low", "medium", "high", "xhigh"
     public string ContextWindowTier { get; set; } = ModelContextWindowTiers.Default;
+
+    // ── BYOK (Bring Your Own Key) ──
+    public List<ByokEndpoint> ByokEndpoints { get; set; } = [];
+    public List<ByokModel> ByokModels { get; set; } = [];
+
+    /// <summary>
+    /// When true, Lumi will only use configured BYOK providers and blocks all requests that
+    /// would otherwise hit GitHub's internal Copilot endpoints (chat inference, title
+    /// generation, suggestions, memory agent, etc.). This is the BYOK Only (No Bring Your Own
+    /// Key) block. A non-BYOK model selected with this flag on surfaces a clear error instead
+    /// of silently routing through Copilot. Use this for a hard privacy guarantee: no
+    /// conversation content ever leaves your own endpoints.
+    /// Defaults to <c>false</c>. Existing data.json files that don't yet serialize this field
+    /// pick up the default on load (System.Text.Json uses the C# initializer when a property
+    /// is absent from the JSON).
+    /// </summary>
+    public bool UseBYOKOnly { get; set; } = false;
 
     // ── MCP ──
     // When true, local MCP servers are routed through Lumi's shared proxy so they

@@ -74,7 +74,8 @@ public sealed class LightweightSessionOptions
         Func<PermissionRequest, PermissionInvocation, Task<PermissionDecision>>? onPermission,
         SessionHooks? hooks,
         string? agentName = null,
-        string? contextTier = null)
+        string? contextTier = null,
+        GitHub.Copilot.ProviderConfig? provider = null)
     {
         var config = new SessionConfig
         {
@@ -90,6 +91,7 @@ public sealed class LightweightSessionOptions
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
             ContextTier = CreateContextTier(contextTier),
             McpOAuthTokenStorage = McpOAuthTokenStorage,
+            Provider = provider,
         };
 
         Populate(config, systemPrompt, reasoningEffort, skillDirectories,
@@ -114,7 +116,8 @@ public sealed class LightweightSessionOptions
         Func<PermissionRequest, PermissionInvocation, Task<PermissionDecision>>? onPermission,
         SessionHooks? hooks,
         string? agentName = null,
-        string? contextTier = null)
+        string? contextTier = null,
+        GitHub.Copilot.ProviderConfig? provider = null)
     {
         var config = new ResumeSessionConfig
         {
@@ -130,6 +133,7 @@ public sealed class LightweightSessionOptions
             OnPermissionRequest = onPermission ?? PermissionHandler.ApproveAll,
             ContextTier = CreateContextTier(contextTier),
             McpOAuthTokenStorage = McpOAuthTokenStorage,
+            Provider = provider,
         };
 
         Populate(config, systemPrompt, reasoningEffort, skillDirectories,

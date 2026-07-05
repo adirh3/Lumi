@@ -39,6 +39,42 @@ internal static class AppDataSnapshotFactory
                 ReasoningEffort = settings.ReasoningEffort,
                 UseMcpProxy = settings.UseMcpProxy,
                 ContextWindowTier = settings.ContextWindowTier,
+                ByokEndpoints = settings.ByokEndpoints
+                    .Select(e => new ByokEndpoint
+                    {
+                        Id = e.Id,
+                        Name = e.Name,
+                        ProviderType = e.ProviderType,
+                        BaseUrl = e.BaseUrl,
+                        WireApi = e.WireApi,
+                        AzureApiVersion = e.AzureApiVersion,
+                        IsEnabled = e.IsEnabled,
+                        ApiKeyMode = e.ApiKeyMode,
+                        ApiKeyEnvVar = e.ApiKeyEnvVar,
+                        ApiKey = e.ApiKey,
+                        Headers = e.Headers is null
+                            ? new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase)
+                            : new System.Collections.Generic.Dictionary<string, string>(e.Headers, System.StringComparer.OrdinalIgnoreCase),
+                    })
+                    .ToList(),
+                ByokModels = settings.ByokModels
+                    .Select(m => new ByokModel
+                    {
+                        Id = m.Id,
+                        EndpointId = m.EndpointId,
+                        ModelId = m.ModelId,
+                        DisplayName = m.DisplayName,
+                        IsEnabled = m.IsEnabled,
+                        // Advanced inference / rate-limit settings must be carried into the
+                        // persisted snapshot — omitting them here silently drops the values on
+                        // every save, so the in-memory model keeps the value but data.json always
+                        // shows null (the "saved as null" symptom).
+                        MaxOutputTokens = m.MaxOutputTokens,
+                        MaxPromptTokens = m.MaxPromptTokens,
+                        MaxRequestsPerMinute = m.MaxRequestsPerMinute,
+                    })
+                    .ToList(),
+                UseBYOKOnly = settings.UseBYOKOnly,
                 EnableMemoryAutoSave = settings.EnableMemoryAutoSave,
                 EnableMemoryAutoMaintenance = settings.EnableMemoryAutoMaintenance,
                 AutoSaveChats = settings.AutoSaveChats,
@@ -236,6 +272,7 @@ internal static class AppDataSnapshotFactory
             ProjectId = source.ProjectId,
             AgentId = source.AgentId,
             CopilotSessionId = source.CopilotSessionId,
+            SessionProviderSignature = source.SessionProviderSignature,
             CreatedAt = source.CreatedAt,
             UpdatedAt = source.UpdatedAt,
             ActiveSkillIds = [..source.ActiveSkillIds],

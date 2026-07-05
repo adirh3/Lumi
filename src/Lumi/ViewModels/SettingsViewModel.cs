@@ -1,5 +1,7 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
@@ -11,6 +13,11 @@ using Lumi.Services;
 
 namespace Lumi.ViewModels;
 
+public sealed record ByokApiKeyModeOption(ByokApiKeyMode Value, string DisplayName)
+{
+    public override string ToString() => DisplayName;
+}
+
 public partial class SettingsViewModel : ObservableObject, IDisposable
 {
     public const int AboutPageIndex = 6;
@@ -19,6 +26,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     private readonly CopilotService _copilotService;
     private readonly BrowserService _browserService;
     private readonly UpdateService _updateService;
+    /// <summary>OS credential store for BYOK CredentialStore mode. May be unsupported on this platform.</summary>
+    private readonly Lumi.Services.Byok.ISecureKeyStore? _secureKeyStore;
 
     // ── Page navigation ──
     [ObservableProperty] private int _selectedPageIndex;
@@ -95,6 +104,62 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     private readonly Dictionary<string, string> _modelDefaultEfforts = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _modelsWithLongContext = new(StringComparer.OrdinalIgnoreCase);
     public ObservableCollection<string> AvailableModels { get; } = [];
+
+    // ── BYOK (Bring Your Own Key) ──
+    public ObservableCollection<ByokEndpoint> ByokEndpoints { get; } = [];
+    public ObservableCollection<ByokModel> ByokModels { get; } = [];
+
+    [ObservableProperty] private ByokEndpoint? _selectedByokEndpoint;
+    [ObservableProperty] private ByokModel? _selectedByokModel;
+
+    [ObservableProperty] private string? _byokValidationMessage;
+    [ObservableProperty] private bool _isByokValidationVisible;
+
+    public static IReadOnlyList<string> ByokProviderTypes { get; } = ["openai", "azure", "anthropic"];
+    public static IReadOnlyList<string> ByokWireApiOptions { get; } = ["completions", "responses"];
+
+    public IReadOnlyList<ByokApiKeyModeOption> ByokApiKeyModeOptions { get; }
+
+    public ByokApiKeyModeOption? SelectedByokEndpointApiKeyModeOption
+        => ByokApiKeyModeOptions.FirstOrDefault(option => option.Value == SelectedByokEndpoint?.ApiKeyMode);
+
+    public bool IsByokEndpointSelected => SelectedByokEndpoint is not null;
+    public bool IsSelectedByokAzure => SelectedByokEndpoint?.ProviderType == "azure";
+
+    /// <summary>
+    /// Wire API format only applies to openai/azure providers; anthropic omits it.
+    /// Drives the visibility of the API Format combo box in the BYOK editor.
+    /// </summary>
+    public bool IsSelectedByokWireApiVisible => SelectedByokEndpoint?.ProviderType != "anthropic";
+    public bool UsesEnvVarApiKey => SelectedByokEndpoint?.ApiKeyMode == ByokApiKeyMode.EnvVar;
+    public bool UsesStoredApiKey => SelectedByokEndpoint?.ApiKeyMode == ByokApiKeyMode.Stored;
+    public bool UsesNoApiKey => SelectedByokEndpoint?.ApiKeyMode == ByokApiKeyMode.None;
+    public bool UsesCredentialStoreApiKey => SelectedByokEndpoint?.ApiKeyMode == ByokApiKeyMode.CredentialStore;
+
+    /// <summary>
+    /// <c>true</c> when the OS credential store is available on this platform. Drives whether the
+    /// <see cref="ByokApiKeyMode.CredentialStore"/> mode is offered in the UI (and whether it is the
+    /// default for new endpoints). When <c>false</c>, the mode is hidden and endpoints fall back to EnvVar.
+    /// </summary>
+    public bool IsByokCredentialStoreSupported => _secureKeyStore?.IsSupported ?? false;
+
+    /// <summary>
+    /// Transient entry field for the OS-store API key. <b>Never</b> displays the existing secret —
+    /// it is intentionally left blank on endpoint selection (you cannot read back what is stored,
+    /// only overwrite or clear). A non-empty value here is written to the OS store on save; an
+    /// empty value leaves the stored secret untouched (use the Clear button to remove it).
+    /// </summary>
+    [ObservableProperty] private string? _byokCredentialStoreKeyEntry;
+
+    /// <summary>True when an OS-store entry already exists for the selected endpoint (shows a 'stored' chip).</summary>
+    [ObservableProperty] private bool _hasByokCredentialStoreEntry;
+
+    // ── BYOK privacy guard ──
+    /// <summary>
+    /// When on, Lumi only uses configured BYOK providers, disabling built-in Copilot
+    /// authentication so no conversation content reaches GitHub's internal Copilot endpoints.
+    /// </summary>
+    [ObservableProperty] private bool _useBYOKOnly;
 
     // ── MCP ──
     [ObservableProperty] private bool _useMcpProxy;
@@ -350,14 +415,27 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public event Action? SettingsChanged;
     public event Action? CookieImportDialogRequested;
 
+    /// <summary>Raised when the BYOK endpoint/model configuration changes. Consumers re-inject picker tokens and clear stale selections.</summary>
+    public event Action? ByokConfigurationChanged;
+
     public BrowserService BrowserService => _browserService;
 
-    public SettingsViewModel(DataStore dataStore, CopilotService copilotService, BrowserService browserService, UpdateService updateService)
+    public SettingsViewModel(DataStore dataStore, CopilotService copilotService, BrowserService browserService, UpdateService updateService, Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null)
     {
         _dataStore = dataStore;
         _copilotService = copilotService;
         _browserService = browserService;
         _updateService = updateService;
+        _secureKeyStore = secureKeyStore;
+        ByokApiKeyModeOptions =
+        [
+            new(ByokApiKeyMode.None, Loc.Settings_Byok_ApiKeyMode_None),
+            new(ByokApiKeyMode.EnvVar, Loc.Settings_Byok_ApiKeyMode_EnvVar),
+            new(ByokApiKeyMode.Stored, Loc.Settings_Byok_ApiKeyMode_Stored),
+            .. IsByokCredentialStoreSupported
+                ? [new ByokApiKeyModeOption(ByokApiKeyMode.CredentialStore, Loc.Settings_Byok_ApiKeyMode_CredentialStore)]
+                : Array.Empty<ByokApiKeyModeOption>(),
+        ];
         var s = dataStore.Data.Settings;
 
         // General
@@ -391,8 +469,47 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             : s.ContextWindowTier;
         if (!string.IsNullOrWhiteSpace(_preferredModel))
             AvailableModels.Add(_preferredModel);
+        // Seed the picker with any BYOK tokens saved in settings so they're visible immediately,
+        // before the first refresh from Copilot. Without this, the picker shows only the seeded
+        // PreferredModel until RefreshCopilotStateAsync completes.
+        foreach (var byokToken in (s.ByokModels ?? new List<ByokModel>())
+                     .Where(m => m.IsEnabled)
+                     .Select(ByokConfigHelper.BuildModelToken)
+                     .Where(token => !string.IsNullOrWhiteSpace(token) && !AvailableModels.Contains(token)))
+        {
+            AvailableModels.Add(byokToken);
+        }
         UpdateQualityLevels(_preferredModel);
         UpdateContextWindowTiers(_preferredModel);
+
+        // BYOK
+        var coercedUnsupportedCredentialStore = false;
+        foreach (var e in s.ByokEndpoints ?? new List<ByokEndpoint>())
+        {
+            ByokConfigHelper.NormalizeEndpoint(e);
+            if (e.ApiKeyMode == ByokApiKeyMode.CredentialStore && !IsByokCredentialStoreSupported)
+            {
+                e.ApiKeyMode = ByokApiKeyMode.EnvVar;
+                coercedUnsupportedCredentialStore = true;
+            }
+            ByokEndpoints.Add(e);
+        }
+        foreach (var m in s.ByokModels ?? new List<ByokModel>())
+        {
+            ByokConfigHelper.NormalizeModel(m);
+            ByokModels.Add(m);
+        }
+        // Sync back any normalization to the data store so persisted data is canonical.
+        SyncByokToDataStore();
+        ByokValidationMessage = coercedUnsupportedCredentialStore
+            ? Loc.Settings_Byok_CredentialStoreUnsupported
+            : null;
+        IsByokValidationVisible = coercedUnsupportedCredentialStore;
+        if (coercedUnsupportedCredentialStore)
+            Save();
+
+        // BYOK privacy guard
+        _useBYOKOnly = s.UseBYOKOnly;
 
         // MCP
         _useMcpProxy = s.UseMcpProxy;
@@ -774,6 +891,15 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnUseMcpProxyChanged(bool value) { _dataStore.Data.Settings.UseMcpProxy = value; Save(); NotifyModified(); }
 
+    partial void OnUseBYOKOnlyChanged(bool value)
+    {
+        _dataStore.Data.Settings.UseBYOKOnly = value;
+        // Keep the CopilotService chokepoint in sync with the live flag.
+        _copilotService.SetSettingsProvider(() => _dataStore.Data.Settings);
+        Save();
+        NotifyModified();
+    }
+
     partial void OnContextWindowTierChanged(string value)
     {
         var tier = string.IsNullOrWhiteSpace(value) ? ModelContextWindowTiers.Default : value;
@@ -833,6 +959,406 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             .Select(static id => id.Trim())
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    // ── BYOK Commands ──
+
+    [RelayCommand]
+    private void AddByokEndpoint()
+    {
+        var endpoint = new ByokEndpoint
+        {
+            Name = Loc.Settings_Byok_EndpointName,
+            ProviderType = "openai",
+            BaseUrl = "https://api.openai.com/v1",
+            WireApi = "completions",
+            // CredentialStore is the secure default when the OS store is available; otherwise fall
+            // back to EnvVar (the next most secure option) since CredentialStore would be a no-op.
+            ApiKeyMode = IsByokCredentialStoreSupported ? ByokApiKeyMode.CredentialStore : ByokApiKeyMode.EnvVar,
+            IsEnabled = true,
+        };
+        ByokEndpoints.Add(endpoint);
+        SelectedByokEndpoint = endpoint;
+        SyncByokToDataStore();
+        Save();
+        NotifyModified();
+        ByokConfigurationChanged?.Invoke();
+        OnPropertyChanged(nameof(IsByokEndpointSelected));
+    }
+
+    [RelayCommand]
+    private async Task DeleteByokEndpointAsync()
+    {
+        var endpoint = SelectedByokEndpoint;
+        if (endpoint is null) return;
+
+        // Cascade: remove all models pointing to this endpoint.
+        var cascade = ByokModels.Where(m => m.EndpointId == endpoint.Id).ToList();
+        foreach (var m in cascade)
+            ByokModels.Remove(m);
+
+        // Also drop the OS-store entry so deleting an endpoint does not leave an orphan secret.
+        if (_secureKeyStore is { IsSupported: true })
+        {
+            try { await _secureKeyStore.DeleteAsync(Lumi.Services.Byok.SecureKeyStoreFactory.EndpointKey(endpoint.Id)); }
+            catch { /* best-effort cleanup */ }
+        }
+
+        ByokEndpoints.Remove(endpoint);
+        SelectedByokEndpoint = null;
+        SyncByokToDataStore();
+        Save();
+        NotifyModified();
+        ByokConfigurationChanged?.Invoke();
+        OnPropertyChanged(nameof(IsByokEndpointSelected));
+    }
+
+    [RelayCommand]
+    private void DuplicateByokEndpoint()
+    {
+        var source = SelectedByokEndpoint;
+        if (source is null) return;
+
+        var copy = new ByokEndpoint
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = source.Name + " (copy)",
+            ProviderType = source.ProviderType,
+            BaseUrl = source.BaseUrl,
+            WireApi = source.WireApi,
+            AzureApiVersion = source.AzureApiVersion,
+            IsEnabled = source.IsEnabled,
+            ApiKeyMode = source.ApiKeyMode,
+            ApiKeyEnvVar = source.ApiKeyEnvVar,
+            ApiKey = source.ApiKey,
+            Headers = source.Headers is null
+                ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(source.Headers, StringComparer.OrdinalIgnoreCase),
+        };
+        ByokEndpoints.Add(copy);
+        SelectedByokEndpoint = copy;
+        SyncByokToDataStore();
+        Save();
+        NotifyModified();
+        ByokConfigurationChanged?.Invoke();
+        OnPropertyChanged(nameof(IsByokEndpointSelected));
+    }
+
+    /// <summary>
+    /// Closes the endpoint editor without deleting the endpoint: simply deselects it
+    /// so the detail panel collapses. Pending edits are already persisted to the data store.
+    /// </summary>
+    [RelayCommand]
+    private void CloseByokEndpoint()
+    {
+        SelectedByokEndpoint = null;
+    }
+
+    /// <summary>
+    /// Closes the model editor without deleting the model: simply deselects it so the
+    /// detail panel collapses. Pending edits are already persisted to the data store.
+    /// </summary>
+    [RelayCommand]
+    private void CloseByokModel()
+    {
+        SelectedByokModel = null;
+    }
+
+    [RelayCommand]
+    private void TestByokEndpoint()
+    {
+        var endpoint = SelectedByokEndpoint;
+        if (endpoint is null)
+        {
+            ByokValidationMessage = null;
+            IsByokValidationVisible = false;
+            return;
+        }
+
+        var error = ByokConfigHelper.TestEndpoint(endpoint, _secureKeyStore);
+        ByokValidationMessage = error is null
+            ? Loc.Settings_Byok_TestOk
+            : string.Format(Loc.Settings_Byok_TestFail, error);
+        IsByokValidationVisible = true;
+    }
+
+    [RelayCommand]
+    private void AddByokModel()
+    {
+        var endpointId = SelectedByokEndpoint?.Id ?? ByokEndpoints.FirstOrDefault()?.Id ?? "";
+        var model = new ByokModel
+        {
+            EndpointId = endpointId,
+            ModelId = "",
+            DisplayName = Loc.Settings_Byok_ModelName,
+            IsEnabled = true,
+        };
+        ByokModels.Add(model);
+        SelectedByokModel = model;
+        SyncByokToDataStore();
+        Save();
+        NotifyModified();
+        ByokConfigurationChanged?.Invoke();
+    }
+
+    [RelayCommand]
+    private void DeleteByokModel()
+    {
+        var model = SelectedByokModel;
+        if (model is null) return;
+        ByokModels.Remove(model);
+        SelectedByokModel = null;
+        SyncByokToDataStore();
+        Save();
+        NotifyModified();
+        ByokConfigurationChanged?.Invoke();
+    }
+
+    [RelayCommand]
+    private void DuplicateByokModel()
+    {
+        var source = SelectedByokModel;
+        if (source is null) return;
+
+        var copy = new ByokModel
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            EndpointId = source.EndpointId,
+            ModelId = source.ModelId,
+            DisplayName = source.DisplayName + " (copy)",
+            IsEnabled = source.IsEnabled,
+            // Carry over advanced inference/rate-limit settings so a duplicate is a true clone.
+            MaxOutputTokens = source.MaxOutputTokens,
+            MaxPromptTokens = source.MaxPromptTokens,
+            MaxRequestsPerMinute = source.MaxRequestsPerMinute,
+        };
+        ByokModels.Add(copy);
+        SelectedByokModel = copy;
+        SyncByokToDataStore();
+        Save();
+        NotifyModified();
+        ByokConfigurationChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Copies the BYOK collections back into <c>_dataStore.Data.Settings</c> so they persist.
+    /// The observable collections hold the canonical state while the user is editing.
+    /// </summary>
+    private void SyncByokToDataStore()
+    {
+        _dataStore.Data.Settings.ByokEndpoints = ByokEndpoints.ToList();
+        _dataStore.Data.Settings.ByokModels = ByokModels.ToList();
+    }
+
+    private ByokEndpoint? _subscribedByokEndpoint;
+    private bool _suppressByokEndpointPersistence;
+
+    partial void OnSelectedByokEndpointChanged(ByokEndpoint? value)
+    {
+        // Unsubscribe from the old endpoint's property changes.
+        if (_subscribedByokEndpoint is not null)
+            _subscribedByokEndpoint.PropertyChanged -= OnSelectedByokEndpointPropertyChanged;
+
+        _subscribedByokEndpoint = value;
+
+        // Subscribe to the new endpoint so computed visibility flags (Azure? Stored key? Env var?)
+        // re-evaluate live when the user edits ProviderType / ApiKeyMode in the editor.
+        if (_subscribedByokEndpoint is not null)
+            _subscribedByokEndpoint.PropertyChanged += OnSelectedByokEndpointPropertyChanged;
+
+        // Recompute visibility flags and reset the test result banner when switching endpoints.
+        OnPropertyChanged(nameof(IsByokEndpointSelected));
+        RaiseByokEndpointVisibilityFlags();
+        ByokValidationMessage = null;
+        IsByokValidationVisible = false;
+        // Reset the OS-store entry box (never echoes a stored secret) and probe the store for the
+        // "key present" chip on the newly selected endpoint.
+        ByokCredentialStoreKeyEntry = null;
+        _ = RefreshByokCredentialStoreEntryFlagAsync();
+    }
+
+    private void OnSelectedByokEndpointPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        // Only the fields that affect conditional UI sections need to trigger re-evaluation.
+        if (e.PropertyName is nameof(ByokEndpoint.ProviderType)
+                              or nameof(ByokEndpoint.ApiKeyMode))
+        {
+            RaiseByokEndpointVisibilityFlags();
+        }
+
+        if (e.PropertyName == nameof(ByokEndpoint.ApiKeyMode))
+            OnPropertyChanged(nameof(SelectedByokEndpointApiKeyModeOption));
+
+        if (_suppressByokEndpointPersistence)
+            return;
+
+        // Persist any edit to the endpoint back to the data store + notify consumers.
+        SyncByokToDataStore();
+        Save();
+        NotifyModified();
+        ByokConfigurationChanged?.Invoke();
+    }
+
+    private void RaiseByokEndpointVisibilityFlags()
+    {
+        OnPropertyChanged(nameof(IsSelectedByokAzure));
+        OnPropertyChanged(nameof(IsSelectedByokWireApiVisible));
+        OnPropertyChanged(nameof(UsesEnvVarApiKey));
+        OnPropertyChanged(nameof(UsesStoredApiKey));
+        OnPropertyChanged(nameof(UsesNoApiKey));
+        OnPropertyChanged(nameof(UsesCredentialStoreApiKey));
+        OnPropertyChanged(nameof(SelectedByokEndpointApiKeyModeOption));
+    }
+
+    [RelayCommand]
+    private async Task ChangeByokApiKeyModeAsync(ByokApiKeyModeOption? option)
+    {
+        var endpoint = SelectedByokEndpoint;
+        if (endpoint is null || option is null || endpoint.ApiKeyMode == option.Value)
+            return;
+
+        if (option.Value == ByokApiKeyMode.CredentialStore
+            && _secureKeyStore is not { IsSupported: true })
+        {
+            ByokValidationMessage = Loc.Settings_Byok_CredentialStoreUnsupported;
+            IsByokValidationVisible = true;
+            OnPropertyChanged(nameof(SelectedByokEndpointApiKeyModeOption));
+            return;
+        }
+
+        var movePlaintextToCredentialStore = option.Value == ByokApiKeyMode.CredentialStore
+            && !string.IsNullOrEmpty(endpoint.ApiKey);
+        if (movePlaintextToCredentialStore)
+        {
+            try
+            {
+                await _secureKeyStore!.SetAsync(
+                    Lumi.Services.Byok.SecureKeyStoreFactory.EndpointKey(endpoint.Id),
+                    endpoint.ApiKey);
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceWarning($"[Settings] Failed to migrate BYOK key to credential store: {ex.Message}");
+                ByokValidationMessage = Loc.Settings_Byok_CredentialStoreMigrationFailed;
+                IsByokValidationVisible = true;
+                OnPropertyChanged(nameof(SelectedByokEndpointApiKeyModeOption));
+                return;
+            }
+        }
+
+        _suppressByokEndpointPersistence = true;
+        try
+        {
+            if (movePlaintextToCredentialStore)
+                endpoint.ApiKey = null;
+            endpoint.ApiKeyMode = option.Value;
+        }
+        finally
+        {
+            _suppressByokEndpointPersistence = false;
+        }
+
+        ByokValidationMessage = null;
+        IsByokValidationVisible = false;
+        RaiseByokEndpointVisibilityFlags();
+        await RefreshByokCredentialStoreEntryFlagAsync();
+        SyncByokToDataStore();
+        Save();
+        NotifyModified();
+        ByokConfigurationChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Refreshes <see cref="HasByokCredentialStoreEntry"/> for the currently selected endpoint by
+    /// probing the OS store. Best-effort; failures leave the flag false.
+    /// </summary>
+    private async Task RefreshByokCredentialStoreEntryFlagAsync()
+    {
+        if (_secureKeyStore is not { IsSupported: true } || SelectedByokEndpoint is null)
+        {
+            HasByokCredentialStoreEntry = false;
+            return;
+        }
+
+        try
+        {
+            var existing = await _secureKeyStore.GetAsync(
+                Lumi.Services.Byok.SecureKeyStoreFactory.EndpointKey(SelectedByokEndpoint.Id));
+            HasByokCredentialStoreEntry = !string.IsNullOrEmpty(existing);
+        }
+        catch
+        {
+            HasByokCredentialStoreEntry = false;
+        }
+    }
+
+    /// <summary>
+    /// Writes the <see cref="ByokCredentialStoreKeyEntry"/> value to the OS store for the selected
+    /// endpoint. An empty entry is a no-op (use <see cref="ClearByokCredentialStoreKey"/> to remove).
+    /// Clears the transient entry after writing so the box returns to its secure 'blank' state.
+    /// </summary>
+    [RelayCommand]
+    private async Task SaveByokCredentialStoreKeyAsync()
+    {
+        if (SelectedByokEndpoint is null || _secureKeyStore is not { IsSupported: true })
+            return;
+
+        var value = ByokCredentialStoreKeyEntry;
+        if (string.IsNullOrEmpty(value))
+            return;
+
+        await _secureKeyStore.SetAsync(
+            Lumi.Services.Byok.SecureKeyStoreFactory.EndpointKey(SelectedByokEndpoint.Id), value);
+        ByokCredentialStoreKeyEntry = null;
+        await RefreshByokCredentialStoreEntryFlagAsync();
+        NotifyModified();
+        ByokConfigurationChanged?.Invoke();
+    }
+
+    /// <summary>Removes the OS-store entry for the selected endpoint (no-op if absent).</summary>
+    [RelayCommand]
+    private async Task ClearByokCredentialStoreKeyAsync()
+    {
+        if (SelectedByokEndpoint is null || _secureKeyStore is not { IsSupported: true })
+            return;
+
+        await _secureKeyStore.DeleteAsync(
+            Lumi.Services.Byok.SecureKeyStoreFactory.EndpointKey(SelectedByokEndpoint.Id));
+        ByokCredentialStoreKeyEntry = null;
+        await RefreshByokCredentialStoreEntryFlagAsync();
+        NotifyModified();
+        ByokConfigurationChanged?.Invoke();
+    }
+
+    private ByokModel? _subscribedByokModel;
+
+    partial void OnSelectedByokModelChanged(ByokModel? value)
+    {
+        if (_subscribedByokModel is not null)
+            _subscribedByokModel.PropertyChanged -= OnSelectedByokModelPropertyChanged;
+
+        _subscribedByokModel = value;
+
+        if (_subscribedByokModel is not null)
+            _subscribedByokModel.PropertyChanged += OnSelectedByokModelPropertyChanged;
+
+        // Keep the endpoint dropdown in sync with the selected model so editing a model in the
+        // UI immediately shows which endpoint it belongs to. Without this, the dropdown keeps
+        // showing the previously-selected endpoint, which is confusing when you open a model
+        // belonging to a different endpoint.
+        var desiredEndpoint = value is null
+            ? null
+            : ByokEndpoints.FirstOrDefault(e => e.Id == value.EndpointId);
+        if (!ReferenceEquals(desiredEndpoint, SelectedByokEndpoint))
+            SelectedByokEndpoint = desiredEndpoint;
+    }
+
+    private void OnSelectedByokModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        SyncByokToDataStore();
+        Save();
+        NotifyModified();
+        ByokConfigurationChanged?.Invoke();
+    }
 
     [RelayCommand]
     private async Task SignInAsync()

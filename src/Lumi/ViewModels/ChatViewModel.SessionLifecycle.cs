@@ -1974,7 +1974,18 @@ public partial class ChatViewModel
                     var effectiveModel = !string.IsNullOrWhiteSpace(start.Data.SelectedModel)
                         ? start.Data.SelectedModel
                         : ResolveSelectedModelForChat(chat);
-                    if (IsDisplayedSession() && !string.IsNullOrWhiteSpace(effectiveModel) && !AvailableModels.Contains(effectiveModel))
+                    // BYOK is sticky: never let a server-side SelectedModel overwrite the user's
+                    // current BYOK choice on session start.
+                    var chatModelStart = ResolveSelectedModelForChat(chat);
+                    if (!string.IsNullOrWhiteSpace(chatModelStart)
+                        && ByokConfigHelper.IsByokModel(chatModelStart)
+                        && !string.Equals(chatModelStart, effectiveModel, StringComparison.Ordinal))
+                    {
+                        effectiveModel = chatModelStart;
+                    }
+                    var canExposeModel = !_dataStore.Data.Settings.UseBYOKOnly
+                        || ByokConfigHelper.IsByokModel(effectiveModel);
+                    if (IsDisplayedSession() && canExposeModel && !string.IsNullOrWhiteSpace(effectiveModel) && !AvailableModels.Contains(effectiveModel))
                         AvailableModels.Add(effectiveModel);
 
                     ApplySessionModelState(
@@ -2006,7 +2017,16 @@ public partial class ChatViewModel
                     var effectiveModel = !string.IsNullOrWhiteSpace(resume.Data.SelectedModel)
                         ? resume.Data.SelectedModel
                         : ResolveSelectedModelForChat(chat);
-                    if (IsDisplayedSession() && !string.IsNullOrWhiteSpace(effectiveModel) && !AvailableModels.Contains(effectiveModel))
+                    var chatModelResume = ResolveSelectedModelForChat(chat);
+                    if (!string.IsNullOrWhiteSpace(chatModelResume)
+                        && ByokConfigHelper.IsByokModel(chatModelResume)
+                        && !string.Equals(chatModelResume, effectiveModel, StringComparison.Ordinal))
+                    {
+                        effectiveModel = chatModelResume;
+                    }
+                    var canExposeModel = !_dataStore.Data.Settings.UseBYOKOnly
+                        || ByokConfigHelper.IsByokModel(effectiveModel);
+                    if (IsDisplayedSession() && canExposeModel && !string.IsNullOrWhiteSpace(effectiveModel) && !AvailableModels.Contains(effectiveModel))
                         AvailableModels.Add(effectiveModel);
 
                     ApplySessionModelState(
@@ -2030,7 +2050,17 @@ public partial class ChatViewModel
                     {
                     if (!string.IsNullOrWhiteSpace(modelChange.Data.NewModel))
                     {
-                        if (IsDisplayedSession() && !AvailableModels.Contains(modelChange.Data.NewModel))
+                        // Keep the user's BYOK pick; ignore mid-session server-side swaps.
+                        var chatModelChange = ResolveSelectedModelForChat(chat);
+                        if (!string.IsNullOrWhiteSpace(chatModelChange)
+                            && ByokConfigHelper.IsByokModel(chatModelChange)
+                            && !string.Equals(chatModelChange, modelChange.Data.NewModel, StringComparison.Ordinal))
+                        {
+                            return;
+                        }
+                        var canExposeModel = !_dataStore.Data.Settings.UseBYOKOnly
+                            || ByokConfigHelper.IsByokModel(modelChange.Data.NewModel);
+                        if (IsDisplayedSession() && canExposeModel && !AvailableModels.Contains(modelChange.Data.NewModel))
                             AvailableModels.Add(modelChange.Data.NewModel);
                         ApplySessionModelState(
                             chat,
