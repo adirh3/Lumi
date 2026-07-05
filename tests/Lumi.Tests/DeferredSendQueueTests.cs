@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -62,6 +63,41 @@ public sealed class DeferredSendQueueTests
 
         Assert.Empty(host.QueuedPrompts());
         Assert.Empty(host.Chat.Messages);
+    }
+
+    [Fact]
+    public void QueuedAttachmentPaths_BuildTheSdkMessageOptionsPayload()
+    {
+        var oldAttachment = Path.Combine("C:\\attachments", "old.txt");
+        var options = new MessageOptions { Prompt = "queued" };
+        var attachments = ChatViewModel.BuildUserMessageAttachments([oldAttachment]);
+
+        ChatViewModel.ApplyMessageAttachments(options, attachments);
+
+        var attachment = Assert.IsType<AttachmentFile>(Assert.Single(options.Attachments!));
+        Assert.Equal(oldAttachment, attachment.Path);
+        Assert.Equal("old.txt", attachment.DisplayName);
+    }
+
+    [Fact]
+    public void QueuedSend_UsesItsOwnAttachment_AndPreservesANewerComposerAttachment()
+    {
+        using var host = DeferredSendHost.Create();
+        var oldAttachment = Path.Combine("C:\\attachments", "old.txt");
+        var newAttachment = Path.Combine("C:\\attachments", "new.txt");
+
+        host.ViewModel.AddAttachment(oldAttachment);
+        host.QueuePrompt("queued");
+        host.ViewModel.AddAttachment(newAttachment);
+
+        var queuedMessage = Assert.Single(host.Chat.Messages);
+        var options = host.BuildQueuedSendOptions(queuedMessage);
+        var attachment = Assert.IsType<AttachmentFile>(Assert.Single(options.Attachments!));
+
+        Assert.Equal(oldAttachment, queuedMessage.Attachments.Single());
+        Assert.Equal(oldAttachment, attachment.Path);
+        Assert.Equal([newAttachment], host.ViewModel.PendingAttachments);
+        Assert.Single(host.ViewModel.PendingAttachmentItems);
     }
 
     [Fact]
@@ -416,6 +452,14 @@ public sealed class DeferredSendQueueTests
 
         public Task SendCoreAsync(string prompt, bool consumeComposerPrompt = false)
             => (Task)Invoke("SendMessageCore", prompt, consumeComposerPrompt, null)!;
+
+        public MessageOptions BuildQueuedSendOptions(ChatMessage message)
+        {
+            var attachments = (IEnumerable<Attachment>)Invoke("ResolveSendAttachments", message)!;
+            var options = new MessageOptions { Prompt = message.Content };
+            ChatViewModel.ApplyMessageAttachments(options, attachments);
+            return options;
+        }
 
         /// <summary>Puts the chat in the exact state from the bug report: the assistant turn has ended
         /// but background work is still in flight, so the chat still shows as running with a Stop

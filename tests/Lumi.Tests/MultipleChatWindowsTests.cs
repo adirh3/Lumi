@@ -381,6 +381,30 @@ public sealed class MultipleChatWindowsTests
     }
 
     [Fact]
+    public async Task ChatSessionStore_SharesSingleByokRateLimiterAcrossSurfaces()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var chatA = new Chat { Title = "Chat A", Messages = [new ChatMessage { Role = "user", Content = "a" }] };
+            var chatB = new Chat { Title = "Chat B", Messages = [new ChatMessage { Role = "user", Content = "b" }] };
+            using var registry = new ChatSurfaceRegistry();
+            using var store = new ChatSessionStore(CreateDataStore(chatA, chatB), new CopilotService(), registry);
+
+            var surfaceA = await store.AcquireChatAsync(chatA);
+            var surfaceB = await store.AcquireChatAsync(chatB);
+            var limiterA = GetPrivateField<ByokRateLimiter>(surfaceA, "_byokRateLimiter");
+            var limiterB = GetPrivateField<ByokRateLimiter>(surfaceB, "_byokRateLimiter");
+
+            Assert.Same(limiterA, limiterB);
+
+            store.Release(surfaceB);
+            store.Release(surfaceA);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task ChatSessionStore_SharesSingleOrchestrationServiceAcrossSurfaces()
     {
         using var session = HeadlessTestSession.Start();

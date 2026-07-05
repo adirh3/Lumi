@@ -23,6 +23,12 @@ public partial class ChatViewModel
 {
     private const int StreamingUiUpdateThrottleMs = 50;
 
+    internal static string? CaptureTurnModelId(string? currentTurnModelId, string? selectedModelId)
+        => currentTurnModelId ?? selectedModelId;
+
+    internal static string? ResetTurnModelIdForTurnStartEcho(bool isTurnStartEcho, string? currentTurnModelId)
+        => isTurnStartEcho ? null : currentTurnModelId;
+
     internal static string? ResolveFinalAssistantContent(
         string? finalEventContent,
         string? streamedContent,
@@ -722,7 +728,11 @@ public partial class ChatViewModel
                 case AssistantTurnStartEvent:
                     Dispatcher.UIThread.Post(() =>
                     {
-                        turnModelId = ResolveSelectedModelForChat(chat);
+                        // Capture the model once per top-level user turn. Subsequent agentic turns within
+                        // that turn must NOT overwrite this — if the user
+                        // changed the model picker while a turn is streaming, the in-flight session still
+                        // uses the ORIGINAL model, and the label must reflect that, not the new selection.
+                        turnModelId = CaptureTurnModelId(turnModelId, ResolveSelectedModelForChat(chat));
                         MarkRuntimeActive(runtime, Loc.Status_Thinking);
                         if (IsDisplayedSession())
                             ApplyDisplayedRuntimeState(runtime);
@@ -1309,6 +1319,9 @@ public partial class ChatViewModel
                             if (runtime.ExpectTurnStartUserEcho)
                             {
                                 runtime.ExpectTurnStartUserEcho = false;
+                                turnModelId = ResetTurnModelIdForTurnStartEcho(
+                                    isTurnStartEcho: true,
+                                    turnModelId);
                                 return;
                             }
 
@@ -2024,7 +2037,18 @@ public partial class ChatViewModel
                     var effectiveModel = !string.IsNullOrWhiteSpace(start.Data.SelectedModel)
                         ? start.Data.SelectedModel
                         : ResolveSelectedModelForChat(chat);
-                    if (IsDisplayedSession() && !string.IsNullOrWhiteSpace(effectiveModel) && !AvailableModels.Contains(effectiveModel))
+                    // BYOK is sticky: never let a server-side SelectedModel overwrite the user's
+                    // current BYOK choice on session start.
+                    var chatModelStart = ResolveSelectedModelForChat(chat);
+                    if (!string.IsNullOrWhiteSpace(chatModelStart)
+                        && ByokConfigHelper.IsByokModel(chatModelStart)
+                        && !string.Equals(chatModelStart, effectiveModel, StringComparison.Ordinal))
+                    {
+                        effectiveModel = chatModelStart;
+                    }
+                    var canExposeModel = !_dataStore.Data.Settings.UseBYOKOnly
+                        || ByokConfigHelper.IsByokModel(effectiveModel);
+                    if (IsDisplayedSession() && canExposeModel && !string.IsNullOrWhiteSpace(effectiveModel) && !AvailableModels.Contains(effectiveModel))
                         AvailableModels.Add(effectiveModel);
 
                     ApplySessionModelState(
@@ -2056,7 +2080,16 @@ public partial class ChatViewModel
                     var effectiveModel = !string.IsNullOrWhiteSpace(resume.Data.SelectedModel)
                         ? resume.Data.SelectedModel
                         : ResolveSelectedModelForChat(chat);
-                    if (IsDisplayedSession() && !string.IsNullOrWhiteSpace(effectiveModel) && !AvailableModels.Contains(effectiveModel))
+                    var chatModelResume = ResolveSelectedModelForChat(chat);
+                    if (!string.IsNullOrWhiteSpace(chatModelResume)
+                        && ByokConfigHelper.IsByokModel(chatModelResume)
+                        && !string.Equals(chatModelResume, effectiveModel, StringComparison.Ordinal))
+                    {
+                        effectiveModel = chatModelResume;
+                    }
+                    var canExposeModel = !_dataStore.Data.Settings.UseBYOKOnly
+                        || ByokConfigHelper.IsByokModel(effectiveModel);
+                    if (IsDisplayedSession() && canExposeModel && !string.IsNullOrWhiteSpace(effectiveModel) && !AvailableModels.Contains(effectiveModel))
                         AvailableModels.Add(effectiveModel);
 
                     ApplySessionModelState(
@@ -2080,7 +2113,17 @@ public partial class ChatViewModel
                     {
                     if (!string.IsNullOrWhiteSpace(modelChange.Data.NewModel))
                     {
-                        if (IsDisplayedSession() && !AvailableModels.Contains(modelChange.Data.NewModel))
+                        // Keep the user's BYOK pick; ignore mid-session server-side swaps.
+                        var chatModelChange = ResolveSelectedModelForChat(chat);
+                        if (!string.IsNullOrWhiteSpace(chatModelChange)
+                            && ByokConfigHelper.IsByokModel(chatModelChange)
+                            && !string.Equals(chatModelChange, modelChange.Data.NewModel, StringComparison.Ordinal))
+                        {
+                            return;
+                        }
+                        var canExposeModel = !_dataStore.Data.Settings.UseBYOKOnly
+                            || ByokConfigHelper.IsByokModel(modelChange.Data.NewModel);
+                        if (IsDisplayedSession() && canExposeModel && !AvailableModels.Contains(modelChange.Data.NewModel))
                             AvailableModels.Add(modelChange.Data.NewModel);
                         ApplySessionModelState(
                             chat,

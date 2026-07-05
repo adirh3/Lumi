@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -9,6 +10,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GitHub.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -28,10 +30,21 @@ public sealed record DetachedChatWindowRequest(
 
 public partial class MainViewModel : ObservableObject, IDisposable
 {
+    /// <summary>
+    /// Display-name cache for BYOK picker tokens, populated by <see cref="InjectByokModels"/>.
+    /// Read by <see cref="ChatViewModel.FormatModelDisplay"/> which has no access to <c>UserSettings</c>.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, string> _byokDisplayCache = new(StringComparer.Ordinal);
+
+    /// <summary>Snapshot of the display cache for read-only consumers (e.g. ChatViewModel).</summary>
+    internal static IReadOnlyDictionary<string, string> ByokDisplayCache => _byokDisplayCache;
+
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
     /// <summary>A dedicated BrowserService for Settings cookie import/clear (not tied to any chat).</summary>
     private readonly BrowserService _settingsBrowserService;
+    /// <summary>OS credential store for BYOK API keys (CredentialStore mode).</summary>
+    private readonly Lumi.Services.Byok.ISecureKeyStore _secureKeyStore;
     private readonly BackgroundJobService _backgroundJobService;
     private readonly bool _ownsBackgroundJobService;
     private readonly ChatSurfaceRegistry _chatSurfaceRegistry;
@@ -205,7 +218,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ChatSurfaceRegistry? chatSurfaceRegistry = null,
         ChatSessionStore? chatSessionStore = null,
         GlobalSearchService? globalSearchService = null,
-        ProjectGitSyncService? projectGitSyncService = null
+        ProjectGitSyncService? projectGitSyncService = null,
+        Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null
 #if DEBUG
         , bool openAgentDebugHarness = false,
         bool skipOnboarding = false
@@ -214,6 +228,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         _dataStore = dataStore;
         _copilotService = copilotService;
+        _secureKeyStore = secureKeyStore ?? Lumi.Services.Byok.SecureKeyStoreFactory.Instance;
         _settingsBrowserService = new BrowserService();
         _chatSurfaceRegistry = chatSurfaceRegistry ?? new ChatSurfaceRegistry();
         _ownsChatSurfaceRegistry = chatSurfaceRegistry is null;
@@ -222,7 +237,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             _dataStore.GetChatSearchSnapshot,
             releaseChatSnapshot: _dataStore.EvictChatSearchSnapshot,
             chatFileTimestampProvider: _dataStore.GetChatFileTimestamp);
-        _chatSessionStore = chatSessionStore ?? new ChatSessionStore(dataStore, copilotService, _chatSurfaceRegistry, _globalSearchService);
+        _chatSessionStore = chatSessionStore ?? new ChatSessionStore(dataStore, copilotService, _chatSurfaceRegistry, _globalSearchService, _secureKeyStore);
         _ownsChatSessionStore = chatSessionStore is null;
 
         // Backs the manage_chats tool ("Lumi as a manager"): create/list/status/send across chats.
@@ -283,7 +298,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             dataStore,
             async chatId => await OpenChatByIdAsync(chatId),
             () => SelectedNavIndex = 0);
-        SettingsVM = new SettingsViewModel(dataStore, copilotService, _settingsBrowserService, updateService);
+        SettingsVM = new SettingsViewModel(dataStore, copilotService, _settingsBrowserService, updateService, _secureKeyStore);
         SettingsVM.LoginVM = LoginVM;
         SearchOverlayVM = new SearchOverlayViewModel(
             _globalSearchService,
@@ -334,6 +349,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             }
             else if (args.PropertyName == nameof(SettingsViewModel.UserName))
                 UserName = SettingsVM.UserName;
+            else if (args.PropertyName == nameof(SettingsViewModel.UseBYOKOnly))
+                InjectByokModels();
         };
 
         SkillsVM.SkillsChanged += () =>
@@ -367,6 +384,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SettingsVM.SystemPromptSettingsChanged += () =>
         {
             _chatSessionStore.ApplyToSurfaces(surface => surface.InvalidateSystemPromptSession());
+        };
+        SettingsVM.ByokConfigurationChanged += () =>
+        {
+            InjectByokModels();
+            RefreshChatList();
         };
 
         AttachChatViewModel(ChatVM);
@@ -534,6 +556,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private async Task InitializeAsync()
     {
+        // Ensure BYOK tokens are visible in the picker immediately at startup, even before
+        // GetModelsAsync() resolves (or fails). Without this, the picker can briefly show only
+        // the seeded PreferredModel — never the BYOK picks the user has configured.
+        InjectByokModels();
         await RefreshCopilotStateAsync(refreshAuthStatus: true);
         _ = WarmSearchIndexAsync();
     }
@@ -661,6 +687,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
             ApplyModelCatalog(models, contextWindowCatalog, resetSurfaceSelections: true);
 
+            // Inject BYOK model tokens so users can pick custom endpoints alongside Copilot models.
+            InjectByokModels();
+
             // Refresh account quota in background
             _ = ChatVM.RefreshQuotaAsync();
 
@@ -671,6 +700,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             ConnectionStatus = string.Format(Loc.Status_ConnectionFailed, ex.Message);
             IsConnected = false;
+            // Even when GitHub's catalog is unavailable, BYOK picks must remain in the picker.
+            InjectByokModels();
         }
         finally
         {
@@ -734,6 +765,133 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ApplyModelCatalog(snapshot.Models.ToList(), snapshot.ContextWindows, resetSurfaceSelections: false);
         });
     }
+
+    /// <summary>
+    /// Re-injects BYOK picker tokens into all chat surfaces and the Settings picker, then clears
+    /// stale selections that point to deleted/invalid entries.
+    /// </summary>
+    private void InjectByokModels()
+    {
+        var settings = _dataStore.Data.Settings;
+        var useByokOnly = settings.UseBYOKOnly;
+        var validModels = ByokConfigHelper.GetValidModels(settings);
+        var tokens = validModels
+            .Select(ByokConfigHelper.BuildModelToken)
+            .ToList();
+
+        // Rebuild the display cache (idempotent — adds, replaces, and prunes missing entries).
+        var newCacheEntries = validModels.ToDictionary(
+            ByokConfigHelper.BuildModelToken,
+            m => $"{m.DisplayName} \u2014 BYOK",
+            StringComparer.Ordinal);
+        // Replace cache contents: remove stale entries that are no longer valid.
+        foreach (var existing in _byokDisplayCache.Keys.ToList())
+        {
+            if (!newCacheEntries.ContainsKey(existing))
+                _byokDisplayCache.TryRemove(existing, out _);
+        }
+        foreach (var kv in newCacheEntries)
+            _byokDisplayCache[kv.Key] = kv.Value;
+
+        // 1. Chat surfaces — refresh BYOK tokens. Copilot (non-BYOK) models are ALWAYS kept
+        //    visible in the picker, even when UseBYOKOnly is enabled. The send guard blocks
+        //    non-BYOK requests at send time rather than hiding the models or overwriting the
+        //    user's selection.
+        _chatSessionStore.ApplyToSurfaces(surface =>
+        {
+            // Drop stale BYOK tokens (no longer in the valid set). Non-BYOK entries are always kept.
+            for (var i = surface.AvailableModels.Count - 1; i >= 0; i--)
+            {
+                var model = surface.AvailableModels[i];
+                if (ByokConfigHelper.IsByokModel(model) && !tokens.Contains(model))
+                    surface.AvailableModels.RemoveAt(i);
+            }
+
+            foreach (var t in tokens)
+                if (!surface.AvailableModels.Contains(t))
+                    surface.AvailableModels.Add(t);
+
+            // BYOK models are not in the SDK's GetModelsAsync() response, so UpdateModelCapabilities
+            // doesn't see them. Mark them with neutral-but-reasonable capabilities so the UI
+            // doesn't flag "no context window" / "no reasoning". If we later add per-model
+            // capability overrides in ByokModel, they'll flow through here.
+            surface.UpdateModelCapabilities(
+                tokens.Select(t => new ModelInfo { Id = t }).ToList(),
+                longContextModelIds: null,
+                contextWindowLimits: null);
+
+            // Only fix stale/invalid selections — never overwrite a valid non-BYOK pick.
+            // BYOK Only blocks at send time; the user keeps their current model visible.
+            var currentSelection = surface.SelectedModel;
+            if (ByokConfigHelper.IsByokModel(currentSelection) && !tokens.Contains(currentSelection!))
+            {
+                // Stale BYOK token (deleted model/endpoint) → fall back.
+                surface.SelectedModel = useByokOnly
+                    ? ResolveByokFallbackModel(tokens)
+                    : ResolveFallbackModel(surface.AvailableModels);
+            }
+            else if (string.IsNullOrWhiteSpace(currentSelection) && useByokOnly && tokens.Count > 0)
+            {
+                // No selection at all under BYOK Only → pick the first BYOK model as a working default.
+                surface.SelectedModel = ResolveByokFallbackModel(tokens);
+            }
+        });
+
+        // 2. Settings VM — always show all models (Copilot + BYOK). BYOK Only blocks at send
+        //    time; it does not hide Copilot models from the picker or force a BYOK selection.
+        var combined = SettingsVM.AvailableModels
+            .Where(m => !ByokConfigHelper.IsByokModel(m))
+            .Concat(tokens)
+            .ToList();
+
+        // Only fix a stale/invalid PreferredModel — don't force a non-BYOK selection to BYOK.
+        if (ByokConfigHelper.IsByokModel(SettingsVM.PreferredModel)
+            && !tokens.Contains(SettingsVM.PreferredModel!))
+        {
+            SettingsVM.PreferredModel = ResolveFallbackModel(combined) ?? "";
+        }
+        SettingsVM.UpdateAvailableModels(combined);
+
+        // 3. Clean up stale LastModelUsed references in chat history.
+        CleanupStaleByokLastModels(tokens);
+    }
+
+    /// <summary>
+    /// Resets each chat's <c>LastModelUsed</c> to <c>null</c> when it points to a BYOK token that
+    /// is no longer valid. The chat falls back to the current <c>PreferredModel</c> on next open.
+    /// </summary>
+    private void CleanupStaleByokLastModels(IReadOnlyList<string> validTokens)
+    {
+        var validSet = new HashSet<string>(validTokens, StringComparer.Ordinal);
+        var changed = false;
+        foreach (var chat in _dataStore.Data.Chats)
+        {
+            if (!string.IsNullOrWhiteSpace(chat.LastModelUsed)
+                && ByokConfigHelper.IsByokModel(chat.LastModelUsed)
+                && !validSet.Contains(chat.LastModelUsed))
+            {
+                chat.LastModelUsed = null;
+                _dataStore.MarkChatChanged(chat);
+                changed = true;
+            }
+        }
+        if (changed)
+            _ = _dataStore.SaveAsync();
+    }
+
+    /// <summary>
+    /// Picks a sensible non-BYOK fallback from <paramref name="availableModels"/>. Never returns a
+    /// stale BYOK token — the BYOK layer must fail loudly rather than silently fall back to
+    /// Copilot.
+    /// </summary>
+    private static string? ResolveFallbackModel(IReadOnlyList<string> availableModels)
+    {
+        var nonByok = availableModels.Where(m => !ByokConfigHelper.IsByokModel(m)).ToList();
+        return nonByok.Count > 0 ? ChatViewModel.PickBestModel(nonByok) : null;
+    }
+
+    private static string? ResolveByokFallbackModel(IReadOnlyList<string> byokTokens)
+        => byokTokens.FirstOrDefault();
 
     private void LoadProjects()
     {
