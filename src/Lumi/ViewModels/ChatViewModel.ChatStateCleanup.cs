@@ -199,9 +199,18 @@ public partial class ChatViewModel
             HasAgentSelection = true,
             ActiveMcpServerNames = new List<string>(ActiveMcpServerNames),
             HasMcpSelection = true,
+            Attachments = CurrentChat?.Id == chatId
+                ? PendingAttachments.ToList()
+                : [],
             ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
             SteerDelivery = MessageSteerState.Queued
         };
+
+        if (CurrentChat?.Id == chatId)
+        {
+            PendingAttachments.Clear();
+            PendingAttachmentItems.Clear();
+        }
 
         // An assistant message that is still streaming lives only in _inProgressMessages until the turn
         // finalizes — and finalization APPENDS it. Persist it now so this follow-up cannot land ahead of

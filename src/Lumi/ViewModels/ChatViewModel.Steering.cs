@@ -21,6 +21,15 @@ public partial class ChatViewModel
         bool consumeComposerPrompt,
         ChatMessage? queuedMessage = null)
     {
+        if (BlockSendForByokOnly(
+                activeChat,
+                ResolveSelectedModelForChat(activeChat),
+                prompt,
+                consumeComposerPrompt))
+        {
+            return;
+        }
+
         var chatId = activeChat.Id;
 
         if (!_sessionCache.TryGetValue(chatId, out var session))
@@ -33,7 +42,20 @@ public partial class ChatViewModel
         var hasQueuedSends = queuedMessage is null
             && _queuedBusySendPrompts.TryGetValue(chatId, out var queued)
             && queued.Count > 0;
-        if (hasQueuedSends || session is null || runtime is null || !CanSteerImmediately(runtime))
+
+        // Privacy/routing guard: an immediate steer sends through the ALREADY-CACHED session, which was
+        // built for whatever provider the chat used when the turn started. If the user has since changed
+        // the model (or the session was invalidated for any reason), the cached session's provider no
+        // longer matches the selected route, and steering would deliver the prompt to the WRONG backend
+        // — exactly the UseBYOKOnly bypass. Treat such a state as non-steerable: queue a fresh turn that
+        // will rebuild the session against the new provider. This must run before any attachment/transcript
+        // mutation so a deferred prompt is neither consumed nor rendered as "steering".
+        var sessionProviderMismatch =
+            session is not null
+            && !hasQueuedSends
+            && !IsCachedSessionProviderConsistentWithSelection(chatId, session);
+
+        if (hasQueuedSends || session is null || runtime is null || !CanSteerImmediately(runtime) || sessionProviderMismatch)
         {
             QueueBusySendPrompt(chatId, prompt, queuedMessage);
             if (consumeComposerPrompt)
@@ -45,7 +67,9 @@ public partial class ChatViewModel
             return;
         }
 
-        var attachments = TakePendingAttachments();
+        var attachments = queuedMessage is null
+            ? TakePendingAttachments()
+            : BuildUserMessageAttachments(queuedMessage.Attachments);
 
         // A deferred send is already rendered — promote that bubble instead of adding a second one. No
         // view model means the chat is off screen, so it stays queued for the drain path.
@@ -132,10 +156,21 @@ public partial class ChatViewModel
                 Prompt = skillDirectives + prompt + BuildSendPromptAdditions(),
                 Mode = GitHub.Copilot.Rpc.SendMode.Immediate.Value
             };
-            if (attachments is { Count: > 0 })
-                sendOptions.Attachments = attachments;
+            ApplyMessageAttachments(sendOptions, attachments);
 
             // SendAsync confirms queue acceptance; the event stream confirms actual consumption.
+            await AcquireByokRateSlotAsync(activeChat, token);
+
+            // Revalidate the route/session consistency after the rate-limit await: the user (or a
+            // configuration change) could have flipped the model/provider while we were waiting for a
+            // slot. If so, do NOT inject into the now-stale session — unregister the pending steer,
+            // restore its state, and requeue the prompt for a fresh turn.
+            if (!IsCachedSessionProviderConsistentWithSelection(chatId, session!))
+            {
+                RequeueMaterializedSteer(chatId, prompt, userMsg, messageViewModel);
+                return;
+            }
+
             await session.SendAsync(sendOptions, token);
             ClearPendingExternalSkillInjections();
         }
@@ -147,6 +182,57 @@ public partial class ChatViewModel
 
             Debug.WriteLine($"[Steer] Immediate send failed for chat {chatId}: {ex.Message}");
         }
+    }
+
+    private void RequeueMaterializedSteer(
+        Guid chatId,
+        string prompt,
+        ChatMessage userMessage,
+        ChatMessageViewModel messageViewModel)
+    {
+        UnregisterPendingSteer(chatId, messageViewModel);
+        if (messageViewModel.SteerState == MessageSteerState.Steering)
+            messageViewModel.SteerState = MessageSteerState.Queued;
+
+        // The message has already been inserted into the transcript and owns the consumed attachment
+        // payload. Passing it as `existing` preserves that instance and restores it to the queue front.
+        QueueBusySendPrompt(chatId, prompt, userMessage);
+    }
+
+    /// <summary>
+    /// Returns true when the provider of the session that WOULD carry an immediate steer matches the
+    /// provider of the currently selected model route. Used by <see cref="SteerActiveTurnAsync"/> to
+    /// ensure a prompt is never steered through a session built for a different backend (the
+    /// UseBYOKOnly privacy hole: selecting a BYOK model does not rebuild the active GitHub session, so
+    /// an immediate steer would otherwise deliver the prompt to GitHub). A pending session invalidation
+    /// always counts as inconsistent — the cached session is known-stale regardless of signatures.
+    /// </summary>
+    private bool IsCachedSessionProviderConsistentWithSelection(Guid chatId, CopilotSession session)
+    {
+        // A pending invalidation means the session is already known to be stale and will be rebuilt on
+        // the next EnsureSessionAsync — never steer through it.
+        if (_pendingSessionInvalidations.Contains(chatId))
+            return false;
+
+        // Resolve the chat for this session, preferring the current chat for the active session.
+        var chat = CurrentChat;
+        if (chat is null || chat.Id != chatId)
+        {
+            chat = _dataStore.Data.Chats.FirstOrDefault(c => c.Id == chatId);
+        }
+        // No resolvable chat means we cannot prove consistency — treat as non-steerable (safe default).
+        if (chat is null)
+            return false;
+
+        var selectedRoute = ResolveModelRouteForChat(ResolveSelectedModelForChat(chat), chat);
+        var selectedSignature = ByokConfigHelper.BuildProviderSignature(selectedRoute.Provider);
+
+        // The signature of the session that will actually carry the steer.
+        var activeSignature = session == _activeSession
+            ? _activeSessionProviderSignature
+            : _sessionProviderSignatures.GetValueOrDefault(chatId);
+
+        return string.Equals(selectedSignature, activeSignature, StringComparison.Ordinal);
     }
 
     private void RegisterPendingSteer(Guid chatId, ChatMessageViewModel message)
