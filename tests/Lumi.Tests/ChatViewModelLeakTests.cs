@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -236,10 +237,11 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
-    public async Task InvalidateLocalSessionCache_ReleasesEvictedSessionToReapMcp()
+    public void InvalidateLocalSessionCache_EvictsLocallyWithoutDestroyingResumableSession()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var service = new CopilotService();
+        var vm = new ChatViewModel(dataStore, service);
         var chat = new Chat { Title = "invalidate", CopilotSessionId = "sid-inv" };
         dataStore.Data.Chats.Add(chat);
 
@@ -247,12 +249,18 @@ public sealed class ChatViewModelLeakTests
         GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = evicted;
 
         InvokePrivate(vm, "InvalidateLocalSessionCache", chat);
-        await DrainSessionReleaseAsync(vm, chat.Id);
 
-        Assert.True(SessionWasDisposed(evicted));
+        // The local handle is dropped so EnsureSessionAsync re-establishes the session next send...
         Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache").ContainsKey(chat.Id));
-        // The persisted id is kept so EnsureSessionAsync resumes the same server session next send.
+        // ...and the id is KEPT so that next send RESUMES the SAME server session (reusing its live MCP).
         Assert.Equal("sid-inv", chat.CopilotSessionId);
+        // Crucially it must NOT destroy the evicted handle: this path fires on an unhealthy/slow CLI, so a
+        // destroy would (1) reap the very MCP the resume reuses and (2) hang — and because releases are
+        // keyed by server session id, that hung destroy would block the destroy-before-resume gate for the
+        // whole setup budget, surfacing as "MCP server connection timed out" (the bb470e8 regression).
+        Assert.False(SessionWasDisposed(evicted));
+        var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
+        Assert.False(registry.ContainsKey("sid-inv"));
     }
 
     [Fact]
@@ -351,6 +359,36 @@ public sealed class ChatViewModelLeakTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => gate);
 
         destroyInFlight.SetResult();
+    }
+
+    [Fact]
+    public async Task ResumeGate_HungRelease_StallsResumeForTheWholeBudgetThenSurfacesTimeout()
+    {
+        // REPRODUCTION of the acute bb470e8 regression. A destroy that hangs — a live-but-unresponsive
+        // CLI, which is exactly what a 2s health-miss on InvalidateLocalSessionCache used to dispatch —
+        // pins a same-id release, so ResumeSessionAsync's destroy-before-resume gate blocks the resume for
+        // the entire session-setup budget and then surfaces cancellation, which EnsureSessionAsync turns
+        // into the "MCP server connection timed out" TimeoutException. A short budget stands in for the
+        // real 30s MCP bound so the stall is measured deterministically.
+        var service = new CopilotService();
+        var hungDestroy = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
+        registry["S"] = hungDestroy.Task; // never completes → a hung destroy of session S
+
+        using var budget = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
+        var gate = InvokePrivate<Task>(service, "AwaitPendingReleaseAsync", "S", budget.Token);
+        var sw = Stopwatch.StartNew();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => gate);
+        sw.Stop();
+
+        // The resume did NOT proceed early — it was stalled for ~the whole budget before failing. That is
+        // the stall a slow/hung same-id destroy inflicts on the next send. The fix removes the SOURCE of
+        // such same-id releases on the resume path (InvalidateLocalSessionCache no longer destroys); the
+        // gate itself is intentionally retained for the genuine cross-surface destroy-then-resume case.
+        Assert.True(
+            sw.ElapsedMilliseconds >= 300,
+            $"gate returned after only {sw.ElapsedMilliseconds}ms — the resume stall was not reproduced");
+        hungDestroy.SetResult();
     }
 
     [Fact]
@@ -1232,6 +1270,51 @@ public sealed class ChatViewModelLeakTests
         var item = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
         Assert.True(item.ShowRetryButton);
         Assert.NotNull(item.RetryCommand);
+    }
+
+    [Fact]
+    public void UpdateStuckChatRetryAffordance_McpSetupTimeout_OffersRetryButKeepsSessionResumable()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "mcp-timeout", CopilotSessionId = "resumable" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+
+        // The MCP session-SETUP timeout is recoverable (Retry is offered) but means setup was slow, not
+        // that the session is poisoned — so it must NOT arm a delete + cold-recreate, which is strictly
+        // slower and cascades into further timeouts. Its persisted card carries the setup-timeout phrase.
+        var err = new ChatMessage
+        {
+            Role = "error",
+            Author = "Lumi",
+            Content = $"Error: {CopilotService.McpSetupTimeoutMessage}"
+        };
+        chat.Messages.Add(err);
+        vm.Messages.Add(new ChatMessageViewModel(err));
+
+        InvokePrivate(vm, "UpdateStuckChatRetryAffordance", true);
+
+        // Retry is shown so the user (or the next send) can resume the SAME session cheaply...
+        var turn = Assert.Single(vm.TranscriptTurns);
+        var item = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
+        Assert.True(item.ShowRetryButton);
+        Assert.NotNull(item.RetryCommand);
+        // ...but NO session reset is armed, so the retry RESUMES instead of deleting + cold-creating.
+        Assert.DoesNotContain(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+    }
+
+    [Fact]
+    public void IsMcpSetupTimeoutError_MatchesOnlyTheSetupTimeoutAndStaysRecoverable()
+    {
+        Assert.True(CopilotService.IsMcpSetupTimeoutError(CopilotService.McpSetupTimeoutMessage));
+        Assert.True(CopilotService.IsMcpSetupTimeoutError($"Error: {CopilotService.McpSetupTimeoutMessage}"));
+        Assert.False(CopilotService.IsMcpSetupTimeoutError("Session not found"));
+        Assert.False(CopilotService.IsMcpSetupTimeoutError("quota exceeded"));
+        Assert.False(CopilotService.IsMcpSetupTimeoutError(null));
+        Assert.False(CopilotService.IsMcpSetupTimeoutError(" "));
+        // It stays RECOVERABLE (Retry is offered) — it is NOT a fatal, non-retryable error.
+        Assert.False(CopilotService.IsFatalNonRetryableError(CopilotService.McpSetupTimeoutMessage));
     }
 
     [Fact]

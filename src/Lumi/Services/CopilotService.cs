@@ -1249,6 +1249,24 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
+    /// The message thrown by <c>ChatViewModel.EnsureSessionAsync</c> when session setup
+    /// (create/resume + MCP initialization) exceeds its bound because the chat has MCP servers.
+    /// Centralized so the throw sites and <see cref="IsMcpSetupTimeoutError"/> can never drift.
+    /// </summary>
+    internal const string McpSetupTimeoutMessage =
+        "MCP server connection timed out. Check that your MCP servers are installed and responding.";
+
+    /// <summary>
+    /// True when an error is the client-side MCP session-SETUP timeout (a slow create/resume + MCP
+    /// init), as opposed to a backend/session failure. Such a timeout means setup was slow — NOT that
+    /// the session is poisoned — so the session must be kept resumable and simply retried, never
+    /// deleted + cold-recreated (which is strictly slower and cascades into further timeouts).
+    /// </summary>
+    internal static bool IsMcpSetupTimeoutError(string? errorText)
+        => !string.IsNullOrWhiteSpace(errorText)
+           && errorText.Contains("MCP server connection timed out", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// The single send-failure decision shared by both handlers. Given whatever the failure exposed
     /// — an HTTP <paramref name="statusCode"/> and <paramref name="errorType"/> from a structured
     /// <c>session.error</c>, or just a flattened <paramref name="message"/> from a thrown exception —

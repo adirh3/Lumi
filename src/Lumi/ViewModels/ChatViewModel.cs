@@ -1113,7 +1113,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (!recoverable)
             return;
 
-        _pendingSessionInvalidations.Add(CurrentChat.Id);
+        // Show Retry, but an MCP session-SETUP timeout keeps its session resumable (Retry/next send
+        // RESUMES cheaply) instead of arming a delete + cold-recreate that would only cascade into more
+        // timeouts. Every other recoverable error still abandons the session to drop poisoned history.
+        if (!CopilotService.IsMcpSetupTimeoutError(lastError.Content))
+            _pendingSessionInvalidations.Add(CurrentChat.Id);
         errorItem.RetryCommand = new RelayCommand(() =>
         {
             errorItem.ShowRetryButton = false;
@@ -1524,7 +1528,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
             catch (OperationCanceledException) when (sessionCts is not null && sessionCts.IsCancellationRequested && !ct.IsCancellationRequested)
             {
-                throw new TimeoutException("MCP server connection timed out. Check that your MCP servers are installed and responding.");
+                throw new TimeoutException(CopilotService.McpSetupTimeoutMessage);
             }
         }
 
@@ -1578,7 +1582,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
             catch (OperationCanceledException) when (sessionCts is not null && sessionCts.IsCancellationRequested && !ct.IsCancellationRequested)
             {
-                throw new TimeoutException("MCP server connection timed out. Check that your MCP servers are installed and responding.");
+                throw new TimeoutException(CopilotService.McpSetupTimeoutMessage);
             }
             catch (Exception ex)
             {
@@ -1621,7 +1625,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
         catch (OperationCanceledException) when (sessionCts is not null && sessionCts.IsCancellationRequested && !ct.IsCancellationRequested)
         {
-            throw new TimeoutException("MCP server connection timed out. Check that your MCP servers are installed and responding.");
+            throw new TimeoutException(CopilotService.McpSetupTimeoutMessage);
         }
     }
 
@@ -3176,12 +3180,23 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// re-establish it via ResumeSessionAsync, preserving server-side context.</summary>
     private void InvalidateLocalSessionCache(Chat chat)
     {
-        // Best-effort release the evicted session so its MCP subprocesses are reaped instead of
-        // orphaned. chat.CopilotSessionId is intentionally left intact, so the next EnsureSessionAsync
-        // resumes the SAME server session — and its AwaitPendingSessionReleaseAsync gate first awaits
-        // this release (tracked per chat), which safely sequences destroy-then-resume for the same id.
-        if (_sessionCache.Remove(chat.Id, out var staleSession))
-            TrackSessionRelease(chat.Id, staleSession, deleteServerSession: false);
+        // Drop ONLY the local cache handle — do NOT send session.destroy here. Every caller fires when
+        // the session is meant to be RESUMED under the same chat.CopilotSessionId (a 2s health-miss on a
+        // live-but-slow CLI, a session-not-found, a transport blip, or a mid-turn abort), which we keep
+        // intact below. Destroying on this path is wrong twice over: (1) it reaps the very MCP
+        // subprocesses the imminent same-id resume reuses, forcing a needless cold respawn; and (2) on
+        // the unhealthy/broken CLI that triggers this path the destroy RPC hangs, and because releases
+        // are tracked by server session id it makes the destroy-before-resume gate block that resume for
+        // the whole session-setup budget — surfacing as "MCP server connection timed out". Genuine
+        // session ABANDONMENT (a different id, a fresh-id detach, chat delete, idle eviction) still routes
+        // through ReleaseSessionResources / DetachPersistedSession / the SubscribeToSession overwrite
+        // guard, which DO destroy and reap MCP. The one gap this leaves is a live-but-slow session evicted
+        // here (health-miss) that is then abandoned with NO later send: its handle is already gone from
+        // _sessionCache, so no abandon path can reap it and its MCP subprocesses linger until the CLI exits.
+        // That is the pre-bb470e8 behavior and a deliberate trade — bb470e8's destroy-on-this-path is
+        // precisely what hangs the common resume and surfaces as an MCP-setup timeout, which is far worse
+        // than an occasional idle MCP set the CLI already reaps on shutdown.
+        _sessionCache.Remove(chat.Id);
         if (_sessionSubs.TryGetValue(chat.Id, out var sub))
         {
             sub.Dispose();
@@ -3312,7 +3327,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // Recoverable errors abandon the current server session; arm a reset so the next send (a
             // new message OR the Retry button) rebuilds a fresh one. Arm here — not only in the
             // displayed-UI branch — so a background / inactive chat recovers without being reopened.
-            if (recoverable)
+            // EXCEPT an MCP session-SETUP timeout: setup was slow, not the session poisoned, so keep it
+            // resumable (a Retry/next send RESUMES cheaply) rather than delete + cold-recreate, which is
+            // slower and cascades into further timeouts.
+            if (recoverable && !CopilotService.IsMcpSetupTimeoutError(flattened))
                 _pendingSessionInvalidations.Add(chat.Id);
 
             var errorMsg = new ChatMessage
