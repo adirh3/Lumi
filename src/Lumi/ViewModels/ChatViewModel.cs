@@ -2351,17 +2351,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (!_sessionCache.TryGetValue(chatId, out var session))
             session = _activeSession;
 
-        // Immediate-mode steering only lands if the assistant turn is actually progressing, i.e. a live
-        // step boundary is still coming. After AssistantTurnEnd the runtime can stay busy purely to drain
-        // background shells or pending-turn tracking (see MarkRuntimeWaitingForSessionIdle) — there is no
-        // running turn to interject into then, so an immediate send would be silently dropped. Detect that
-        // window and fall back to the deferred queue so the message lands as a fresh turn once idle.
-        var turnActivelyRunning = _runtimeStates.TryGetValue(chatId, out var runtime)
-            && (runtime.IsStreaming
-                || runtime.ActiveToolCount > 0
-                || runtime.ActiveSubagentExecutionDepth > 0);
+        // Immediate-mode steering only lands while a live assistant turn is running, i.e. a future step
+        // boundary is still coming. TurnInProgress — set at turn initiation (the same point the runtime is
+        // marked actively streaming) and cleared only at AssistantTurnEnd/terminal — is the authoritative
+        // signal. Crucially it is NOT cleared mid-turn by
+        // compaction, sub-agent, or background-task events (all of which force runtime.IsStreaming to false
+        // for the rest of the turn), so steering during those phases still injects into the running turn
+        // instead of silently deferring to the post-turn queue. After the turn ends the runtime may stay
+        // busy only to drain background work; there is no live turn to interject into then, so fall back to
+        // the deferred queue and let the message land as a fresh turn once idle.
+        _runtimeStates.TryGetValue(chatId, out var runtime);
 
-        if (session is null || !turnActivelyRunning)
+        if (session is null || runtime is null || !CanSteerImmediately(runtime))
         {
             QueueBusySendPrompt(chatId, prompt);
             if (consumeComposerPrompt)
@@ -2431,6 +2432,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             Debug.WriteLine($"[Steer] Immediate send failed for chat {chatId}: {ex.Message}");
         }
     }
+
+    /// <summary>
+    /// Whether a steer can be injected into a live running turn right now (immediate mode), versus being
+    /// deferred to the post-turn queue. <see cref="ChatRuntimeState.TurnInProgress"/> is the primary
+    /// signal — it stays true for the whole turn even when compaction / sub-agent / background-task events
+    /// force <see cref="ChatRuntimeState.IsStreaming"/> to false. Active tool/sub-agent execution is kept
+    /// as a defensive OR: both imply a live turn regardless of how the flags were last set.
+    /// </summary>
+    private static bool CanSteerImmediately(ChatRuntimeState runtime)
+        => runtime.TurnInProgress
+           || runtime.ActiveToolCount > 0
+           || runtime.ActiveSubagentExecutionDepth > 0;
 
     private async Task SendMessageCore(string? promptText, bool consumeComposerPrompt)
     {

@@ -2035,6 +2035,7 @@ public partial class ChatViewModel
     {
         runtime.IsBusy = false;
         runtime.IsStreaming = false;
+        runtime.TurnInProgress = false;
         runtime.HasPendingBackgroundWork = false;
         runtime.ActiveSubagentExecutionDepth = 0;
         runtime.StatusText = statusText ?? string.Empty;
@@ -2050,6 +2051,15 @@ public partial class ChatViewModel
             ? string.IsNullOrWhiteSpace(runtime.StatusText) ? Loc.Status_Thinking : runtime.StatusText
             : statusText;
         runtime.IsStreaming = isStreaming;
+        // TurnInProgress is set true at exactly the same points IsStreaming is (turn initiation / an
+        // actively streaming turn), which makes it a strict superset of the old IsStreaming steer signal.
+        // But — unlike IsStreaming — it is only cleared at turn end / terminal. Mid-turn updates
+        // (compaction, sub-agent, background-task drain) and the post-turn keep-busy path all call this
+        // with isStreaming:false, so they must NOT touch TurnInProgress: mid-turn it stays true (keeping
+        // the turn steerable), and post-turn it stays false (already cleared by
+        // MarkRuntimeWaitingForSessionIdle, so steering correctly falls back to the queue).
+        if (isStreaming)
+            runtime.TurnInProgress = true;
         if (hasPendingBackgroundWork)
             runtime.HasPendingBackgroundWork = true;
         runtime.IsBusy = true;
@@ -2065,6 +2075,9 @@ public partial class ChatViewModel
     private static void MarkRuntimeWaitingForSessionIdle(ChatRuntimeState runtime)
     {
         runtime.IsStreaming = false;
+        // The assistant turn has ended; only background/idle draining may remain. Immediate steering
+        // cannot inject into a turn that already ended, so drop the "turn running" signal here.
+        runtime.TurnInProgress = false;
         if (ShouldKeepRuntimeBusyUntilSessionIdle(runtime))
         {
             MarkRuntimeActive(

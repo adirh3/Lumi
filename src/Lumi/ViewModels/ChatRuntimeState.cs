@@ -31,6 +31,19 @@ internal sealed class ChatRuntimeState
 
     public bool IsStreaming { get; set; }
 
+    /// <summary>
+    /// True while a live assistant turn is running. Set at turn initiation — the same point
+    /// <see cref="IsStreaming"/> is set true (see <c>MarkRuntimeActive</c>, invoked on send / resend /
+    /// <c>AssistantTurnStart</c>) — and cleared only at turn end / terminal / abort / error. This is the
+    /// authoritative "a live assistant turn is running" signal used to decide whether a steer can be
+    /// injected via immediate mode. Unlike <see cref="IsStreaming"/>, it is NOT cleared mid-turn by
+    /// compaction, sub-agent, or background-task events (each of which forces <see cref="IsStreaming"/>
+    /// to false for the rest of the turn), so a message steered during any of those phases still routes
+    /// to the running turn's next step boundary instead of silently falling back to the post-turn queue
+    /// (which renders no bubble and only drains at turn end).
+    /// </summary>
+    public bool TurnInProgress { get; set; }
+
     public string StatusText { get; set; } = string.Empty;
 
     public long TotalInputTokens { get; set; }
