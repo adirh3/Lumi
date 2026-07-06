@@ -254,6 +254,19 @@ public partial class App : Application
             };
 
             desktop.MainWindow = window;
+
+            // macOS has no runtime Dock icon unless the app is a bundle with an Info.plist icon; set
+            // it explicitly so an unbundled/dev launch is still branded. No-op on other platforms.
+            if (OperatingSystem.IsMacOS())
+            {
+                var iconBytes = AppIcon.TryReadPngBytes();
+                if (iconBytes is not null)
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (OperatingSystem.IsMacOS())
+                            MacOsNative.TrySetDockIcon(iconBytes);
+                    }, DispatcherPriority.Background);
+            }
         }
 
         base.OnFrameworkInitializationCompleted();

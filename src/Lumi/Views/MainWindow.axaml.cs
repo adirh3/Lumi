@@ -140,6 +140,10 @@ public partial class MainWindow : Window
         Background = Avalonia.Media.Brushes.Transparent;
         TransparencyBackgroundFallback = Avalonia.Media.Brushes.Transparent;
 
+        // Give the window an icon on platforms that don't get one from the executable (Linux taskbar,
+        // macOS window/menu). No-op on Windows so its embedded .ico stays authoritative.
+        Services.AppIcon.ApplyWindowIcon(this);
+
         // Watch for window state changes that affect chrome/layout.
         this.PropertyChanged += (_, e) =>
         {
@@ -3016,6 +3020,11 @@ public partial class MainWindow : Window
         if (ActualTransparencyLevel == WindowTransparencyLevel.None)
             opacity = 0.88;
         else if (ActualTransparencyLevel == WindowTransparencyLevel.Mica)
+            opacity = 0.62;
+        else if (ActualTransparencyLevel == WindowTransparencyLevel.Blur && OperatingSystem.IsMacOS())
+            // macOS uses the Blur level (native vibrancy); lighten the fallback so the vibrancy shows
+            // through. Gated to macOS because Linux (KDE/KWin) can also resolve to Blur, and its fallback
+            // opacity must stay unchanged. Windows never resolves to Blur (it gets AcrylicBlur/Mica).
             opacity = 0.62;
 
         _acrylicFallback.Opacity = opacity;

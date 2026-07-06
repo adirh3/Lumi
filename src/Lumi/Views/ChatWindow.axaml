@@ -12,7 +12,7 @@
         MinWidth="760"
         MinHeight="520"
         WindowStartupLocation="CenterOwner"
-        TransparencyLevelHint="AcrylicBlur,Mica,Blur"
+        TransparencyLevelHint="{OnPlatform Default='AcrylicBlur,Mica,Blur', macOS='Blur'}"
         UseLayoutRounding="True"
         Background="Transparent">
 

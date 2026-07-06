@@ -1171,7 +1171,13 @@ public partial class ChatView : UserControl
                 return;
             }
 
-            using var bitmap = await dataTransfer.TryGetBitmapAsync();
+            // Skia can't decode macOS clipboard TIFF; supply the AppKit transcoder on macOS so those
+            // (e.g. screenshots) still paste. Null elsewhere — the built-in decode path is used as before.
+            Func<byte[], byte[]?>? nativeImageToPng = null;
+            if (OperatingSystem.IsMacOS())
+                nativeImageToPng = Services.MacOsNative.TryConvertImageToPng;
+
+            using var bitmap = await ClipboardImage.TryGetImageAsync(dataTransfer, nativeImageToPng);
             if (bitmap is not null)
             {
                 Directory.CreateDirectory(ClipboardImagesDir);
