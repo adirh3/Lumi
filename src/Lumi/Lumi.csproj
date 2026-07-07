@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <ApplicationIcon>Assets\lumi-icon.ico</ApplicationIcon>
-    <Version>0.9.1</Version>
+    <Version>0.9.2</Version>
 
     <!-- Publishing -->
     <PublishSingleFile>true</PublishSingleFile>
