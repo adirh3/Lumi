@@ -20,7 +20,11 @@ public sealed class SystemPromptBuilderTests
         Assert.Contains("## Async Command Guidance", prompt);
         Assert.Contains("prefer letting the tool generate the `shellId`", prompt);
         Assert.Contains("read it as soon as that command completes", prompt);
-        Assert.Contains("call `read_powershell` promptly", prompt);
+        // The async shell tool hint is platform-specific (Windows names `read_powershell`; macOS/Linux
+        // say "read its output"), so it is asserted per-platform in Build_Windows_* and the leakage
+        // tests. Here assert the platform-common background-agent guidance so this host-OS build passes
+        // on every CI runner (windows/ubuntu/macos).
+        Assert.Contains("call `read_agent` promptly", prompt);
     }
 
     [Fact]

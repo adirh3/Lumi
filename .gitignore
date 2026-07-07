@@ -42,6 +42,8 @@ session-store.db-wal
 
 Releases/
 publish/
+# Per-RID publish outputs created by the release pipeline (publish-linux, publish-osx-x64, ...)
+publish-*/
 
 ## Local diagnostic captures
 diagnostics/

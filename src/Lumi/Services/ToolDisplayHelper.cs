@@ -119,7 +119,7 @@ public static partial class ToolDisplayHelper
                 var path = ExtractJsonField(argsJson, "path");
                 if (path is null) return (Loc.Tool_ReadingFile, null);
                 var ext = Path.GetExtension(path);
-                var fileName = Path.GetFileName(path);
+                var fileName = GetDisplayFileName(path);
                 return string.IsNullOrEmpty(ext)
                     ? (Loc.Tool_ListingDirectory, fileName)
                     : (Loc.Tool_ReadingFile, fileName);
@@ -312,7 +312,7 @@ public static partial class ToolDisplayHelper
                 {
                     var path = GetString(root, "path");
                     if (path is null) break;
-                    var fileName = Path.GetFileName(path);
+                    var fileName = GetDisplayFileName(path);
                     var dir = Path.GetDirectoryName(path);
                     if (string.IsNullOrEmpty(Path.GetExtension(path)))
                         return $"**Path:** `{path}`";
@@ -362,7 +362,7 @@ public static partial class ToolDisplayHelper
                 {
                     var path = GetString(root, "filePath") ?? GetString(root, "path");
                     if (path is null) break;
-                    var fn = Path.GetFileName(path);
+                    var fn = GetDisplayFileName(path);
                     var dir = Path.GetDirectoryName(path);
                     var sb = new StringBuilder();
                     sb.AppendLine($"**File:** `{fn}`");
@@ -379,7 +379,7 @@ public static partial class ToolDisplayHelper
                         foreach (var item in arr.EnumerateArray())
                         {
                             if (item.TryGetProperty("filePath", out var fpVal))
-                            { firstFile = Path.GetFileName(fpVal.GetString()); break; }
+                            { firstFile = GetDisplayFileName(fpVal.GetString()); break; }
                         }
                         if (firstFile is not null)
                             return count > 1
@@ -791,7 +791,7 @@ public static partial class ToolDisplayHelper
                     if (item.TryGetProperty("path", out var rp)) { fullPath = rp.GetString(); break; }
                 }
             }
-            return fullPath is not null ? Path.GetFileName(fullPath) : null;
+            return fullPath is not null ? GetDisplayFileName(fullPath) : null;
         }
         catch { return null; }
     }
@@ -803,15 +803,25 @@ public static partial class ToolDisplayHelper
             .FirstOrDefault(l => !l.TrimStart().StartsWith('#'))?.Trim();
         if (firstLine is null) return null;
 
-        if (firstLine.StartsWith("Get-Content", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_ReadingFileContents;
+        if (firstLine.StartsWith("Get-Content", StringComparison.OrdinalIgnoreCase)
+            || firstLine.StartsWith("cat ", StringComparison.OrdinalIgnoreCase)
+            || firstLine.StartsWith("head ", StringComparison.OrdinalIgnoreCase)
+            || firstLine.StartsWith("tail ", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_ReadingFileContents;
         if (firstLine.StartsWith("Get-ChildItem", StringComparison.OrdinalIgnoreCase)
             || firstLine.StartsWith("dir ", StringComparison.OrdinalIgnoreCase)
             || firstLine.StartsWith("ls ", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_ListingFiles;
-        if (firstLine.StartsWith("Copy-Item", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_CopyingFiles;
-        if (firstLine.StartsWith("Remove-Item", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_CleaningUp;
-        if (firstLine.StartsWith("Expand-Archive", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_ExtractingArchive;
-        if (firstLine.StartsWith("Get-Command", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_CheckingTools;
-        if (firstLine.StartsWith("Install-", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_InstallingPackage;
+        if (firstLine.StartsWith("Copy-Item", StringComparison.OrdinalIgnoreCase)
+            || firstLine.StartsWith("cp ", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_CopyingFiles;
+        if (firstLine.StartsWith("Remove-Item", StringComparison.OrdinalIgnoreCase)
+            || firstLine.StartsWith("rm ", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_CleaningUp;
+        if (firstLine.StartsWith("Expand-Archive", StringComparison.OrdinalIgnoreCase)
+            || firstLine.StartsWith("tar ", StringComparison.OrdinalIgnoreCase)
+            || firstLine.StartsWith("unzip ", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_ExtractingArchive;
+        if (firstLine.StartsWith("Get-Command", StringComparison.OrdinalIgnoreCase)
+            || firstLine.StartsWith("which ", StringComparison.OrdinalIgnoreCase)
+            || firstLine.StartsWith("command -v", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_CheckingTools;
+        if (firstLine.StartsWith("Install-", StringComparison.OrdinalIgnoreCase)
+            || firstLine.StartsWith("brew install", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_InstallingPackage;
         if (firstLine.StartsWith("pip install", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_InstallingPython;
         if (firstLine.StartsWith("npm install", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_InstallingNpm;
         if (firstLine.StartsWith("cd ", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_NavigatingDirs;

@@ -100,7 +100,12 @@ public static partial class WebFetchService
             var output = preview + $"\n\n[Content truncated — {text.Length:N0} chars total. Full content saved to: {filePath}]";
             if (sectionList.Length > 0)
                 output += $"\n[Remaining sections: {sectionList}]";
-            output += "\n[Use Get-Content or Select-String to read specific sections from the file]";
+            // Platform-appropriate read hint: PowerShell cmdlets on Windows, POSIX tools elsewhere.
+            // Never advertise Get-Content/Select-String to the macOS/Linux agent — those tools aren't there.
+            var readHint = OperatingSystem.IsWindows()
+                ? "Get-Content or Select-String"
+                : "cat, grep, sed, or head/tail";
+            output += $"\n[Use {readHint} to read specific sections from the file]";
             return (output, false);
         }
         catch (TaskCanceledException)

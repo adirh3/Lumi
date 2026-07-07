@@ -111,6 +111,25 @@ public static partial class ToolDisplayHelper
         return string.Join(' ', words);
     }
 
+    /// <summary>
+    /// Extracts the file name from a path for DISPLAY, tolerant of both '/' and '\' separators.
+    /// On Windows this is exactly <see cref="Path.GetFileName(string)"/> (which already splits on
+    /// both), so Windows output is byte-for-byte unchanged. On macOS/Linux, <see cref="Path.GetFileName(string)"/>
+    /// only splits on '/', so a foreign Windows-style path (e.g. from a Windows-authored tool call or
+    /// a chat synced from Windows) would otherwise render in full; honoring '\' too keeps the label to
+    /// just the file name. Display-only — never use for semantic path manipulation.
+    /// </summary>
+    [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(path))]
+    public static string? GetDisplayFileName(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return path;
+        if (OperatingSystem.IsWindows())
+            return Path.GetFileName(path);
+        var idx = path.AsSpan().LastIndexOfAny('/', '\\');
+        return idx >= 0 ? path[(idx + 1)..] : path;
+    }
+
     /// <summary>Builds a compact one-line summary for a streaming tool group using the most recent tool labels.</summary>
     public static string? BuildToolActivitySummary(IEnumerable<string?> labels, int maxVisible = 3, int maxLabelLength = 28)
     {
