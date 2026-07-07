@@ -1621,12 +1621,24 @@ public partial class ChatViewModel
         var dir = GetEffectiveWorkingDirectory();
         try
         {
-            Process.Start(new ProcessStartInfo
+            // On Windows, UseShellExecute resolves the "code" launcher via App Paths. On macOS/Linux
+            // UseShellExecute would try to *open a file* named "code"; instead exec the CLI directly
+            // from the (PATH-augmented) environment so it resolves like it does in the user's terminal.
+            var psi = new ProcessStartInfo
             {
                 FileName = "code",
                 Arguments = $"\"{dir}\"",
-                UseShellExecute = true,
-            });
+            };
+            if (OperatingSystem.IsWindows())
+            {
+                psi.UseShellExecute = true;
+            }
+            else
+            {
+                psi.UseShellExecute = false;
+                Lumi.Services.UnixShellPath.ApplyTo(psi);
+            }
+            Process.Start(psi);
         }
         catch { /* ignore */ }
     }

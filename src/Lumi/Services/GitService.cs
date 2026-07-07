@@ -579,6 +579,9 @@ public static class GitService
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            // Resolve "git" the same way the user's terminal would (Homebrew/Xcode git) even when Lumi
+            // is GUI-launched with a truncated PATH on macOS/Linux. No-op on Windows.
+            UnixShellPath.ApplyTo(psi);
 
             using var proc = Process.Start(psi);
             if (proc is null) return null;

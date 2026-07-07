@@ -45,6 +45,24 @@ internal static class UnixShellPath
     }
 
     /// <summary>
+    /// Applies the augmented PATH (see <see cref="Augment"/>) to a child process's environment so a
+    /// command Lumi spawns directly resolves the same tools the user has in their terminal (Homebrew,
+    /// nvm, etc.). No-op on Windows, where GUI processes already inherit the full user PATH. Use for
+    /// PATH-resolved commands Lumi launches itself (background jobs, git, "open in IDE") — not needed
+    /// for commands routed through the Copilot CLI, whose environment is already augmented.
+    /// </summary>
+    public static void ApplyTo(ProcessStartInfo startInfo)
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var current = startInfo.Environment.TryGetValue("PATH", out var existing) && !string.IsNullOrEmpty(existing)
+            ? existing
+            : Environment.GetEnvironmentVariable("PATH");
+        startInfo.Environment["PATH"] = Augment(current);
+    }
+
+    /// <summary>
     /// Pure union of PATH sources, order-preserving and de-duplicated: login-shell entries first, then
     /// the current PATH, then the extra fallback directories. Exposed for unit testing (the OS-gated
     /// <see cref="Augment"/> feeds it the live values).
