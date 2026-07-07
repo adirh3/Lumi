@@ -563,7 +563,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
         EditMonthlyDay = DateTimeOffset.Now.Day;
         EditCronExpression = "0 8 * * *";
         EditRunAt = DateTimeOffset.Now.AddHours(1).ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture);
-        EditScriptLanguageIndex = 0;
+        EditScriptLanguageIndex = ScriptLanguageToIndex(BackgroundJobScriptLanguages.DefaultForCurrentOs());
         EditScriptContent = "";
         EditIsEnabled = true;
         _hydratedIsEnabled = true;

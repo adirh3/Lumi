@@ -1078,9 +1078,8 @@ public class DataStore
               """
             : """
               6. **Open it so the user sees it immediately** — Convert the saved path to a `file://` URL
-                 (forward slashes; prefix `file://`). Then open it in a browser:
-                 - On Windows, use the `lumi_browser_open` tool to show it in Lumi's built-in browser panel.
-                 - On macOS/Linux, open the `file://` URL in the user's default browser (e.g. `open <url>` on macOS, `xdg-open <url>` on Linux).
+                 (forward slashes; prefix `file://`), then open it in the user's default browser
+                 (`open <url>` on macOS, `xdg-open <url>` on Linux).
               """;
         var siteOpenRule = isWindows
             ? "Never use `localhost` or start a web server. Just save an `.html` file and open it with the `lumi_browser_open` tool."

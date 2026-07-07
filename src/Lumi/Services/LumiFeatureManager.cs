@@ -233,7 +233,7 @@ public sealed class LumiFeatureManager
             MonthlyDay = monthlyDay ?? 1,
             CronExpression = NormalizeOrNull(cronExpression) ?? "0 8 * * *",
             ScriptContent = NormalizeOrNull(scriptContent) ?? "",
-            ScriptLanguage = NormalizeOrNull(scriptLanguage) ?? BackgroundJobScriptLanguages.PowerShell,
+            ScriptLanguage = NormalizeOrNull(scriptLanguage) ?? BackgroundJobScriptLanguages.DefaultForCurrentOs(),
             IsTemporary = normalizedTriggerType == BackgroundJobTriggerTypes.Script || isTemporary == true,
             IsEnabled = isEnabled ?? true
         };
@@ -343,7 +343,7 @@ public sealed class LumiFeatureManager
         if (scriptContent is not null)
             job.ScriptContent = NormalizeOrNull(scriptContent) ?? "";
         if (scriptLanguage is not null)
-            job.ScriptLanguage = NormalizeOrNull(scriptLanguage) ?? BackgroundJobScriptLanguages.PowerShell;
+            job.ScriptLanguage = NormalizeOrNull(scriptLanguage) ?? BackgroundJobScriptLanguages.DefaultForCurrentOs();
         if (isTemporary.HasValue)
             job.IsTemporary = isTemporary.Value;
         if (isEnabled.HasValue)

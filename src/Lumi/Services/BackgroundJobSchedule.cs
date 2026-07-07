@@ -59,7 +59,7 @@ public static class BackgroundJobSchedule
             "python" or "py" or "python3" => BackgroundJobScriptLanguages.Python,
             "node" or "nodejs" or "javascript" or "js" => BackgroundJobScriptLanguages.Node,
             "cmd" or "bat" or "batch" or "command" or "shell" or "sh" => BackgroundJobScriptLanguages.Command,
-            _ => BackgroundJobScriptLanguages.PowerShell
+            _ => BackgroundJobScriptLanguages.DefaultForCurrentOs()
         };
     }
 

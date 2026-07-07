@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -99,7 +100,7 @@ public sealed class UpdateService
         try
         {
             var source = new GithubSource(RepoUrl, null, prerelease: false);
-            _manager = new UpdateManager(source);
+            _manager = new UpdateManager(source, ResolveUpdateOptions());
             CurrentStatus = _manager.IsInstalled ? UpdateStatus.Idle : UpdateStatus.NotInstalled;
             if (_manager.IsInstalled)
             {
@@ -123,6 +124,28 @@ public sealed class UpdateService
             Trace.TraceWarning($"[UpdateService] Failed to initialize: {ex.Message}");
             CurrentStatus = UpdateStatus.NotInstalled;
         }
+    }
+
+    /// <summary>
+    /// Velopack's default update channel per OS is <c>win</c> / <c>linux</c> / <c>osx</c>
+    /// (<see cref="VelopackRuntimeInfo.GetOsShortName"/>). The release pipeline publishes Windows and
+    /// Linux on those exact default channels, but macOS is published per-architecture
+    /// (<c>osx-arm64</c> / <c>osx-x64</c>) because there is no universal build — so on macOS the client
+    /// must request the architecture-matched channel explicitly, otherwise the default <c>osx</c> feed
+    /// doesn't exist and update checks silently find nothing. We key off the running process
+    /// architecture (not the OS architecture) so an <c>osx-x64</c> build under Rosetta on Apple Silicon
+    /// correctly stays on the <c>osx-x64</c> channel it was installed from. Windows/Linux return
+    /// <c>null</c> here, preserving their exact previous default-channel behavior.
+    /// </summary>
+    private static UpdateOptions? ResolveUpdateOptions()
+    {
+        if (!OperatingSystem.IsMacOS())
+            return null;
+
+        var channel = RuntimeInformation.ProcessArchitecture == Architecture.Arm64
+            ? "osx-arm64"
+            : "osx-x64";
+        return new UpdateOptions { ExplicitChannel = channel };
     }
 
     /// <summary>Start periodic background checks. Call once after UI is ready.</summary>

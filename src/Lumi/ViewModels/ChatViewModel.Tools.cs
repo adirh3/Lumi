@@ -742,7 +742,11 @@ public partial class ChatViewModel
                     [Description("For advanced time triggers: five-field cron expression: minute hour day-of-month month day-of-week. Example: 0 8 * * Mon-Fri.")] string? cronExpression = null,
                     [Description("For once time triggers: local date/time, e.g. 2026-04-25 08:00.")] string? runAt = null,
                     [Description("For script triggers: one-shot script content. Lumi starts it once, waits until the process exits, then wakes the linked chat with stdout, stderr, and exit code. For continued monitoring, create another script job after the wake.")] string? scriptContent = null,
+#if WINDOWS
                     [Description("For script triggers: powershell, python, node, or command.")] string? scriptLanguage = null,
+#else
+                    [Description("For script triggers: command (shell), python, or node.")] string? scriptLanguage = null,
+#endif
                     [Description("True for a temporary time job that pauses after a successful invocation. Script jobs are always one-shot.")] bool? isTemporary = null,
                     [Description("Whether the job should be enabled.")] bool? isEnabled = null,
                     [Description("Set true to queue the job immediately.")] bool? runNow = null,
