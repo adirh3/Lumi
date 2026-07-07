@@ -1141,10 +1141,16 @@ public class CopilotService : IAsyncDisposable
         if (!string.IsNullOrWhiteSpace(token))
         {
             options.GitHubToken = token;
-            options.Environment = BuildCliEnvironmentWithGitHubToken(token);
+            options.Environment = BuildCliEnvironment(token);
             options.UseLoggedInUser = false;
             return;
         }
+
+        // On macOS/Linux, GUI-launched Lumi inherits a truncated PATH; inject an augmented environment
+        // so the CLI — and the MCP servers / shell tools it spawns — can find npx/node/uvx and other
+        // user tools. Windows keeps its prior behavior (its GUI processes already have the full PATH).
+        if (!OperatingSystem.IsWindows())
+            options.Environment = BuildCliEnvironment(token: null);
 
         options.UseLoggedInUser = true;
     }
@@ -1390,7 +1396,7 @@ public class CopilotService : IAsyncDisposable
         return TryReadStoredGitHubToken();
     }
 
-    private static IReadOnlyDictionary<string, string> BuildCliEnvironmentWithGitHubToken(string token)
+    private static IReadOnlyDictionary<string, string> BuildCliEnvironment(string? token)
     {
         var env = Environment.GetEnvironmentVariables()
             .Cast<System.Collections.DictionaryEntry>()
@@ -1400,8 +1406,16 @@ public class CopilotService : IAsyncDisposable
                 entry => (string)entry.Value!,
                 StringComparer.OrdinalIgnoreCase);
 
-        env["GITHUB_PERSONAL_ACCESS_TOKEN"] = token;
-        env["GITHUB_COPILOT_GITHUB_TOKEN"] = token;
+        if (!string.IsNullOrEmpty(token))
+        {
+            env["GITHUB_PERSONAL_ACCESS_TOKEN"] = token;
+            env["GITHUB_COPILOT_GITHUB_TOKEN"] = token;
+        }
+
+        // Ensure GUI-launched Lumi passes a complete PATH so the CLI and the MCP servers / shell tools
+        // it spawns can resolve Homebrew/nvm/user-installed commands. No-op on Windows.
+        if (!OperatingSystem.IsWindows())
+            env["PATH"] = UnixShellPath.Augment(env.TryGetValue("PATH", out var existingPath) ? existingPath : null);
 
         return env;
     }
