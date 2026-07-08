@@ -803,25 +803,32 @@ public static partial class ToolDisplayHelper
             .FirstOrDefault(l => !l.TrimStart().StartsWith('#'))?.Trim();
         if (firstLine is null) return null;
 
+        // POSIX command aliases (cat/cp/rm/tar/which/...) are recognized only off Windows. On Windows
+        // the shell tool is PowerShell where these are built-in aliases (cat->Get-Content, cp->Copy-Item,
+        // rm->Remove-Item) that the transcript has always shown verbatim — labeling them here would
+        // silently change Windows behavior. dir/ls were already in the legacy mapping, so they stay
+        // unconditional to preserve exact Windows parity.
+        var posix = !OperatingSystem.IsWindows();
+
         if (firstLine.StartsWith("Get-Content", StringComparison.OrdinalIgnoreCase)
-            || firstLine.StartsWith("cat ", StringComparison.OrdinalIgnoreCase)
-            || firstLine.StartsWith("head ", StringComparison.OrdinalIgnoreCase)
-            || firstLine.StartsWith("tail ", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_ReadingFileContents;
+            || (posix && (firstLine.StartsWith("cat ", StringComparison.OrdinalIgnoreCase)
+                || firstLine.StartsWith("head ", StringComparison.OrdinalIgnoreCase)
+                || firstLine.StartsWith("tail ", StringComparison.OrdinalIgnoreCase)))) return Loc.Cmd_ReadingFileContents;
         if (firstLine.StartsWith("Get-ChildItem", StringComparison.OrdinalIgnoreCase)
             || firstLine.StartsWith("dir ", StringComparison.OrdinalIgnoreCase)
             || firstLine.StartsWith("ls ", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_ListingFiles;
         if (firstLine.StartsWith("Copy-Item", StringComparison.OrdinalIgnoreCase)
-            || firstLine.StartsWith("cp ", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_CopyingFiles;
+            || (posix && firstLine.StartsWith("cp ", StringComparison.OrdinalIgnoreCase))) return Loc.Cmd_CopyingFiles;
         if (firstLine.StartsWith("Remove-Item", StringComparison.OrdinalIgnoreCase)
-            || firstLine.StartsWith("rm ", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_CleaningUp;
+            || (posix && firstLine.StartsWith("rm ", StringComparison.OrdinalIgnoreCase))) return Loc.Cmd_CleaningUp;
         if (firstLine.StartsWith("Expand-Archive", StringComparison.OrdinalIgnoreCase)
-            || firstLine.StartsWith("tar ", StringComparison.OrdinalIgnoreCase)
-            || firstLine.StartsWith("unzip ", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_ExtractingArchive;
+            || (posix && (firstLine.StartsWith("tar ", StringComparison.OrdinalIgnoreCase)
+                || firstLine.StartsWith("unzip ", StringComparison.OrdinalIgnoreCase)))) return Loc.Cmd_ExtractingArchive;
         if (firstLine.StartsWith("Get-Command", StringComparison.OrdinalIgnoreCase)
-            || firstLine.StartsWith("which ", StringComparison.OrdinalIgnoreCase)
-            || firstLine.StartsWith("command -v", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_CheckingTools;
+            || (posix && (firstLine.StartsWith("which ", StringComparison.OrdinalIgnoreCase)
+                || firstLine.StartsWith("command -v", StringComparison.OrdinalIgnoreCase)))) return Loc.Cmd_CheckingTools;
         if (firstLine.StartsWith("Install-", StringComparison.OrdinalIgnoreCase)
-            || firstLine.StartsWith("brew install", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_InstallingPackage;
+            || (posix && firstLine.StartsWith("brew install", StringComparison.OrdinalIgnoreCase))) return Loc.Cmd_InstallingPackage;
         if (firstLine.StartsWith("pip install", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_InstallingPython;
         if (firstLine.StartsWith("npm install", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_InstallingNpm;
         if (firstLine.StartsWith("cd ", StringComparison.OrdinalIgnoreCase)) return Loc.Cmd_NavigatingDirs;

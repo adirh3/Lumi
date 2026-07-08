@@ -90,6 +90,31 @@ public class ToolDisplayHelperTests
     }
 
     [Fact]
+    public void GetFriendlyToolDisplay_PowerShell_PosixAliasLabels_AreWindowsInvariant()
+    {
+        // Windows parity: the POSIX friendly-label aliases (cat/cp/rm/tar/...) added for macOS/Linux
+        // must NOT change what a Windows user sees. On Windows the shell tool is PowerShell where
+        // cat/cp/rm are built-in aliases and tar.exe ships in-box, but the transcript has always shown
+        // those commands verbatim — so on Windows the chip must still render the raw command.
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        Assert.Equal("cat notes.txt",
+            ToolDisplayHelper.GetFriendlyToolDisplay("powershell", null, "{\"command\":\"cat notes.txt\"}").Info);
+        Assert.Equal("cp a.txt b.txt",
+            ToolDisplayHelper.GetFriendlyToolDisplay("powershell", null, "{\"command\":\"cp a.txt b.txt\"}").Info);
+        Assert.Equal("rm old.txt",
+            ToolDisplayHelper.GetFriendlyToolDisplay("powershell", null, "{\"command\":\"rm old.txt\"}").Info);
+        Assert.Equal("tar -xf a.tar",
+            ToolDisplayHelper.GetFriendlyToolDisplay("powershell", null, "{\"command\":\"tar -xf a.tar\"}").Info);
+
+        // The legacy PowerShell-cmdlet mapping still summarizes on Windows — proof the fix only gated
+        // the newly-added POSIX aliases and left the existing Windows branches untouched.
+        Assert.NotEqual("Get-Content notes.txt",
+            ToolDisplayHelper.GetFriendlyToolDisplay("powershell", null, "{\"command\":\"Get-Content notes.txt\"}").Info);
+    }
+
+    [Fact]
     public void FormatToolArgsFriendly_FetchSkill_ShowsSkillField()
     {
         var args = ToolDisplayHelper.FormatToolArgsFriendly("fetch_skill", "{\"name\":\"Debug Expert\"}");
