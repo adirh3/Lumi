@@ -3957,13 +3957,19 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private async Task SaveChatAsync(Chat chat, bool saveIndex, bool releaseIfInactive = false, CancellationToken cancellationToken = default)
     {
+        var persisted = false;
+        var persistedMessageCount = -1;
         try
         {
             if (_dataStore.Data.Settings.AutoSaveChats)
             {
+                persistedMessageCount = chat.Messages.Count;
                 await _dataStore.SaveChatAsync(chat, cancellationToken);
                 if (saveIndex)
                     await _dataStore.SaveAsync(cancellationToken);
+                // The per-chat messages file now reflects chat.Messages, so it is safe to unload
+                // them for an inactive chat and lazily reload on next open.
+                persisted = true;
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -3978,9 +3984,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (releaseIfInactive)
         {
             if (Dispatcher.UIThread.CheckAccess())
-                ReleaseInactiveChatState(chat);
+                ReleaseInactiveChatState(chat, unloadMessages: persisted, expectedMessageCount: persistedMessageCount);
             else
-                Dispatcher.UIThread.Post(() => ReleaseInactiveChatState(chat));
+                Dispatcher.UIThread.Post(() => ReleaseInactiveChatState(chat, unloadMessages: persisted, expectedMessageCount: persistedMessageCount));
         }
     }
 

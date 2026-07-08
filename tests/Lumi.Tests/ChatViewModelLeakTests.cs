@@ -1982,16 +1982,33 @@ public sealed class ChatViewModelLeakTests
 
     private static void InvokePrivate(object instance, string name, params object?[] args)
     {
-        instance.GetType()
-            .GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
-            ?.Invoke(instance, args);
+        var method = instance.GetType()
+            .GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic);
+        method?.Invoke(instance, PadOptionalArgs(method, args));
     }
 
     private static T InvokePrivate<T>(object instance, string name, params object[] args)
-        => (T)(instance.GetType()
-            .GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
-            ?.Invoke(instance, args)
+    {
+        var method = instance.GetType()
+            .GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic);
+        return (T)(method?.Invoke(instance, PadOptionalArgs(method, args))
             ?? throw new InvalidOperationException($"Method {name} was not found."));
+    }
+
+    // Reflection Invoke does not auto-fill C# optional parameters, so pad missing trailing
+    // arguments with their compile-time defaults. Keeps these helpers working when a private
+    // method gains optional parameters (e.g. ReleaseInactiveChatState's message-unload flags).
+    private static object?[] PadOptionalArgs(MethodInfo method, object?[] args)
+    {
+        var parameters = method.GetParameters();
+        if (args.Length >= parameters.Length)
+            return args;
+        var padded = new object?[parameters.Length];
+        Array.Copy(args, padded, args.Length);
+        for (var i = args.Length; i < parameters.Length; i++)
+            padded[i] = parameters[i].HasDefaultValue ? parameters[i].DefaultValue : Type.Missing;
+        return padded;
+    }
 
     private static async Task InvokePrivateAsync(object instance, string name, params object[] args)
     {

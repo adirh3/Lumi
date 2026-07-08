@@ -1389,7 +1389,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (value.HasValue)
         {
             var recent = _dataStore.Data.Chats
-                .Where(c => c.ProjectId == value.Value && c.Messages.Count > 0)
+                .Where(c => c.ProjectId == value.Value && ChatHasContent(c))
                 .OrderByDescending(c => c.UpdatedAt)
                 .FirstOrDefault();
             if (recent is not null)
@@ -1402,6 +1402,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // No existing chat for this project (or clearing filter) — start a new chat.
         NewChat();
     }
+
+    /// <summary>
+    /// True when a chat has at least one message, working whether or not the chat's messages
+    /// are currently loaded in memory. Inactive chats have their messages unloaded to reclaim
+    /// RAM, so this falls back to the persisted count and, for pre-existing chats that predate
+    /// that count, to the presence of a stored messages file.
+    /// </summary>
+    private bool ChatHasContent(Chat chat)
+        => chat.Messages.Count > 0 || chat.MessageCount > 0 || _dataStore.HasStoredMessages(chat.Id);
 
     partial void OnActiveChatIdChanged(Guid? value)
     {

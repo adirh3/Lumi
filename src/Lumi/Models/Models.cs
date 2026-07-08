@@ -85,6 +85,13 @@ public class Chat : INotifyPropertyChanged
     public string? CopilotSessionId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
+    /// <summary>
+    /// Number of messages last persisted for this chat. Maintained on save/load so that
+    /// "does this chat have content" checks keep working even when <see cref="Messages"/>
+    /// has been unloaded from memory to reclaim RAM for inactive chats.
+    /// </summary>
+    public int MessageCount { get; set; }
+
     [JsonIgnore]
     public List<ChatMessage> Messages { get; set; } = [];
     public List<Guid> ActiveSkillIds { get; set; } = [];

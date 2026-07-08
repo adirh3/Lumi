@@ -393,7 +393,7 @@ public partial class ChatViewModel
         // back to the UI thread and drops the entry (guarded by the same ReferenceEquals check).
     }
 
-    private void ReleaseInactiveChatState(Chat chat)
+    private void ReleaseInactiveChatState(Chat chat, bool unloadMessages = false, int expectedMessageCount = -1)
     {
         if (CurrentChat?.Id == chat.Id || IsChatRuntimeActive(chat.Id))
             return;
@@ -406,6 +406,43 @@ public partial class ChatViewModel
         // instead of losing the browser (and its toggle button). The service is disposed when the
         // chat is deleted (CleanupSession) or the app shuts down (Dispose).
         _runtimeStates.Remove(chat.Id);
+
+        if (unloadMessages)
+            TryUnloadInactiveChatMessages(chat, expectedMessageCount);
+    }
+
+    /// <summary>
+    /// Releases the in-memory <see cref="Chat.Messages"/> of an inactive chat to reclaim RAM.
+    /// Every chat opened during a session otherwise stays fully loaded for the app's lifetime,
+    /// so a long session that browses many (or large) chats accumulates their message models
+    /// on the managed heap. The messages are lazily reloaded from the per-chat file on next open.
+    ///
+    /// Only ever called after the caller has just durably persisted the chat's messages, and it
+    /// re-verifies the live count still matches what was persisted so a message added between the
+    /// save and this (UI-thread) call is never dropped. Skipped when auto-save is off (no file to
+    /// reload from) or the file is missing.
+    /// </summary>
+    private void TryUnloadInactiveChatMessages(Chat chat, int expectedMessageCount)
+    {
+        if (chat.Messages.Count == 0)
+            return;
+
+        // Never unload the visible chat or one with live work — belt-and-suspenders on top of the
+        // ReleaseInactiveChatState guard, since this can run after an await hop.
+        if (CurrentChat?.Id == chat.Id || IsChatRuntimeActive(chat.Id))
+            return;
+
+        // Only safe when the messages are durably on disk and unchanged since we persisted them.
+        if (!_dataStore.Data.Settings.AutoSaveChats)
+            return;
+        if (expectedMessageCount >= 0 && chat.Messages.Count != expectedMessageCount)
+            return;
+        if (!_dataStore.HasStoredMessages(chat.Id))
+            return;
+
+        chat.MessageCount = chat.Messages.Count;
+        chat.Messages.Clear();
+        chat.Messages.TrimExcess();
     }
 
     /// <summary>
