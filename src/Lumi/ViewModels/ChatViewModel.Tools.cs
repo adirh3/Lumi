@@ -81,6 +81,13 @@ public partial class ChatViewModel
     private readonly HashSet<Guid> _pendingSessionInvalidations = [];
     private LumiFeatureManager FeatureManager => _lumiFeatureManager ??= new LumiFeatureManager(_dataStore);
 
+    /// <summary>
+    /// Chat-orchestration backend that powers the <c>manage_chats</c> tool (create/list/status/send).
+    /// Injected by <see cref="ChatSessionStore"/> when a surface is created; null on standalone surfaces
+    /// (e.g. unit tests), in which case the tool is simply not exposed.
+    /// </summary>
+    internal ChatOrchestrationService? OrchestrationService { get; set; }
+
     private ChatHistoryService? _chatHistoryService;
     private ChatHistoryService ChatHistory => _chatHistoryService ??= new ChatHistoryService(_dataStore, _globalSearchService);
 
@@ -237,6 +244,9 @@ public partial class ChatViewModel
 
     /// <summary>Raised when a browser tool requests the browser panel to be visible. Carries the chat ID.</summary>
     public event Action<Guid>? BrowserShowRequested;
+
+    /// <summary>Raised when a manage_chats tool card requests opening its linked chat.</summary>
+    public event Action<Guid>? OpenChatRequested;
 
     /// <summary>True if browser tools have been used in the current session.</summary>
     [ObservableProperty] bool _hasUsedBrowser;
@@ -602,8 +612,8 @@ public partial class ChatViewModel
 
     private List<AIFunction> BuildLumiManagementTools(Guid chatId)
     {
-        return
-        [
+        var tools = new List<AIFunction>
+        {
             AIFunctionFactory.Create(
                 async (
                     [Description("Action: list, create, update, or delete")] string action,
@@ -763,7 +773,81 @@ public partial class ChatViewModel
                 },
                 "read_chat",
                 "Read the full transcript of one of the user's past chats so you can recall exactly what was discussed. Accepts a chat id (preferred — get it from search_chats), an exact title, or a descriptive phrase (it will search and either open the clear match or return candidates to pick from). Returns a clean, role-labelled transcript windowed to the most recent messages. The header also reports the chat's workspace (git worktree path or project folder), additional context directories, any saved plan, active skills/MCP servers, and model/token usage — use the workspace path when the user wants you to act on that chat's files or uncommitted code (e.g. 'implement it like the uncommitted code in that chat'). Use after search_chats, or directly when the user names a specific chat."),
-        ];
+        };
+
+        // Chat orchestration ("Lumi as a manager") — only exposed when a real orchestration
+        // backend is wired in (production surfaces). Standalone surfaces (unit tests) omit it.
+        if (OrchestrationService is not null)
+            tools.Add(BuildManageChatsTool(chatId));
+
+        return tools;
+    }
+
+    private AIFunction BuildManageChatsTool(Guid chatId)
+    {
+        return AIFunctionFactory.Create(
+            async (
+                [Description("Action to perform: 'list' (all chats with live status), 'create' (start a new chat, optionally in a project/agent and with an initial message), 'send' (send a message to an existing chat), or 'status' (detailed progress of one chat).")] string action,
+                [Description("For 'send'/'status': the target chat id (preferred) or its exact title. Ignored for 'list'/'create'.")] string? identifier = null,
+                [Description("For 'create': the title of the new chat. Optional — a title is generated if omitted.")] string? title = null,
+                [Description("For 'create'/'send': the message to deliver to the chat. For 'create' this is the initial prompt (optional — omit to create an empty chat). For 'send' this is required.")] string? message = null,
+                [Description("For 'create': project id or exact name to place the chat in. Optional.")] string? project = null,
+                [Description("For 'create': Lumi agent id or exact name to run the chat as. Optional.")] string? agent = null,
+                [Description("For 'create': skill names or ids to attach to the chat. Optional.")] string[]? skills = null,
+                [Description("For 'create': model id override for the chat. Optional — defaults to the user's preferred model.")] string? model = null,
+                [Description("For 'create'/'send': when true, wait for the worker chat to finish its reply before returning (up to timeoutSeconds). When false (default), start the work in the background and return immediately so you can keep managing.")] bool wait = false,
+                [Description("For 'create'/'send' with wait=true: how long to wait, in seconds, before returning with a 'still running' note. Default 120, max 600.")] int? timeoutSeconds = null,
+                [Description("For 'status': how many recent messages to summarize (1-40, default 8). For 'list': ignored.")] int? maxMessages = null,
+                [Description("For 'list': optional text filter to match chat titles/projects.")] string? query = null,
+                [Description("For 'list': maximum number of chats to return (1-100, default 40).")] int? limit = null) =>
+            {
+                var svc = OrchestrationService;
+                if (svc is null)
+                    return "Chat orchestration is not available in this context.";
+
+                Guid? linkedId = null;
+                string? linkedTitle = null;
+                var result = await svc.ManageChatsAsync(
+                    action,
+                    identifier,
+                    title,
+                    message,
+                    project,
+                    agent,
+                    skills,
+                    model,
+                    wait,
+                    timeoutSeconds,
+                    maxMessages,
+                    query,
+                    limit,
+                    sourceChatId: chatId,
+                    onChatLinked: (id, chatTitle) => { linkedId = id; linkedTitle = chatTitle; },
+                    cancellationToken: GetCurrentCancellationToken());
+
+                if (linkedId is Guid lid)
+                {
+                    var capturedTitle = linkedTitle;
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        var chat = _dataStore.Data.Chats.Find(c => c.Id == chatId);
+                        var toolMsg = chat?.Messages.LastOrDefault(m => m.ToolName == "manage_chats" && m.LinkedChatId is null);
+                        if (toolMsg is null) return;
+                        toolMsg.LinkedChatId = lid;
+                        toolMsg.LinkedChatTitle = capturedTitle;
+                        if (CurrentChat?.Id == chatId)
+                        {
+                            var msgVm = Messages.LastOrDefault(mv => ReferenceEquals(mv.Message, toolMsg));
+                            msgVm?.NotifyLinkedChatChanged();
+                        }
+                    });
+                }
+
+                return result;
+            },
+            "manage_chats",
+            "Orchestrate other Lumi chats so you can act as a manager coordinating work across multiple chats and projects. Actions: 'list' shows every chat with live status (running/idle), last activity, unread and message counts; 'create' starts a brand-new chat (optionally inside a project, running as a specific Lumi agent, with skills and a model) and can kick off an initial message; 'send' delivers a message/instruction to an existing chat; 'status' reports the detailed progress of one chat (running state, latest assistant reply snippet, recent tool activity, counts). By default create/send run the target chat in the BACKGROUND and return immediately — the worker keeps going after your turn ends — so you can start several chats and check back with 'status' or 'list'. Set wait=true to block for the reply. Use this when the user asks you to spin up, delegate to, track, or coordinate multiple chats.",
+            Lumi.Models.AppDataJsonContext.Default.Options);
     }
 
     private async Task<string> ApplyFeatureChangeAsync(FeatureChangeResult result)

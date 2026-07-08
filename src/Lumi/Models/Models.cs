@@ -17,6 +17,8 @@ public class ChatMessage
     public string? ParentToolCallId { get; set; }
     public string? ToolStatus { get; set; } // InProgress, Completed, Failed, Stopped
     public string? ToolOutput { get; set; }
+    public Guid? LinkedChatId { get; set; }
+    public string? LinkedChatTitle { get; set; }
     public string? QuestionId { get; set; }
     public string? QuestionText { get; set; }
     public string? QuestionOptions { get; set; }

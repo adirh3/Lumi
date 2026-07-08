@@ -53,6 +53,7 @@ public static partial class ToolDisplayHelper
         "manage_lumis" => "✦",
         "manage_mcps" => "🔌",
         "manage_memories" => "🧠",
+        "manage_chats" => "🗂",
         "search_chats" or "read_chat" => "💬",
         "code_review" => "🔍",
         "generate_tests" => "🧪",
@@ -184,6 +185,17 @@ public static partial class ToolDisplayHelper
                 return ("Managing MCP servers", ExtractJsonField(argsJson, "action"));
             case "manage_memories":
                 return ("Managing memories", ExtractJsonField(argsJson, "action"));
+            case "manage_chats":
+            {
+                var action = ExtractJsonField(argsJson, "action");
+                var target = ExtractJsonField(argsJson, "title")
+                    ?? ExtractJsonField(argsJson, "identifier")
+                    ?? ExtractJsonField(argsJson, "query");
+                var info = string.IsNullOrWhiteSpace(target)
+                    ? action
+                    : string.IsNullOrWhiteSpace(action) ? target : $"{action}: {target}";
+                return ("Orchestrating chats", string.IsNullOrWhiteSpace(info) ? null : info);
+            }
             case "search_chats":
             {
                 var query = ExtractJsonField(argsJson, "query");

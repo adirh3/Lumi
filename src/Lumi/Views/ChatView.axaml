@@ -127,6 +127,31 @@
         </StackPanel>
       </Button>
     </DataTemplate>
+
+    <DataTemplate x:Key="LinkedChatChipTemplate" x:DataType="vm:LinkedChatChipItem">
+      <Button Theme="{StaticResource SkillChipButton}"
+              Name="LinkedChatChip"
+              Command="{Binding OpenCommand}"
+              Margin="0,0,6,6"
+              ToolTip.Tip="{loc:Str OpenChat}">
+        <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+          <Border Width="20" Height="20" CornerRadius="6"
+                  Background="{DynamicResource Brush.AccentSubtle}"
+                  VerticalAlignment="Center">
+            <PathIcon Width="11" Height="11"
+                      Foreground="{DynamicResource Brush.AccentDefault}"
+                      Data="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7l-4 3V6a2 2 0 0 1 2-2z" />
+          </Border>
+          <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
+                     Foreground="{DynamicResource Brush.TextPrimary}"
+                     VerticalAlignment="Center"
+                     TextTrimming="CharacterEllipsis" MaxWidth="220" />
+          <PathIcon Width="9" Height="9" VerticalAlignment="Center"
+                    Foreground="{DynamicResource Brush.TextTertiary}"
+                    Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z" />
+        </StackPanel>
+      </Button>
+    </DataTemplate>
   </UserControl.Resources>
 
   <UserControl.Styles>
@@ -724,6 +749,15 @@
       <ContentControl x:Name="SkillLoadedChip"
                       Content="{Binding Chip}"
                       ContentTemplate="{StaticResource SkillChipTemplate}"
+                      HorizontalAlignment="Left"
+                      Margin="0,2,0,2" />
+    </DataTemplate>
+
+    <!-- ── Linked-chat chip (inline when Lumi orchestrates a chat via manage_chats) ── -->
+    <DataTemplate DataType="vm:LinkedChatItem">
+      <ContentControl x:Name="LinkedChatChipHost"
+                      Content="{Binding Chip}"
+                      ContentTemplate="{StaticResource LinkedChatChipTemplate}"
                       HorizontalAlignment="Left"
                       Margin="0,2,0,2" />
     </DataTemplate>

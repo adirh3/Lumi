@@ -929,6 +929,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             resendFromMessageAction: ResendFromMessageAsync,
             openSkillAction: OpenSkillPreview,
             resolveSkill: name => FindSkillReferenceByName(name),
+            openChatAction: id => OpenChatRequested?.Invoke(id),
             getSelectedModel: () => SelectedModel);
         _transcriptBuilder.SetLiveTarget(_transcriptTurns);
         _transcriptWindow.BindTranscript(_transcriptTurns, "ctor");
@@ -2124,7 +2125,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return OwnsLiveChat(chatId);
     }
 
-    public async Task SendBackgroundJobMessageAsync(
+    public Task SendBackgroundJobMessageAsync(
         BackgroundJob job,
         string triggerContext,
         CancellationToken cancellationToken = default)
@@ -2133,6 +2134,27 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         var targetChat = _dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == job.ChatId)
             ?? throw new InvalidOperationException($"Background job chat not found: {job.ChatId}");
+
+        var prompt = BuildBackgroundJobPrompt(job, triggerContext);
+        return SendExternalMessageAsync(targetChat, prompt, $"Lumi Job - {job.Name}", cancellationToken);
+    }
+
+    /// <summary>
+    /// Sends an externally-authored message (a background job trigger, or an orchestrated instruction
+    /// from Lumi acting as a manager over another chat) to <paramref name="targetChat"/> and runs a full
+    /// turn, whether or not the chat is the currently displayed one. This is the shared, robust
+    /// target-chat send path: it loads the chat, ensures/recreates its Copilot session, tracks the
+    /// pending turn, and streams the response — updating the visible surface when the target chat is the
+    /// active one and marking it unread otherwise. <paramref name="author"/> labels the injected user
+    /// message so the transcript shows where it came from.
+    /// </summary>
+    public async Task SendExternalMessageAsync(
+        Chat targetChat,
+        string prompt,
+        string author,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(targetChat);
 
         if (IsChatBusy(targetChat.Id))
             throw new InvalidOperationException($"Chat \"{targetChat.Title}\" is already running.");
@@ -2163,12 +2185,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 targetChat.LastContextWindowTierUsed = targetTier;
         }
 
-        var prompt = BuildBackgroundJobPrompt(job, triggerContext);
         var userMsg = new ChatMessage
         {
             Role = "user",
             Content = prompt,
-            Author = $"Lumi Job - {job.Name}",
+            Author = author,
             ActiveSkills = BuildSkillReferences(targetChat.ActiveSkillIds)
         };
 
@@ -4497,6 +4518,8 @@ public partial class ChatMessageViewModel : ObservableObject
     [ObservableProperty] private string _content;
     [ObservableProperty] private bool _isStreaming;
     [ObservableProperty] private string? _toolStatus;
+    [ObservableProperty] private Guid? _linkedChatId;
+    [ObservableProperty] private string? _linkedChatTitle;
 
     public string Role => Message.Role;
     public string? Author => Message.Author;
@@ -4510,6 +4533,8 @@ public partial class ChatMessageViewModel : ObservableObject
         _content = message.Content;
         _isStreaming = message.IsStreaming;
         _toolStatus = message.ToolStatus;
+        _linkedChatId = message.LinkedChatId;
+        _linkedChatTitle = message.LinkedChatTitle;
     }
 
     public void NotifyContentChanged()
@@ -4526,5 +4551,11 @@ public partial class ChatMessageViewModel : ObservableObject
     public void NotifyToolStatusChanged()
     {
         ToolStatus = Message.ToolStatus;
+    }
+
+    public void NotifyLinkedChatChanged()
+    {
+        LinkedChatId = Message.LinkedChatId;
+        LinkedChatTitle = Message.LinkedChatTitle;
     }
 }

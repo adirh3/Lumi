@@ -143,6 +143,47 @@ public sealed class SkillLoadedItem : TranscriptItem
     }
 }
 
+// ── Linked-chat chip (clickable; opens a chat Lumi orchestrated via manage_chats) ──
+
+/// <summary>
+/// A chip representing a chat that Lumi created or messaged through the
+/// <c>manage_chats</c> orchestration tool. Clicking it opens that chat.
+/// Rendered as a first-class transcript pill (like a loaded-skill chip), so the
+/// affordance is always visible instead of buried inside the tool-call group.
+/// </summary>
+public partial class LinkedChatChipItem
+{
+    private readonly Action? _openAction;
+
+    public Guid ChatId { get; }
+    public string Title { get; }
+
+    public LinkedChatChipItem(Guid chatId, string title, Action? openAction)
+    {
+        ChatId = chatId;
+        Title = string.IsNullOrWhiteSpace(title) ? Loc.OpenChat : title;
+        _openAction = openAction;
+    }
+
+    [RelayCommand]
+    private void Open() => _openAction?.Invoke();
+}
+
+/// <summary>
+/// A turn-level item that renders a single linked-chat chip inline, at the point
+/// where Lumi orchestrated (created/messaged) another chat. Mirrors <see cref="SkillLoadedItem"/>.
+/// </summary>
+public sealed class LinkedChatItem : TranscriptItem
+{
+    public LinkedChatChipItem Chip { get; }
+
+    public LinkedChatItem(LinkedChatChipItem chip, string? stableId = null)
+        : base(stableId ?? TranscriptIds.Create("linked-chat"))
+    {
+        Chip = chip;
+    }
+}
+
 // ── Background job wake event ──────────────────────────
 
 public sealed class JobWakeItem : TranscriptItem

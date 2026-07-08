@@ -70,6 +70,13 @@ public sealed class ChatSessionStore : IDisposable
     /// </summary>
     public event Action? SurfaceFeatureManagementStateChanged;
 
+    /// <summary>
+    /// The chat-orchestration backend shared with every surface this store creates, so any chat
+    /// (foreground, background, or detached) can drive the <c>manage_chats</c> tool. Set once by the
+    /// owner (MainViewModel) right after construction, before the first surface is acquired.
+    /// </summary>
+    public ChatOrchestrationService? OrchestrationService { get; set; }
+
     public ChatViewModel AcquireDraft(Guid? projectId, Action<ChatViewModel>? configure = null)
     {
         ThrowIfDisposed();
@@ -195,7 +202,8 @@ public sealed class ChatSessionStore : IDisposable
     {
         var surface = new ChatViewModel(_dataStore, _copilotService, _globalSearchService)
         {
-            SendWithEnter = _dataStore.Data.Settings.SendWithEnter
+            SendWithEnter = _dataStore.Data.Settings.SendWithEnter,
+            OrchestrationService = OrchestrationService
         };
         configure?.Invoke(surface);
         TrackSurface(surface);

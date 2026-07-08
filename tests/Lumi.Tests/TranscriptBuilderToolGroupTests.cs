@@ -750,8 +750,73 @@ public sealed class TranscriptBuilderToolGroupTests
         Assert.DoesNotContain(liveTurns.SelectMany(t => t.Items), i => i is SkillLoadedItem);
     }
 
-    private static TranscriptBuilder CreateBuilder(bool showToolCalls = true)
-        => new(CreateDataStore(showToolCalls), _ => { }, (_, _) => { }, (_, _) => Task.CompletedTask, () => null);
+    [Fact]
+    public void ProcessMessageToTranscript_ManageChatsLinkedChat_ShowsInlineOpenChatChip()
+    {
+        Guid? opened = null;
+        var builder = CreateBuilder(openChatAction: id => opened = id);
+        var liveTurns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(liveTurns);
+
+        var manageChats = CreateToolVm("tool-1", "manage_chats", "Completed", "{\"action\":\"create\",\"title\":\"Chip Worker\"}");
+        builder.ProcessMessageToTranscript(manageChats);
+
+        // The linked chat id/title is stamped asynchronously after the orchestration tool runs.
+        var linkedChatId = Guid.NewGuid();
+        manageChats.Message.LinkedChatId = linkedChatId;
+        manageChats.Message.LinkedChatTitle = "Chip Worker";
+        manageChats.NotifyLinkedChatChanged();
+
+        var chip = liveTurns.SelectMany(t => t.Items).OfType<LinkedChatItem>().Single();
+        Assert.Equal(linkedChatId, chip.Chip.ChatId);
+        Assert.Equal("Chip Worker", chip.Chip.Title);
+
+        chip.Chip.OpenCommand.Execute(null);
+        Assert.Equal(linkedChatId, opened);
+    }
+
+    [Fact]
+    public void Rebuild_ManageChatsLinkedChat_ShowsInlineOpenChatChip()
+    {
+        var builder = CreateBuilder();
+        var linkedChatId = Guid.NewGuid();
+
+        var manageChats = CreateToolVm("tool-1", "manage_chats", "Completed", "{\"action\":\"create\",\"title\":\"Chip Worker\"}");
+        manageChats.Message.LinkedChatId = linkedChatId;
+        manageChats.Message.LinkedChatTitle = "Chip Worker";
+
+        var turns = builder.Rebuild([manageChats]);
+
+        var chip = turns.SelectMany(t => t.Items).OfType<LinkedChatItem>().Single();
+        Assert.Equal(linkedChatId, chip.Chip.ChatId);
+        Assert.Equal("Chip Worker", chip.Chip.Title);
+    }
+
+    [Fact]
+    public void ProcessMessageToTranscript_ManageChatsLinkedChatChangedTwice_ShowsChipOnce()
+    {
+        var builder = CreateBuilder();
+        var liveTurns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(liveTurns);
+
+        var manageChats = CreateToolVm("tool-1", "manage_chats", "Completed", "{\"action\":\"create\",\"title\":\"Chip Worker\"}");
+        builder.ProcessMessageToTranscript(manageChats);
+
+        manageChats.Message.LinkedChatId = Guid.NewGuid();
+        manageChats.Message.LinkedChatTitle = "Chip Worker";
+        manageChats.NotifyLinkedChatChanged();
+
+        // A second stamp for the same tool call must not add a duplicate chip.
+        manageChats.Message.LinkedChatId = Guid.NewGuid();
+        manageChats.Message.LinkedChatTitle = "Chip Worker (renamed)";
+        manageChats.NotifyLinkedChatChanged();
+
+        Assert.Single(liveTurns.SelectMany(t => t.Items).OfType<LinkedChatItem>());
+    }
+
+    private static TranscriptBuilder CreateBuilder(bool showToolCalls = true, Action<Guid>? openChatAction = null)
+        => new(CreateDataStore(showToolCalls), _ => { }, (_, _) => { }, (_, _) => Task.CompletedTask, () => null,
+            openChatAction: openChatAction);
 
     private static void AssertCompactFinishedToolGroup(TranscriptItem item, int expectedToolCalls)
     {

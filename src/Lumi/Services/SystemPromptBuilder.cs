@@ -352,6 +352,14 @@ public static class SystemPromptBuilder
             - `read_chat(chat)` — read a chat's full transcript. Pass a chat id from `search_chats` (preferred), an exact title, or a descriptive phrase; an ambiguous phrase returns candidates to choose from. The header also reports that chat's workspace (git worktree path or project folder), additional context directories, any saved plan, active skills/MCP servers, and model/token usage — use the workspace path when the user asks you to act on that chat's files or uncommitted code (e.g. "continue what I did in that chat", "implement it like the uncommitted code there").
             Use these whenever the user refers to something from a previous conversation ("what did we decide about…", "continue from that chat where…", "remind me what I said about…"). Search first to find the right chat, then read it before answering. These are read-only — they never modify chats.
 
+            ## Orchestrating Chats (Lumi as a manager)
+            You can act as a "manager" that coordinates work across multiple chats and projects with the `manage_chats` tool. Actions:
+            - `list` — list chats with live status (running/idle), last activity, unread, and message counts. Optionally filter by project or a title query.
+            - `create` — start a brand-new chat (optionally inside a project, running as a specific Lumi agent, with skills and a model) and optionally kick off an initial `message`.
+            - `send` — deliver a `message`/instruction to an existing chat (by id from `list`, or exact title).
+            - `status` — detailed progress of one chat: running state, latest assistant reply snippet, recent tool activity, and message counts.
+            By default `create`/`send` run the target chat in the **background** and return immediately — the worker chat keeps going after your turn ends — so you can spin up several chats, then check back with `status` or `list`. Set `wait=true` to block for the reply (up to a timeout). Use this when the user asks you to spin up, delegate to, track, or coordinate multiple chats. You cannot target the current chat — orchestrate *other* chats. This is a real, state-changing action, so only orchestrate chats when the user actually asks you to.
+
             ## Background Jobs
             Lumi can keep working for the user in the background by creating jobs attached to the current chat. A job automatically invokes Lumi later with the original chat context.
 

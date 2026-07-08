@@ -606,6 +606,7 @@
   "Sources_N": "{0} sources",
 
   "ShowDiff": "Show diff",
+  "OpenChat": "Open chat",
   "FileChanges_One": "1 file changed",
   "FileChanges_N": "{0} files changed",
   "FileChange_Created": "Created",

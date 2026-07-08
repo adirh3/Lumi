@@ -17,6 +17,7 @@ public class TranscriptBuilder
 {
     private readonly DataStore _dataStore;
     private readonly Action<FileChangeItem> _showDiffAction;
+    private readonly Action<Guid>? _openChatAction;
     private readonly Action<string, string> _submitQuestionAnswerAction;
     private readonly Func<ChatMessage, bool, Task> _resendFromMessageAction;
     private readonly Action<SkillReference>? _openSkillAction;
@@ -54,6 +55,7 @@ public class TranscriptBuilder
 
     public HashSet<string> ShownFileChips { get; } = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _shownSkillNames = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _shownLinkedChatKeys = new(StringComparer.Ordinal);
     private PlanCardItem? _pendingPlanCard;
     private string? _pendingModelName;
 
@@ -76,7 +78,8 @@ public class TranscriptBuilder
         Func<ChatMessage, bool, Task> resendFromMessageAction,
         Func<string?> getSelectedModel,
         Action<SkillReference>? openSkillAction = null,
-        Func<string, SkillReference?>? resolveSkill = null)
+        Func<string, SkillReference?>? resolveSkill = null,
+        Action<Guid>? openChatAction = null)
     {
         _dataStore = dataStore;
         _showDiffAction = showDiffAction;
@@ -85,6 +88,7 @@ public class TranscriptBuilder
         _getSelectedModel = getSelectedModel;
         _openSkillAction = openSkillAction;
         _resolveSkill = resolveSkill;
+        _openChatAction = openChatAction;
     }
 
     /// <summary>
@@ -190,6 +194,7 @@ public class TranscriptBuilder
         _pendingWorkspaceFileChanges.Clear();
         ShownFileChips.Clear();
         _shownSkillNames.Clear();
+        _shownLinkedChatKeys.Clear();
     }
 
     private static StrataAiToolCallStatus MapToolStatus(string? status)
@@ -547,6 +552,11 @@ public class TranscriptBuilder
             PropertyChangedEventHandler? handler = null;
             handler = (_, args) =>
             {
+                if (args.PropertyName == nameof(ChatMessageViewModel.LinkedChatId))
+                {
+                    TryEmitLinkedChatChip(msgVm);
+                    return;
+                }
                 if (args.PropertyName != nameof(ChatMessageViewModel.ToolStatus))
                     return;
 
@@ -591,6 +601,34 @@ public class TranscriptBuilder
         UpdateToolGroupLabel();
         if (shouldFlushLateFileEdit && diffs.Count > 0)
             FlushPendingFileEdits();
+
+        // Surface the linked-chat chip for any message that already carries a LinkedChatId at
+        // process time — rebuilds replaying persisted history, or a stamp that landed before the
+        // card was built. The live PropertyChanged hook above covers the async-arrival case; the
+        // per-tool-call de-dup guarantees exactly one chip regardless of which path fires first.
+        TryEmitLinkedChatChip(msgVm);
+    }
+
+    /// <summary>
+    /// Surfaces a chat that Lumi created or messaged via <c>manage_chats</c> as a first-class
+    /// transcript chip (like a loaded-skill chip), placed after the current tool group so the
+    /// "open chat" affordance is always visible instead of buried inside a collapsed tool card.
+    /// De-duplicated per tool call so it renders exactly once across the async live stamp and any
+    /// later transcript rebuild.
+    /// </summary>
+    private void TryEmitLinkedChatChip(ChatMessageViewModel msgVm)
+    {
+        if (msgVm.Message.LinkedChatId is not Guid chatId)
+            return;
+
+        var key = msgVm.Message.ToolCallId ?? msgVm.Message.Id.ToString();
+        if (!_shownLinkedChatKeys.Add(key))
+            return;
+
+        var chip = new LinkedChatChipItem(chatId, msgVm.Message.LinkedChatTitle ?? string.Empty,
+            () => _openChatAction?.Invoke(chatId));
+        CloseCurrentToolGroup();
+        AppendToCurrentTurn(new LinkedChatItem(chip), TurnStableIdFor($"linked-chat:{key}"));
     }
 
     private static string? BuildToolCallMoreInfo(
