@@ -7,14 +7,29 @@ namespace Lumi.Tests;
 public sealed class UnixShellPathTests
 {
     [Fact]
-    public void Combine_LoginShellEntriesComeFirst_ThenCurrent_ThenExtras()
+    public void Combine_CurrentPathComesFirst_ThenLoginShell_ThenExtras()
     {
         var result = UnixShellPath.Combine(
             loginShellPath: "/opt/homebrew/bin:/usr/bin",
             currentPath: "/usr/bin:/bin",
             extraDirectories: ["/usr/local/bin"]);
 
-        Assert.Equal("/opt/homebrew/bin:/usr/bin:/bin:/usr/local/bin", result);
+        // Current PATH first (purely additive), then login-shell-only entries, then fallback dirs.
+        Assert.Equal("/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin", result);
+    }
+
+    [Fact]
+    public void Combine_IsAdditive_NeverShadowsAnEntryAlreadyInCurrentPath()
+    {
+        // A directory the user intentionally put first in PATH (e.g. a venv or direnv shim) must stay
+        // first — the login-shell PATH may only append directories that were otherwise missing, so a
+        // command that already resolves keeps resolving to the same binary.
+        var result = UnixShellPath.Combine(
+            loginShellPath: "/opt/homebrew/bin:/usr/bin:/bin",
+            currentPath: "/my/venv/bin:/usr/bin",
+            extraDirectories: []);
+
+        Assert.Equal("/my/venv/bin:/usr/bin:/opt/homebrew/bin:/bin", result);
     }
 
     [Fact]
@@ -25,7 +40,7 @@ public sealed class UnixShellPathTests
             currentPath: "/usr/bin:/opt/homebrew/bin:/bin",
             extraDirectories: ["/usr/bin", "/snap/bin"]);
 
-        Assert.Equal("/opt/homebrew/bin:/usr/bin:/bin:/snap/bin", result);
+        Assert.Equal("/usr/bin:/opt/homebrew/bin:/bin:/snap/bin", result);
     }
 
     [Fact]

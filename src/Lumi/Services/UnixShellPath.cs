@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Lumi.Services;
 
@@ -25,12 +27,29 @@ namespace Lumi.Services;
 /// </summary>
 internal static class UnixShellPath
 {
-    private static readonly object Gate = new();
-    private static string? _cachedLoginShellPath;
-    private static bool _loginShellProbed;
+    private static readonly Lazy<string?> LoginShellPath =
+        new(ProbeLoginShellPath, LazyThreadSafetyMode.ExecutionAndPublication);
 
     private const string PathStartMarker = "__LUMI_PATH_START__";
     private const string PathEndMarker = "__LUMI_PATH_END__";
+    private const int ProbeTimeoutMs = 4000;
+
+    /// <summary>
+    /// Warms the login-shell PATH probe on a background thread so the first real consumer — which may be
+    /// on the UI thread (e.g. "Open in IDE") — reads the cached value instead of paying the shell-startup
+    /// cost or, worse, the probe's worst-case timeout. No-op on Windows, and safe to call more than once.
+    /// Fire once at app startup.
+    /// </summary>
+    public static void Prewarm()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        ThreadPool.QueueUserWorkItem(static _ =>
+        {
+            try { _ = LoginShellPath.Value; } catch { /* probe already swallows; belt-and-suspenders */ }
+        });
+    }
 
     /// <summary>
     /// Returns <paramref name="currentPath"/> augmented with the login-shell PATH and common tool
@@ -63,9 +82,11 @@ internal static class UnixShellPath
     }
 
     /// <summary>
-    /// Pure union of PATH sources, order-preserving and de-duplicated: login-shell entries first, then
-    /// the current PATH, then the extra fallback directories. Exposed for unit testing (the OS-gated
-    /// <see cref="Augment"/> feeds it the live values).
+    /// Pure union of PATH sources, order-preserving and de-duplicated: the current PATH first, then the
+    /// login-shell entries, then the extra fallback directories. Current-first keeps augmentation purely
+    /// additive — a command that already resolves keeps resolving to the same binary, and the login-shell
+    /// PATH / fallback dirs only contribute directories that were otherwise missing. Exposed for unit
+    /// testing (the OS-gated <see cref="Augment"/> feeds it the live values).
     /// </summary>
     internal static string Combine(string? loginShellPath, string? currentPath, IEnumerable<string> extraDirectories)
     {
@@ -84,8 +105,8 @@ internal static class UnixShellPath
             }
         }
 
-        AddEntries(loginShellPath);
         AddEntries(currentPath);
+        AddEntries(loginShellPath);
         foreach (var dir in extraDirectories)
         {
             if (!string.IsNullOrWhiteSpace(dir) && seen.Add(dir))
@@ -95,18 +116,7 @@ internal static class UnixShellPath
         return string.Join(':', ordered);
     }
 
-    private static string? GetLoginShellPath()
-    {
-        lock (Gate)
-        {
-            if (_loginShellProbed)
-                return _cachedLoginShellPath;
-
-            _loginShellProbed = true;
-            _cachedLoginShellPath = ProbeLoginShellPath();
-            return _cachedLoginShellPath;
-        }
-    }
+    private static string? GetLoginShellPath() => LoginShellPath.Value;
 
     private static string? ProbeLoginShellPath()
     {
@@ -134,16 +144,32 @@ internal static class UnixShellPath
             if (process is null)
                 return null;
 
-            // Ensure the interactive shell never blocks on stdin.
+            // Close stdin so an interactive shell can never block waiting for input.
             try { process.StandardInput.Close(); } catch { /* best-effort */ }
 
-            var stdout = process.StandardOutput.ReadToEnd();
-            if (!process.WaitForExit(4000))
+            // Drain BOTH pipes asynchronously and bound the wait. Reading stdout synchronously while
+            // stderr fills up can deadlock (the shell blocks writing rc/MOTD banners to a full stderr
+            // pipe and never closes stdout), and a login shell that backgrounds a daemon can leak the
+            // stdout write handle so the pipe never reaches EOF even after the shell exits. A bounded
+            // Task.WhenAll + Kill guarantees this returns instead of hanging the caller (the probe can
+            // run on the UI thread the first time a PATH consumer like "Open in IDE" is used).
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+            var drained = Task.WhenAll(stdoutTask, stderrTask);
+
+            if (!drained.Wait(ProbeTimeoutMs))
             {
                 try { process.Kill(entireProcessTree: true); } catch { /* best-effort */ }
+                // After Kill the pipes EOF and the drain finishes; observe it so a late fault never
+                // surfaces as an unobserved task exception.
+                _ = drained.ContinueWith(static t => { _ = t.Exception; }, TaskScheduler.Default);
                 return null;
             }
 
+            // Streams hit EOF, so the shell has effectively finished; reap it quickly.
+            try { process.WaitForExit(500); } catch { /* best-effort */ }
+
+            var stdout = stdoutTask.Result;
             var start = stdout.IndexOf(PathStartMarker, StringComparison.Ordinal);
             var end = stdout.IndexOf(PathEndMarker, StringComparison.Ordinal);
             if (start < 0 || end < 0 || end <= start)

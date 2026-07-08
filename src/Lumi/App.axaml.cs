@@ -56,6 +56,10 @@ public partial class App : Application
 
             var copilotService = new CopilotService();
             _copilotService = copilotService;
+
+            // Warm the login-shell PATH probe off the UI thread so GUI-launched macOS/Linux builds
+            // resolve Homebrew/nvm tools without the first PATH consumer ever blocking. No-op on Windows.
+            UnixShellPath.Prewarm();
             var updateService = new UpdateService();
             _updateService = updateService;
             var updateShutdownCoordinator = new UpdateShutdownCoordinator();
