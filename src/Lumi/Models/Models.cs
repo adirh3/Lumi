@@ -34,6 +34,13 @@ public class SkillReference
     public string Name { get; set; } = "";
     public string Glyph { get; set; } = "\u26A1";
     public string Description { get; set; } = "";
+
+    /// <summary>
+    /// Full skill markdown as delivered by the SDK's <c>skill.invoked</c> event. Persisted on the
+    /// chip so the preview renders directly, without re-scanning the filesystem — which is the only
+    /// way builtin/plugin/remote skills (that have no reachable SKILL.md on this machine) resolve.
+    /// </summary>
+    public string? Content { get; set; }
 }
 
 public static class ModelContextWindowTiers
@@ -54,6 +61,8 @@ public class Chat : INotifyPropertyChanged
     private string _title = "New Chat";
     private bool _isRunning;
     private bool _hasUnreadMessages;
+    private bool _showProjectBadge;
+    private string? _projectBadgeText;
     private List<string> _activeExternalSkillNames = [];
     private List<string> _followUpSuggestions = [];
 
@@ -142,6 +151,22 @@ public class Chat : INotifyPropertyChanged
     {
         get => _hasUnreadMessages;
         set { if (_hasUnreadMessages == value) return; _hasUnreadMessages = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasUnreadMessages))); }
+    }
+
+    /// <summary>Runtime-only: whether the sidebar should show this chat's project folder badge (only in the "All projects" view).</summary>
+    [JsonIgnore]
+    public bool ShowProjectBadge
+    {
+        get => _showProjectBadge;
+        set { if (_showProjectBadge == value) return; _showProjectBadge = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowProjectBadge))); }
+    }
+
+    /// <summary>Runtime-only: display name of this chat's project, shown in the sidebar folder badge.</summary>
+    [JsonIgnore]
+    public string? ProjectBadgeText
+    {
+        get => _projectBadgeText;
+        set { if (_projectBadgeText == value) return; _projectBadgeText = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ProjectBadgeText))); }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

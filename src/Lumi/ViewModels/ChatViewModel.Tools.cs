@@ -260,6 +260,41 @@ public partial class ChatViewModel
             BrowserShowRequested?.Invoke(CurrentChat.Id);
     }
 
+    /// <summary>
+    /// Re-establishes the browser panel state for the active chat when this surface is shown.
+    /// Chat surfaces are pooled and reused (see <see cref="ChatSessionStore"/>); returning to a cached
+    /// surface skips <c>LoadChatAsync</c>, which is the only other place that re-raises the browser
+    /// auto-show. The panel is only re-shown when the browser was actually <see cref="IsBrowserOpen"/>
+    /// when the user left: a live browser service outlives a closed panel, so returning to a chat whose
+    /// browser was closed (or whose browser task finished and was dismissed) must NOT reopen it.
+    /// Otherwise the stale "open" state is cleared and the panel kept hidden so the toggle button starts
+    /// consistent. Mirrors the browser block in <c>LoadChatAsync</c> so cached and freshly-loaded returns
+    /// behave identically.
+    /// </summary>
+    public void RestoreBrowserPanelForActiveChat()
+    {
+        if (CurrentChat?.Id is not Guid chatId)
+            return;
+
+        var hasBrowser = _chatBrowserServices.ContainsKey(chatId);
+        HasUsedBrowser = hasBrowser;
+
+        // Only auto-restore the panel if the browser was still open when the user left this chat.
+        // A live browser service can outlive a closed panel (the user closed it, or a browser task
+        // finished and they dismissed it), so gate on IsBrowserOpen rather than merely "has a service".
+        if (hasBrowser && IsBrowserOpen)
+        {
+            BrowserShowRequested?.Invoke(chatId);
+        }
+        else
+        {
+            // Browser is closed (or never used): clear any stale "open" state so the panel is hidden and
+            // the toggle button (when shown) starts from a clean state.
+            IsBrowserOpen = false;
+            BrowserHideRequested?.Invoke();
+        }
+    }
+
     /// <summary>True when the diff preview panel is currently visible.</summary>
     [ObservableProperty] bool _isDiffOpen;
 

@@ -33,6 +33,11 @@ public class TranscriptBuilder
     private TranscriptTurn? _typingTurn;
     private TranscriptTurn? _currentTurn;
     private readonly Dictionary<string, TerminalPreviewItem> _terminalPreviewsByToolCallId = new(StringComparer.Ordinal);
+    // Async shells still running in the background (root tool-call id → authoritative start time),
+    // supplied by the ChatViewModel before each Rebuild so a rebuilt terminal card is recreated
+    // already in its running state (visible, expanded, correct elapsed clock) instead of flashing
+    // "completed"/folding into a summary until the background monitor rediscovers it.
+    private readonly Dictionary<string, DateTimeOffset> _knownRunningBackgroundShells = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string?> _toolParentById = new(StringComparer.Ordinal);
     private readonly Dictionary<string, SubagentToolCallItem> _subagentsByToolCallId = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _toolStartTimes = [];
@@ -450,6 +455,15 @@ public class TranscriptBuilder
                 Output = msgVm.Message.ToolOutput ?? string.Empty,
                 IsExpanded = !IsRebuildingTranscript,
             };
+            // Rebuilt while this async shell is still running in the background: recreate the card
+            // already running (kept visible + expanded, anchored to the shell's real start time) so a
+            // chat switch doesn't fold it into a "finished" summary or reset its elapsed clock.
+            if (toolCallId is not null && _knownRunningBackgroundShells.TryGetValue(toolCallId, out var knownStartedUtc))
+            {
+                termPreview.IsRunningInBackground = true;
+                termPreview.BackgroundStartedUtc = knownStartedUtc;
+                termPreview.IsExpanded = true;
+            }
             if (toolCallId is not null)
                 _terminalPreviewsByToolCallId[toolCallId] = termPreview;
 
@@ -1325,11 +1339,17 @@ public class TranscriptBuilder
             UpdateToolGroupLabel();
 
             var hasRunningTool = _currentToolGroup.IsActive;
-            var canFlattenSingleTool = _currentToolGroupCount == 1 && !hasRunningTool
+            // A terminal whose async shell is still running in the background must NOT flatten to a
+            // "finished" pill — keep it in the tool group so it renders as a live terminal card.
+            var hasBackgroundShell = _currentToolGroup.ToolCalls.Any(static t => t is TerminalPreviewItem { IsRunningInBackground: true });
+            var canFlattenSingleTool = _currentToolGroupCount == 1 && !hasRunningTool && !hasBackgroundShell
                 && _currentToolGroup.ToolCalls.Count == 1;
 
             _currentToolGroup.StreamingSummary = null;
-            _currentToolGroup.IsExpanded = false;
+            // A background-shell group must stay expanded so its live terminal card remains visible;
+            // collapsing here would hide the still-running process behind a static "Working…" pill and
+            // nothing would re-expand it (the monitor only refreshes the group when the flag flips).
+            _currentToolGroup.IsExpanded = hasBackgroundShell;
 
             if (canFlattenSingleTool && target is not null)
             {
@@ -1345,7 +1365,11 @@ public class TranscriptBuilder
         _currentTodoProgress = null;
         _todoUpdateCount = 0;
         _currentIntentText = null;
-        _terminalPreviewsByToolCallId.Clear();
+        // Deliberately DO NOT clear _terminalPreviewsByToolCallId here: an async shell can outlive its
+        // tool call (and its group can flatten to a pill or be rebuilt), yet the background-shell monitor
+        // must still resolve the live terminal card — by tool-call id or by command — after the group
+        // closes and even after a full transcript rebuild. The map is bounded by the transcript's
+        // terminal count and is reset in ResetState() at the start of each Rebuild().
         // Keep _toolParentById and _subagentsByToolCallId alive across tool groups
         // so late-arriving child tools can still be nested under their parent subagent.
         // These maps are only cleared in ResetState() at the start of Rebuild().
@@ -1423,7 +1447,11 @@ public class TranscriptBuilder
         }
 
         var intentText = isCurrent ? _currentIntentText : null;
-        var allDone = completedCount + failedCount == toolCount && toolCount > 0;
+        // A terminal card whose async shell is still running in the background keeps the group
+        // "active" even though the SDK tool call itself has completed — otherwise the group would
+        // collapse and hide the live process behind a "Finished" pill.
+        var hasBackgroundShell = group.ToolCalls.Any(static t => t is TerminalPreviewItem { IsRunningInBackground: true });
+        var allDone = !hasBackgroundShell && completedCount + failedCount == toolCount && toolCount > 0;
         if (allDone)
         {
             group.Label = intentText is not null
@@ -1460,6 +1488,8 @@ public class TranscriptBuilder
                 : string.Format(Loc.ToolGroup_MetaDone, completedCount, toolCount);
             if (IsRebuildingTranscript)
                 group.IsExpanded = false;
+            else if (hasBackgroundShell)
+                group.IsExpanded = true;
         }
 
         var genericProgress = toolCount > 0
@@ -1624,10 +1654,23 @@ public class TranscriptBuilder
     }
 
     private static bool IsSummaryEligibleBlock(TranscriptItem item)
-        => item is ToolGroupItem or ReasoningItem or SingleToolItem or SubagentToolCallItem or TurnSummaryItem;
+        => item is ToolGroupItem or ReasoningItem or SingleToolItem or SubagentToolCallItem or TurnSummaryItem
+           && !ContainsRunningBackgroundShell(item);
 
     private static bool IsActivityOnlySummaryEligibleBlock(TranscriptItem item)
-        => item is ToolGroupItem or ReasoningItem or SingleToolItem or TurnSummaryItem;
+        => item is ToolGroupItem or ReasoningItem or SingleToolItem or TurnSummaryItem
+           && !ContainsRunningBackgroundShell(item);
+
+    /// <summary>A tool block whose async shell is still running in the background must never be folded
+    /// into a compact turn summary — it would vanish behind a "Reasoned · N actions" line while the
+    /// process is still live. Excluding it here keeps the running terminal card visible on its own.</summary>
+    private static bool ContainsRunningBackgroundShell(TranscriptItem item)
+        => item switch
+        {
+            ToolGroupItem group => group.ToolCalls.Any(static t => t is TerminalPreviewItem { IsRunningInBackground: true }),
+            SingleToolItem single => single.Inner is TerminalPreviewItem { IsRunningInBackground: true },
+            _ => false,
+        };
 
     private static IEnumerable<TranscriptItem> ExpandSummaryBlock(TranscriptItem block)
     {
@@ -1844,6 +1887,121 @@ public class TranscriptBuilder
             target.Output = output;
         else if (!target.Output.EndsWith(output, StringComparison.Ordinal))
             target.Output = target.Output + "\n" + output;
+    }
+
+    /// <summary>
+    /// Marks (or clears) the "still running in the background" state on a terminal card whose async
+    /// shell outlives the tool call. While set, the card keeps its live running affordance and its
+    /// enclosing tool group stays expanded/visible so the process never looks finished prematurely.
+    /// When cleared, <paramref name="finalDurationMs"/> (if provided) becomes the card's real total
+    /// duration instead of the misleadingly-short tool-call launch time.
+    /// </summary>
+    public void SetTerminalRunningInBackground(string rootToolCallId, bool running, double? finalDurationMs = null, DateTimeOffset? startedUtc = null)
+    {
+        if (!_terminalPreviewsByToolCallId.TryGetValue(rootToolCallId, out var card))
+            return;
+
+        var changed = card.IsRunningInBackground != running;
+        card.IsRunningInBackground = running;
+
+        if (running)
+        {
+            // Anchor the elapsed clock to the shell's real start time so it survives control
+            // recreation (chat switch, virtualization) and manual collapse. Idempotent: the monitor
+            // passes the same StartedAt every poll, so the setter no-ops after the first.
+            if (startedUtc is { } s)
+                card.BackgroundStartedUtc = s;
+
+            // Auto-expand only on the transition into "running in background" — NOT on every poll —
+            // so a manual collapse by the user is respected instead of springing back open each tick.
+            if (changed)
+                card.IsExpanded = true;
+        }
+        else if (finalDurationMs is > 0)
+        {
+            card.DurationMs = finalDurationMs.Value;
+        }
+
+        if (changed)
+            RefreshOwningToolGroup(card);
+    }
+
+    /// <summary>Supplies the async shells still running in the background (root tool-call id →
+    /// authoritative start time) so the next <see cref="Rebuild"/> recreates their terminal cards
+    /// already in the running state. Called by the ChatViewModel from the chat's persisted runtime
+    /// state immediately before a rebuild.</summary>
+    public void SetKnownRunningBackgroundShells(IReadOnlyDictionary<string, DateTimeOffset> shells)
+    {
+        _knownRunningBackgroundShells.Clear();
+        foreach (var kvp in shells)
+            _knownRunningBackgroundShells[kvp.Key] = kvp.Value;
+    }
+
+    /// <summary>Finds the tool-call id of a live terminal card whose command matches, so the
+    /// background-shell monitor can map an SDK shell task back to its transcript card. Ids in
+    /// <paramref name="exclude"/> are skipped so several concurrent shells with identical command text
+    /// each bind to a distinct card instead of all collapsing onto the newest match.</summary>
+    public string? FindTerminalToolCallIdByCommand(string command, IReadOnlySet<string>? exclude = null)
+    {
+        if (string.IsNullOrWhiteSpace(command))
+            return null;
+
+        var trimmed = command.Trim();
+        string? match = null;
+        // Prefer the most recently created terminal with this command: entries are inserted in
+        // transcript order and never removed between rebuilds, so the last match is the newest shell.
+        foreach (var (toolCallId, card) in _terminalPreviewsByToolCallId)
+        {
+            if (exclude is not null && exclude.Contains(toolCallId))
+                continue;
+            if (string.Equals(card.Command?.Trim(), trimmed, StringComparison.Ordinal))
+                match = toolCallId;
+        }
+
+        return match;
+    }
+
+
+    private void RefreshOwningToolGroup(ToolCallItemBase card)
+    {
+        var turns = GetTurnTarget();
+        if (turns is null)
+            return;
+
+        var running = card is TerminalPreviewItem { IsRunningInBackground: true };
+
+        foreach (var turn in turns)
+        {
+            var items = turn.Items;
+            for (var i = 0; i < items.Count; i++)
+            {
+                switch (items[i])
+                {
+                    case ToolGroupItem group when group.ToolCalls.Contains(card):
+                        UpdateToolGroupState(group);
+                        return;
+
+                    // A single completed tool is flattened to a compact pill that renders its terminal
+                    // output as static text — it can't host the live terminal card. While the shell is
+                    // still running in the background, promote it back into an expanded tool group so it
+                    // renders as a real StrataTerminalPreview (amber state + live clock + output tail).
+                    case SingleToolItem single when ReferenceEquals(single.Inner, card):
+                        if (running)
+                        {
+                            var promoted = new ToolGroupItem(Loc.ToolGroup_Working, $"tool-group:{card.StableId}")
+                            {
+                                IsActive = true,
+                                IsExpanded = true,
+                                Source = single.Source,
+                            };
+                            promoted.ToolCalls.Add(card);
+                            items[i] = promoted;
+                            UpdateToolGroupState(promoted);
+                        }
+                        return;
+                }
+            }
+        }
     }
 
     public void AddQuestionToTranscript(string questionId, string question, IList<string> optionsList, bool allowFreeText, bool allowMultiSelect = false)

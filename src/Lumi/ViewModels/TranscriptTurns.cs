@@ -510,3 +510,43 @@ public sealed class TranscriptTurnControl : UserControl
         _isSubscribedToTurnItems = false;
     }
 }
+
+/// <summary>
+/// The transcript's <see cref="ItemsControl"/>. Exposes a single automation LEAF (reports no
+/// children) so that an active UI Automation client which repeatedly walks the tree while the
+/// transcript streams and rebuilds can never descend into the churning turn/message controls.
+/// <para>
+/// Pruning each <see cref="TranscriptTurnControl"/> to a leaf is not sufficient on its own: an
+/// <c>ItemsControl</c>'s default <c>ItemsControlAutomationPeer</c> creates per-item wrapper peers
+/// that enumerate the item container's visual children directly, so a UIA walk still materialises
+/// managed <c>AutomationPeer</c>s plus Win32 <c>AutomationNode</c>s for the turn containers and
+/// their message content. Avalonia (12.0.5) never releases those peers/nodes once the controls are
+/// recycled on the next rebuild — they stay pinned by native UIA COM wrappers and the static
+/// <c>AutomationPeer → AutomationNode</c> <c>ConditionalWeakTable</c> — so they accumulate without
+/// bound, each pinning a whole detached message subtree and its render-thread composition visuals
+/// until the UI/render thread is starved (animations break, the nav menu stops compositing,
+/// everything slows). Because this container instance is STABLE across rebuilds (only its Items
+/// change), giving it a leaf peer means the walk only ever touches long-lived controls and creates
+/// zero per-cycle automation churn. The container keeps its <c>AutomationProperties</c> Name/HelpText
+/// so the transcript is still announced to assistive tech as a labelled region.
+/// </para>
+/// </summary>
+public sealed class TranscriptItemsControl : ItemsControl
+{
+    // Inherit the base ItemsControl control theme/template. Avalonia resolves a templated control's
+    // ControlTheme by its concrete style key, so without this the subclass would have no template,
+    // no ItemsPresenter, and the transcript would render blank.
+    protected override System.Type StyleKeyOverride => typeof(ItemsControl);
+
+    protected override AutomationPeer OnCreateAutomationPeer()
+        => new LeafAutomationPeer(this);
+
+    private sealed class LeafAutomationPeer : ControlAutomationPeer
+    {
+        public LeafAutomationPeer(Control owner) : base(owner)
+        {
+        }
+
+        protected override IReadOnlyList<AutomationPeer> GetChildrenCore() => [];
+    }
+}

@@ -111,6 +111,7 @@
   "Common_Cancel": "Cancel",
   "Common_Rename": "Rename",
   "Common_Clear": "Clear",
+  "Common_TryAgain": "↻ Try again",
 
   "Dialog_RenameChat": "Rename Chat",
   "Dialog_ChatTitle": "Chat title",
@@ -268,6 +269,7 @@
   "Status_Generating": "Generating\u2026",
   "Status_Reasoning": "Reasoning\u2026",
   "Status_Running": "Running {0}\u2026",
+  "Status_BackgroundRunning": "Running in background \u00b7 {0}",
   "Status_Stopped": "Stopped",
   "Status_NotConnected": "Not connected to GitHub Copilot. Retrying\u2026",
   "Status_CheckAccess": "Connection failed. Check your GitHub Copilot access.",
@@ -275,6 +277,7 @@
   "Status_ConnectionRecoveredRetry": "Connection to GitHub Copilot was lost. Lumi reconnected automatically and retried your message.",
   "Status_ConnectionRecoveryFailed": "Connection to GitHub Copilot was lost and Lumi couldn't reconnect automatically. Please restart Lumi.",
   "Status_TransientAuthRetry": "GitHub Copilot hit a temporary authentication error. You're still signed in — click Retry to continue.",
+  "Status_ImageRejectedReset": "GitHub Copilot couldn't process an image from an earlier step, which is blocking this chat. Click Retry and Lumi will rebuild the session from the conversation to continue.",
   "Status_Error": "Error: {0}",
   "Status_Compacting": "Compacting context\u2026",
   "Status_Truncated": "Context trimmed",

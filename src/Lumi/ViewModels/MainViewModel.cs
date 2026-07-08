@@ -426,6 +426,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ChatVM = surface;
         AttachChatViewModel(surface);
         ActiveChatId = surface.CurrentChat?.Id;
+        // Cached surfaces are reused without re-running LoadChatAsync, so re-establish the browser panel
+        // here (after ActiveChatId is set) to keep the toggle button working after switching chats.
+        surface.RestoreBrowserPanelForActiveChat();
         _chatSessionStore.Release(previous);
     }
 
@@ -760,6 +763,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
         HasMoreChats = allOrdered.Count > _chatLoadLimit;
         var ordered = allOrdered.Take(_chatLoadLimit).ToList();
 
+        // Compute the project folder badge shown under each chat row. Badges only appear in the
+        // "All projects" view (no active project filter). Setting these observable properties lets
+        // the sidebar bind directly to each Chat, so the badge stays correct across virtualization,
+        // container recycling, and group reshuffles (e.g. a chat bumped into "Today" on send).
+        var showBadges = !SelectedProjectFilter.HasValue;
+        foreach (var chat in ordered)
+        {
+            var name = showBadges ? GetProjectName(chat.ProjectId) : null;
+            chat.ProjectBadgeText = name;
+            chat.ShowProjectBadge = name is not null;
+        }
+
         // Group by time period
         var now = DateTimeOffset.Now;
         var today = now.Date;
@@ -935,6 +950,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
 #if DEBUG
         ChatVM.LoadDebugTranscriptFixture();
+        SelectedNavIndex = 0;
+#endif
+    }
+
+    [RelayCommand]
+    private void OpenBackgroundShellHarness()
+    {
+#if DEBUG
+        ChatVM.LoadDebugBackgroundShellFixture();
         SelectedNavIndex = 0;
 #endif
     }
@@ -1125,8 +1149,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // parameter is a two-element array: [Chat, Project]
         if (parameter is object[] args && args.Length == 2 && args[0] is Chat chat && args[1] is Project project)
         {
+            if (chat.ProjectId == project.Id)
+                return;
+
             chat.ProjectId = project.Id;
             _dataStore.MarkChatChanged(chat);
+            // Refresh the live surface (which may null CopilotSessionId) BEFORE kicking off the save,
+            // so the persisted index snapshot captures a consistent {ProjectId, CopilotSessionId} pair.
+            NotifyProjectChangedForOpenSurfaces(chat);
             _ = _dataStore.SaveAsync();
             RefreshChatList();
         }
@@ -1135,11 +1165,26 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void RemoveChatFromProject(Chat? chat)
     {
-        if (chat is null) return;
+        if (chat is null || chat.ProjectId is null) return;
         chat.ProjectId = null;
         _dataStore.MarkChatChanged(chat);
+        NotifyProjectChangedForOpenSurfaces(chat);
         _ = _dataStore.SaveAsync();
         RefreshChatList();
+    }
+
+    /// <summary>
+    /// When a chat is moved between projects from the sidebar, any chat surface currently showing
+    /// that chat must resync its live project context (composer chip, system prompt/session,
+    /// working directory) — otherwise the open chat keeps the stale project until it's reopened.
+    /// </summary>
+    private void NotifyProjectChangedForOpenSurfaces(Chat chat)
+    {
+        _chatSessionStore.ApplyToSurfaces(surface =>
+        {
+            if (surface.CurrentChat is { } current && current.Id == chat.Id)
+                surface.OnCurrentChatProjectChangedExternally();
+        });
     }
 
     [RelayCommand(AllowConcurrentExecutions = true)]

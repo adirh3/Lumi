@@ -1,8 +1,10 @@
 #if DEBUG
 using System;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using Lumi.Localization;
 using Lumi.Models;
 
@@ -273,6 +275,160 @@ public partial class ChatViewModel
             3 => "`" + span.ToString().Trim() + "` ",
             _ => span.ToString(),
         };
+    }
+
+    // ---- Honest background-shell repro (Adir's "looks stuck" scenario) ---------------------------
+    // Deterministically reproduces the exact state that used to look stuck: the assistant's turn has
+    // ended, the powershell tool call reported "Completed" within a fraction of a second, yet the OS
+    // process it launched (mode: async) keeps running for a long time. With the fix, the terminal card
+    // stays honestly "Running in background" with a live ticking clock + streaming output tail, its
+    // tool group stays expanded, and the bottom line reads "Running in background · <elapsed>" instead
+    // of a generic "Generating…" spinner. No real Copilot/shell is involved, so it is instant and
+    // repeatable — perfect for inspecting the UX on demand. The state is driven live by a 1s timer.
+
+    private const string DebugBackgroundShellToolCallId = "debug-bgshell-root";
+
+    private DispatcherTimer? _debugBgShellTimer;
+    private DateTime _debugBgShellStartUtc;
+    private Guid _debugBgShellChatId;
+    private string? _debugBgShellToolCallId;
+    private readonly StringBuilder _debugBgShellOutput = new();
+    private int _debugBgShellTick;
+
+    public void LoadDebugBackgroundShellFixture()
+    {
+        DebugStopBackgroundShellFixture();
+        ClearChat();
+
+        BrowserHideRequested?.Invoke();
+        DiffHideRequested?.Invoke();
+        PlanHideRequested?.Invoke();
+        ClearSuggestions();
+
+        _pendingSkillInjections.Clear();
+        _activeExternalSkillNames.Clear();
+        ActiveSkillIds.Clear();
+        ActiveSkillChips.Clear();
+        ActiveMcpServerNames.Clear();
+        ActiveMcpChips.Clear();
+        PendingAttachments.Clear();
+        PendingAttachmentItems.Clear();
+
+        HasUsedBrowser = false;
+        IsBrowserOpen = false;
+        HasPlan = false;
+        ActiveAgent = null;
+        SelectedSdkAgentName = null;
+        SelectedAgentName = null;
+
+        var chat = new Chat { Title = "Background shell (debug)" };
+        chat.Messages.Add(new ChatMessage
+        {
+            Role = "user",
+            Content = "I'm doing a UI test for a long-running operation. Run a powershell script that "
+                + "waits 10 minutes and end your turn without stopping it.",
+        });
+        chat.Messages.Add(new ChatMessage
+        {
+            Role = "assistant",
+            Author = Loc.Author_Lumi,
+            Content = "Started a background process that runs for a while. It keeps going after my turn "
+                + "ends — you can watch its progress below, and I'll continue automatically once it finishes.",
+        });
+        chat.Messages.Add(new ChatMessage
+        {
+            Role = "tool",
+            ToolName = "powershell",
+            ToolStatus = "Completed",
+            ToolCallId = DebugBackgroundShellToolCallId,
+            Content = "{\"command\":\"Start-Sleep -Seconds 600\",\"mode\":\"async\","
+                + "\"description\":\"Wait 10 minutes without blocking the turn\"}",
+            ToolOutput = "Started background job (async). Process is running…",
+        });
+
+        var runtime = GetOrCreateRuntimeState(chat.Id);
+        MarkRuntimeActive(
+            runtime,
+            string.Format(Loc.Status_BackgroundRunning, FormatCompactElapsed(TimeSpan.Zero)),
+            isStreaming: false,
+            hasPendingBackgroundWork: true);
+
+        _isBulkLoadingMessages = true;
+        try
+        {
+            Messages.Clear();
+            foreach (var msg in chat.Messages)
+                Messages.Add(new ChatMessageViewModel(msg));
+
+            CurrentChat = chat;
+            PromptText = "";
+            ApplyDisplayedRuntimeState(runtime);
+            RebuildTranscript();
+        }
+        finally
+        {
+            _isBulkLoadingMessages = false;
+        }
+
+        RefreshProjectBadge();
+        RefreshAgentBadge();
+        RefreshComposerCatalogs();
+
+        // The fix under test: keep the terminal card honestly "running in background" even though its
+        // tool call already resolved to Completed. This drives the amber running state + live clock and
+        // keeps the enclosing tool group expanded so the work never looks finished prematurely.
+        _transcriptBuilder.SetTerminalRunningInBackground(DebugBackgroundShellToolCallId, true);
+
+        _debugBgShellChatId = chat.Id;
+        _debugBgShellToolCallId = DebugBackgroundShellToolCallId;
+        _debugBgShellStartUtc = DateTime.UtcNow;
+        _debugBgShellTick = 0;
+        _debugBgShellOutput.Clear();
+        _debugBgShellOutput.AppendLine("Started background job (async). Process is running…");
+        _transcriptBuilder.UpdateTerminalOutput(
+            DebugBackgroundShellToolCallId, _debugBgShellOutput.ToString().TrimEnd(), true);
+
+        _debugBgShellTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(1),
+        };
+        _debugBgShellTimer.Tick += (_, _) => DebugBackgroundShellTick();
+        _debugBgShellTimer.Start();
+
+        ScrollToEndRequested?.Invoke();
+    }
+
+    private void DebugBackgroundShellTick()
+    {
+        if (_debugBgShellToolCallId is null || CurrentChat?.Id != _debugBgShellChatId)
+        {
+            DebugStopBackgroundShellFixture();
+            return;
+        }
+
+        _debugBgShellTick++;
+        var elapsed = DateTime.UtcNow - _debugBgShellStartUtc;
+
+        StatusText = string.Format(Loc.Status_BackgroundRunning, FormatCompactElapsed(elapsed));
+
+        // Stream a fresh output line every couple of seconds so the card visibly "breathes".
+        if (_debugBgShellTick % 2 == 0)
+        {
+            _debugBgShellOutput.AppendLine(
+                $"[{FormatCompactElapsed(elapsed)}] still working… heartbeat {_debugBgShellTick / 2}");
+            _transcriptBuilder.UpdateTerminalOutput(
+                _debugBgShellToolCallId, _debugBgShellOutput.ToString().TrimEnd(), true);
+        }
+    }
+
+    public void DebugStopBackgroundShellFixture()
+    {
+        _debugBgShellTimer?.Stop();
+        _debugBgShellTimer = null;
+        _debugBgShellChatId = Guid.Empty;
+        _debugBgShellToolCallId = null;
+        _debugBgShellTick = 0;
+        _debugBgShellOutput.Clear();
     }
 }
 #endif

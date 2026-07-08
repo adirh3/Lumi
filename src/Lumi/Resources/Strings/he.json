@@ -111,6 +111,7 @@
   "Common_Cancel": "ביטול",
   "Common_Rename": "שינוי שם",
   "Common_Clear": "ניקוי",
+  "Common_TryAgain": "↻ נסה שוב",
 
   "Dialog_RenameChat": "שינוי שם צ׳אט",
   "Dialog_ChatTitle": "כותרת צ׳אט",
@@ -268,6 +269,7 @@
   "Status_Generating": "מייצר\u2026",
   "Status_Reasoning": "חושב\u2026",
   "Status_Running": "מריץ {0}\u2026",
+  "Status_BackgroundRunning": "רץ ברקע \u00b7 {0}",
   "Status_Stopped": "הופסק",
   "Status_NotConnected": "לא מחובר ל-GitHub Copilot. מנסה שוב\u2026",
   "Status_CheckAccess": "החיבור נכשל. בדוק את הגישה שלך ל-GitHub Copilot.",
@@ -275,6 +277,7 @@
   "Status_ConnectionRecoveredRetry": "החיבור ל-GitHub Copilot אבד. Lumi התחבר מחדש אוטומטית וניסה שוב את ההודעה שלך.",
   "Status_ConnectionRecoveryFailed": "החיבור ל-GitHub Copilot אבד ו-Lumi לא הצליח להתחבר מחדש אוטומטית. נא להפעיל מחדש את Lumi.",
   "Status_TransientAuthRetry": "ב-GitHub Copilot אירעה שגיאת אימות זמנית. אתה עדיין מחובר — לחץ נסה שוב כדי להמשיך.",
+  "Status_ImageRejectedReset": "‏GitHub Copilot לא הצליח לעבד תמונה משלב קודם, מה שחוסם את הצ׳אט הזה. ‏לחץ נסה שוב ו‑Lumi יבנה מחדש את הסשן מהשיחה כדי להמשיך.",
   "Status_Error": "שגיאה: {0}",
   "Status_Compacting": "דוחס הקשר\u2026",
   "Status_Truncated": "ההקשר קוצץ",

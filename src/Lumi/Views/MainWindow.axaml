@@ -682,9 +682,9 @@
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                           <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="models:Chat">
-                              <Panel Background="Transparent">
+                              <Panel Background="Transparent" DataContextChanged="OnChatRowDataContextChanged">
                                  <Panel.ContextMenu>
-                                   <ContextMenu x:CompileBindings="False">
+                                   <ContextMenu x:CompileBindings="False" Opening="OnChatContextMenuOpening">
                                      <MenuItem Header="{loc:Str Menu_Rename}"
                                                Command="{Binding $parent[Window].DataContext.StartRenameChatCommand}"
                                                CommandParameter="{Binding}">
@@ -705,14 +705,6 @@
                                          <PathIcon Data="{StaticResource Icon.Folder}" Width="14" Height="14" />
                                        </MenuItem.Icon>
                                      </MenuItem>
-                                     <MenuItem Header="{loc:Str Menu_RemoveFromProject}"
-                                               Command="{Binding $parent[Window].DataContext.RemoveChatFromProjectCommand}"
-                                              CommandParameter="{Binding}"
-                                              IsVisible="{Binding ProjectId, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                      <MenuItem.Icon>
-                                        <PathIcon Data="{StaticResource Icon.Folder}" Width="14" Height="14" />
-                                      </MenuItem.Icon>
-                                    </MenuItem>
                                     <Separator />
                                     <MenuItem Header="{loc:Str Menu_Delete}"
                                               Command="{Binding $parent[Window].DataContext.DeleteChatCommand}"
@@ -724,13 +716,30 @@
                                   </ContextMenu>
                                 </Panel.ContextMenu>
                                 <DockPanel>
-                                  <TextBlock DockPanel.Dock="Bottom"
-                                             x:Name="ProjectLabel"
-                                             FontSize="10"
-                                             Foreground="{DynamicResource Brush.AccentDefault}"
-                                             Opacity="0.7"
-                                             TextTrimming="CharacterEllipsis"
-                                             IsVisible="False" />
+                                  <Border DockPanel.Dock="Bottom"
+                                          x:Name="ProjectBadge"
+                                          IsVisible="{Binding ShowProjectBadge}"
+                                          ToolTip.Tip="{Binding ProjectBadgeText}"
+                                          HorizontalAlignment="Left"
+                                          MaxWidth="180"
+                                          Margin="0,5,0,1"
+                                          Padding="7,2,9,2"
+                                          CornerRadius="{DynamicResource Radius.Full}"
+                                          Background="{DynamicResource Brush.AccentSubtle}">
+                                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                      <PathIcon Data="{StaticResource Icon.Folder}"
+                                                Width="10" Height="10"
+                                                VerticalAlignment="Center"
+                                                Foreground="{DynamicResource Brush.AccentDefault}" />
+                                      <TextBlock x:Name="ProjectLabel"
+                                                 Text="{Binding ProjectBadgeText}"
+                                                 FontSize="10.5"
+                                                 FontWeight="Medium"
+                                                 VerticalAlignment="Center"
+                                                 Foreground="{DynamicResource Brush.AccentDefault}"
+                                                 TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                  </Border>
                                   <Border x:Name="UnreadIndicator" DockPanel.Dock="Left"
                                           Width="6" Height="6" CornerRadius="3"
                                           Background="{DynamicResource Brush.AccentDefault}"
@@ -1510,6 +1519,13 @@
             <Button Classes="accent"
                     Content="Open fixture"
                     Command="{Binding OpenAgentDebugHarnessCommand}"
+                    Padding="8,4"
+                    MinHeight="0"
+                    FontSize="11" />
+            <Button Name="BgShellFixtureButton"
+                    Content="Bg shell"
+                    Command="{Binding OpenBackgroundShellHarnessCommand}"
+                    ToolTip.Tip="Reproduce the honest 'running in background' state"
                     Padding="8,4"
                     MinHeight="0"
                     FontSize="11" />

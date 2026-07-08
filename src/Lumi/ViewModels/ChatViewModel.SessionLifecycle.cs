@@ -108,12 +108,42 @@ public partial class ChatViewModel
 
     /// <summary>Subscribes to events on a CopilotSession. Each subscription captures its own
     /// streaming state via closures and always updates the Chat model. UI updates are gated
-    /// on _activeSession so only the displayed chat's events touch the UI.</summary>
-    private void SubscribeToSession(CopilotSession session, Chat chat, string workDir)
+    /// on _activeSession so only the displayed chat's events touch the UI.
+    /// Returns <c>false</c> when this surface was disposed while the session was being
+    /// created/resumed: the incoming session is released (not subscribed) and callers must NOT
+    /// publish it as <c>_activeSession</c> or send on it.</summary>
+    private bool SubscribeToSession(CopilotSession session, Chat chat, string workDir)
     {
         // Dispose previous subscription for this chat (e.g., session was resumed)
         if (_sessionSubs.TryGetValue(chat.Id, out var oldSub))
             oldSub.Dispose();
+
+        // A resume/create for this chat can hand us a new CopilotSession object for a *different*
+        // server session than the one still cached here (the send guard only re-enters session setup
+        // when the cached handle's id no longer matches, and create assigns a brand-new id).
+        // Overwriting the cache entry would drop that old session WITHOUT sending session.destroy,
+        // orphaning its host process and MCP subprocesses forever — GC never reaps them because
+        // CopilotSession's finalizer only calls RemoveFromClient. Release it explicitly. We guard on
+        // the server id: a same-id handle shares the one server session (and its MCP) with the
+        // incoming one, so destroying it would tear down the session we are about to use.
+        if (_sessionCache.TryGetValue(chat.Id, out var previousSession)
+            && !ReferenceEquals(previousSession, session)
+            && !string.Equals(previousSession.SessionId, session.SessionId, StringComparison.Ordinal))
+        {
+            _sessionCache.Remove(chat.Id);
+            TrackSessionRelease(chat.Id, previousSession, deleteServerSession: false);
+        }
+
+        // This surface may have been disposed while the session was being created/resumed (the user
+        // switched away and the pool evicted us mid-await). Dispose() already swept _sessionCache, so
+        // caching now would strand this session: nothing would ever release it, leaking its MCP
+        // subprocesses. Release it immediately instead of subscribing.
+        if (_isDisposed)
+        {
+            TrackSessionRelease(chat.Id, session, deleteServerSession: false);
+            return false;
+        }
+
         _sessionCache[chat.Id] = session;
 
         // Per-session streaming state — captured by closure, independent per subscription
@@ -1037,6 +1067,15 @@ public partial class ChatViewModel
                                 _transcriptBuilder.UpdateTerminalOutput(rootToolCallId, output, true);
                                 QueueSaveChat(chat, saveIndex: false);
                             }
+
+                            // An async shell's tool call returns in a fraction of a second while the OS
+                            // process keeps running. Keep the card honestly "Running in background"
+                            // (instead of flipping to "Completed") and let the Tasks-API monitor track it.
+                            if (toolName == "powershell" && LooksLikeBackgroundShellArgs(toolMsg.Content))
+                            {
+                                var command = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "command") ?? string.Empty;
+                                TrackBackgroundShell(rootToolCallId, command);
+                            }
                         }
                     }
                     });
@@ -1184,7 +1223,10 @@ public partial class ChatViewModel
                         {
                             MarkRuntimeActive(runtime, isStreaming: false, hasPendingBackgroundWork: true);
                             if (IsDisplayedSession())
+                            {
+                                EnsureBackgroundShellMonitorRunning();
                                 ApplyDisplayedRuntimeState(runtime);
+                            }
                         });
                     }
                     break;
@@ -1205,6 +1247,11 @@ public partial class ChatViewModel
                         // In SDK 0.2.2+, session.idle is only emitted once background work is drained.
                         // Clearing IsBusy updates Chat.IsRunning, so keep it on the UI thread.
                         MarkRuntimeTerminal(runtime);
+
+                        // Session idle == all attached background work has drained, so any terminal
+                        // cards still shown "running in background" for this chat are now finished.
+                        if (shouldUpdateDisplayedChatUi)
+                            CompleteAllBackgroundShellsAndStop();
 
                         // Mark chat as unread if user is on a different chat
                         if (CurrentChat?.Id != chat.Id)
@@ -1308,7 +1355,32 @@ public partial class ChatViewModel
                             return;
                         }
 
-                        MarkRuntimeTerminal(runtime, string.Format(Loc.Status_Error, err.Data.Message));
+                        // Classify the terminal error. Anything that is NOT a hard auth / quota /
+                        // context / policy limit is recoverable by rebuilding the session from the
+                        // transcript AS TEXT, which safely drops any poisoned server-side history —
+                        // e.g. an image the backend refuses to process (a tool-result screenshot, an
+                        // attachment, …) re-sent on every turn that would otherwise brick the chat
+                        // forever, since there is no SDK API to remove a single asset. Arm a reset so
+                        // the next send (a new message OR the Retry button) rebuilds a fresh session;
+                        // arming here (not only in the displayed branch) recovers a background chat too.
+                        // Shared decision (identical logic to HandleSendError's). A structured
+                        // session.error carries HTTP status + errorType, so a fatal-by-type failure —
+                        // a genuine logout, or a content-policy image block whose message also says
+                        // "could not process image" — is correctly NOT recoverable and NOT shown the
+                        // image copy: the fatal verdict gates the image flag inside ClassifySendFailure.
+                        // Without that gate the recovery-implying copy (which carries no fatal keyword)
+                        // would be re-read as recoverable on reopen and dangle a false Retry.
+                        var (recoverable, isImageError) = CopilotService.ClassifySendFailure(
+                            err.Data.StatusCode, err.Data.ErrorType, err.Data.Message,
+                            hasTerminalOverride: false);
+                        var display = isImageError
+                            ? Loc.Status_ImageRejectedReset
+                            : string.Format(Loc.Status_Error, err.Data.Message);
+
+                        if (recoverable)
+                            _pendingSessionInvalidations.Add(chat.Id);
+
+                        MarkRuntimeTerminal(runtime, display);
                         if (shouldUpdateDisplayedChatUi)
                         {
                             // Clean up typing indicator and tool groups
@@ -1321,16 +1393,22 @@ public partial class ChatViewModel
                             IsBusy = runtime.IsBusy;
                             IsStreaming = runtime.IsStreaming;
 
-                            // Surface the error as a visible chat message
+                            // Surface the error as a visible chat message. Adding to Messages renders
+                            // it via the CollectionChanged handler (no explicit ProcessMessageToTranscript
+                            // — a second call here would render a duplicate error card).
                             var errorMsg = new ChatMessage
                             {
                                 Role = "error",
                                 Author = Loc.Author_Lumi,
-                                Content = string.Format(Loc.Status_Error, err.Data.Message)
+                                Content = display
                             };
                             chat.Messages.Add(errorMsg);
                             Messages.Add(new ChatMessageViewModel(errorMsg));
-                            _transcriptBuilder.ProcessMessageToTranscript(Messages[^1]);
+                            // Pass the authoritative (structured) recoverability decision: a
+                            // fatal-by-ErrorType error (e.g. a genuine logout) loses its type once
+                            // persisted as plain "Error: {message}", so the affordance must not
+                            // re-derive it from that lossy text and offer a false Retry.
+                            UpdateStuckChatRetryAffordance(recoverable);
                             ScrollToEndRequested?.Invoke();
                         }
                         QueueSaveChat(chat, saveIndex: false, releaseIfInactive: CurrentChat?.Id != chat.Id);
@@ -1732,7 +1810,10 @@ public partial class ChatViewModel
                         {
                             Name = skill?.Name ?? skillInvoked.Data.Name,
                             Glyph = skill?.Glyph ?? "\u26A1",
-                            Description = skill?.Description ?? string.Empty
+                            Description = !string.IsNullOrWhiteSpace(skillInvoked.Data.Description)
+                                ? skillInvoked.Data.Description
+                                : skill?.Description ?? string.Empty,
+                            Content = skillInvoked.Data.Content
                         });
                     }
                     });
@@ -1947,12 +2028,14 @@ public partial class ChatViewModel
             assistantStream,
             reasoningStream,
             new ActionDisposable(() => _copilotService.CliProcessExited -= OnCliProcessExited));
+        return true;
     }
 
     private static void MarkRuntimeTerminal(ChatRuntimeState runtime, string? statusText = null)
     {
         runtime.IsBusy = false;
         runtime.IsStreaming = false;
+        runtime.TurnInProgress = false;
         runtime.HasPendingBackgroundWork = false;
         runtime.ActiveSubagentExecutionDepth = 0;
         runtime.StatusText = statusText ?? string.Empty;
@@ -1968,6 +2051,15 @@ public partial class ChatViewModel
             ? string.IsNullOrWhiteSpace(runtime.StatusText) ? Loc.Status_Thinking : runtime.StatusText
             : statusText;
         runtime.IsStreaming = isStreaming;
+        // TurnInProgress is set true at exactly the same points IsStreaming is (turn initiation / an
+        // actively streaming turn), which makes it a strict superset of the old IsStreaming steer signal.
+        // But — unlike IsStreaming — it is only cleared at turn end / terminal. Mid-turn updates
+        // (compaction, sub-agent, background-task drain) and the post-turn keep-busy path all call this
+        // with isStreaming:false, so they must NOT touch TurnInProgress: mid-turn it stays true (keeping
+        // the turn steerable), and post-turn it stays false (already cleared by
+        // MarkRuntimeWaitingForSessionIdle, so steering correctly falls back to the queue).
+        if (isStreaming)
+            runtime.TurnInProgress = true;
         if (hasPendingBackgroundWork)
             runtime.HasPendingBackgroundWork = true;
         runtime.IsBusy = true;
@@ -1983,6 +2075,9 @@ public partial class ChatViewModel
     private static void MarkRuntimeWaitingForSessionIdle(ChatRuntimeState runtime)
     {
         runtime.IsStreaming = false;
+        // The assistant turn has ended; only background/idle draining may remain. Immediate steering
+        // cannot inject into a turn that already ended, so drop the "turn running" signal here.
+        runtime.TurnInProgress = false;
         if (ShouldKeepRuntimeBusyUntilSessionIdle(runtime))
         {
             MarkRuntimeActive(
@@ -2050,6 +2145,10 @@ public partial class ChatViewModel
     private void DetachSessionAfterRemoteShutdown(Chat chat, bool wasActive)
     {
         DisposeSessionSubscription(chat.Id);
+        // The session already ended server-side (SessionShutdownEvent), so its host runtime and MCP
+        // subprocesses are already reaped — dropping the handle here leaks nothing, and a destroy RPC
+        // would just fail. The persisted CopilotSessionId is intentionally kept so a later send can
+        // resume once the CLI/server recovers.
         _sessionCache.Remove(chat.Id);
         if (wasActive)
             _activeSession = null;
@@ -2059,6 +2158,11 @@ public partial class ChatViewModel
 
         if (CurrentChat?.Id == chat.Id)
         {
+            // Resolve any visible "Running in background" card and stop the 1.5s monitor. The card's
+            // own 1s elapsed clock ticks independently of the monitor, so merely dropping the session
+            // would leave the card counting up forever — CompleteAllBackgroundShellsAndStop flips
+            // IsRunningInBackground=false and clears this chat's running-shell map + timer.
+            CompleteAllBackgroundShellsAndStop();
             _transcriptBuilder.HideTypingIndicator();
             _transcriptBuilder.CloseCurrentToolGroup();
             _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
@@ -2103,7 +2207,10 @@ public partial class ChatViewModel
             sub.Dispose();
         _sessionSubs.Clear();
 
-        // Clear session cache (objects reference the dead client)
+        // Clear session cache: every cached session belongs to the OLD CLI process, which has died
+        // (that is why we are reconnecting). Its child MCP subprocesses died with it, and a destroy
+        // RPC can't be delivered over the dead connection anyway, so there is nothing to reap here —
+        // dropping the handles is correct. Persisted CopilotSessionIds remain resumable on the new client.
         _sessionCache.Clear();
         _activeSession = null;
 
@@ -2139,8 +2246,17 @@ public partial class ChatViewModel
             runtime.PostToolReconciliationCts?.Cancel();
             runtime.PostToolReconciliationCts?.Dispose();
             runtime.PostToolReconciliationCts = null;
+            // Every session died with the old CLI process, so no background shell can still be running;
+            // drop each chat's running-shell seed map so a later switch-back does not resurrect a stuck
+            // "Running in background" card (RebuildTranscript would otherwise re-seed from it).
+            runtime.RunningBackgroundShells.Clear();
             MarkRuntimeTerminal(runtime);
         }
+
+        // Resolve any visible running-background card on the current chat and stop the monitor timer
+        // (its card clock ticks independently of the session, so it must be flipped off, not just
+        // abandoned).
+        CompleteAllBackgroundShellsAndStop();
 
         _inProgressMessages.Clear();
 

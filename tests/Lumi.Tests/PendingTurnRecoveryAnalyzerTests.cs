@@ -288,6 +288,62 @@ public sealed class PendingTurnRecoveryAnalyzerTests
     }
 
     [Fact]
+    public void SelectEditTruncationTarget_MapsNthGenuineUserTurn()
+    {
+        var first = UserMessage("ping1");
+        var second = UserMessage("ping2");
+        var third = UserMessage("ping3");
+        var events = new SessionEvent[]
+        {
+            first, AssistantMessage("a1"),
+            second, AssistantMessage("a2"),
+            third, AssistantMessage("a3")
+        };
+
+        Assert.Same(first, PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget(events, 0));
+        Assert.Same(second, PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget(events, 1));
+        Assert.Same(third, PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget(events, 2));
+    }
+
+    [Fact]
+    public void SelectEditTruncationTarget_SkipsInjectedUserMessage_WhenEditingLaterTurn()
+    {
+        // Regression: the SDK/CLI injects a system-sourced user.message (empty content) inside
+        // the first turn. Editing the 3rd genuine turn must still target the 3rd genuine turn —
+        // not the 2nd — otherwise the injected event shifts the ordinal and truncation silently
+        // drops a real earlier message (ping2).
+        var ping1 = UserMessage("ping1");
+        var injected = InjectedUserMessage();
+        var ping2 = UserMessage("ping2");
+        var ping3 = UserMessage("ping3");
+        var events = new SessionEvent[]
+        {
+            ping1, injected, AssistantMessage("Pong!"),
+            ping2, AssistantMessage("Pong again!"),
+            ping3, AssistantMessage("Three for three")
+        };
+
+        Assert.Same(ping1, PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget(events, 0));
+        Assert.Same(ping2, PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget(events, 1));
+        Assert.Same(ping3, PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget(events, 2));
+    }
+
+    [Fact]
+    public void SelectEditTruncationTarget_ReturnsNull_WhenTurnsDoNotLineUp()
+    {
+        var events = new SessionEvent[]
+        {
+            UserMessage("only"),
+            InjectedUserMessage(),
+            AssistantMessage("a")
+        };
+
+        // Only one genuine user turn exists, so there is no 2nd (index 1) turn to truncate at.
+        Assert.Null(PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget(events, 1));
+        Assert.Null(PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget(events, -1));
+    }
+
+    [Fact]
     public void CountPersistedLogUserMessages_UsesSessionLocalHistory()
     {
         var lines = new[]
@@ -370,6 +426,16 @@ public sealed class PendingTurnRecoveryAnalyzerTests
             Data = new UserMessageData
             {
                 Content = content
+            }
+        };
+
+    private static UserMessageEvent InjectedUserMessage(string source = "system")
+        => new()
+        {
+            Data = new UserMessageData
+            {
+                Content = "",
+                Source = source
             }
         };
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -36,6 +37,16 @@ public sealed record ModelContextWindowCatalog(
     IReadOnlySet<string> LongContextModelIds,
     IReadOnlyDictionary<string, ModelContextWindowLimits> Limits);
 
+/// <summary>
+/// The outcome of classifying a failed send: whether it is <see cref="Recoverable"/> (abandon the
+/// poisoned session and rebuild from the transcript as text, offering Retry) and, when it is,
+/// whether the recovery copy should name an <see cref="IsImageError"/> (an image the backend could
+/// not process). Produced by <see cref="CopilotService.ClassifySendFailure"/> so BOTH failure entry
+/// points — the exception path (<c>HandleSendError</c>) and the structured <c>session.error</c> path
+/// (<c>SessionErrorEvent</c>) — reach an identical verdict from a single place.
+/// </summary>
+internal readonly record struct SendFailureClassification(bool Recoverable, bool IsImageError);
+
 public class CopilotService : IAsyncDisposable
 {
     private CopilotClient? _client;
@@ -51,6 +62,15 @@ public class CopilotService : IAsyncDisposable
     private IDisposable? _lifecycleSub;
     private CopilotSession? _suggestionSession;
     private readonly SemaphoreSlim _suggestionGate = new(1, 1);
+
+    // Tracks in-flight session releases keyed by SERVER SESSION ID, shared across every
+    // ChatViewModel surface. DisposeAsync sends session.destroy scoped to the session id but leaves
+    // it resumable, so a destroy started by one (e.g. disposed/evicted) surface can still be in
+    // flight when a *different* surface resumes the same id — and a late destroy would tear down the
+    // freshly resumed live session. ResumeSessionAsync awaits any matching pending release first,
+    // sequencing destroy-before-resume across surfaces. Concurrent because releases and resumes run
+    // from independent surfaces / continuations.
+    private readonly ConcurrentDictionary<string, Task> _pendingReleasesBySessionId = new(StringComparer.Ordinal);
 
     /// <summary>Fires after the CopilotClient has been replaced (reconnection).
     /// Consumers should discard any cached CopilotSession objects.</summary>
@@ -589,11 +609,116 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>Resumes an existing Copilot session by ID.</summary>
+    /// <remarks>
+    /// THREADING INVARIANT: callers are expected to be UI-thread-serialized with
+    /// <see cref="ReleaseSessionAsync"/> — Lumi drives all Copilot session lifecycle (create,
+    /// resume, release) on the Avalonia UI thread, which is also why <c>ChatViewModel._sessionCache</c>
+    /// and <c>_sessionReleaseTasks</c> can be plain (non-concurrent) dictionaries. That serialization
+    /// is what lets the destroy-before-resume gate below stay lock-free: on a single thread a release
+    /// publishes itself into <c>_pendingReleasesBySessionId</c> synchronously before returning, so a
+    /// later resume of the SAME id always observes the in-flight destroy and waits for it here. If
+    /// this is ever called concurrently with a release from a DIFFERENT thread, the registry alone
+    /// does not make check-then-resume atomic against a racing release — add per-session-id
+    /// serialization (e.g. a keyed SemaphoreSlim spanning both release and resume) at that point.
+    /// </remarks>
     public async Task<CopilotSession> ResumeSessionAsync(
         string sessionId, ResumeSessionConfig config, CancellationToken ct = default)
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
+        // Sequence destroy-before-resume across surfaces: if any surface is still releasing this
+        // exact server session, wait for that destroy to complete before resuming, otherwise the
+        // late destroy could reap the session we are about to hand back live.
+        await AwaitPendingReleaseAsync(sessionId, ct).ConfigureAwait(false);
         return await _client.ResumeSessionAsync(sessionId, config, ct);
+    }
+
+    /// <summary>
+    /// Releases a dropped session (sends <c>session.destroy</c>, reaping its host process + MCP
+    /// subprocesses) while registering the in-flight release by server session id so a concurrent
+    /// <see cref="ResumeSessionAsync"/> of the same id — potentially from a different ChatViewModel
+    /// surface — waits for the destroy to finish first. Exceptions are swallowed so best-effort
+    /// fire-and-forget releases can never fault their caller. When <paramref name="deleteServerSession"/>
+    /// is true the on-disk session data is also deleted (not just destroyed/resumable).
+    /// </summary>
+    /// <remarks>
+    /// THREADING INVARIANT: expected to run on the same (UI) thread that drives
+    /// <see cref="ResumeSessionAsync"/>. Two properties depend on it and would otherwise require a
+    /// per-session-id lock: (1) the release is published into <c>_pendingReleasesBySessionId</c>
+    /// synchronously right after <c>session.destroy</c> is dispatched (no <c>await</c> in between),
+    /// so a same-thread resume can never observe the destroy without also observing its registry
+    /// entry; and (2) only one surface holds a given server session at a time, so releases of the
+    /// same id never overlap (which is why awaiting the single tracked task per id is sufficient).
+    /// A note on hung destroys: <see cref="AwaitPendingReleaseAsync"/> waits only as long as the
+    /// caller's cancellation token allows. In session setup that token is the turn's cancellation
+    /// plus a 30s bound ONLY when the chat has MCP servers — a chat without MCP servers has no
+    /// automatic bound, so a destroy that never completes blocks resume of that same id until the
+    /// turn is cancelled. On timeout/cancel the wait surfaces cancellation out of session setup (the
+    /// turn fails) rather than auto-creating a fresh session, and the stale registry entry clears
+    /// only when the hung destroy finally settles or at process exit. This needs a live-but-
+    /// unresponsive CLI to occur (a dead transport faults fast and self-cleans), so it is a rare
+    /// degradation of that one id, not an app deadlock.
+    /// </remarks>
+    public Task ReleaseSessionAsync(CopilotSession session, bool deleteServerSession)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+
+        var sessionId = session.SessionId;
+        var releaseTask = ReleaseSessionCoreAsync(session, deleteServerSession);
+
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return releaseTask;
+
+        _pendingReleasesBySessionId[sessionId] = releaseTask;
+        // Remove our own entry when the release settles. The KeyValuePair overload only removes when
+        // the tracked task is still THIS task, so a newer release that overwrote the entry is kept.
+        _ = releaseTask.ContinueWith(
+            static (completed, state) =>
+            {
+                var (map, key) = ((ConcurrentDictionary<string, Task>, string))state!;
+                map.TryRemove(new KeyValuePair<string, Task>(key, completed));
+            },
+            (_pendingReleasesBySessionId, sessionId),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        return releaseTask;
+    }
+
+    private async Task ReleaseSessionCoreAsync(CopilotSession session, bool deleteServerSession)
+    {
+        try
+        {
+            if (deleteServerSession)
+                await DisposeAndDeleteSessionAsync(session).ConfigureAwait(false);
+            else
+                await session.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Lumi] Failed to release Copilot session {session.SessionId}: {ex.Message}");
+        }
+    }
+
+    private async Task AwaitPendingReleaseAsync(string sessionId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId)
+            || !_pendingReleasesBySessionId.TryGetValue(sessionId, out var release))
+            return;
+
+        try
+        {
+            // ReleaseSessionCoreAsync swallows its own faults, so this only surfaces cancellation.
+            await release.WaitAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Lumi] Failed awaiting pending release for session {sessionId}: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -1009,6 +1134,168 @@ public class CopilotService : IAsyncDisposable
         // The status code / category alone is never enough to call an auth failure "transient" —
         // require a provable backend-internal marker in the message.
         return IsTransientServerAuthError(message);
+    }
+
+    /// <summary>
+    /// True when the backend refused to process an <b>image</b> that is part of the session history
+    /// (e.g. <c>400 invalid_request_error "Could not process image"</c> or
+    /// <c>"The image data you provided does not represent a valid image."</c>).
+    /// <para>
+    /// A tool-result / attached image can be stored perfectly on our side yet still be rejected by
+    /// the upstream model. Because it lives in the server-side session history, it is re-sent on
+    /// <i>every</i> turn and permanently bricks the chat — a plain resend can never recover. Callers
+    /// use this to rebuild the session from the local transcript as text (dropping the image).
+    /// </para>
+    /// This is an ALLOW-LIST: it matches only when the message is unambiguously about an image the
+    /// backend could not process/validate, so unrelated request errors keep their normal handling.
+    /// </summary>
+    internal static bool IsUnprocessableImageError(string? errorText)
+    {
+        if (string.IsNullOrWhiteSpace(errorText))
+            return false;
+
+        var text = errorText.ToLowerInvariant();
+
+        // Must be about an image AND about a processing/validity failure of that image.
+        if (!text.Contains("image"))
+            return false;
+
+        return text.Contains("could not process")
+            || text.Contains("cannot process")
+            || text.Contains("couldn't process")
+            || text.Contains("unable to process")
+            || text.Contains("failed to process")
+            || text.Contains("could not be processed")
+            || text.Contains("does not represent a valid")
+            || text.Contains("not a valid image")
+            || text.Contains("invalid image");
+    }
+
+    /// <summary>
+    /// Structured variant for SDK <c>session.error</c> events. Quota / rate-limit / context-limit and
+    /// auth categories have dedicated handling and are never treated as an unprocessable-image error,
+    /// even in the unlikely event their message mentions an image.
+    /// </summary>
+    internal static bool IsUnprocessableImageError(int? statusCode, string? errorType, string? message)
+    {
+        var type = errorType?.ToLowerInvariant();
+        if (type is "quota" or "rate_limit" or "context_limit" or "authentication" or "authorization")
+            return false;
+
+        return IsUnprocessableImageError(message);
+    }
+
+    /// <summary>
+    /// True when retrying a failed turn cannot possibly help by itself, because the failure is a hard
+    /// credential / capacity / policy limit rather than a recoverable session or transport glitch:
+    /// a genuine logout, an exhausted quota or rate limit, an exceeded context window, or a content
+    /// policy rejection. Callers use this as the single "should we even offer Retry?" gate — EVERY
+    /// other terminal error is treated as recoverable by rebuilding the session from the transcript
+    /// as text (which safely drops any poisoned history such as an unprocessable image).
+    /// </summary>
+    internal static bool IsFatalNonRetryableError(int? statusCode, string? errorType, string? message)
+    {
+        // A bare 401/403 with no transient backend marker is a genuine logout / permission denial —
+        // the transient allow-list (IsTransientServerAuthError) has already had its chance upstream,
+        // so retrying the same turn just fails again; the user must re-authenticate.
+        if (statusCode is 401 or 403)
+            return true;
+
+        var type = errorType?.ToLowerInvariant();
+        if (type is "authentication" or "authorization" or "permission"
+            or "quota" or "insufficient_quota" or "rate_limit"
+            or "context_limit" or "context_length_exceeded"
+            or "content_policy" or "content_filter"
+            or "model_not_supported")
+            return true;
+
+        return IsFatalNonRetryableError(message);
+    }
+
+    /// <summary>String overload of <see cref="IsFatalNonRetryableError(int?,string?,string?)"/> used
+    /// when only a flattened / persisted error message is available (e.g. reclassifying a stored
+    /// <c>error</c> message on chat reload to decide whether to show a Retry button).</summary>
+    internal static bool IsFatalNonRetryableError(string? errorText)
+    {
+        if (string.IsNullOrWhiteSpace(errorText))
+            return false;
+
+        var text = errorText.ToLowerInvariant();
+
+        return text.Contains("quota")
+            || text.Contains("rate limit") || text.Contains("rate_limit")
+            || text.Contains("context length") || text.Contains("context_length")
+            || text.Contains("context window") || text.Contains("context_limit")
+            || text.Contains("maximum context")
+            || text.Contains("content policy") || text.Contains("content_policy")
+            || text.Contains("content filter") || text.Contains("content_filter")
+            || text.Contains("responsible ai")
+            // A genuine logout / permission failure: retrying the same turn just fails again, so it
+            // must NOT be offered a Retry. Only unambiguous auth-failure phrases are matched — bare
+            // "401" / "403" are deliberately excluded because those digits collide with request IDs.
+            || text.Contains("unauthorized") || text.Contains("unauthenticated")
+            || text.Contains("forbidden")
+            || text.Contains("bad credentials") || text.Contains("invalid credentials")
+            || text.Contains("authentication failed") || text.Contains("authorization failed")
+            || text.Contains("not authenticated")
+            // Permission / model-access denials (often a 403 whose numeric code we deliberately don't
+            // substring-match because bare "403" collides with request IDs). Retrying the identical
+            // request can never grant access, so these must surface terminally, not as a Retry.
+            || text.Contains("not have access") || text.Contains("access denied")
+            || text.Contains("permission denied")
+            || text.Contains("model_not_supported") || text.Contains("model not supported")
+            || text.Contains("log in again") || text.Contains("sign in again")
+            || text.Contains("logged out") || text.Contains("re-authenticate");
+    }
+
+    /// <summary>
+    /// The message thrown by <c>ChatViewModel.EnsureSessionAsync</c> when session setup
+    /// (create/resume + MCP initialization) exceeds its bound because the chat has MCP servers.
+    /// Centralized so the throw sites and <see cref="IsMcpSetupTimeoutError"/> can never drift.
+    /// </summary>
+    internal const string McpSetupTimeoutMessage =
+        "MCP server connection timed out. Check that your MCP servers are installed and responding.";
+
+    /// <summary>
+    /// True when an error is the client-side MCP session-SETUP timeout (a slow create/resume + MCP
+    /// init), as opposed to a backend/session failure. Such a timeout means setup was slow — NOT that
+    /// the session is poisoned — so the session must be kept resumable and simply retried, never
+    /// deleted + cold-recreated (which is strictly slower and cascades into further timeouts).
+    /// </summary>
+    internal static bool IsMcpSetupTimeoutError(string? errorText)
+        => !string.IsNullOrWhiteSpace(errorText)
+           && errorText.Contains("MCP server connection timed out", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The single send-failure decision shared by both handlers. Given whatever the failure exposed
+    /// — an HTTP <paramref name="statusCode"/> and <paramref name="errorType"/> from a structured
+    /// <c>session.error</c>, or just a flattened <paramref name="message"/> from a thrown exception —
+    /// it decides whether the turn is <see cref="SendFailureClassification.Recoverable"/> and, if so,
+    /// whether to show the unprocessable-<see cref="SendFailureClassification.IsImageError"/> copy.
+    /// <para>
+    /// The exception path passes <c>(null, null, flattenedMessage, …)</c>; the structured classifiers
+    /// degrade gracefully to the message heuristic when status/type are null, so that path gets
+    /// exactly the string-only result it had before. Centralizing the logic here is what keeps the two
+    /// handlers from drifting apart — a divergence that has recurred across reviews.
+    /// </para>
+    /// </summary>
+    /// <param name="hasTerminalOverride">True when the caller supplied a synthetic TERMINAL message
+    /// (e.g. "start a new chat" / "restart Lumi") that its call site already deemed unrecoverable. Such
+    /// a state is never reclassified and never offered Retry, so this short-circuits to
+    /// non-recoverable / non-image.</param>
+    internal static SendFailureClassification ClassifySendFailure(
+        int? statusCode, string? errorType, string? message, bool hasTerminalOverride)
+    {
+        if (hasTerminalOverride)
+            return new SendFailureClassification(Recoverable: false, IsImageError: false);
+
+        // Recoverable = anything that is NOT a hard auth / quota / context / policy limit; those are
+        // rebuilt from the transcript as text (safely dropping any poisoned history). An image
+        // rejection can ALSO be fatal (e.g. a content-policy image block), so the fatal verdict wins
+        // and gates the image flag — the "click Retry" copy is only used when Retry is actually shown.
+        var recoverable = !IsFatalNonRetryableError(statusCode, errorType, message);
+        var isImageError = recoverable && IsUnprocessableImageError(statusCode, errorType, message);
+        return new SendFailureClassification(recoverable, isImageError);
     }
 
     internal static string? TryGetGitHubTokenForMcp()

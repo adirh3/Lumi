@@ -24,7 +24,13 @@
     </Style>
     <Style Selector="Border#ChatIsland.workspace-flat">
       <Setter Property="CornerRadius" Value="0" />
-      <Setter Property="Background" Value="Transparent" />
+      <!-- Same translucent glass surface as the docked island (just without the island chrome:
+           no radius/border/shadow). The ambient presence field is injected at the bottom of the
+           workspace grid, so this surface sits OVER it and muffles the glow exactly like the docked
+           chat island does — without it (a bare Transparent flat island) the detached ChatWindow let
+           the field bloom at full strength, reading far brighter than the main window. Matching the
+           Surface1Glass token keeps the muffling (and the App.axaml opacity override) in lock-step. -->
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface1Glass}" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
       <Setter Property="ClipToBounds" Value="False" />

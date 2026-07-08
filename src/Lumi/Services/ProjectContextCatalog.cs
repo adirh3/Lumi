@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using GitHub.Copilot;
@@ -18,6 +19,7 @@ public sealed class ProjectContextCatalogSnapshot
 {
     private static readonly StringComparer NameComparer = StringComparer.OrdinalIgnoreCase;
     private readonly IReadOnlyDictionary<string, CopilotSkillDefinition> _skillsByName;
+    private readonly IReadOnlyDictionary<string, CopilotSkillDefinition> _skillsBySlug;
     private readonly IReadOnlyDictionary<string, CopilotAgentDefinition> _agentsByName;
 
     public ProjectContextCatalogSnapshot(
@@ -33,6 +35,7 @@ public sealed class ProjectContextCatalogSnapshot
         SkillDirectories = skillDirectories?.ToArray() ?? [];
         Diagnostics = diagnostics?.ToArray() ?? [];
         _skillsByName = BuildFirstByName(Skills, static skill => skill.Name);
+        _skillsBySlug = BuildFirstBySlug(Skills, static skill => skill.Name);
         _agentsByName = BuildFirstByName(Agents, static agent => agent.Name);
     }
 
@@ -56,7 +59,14 @@ public sealed class ProjectContextCatalogSnapshot
         if (string.IsNullOrWhiteSpace(name))
             return null;
 
-        return _skillsByName.TryGetValue(name, out var skill) ? skill : null;
+        if (_skillsByName.TryGetValue(name, out var skill))
+            return skill;
+
+        // The native Copilot skill tool reports a slugified id (e.g. "Publish-New-Version") while
+        // the catalog is keyed by the front-matter name ("Publish New Version"). Fall back to a
+        // separator/case-insensitive slug match so both forms resolve to the same skill.
+        var slug = SlugifyName(name);
+        return slug is not null && _skillsBySlug.TryGetValue(slug, out var slugged) ? slugged : null;
     }
 
     public CopilotAgentDefinition? FindAgent(string? name)
@@ -80,6 +90,50 @@ public sealed class ProjectContextCatalogSnapshot
         }
 
         return result;
+    }
+
+    private static IReadOnlyDictionary<string, TDefinition> BuildFirstBySlug<TDefinition>(
+        IEnumerable<TDefinition> definitions,
+        Func<TDefinition, string> getName)
+    {
+        var result = new Dictionary<string, TDefinition>(StringComparer.Ordinal);
+        foreach (var definition in definitions)
+        {
+            var slug = SlugifyName(getName(definition));
+            if (slug is not null)
+                result.TryAdd(slug, definition);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Reduces a skill name to a canonical slug (lowercase alphanumerics separated by single
+    /// hyphens) so the native skill tool's id and the catalog's front-matter name compare equal.
+    /// </summary>
+    private static string? SlugifyName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        var builder = new StringBuilder(name.Length);
+        var pendingSeparator = false;
+        foreach (var ch in name)
+        {
+            if (char.IsLetterOrDigit(ch))
+            {
+                if (pendingSeparator && builder.Length > 0)
+                    builder.Append('-');
+                pendingSeparator = false;
+                builder.Append(char.ToLowerInvariant(ch));
+            }
+            else
+            {
+                pendingSeparator = true;
+            }
+        }
+
+        return builder.Length == 0 ? null : builder.ToString();
     }
 }
 

@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -40,6 +41,10 @@ public static class DebugAgentHarness
     public static bool IsProxyMcpStressFlag(string arg)
         => string.Equals(arg, "--test-mcp-proxy", StringComparison.OrdinalIgnoreCase)
            || string.Equals(arg, "--stress-mcp-proxy", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsSessionReapFlag(string arg)
+        => string.Equals(arg, "--test-session-reap", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(arg, "--stress-session-reap", StringComparison.OrdinalIgnoreCase);
 
     public static Chat CreateTranscriptFixtureChat(DataStore dataStore)
     {
@@ -114,6 +119,26 @@ public static class DebugAgentHarness
             Description = documentSkill.Description
         };
 
+        // A fourth skill representing a *builtin / plugin / remote* Copilot skill whose full body
+        // is delivered by the SDK's skill.invoked event. It is NOT a Lumi appdata skill and has NO
+        // SKILL.md anywhere Lumi scans on disk, so its preview can only render from the Content the
+        // SDK handed us on the chip. It rides on the fixture's active-skill turn (as the first chip)
+        // and is the live regression guard for the "standard skill chip shows an empty preview" bug.
+        var builtinSkillRef = new SkillReference
+        {
+            Name = "Remote Copilot Skill",
+            Glyph = "\U0001F310",
+            Description = "A builtin/remote Copilot skill with no SKILL.md on this machine.",
+            Content = """
+                # Remote Copilot Skill
+
+                This body was delivered by the Copilot SDK `skill.invoked` event — it was **not**
+                read from a `SKILL.md` on disk. Builtin, plugin, and remote skills have no local
+                file where Lumi scans, so the preview must render this SDK-provided content
+                directly instead of re-scanning the filesystem.
+                """
+        };
+
         var chat = new Chat
         {
             Title = "Debug transcript fixture (not saved)",
@@ -151,6 +176,7 @@ public static class DebugAgentHarness
             """);
         user.Author = userName;
         user.Attachments.Add(attachmentPath);
+        user.ActiveSkills.Add(builtinSkillRef);
         user.ActiveSkills.Add(skillRef);
         chat.Messages.Add(user);
 
@@ -180,6 +206,12 @@ public static class DebugAgentHarness
 
             ```comparison
             {"optionA":{"title":"LG C4","content":"- OLED evo panel\n- Excellent for gaming\n- **$1,799**"},"optionB":{"title":"Samsung S90D","content":"- QD-OLED panel\n- Brighter highlights\n- **$1,899**"}}
+            ```
+
+            This next comparison block is intentionally **malformed** (the model dropped the final closing brace). Before the tolerant-parse fix it collapsed to a ⚖️ placeholder; now it must still render a working StrataFork:
+
+            ```comparison
+            {"optionA":{"title":"Ship the fix now","content":"- Comparison renders again\n- **Lower user-visible risk**"},"optionB":{"title":"Wait for more testing","content":"- Extra soak time\n- **Slower to land**"}
             ```
 
             A native Mermaid **architecture diagram** verifies subgraph containers and distributed (fan-out / fan-in) arrows:
@@ -903,6 +935,275 @@ public static class DebugAgentHarness
         {
             if (proxyRuntime is not null)
                 await proxyRuntime.DisposeAsync().ConfigureAwait(false);
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+        }
+    }
+
+    /// <summary>
+    /// Real end-to-end validation of the session-release code paths that reap MCP subprocesses.
+    /// Part A proves <see cref="CopilotService.ReleaseSessionAsync"/> actually sends
+    /// <c>session.destroy</c> and reaps the session's live MCP subprocess (asserted against the real
+    /// OS process exiting). Part B proves the cross-surface destroy-before-resume gate: it fires a
+    /// release for a session id (registering the in-flight destroy) and then immediately resumes the
+    /// SAME id, asserting the resumed session is fully live (its MCP tool works), the old MCP
+    /// subprocess was reaped, and a fresh MCP subprocess was spawned — i.e. the late destroy did not
+    /// reap the resumed session. Uses the same Windows PowerShell fake MCP server as the MCP stress
+    /// harness, which logs each subprocess PID to a file so reaping can be observed directly.
+    /// </summary>
+    public static async Task<int> RunSessionReapStressAsync(CopilotService copilotService, CancellationToken ct)
+    {
+        const string marker = "REAP_GLOBAL";
+        const string serverName = "reap-global";
+
+        Console.WriteLine("Lumi session-reap + destroy-before-resume stress harness");
+        if (!OperatingSystem.IsWindows())
+        {
+            Console.Error.WriteLine("FAIL: session-reap harness currently uses a Windows PowerShell fake MCP server.");
+            return 1;
+        }
+
+        var powershell = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.System),
+            "WindowsPowerShell",
+            "v1.0",
+            "powershell.exe");
+        if (!File.Exists(powershell))
+        {
+            Console.Error.WriteLine($"FAIL: PowerShell not found at {powershell}");
+            return 1;
+        }
+
+        Console.WriteLine("Connecting to Copilot...");
+        await copilotService.ConnectAsync(ct).ConfigureAwait(false);
+        var model = await copilotService.GetFastestModelIdAsync(ct).ConfigureAwait(false);
+        Console.WriteLine($"Model: {model ?? "(default)"}");
+
+        var root = Path.Combine(Path.GetTempPath(), "lumi-session-reap-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var scriptPath = Path.Combine(root, "fake-mcp.ps1");
+        var logPath = Path.Combine(root, "starts.log");
+        var createdSessionIds = new List<string>();
+
+        try
+        {
+            await File.WriteAllTextAsync(scriptPath, """
+                [System.IO.File]::AppendAllText($env:MCP_TEST_LOG, "$($env:MCP_MARKER)|$PID`n")
+                function Write-Json($obj) {
+                    [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 30))
+                    [Console]::Out.Flush()
+                }
+                while ($null -ne ($line = [Console]::In.ReadLine())) {
+                    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                    $msg = $line | ConvertFrom-Json
+                    if ($msg.method -eq "initialize") {
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ protocolVersion = "2025-11-25"; capabilities = @{}; serverInfo = @{ name = "lumi-reap-fake-mcp"; version = "1" } } }
+                    } elseif ($msg.method -eq "tools/list") {
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ tools = @(@{ name = "emit_marker"; description = "Return the configured MCP marker and requested value."; inputSchema = @{ type = "object"; properties = @{ value = @{ type = "string" } }; required = @("value") } }) } }
+                    } elseif ($msg.method -eq "tools/call") {
+                        $value = [string]$msg.params.arguments.value
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ content = @(@{ type = "text"; text = "MCP_MARKER:$($env:MCP_MARKER):$value" }) } }
+                    }
+                }
+                """, ct).ConfigureAwait(false);
+
+            var server = new McpServer
+            {
+                Name = serverName,
+                Command = powershell,
+                Args = ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
+                Env =
+                {
+                    ["MCP_MARKER"] = marker,
+                    ["MCP_TEST_LOG"] = logPath,
+                },
+            };
+            var data = new AppData { McpServers = [server] };
+            var chat = new Chat { ActiveMcpServerNames = [serverName] };
+            var mcpServers = McpSessionPlanner.Build(data, root, new ProjectContextCatalogSnapshot([], [], []), chat, [serverName], null, null);
+            if (!mcpServers.ContainsKey(serverName))
+            {
+                Console.Error.WriteLine($"FAIL: {serverName} MCP server was not included in the SDK config.");
+                return 1;
+            }
+
+            int[] ReadStartPids() => File.Exists(logPath)
+                ? File.ReadAllLines(logPath)
+                    .Where(l => l.StartsWith(marker + "|", StringComparison.Ordinal))
+                    .Select(l => int.TryParse(l.AsSpan(l.IndexOf('|') + 1), out var pid) ? pid : -1)
+                    .Where(pid => pid > 0)
+                    .ToArray()
+                : [];
+
+            static bool IsProcessAlive(int pid)
+            {
+                try { using var p = Process.GetProcessById(pid); return !p.HasExited; }
+                catch (ArgumentException) { return false; }
+            }
+
+            int[] AliveStartPids() => ReadStartPids().Where(IsProcessAlive).Distinct().ToArray();
+
+            static bool WaitForProcessExit(int pid, TimeSpan timeout)
+            {
+                Process proc;
+                try { proc = Process.GetProcessById(pid); }
+                catch (ArgumentException) { return true; }
+                try
+                {
+                    var sw = Stopwatch.StartNew();
+                    while (sw.Elapsed < timeout)
+                    {
+                        if (proc.HasExited) return true;
+                        Thread.Sleep(150);
+                    }
+                    return proc.HasExited;
+                }
+                finally { proc.Dispose(); }
+            }
+
+            async Task<(bool toolOk, bool contractOk, string? content)> RunToolTurnAsync(
+                CopilotSession session, string value, string contract)
+            {
+                var markerText = $"MCP_MARKER:{marker}:{value}";
+                var started = 0;
+                var completed = 0;
+                using var sub = session.On<SessionEvent>(evt =>
+                {
+                    switch (evt)
+                    {
+                        case ToolExecutionStartEvent:
+                            Interlocked.Increment(ref started);
+                            break;
+                        case ToolExecutionCompleteEvent:
+                            Interlocked.Increment(ref completed);
+                            break;
+                    }
+                });
+                var result = await session.SendAndWaitAsync(
+                    new MessageOptions
+                    {
+                        Prompt = $"Use emit_marker with {{\"value\":\"{value}\"}} now.\n"
+                            + $"Final answer must include {contract} and {markerText}."
+                    },
+                    TimeSpan.FromMinutes(3),
+                    ct).ConfigureAwait(false);
+                var content = result?.Data?.Content;
+                var contractOk = content?.Contains(contract, StringComparison.Ordinal) == true
+                    && content?.Contains(markerText, StringComparison.Ordinal) == true;
+                return (started > 0 && completed > 0, contractOk, content);
+            }
+
+            const string sysPrompt = "You are Lumi's session-reap harness. You have an MCP tool named "
+                + "emit_marker available through the Copilot SDK MCP integration. When asked, call it "
+                + "with the requested value and include the contract token and exact MCP marker text in "
+                + "your final answer.";
+
+            SessionConfig BuildCreateConfig() => SessionConfigBuilder.Build(
+                systemPrompt: sysPrompt,
+                model: model, workingDirectory: root, skillDirectories: null, customAgents: null,
+                tools: null, mcpServers: mcpServers, reasoningEffort: null, userInputHandler: null,
+                onPermission: null, hooks: null);
+
+            ResumeSessionConfig BuildResumeConfig() => SessionConfigBuilder.BuildForResume(
+                systemPrompt: sysPrompt,
+                model: model, workingDirectory: root, skillDirectories: null, customAgents: null,
+                tools: null, mcpServers: mcpServers, reasoningEffort: null, userInputHandler: null,
+                onPermission: null, hooks: null);
+
+            // ---------- Part A: ReleaseSessionAsync reaps the live MCP subprocess ----------
+            Console.WriteLine("== Part A: ReleaseSessionAsync reaps the live MCP subprocess ==");
+            var sessionA = await copilotService.CreateSessionAsync(BuildCreateConfig(), ct).ConfigureAwait(false);
+            createdSessionIds.Add(sessionA.SessionId);
+            var turnA = await RunToolTurnAsync(sessionA, "REAP_A", "LUMI_REAP_A_OK").ConfigureAwait(false);
+            var aliveAfterA = AliveStartPids();
+            var pidA = aliveAfterA.Length > 0 ? aliveAfterA[^1] : -1;
+            var mcpAliveBeforeRelease = pidA > 0;
+            Console.WriteLine($"Part A tool ok: {turnA.toolOk}, contract ok: {turnA.contractOk}");
+            Console.WriteLine($"Part A MCP subprocess PID: {pidA}, alive before release: {mcpAliveBeforeRelease}");
+
+            await copilotService.ReleaseSessionAsync(sessionA, deleteServerSession: false).WaitAsync(ct).ConfigureAwait(false);
+            var mcpReaped = pidA > 0 && WaitForProcessExit(pidA, TimeSpan.FromSeconds(20));
+            Console.WriteLine($"Part A MCP subprocess exited after ReleaseSessionAsync: {mcpReaped}");
+            var reapPassed = turnA.toolOk && turnA.contractOk && mcpAliveBeforeRelease && mcpReaped;
+
+            // ---------- Part B: fire release (registers destroy) + resume the SAME id ----------
+            Console.WriteLine("== Part B: fire ReleaseSessionAsync then resume the same id (destroy-before-resume gate) ==");
+            var sessionB = await copilotService.CreateSessionAsync(BuildCreateConfig(), ct).ConfigureAwait(false);
+            var idB = sessionB.SessionId;
+            createdSessionIds.Add(idB);
+            var turnB1 = await RunToolTurnAsync(sessionB, "REAP_B", "LUMI_REAP_B_OK").ConfigureAwait(false);
+            var aliveAfterCreateB = AliveStartPids();
+            var pidB1 = aliveAfterCreateB.Length > 0 ? aliveAfterCreateB[^1] : -1;
+            Console.WriteLine($"Part B create tool ok: {turnB1.toolOk}, contract ok: {turnB1.contractOk}, MCP PID: {pidB1}");
+
+            // Fire the release WITHOUT awaiting: this registers the in-flight destroy for idB in the
+            // shared CopilotService registry (synchronously, before this call returns). NOTE: the
+            // *deterministic* proof that ResumeSessionAsync BLOCKS on an in-flight release of the same
+            // id is the unit test ResumeGate_WaitsForInFlightReleaseOfSameSessionId (a
+            // TaskCompletionSource holds the release open and asserts the gate does not complete until
+            // it settles). This part is the real-process complement: it proves the whole path works end
+            // to end against real sessions + real MCP subprocesses under realistic timing. We record
+            // whether the release was still in flight when resume began so a run shows when the gate
+            // actually had to wait (informational only — real destroy timing is not deterministic).
+            var releaseTaskB = copilotService.ReleaseSessionAsync(sessionB, deleteServerSession: false);
+            var releaseStillInFlightAtResume = !releaseTaskB.IsCompleted;
+            Console.WriteLine($"Part B release still in-flight when resume began: {releaseStillInFlightAtResume}");
+
+            // Immediately resume the SAME id. The CopilotService gate must wait for any in-flight
+            // destroy of this id to finish before handing back the resumed session.
+            var resumed = await copilotService.ResumeSessionAsync(idB, BuildResumeConfig(), ct).ConfigureAwait(false);
+
+            // The resumed session must be fully live end-to-end: its MCP tool must work.
+            var turnB2 = await RunToolTurnAsync(resumed, "RESUME_B", "LUMI_RESUME_B_OK").ConfigureAwait(false);
+
+            await releaseTaskB.WaitAsync(ct).ConfigureAwait(false); // ensure the fired destroy has settled
+            var oldMcpReaped = pidB1 > 0 && WaitForProcessExit(pidB1, TimeSpan.FromSeconds(20));
+            var aliveAfterResume = AliveStartPids();
+            var pidB2 = aliveAfterResume.FirstOrDefault(p => p != pidB1);
+            var newMcpSpawned = pidB2 > 0 && pidB2 != pidB1;
+            Console.WriteLine($"Part B resumed tool ok: {turnB2.toolOk}, contract ok: {turnB2.contractOk}");
+            Console.WriteLine($"Part B old MCP {pidB1} reaped: {oldMcpReaped}; resumed MCP PID: {pidB2} (new: {newMcpSpawned})");
+
+            await copilotService.DisposeAndDeleteSessionAsync(resumed).WaitAsync(ct).ConfigureAwait(false);
+            createdSessionIds.Remove(idB);
+
+            var resumePassed = turnB1.toolOk && turnB2.toolOk && turnB2.contractOk && oldMcpReaped && newMcpSpawned;
+
+            if (reapPassed && resumePassed)
+            {
+                Console.WriteLine("PASS: session-reap + destroy-before-resume validation completed against real sessions and MCP subprocesses.");
+                return 0;
+            }
+
+            Console.Error.WriteLine("FAIL: session-reap validation did not satisfy the contract.");
+            if (!reapPassed)
+            {
+                if (!turnA.toolOk) Console.Error.WriteLine("- Part A tool lifecycle events were not observed.");
+                if (!turnA.contractOk) Console.Error.WriteLine("- Part A final response did not include the contract/marker.");
+                if (!mcpAliveBeforeRelease) Console.Error.WriteLine("- Part A MCP subprocess was not observed alive before release.");
+                if (!mcpReaped) Console.Error.WriteLine("- Part A MCP subprocess was NOT reaped after ReleaseSessionAsync (leak).");
+            }
+            if (!resumePassed)
+            {
+                if (!turnB1.toolOk) Console.Error.WriteLine("- Part B create tool lifecycle events were not observed.");
+                if (!turnB2.toolOk || !turnB2.contractOk) Console.Error.WriteLine("- Part B resumed session tool call did not succeed (possible over-destroy of the resumed session).");
+                if (!oldMcpReaped) Console.Error.WriteLine("- Part B original MCP subprocess was NOT reaped (leak).");
+                if (!newMcpSpawned) Console.Error.WriteLine("- Part B resumed session did not spawn a fresh MCP subprocess.");
+            }
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"FAIL: session-reap harness threw: {ex}");
+            return 1;
+        }
+        finally
+        {
+            foreach (var id in createdSessionIds)
+            {
+                try { await copilotService.DeleteSessionAsync(id, ct).ConfigureAwait(false); }
+                catch { }
+            }
             try { Directory.Delete(root, recursive: true); }
             catch { }
         }

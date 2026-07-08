@@ -1,12 +1,15 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using GitHub.Copilot;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -16,6 +19,77 @@ namespace Lumi.Tests;
 
 public sealed class ChatViewModelLeakTests
 {
+    [Fact]
+    public void Dispose_UnsubscribesFromChatModel_SoDisposedSurfaceIsNotPinned()
+    {
+        var dataStore = CreateDataStore();
+        var chat = new Chat { Title = "leaky" };
+        dataStore.Data.Chats.Add(chat);
+
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        vm.CurrentChat = chat;
+
+        // While active the surface tracks the chat's title through PropertyChanged.
+        Assert.True(ChatEventReferencesTarget(chat, vm));
+
+        vm.Dispose();
+
+        // The chat model outlives the surface (it stays in DataStore.Data.Chats and MainViewModel keeps
+        // a running-state PropertyChanged subscription on it). If Dispose leaves this handler attached,
+        // the chat's event invocation list pins the entire disposed ChatViewModel — its Messages,
+        // transcript turns, and realized Avalonia controls — until app shutdown.
+        Assert.False(
+            ChatEventReferencesTarget(chat, vm),
+            "Disposed ChatViewModel is still in the chat model's PropertyChanged invocation list.");
+    }
+
+    private static bool ChatEventReferencesTarget(Chat chat, object target)
+    {
+        var field = typeof(Chat).GetField("PropertyChanged", BindingFlags.Instance | BindingFlags.NonPublic);
+        var handler = field?.GetValue(chat) as PropertyChangedEventHandler;
+        return handler?.GetInvocationList().Any(d => ReferenceEquals(d.Target, target)) == true;
+    }
+
+    [Fact]
+    public async Task IdleCacheEviction_DisposesSurface_AndUnsubscribesFromChatModel()
+    {
+        var chatA = new Chat { Title = "A" };
+        var chatB = new Chat { Title = "B" };
+        chatA.Messages.Add(new ChatMessage { Role = "user", Content = "a" });
+        chatB.Messages.Add(new ChatMessage { Role = "user", Content = "b" });
+
+        var dataStore = new DataStore(new AppData
+        {
+            Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+            Chats = [chatA, chatB]
+        });
+        using var registry = new ChatSurfaceRegistry();
+        using var sessionStore = new ChatSessionStore(
+            dataStore,
+            new CopilotService(),
+            registry,
+            static (surface, chat) =>
+            {
+                surface.CurrentChat = chat;
+                return Task.CompletedTask;
+            },
+            maxIdleCachedSurfaces: 1);
+
+        var surfaceA = await sessionStore.AcquireChatAsync(chatA);
+        Assert.True(ChatEventReferencesTarget(chatA, surfaceA));
+        sessionStore.Release(surfaceA); // A becomes idle-cached (single slot).
+
+        // Acquiring/releasing a second chat overflows the one idle slot, evicting and disposing A
+        // through the real pool lifecycle (TrimIdleCache -> UntrackSurface -> ChatViewModel.Dispose).
+        var surfaceB = await sessionStore.AcquireChatAsync(chatB);
+        sessionStore.Release(surfaceB);
+
+        Assert.NotSame(surfaceA, surfaceB);
+        Assert.False(
+            ChatEventReferencesTarget(chatA, surfaceA),
+            "Evicted+disposed surface is still subscribed to its chat model — it leaks until app shutdown.");
+    }
+
     [Fact]
     public void ReleaseInactiveChatState_ReleasesDetachedRuntimeResourcesWithoutEvictingMessages()
     {
@@ -87,6 +161,281 @@ public sealed class ChatViewModelLeakTests
         Assert.False(services.ContainsKey(browserChat.Id));
 
         vm.Dispose();
+    }
+
+    [Fact]
+    public async Task SubscribeToSession_WhenSurfaceDisposedMidSetup_ReleasesSessionInsteadOfCaching()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "raced" };
+        dataStore.Data.Chats.Add(chat);
+
+        // Reproduce the disposal race: the pool evicted+disposed this surface while a session was
+        // still being created/resumed. Dispose() already swept _sessionCache; then the in-flight
+        // create resolves and calls SubscribeToSession. Before the fix this re-populated the cache of
+        // a dead VM, stranding the session — nothing was left to dispose it, so its host + MCP
+        // subprocesses leaked forever (GC's finalizer only removes it from the client dictionary).
+        SetPrivateField(vm, "_isDisposed", true);
+        var stranded = CreateDetachedSession("sid-raced");
+
+        InvokePrivate(vm, "SubscribeToSession", stranded, chat, "C:\\work");
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        Assert.True(SessionWasDisposed(stranded));
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache").ContainsKey(chat.Id));
+        Assert.False(GetField<Dictionary<Guid, IDisposable>>(vm, "_sessionSubs").ContainsKey(chat.Id));
+    }
+
+    [Fact]
+    public async Task SubscribeToSession_WhenDifferentServerSessionCached_ReleasesStaleSessionBeforeReplacing()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "overwrite" };
+        dataStore.Data.Chats.Add(chat);
+
+        var stale = CreateDetachedSession("sid-old");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = stale;
+
+        // The overwrite guard runs first and unconditionally for a different server session id. We
+        // also flag the surface disposed so the method returns before the full event-subscription
+        // body (which needs a live session); that path is covered above.
+        SetPrivateField(vm, "_isDisposed", true);
+        var replacement = CreateDetachedSession("sid-new");
+
+        InvokePrivate(vm, "SubscribeToSession", replacement, chat, "C:\\work");
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        // The stale, different-id session must be destroyed (reaping its MCP), not silently dropped
+        // when the cache entry is overwritten.
+        Assert.True(SessionWasDisposed(stale));
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache").ContainsValue(stale));
+    }
+
+    [Fact]
+    public async Task SubscribeToSession_WhenSameServerSessionCached_DoesNotDestroySharedSession()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "same-id" };
+        dataStore.Data.Chats.Add(chat);
+
+        var existing = CreateDetachedSession("sid-shared");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = existing;
+
+        SetPrivateField(vm, "_isDisposed", true);
+        var resumedSameId = CreateDetachedSession("sid-shared");
+
+        InvokePrivate(vm, "SubscribeToSession", resumedSameId, chat, "C:\\work");
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        // destroy is scoped to the SERVER session id, so destroying a handle that shares the id with
+        // the incoming one would tear down the very session we are about to use. The overwrite guard
+        // must skip the same-id handle rather than reap it.
+        Assert.False(SessionWasDisposed(existing));
+    }
+
+    [Fact]
+    public void InvalidateLocalSessionCache_EvictsLocallyWithoutDestroyingResumableSession()
+    {
+        var dataStore = CreateDataStore();
+        var service = new CopilotService();
+        var vm = new ChatViewModel(dataStore, service);
+        var chat = new Chat { Title = "invalidate", CopilotSessionId = "sid-inv" };
+        dataStore.Data.Chats.Add(chat);
+
+        var evicted = CreateDetachedSession("sid-inv");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = evicted;
+
+        InvokePrivate(vm, "InvalidateLocalSessionCache", chat);
+
+        // The local handle is dropped so EnsureSessionAsync re-establishes the session next send...
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache").ContainsKey(chat.Id));
+        // ...and the id is KEPT so that next send RESUMES the SAME server session (reusing its live MCP).
+        Assert.Equal("sid-inv", chat.CopilotSessionId);
+        // Crucially it must NOT destroy the evicted handle: this path fires on an unhealthy/slow CLI, so a
+        // destroy would (1) reap the very MCP the resume reuses and (2) hang — and because releases are
+        // keyed by server session id, that hung destroy would block the destroy-before-resume gate for the
+        // whole setup budget, surfacing as "MCP server connection timed out" (the bb470e8 regression).
+        Assert.False(SessionWasDisposed(evicted));
+        var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
+        Assert.False(registry.ContainsKey("sid-inv"));
+    }
+
+    [Fact]
+    public async Task DetachPersistedSession_ReleasesDetachedSessionToReapMcp()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "detach", CopilotSessionId = "sid-det" };
+        dataStore.Data.Chats.Add(chat);
+
+        var detached = CreateDetachedSession("sid-det");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = detached;
+
+        InvokePrivate(vm, "DetachPersistedSession", chat, null);
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        Assert.True(SessionWasDisposed(detached));
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache").ContainsKey(chat.Id));
+        // The id is cleared so the caller creates a FRESH session (new id) — no same-id resume race.
+        Assert.Null(chat.CopilotSessionId);
+    }
+
+    // --- Cross-surface (cross-ChatViewModel) destroy-before-resume sequencing ---
+    // Every ChatViewModel surface shares ONE CopilotService (ChatSessionStore hands the same instance
+    // to each surface it creates). A session destroy started by a disposed/evicted surface leaves the
+    // server session resumable, so a *different* surface can resume the same id while that destroy is
+    // still in flight — and a late destroy would reap the freshly resumed live session. The fix tracks
+    // releases by server session id inside the shared CopilotService and makes ResumeSessionAsync wait
+    // for a matching in-flight release. These tests pin that mechanism.
+
+    [Fact]
+    public async Task ReleaseSessionAsync_DisposesSessionAndSelfCleansRegistry()
+    {
+        var service = new CopilotService();
+        var session = CreateDetachedSession("sid-reap");
+
+        await service.ReleaseSessionAsync(session, deleteServerSession: false);
+
+        // The dropped session was actually disposed (destroy → reaps its host + MCP subprocesses)...
+        Assert.True(SessionWasDisposed(session));
+        // ...and the id-keyed registry cleaned its own entry, so it neither leaks nor falsely blocks a
+        // future resume of that id once the destroy has completed.
+        var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
+        Assert.False(registry.ContainsKey("sid-reap"));
+    }
+
+    [Fact]
+    public async Task ResumeGate_WaitsForInFlightReleaseOfSameSessionId()
+    {
+        var service = new CopilotService();
+        var destroyInFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Simulate a destroy of session "S" still running (started by another surface being disposed).
+        var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
+        registry["S"] = destroyInFlight.Task;
+
+        // A resume of the SAME id must block until that destroy settles.
+        var gate = InvokePrivate<Task>(service, "AwaitPendingReleaseAsync", "S", CancellationToken.None);
+        Assert.False(gate.IsCompleted);
+
+        destroyInFlight.SetResult();
+        await gate.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(gate.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task ResumeGate_DoesNotWaitForReleaseOfDifferentSessionId()
+    {
+        var service = new CopilotService();
+        var destroyInFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
+        registry["S"] = destroyInFlight.Task;
+
+        // Resuming an unrelated id must not be held up by S's release.
+        var gate = InvokePrivate<Task>(service, "AwaitPendingReleaseAsync", "OTHER", CancellationToken.None);
+        await gate.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(gate.IsCompletedSuccessfully);
+
+        destroyInFlight.SetResult();
+    }
+
+    [Fact]
+    public async Task ResumeGate_HonorsCancellation()
+    {
+        var service = new CopilotService();
+        var destroyInFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
+        registry["S"] = destroyInFlight.Task;
+        using var cts = new CancellationTokenSource();
+
+        var gate = InvokePrivate<Task>(service, "AwaitPendingReleaseAsync", "S", cts.Token);
+        cts.Cancel();
+
+        // A hung destroy must not pin the resume forever — cancellation (e.g. the session timeout)
+        // propagates so EnsureSessionAsync can fall back instead of blocking the UI.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => gate);
+
+        destroyInFlight.SetResult();
+    }
+
+    [Fact]
+    public async Task ResumeGate_HungRelease_StallsResumeForTheWholeBudgetThenSurfacesTimeout()
+    {
+        // REPRODUCTION of the acute bb470e8 regression. A destroy that hangs — a live-but-unresponsive
+        // CLI, which is exactly what a 2s health-miss on InvalidateLocalSessionCache used to dispatch —
+        // pins a same-id release, so ResumeSessionAsync's destroy-before-resume gate blocks the resume for
+        // the entire session-setup budget and then surfaces cancellation, which EnsureSessionAsync turns
+        // into the "MCP server connection timed out" TimeoutException. A short budget stands in for the
+        // real 30s MCP bound so the stall is measured deterministically.
+        var service = new CopilotService();
+        var hungDestroy = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
+        registry["S"] = hungDestroy.Task; // never completes → a hung destroy of session S
+
+        using var budget = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
+        var gate = InvokePrivate<Task>(service, "AwaitPendingReleaseAsync", "S", budget.Token);
+        var sw = Stopwatch.StartNew();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => gate);
+        sw.Stop();
+
+        // The resume did NOT proceed early — it was stalled for ~the whole budget before failing. That is
+        // the stall a slow/hung same-id destroy inflicts on the next send. The fix removes the SOURCE of
+        // such same-id releases on the resume path (InvalidateLocalSessionCache no longer destroys); the
+        // gate itself is intentionally retained for the genuine cross-surface destroy-then-resume case.
+        Assert.True(
+            sw.ElapsedMilliseconds >= 300,
+            $"gate returned after only {sw.ElapsedMilliseconds}ms — the resume stall was not reproduced");
+        hungDestroy.SetResult();
+    }
+
+    [Fact]
+    public void AllSurfacesShareOneCopilotService_SoReleaseRegistryIsGlobal()
+    {
+        // The cross-surface guarantee only holds if surfaces share the CopilotService whose registry
+        // sequences releases. Guard that ChatSessionStore invariant so a future refactor can't silently
+        // give each surface its own service (which would reopen the cross-instance race).
+        var dataStore = CreateDataStore();
+        var copilotService = new CopilotService();
+        var registry = new ChatSurfaceRegistry();
+        var store = new ChatSessionStore(dataStore, copilotService, registry);
+
+        var surfaceA = store.AcquireDraft(projectId: null);
+        var surfaceB = store.AcquireDraft(projectId: null);
+
+        Assert.NotSame(surfaceA, surfaceB);
+        Assert.Same(
+            GetField<CopilotService>(surfaceA, "_copilotService"),
+            GetField<CopilotService>(surfaceB, "_copilotService"));
+        Assert.Same(copilotService, GetField<CopilotService>(surfaceA, "_copilotService"));
+
+        store.Dispose();
+    }
+
+    [Fact]
+    public void AcquireDraft_DoesNotDisposeReturnedDraftSurface()
+    {
+        // Regression: AcquireDraft seeded the draft's project context (SetDraftProjectContext ->
+        // ChatViewModel.ClearProjectId) BEFORE retaining the surface. For a brand-new draft, ClearProjectId
+        // raises a CurrentChat PropertyChanged (its else branch fires even when CurrentChat is null); the
+        // store listens (OnSurfacePropertyChanged -> CacheOrReleaseIfIdleAndUnhosted). With CurrentChat null,
+        // CanCacheIdleSurface is false, so while the draft was still unhosted (hostCount 0) the idle-release
+        // path disposed it on the spot — AcquireDraft then returned a DISPOSED surface, which threw
+        // ObjectDisposedException on the first send in a new chat. Uses the same public constructor (default
+        // idle-cache size) as the app, so it reproduces at production settings.
+        var dataStore = CreateDataStore();
+        using var registry = new ChatSurfaceRegistry();
+        using var store = new ChatSessionStore(dataStore, new CopilotService(), registry);
+
+        var surface = store.AcquireDraft(projectId: null);
+
+        var isDisposed = (bool)surface.GetType()
+            .GetField("_isDisposed", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(surface)!;
+
+        Assert.False(isDisposed, "AcquireDraft must not return a disposed surface.");
     }
 
     [Fact]
@@ -660,6 +1009,312 @@ public sealed class ChatViewModelLeakTests
         var turn = Assert.Single(vm.TranscriptTurns);
         var errorItem = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
         Assert.Contains("Copilot request failed", errorItem.Content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HandleSendError_UnprocessableImage_SchedulesSessionResetAndOffersRetry()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "bricked-chat", CopilotSessionId = "poisoned-session" };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "take a screenshot" });
+        chat.Messages.Add(new ChatMessage { Role = "assistant", Content = "done" });
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+        vm.IsBusy = true;
+        vm.IsStreaming = true;
+
+        // The verbatim rejection that permanently bricked the "Sub Agent Window Bug" chat.
+        InvokePrivate(
+            vm,
+            "HandleSendError",
+            new InvalidOperationException(
+                "CAPIError: 400 invalid_request_error: The image data you provided does not represent a valid image."),
+            false,
+            null!,
+            chat);
+
+        // The chat is flagged so the NEXT send recreates a fresh session and replays the
+        // transcript as text (dropping the rejected image) instead of resuming the poisoned one.
+        Assert.Contains(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+
+        // The user gets a clear, one-click-retryable affordance — not a dead-end error.
+        var turn = Assert.Single(vm.TranscriptTurns);
+        var errorItem = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
+        Assert.True(errorItem.ShowRetryButton);
+        Assert.NotNull(errorItem.RetryCommand);
+        Assert.Equal(Loc.Status_ImageRejectedReset, errorItem.Content);
+        // The raw CAPI wording is replaced by the friendly recovery message.
+        Assert.DoesNotContain("does not represent", errorItem.Content, StringComparison.OrdinalIgnoreCase);
+
+        // The error is PERSISTED (as an error-role message) so the affordance survives a reload:
+        // reopening the chat re-derives Retry from this tail via UpdateStuckChatRetryAffordance.
+        var persisted = Assert.IsType<ChatMessage>(chat.Messages[^1]);
+        Assert.Equal("error", persisted.Role);
+        Assert.Equal(Loc.Status_ImageRejectedReset, persisted.Content);
+    }
+
+    [Fact]
+    public void HandleSendError_GenericRecoverableError_SchedulesResetAndOffersRetry()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "error-chat", CopilotSessionId = "live-session" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+
+        InvokePrivate(
+            vm,
+            "HandleSendError",
+            new InvalidOperationException("Copilot request failed"),
+            false,
+            null!,
+            chat);
+
+        // Round 2: EVERY non-fatal terminal error is recoverable by rebuilding the session from the
+        // transcript as text, so a generic failure now arms a reset and offers a one-click Retry
+        // (previously it was a dead end).
+        Assert.Contains(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+
+        var turn = Assert.Single(vm.TranscriptTurns);
+        var errorItem = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
+        Assert.True(errorItem.ShowRetryButton);
+        Assert.NotNull(errorItem.RetryCommand);
+        // The raw message is surfaced (no friendly image copy) for a non-image error.
+        Assert.Contains("Copilot request failed", errorItem.Content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HandleSendError_FatalError_DoesNotScheduleResetOrOfferRetry()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "fatal-chat", CopilotSessionId = "live-session" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+
+        // A hard limit (context window) can't be fixed by resending the same conversation, so Retry
+        // would be false hope — no reset is armed and no Retry button is shown.
+        InvokePrivate(
+            vm,
+            "HandleSendError",
+            new InvalidOperationException("The context length exceeded the model's maximum."),
+            false,
+            null!,
+            chat);
+
+        Assert.DoesNotContain(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+
+        var turn = Assert.Single(vm.TranscriptTurns);
+        var errorItem = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
+        Assert.False(errorItem.ShowRetryButton);
+        Assert.Null(errorItem.RetryCommand);
+    }
+
+    [Fact]
+    public void HandleSendError_BareAuthLogout_DoesNotScheduleResetOrOfferRetry()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "logged-out", CopilotSessionId = "live-session" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+
+        // A genuine logout surfaces as a plain exception with no transient backend marker, so it reaches
+        // the terminal path. Retrying the same turn can't help — the user must re-authenticate — so no
+        // reset is armed and no false Retry is offered.
+        InvokePrivate(
+            vm,
+            "HandleSendError",
+            new InvalidOperationException("401 Unauthorized: Bad credentials"),
+            false,
+            null!,
+            chat);
+
+        Assert.DoesNotContain(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+        var turn = Assert.Single(vm.TranscriptTurns);
+        var errorItem = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
+        Assert.False(errorItem.ShowRetryButton);
+        Assert.Null(errorItem.RetryCommand);
+    }
+
+    [Fact]
+    public void HandleSendError_TerminalOverrideMessage_DoesNotOfferRetry()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "session-gone", CopilotSessionId = "live-session" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+
+        // A synthetic terminal override ("Start a new chat to continue.") is unrecoverable by design.
+        // Its persisted "Error: {text}" carries no fatal keyword, so the affordance must NOT re-derive
+        // a Retry from that lossy string — HandleSendError passes its authoritative (false) decision.
+        InvokePrivate(
+            vm,
+            "HandleSendError",
+            new InvalidOperationException("inner transport failure"),
+            false,
+            Loc.Status_OriginalSessionUnavailable,
+            chat);
+
+        Assert.DoesNotContain(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+        var turn = Assert.Single(vm.TranscriptTurns);
+        var errorItem = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
+        Assert.False(errorItem.ShowRetryButton);
+        Assert.Null(errorItem.RetryCommand);
+        Assert.Equal(string.Format(Loc.Status_Error, Loc.Status_OriginalSessionUnavailable), errorItem.Content);
+    }
+
+    [Fact]
+    public void HandleSendError_FatalErrorWithImageMessage_UsesPlainErrorCopyAndNoRetry()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "policy-image", CopilotSessionId = "live-session" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+
+        // A content-policy block whose message ALSO matches image phrasing. It is fatal (retry can't
+        // help), so the "click Retry" image copy must NOT be shown and no Retry offered — the image copy
+        // is gated on `recoverable`. This is the exact overlap SessionErrorEvent now mirrors.
+        const string msg = "content policy violation: could not process image";
+        Assert.True(CopilotService.IsUnprocessableImageError(msg));   // image phrasing matches...
+        Assert.True(CopilotService.IsFatalNonRetryableError(msg));    // ...but it is fatal
+
+        InvokePrivate(vm, "HandleSendError", new InvalidOperationException(msg), false, null!, chat);
+
+        Assert.DoesNotContain(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+        var turn = Assert.Single(vm.TranscriptTurns);
+        var errorItem = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
+        Assert.False(errorItem.ShowRetryButton);
+        Assert.Null(errorItem.RetryCommand);
+        // Plain "Error: {message}" — NOT the recovery-implying image copy.
+        Assert.Equal(string.Format(Loc.Status_Error, msg), errorItem.Content);
+        Assert.NotEqual(Loc.Status_ImageRejectedReset, errorItem.Content);
+    }
+
+    [Fact]
+    public void HandleSendError_QueuesChatSave_SoErrorCardSurvivesRestart()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "persist-me", CopilotSessionId = "live-session" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+
+        var before = DirtyChatVersion(dataStore, chat.Id);
+        InvokePrivate(vm, "HandleSendError", new InvalidOperationException("could not process image"), false, null!, chat);
+        var after = DirtyChatVersion(dataStore, chat.Id);
+
+        // HandleSendError must queue a per-chat save (MarkChatChanged bumps the dirty version) so the
+        // error card it just appended is persisted — otherwise a restart before the next send drops it
+        // and, for a recoverable error, the reopen path can't re-arm recovery from the missing card.
+        Assert.True(after > before, $"expected a dirty-version bump; before={before} after={after}");
+        Assert.Contains(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations")); // recoverable → armed
+    }
+
+    private static long DirtyChatVersion(DataStore store, Guid chatId)
+    {
+        var field = typeof(DataStore).GetField("_dirtyChatVersions", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var dict = (System.Collections.IDictionary)field.GetValue(store)!;
+        return dict.Contains(chatId) ? Convert.ToInt64(dict[chatId]) : 0L;
+    }
+
+    [Fact]
+    public void UpdateStuckChatRetryAffordance_AuthoritativeFatalDecision_SuppressesRetryDespiteRecoverableLookingText()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "logout-bricked", CopilotSessionId = "poisoned" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+
+        // A structured session.error that is fatal purely by its ErrorType (e.g. a content-policy or
+        // quota rejection) but whose backend message is opaque: once persisted as plain "Error: {message}"
+        // the type is gone and the generic text carries no fatal keyword, so the string heuristic alone
+        // would wrongly recover. This is exactly the case the authoritative-decision param exists for.
+        var err = new ChatMessage { Role = "error", Author = "Lumi", Content = "Error: The request could not be completed." };
+        chat.Messages.Add(err);
+        vm.Messages.Add(new ChatMessageViewModel(err)); // renders the trailing ErrorMessageItem
+        Assert.False(CopilotService.IsFatalNonRetryableError(err.Content)); // text heuristic == "recoverable"
+
+        // The live handler passes its authoritative (structured) decision — fatal — so no false Retry
+        // and no needless session reset are armed, even though the persisted text looks recoverable.
+        InvokePrivate(vm, "UpdateStuckChatRetryAffordance", false);
+
+        Assert.DoesNotContain(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+        var turn = Assert.Single(vm.TranscriptTurns);
+        var item = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
+        Assert.False(item.ShowRetryButton);
+        Assert.Null(item.RetryCommand);
+    }
+
+    [Fact]
+    public void UpdateStuckChatRetryAffordance_RecoverableDecision_ArmsResetAndOffersRetry()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "recoverable-bricked", CopilotSessionId = "poisoned" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+
+        var err = new ChatMessage { Role = "error", Author = "Lumi", Content = "Error: something odd happened" };
+        chat.Messages.Add(err);
+        vm.Messages.Add(new ChatMessageViewModel(err));
+
+        InvokePrivate(vm, "UpdateStuckChatRetryAffordance", true);
+
+        Assert.Contains(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+        var turn = Assert.Single(vm.TranscriptTurns);
+        var item = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
+        Assert.True(item.ShowRetryButton);
+        Assert.NotNull(item.RetryCommand);
+    }
+
+    [Fact]
+    public void UpdateStuckChatRetryAffordance_McpSetupTimeout_OffersRetryButKeepsSessionResumable()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "mcp-timeout", CopilotSessionId = "resumable" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+
+        // The MCP session-SETUP timeout is recoverable (Retry is offered) but means setup was slow, not
+        // that the session is poisoned — so it must NOT arm a delete + cold-recreate, which is strictly
+        // slower and cascades into further timeouts. Its persisted card carries the setup-timeout phrase.
+        var err = new ChatMessage
+        {
+            Role = "error",
+            Author = "Lumi",
+            Content = $"Error: {CopilotService.McpSetupTimeoutMessage}"
+        };
+        chat.Messages.Add(err);
+        vm.Messages.Add(new ChatMessageViewModel(err));
+
+        InvokePrivate(vm, "UpdateStuckChatRetryAffordance", true);
+
+        // Retry is shown so the user (or the next send) can resume the SAME session cheaply...
+        var turn = Assert.Single(vm.TranscriptTurns);
+        var item = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
+        Assert.True(item.ShowRetryButton);
+        Assert.NotNull(item.RetryCommand);
+        // ...but NO session reset is armed, so the retry RESUMES instead of deleting + cold-creating.
+        Assert.DoesNotContain(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+    }
+
+    [Fact]
+    public void IsMcpSetupTimeoutError_MatchesOnlyTheSetupTimeoutAndStaysRecoverable()
+    {
+        Assert.True(CopilotService.IsMcpSetupTimeoutError(CopilotService.McpSetupTimeoutMessage));
+        Assert.True(CopilotService.IsMcpSetupTimeoutError($"Error: {CopilotService.McpSetupTimeoutMessage}"));
+        Assert.False(CopilotService.IsMcpSetupTimeoutError("Session not found"));
+        Assert.False(CopilotService.IsMcpSetupTimeoutError("quota exceeded"));
+        Assert.False(CopilotService.IsMcpSetupTimeoutError(null));
+        Assert.False(CopilotService.IsMcpSetupTimeoutError(" "));
+        // It stays RECOVERABLE (Retry is offered) — it is NOT a fatal, non-retryable error.
+        Assert.False(CopilotService.IsFatalNonRetryableError(CopilotService.McpSetupTimeoutMessage));
     }
 
     [Fact]
@@ -1283,13 +1938,49 @@ public sealed class ChatViewModelLeakTests
             }
         });
 
+    // Builds a CopilotSession without running its constructor (which needs a live JsonRpc transport)
+    // so tests can exercise Lumi's session-teardown paths. Only SessionId is set. Calling
+    // DisposeAsync() on it flips the internal _isDisposed flag (before it NREs on the null transport,
+    // which DisposeReleasedSessionAsync swallows), giving a direct signal that Lumi actually invoked
+    // DisposeAsync() — the reap step that was missing when sessions leaked.
+    private static CopilotSession CreateDetachedSession(string sessionId)
+    {
+        var session = (CopilotSession)System.Runtime.CompilerServices.RuntimeHelpers
+            .GetUninitializedObject(typeof(CopilotSession));
+        typeof(CopilotSession)
+            .GetField("<SessionId>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(session, sessionId);
+        // This object never ran its constructor, so its finalizer (which calls RemoveFromClient on a
+        // null client) would NRE and crash the test host during GC.RunFinalizers at shutdown. We drive
+        // disposal explicitly in these tests, so suppress the real finalizer.
+        GC.SuppressFinalize(session);
+        return session;
+    }
+
+    private static bool SessionWasDisposed(CopilotSession session)
+        => (int)typeof(CopilotSession)
+            .GetField("_isDisposed", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(session)! != 0;
+
+    private static void SetPrivateField(object instance, string name, object? value)
+        => instance.GetType()
+            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?.SetValue(instance, value);
+
+    private static async Task DrainSessionReleaseAsync(ChatViewModel vm, Guid chatId)
+    {
+        var releaseTasks = GetField<Dictionary<Guid, Task>>(vm, "_sessionReleaseTasks");
+        if (releaseTasks.TryGetValue(chatId, out var release))
+            await release.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     private static T GetField<T>(object instance, string name) where T : class
         => (T)(instance.GetType()
             .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
             ?.GetValue(instance)
             ?? throw new InvalidOperationException($"Field {name} was not found."));
 
-    private static void InvokePrivate(object instance, string name, params object[] args)
+    private static void InvokePrivate(object instance, string name, params object?[] args)
     {
         instance.GetType()
             .GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)

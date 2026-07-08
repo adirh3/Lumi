@@ -26,7 +26,7 @@ namespace Lumi.Tests;
 ///
 ///  1. New chat — create session, send, receive streaming response
 ///  2. Resume — session resume preserves conversation memory
-///  3. Edit message — re-send corrected content as a new turn
+///  3. Edit message — rewind history via History.Truncate, resend edit as a new turn
 ///  4. Regenerate — re-send identical content to get a fresh response
 ///  5. Stop / abort — cancel mid-stream, continue afterwards
 ///  6. Custom tools — tool invocation, start/complete events, hook call
@@ -453,6 +453,63 @@ public class CopilotIntegrationTests : IAsyncLifetime
         Assert.DoesNotContain(firstToken, recall, StringComparison.OrdinalIgnoreCase);
 
         await editedSession.DisposeAsync();
+    }
+
+    [SkippableFact]
+    public async Task EditMessage_TruncateHistory_RewindsToBeforeEditedTurn()
+    {
+        SkipIfDisabled();
+
+        // Mirrors ChatViewModel.TryRewindEditedHistoryAsync: rewind the live session's
+        // server-side history to just before an edited turn via History.Truncate, then
+        // resend the edit as a NORMAL turn — no transcript-as-text replay.
+        var keptToken = $"APPLE_{Guid.NewGuid():N}";
+        var staleToken = $"BANANA_{Guid.NewGuid():N}";
+        var editedToken = $"CHERRY_{Guid.NewGuid():N}";
+
+        var config = SimpleConfig("You are a helpful assistant. Follow instructions exactly.");
+        var session = await _service.CreateSessionAsync(config);
+
+        // Turn 1 (kept) then turn 2 (the one that will be edited away).
+        var (_, sub1) = await SendAndWait(session,
+            $"Remember this secret token exactly: {keptToken}. Reply only OK.", 60);
+        sub1.Dispose();
+        var (_, sub2) = await SendAndWait(session,
+            $"Also remember this secret token exactly: {staleToken}. Reply only OK.", 60);
+        sub2.Dispose();
+
+        // Pick the truncation target through the SAME production helper the app uses
+        // (PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget): the retained history has
+        // exactly one genuine user turn, so the target is the 2nd genuine user turn. Using the
+        // helper (instead of a hardcoded index) exercises the real phantom-skipping code path
+        // and stays correct whether or not the CLI injects a system-sourced user.message.
+        var eventsBefore = await session.GetEventsAsync();
+        var target = PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget(eventsBefore, retainedUserCount: 1);
+        Assert.NotNull(target);
+
+        var truncateResult = await session.Rpc.History.TruncateAsync(target!.Id.ToString());
+        Assert.True(truncateResult.EventsRemoved > 0);
+
+        // After truncation the 1st genuine user turn survives and there is no 2nd genuine turn.
+        var eventsAfter = await session.GetEventsAsync();
+        Assert.NotNull(PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget(eventsAfter, retainedUserCount: 0));
+        Assert.Null(PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget(eventsAfter, retainedUserCount: 1));
+
+        // Resend the edited 2nd turn as a normal fresh turn.
+        var (_, editSub) = await SendAndWait(session,
+            $"Also remember this secret token exactly: {editedToken}. Reply only OK.", 60);
+        editSub.Dispose();
+
+        var (recall, recallSub) = await SendAndWait(session,
+            "List every secret token you were asked to remember, comma-separated. Tokens only.", 60);
+        recallSub.Dispose();
+
+        // The kept turn and the edited token survive; the edited-away token is gone.
+        Assert.Contains(keptToken, recall, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(editedToken, recall, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(staleToken, recall, StringComparison.OrdinalIgnoreCase);
+
+        await session.DisposeAsync();
     }
 
     // ═══════════════════════════════════════════════════════════════════════

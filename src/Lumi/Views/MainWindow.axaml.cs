@@ -910,7 +910,6 @@ public partial class MainWindow : Window
                 AttachListBoxHandlers();
                 SyncListBoxSelection(vm.ActiveChatId);
                 RefreshProjectSwitcher(vm);
-                ApplyProjectLabelsToChats(vm);
                 if (vm.IsOnboarded && vm.SelectedNavIndex == 0)
                 {
                     // Delay so the user sees the textbox focus animation
@@ -1052,8 +1051,6 @@ public partial class MainWindow : Window
                 {
                     AttachListBoxHandlers();
                     SyncListBoxSelection(vm.ActiveChatId);
-                    ApplyProjectLabelsToChats(vm);
-                    ApplyMoveToProjectMenus(vm);
                     if (shouldRevealChats)
                         QueueProjectChatListReveal();
                 }, DispatcherPriority.Loaded);
@@ -1577,6 +1574,14 @@ public partial class MainWindow : Window
 
             _pendingNavHoverIndex = -1;
             SetHoveredNavButton(index);
+
+            // Pre-warm the hovered page off the click path. Hovering a nav item signals intent to
+            // open it, so inflate its (lazily-created, then cached) view now at Background priority.
+            // By click time the heavy one-time XAML/template inflation is already paid, turning a
+            // cold first-visit hitch (worst: the MCP servers page) into an instant warm switch.
+            // Idempotent: EnsurePageViewLoaded no-ops once the page's host content exists.
+            if (index > 0)
+                Dispatcher.UIThread.Post(() => EnsurePageViewLoaded(index), DispatcherPriority.Background);
         }, DispatcherPriority.Input);
     }
 
@@ -1831,9 +1836,17 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    /// <summary>
+    /// Root for chat-sidebar visual-tree walks. Scoped to the chat-list scroller subtree (just the
+    /// visible chat rows) instead of the whole window — the window tree also contains the entire
+    /// mounted transcript (hundreds of turn controls) and every management page, so walking <c>this</c>
+    /// on every list rebuild/selection was orders of magnitude more work than the sidebar needs.
+    /// </summary>
+    private Visual ChatListWalkRoot => (Visual?)_chatListScroller ?? this;
+
     private void AttachListBoxHandlers()
     {
-        foreach (var lb in this.GetVisualDescendants().OfType<ListBox>())
+        foreach (var lb in ChatListWalkRoot.GetVisualDescendants().OfType<ListBox>())
         {
             if (!lb.Classes.Contains("chat-list")) continue;
             if (lb.GetValue(ChatListHandlersAttachedProperty)) continue;
@@ -1914,7 +1927,7 @@ public partial class MainWindow : Window
 
         // Deselect other group ListBoxes
         _suppressSelectionSync = true;
-        foreach (var otherLb in this.GetVisualDescendants().OfType<ListBox>())
+        foreach (var otherLb in ChatListWalkRoot.GetVisualDescendants().OfType<ListBox>())
         {
             if (!otherLb.Classes.Contains("chat-list")) continue;
             if (otherLb != lb)
@@ -1930,7 +1943,7 @@ public partial class MainWindow : Window
         _suppressSelectionSync = true;
         try
         {
-            foreach (var lb in this.GetVisualDescendants().OfType<ListBox>())
+            foreach (var lb in ChatListWalkRoot.GetVisualDescendants().OfType<ListBox>())
             {
                 if (!lb.Classes.Contains("chat-list")) continue;
 
@@ -2007,7 +2020,7 @@ public partial class MainWindow : Window
         if (_chatListScroller is null)
             return;
 
-        var items = this.GetVisualDescendants()
+        var items = ChatListWalkRoot.GetVisualDescendants()
             .OfType<ListBoxItem>()
             .Where(IsChatListItem)
             .Select(item => new
@@ -2120,7 +2133,7 @@ public partial class MainWindow : Window
         var cts = ReplaceCancellationTokenSource(ref _titleAnimCts);
 
         TextBlock? titleBlock = null;
-        foreach (var lb in this.GetVisualDescendants().OfType<ListBox>())
+        foreach (var lb in ChatListWalkRoot.GetVisualDescendants().OfType<ListBox>())
         {
             if (!lb.Classes.Contains("chat-list")) continue;
             foreach (var container in lb.GetVisualDescendants().OfType<ListBoxItem>())
@@ -2849,60 +2862,106 @@ public partial class MainWindow : Window
         return countText;
     }
 
-    /// <summary>Sets the ProjectLabel TextBlock on each chat ListBoxItem to show the project name.</summary>
-    private void ApplyProjectLabelsToChats(MainViewModel vm)
+    /// <summary>
+    /// Keeps the chat's context menu associated with its row's <see cref="Chat"/> and pre-builds its
+    /// "Move to Project" submenu. A ContextMenu does not inherit its owner's DataContext until it opens,
+    /// so we stash the Chat on the menu's Tag (fired when the row is realized or recycled), read it back
+    /// when the menu opens, and eagerly populate the submenu now so it always has items — and its flyout
+    /// arrow — regardless of when (or whether) the Opening event fires.
+    /// </summary>
+    private void OnChatRowDataContextChanged(object? sender, EventArgs e)
     {
-        // Only show project labels when NOT filtering by a specific project
-        var showLabels = !vm.SelectedProjectFilter.HasValue;
+        if (sender is not Control row || row.ContextMenu is not ContextMenu menu) return;
 
-        foreach (var lb in this.GetVisualDescendants().OfType<ListBox>())
+        var chat = row.DataContext as Chat;
+        menu.Tag = chat;
+        if (chat is not null)
+            TryPopulateMoveToProjectSubmenu(menu, chat);
+    }
+
+    /// <summary>
+    /// Rebuilds a chat's "Move to Project" submenu when its context menu opens so it always reflects the
+    /// live project list and marks the chat's current location. Includes an "All projects" target that
+    /// moves the chat out of any project.
+    /// </summary>
+    private void OnChatContextMenuOpening(object? sender, CancelEventArgs e)
+    {
+        if (sender is not ContextMenu menu) return;
+
+        // The menu's own DataContext is not yet inherited when Opening fires, so resolve the row's
+        // Chat from the Tag we stashed on DataContextChanged (falling back to DataContext if present).
+        if ((menu.Tag as Chat ?? menu.DataContext as Chat) is Chat chat)
+            TryPopulateMoveToProjectSubmenu(menu, chat);
+    }
+
+    /// <summary>Finds the "Move to Project" submenu within a chat context menu and (re)builds its targets.</summary>
+    private void TryPopulateMoveToProjectSubmenu(ContextMenu menu, Chat chat)
+    {
+        if (DataContext is not MainViewModel vm) return;
+
+        var moveMenu = menu.Items.OfType<MenuItem>()
+            .FirstOrDefault(mi => mi.Name == "MoveToProjectMenu" || (mi.Header as string) == Loc.Menu_MoveToProject);
+        if (moveMenu is null) return;
+
+        PopulateMoveToProjectSubmenu(moveMenu, vm, chat);
+    }
+
+    /// <summary>Builds the "All projects" and per-project move targets for a chat, checking its current home.</summary>
+    private void PopulateMoveToProjectSubmenu(MenuItem moveMenu, MainViewModel vm, Chat chat)
+    {
+        moveMenu.Items.Clear();
+
+        var targets = ChatMoveTargetBuilder.Build(vm.Projects, chat, Loc.ProjectSwitcher_AllProjects);
+        var separatorAdded = false;
+
+        foreach (var target in targets)
         {
-            if (!lb.Classes.Contains("sidebar-list")) continue;
-
-            foreach (var item in lb.GetVisualDescendants().OfType<ListBoxItem>())
+            // Divide the "All projects" pool from the concrete project list.
+            if (target.Kind == ChatMoveTargetKind.Project && !separatorAdded)
             {
-                if (item.DataContext is not Chat chat) continue;
-                var label = item.GetVisualDescendants().OfType<TextBlock>()
-                    .FirstOrDefault(t => t.Name == "ProjectLabel");
-                if (label is null) continue;
-
-                if (showLabels && chat.ProjectId.HasValue)
-                {
-                    var name = vm.GetProjectName(chat.ProjectId);
-                    label.Text = name ?? "";
-                    label.IsVisible = name is not null;
-                }
-                else
-                {
-                    label.IsVisible = false;
-                }
+                moveMenu.Items.Add(new Separator());
+                separatorAdded = true;
             }
+
+            moveMenu.Items.Add(CreateMoveTargetMenuItem(target, vm, chat));
         }
     }
 
-    /// <summary>Populates the "Move to Project" context menu items for each chat.</summary>
-    private void ApplyMoveToProjectMenus(MainViewModel vm)
+    /// <summary>Materializes a single <see cref="ChatMoveTarget"/> into a menu item with the right glyph and action.</summary>
+    private MenuItem CreateMoveTargetMenuItem(ChatMoveTarget target, MainViewModel vm, Chat chat)
     {
-        foreach (var menuItem in this.GetVisualDescendants().OfType<MenuItem>())
-        {
-            if (menuItem.Header is not string header || header != Loc.Menu_MoveToProject) continue;
+        var item = new MenuItem { Header = target.Header };
 
-            menuItem.Items.Clear();
-            foreach (var project in vm.Projects)
-            {
-                var p = project; // capture
-                var mi = new MenuItem { Header = project.Name };
-                mi.Click += (_, _) =>
-                {
-                    // Find the chat from the context menu's DataContext
-                    var chat = (menuItem.Parent as ContextMenu)?.DataContext as Chat
-                        ?? menuItem.DataContext as Chat;
-                    if (chat is not null)
-                        vm.AssignChatToProjectCommand.Execute(new object[] { chat, p });
-                };
-                menuItem.Items.Add(mi);
-            }
+        // The chat's current home is shown as a disabled checkmark rather than an actionable move.
+        if (target.IsCurrent)
+        {
+            item.ToggleType = MenuItemToggleType.CheckBox;
+            item.IsChecked = true;
+            item.IsEnabled = false;
+            return item;
         }
+
+        if (target.Kind == ChatMoveTargetKind.AllProjects)
+        {
+            item.Icon = CreateMenuGlyph("Icon.Browse");
+            item.Click += (_, _) => vm.RemoveChatFromProjectCommand.Execute(chat);
+            return item;
+        }
+
+        var project = vm.Projects.FirstOrDefault(p => p.Id == target.ProjectId);
+        if (project is not null)
+        {
+            item.Icon = CreateMenuGlyph("Icon.Folder");
+            item.Click += (_, _) => vm.AssignChatToProjectCommand.Execute(new object[] { chat, project });
+        }
+
+        return item;
+    }
+
+    private PathIcon? CreateMenuGlyph(string resourceKey)
+    {
+        var geometry = GetIconGeometry(resourceKey);
+        return geometry is null ? null : new PathIcon { Data = geometry, Width = 14, Height = 14 };
     }
 
     /// <summary>Sets the chat count TextBlock for each project in the sidebar.</summary>

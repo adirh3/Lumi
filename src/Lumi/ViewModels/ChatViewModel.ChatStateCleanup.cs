@@ -23,6 +23,16 @@ public partial class ChatViewModel
         _copilotService.SessionDeletedRemotely -= OnSessionDeletedRemotely;
         _transcriptWindow.PropertyChanged -= OnTranscriptWindowPropertyChanged;
 
+        // Detach the title-tracking subscription from the chat model. The chat outlives this surface
+        // (it stays in DataStore.Data.Chats and MainViewModel keeps a running-state PropertyChanged
+        // subscription on it), so leaving this handler attached pins the whole disposed surface — its
+        // Messages, transcript turns, and realized Avalonia controls — in memory until app shutdown.
+        if (_currentChatTitleSource is not null)
+        {
+            _currentChatTitleSource.PropertyChanged -= OnCurrentChatPropertyChanged;
+            _currentChatTitleSource = null;
+        }
+
         lock (_chatLoadSync)
         {
             _chatLoadRequestId++;
@@ -61,6 +71,31 @@ public partial class ChatViewModel
         _gitRefreshThrottleCts?.Cancel();
         _gitRefreshThrottleCts?.Dispose();
         _gitRefreshThrottleCts = null;
+    }
+
+    /// <summary>
+    /// Sheds this surface's realized transcript controls — the built StrataChatMessage / markdown /
+    /// tool-call subtrees cached on each mounted turn — while keeping the surface's view-models and
+    /// paging state intact. Called by <see cref="ChatSessionStore"/> for chats that are cached but no
+    /// longer visible, so a pool of idle surfaces doesn't retain hundreds of live Avalonia controls
+    /// each. The transcript re-realizes from its items through the normal frame-budgeted path the next
+    /// time the surface is shown, so switching back stays smooth and never shows a blank transcript.
+    /// </summary>
+    internal void ReleaseRealizedTranscriptControls()
+    {
+        if (_isDisposed)
+            return;
+
+        // Mutating the cached hosts touches Avalonia controls, so it must run on the UI thread.
+        // Surface caching happens during UI-thread navigation; guard defensively in case a caller
+        // reaches here off-thread (e.g. a background streaming path releasing an idle surface).
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(ReleaseRealizedTranscriptControls);
+            return;
+        }
+
+        _transcriptWindow.ReleaseRealizedHosts("surface-idle");
     }
 
     private bool IsChatRuntimeActive(Guid chatId)
@@ -291,40 +326,47 @@ public partial class ChatViewModel
         ClearPendingTurnTracking(chatId);
         DisposeSessionSubscription(chatId);
 
-        if (_sessionCache.TryGetValue(chatId, out var session))
-        {
-            var releaseTask = DisposeReleasedSessionAsync(session, deleteServerSession);
-            _sessionReleaseTasks[chatId] = releaseTask;
-            _ = releaseTask.ContinueWith(
-                _ => Dispatcher.UIThread.Post(() =>
-                {
-                    if (_sessionReleaseTasks.TryGetValue(chatId, out var trackedTask)
-                        && ReferenceEquals(trackedTask, releaseTask))
-                    {
-                        _sessionReleaseTasks.Remove(chatId);
-                    }
-                }),
-                TaskScheduler.Default);
-            _sessionCache.Remove(chatId);
-        }
+        if (_sessionCache.Remove(chatId, out var session))
+            TrackSessionRelease(chatId, session, deleteServerSession);
 
         _inProgressMessages.Remove(chatId);
     }
 
-    private async Task DisposeReleasedSessionAsync(CopilotSession session, bool deleteServerSession)
+    /// <summary>
+    /// Starts an asynchronous release of a dropped Copilot session and tracks the in-flight task
+    /// per chat. This is the single choke point for handing a session to disposal: releasing sends
+    /// <c>session.destroy</c>, which reaps the session's host process and its MCP subprocesses.
+    /// Simply dropping a session reference instead orphans those MCP subprocesses forever, because
+    /// <c>CopilotSession</c>'s finalizer only removes it from the client dictionary and never sends
+    /// destroy. Recording the task in <see cref="_sessionReleaseTasks"/> lets a subsequent
+    /// create/resume for the same chat on THIS surface await it via
+    /// <see cref="AwaitPendingSessionReleaseAsync"/>. Cross-surface sequencing — a *different*
+    /// ChatViewModel resuming the same server session id — is handled by CopilotService, which
+    /// registers the release by session id (<see cref="Services.CopilotService.ReleaseSessionAsync"/>)
+    /// and awaits it inside <see cref="Services.CopilotService.ResumeSessionAsync"/>.
+    /// </summary>
+    private void TrackSessionRelease(Guid chatId, CopilotSession session, bool deleteServerSession)
     {
-        try
-        {
-            if (deleteServerSession)
-                await _copilotService.DisposeAndDeleteSessionAsync(session).ConfigureAwait(false);
-            else
-                await session.DisposeAsync().ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[Lumi] Failed to release Copilot session {session.SessionId}: {ex.Message}");
-        }
+        var releaseTask = DisposeReleasedSessionAsync(session, deleteServerSession);
+        _sessionReleaseTasks[chatId] = releaseTask;
+        _ = releaseTask.ContinueWith(
+            _ => Dispatcher.UIThread.Post(() =>
+            {
+                if (_sessionReleaseTasks.TryGetValue(chatId, out var trackedTask)
+                    && ReferenceEquals(trackedTask, releaseTask))
+                {
+                    _sessionReleaseTasks.Remove(chatId);
+                }
+            }),
+            TaskScheduler.Default);
     }
+
+    // Routes every dropped session through CopilotService so the release is registered by server
+    // session id — this is what lets a concurrent resume of the same id on ANOTHER surface wait for
+    // the destroy to finish. The service owns fault-swallowing, so this best-effort call never
+    // faults its caller.
+    private Task DisposeReleasedSessionAsync(CopilotSession session, bool deleteServerSession)
+        => _copilotService.ReleaseSessionAsync(session, deleteServerSession);
 
     private async Task AwaitPendingSessionReleaseAsync(Guid chatId, CancellationToken ct)
     {
@@ -344,12 +386,11 @@ public partial class ChatViewModel
             Debug.WriteLine($"[Lumi] Failed while waiting for released session for chat {chatId}: {ex.Message}");
         }
 
-        if (releaseTask.IsCompleted
-            && _sessionReleaseTasks.TryGetValue(chatId, out var trackedTask)
-            && ReferenceEquals(trackedTask, releaseTask))
-        {
-            _sessionReleaseTasks.Remove(chatId);
-        }
+        // Do NOT remove from _sessionReleaseTasks here: after ConfigureAwait(false) this runs on a
+        // thread-pool thread, and _sessionReleaseTasks is a plain Dictionary mutated everywhere else
+        // on the UI thread — touching it here would be a cross-thread mutation that can corrupt it.
+        // Removal is already owned by TrackSessionRelease's completion continuation, which marshals
+        // back to the UI thread and drops the entry (guarded by the same ReferenceEquals check).
     }
 
     private void ReleaseInactiveChatState(Chat chat)

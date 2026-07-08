@@ -202,6 +202,42 @@ internal static class PendingTurnRecoveryAnalyzer
         return count;
     }
 
+    /// <summary>
+    /// Selects the server <c>user.message</c> event to truncate at when an edited turn is
+    /// resent via History.Truncate. Only <em>genuine</em> user turns (typed by the user, with
+    /// an empty <see cref="UserMessageData.Source"/>) correspond to a local user message; the
+    /// SDK/CLI also emits <em>injected</em> user messages — e.g. a system-sourced priming
+    /// message with empty content (<c>Source == "system"</c>) — that have no local counterpart.
+    /// Counting those would shift the ordinal and truncate an earlier turn than the edited one,
+    /// silently dropping a message the user still expects. This skips injected messages so the
+    /// Nth genuine server user turn lines up with the Nth local user message.
+    /// </summary>
+    /// <param name="events">The ordered server event log.</param>
+    /// <param name="retainedUserCount">The number of local user turns kept before the edited
+    /// turn — i.e. the zero-based ordinal of the genuine user turn to truncate at.</param>
+    /// <returns>The event whose id should be passed to History.Truncate, or <c>null</c> if the
+    /// local and server user turns don't line up (caller should fall back to replay).</returns>
+    public static UserMessageEvent? SelectEditTruncationTarget(IReadOnlyList<SessionEvent> events, int retainedUserCount)
+    {
+        if (events is null || retainedUserCount < 0)
+            return null;
+
+        var genuineSeen = 0;
+        foreach (var sessionEvent in events)
+        {
+            if (sessionEvent is not UserMessageEvent userEvent
+                || !string.IsNullOrEmpty(userEvent.Data?.Source))
+                continue;
+
+            if (genuineSeen == retainedUserCount)
+                return userEvent;
+
+            genuineSeen++;
+        }
+
+        return null;
+    }
+
     public static int CountPersistedLogUserMessages(IEnumerable<string> lines)
     {
         var count = 0;

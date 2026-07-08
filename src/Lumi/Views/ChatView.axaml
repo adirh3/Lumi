@@ -733,14 +733,17 @@
       <Border Background="{DynamicResource Brush.DangerSubtle}"
               CornerRadius="12" Padding="14,12" Margin="0,4">
         <StackPanel Spacing="6">
-          <StackPanel Orientation="Horizontal" Spacing="6">
-            <TextBlock Text="⚠" FontSize="14" VerticalAlignment="Center"
+          <!-- Grid (not a horizontal StackPanel) so the text column is width-constrained
+               and TextWrapping actually wraps instead of overflowing/clipping. -->
+          <Grid ColumnDefinitions="Auto,*">
+            <TextBlock Grid.Column="0" Text="⚠" FontSize="14"
+                       VerticalAlignment="Top" Margin="0,1,6,0"
                        Foreground="{DynamicResource Brush.DangerDefault}" />
-            <TextBlock Text="{Binding Content}" TextWrapping="Wrap"
+            <TextBlock Grid.Column="1" Text="{Binding Content}" TextWrapping="Wrap"
                        Foreground="{DynamicResource Brush.DangerDefault}"
                        FontWeight="SemiBold" FontSize="13" />
-          </StackPanel>
-          <Button Content="↻ Try again" Command="{Binding RetryCommand}"
+          </Grid>
+          <Button Content="{loc:Str Common_TryAgain}" Command="{Binding RetryCommand}"
                   IsVisible="{Binding ShowRetryButton}"
                   HorizontalAlignment="Left"
                   Padding="12,6" FontSize="12" FontWeight="SemiBold"
@@ -1059,6 +1062,8 @@
                                 Command="{Binding Command}"
                                 Output="{Binding Output}"
                                 Status="{Binding Status}"
+                                IsRunningInBackground="{Binding IsRunningInBackground}"
+                                RunningSince="{Binding BackgroundStartedUtc}"
                                 DurationMs="{Binding DurationMs}"
                                 IsExpanded="{Binding IsExpanded}" />
     </DataTemplate>
@@ -1300,21 +1305,21 @@
 
 
         <sc:StrataChatShell.Transcript>
-          <ItemsControl x:Name="Transcript"
+          <vm:TranscriptItemsControl x:Name="Transcript"
                         HorizontalAlignment="Stretch"
                         MaxWidth="{DynamicResource Chat.ReadingColumnWidth}"
                         ItemsSource="{Binding MountedTranscriptTurns}">
-            <ItemsControl.ItemTemplate>
+            <vm:TranscriptItemsControl.ItemTemplate>
               <DataTemplate DataType="vm:TranscriptTurn">
                 <vm:TranscriptTurnControl Turn="{Binding}" />
               </DataTemplate>
-            </ItemsControl.ItemTemplate>
-            <ItemsControl.ItemsPanel>
+            </vm:TranscriptItemsControl.ItemTemplate>
+            <vm:TranscriptItemsControl.ItemsPanel>
               <ItemsPanelTemplate>
                 <StackPanel Spacing="8" />
               </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-          </ItemsControl>
+            </vm:TranscriptItemsControl.ItemsPanel>
+          </vm:TranscriptItemsControl>
         </sc:StrataChatShell.Transcript>
 
         <sc:StrataChatShell.Composer>

@@ -1024,6 +1024,34 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     internal void RebuildTranscript()
     {
+        // Seed the builder with this chat's still-running background shells BEFORE the rebuild so their
+        // terminal cards are recreated already in the running state (visible, expanded, correct elapsed
+        // clock) instead of flashing "finished" or folding into a summary until the monitor rediscovers
+        // them. Persisted per-chat on the runtime state, so it survives switching away and back.
+        //
+        // BUT only while background work is genuinely still pending. If the session went terminal
+        // (idle/remote-shutdown/reconnect all clear HasPendingBackgroundWork via MarkRuntimeTerminal)
+        // while this chat was hidden, any leftover entries are stale — the shell already finished — so
+        // recreating the card would resurrect a "Running in background" card that ticks forever with no
+        // monitor to resolve it. Drop the stale map instead and rebuild the card as completed.
+        if (CurrentChat is { } current)
+        {
+            var seedRuntime = GetOrCreateRuntimeState(current.Id);
+            if (seedRuntime.HasPendingBackgroundWork && seedRuntime.RunningBackgroundShells.Count > 0)
+            {
+                _transcriptBuilder.SetKnownRunningBackgroundShells(seedRuntime.RunningBackgroundShells);
+            }
+            else
+            {
+                seedRuntime.RunningBackgroundShells.Clear();
+                _transcriptBuilder.SetKnownRunningBackgroundShells(EmptyRunningBackgroundShells);
+            }
+        }
+        else
+        {
+            _transcriptBuilder.SetKnownRunningBackgroundShells(EmptyRunningBackgroundShells);
+        }
+
         TranscriptTurns = _transcriptBuilder.Rebuild(Messages);
         _transcriptWindow.BindTranscript(TranscriptTurns, "rebuild");
         _transcriptWindow.ResetToLatest(TranscriptWindowController.DefaultInitialViewportHeight, "rebuild");
@@ -1033,9 +1061,69 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (IsBusy)
             _transcriptBuilder.ShowTypingIndicator(StatusText);
 
+        // Re-arm the background-shell monitor when switching to a chat that left an async shell
+        // running; it rediscovers the shell (by command) and re-marks the freshly-rebuilt card.
+        _trackedBackgroundShells.Clear();
+        if (CurrentChat is not null && GetOrCreateRuntimeState(CurrentChat.Id).HasPendingBackgroundWork)
+            EnsureBackgroundShellMonitorRunning();
+
         RebuildWorkspacePanel();
 
         TranscriptRebuilt?.Invoke();
+
+        // A chat can be reopened while its last message is an error that was persisted in a previous
+        // run (e.g. a session the backend bricked). Re-derive the Retry affordance from that tail so
+        // the chat becomes recoverable again the moment it is displayed.
+        UpdateStuckChatRetryAffordance();
+    }
+
+    /// <summary>
+    /// If the displayed chat is idle and ends on a RECOVERABLE error — anything the backend rejected
+    /// that is not a hard auth / quota / context / policy limit (see
+    /// <see cref="CopilotService.IsFatalNonRetryableError(string?)"/>) — attach a one-click Retry to
+    /// that trailing error card and arm a session reset. The decision is derived purely from the
+    /// persisted transcript, so a chat that was bricked in an earlier run (its <c>error</c> messages
+    /// saved to disk) heals as soon as it is reopened: Retry — or simply sending a new message —
+    /// rebuilds a fresh session and replays the conversation as text, dropping whatever poisoned the
+    /// old session (such as an image the model could not process). Fatal errors get no false-hope
+    /// Retry, and a card that already carries a retry command (e.g. a transient connection-loss card)
+    /// is left untouched.
+    /// </summary>
+    /// <param name="recoverableOverride">The authoritative recoverability decision from the live error
+    /// handler, when known. A structured <c>session.error</c> can be fatal by its <c>ErrorType</c>
+    /// alone (e.g. a genuine logout whose message is just "unauthorized"), but that type is NOT
+    /// preserved in the persisted <c>"Error: {message}"</c> text — so the live path passes its exact
+    /// decision here to avoid a false Retry, while the reopen path (which only has the persisted text)
+    /// passes <see langword="null"/> and falls back to a best-effort message heuristic.</param>
+    private void UpdateStuckChatRetryAffordance(bool? recoverableOverride = null)
+    {
+        if (CurrentChat is null || IsBusy || IsStreaming)
+            return;
+
+        var tailItem = TranscriptTurns.LastOrDefault(static t => t.Items.Count > 0)?.Items.LastOrDefault();
+        if (tailItem is not ErrorMessageItem errorItem || errorItem.RetryCommand is not null)
+            return;
+
+        var lastError = CurrentChat.Messages.LastOrDefault(static m => m.Role == "error");
+        if (lastError is null)
+            return;
+
+        var recoverable = recoverableOverride
+            ?? !CopilotService.IsFatalNonRetryableError(lastError.Content);
+        if (!recoverable)
+            return;
+
+        // Show Retry, but an MCP session-SETUP timeout keeps its session resumable (Retry/next send
+        // RESUMES cheaply) instead of arming a delete + cold-recreate that would only cascade into more
+        // timeouts. Every other recoverable error still abandons the session to drop poisoned history.
+        if (!CopilotService.IsMcpSetupTimeoutError(lastError.Content))
+            _pendingSessionInvalidations.Add(CurrentChat.Id);
+        errorItem.RetryCommand = new RelayCommand(() =>
+        {
+            errorItem.ShowRetryButton = false;
+            _ = RetryAfterConnectionLossAsync();
+        });
+        errorItem.ShowRetryButton = true;
     }
 
     private IReadOnlyList<ChatMessage> GetDisplayMessagesForChat(Chat chat)
@@ -1421,8 +1509,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
                 chat.CopilotSessionId = createdSession.SessionId;
                 _dataStore.MarkChatChanged(chat);
+                if (!SubscribeToSession(createdSession, chat, workDir))
+                {
+                    // This surface was disposed while the session was being created; the session
+                    // has already been released. Don't publish it as active — abort cleanly.
+                    _activeSession = null;
+                    return false;
+                }
                 _activeSession = createdSession;
-                SubscribeToSession(createdSession, chat, workDir);
 
                 // Check MCP server status after session creation and surface errors
                 if (mcpServers is { Count: > 0 })
@@ -1434,7 +1528,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
             catch (OperationCanceledException) when (sessionCts is not null && sessionCts.IsCancellationRequested && !ct.IsCancellationRequested)
             {
-                throw new TimeoutException("MCP server connection timed out. Check that your MCP servers are installed and responding.");
+                throw new TimeoutException(CopilotService.McpSetupTimeoutMessage);
             }
         }
 
@@ -1452,8 +1546,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName, contextTier);
                 var session = await _copilotService.ResumeSessionAsync(
                     chat.CopilotSessionId, resumeConfig, sessionCt);
+                if (!SubscribeToSession(session, chat, workDir))
+                {
+                    // Surface disposed mid-resume; the session was released. Abort cleanly.
+                    _activeSession = null;
+                    return false;
+                }
                 _activeSession = session;
-                SubscribeToSession(session, chat, workDir);
                 if (mcpServers is { Count: > 0 })
                     _ = CheckMcpServerStatusAsync(session, chat.Id, mcpServers, ct);
 
@@ -1483,7 +1582,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
             catch (OperationCanceledException) when (sessionCts is not null && sessionCts.IsCancellationRequested && !ct.IsCancellationRequested)
             {
-                throw new TimeoutException("MCP server connection timed out. Check that your MCP servers are installed and responding.");
+                throw new TimeoutException(CopilotService.McpSetupTimeoutMessage);
             }
             catch (Exception ex)
             {
@@ -1511,8 +1610,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName, contextTier);
             var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
             chat.CopilotSessionId = createdSession.SessionId;
+            if (!SubscribeToSession(createdSession, chat, workDir))
+            {
+                // Surface disposed mid-create; the session was released. Abort cleanly.
+                _activeSession = null;
+                return false;
+            }
             _activeSession = createdSession;
-            SubscribeToSession(createdSession, chat, workDir);
             if (mcpServers is { Count: > 0 })
                 _ = CheckMcpServerStatusAsync(createdSession, chat.Id, mcpServers, ct);
             _dataStore.MarkChatChanged(chat);
@@ -1521,7 +1625,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
         catch (OperationCanceledException) when (sessionCts is not null && sessionCts.IsCancellationRequested && !ct.IsCancellationRequested)
         {
-            throw new TimeoutException("MCP server connection timed out. Check that your MCP servers are installed and responding.");
+            throw new TimeoutException(CopilotService.McpSetupTimeoutMessage);
         }
     }
 
@@ -1638,9 +1742,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // accumulated (e.g. from chats the user left while they were streaming).
                 SweepInactiveChatStates();
 
-                // If this chat has an active browser, show its panel (after CurrentChat is set
-                // so ActiveChatId is already updated when the MainWindow handler runs)
-                if (_chatBrowserServices.ContainsKey(chat.Id))
+                // If this chat's browser was left open, restore its panel (after CurrentChat is set
+                // so ActiveChatId is already updated when the MainWindow handler runs). A live browser
+                // service outlives a closed panel, so gate on IsBrowserOpen to avoid reopening a browser
+                // the user closed.
+                if (_chatBrowserServices.ContainsKey(chat.Id) && IsBrowserOpen)
                     BrowserShowRequested?.Invoke(chat.Id);
 
                 // Rebuild transcript items from the fully loaded message list before
@@ -1825,6 +1931,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 : internalSkill.Description;
         }
 
+        // Content captured from the SDK's skill.invoked event renders directly — this is the only
+        // path that works for builtin/plugin/remote skills, which have no SKILL.md to re-discover.
+        if (!string.IsNullOrWhiteSpace(skill.Content))
+            return skill.Content;
+
         var externalSkill = GetProjectContextCatalog().FindSkill(skill.Name);
         if (externalSkill is not null && !string.IsNullOrWhiteSpace(externalSkill.Content))
             return externalSkill.Content;
@@ -1929,6 +2040,40 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             InvalidateCurrentSession();
             _pendingSkillInjections.Clear();
         }
+    }
+
+    /// <summary>
+    /// Called when the current chat's project assignment was changed from outside the composer
+    /// (e.g. moved between projects via the sidebar context menu). Mirrors the refresh performed by
+    /// <see cref="SetProjectId"/>/<see cref="ClearProjectId"/> so the live surface stays in sync:
+    /// rebuilds the session so the next turn uses the new project's system prompt and working
+    /// directory, updates the composer project chip/selection, and rescans project-scoped catalogs.
+    /// </summary>
+    public void OnCurrentChatProjectChangedExternally()
+    {
+        if (CurrentChat is null)
+            return;
+
+        if (OwnsLiveChat(CurrentChat.Id))
+        {
+            // A turn is in flight for this chat. Tearing the session down now would cancel the
+            // in-flight response the user never asked to stop (and, mid-session-setup, could leave a
+            // fresh session built from the OLD project). Defer instead: the current turn finishes on
+            // its existing session, and the NEXT send consumes this and rebuilds with the new project
+            // (same mechanism used for busy MCP/project changes elsewhere).
+            _pendingSessionInvalidations.Add(CurrentChat.Id);
+        }
+        else if (CurrentChat.CopilotSessionId is not null)
+        {
+            // Idle with an established session: rebuild eagerly so the next turn uses the new project.
+            InvalidateProjectSession();
+        }
+        // Idle with no session: nothing to invalidate — EnsureSessionAsync builds fresh on first send.
+
+        SyncComposerProjectSelectionFromState();
+        RefreshProjectBadge();
+        RefreshComposerCatalogs();
+        QueueRefreshCodingProjectState();
     }
 
     /// <summary>Discards the current chat's session so a fresh one is created on the next message.</summary>
@@ -2216,6 +2361,128 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         await SendMessageCore(PromptText, consumeComposerPrompt: true);
     }
 
+    /// <summary>
+    /// Steers the chat's in-flight turn: injects <paramref name="prompt"/> into the running turn via
+    /// the Copilot SDK's immediate send mode instead of stopping it (old stop-and-send) or deferring it
+    /// to a fresh turn (old busy queue). The agent interjects the message at its next step boundary.
+    /// </summary>
+    /// <remarks>
+    /// Safety invariants (do not violate — they keep stall-recovery/reconciliation correct):
+    /// <list type="bullet">
+    /// <item>The user message is added to the transcript locally. Lumi has no <c>UserMessageEvent</c>
+    /// switch case, so the SDK's echo of the steering message does not duplicate it.</item>
+    /// <item>The running turn's pending-turn tracking is left untouched — no new CTS, no re-arm, and
+    /// <c>PendingSessionUserMessageCount</c> keeps pointing at the ORIGINAL turn so the analyzer still
+    /// scans the whole (original + steered) turn to the end. Bumping it would drop the original turn's
+    /// assistant messages.</item>
+    /// <item>The turn is NOT aborted and <c>IsBusy</c> stays true.</item>
+    /// </list>
+    /// Falls back to the deferred busy queue when no live session exists yet (turn still in setup) or when
+    /// the turn has already ended and the runtime is only draining background work (no live step boundary).
+    /// </remarks>
+    private async Task SteerActiveTurnAsync(Chat activeChat, string prompt, bool consumeComposerPrompt)
+    {
+        var chatId = activeChat.Id;
+
+        // Resolve the live session driving the running turn. If it isn't up yet (turn still in setup),
+        // fall back to the deferred queue so the message is sent as a fresh turn once the turn is idle.
+        if (!_sessionCache.TryGetValue(chatId, out var session))
+            session = _activeSession;
+
+        // Immediate-mode steering only lands while a live assistant turn is running, i.e. a future step
+        // boundary is still coming. TurnInProgress — set at turn initiation (the same point the runtime is
+        // marked actively streaming) and cleared only at AssistantTurnEnd/terminal — is the authoritative
+        // signal. Crucially it is NOT cleared mid-turn by
+        // compaction, sub-agent, or background-task events (all of which force runtime.IsStreaming to false
+        // for the rest of the turn), so steering during those phases still injects into the running turn
+        // instead of silently deferring to the post-turn queue. After the turn ends the runtime may stay
+        // busy only to drain background work; there is no live turn to interject into then, so fall back to
+        // the deferred queue and let the message land as a fresh turn once idle.
+        _runtimeStates.TryGetValue(chatId, out var runtime);
+
+        if (session is null || runtime is null || !CanSteerImmediately(runtime))
+        {
+            QueueBusySendPrompt(chatId, prompt);
+            if (consumeComposerPrompt)
+            {
+                PromptText = "";
+                _chatDrafts.Remove(chatId);
+            }
+
+            return;
+        }
+
+        var attachments = TakePendingAttachments();
+
+        // Add the steering message to the transcript up-front so it renders before any assistant
+        // reaction to it. There is no await between here and the send below, so ordering is stable.
+        var userMsg = new ChatMessage
+        {
+            Role = "user",
+            Content = prompt,
+            Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
+            Attachments = attachments?.OfType<AttachmentFile>().Select(a => a.Path).ToList() ?? [],
+            ActiveSkills = BuildSkillReferences(ActiveSkillIds)
+        };
+
+        // Mirror the normal send path: files dragged from the project directory while a worktree is
+        // already active must be rebased onto the worktree so the agent reads the right copy. No-op
+        // when there's no worktree or the paths don't sit under the project directory.
+        if (WorktreePath is { Length: > 0 } wtPath && attachments is { Count: > 0 })
+        {
+            var projDir = GetProjectWorkingDirectory();
+            var effectiveWorktreeDir = GitService.ResolveWorktreeWorkingDirectory(wtPath, projDir);
+            RebaseAttachmentPaths(attachments, userMsg, projDir, effectiveWorktreeDir);
+        }
+
+        activeChat.Messages.Add(userMsg);
+        Messages.Add(new ChatMessageViewModel(userMsg));
+        QueueSaveChat(activeChat, saveIndex: true, touchIndex: true);
+        ChatUpdated?.Invoke();
+        UserMessageSent?.Invoke();
+
+        if (consumeComposerPrompt)
+        {
+            PromptText = "";
+            _chatDrafts.Remove(chatId);
+        }
+        ClearSuggestions();
+
+        var sendOptions = new MessageOptions
+        {
+            Prompt = prompt + BuildSendPromptAdditions(),
+            Mode = GitHub.Copilot.Rpc.SendMode.Immediate.Value
+        };
+        if (attachments is { Count: > 0 })
+            sendOptions.Attachments = attachments;
+
+        // Immediate mode returns a message id almost instantly and does NOT abort or restart the turn;
+        // send on the running turn's token so a user Stop still tears the inject down with the turn.
+        var token = _ctsSources.TryGetValue(chatId, out var cts) ? cts.Token : CancellationToken.None;
+        try
+        {
+            await session.SendAsync(sendOptions, token);
+        }
+        catch (Exception ex)
+        {
+            // Steering is best-effort: a failed inject must never tear down the running turn or its
+            // pending-turn tracking. Keep the already-added user message and just log.
+            Debug.WriteLine($"[Steer] Immediate send failed for chat {chatId}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Whether a steer can be injected into a live running turn right now (immediate mode), versus being
+    /// deferred to the post-turn queue. <see cref="ChatRuntimeState.TurnInProgress"/> is the primary
+    /// signal — it stays true for the whole turn even when compaction / sub-agent / background-task events
+    /// force <see cref="ChatRuntimeState.IsStreaming"/> to false. Active tool/sub-agent execution is kept
+    /// as a defensive OR: both imply a live turn regardless of how the flags were last set.
+    /// </summary>
+    private static bool CanSteerImmediately(ChatRuntimeState runtime)
+        => runtime.TurnInProgress
+           || runtime.ActiveToolCount > 0
+           || runtime.ActiveSubagentExecutionDepth > 0;
+
     private async Task SendMessageCore(string? promptText, bool consumeComposerPrompt)
     {
         if (string.IsNullOrWhiteSpace(promptText))
@@ -2224,13 +2491,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var prompt = promptText.Trim();
         if (CurrentChat is { } activeChat && IsChatRuntimeActive(activeChat.Id))
         {
-            QueueBusySendPrompt(activeChat.Id, prompt);
-            if (consumeComposerPrompt)
-            {
-                PromptText = "";
-                _chatDrafts.Remove(activeChat.Id);
-            }
-
+            await SteerActiveTurnAsync(activeChat, prompt, consumeComposerPrompt);
             return;
         }
 
@@ -2953,6 +3214,22 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// re-establish it via ResumeSessionAsync, preserving server-side context.</summary>
     private void InvalidateLocalSessionCache(Chat chat)
     {
+        // Drop ONLY the local cache handle — do NOT send session.destroy here. Every caller fires when
+        // the session is meant to be RESUMED under the same chat.CopilotSessionId (a 2s health-miss on a
+        // live-but-slow CLI, a session-not-found, a transport blip, or a mid-turn abort), which we keep
+        // intact below. Destroying on this path is wrong twice over: (1) it reaps the very MCP
+        // subprocesses the imminent same-id resume reuses, forcing a needless cold respawn; and (2) on
+        // the unhealthy/broken CLI that triggers this path the destroy RPC hangs, and because releases
+        // are tracked by server session id it makes the destroy-before-resume gate block that resume for
+        // the whole session-setup budget — surfacing as "MCP server connection timed out". Genuine
+        // session ABANDONMENT (a different id, a fresh-id detach, chat delete, idle eviction) still routes
+        // through ReleaseSessionResources / DetachPersistedSession / the SubscribeToSession overwrite
+        // guard, which DO destroy and reap MCP. The one gap this leaves is a live-but-slow session evicted
+        // here (health-miss) that is then abandoned with NO later send: its handle is already gone from
+        // _sessionCache, so no abandon path can reap it and its MCP subprocesses linger until the CLI exits.
+        // That is the pre-bb470e8 behavior and a deliberate trade — bb470e8's destroy-on-this-path is
+        // precisely what hangs the common resume and surfaces as an MCP-setup timeout, which is far worse
+        // than an occasional idle MCP set the CLI already reaps on shutdown.
         _sessionCache.Remove(chat.Id);
         if (_sessionSubs.TryGetValue(chat.Id, out var sub))
         {
@@ -2971,7 +3248,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         var detachedSessionId = sessionId ?? chat.CopilotSessionId;
         DisposeSessionSubscription(chat.Id);
-        _sessionCache.Remove(chat.Id);
+
+        // Best-effort release the detached session so its MCP subprocesses are reaped rather than
+        // orphaned. Every caller either recreates a FRESH session with a new id (resume failed /
+        // send hit session-not-found) or is reacting to a server-side deletion — and we null
+        // CopilotSessionId below — so no same-id resume can race this destroy.
+        if (_sessionCache.Remove(chat.Id, out var detachedSession))
+            TrackSessionRelease(chat.Id, detachedSession, deleteServerSession: false);
         if (!string.IsNullOrWhiteSpace(detachedSessionId)
             && string.Equals(_activeSession?.SessionId, detachedSessionId, StringComparison.Ordinal))
         {
@@ -3054,26 +3337,48 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var message = overrideMessage ?? FlattenExceptionMessages(ex);
-        var errorText = string.Format(Loc.Status_Error, message);
+        // Classify from the raw backend failure: anything that is NOT a hard auth / quota / context /
+        // policy limit is recoverable by rebuilding the session from the transcript AS TEXT, which
+        // safely drops any poisoned history (e.g. an image the backend can't process). A caller-
+        // supplied overrideMessage is a synthetic TERMINAL state (e.g. "start a new chat" / "restart
+        // Lumi") whose call site already deemed it unrecoverable — it is neither reclassified nor
+        // offered a Retry. The image copy is only used when we will actually show Retry.
+        var flattened = FlattenExceptionMessages(ex);
+        // Shared decision (identical logic to SessionErrorEvent's). The exception path carries no HTTP
+        // status/type, so it feeds nulls and the classifier falls back to the flattened text. A
+        // caller-supplied overrideMessage is a synthetic TERMINAL state, marked unrecoverable here.
+        var (recoverable, isImageError) = CopilotService.ClassifySendFailure(
+            statusCode: null, errorType: null, message: flattened,
+            hasTerminalOverride: overrideMessage is not null);
+        var message = overrideMessage ?? flattened;
+        var display = isImageError ? Loc.Status_ImageRejectedReset : string.Format(Loc.Status_Error, message);
 
         if (chat is not null)
         {
             var runtime = GetOrCreateRuntimeState(chat.Id);
-            MarkRuntimeTerminal(runtime, errorText);
+            MarkRuntimeTerminal(runtime, display);
+
+            // Recoverable errors abandon the current server session; arm a reset so the next send (a
+            // new message OR the Retry button) rebuilds a fresh one. Arm here — not only in the
+            // displayed-UI branch — so a background / inactive chat recovers without being reopened.
+            // EXCEPT an MCP session-SETUP timeout: setup was slow, not the session poisoned, so keep it
+            // resumable (a Retry/next send RESUMES cheaply) rather than delete + cold-recreate, which is
+            // slower and cascades into further timeouts.
+            if (recoverable && !CopilotService.IsMcpSetupTimeoutError(flattened))
+                _pendingSessionInvalidations.Add(chat.Id);
 
             var errorMsg = new ChatMessage
             {
                 Role = "error",
                 Author = Loc.Author_Lumi,
-                Content = errorText
+                Content = display
             };
             chat.Messages.Add(errorMsg);
 
             // Only update view-level state if this chat is still displayed
             if (CurrentChat?.Id == chat.Id)
             {
-                StatusText = errorText;
+                StatusText = display;
                 IsBusy = false;
                 IsStreaming = false;
                 _transcriptBuilder.HideTypingIndicator();
@@ -3081,12 +3386,22 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
                 var msgVm = new ChatMessageViewModel(errorMsg);
                 Messages.Add(msgVm);
+                // Pass this handler's authoritative decision: a fatal error — or a synthetic terminal
+                // overrideMessage — must not have Retry re-derived from its lossy persisted string.
+                UpdateStuckChatRetryAffordance(recoverable);
                 ScrollToEndRequested?.Invoke();
             }
+
+            // Persist the error card so it survives a restart before the next send. For a recoverable
+            // error this also lets the reopen path re-arm session recovery from the persisted card; for
+            // a fatal / terminal-override error the card simply stays visible. Mirrors the
+            // SessionErrorEvent path (which already saves here) — without it the exception path silently
+            // dropped the card (and its recovery affordance) on the next launch.
+            QueueSaveChat(chat, saveIndex: false, releaseIfInactive: CurrentChat?.Id != chat.Id);
         }
         else
         {
-            StatusText = errorText;
+            StatusText = display;
             IsBusy = false;
             IsStreaming = false;
             _transcriptBuilder.HideTypingIndicator();
@@ -3116,6 +3431,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var stoppedTools = MarkInProgressToolsStopped(chat);
         MarkRuntimeTerminal(runtime, Loc.Status_Stopped);
         ClearPendingTurnTracking(chatId);
+
+        // Aborting the session kills any background shell it launched, so stop showing them "running".
+        if (CurrentChat?.Id == chatId)
+            CompleteAllBackgroundShellsAndStop();
 
         // Only update UI properties if this is still the displayed chat
         if (CurrentChat?.Id == chatId)
@@ -3801,9 +4120,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         _transcriptBuilder.ShownFileChips.Clear();
 
-        // For edits: there is currently no public SDK API to rewind/remove prior
-        // turns from the server-side history. To avoid leaking the pre-edit prompt,
-        // we recreate the backend session and pass only the retained transcript.
+        // For edits: rewind the live session's server-side history to just before the
+        // edited turn via the SDK History.Truncate API (see TryRewindEditedHistoryAsync),
+        // then resend the edit as a normal turn. Only when that rewind is unavailable do
+        // we fall back to recreating the backend session and replaying the retained
+        // transcript as text to avoid leaking the pre-edit prompt.
         // For regenerates (same content): reuse the existing session as-is.
 
         // Re-add the user message as a fresh entry
@@ -3863,18 +4184,39 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (ConsumePendingSessionInvalidation(CurrentChat))
                 needsSessionSetup = true;
 
-            // Editing must not keep old server-side context. Recreate session first.
-            // Must happen BEFORE creating the new CTS, because InvalidateCurrentSession
-            // calls ReleaseSessionResources which disposes any CTS still in _ctsSources.
+            // For an edited turn, prefer rewinding the live session's server-side history to
+            // just before that turn (SDK History.Truncate) and resending the edit as a normal
+            // turn — this preserves the real multi-turn history, tools, and workspace state
+            // instead of recreating the session and replaying the transcript as one big text
+            // prompt. Only fall back to the recreate + replay path when the rewind fails.
+            //
+            // The rewind attempt runs BEFORE the new CTS is registered in _ctsSources, so the
+            // fallback InvalidateCurrentSession() (which disposes any CTS still tracked in
+            // _ctsSources) can never dispose this turn's CTS.
             var shouldReplayPrompt = wasEdited;
             var previousSessionId = CurrentChat.CopilotSessionId;
-            if (wasEdited)
-            {
-                InvalidateCurrentSession();
-                needsSessionSetup = true;
-            }
 
             var cts = new CancellationTokenSource();
+
+            var historyRewound = false;
+            if (wasEdited)
+            {
+                historyRewound = await TryRewindEditedHistoryAsync(CurrentChat, retainedContext, cts.Token);
+                if (historyRewound)
+                {
+                    // Live session preserved with history rewound to before the edited turn.
+                    shouldReplayPrompt = false;
+                    needsSessionSetup = false;
+                }
+                else
+                {
+                    // Rewind unavailable — recreate the session and replay the retained
+                    // transcript as text so no pre-edit server context leaks into the reply.
+                    InvalidateCurrentSession();
+                    needsSessionSetup = true;
+                }
+            }
+
             _ctsSources[chatId] = cts;
 
             if (needsSessionSetup)
@@ -3911,10 +4253,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
             ApplyDisplayedRuntimeState(runtime);
 
+            // After a successful rewind the edit is a normal fresh turn; only the fallback
+            // path replays the retained transcript as text.
             var resendPrompt = BuildResendPrompt(
                 retainedContext,
                 prompt,
-                wasEdited,
+                wasEdited && !historyRewound,
                 shouldReplayPrompt,
                 promptAdditions);
 
@@ -4004,6 +4348,70 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (CurrentChat is not null)
                 ClearPendingTurnTracking(CurrentChat.Id);
             HandleSendError(ex, WasCancelledByUser(CurrentChat?.Id));
+        }
+    }
+
+    /// <summary>
+    /// Rewinds the live Copilot session's server-side history to just before an edited user
+    /// turn using the SDK <see cref="GitHub.Copilot.Rpc.HistoryApi.TruncateAsync"/> API, so the
+    /// edit can be resent as a normal turn without recreating the session or replaying the
+    /// transcript as text. Truncation drops the target user event and everything after it,
+    /// from both the live session and the persisted session log.
+    /// </summary>
+    /// <param name="chat">The chat whose backend session should be rewound.</param>
+    /// <param name="retainedContext">The messages that remain before the edited turn. The
+    /// edited turn is the Nth user turn (0-based) where N is the count of user messages here.</param>
+    /// <param name="ct">Cancellation token for the rewind operation.</param>
+    /// <returns><c>true</c> if the history was truncated and the caller may resend the edit as a
+    /// normal turn; <c>false</c> if the caller should fall back to recreating the session and
+    /// replaying the transcript.</returns>
+    private async Task<bool> TryRewindEditedHistoryAsync(
+        Chat chat,
+        List<ChatMessage> retainedContext,
+        CancellationToken ct)
+    {
+        // No persisted session means there is nothing server-side to rewind.
+        if (string.IsNullOrWhiteSpace(chat.CopilotSessionId))
+            return false;
+
+        try
+        {
+            // Ensure the target session is live, but never fall back to creating a fresh
+            // (empty) one — a brand-new session would have no history to truncate.
+            if (_activeSession is null
+                || !string.Equals(_activeSession.SessionId, chat.CopilotSessionId, StringComparison.Ordinal))
+            {
+                var resumed = await EnsureSessionAsync(chat, ct, allowCreateFallback: false);
+                if (!resumed
+                    || _activeSession is null
+                    || !string.Equals(_activeSession.SessionId, chat.CopilotSessionId, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            var events = await _activeSession.GetEventsAsync(ct);
+
+            // The edited turn is the (retainedUserCount)-th genuine user turn (0-based).
+            // SelectEditTruncationTarget skips SDK/CLI-injected user messages (e.g. a
+            // system-sourced priming message) that have no local counterpart, so we truncate
+            // exactly the edited turn instead of an earlier one. A null result means the local
+            // and server user turns don't line up — fall back to the safe replay path.
+            var retainedUserCount = retainedContext.Count(static m => m.Role == "user");
+            var target = PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget(events, retainedUserCount);
+            if (target is null)
+                return false;
+
+            // Truncating at the target user event drops it and everything after, leaving exactly
+            // the retained history; the edit is then resent as a normal turn.
+            await _activeSession.Rpc.History.TruncateAsync(target.Id.ToString(), ct);
+            return true;
+        }
+        catch
+        {
+            // Older CLI without the API, event-lookup mismatch, or a transport failure —
+            // let the caller fall back to recreating the session and replaying the transcript.
+            return false;
         }
     }
 

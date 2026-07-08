@@ -13,6 +13,13 @@ public sealed class ChatSessionStore : IDisposable
 {
     private const int DefaultMaxIdleCachedSurfaces = 8;
 
+    // How many idle-cached surfaces keep their realized transcript controls. Beyond this many, cached
+    // surfaces are kept as lightweight view-models only — their built Avalonia control subtrees are
+    // shed — so a deep pool of idle chats doesn't retain hundreds of live controls each. Keeping the
+    // most-recently-used idle surface fully realized makes toggling between the current and previous
+    // chat instant; the active (hosted) surface is never idle-cached, so it is never shed.
+    private const int MaxRealizedIdleSurfaces = 1;
+
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
     private readonly ChatSurfaceRegistry _registry;
@@ -68,8 +75,14 @@ public sealed class ChatSessionStore : IDisposable
         ThrowIfDisposed();
 
         var surface = CreateTrackedSurface(configure);
-        SetDraftProjectContext(surface, projectId);
+        // Retain BEFORE seeding the draft's project context. SetDraftProjectContext raises a
+        // PropertyChanged the store listens to (OnSurfacePropertyChanged -> CacheOrReleaseIfIdleAndUnhosted).
+        // A brand-new draft has no CurrentChat and hostCount 0, so that callback would treat it as an idle,
+        // uncacheable, unhosted surface and dispose it on the spot — handing the caller a disposed surface
+        // that then throws ObjectDisposedException on first send. Retaining first (hostCount = 1) makes the
+        // callback treat it as hosted and leave it alive.
         Retain(surface);
+        SetDraftProjectContext(surface, projectId);
         return surface;
     }
 
@@ -276,6 +289,7 @@ public sealed class ChatSessionStore : IDisposable
         {
             AddToIdleCache(surface);
             TrimIdleCache();
+            ShedDeepIdleRealizedControls();
             return;
         }
 
@@ -313,6 +327,25 @@ public sealed class ChatSessionStore : IDisposable
             }
 
             UntrackSurface(surface, dispose: true);
+        }
+    }
+
+    // Release the realized transcript controls of idle-cached surfaces deeper than the most-recently
+    // used ones. _idleSurfacesLru is ordered oldest-first (AddToIdleCache appends the newest at the
+    // tail), so the newest MaxRealizedIdleSurfaces surfaces stay fully realized for instant
+    // switch-back and everything older is shed down to its view-models. Releasing an already-shed
+    // surface is a cheap no-op, so re-running this on every cache insert is safe.
+    private void ShedDeepIdleRealizedControls()
+    {
+        var shedCount = _idleSurfacesLru.Count - MaxRealizedIdleSurfaces;
+        if (shedCount <= 0)
+            return;
+
+        var node = _idleSurfacesLru.First;
+        for (var i = 0; i < shedCount && node is not null; i++)
+        {
+            node.Value.ReleaseRealizedTranscriptControls();
+            node = node.Next;
         }
     }
 
