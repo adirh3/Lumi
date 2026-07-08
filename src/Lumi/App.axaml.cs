@@ -184,6 +184,9 @@ public partial class App : Application
 #if DEBUG
                 if (Program.UiHarnessOptions is { Enabled: true } uiHarnessOptions)
                     StartUiResponsivenessHarness(desktop, vm, dataStore, uiHarnessOptions);
+
+                if (Program.ProgressBarLeakReproEnabled)
+                    ProgressBarLeakRepro.Start(desktop);
 #endif
             };
 
