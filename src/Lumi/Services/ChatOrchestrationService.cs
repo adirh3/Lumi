@@ -46,7 +46,9 @@ public sealed class ChatOrchestrationService : IDisposable
     private readonly Func<DateTimeOffset> _now;
     // The target-chat send primitive. Defaults to the real ChatViewModel path; overridable in tests so the
     // run/cleanup plumbing (the _runs / _starting busy-gate) can be exercised without a live Copilot session.
-    private readonly Func<ChatViewModel, Chat, string, string, CancellationToken, Task> _sendMessage;
+    // The two string? args are the optional per-send model / reasoning-effort override (null = keep the
+    // chat's current selection).
+    private readonly Func<ChatViewModel, Chat, string, string, string?, string?, CancellationToken, Task> _sendMessage;
     private bool _isDisposed;
 
     public ChatOrchestrationService(
@@ -54,14 +56,15 @@ public sealed class ChatOrchestrationService : IDisposable
         ChatSurfaceRegistry registry,
         ChatSessionStore sessionStore,
         Func<DateTimeOffset>? nowProvider = null,
-        Func<ChatViewModel, Chat, string, string, CancellationToken, Task>? sendOverride = null)
+        Func<ChatViewModel, Chat, string, string, string?, string?, CancellationToken, Task>? sendOverride = null)
     {
         _dataStore = dataStore ?? throw new ArgumentNullException(nameof(dataStore));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _sessionStore = sessionStore ?? throw new ArgumentNullException(nameof(sessionStore));
         _now = nowProvider ?? (() => DateTimeOffset.Now);
         _sendMessage = sendOverride
-            ?? ((executor, chat, message, author, token) => executor.SendExternalMessageAsync(chat, message, author, token));
+            ?? ((executor, chat, message, author, model, effort, token) =>
+                executor.SendExternalMessageAsync(chat, message, author, token, model, effort));
     }
 
     /// <summary>Raised (on the UI thread) when a managed chat is created, started, or finishes a run,
@@ -78,6 +81,8 @@ public sealed class ChatOrchestrationService : IDisposable
         string? agent = null,
         string[]? skills = null,
         string? model = null,
+        string? reasoningEffort = null,
+        bool? worktree = null,
         bool? wait = null,
         int? timeoutSeconds = null,
         int? maxMessages = null,
@@ -90,8 +95,8 @@ public sealed class ChatOrchestrationService : IDisposable
         return NormalizeAction(action) switch
         {
             "list" or "show" or "search" => ListChatsAsync(query ?? identifier, project, limit),
-            "create" or "new" => CreateChatAsync(title, message, project, agent, skills, model, wait, timeoutSeconds, sourceChatId, onChatLinked, cancellationToken),
-            "send" or "message" or "reply" => SendMessageAsync(identifier, message, wait, timeoutSeconds, sourceChatId, onChatLinked, cancellationToken),
+            "create" or "new" => CreateChatAsync(title, message, project, agent, skills, model, reasoningEffort, worktree, wait, timeoutSeconds, sourceChatId, onChatLinked, cancellationToken),
+            "send" or "message" or "reply" => SendMessageAsync(identifier, message, model, reasoningEffort, wait, timeoutSeconds, sourceChatId, onChatLinked, cancellationToken),
             "status" or "progress" or "read" => GetStatusAsync(identifier, maxMessages, cancellationToken),
             _ => Task.FromResult(
                 $"Unknown manage_chats action \"{action}\". Use list, create, send, or status.")
@@ -155,6 +160,8 @@ public sealed class ChatOrchestrationService : IDisposable
         string? agent,
         string[]? skills,
         string? model,
+        string? reasoningEffort,
+        bool? worktree,
         bool? wait,
         int? timeoutSeconds,
         Guid? sourceChatId,
@@ -167,18 +174,18 @@ public sealed class ChatOrchestrationService : IDisposable
         {
             var proj = ResolveProject(project);
             if (!string.IsNullOrWhiteSpace(project) && proj is null)
-                return (Chat: (Chat?)null, Error: $"No project matches \"{project}\".", ProjectName: "", AgentName: "");
+                return (Chat: (Chat?)null, Error: $"No project matches \"{project}\".", ProjectName: "", AgentName: "", ProjectDir: (string?)null);
 
             var lumi = ResolveAgent(agent);
             if (!string.IsNullOrWhiteSpace(agent) && lumi is null)
-                return (Chat: (Chat?)null, Error: $"No Lumi/agent matches \"{agent}\".", ProjectName: "", AgentName: "");
+                return (Chat: (Chat?)null, Error: $"No Lumi/agent matches \"{agent}\".", ProjectName: "", AgentName: "", ProjectDir: (string?)null);
 
             var skillIds = new List<Guid>();
             foreach (var s in skills ?? [])
             {
                 var skill = ResolveSkill(s);
                 if (skill is null)
-                    return (Chat: (Chat?)null, Error: $"No skill matches \"{s}\".", ProjectName: "", AgentName: "");
+                    return (Chat: (Chat?)null, Error: $"No skill matches \"{s}\".", ProjectName: "", AgentName: "", ProjectDir: (string?)null);
                 if (!skillIds.Contains(skill.Id))
                     skillIds.Add(skill.Id);
             }
@@ -199,21 +206,28 @@ public sealed class ChatOrchestrationService : IDisposable
                 AgentId = lumi?.Id,
                 ActiveSkillIds = skillIds,
                 LastModelUsed = string.IsNullOrWhiteSpace(model) ? _dataStore.Data.Settings.PreferredModel : model.Trim(),
-                LastReasoningEffortUsed = _dataStore.Data.Settings.ReasoningEffort,
+                LastReasoningEffortUsed = string.IsNullOrWhiteSpace(reasoningEffort) ? _dataStore.Data.Settings.ReasoningEffort : reasoningEffort.Trim(),
                 LastContextWindowTierUsed = _dataStore.Data.Settings.ContextWindowTier
             };
 
             _dataStore.Data.Chats.Add(chat);
             _dataStore.MarkChatChanged(chat);
-            // Capture the display names here (on the UI thread) so the header can be built off-thread
-            // below without touching _dataStore.Data.Projects / .Agents from a background SDK thread.
-            return (Chat: (Chat?)chat, Error: (string?)null, ProjectName: proj?.Name ?? "", AgentName: lumi?.Name ?? "");
+            // Capture the display names + project working dir here (on the UI thread) so the header can be
+            // built and the worktree created off-thread below without touching _dataStore.Data.Projects /
+            // .Agents from a background SDK thread.
+            return (Chat: (Chat?)chat, Error: (string?)null, ProjectName: proj?.Name ?? "", AgentName: lumi?.Name ?? "", ProjectDir: proj?.WorkingDirectory);
         }).ConfigureAwait(false);
 
         if (setup.Chat is null)
             return setup.Error!;
 
         var created = setup.Chat;
+
+        // Optional git worktree — only for a coding project (git repo). Created before the first message
+        // so the worker's session works inside the isolated worktree from its very first turn. Done off the
+        // UI-thread mutation above (git is I/O); Chat.WorktreePath is a plain field with no observers yet.
+        var worktreeNote = await MaybeCreateWorktreeAsync(created, worktree == true, setup.ProjectDir).ConfigureAwait(false);
+
         onChatLinked?.Invoke(created.Id, created.Title);
         await _dataStore.SaveChatAsync(created, cancellationToken).ConfigureAwait(false);
         await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(false);
@@ -226,6 +240,8 @@ public sealed class ChatOrchestrationService : IDisposable
         if (created.AgentId is not null)
             header.Append($" with Lumi \"{setup.AgentName}\"");
         header.Append('.');
+        if (worktreeNote is not null)
+            header.Append(' ').Append(worktreeNote);
 
         if (trimmedMessage is null)
         {
@@ -233,9 +249,39 @@ public sealed class ChatOrchestrationService : IDisposable
             return header.ToString();
         }
 
-        var send = await StartOrRunAsync(created, trimmedMessage, wait, timeoutSeconds, sourceChatId, cancellationToken)
+        var send = await StartOrRunAsync(created, trimmedMessage, model, reasoningEffort, wait, timeoutSeconds, sourceChatId, cancellationToken)
             .ConfigureAwait(false);
         return header.Append('\n').Append(send).ToString();
+    }
+
+    /// <summary>Creates a git worktree for a freshly-created managed chat when requested and the project is
+    /// a git repository. Returns a short human note for the create result, or null when no worktree was
+    /// requested. Mirrors the interactive worktree flow (branch <c>lumi/{8hex}</c>) and is best-effort:
+    /// any failure falls back to the project folder with an explanatory note. Internal for direct testing —
+    /// exercising it through the full headless UI dispatch is unreliable because the real git subprocess
+    /// await hops off the dispatcher thread.</summary>
+    internal static async Task<string?> MaybeCreateWorktreeAsync(Chat chat, bool requested, string? projectDir)
+    {
+        if (!requested)
+            return null;
+
+        if (string.IsNullOrWhiteSpace(projectDir) || !GitService.IsGitRepo(projectDir))
+            return "A git worktree was requested but the project is not a git repository, so the chat uses the project folder directly.";
+
+        try
+        {
+            var branchName = $"lumi/{Guid.NewGuid().ToString("N")[..8]}";
+            var path = await GitService.CreateWorktreeAsync(projectDir, branchName).ConfigureAwait(false);
+            if (path is null)
+                return "A git worktree was requested but could not be created, so the chat uses the project folder directly.";
+
+            chat.WorktreePath = path;
+            return $"It runs in an isolated git worktree on branch \"{branchName}\".";
+        }
+        catch (Exception ex)
+        {
+            return $"A git worktree was requested but failed to create ({ex.Message}); the chat uses the project folder directly.";
+        }
     }
 
     // ── send ────────────────────────────────────────────────────────────────
@@ -243,6 +289,8 @@ public sealed class ChatOrchestrationService : IDisposable
     private async Task<string> SendMessageAsync(
         string? identifier,
         string? message,
+        string? model,
+        string? reasoningEffort,
         bool? wait,
         int? timeoutSeconds,
         Guid? sourceChatId,
@@ -259,13 +307,15 @@ public sealed class ChatOrchestrationService : IDisposable
         if (resolution.Chat.Id != sourceChatId)
             onChatLinked?.Invoke(resolution.Chat.Id, resolution.Chat.Title);
 
-        return await StartOrRunAsync(resolution.Chat, message.Trim(), wait, timeoutSeconds, sourceChatId, cancellationToken)
+        return await StartOrRunAsync(resolution.Chat, message.Trim(), model, reasoningEffort, wait, timeoutSeconds, sourceChatId, cancellationToken)
             .ConfigureAwait(false);
     }
 
     private async Task<string> StartOrRunAsync(
         Chat chat,
         string message,
+        string? model,
+        string? reasoningEffort,
         bool? wait,
         int? timeoutSeconds,
         Guid? sourceChatId,
@@ -273,6 +323,9 @@ public sealed class ChatOrchestrationService : IDisposable
     {
         if (sourceChatId is { } source && source == chat.Id)
             return "That id is the current chat — a manager can't send a message to its own chat. Target a different chat.";
+
+        var modelOverride = string.IsNullOrWhiteSpace(model) ? null : model.Trim();
+        var effortOverride = string.IsNullOrWhiteSpace(reasoningEffort) ? null : reasoningEffort.Trim();
 
         Task? runTask = null;
         string? error = null;
@@ -294,7 +347,7 @@ public sealed class ChatOrchestrationService : IDisposable
             try
             {
                 var (executor, release) = await ResolveExecutorAsync(chat).ConfigureAwait(true);
-                runTask = StartRun(executor, release, chat, message, author);
+                runTask = StartRun(executor, release, chat, message, author, modelOverride, effortOverride);
             }
             catch (Exception ex)
             {
@@ -426,13 +479,14 @@ public sealed class ChatOrchestrationService : IDisposable
 
     // ── run plumbing ──────────────────────────────────────────────────────────
 
-    private Task StartRun(ChatViewModel executor, bool release, Chat chat, string message, string author)
+    private Task StartRun(ChatViewModel executor, bool release, Chat chat, string message, string author,
+        string? modelOverride, string? effortOverride)
     {
         // RunCoreAsync yields (await Task.Yield()) before running any of its body, guaranteeing this _runs
         // insertion happens-before the run's finally can remove it — even when the send fails synchronously.
         // Without that ordering a synchronously-completing run would remove-then-insert, leaking a permanent
         // _runs entry that wedges the chat into a false "busy" state until the app restarts.
-        var task = RunCoreAsync(executor, release, chat, message, author, _lifetimeCts.Token);
+        var task = RunCoreAsync(executor, release, chat, message, author, modelOverride, effortOverride, _lifetimeCts.Token);
         _runs[chat.Id] = new OrchestrationRun(_now(), Truncate(Collapse(message), 120), task);
         return task;
     }
@@ -443,6 +497,8 @@ public sealed class ChatOrchestrationService : IDisposable
         Chat chat,
         string message,
         string author,
+        string? modelOverride,
+        string? effortOverride,
         CancellationToken token)
     {
         // Yield before touching anything so StartRun records this run in _runs before the finally below can
@@ -453,7 +509,7 @@ public sealed class ChatOrchestrationService : IDisposable
         await Task.Yield();
         try
         {
-            await _sendMessage(executor, chat, message, author, token).ConfigureAwait(true);
+            await _sendMessage(executor, chat, message, author, modelOverride, effortOverride, token).ConfigureAwait(true);
         }
         catch
         {

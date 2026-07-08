@@ -213,6 +213,15 @@ public sealed class ChatSessionStore : IDisposable
             SendWithEnter = _dataStore.Data.Settings.SendWithEnter,
             OrchestrationService = OrchestrationService
         };
+        // Seed the model catalog from an already-populated surface. Surfaces acquired without a
+        // MainViewModel configure callback — notably background orchestration executors resolved by
+        // ChatOrchestrationService and background-job runners — would otherwise start with an empty
+        // catalog. ModelSelectionHelper.NormalizeEffort() then returns null for every model, so an
+        // explicit per-send reasoning-effort override (manage_chats) is silently dropped even though
+        // the model is preserved. Copying the catalog keeps effort normalization working everywhere.
+        var catalogSource = _surfaces.FirstOrDefault(existing => existing.AvailableModels.Count > 0);
+        if (catalogSource is not null)
+            surface.CopyModelCatalogFrom(catalogSource);
         configure?.Invoke(surface);
         TrackSurface(surface);
         return surface;

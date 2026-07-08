@@ -1,7 +1,10 @@
 using System;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -43,6 +46,51 @@ public sealed class ChatOrchestrationServiceTests
         return (store, registry, sessionStore);
     }
 
+    // Creates a throwaway git repo with one commit so `git worktree add -b …` has a HEAD to branch from.
+    private static string CreateTempGitRepo()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "Lumi-orch-git-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dir);
+        RunGit(dir, "init -b main");
+        RunGit(dir, "config user.email test@lumi.local");
+        RunGit(dir, "config user.name \"Lumi Test\"");
+        File.WriteAllText(Path.Combine(dir, "README.md"), "seed");
+        RunGit(dir, "add -A");
+        RunGit(dir, "commit -m seed");
+        return dir;
+    }
+
+    private static void RunGit(string workingDir, string args)
+    {
+        var psi = new ProcessStartInfo("git", args)
+        {
+            WorkingDirectory = workingDir,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        using var p = Process.Start(psi)!;
+        p.WaitForExit(30_000);
+    }
+
+    private static void TryDeleteDir(string dir)
+    {
+        try
+        {
+            if (!Directory.Exists(dir)) return;
+            // git marks pack/object files read-only, which blocks Directory.Delete on Windows —
+            // clear attributes first so the throwaway repo doesn't linger in TEMP after the test.
+            foreach (var file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+            {
+                try { File.SetAttributes(file, FileAttributes.Normal); }
+                catch { /* best-effort */ }
+            }
+            Directory.Delete(dir, recursive: true);
+        }
+        catch { /* best-effort test cleanup */ }
+    }
+
     // Runs an orchestration call on the headless UI thread and surfaces any exception. Avalonia's
     // HeadlessUnitTestSession.Dispatch swallows faults from the async body, so we capture the result
     // (and any error) inside the body and re-throw/assert outside it.
@@ -57,6 +105,8 @@ public sealed class ChatOrchestrationServiceTests
         string? agent = null,
         string[]? skills = null,
         string? model = null,
+        string? reasoningEffort = null,
+        bool? worktree = null,
         bool? wait = null,
         int? timeoutSeconds = null,
         int? maxMessages = null,
@@ -72,7 +122,7 @@ public sealed class ChatOrchestrationServiceTests
             {
                 result = await service.ManageChatsAsync(
                     action, identifier, title, message, project, agent, skills, model,
-                    wait, timeoutSeconds, maxMessages, query, limit, sourceChatId,
+                    reasoningEffort, worktree, wait, timeoutSeconds, maxMessages, query, limit, sourceChatId,
                     cancellationToken: CancellationToken.None);
             }
             catch (Exception ex)
@@ -208,6 +258,148 @@ public sealed class ChatOrchestrationServiceTests
     }
 
     [Fact]
+    public async Task Create_AppliesModelAndReasoningEffortOverrides()
+    {
+        using var session = HeadlessTestSession.Start();
+        var (store, registry, sessionStore) = CreateEnvironment(CreateData());
+        store.Data.Settings.PreferredModel = "default-model";
+        store.Data.Settings.ReasoningEffort = "medium";
+        using (registry)
+        using (sessionStore)
+        using (var service = new ChatOrchestrationService(store, registry, sessionStore))
+        {
+            sessionStore.OrchestrationService = service;
+
+            await RunAsync(session, service, "create", title: "Tuned", model: "gpt-5.5", reasoningEffort: "high");
+
+            var created = Assert.Single(store.Data.Chats);
+            Assert.Equal("gpt-5.5", created.LastModelUsed);
+            Assert.Equal("high", created.LastReasoningEffortUsed);
+        }
+    }
+
+    [Fact]
+    public async Task Create_DefaultsModelAndEffortToSettings()
+    {
+        using var session = HeadlessTestSession.Start();
+        var (store, registry, sessionStore) = CreateEnvironment(CreateData());
+        store.Data.Settings.PreferredModel = "default-model";
+        store.Data.Settings.ReasoningEffort = "medium";
+        using (registry)
+        using (sessionStore)
+        using (var service = new ChatOrchestrationService(store, registry, sessionStore))
+        {
+            sessionStore.OrchestrationService = service;
+
+            await RunAsync(session, service, "create", title: "Plain");
+
+            var created = Assert.Single(store.Data.Chats);
+            Assert.Equal("default-model", created.LastModelUsed);
+            Assert.Equal("medium", created.LastReasoningEffortUsed);
+        }
+    }
+
+    [Fact]
+    public async Task Create_WorktreeRequested_NonGitProject_FallsBackWithNote()
+    {
+        using var session = HeadlessTestSession.Start();
+        var tempDir = Path.Combine(Path.GetTempPath(), "Lumi-orch-nogit-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var project = new Project { Name = "Docs", WorkingDirectory = tempDir };
+            var data = CreateData();
+            data.Projects.Add(project);
+            var (store, registry, sessionStore) = CreateEnvironment(data);
+            using (registry)
+            using (sessionStore)
+            using (var service = new ChatOrchestrationService(store, registry, sessionStore))
+            {
+                sessionStore.OrchestrationService = service;
+
+                var result = await RunAsync(session, service, "create", title: "Notes", project: "Docs", worktree: true);
+
+                var created = Assert.Single(store.Data.Chats);
+                Assert.Null(created.WorktreePath);
+                Assert.Contains("not a git repository", result);
+            }
+        }
+        finally
+        {
+            TryDeleteDir(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task Create_WorktreeRequested_GitRepo_CreatesWorktree()
+    {
+        // Driven directly against the worktree helper: routing a real `git worktree add` through the full
+        // headless ManageChatsAsync + UI dispatch is unreliable because the subprocess await hops off the
+        // dispatcher thread before the create returns. The end-to-end wiring (create passes worktree=true +
+        // the project dir into this helper) is covered by the synchronous non-git / opt-out tests below.
+        var repoDir = CreateTempGitRepo();
+        string? worktreePath = null;
+        try
+        {
+            var chat = new Chat { Title = "Feature" };
+
+            var note = await ChatOrchestrationService.MaybeCreateWorktreeAsync(chat, requested: true, repoDir);
+
+            worktreePath = chat.WorktreePath;
+            Assert.False(string.IsNullOrWhiteSpace(chat.WorktreePath), $"repo={repoDir} | note={note}");
+            Assert.True(Directory.Exists(chat.WorktreePath));
+            Assert.NotNull(note);
+            Assert.Contains("worktree", note, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (worktreePath is not null)
+                await GitService.RemoveWorktreeAsync(repoDir, worktreePath);
+            TryDeleteDir(repoDir);
+        }
+    }
+
+    [Fact]
+    public async Task MaybeCreateWorktree_NotRequested_ReturnsNullAndLeavesPathUnset()
+    {
+        var chat = new Chat { Title = "Plain" };
+
+        var note = await ChatOrchestrationService.MaybeCreateWorktreeAsync(chat, requested: false, projectDir: null);
+
+        Assert.Null(note);
+        Assert.Null(chat.WorktreePath);
+    }
+
+    [Fact]
+    public async Task Create_WorktreeNotRequested_UsesProjectFolder()
+    {
+        using var session = HeadlessTestSession.Start();
+        var repoDir = CreateTempGitRepo();
+        try
+        {
+            var project = new Project { Name = "Code", WorkingDirectory = repoDir };
+            var data = CreateData();
+            data.Projects.Add(project);
+            var (store, registry, sessionStore) = CreateEnvironment(data);
+            using (registry)
+            using (sessionStore)
+            using (var service = new ChatOrchestrationService(store, registry, sessionStore))
+            {
+                sessionStore.OrchestrationService = service;
+
+                await RunAsync(session, service, "create", title: "Plain", project: "Code");
+
+                var created = Assert.Single(store.Data.Chats);
+                Assert.Null(created.WorktreePath);
+            }
+        }
+        finally
+        {
+            TryDeleteDir(repoDir);
+        }
+    }
+
+    [Fact]
     public async Task Send_WithoutMessage_ReturnsValidationError()
     {
         using var session = HeadlessTestSession.Start();
@@ -296,8 +488,8 @@ public sealed class ChatOrchestrationServiceTests
         var (store, registry, sessionStore) = CreateEnvironment(CreateData(target));
 
         var sends = 0;
-        Func<ChatViewModel, Chat, string, string, CancellationToken, Task> completingSend =
-            (_, _, _, _, _) => { Interlocked.Increment(ref sends); return Task.CompletedTask; };
+        Func<ChatViewModel, Chat, string, string, string?, string?, CancellationToken, Task> completingSend =
+            (_, _, _, _, _, _, _) => { Interlocked.Increment(ref sends); return Task.CompletedTask; };
 
         var firstBusyRejected = false;
         var secondBusyRejected = false;
@@ -339,6 +531,89 @@ public sealed class ChatOrchestrationServiceTests
     }
 
     [Fact]
+    public async Task Send_ForwardsModelAndEffortOverrideToSendPath()
+    {
+        using var session = HeadlessTestSession.Start();
+        var target = new Chat { Title = "Worker" };
+        var (store, registry, sessionStore) = CreateEnvironment(CreateData(target));
+
+        string? capturedModel = null;
+        string? capturedEffort = null;
+        var captured = 0;
+        Func<ChatViewModel, Chat, string, string, string?, string?, CancellationToken, Task> capturingSend =
+            (_, _, _, _, model, effort, _) =>
+            {
+                capturedModel = model;
+                capturedEffort = effort;
+                Interlocked.Increment(ref captured);
+                return Task.CompletedTask;
+            };
+
+        Exception? failure = null;
+        using (registry)
+        using (sessionStore)
+        using (var service = new ChatOrchestrationService(store, registry, sessionStore, sendOverride: capturingSend))
+        {
+            sessionStore.OrchestrationService = service;
+            await session.Dispatch(async () =>
+            {
+                try
+                {
+                    await service.ManageChatsAsync(
+                        "send", identifier: target.Id.ToString(), message: "go",
+                        model: "gpt-5.5", reasoningEffort: "high");
+                    await service.WaitForRunsAsync();
+                }
+                catch (Exception ex) { failure = ex; }
+            }, CancellationToken.None);
+        }
+
+        Assert.Null(failure);
+        Assert.Equal(1, captured);
+        Assert.Equal("gpt-5.5", capturedModel);
+        Assert.Equal("high", capturedEffort);
+    }
+
+    [Fact]
+    public async Task Send_WithoutOverride_ForwardsNullModelAndEffort()
+    {
+        using var session = HeadlessTestSession.Start();
+        var target = new Chat { Title = "Worker" };
+        var (store, registry, sessionStore) = CreateEnvironment(CreateData(target));
+
+        string? capturedModel = "sentinel";
+        string? capturedEffort = "sentinel";
+        Func<ChatViewModel, Chat, string, string, string?, string?, CancellationToken, Task> capturingSend =
+            (_, _, _, _, model, effort, _) =>
+            {
+                capturedModel = model;
+                capturedEffort = effort;
+                return Task.CompletedTask;
+            };
+
+        Exception? failure = null;
+        using (registry)
+        using (sessionStore)
+        using (var service = new ChatOrchestrationService(store, registry, sessionStore, sendOverride: capturingSend))
+        {
+            sessionStore.OrchestrationService = service;
+            await session.Dispatch(async () =>
+            {
+                try
+                {
+                    await service.ManageChatsAsync("send", identifier: target.Id.ToString(), message: "go");
+                    await service.WaitForRunsAsync();
+                }
+                catch (Exception ex) { failure = ex; }
+            }, CancellationToken.None);
+        }
+
+        Assert.Null(failure);
+        Assert.Null(capturedModel);
+        Assert.Null(capturedEffort);
+    }
+
+    [Fact]
     public async Task Send_WhenRunFailsSynchronously_DoesNotWedgeChatBusy()
     {
         using var session = HeadlessTestSession.Start();
@@ -349,8 +624,8 @@ public sealed class ChatOrchestrationServiceTests
         // leak a permanent _runs entry: SendExternalMessageAsync throwing at its own busy-guard before its
         // first await, so RunCoreAsync's finally ran (removing nothing) before StartRun recorded the run.
         var sends = 0;
-        Func<ChatViewModel, Chat, string, string, CancellationToken, Task> failingSend =
-            (_, _, _, _, _) => { Interlocked.Increment(ref sends); return Task.FromException(new InvalidOperationException("boom")); };
+        Func<ChatViewModel, Chat, string, string, string?, string?, CancellationToken, Task> failingSend =
+            (_, _, _, _, _, _, _) => { Interlocked.Increment(ref sends); return Task.FromException(new InvalidOperationException("boom")); };
 
         var secondBusyRejected = false;
         Exception? failure = null;
@@ -439,4 +714,75 @@ public sealed class ChatOrchestrationServiceTests
             Assert.Equal("Linky", captured.Value.Title);
         }
     }
+
+    [Fact]
+    public async Task AcquireChat_WithoutConfigure_SeedsModelCatalogFromPopulatedSurface()
+    {
+        // Regression guard for the effort-override drop on orchestrated sends. Orchestration executors
+        // are resolved via AcquireChatAsync with NO configure callback (unlike MainViewModel, which always
+        // passes PrepareChatSurface -> CopyModelCatalogFrom). Without seeding, such surfaces start with an
+        // empty reasoning-effort catalog, so ModelSelectionHelper.NormalizeEffort() returns null and a
+        // per-send reasoning-effort override (manage_chats) is silently dropped even though the model is
+        // preserved. CreateTrackedSurface must copy the catalog from an already-populated surface.
+        using var session = HeadlessTestSession.Start();
+        var seedChat = new Chat { Title = "Seed" };
+        var targetChat = new Chat { Title = "Target" };
+        var (store, registry, sessionStore) = CreateEnvironment(CreateData(seedChat, targetChat));
+
+        string[]? seedModels = null;
+        string[]? acquiredModels = null;
+        string[]? acquiredQualityLevels = null;
+        Exception? failure = null;
+
+        using (registry)
+        using (sessionStore)
+        {
+            await session.Dispatch(async () =>
+            {
+                try
+                {
+                    // Populate a first tracked surface's catalog (mirrors the primary window's _chatVM).
+                    var seed = await sessionStore.AcquireChatAsync(seedChat);
+                    seed.UpdateModelCapabilities([CreateModelWithEfforts("test-model")]);
+                    seed.AvailableModels.Add("test-model");
+                    seedModels = seed.AvailableModels.ToArray();
+
+                    // Orchestration path: acquire WITHOUT a configure callback.
+                    var acquired = await sessionStore.AcquireChatAsync(targetChat);
+                    acquiredModels = acquired.AvailableModels.ToArray();
+
+                    // Setting SelectedModel recomputes QualityLevels from the (copied) effort catalog.
+                    // An empty catalog would yield no quality levels -> the effort-override bug.
+                    acquired.SelectedModel = "test-model";
+                    acquiredQualityLevels = acquired.QualityLevels;
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                }
+            }, CancellationToken.None);
+        }
+
+        Assert.Null(failure);
+        Assert.NotNull(seedModels);
+        Assert.NotNull(acquiredModels);
+        Assert.Contains("test-model", acquiredModels!);
+        Assert.Equal(seedModels, acquiredModels);
+        Assert.NotNull(acquiredQualityLevels);
+        Assert.Equal(3, acquiredQualityLevels!.Length);
+    }
+
+    private static ModelInfo CreateModelWithEfforts(string id)
+        => new()
+        {
+            Id = id,
+            Name = id,
+            SupportedReasoningEfforts = ["low", "medium", "high"],
+            DefaultReasoningEffort = "high",
+            Capabilities = new ModelCapabilities
+            {
+                Limits = new ModelLimits { MaxContextWindowTokens = 128_000 },
+                Supports = new ModelSupports()
+            }
+        };
 }

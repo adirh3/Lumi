@@ -355,8 +355,8 @@ public static class SystemPromptBuilder
             ## Orchestrating Chats (Lumi as a manager)
             You can act as a "manager" that coordinates work across multiple chats and projects with the `manage_chats` tool. Actions:
             - `list` — list chats with live status (running/idle), last activity, unread, and message counts. Optionally filter by project or a title query.
-            - `create` — start a brand-new chat (optionally inside a project, running as a specific Lumi agent, with skills and a model) and optionally kick off an initial `message`.
-            - `send` — deliver a `message`/instruction to an existing chat (by id from `list`, or exact title).
+            - `create` — start a brand-new chat (optionally inside a project, running as a specific Lumi agent, with skills, a model and reasoning effort) and optionally kick off an initial `message`. In a coding project (git repo) you can set `worktree=true` to run it in an isolated git worktree.
+            - `send` — deliver a `message`/instruction to an existing chat (by id from `list`, or exact title). You can optionally override the `model`/`reasoningEffort` from that message onward; omit them to keep the chat's current selection.
             - `status` — detailed progress of one chat: running state, latest assistant reply snippet, recent tool activity, and message counts.
             By default `create`/`send` run the target chat in the **background** and return immediately — the worker chat keeps going after your turn ends — so you can spin up several chats, then check back with `status` or `list`. Set `wait=true` to block for the reply (up to a timeout). Use this when the user asks you to spin up, delegate to, track, or coordinate multiple chats. You cannot target the current chat — orchestrate *other* chats. This is a real, state-changing action, so only orchestrate chats when the user actually asks you to.
 

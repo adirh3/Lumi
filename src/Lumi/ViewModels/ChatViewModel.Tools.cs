@@ -794,7 +794,9 @@ public partial class ChatViewModel
                 [Description("For 'create': project id or exact name to place the chat in. Optional.")] string? project = null,
                 [Description("For 'create': Lumi agent id or exact name to run the chat as. Optional.")] string? agent = null,
                 [Description("For 'create': skill names or ids to attach to the chat. Optional.")] string[]? skills = null,
-                [Description("For 'create': model id override for the chat. Optional — defaults to the user's preferred model.")] string? model = null,
+                [Description("For 'create'/'send': model id override. For 'create' it sets the new chat's model (defaults to the user's preferred model). For 'send' it switches the target chat to this model from this message onward (defaults to the chat's current model).")] string? model = null,
+                [Description("For 'create'/'send': reasoning-effort override such as 'low', 'medium', or 'high' (model-specific values like 'xhigh'/'max' also work). For 'create' it sets the new chat's effort; for 'send' it applies from this message onward. Optional — defaults to the chat's current effort, which for a new chat is the user's default.")] string? reasoningEffort = null,
+                [Description("For 'create': when true, run the new chat in an isolated git worktree so its file changes stay separate. Only applies when the target project is a coding project (a git repository) — ignored otherwise. Optional, default false (works directly in the project folder).")] bool worktree = false,
                 [Description("For 'create'/'send': when true, wait for the worker chat to finish its reply before returning (up to timeoutSeconds). When false (default), start the work in the background and return immediately so you can keep managing.")] bool wait = false,
                 [Description("For 'create'/'send' with wait=true: how long to wait, in seconds, before returning with a 'still running' note. Default 240, max 1800.")] int? timeoutSeconds = null,
                 [Description("For 'status': how many recent messages to summarize (1-40, default 8). For 'list': ignored.")] int? maxMessages = null,
@@ -816,6 +818,8 @@ public partial class ChatViewModel
                     agent,
                     skills,
                     model,
+                    reasoningEffort,
+                    worktree,
                     wait,
                     timeoutSeconds,
                     maxMessages,
@@ -851,7 +855,7 @@ public partial class ChatViewModel
                 return result;
             },
             "manage_chats",
-            "Orchestrate other Lumi chats so you can act as a manager coordinating work across multiple chats and projects. Actions: 'list' shows every chat with live status (running/idle), last activity, unread and message counts; 'create' starts a brand-new chat (optionally inside a project, running as a specific Lumi agent, with skills and a model) and can kick off an initial message; 'send' delivers a message/instruction to an existing chat; 'status' reports the detailed progress of one chat (running state, latest assistant reply snippet, recent tool activity, counts). By default create/send run the target chat in the BACKGROUND and return immediately — the worker keeps going after your turn ends — so you can start several chats and check back with 'status' or 'list'. Set wait=true to block for the reply. Use this when the user asks you to spin up, delegate to, track, or coordinate multiple chats.",
+            "Orchestrate other Lumi chats so you can act as a manager coordinating work across multiple chats and projects. Actions: 'list' shows every chat with live status (running/idle), last activity, unread and message counts; 'create' starts a brand-new chat (optionally inside a project, running as a specific Lumi agent, with skills, a model and reasoning effort, and — for coding projects — in an isolated git worktree via worktree=true) and can kick off an initial message; 'send' delivers a message/instruction to an existing chat (optionally overriding the model/reasoningEffort from that message onward); 'status' reports the detailed progress of one chat (running state, latest assistant reply snippet, recent tool activity, counts). By default create/send run the target chat in the BACKGROUND and return immediately — the worker keeps going after your turn ends — so you can start several chats and check back with 'status' or 'list'. Set wait=true to block for the reply. Use this when the user asks you to spin up, delegate to, track, or coordinate multiple chats.",
             Lumi.Models.AppDataJsonContext.Default.Options);
     }
 

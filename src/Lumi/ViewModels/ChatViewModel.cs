@@ -762,8 +762,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (!string.IsNullOrWhiteSpace(effectiveModel))
             chat.LastModelUsed = effectiveModel;
 
+        // Mirror the effectiveModel fallback above: a session event that omits the reasoning effort
+        // (e.g. SessionStart/ModelChange for a background/orchestrated send, which does not always echo
+        // the effort back) must NOT clobber the chat's persisted effort to null — otherwise an explicit
+        // per-send effort override is silently dropped after it was applied. Fall back to the chat's
+        // current effort so a real value from the session still wins but an empty one preserves intent.
+        var effectiveEffort = string.IsNullOrWhiteSpace(reasoningEffort)
+            ? chat.LastReasoningEffortUsed
+            : reasoningEffort;
+
         chat.LastReasoningEffortUsed = ModelSelectionHelper.NormalizeEffort(
-            reasoningEffort,
+            effectiveEffort,
             effectiveModel,
             _modelReasoningEfforts,
             _modelDefaultEfforts);
@@ -2152,7 +2161,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         Chat targetChat,
         string prompt,
         string author,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? modelOverride = null,
+        string? reasoningEffortOverride = null)
     {
         ArgumentNullException.ThrowIfNull(targetChat);
 
@@ -2163,6 +2174,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         if (!_copilotService.IsConnected)
             await _copilotService.ConnectAsync(cancellationToken);
+
+        // Explicit per-send model / reasoning-effort override (used by manage_chats send). Overwriting the
+        // chat's persisted selection makes both a fresh session (applied via EnsureSessionAsync) and an
+        // already-cached session (applied via SetModelAsync below) honour the requested model/effort. When
+        // omitted, the chat keeps its current selection — which for a manager-created chat is the new-chat
+        // default (Settings.PreferredModel / Settings.ReasoningEffort).
+        var hasModelOverride = !string.IsNullOrWhiteSpace(modelOverride);
+        var hasEffortOverride = !string.IsNullOrWhiteSpace(reasoningEffortOverride);
+        if (hasModelOverride)
+            targetChat.LastModelUsed = modelOverride!.Trim();
+        if (hasEffortOverride)
+            targetChat.LastReasoningEffortUsed = reasoningEffortOverride!.Trim();
 
         if (string.IsNullOrWhiteSpace(targetChat.LastModelUsed))
         {
@@ -2262,6 +2285,42 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 ? sessionForChat
                 : _activeSession!;
             RestoreActiveSessionIfSwitched(targetChat);
+
+            // EnsureSessionAsync re-resolves the effort via ResolvePersistedReasoningEffortForChat, which for a
+            // currently-displayed target chat returns the live UI selection and overwrites an explicit per-send
+            // effort override (the model is preserved through LastModelUsed, but the effort is not). Restore the
+            // override so it is applied to the session below and persisted for subsequent sends.
+            if (hasEffortOverride)
+                targetChat.LastReasoningEffortUsed = reasoningEffortOverride!.Trim();
+
+            // Push an explicit per-send model/effort override onto the resolved session:
+            //  - cached session: EnsureSessionAsync never ran, so nothing has applied the override yet;
+            //  - fresh/resumed session: the model was already applied inside EnsureSessionAsync, but an effort
+            //    override can be dropped (see above), so re-apply whenever the effort was overridden.
+            if (sendSession is not null
+                && !string.IsNullOrWhiteSpace(targetChat.LastModelUsed)
+                && (hasEffortOverride || (hasModelOverride && !needsSessionSetup)))
+            {
+                var overrideModel = targetChat.LastModelUsed!;
+                var overrideEffort = ResolveReasoningEffortForModel(
+                    targetChat.LastReasoningEffortUsed,
+                    overrideModel);
+                try
+                {
+                    await sendSession.SetModelAsync(
+                        overrideModel,
+                        new SetModelOptions
+                        {
+                            ReasoningEffort = string.IsNullOrWhiteSpace(overrideEffort) ? null : overrideEffort,
+                            ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
+                            ContextTier = SessionConfigBuilder.CreateContextTier(targetChat.LastContextWindowTierUsed)
+                        });
+                }
+                catch
+                {
+                    // Best-effort: keep the session's current model if the mid-session switch fails.
+                }
+            }
 
             var basePrompt = needsReplayPrompt
                 ? BuildSessionRecoveryReplayPrompt(retainedContext, prompt)
