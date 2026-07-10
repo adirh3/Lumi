@@ -5,6 +5,19 @@ using System.Text.Json.Serialization;
 
 namespace Lumi.Models;
 
+/// <summary>
+/// Transient delivery status for a user message that was steered into a running turn. Session-only
+/// (never persisted) — it exists so the transcript can confirm whether a mid-turn message actually
+/// landed in the live turn (<see cref="Steered"/>) versus a normal turn-start message.
+/// </summary>
+public enum MessageSteerState
+{
+    None,
+    Steering,
+    Steered,
+    Failed
+}
+
 public class ChatMessage
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -29,6 +42,11 @@ public class ChatMessage
     public List<string> Attachments { get; set; } = [];
     public List<SearchSource> Sources { get; set; } = [];
     public List<SkillReference> ActiveSkills { get; set; } = [];
+
+    /// <summary>Session-only steer delivery status (not serialized). Set when this message is steered
+    /// into a running turn so the badge survives transcript/VM rebuilds within the session.</summary>
+    [JsonIgnore]
+    public MessageSteerState SteerDelivery { get; set; }
 }
 
 public class SkillReference

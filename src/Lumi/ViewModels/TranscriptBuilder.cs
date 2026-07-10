@@ -23,6 +23,7 @@ public class TranscriptBuilder
     private readonly Action<SkillReference>? _openSkillAction;
     private readonly Func<string, SkillReference?>? _resolveSkill;
     private readonly Func<string?> _getSelectedModel;
+    private readonly Func<ChatMessageViewModel, Task>? _sendSteeredNowAsync;
 
     private ToolGroupItem? _currentToolGroup;
     private int _currentToolGroupCount;
@@ -79,7 +80,8 @@ public class TranscriptBuilder
         Func<string?> getSelectedModel,
         Action<SkillReference>? openSkillAction = null,
         Func<string, SkillReference?>? resolveSkill = null,
-        Action<Guid>? openChatAction = null)
+        Action<Guid>? openChatAction = null,
+        Func<ChatMessageViewModel, Task>? sendSteeredNowAsync = null)
     {
         _dataStore = dataStore;
         _showDiffAction = showDiffAction;
@@ -89,6 +91,7 @@ public class TranscriptBuilder
         _openSkillAction = openSkillAction;
         _resolveSkill = resolveSkill;
         _openChatAction = openChatAction;
+        _sendSteeredNowAsync = sendSteeredNowAsync;
     }
 
     /// <summary>
@@ -1121,7 +1124,7 @@ public class TranscriptBuilder
             var newSkills = msgVm.Message.ActiveSkills
                 .Where(s => _shownSkillNames.Add(s.Name))
                 .ToList();
-            var userItem = new UserMessageItem(msgVm, showTimestamps, newSkills, (msg, edited) => _ = _resendFromMessageAction(msg, edited), _openSkillAction);
+            var userItem = new UserMessageItem(msgVm, showTimestamps, newSkills, (msg, edited) => _ = _resendFromMessageAction(msg, edited), _openSkillAction, _sendSteeredNowAsync);
             AppendToCurrentTurn(userItem, TurnStableIdFor($"message:{msgVm.Message.Id}"));
             FinalizeCurrentTurn();
             return;

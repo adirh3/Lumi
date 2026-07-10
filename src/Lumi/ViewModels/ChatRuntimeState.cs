@@ -100,4 +100,13 @@ internal sealed class ChatRuntimeState
     /// Unexpected SDK aborts must not be mistaken for this state.</summary>
     public bool ManualStopRequested { get; set; }
 
+    /// <summary>
+    /// Armed when a normal turn-start user message is sent; the SDK echoes exactly one
+    /// <c>UserMessageEvent</c> when the agent consumes that prompt. Steer-confirmation consumes (and clears)
+    /// this flag on that first echo so the turn-start message is never mistaken for a steer consumption —
+    /// steers are only ever injected AFTER the turn is already running. Reset at turn end / terminal so it
+    /// can't leak into a later turn. UI-thread only.
+    /// </summary>
+    public bool ExpectTurnStartUserEcho { get; set; }
+
 }

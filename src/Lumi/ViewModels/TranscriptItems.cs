@@ -58,6 +58,10 @@ public partial class UserMessageItem : TranscriptItem
 
     public string? Author => _source.Author;
     public ChatMessage Message => _source.Message;
+
+    /// <summary>The backing message view-model, exposed so the transcript template can bind live
+    /// transient state (e.g. steering-delivery status) that updates after the item is created.</summary>
+    public ChatMessageViewModel Source => _source;
     public List<FileAttachmentItem> Attachments { get; }
     public List<SkillReference> Skills { get; }
     public List<SkillChipItem> SkillChips { get; }
@@ -75,7 +79,11 @@ public partial class UserMessageItem : TranscriptItem
     /// <summary>Command invoked when user clicks Regenerate/Retry on the message.</summary>
     public ICommand ResendCommand { get; }
 
-    public UserMessageItem(ChatMessageViewModel source, bool showTimestamps, List<SkillReference>? filteredSkills = null, Action<ChatMessage, bool>? resendAction = null, Action<SkillReference>? openSkillAction = null)
+    /// <summary>Command invoked from the inline "Send now" affordance beside an in-flight steering
+    /// badge — forces the still-pending steered message through to the running turn immediately.</summary>
+    public IAsyncRelayCommand SendNowCommand { get; }
+
+    public UserMessageItem(ChatMessageViewModel source, bool showTimestamps, List<SkillReference>? filteredSkills = null, Action<ChatMessage, bool>? resendAction = null, Action<SkillReference>? openSkillAction = null, Func<ChatMessageViewModel, Task>? sendSteeredNowAsync = null)
         : base($"message:user:{source.Message.Id}")
     {
         _source = source;
@@ -89,6 +97,8 @@ public partial class UserMessageItem : TranscriptItem
         BeginEditCommand = new RelayCommand(() => { /* Strata handles entering edit mode internally */ });
         ConfirmEditCommand = new RelayCommand<string>(text => EditAndResend(text ?? Content));
         ResendCommand = new RelayCommand(ResendFromMessage);
+        SendNowCommand = new AsyncRelayCommand(
+            () => sendSteeredNowAsync?.Invoke(_source) ?? Task.CompletedTask);
     }
 
     public void ResendFromMessage() => _resendAction?.Invoke(_source.Message, false);

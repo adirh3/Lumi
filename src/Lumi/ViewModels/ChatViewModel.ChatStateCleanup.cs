@@ -330,6 +330,11 @@ public partial class ChatViewModel
     private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest, bool deleteServerSession)
     {
         _queuedBusySendPrompts.Remove(chatId);
+        // Drop any still-pending steer confirmations for this chat. Without this a chat deleted / released
+        // while a steer is in flight leaks its entry (and the referenced ChatMessageViewModel), and — because
+        // a remote-shutdown keeps CopilotSessionId for resume — a later Retry's turn-start echo could pop the
+        // stale steer and flip it to a false "Steered into response".
+        _pendingSteerConfirmations.Remove(chatId);
         ReleaseChatCancellation(chatId, cancelActiveRequest);
         ClearPendingTurnTracking(chatId);
         DisposeSessionSubscription(chatId);

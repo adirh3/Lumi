@@ -1174,6 +1174,29 @@ public partial class ChatViewModel
                     });
                     break;
 
+                case UserMessageEvent userMessage:
+                    // The SDK echoes a user message when the agent actually CONSUMES it at a step boundary.
+                    // For an immediate-mode steer this is the authoritative "the agent has now seen your
+                    // message" signal, so flip the pending steer badge from "Steering…" to "Steered into
+                    // response" only now — never merely when SendAsync accepted the inject into the queue.
+                    // Autopilot continuations are the SDK's own internal messages, not user steers, so they
+                    // must not consume a pending steer.
+                    if (userMessage.Data?.IsAutopilotContinuation != true)
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            // The turn-start user message echoes here too. Skip exactly that first echo so it
+                            // can't be mistaken for a steer being consumed; every UserMessageEvent after it in
+                            // the turn is a genuine mid-turn steer.
+                            if (runtime.ExpectTurnStartUserEcho)
+                            {
+                                runtime.ExpectTurnStartUserEcho = false;
+                                return;
+                            }
+
+                            ConfirmOldestPendingSteer(chat.Id);
+                        });
+                    break;
+
                 case CommandQueuedEvent commandQueued:
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -1194,6 +1217,10 @@ public partial class ChatViewModel
                         var shouldUpdateDisplayedChatUi = IsDisplayedSession();
                         FinalizeCompletedTurnStreams(shouldUpdateDisplayedChatUi);
                         DropCompletedTurnState(chat.Id, dropCancellation: false);
+                        // Fallback: if any steered message never got an explicit consume echo, the turn
+                        // ending means it's as delivered as it will ever be — resolve it so it can't stick
+                        // on "Steering…" forever.
+                        ResolvePendingSteersAsDelivered(chat.Id);
                         MarkRuntimeWaitingForSessionIdle(runtime);
                         if (runtime.IsBusy)
                             SchedulePostToolReconciliation(chat.Id, treatCompletedTurnAsIdle: true);
@@ -1243,6 +1270,10 @@ public partial class ChatViewModel
                         var shouldUpdateDisplayedChatUi = IsDisplayedSession();
                         FinalizeCompletedTurnStreams(shouldUpdateDisplayedChatUi);
                         AttachPendingSourcesToFinalAssistantMessage();
+
+                        // Final safety net for steer badges in case no AssistantTurnEnd preceded idle
+                        // (e.g. abort paths): never leave a steered message stuck on "Steering…".
+                        ResolvePendingSteersAsDelivered(chat.Id);
 
                         // In SDK 0.2.2+, session.idle is only emitted once background work is drained.
                         // Clearing IsBusy updates Chat.IsRunning, so keep it on the UI thread.
@@ -1381,6 +1412,10 @@ public partial class ChatViewModel
                             _pendingSessionInvalidations.Add(chat.Id);
 
                         MarkRuntimeTerminal(runtime, display);
+                        // The turn errored out before consuming any in-flight steer — report it as not
+                        // delivered rather than leaving it pending (a recoverable error rebuilds the session
+                        // on the next send, so no idle fallback resolves it for this turn).
+                        ResolvePendingSteersAsFailed(chat.Id);
                         if (shouldUpdateDisplayedChatUi)
                         {
                             // Clean up typing indicator and tool groups
@@ -1586,6 +1621,12 @@ public partial class ChatViewModel
                                 new RelayCommand(() => _ = RetryAfterConnectionLossAsync()));
                             ScrollToEndRequested?.Invoke();
                         }
+
+                        // A remote shutdown ends the turn abnormally and (below) disposes this session's
+                        // subscription, so no turn-end/idle fallback will follow: resolve any in-flight steer
+                        // here as NOT delivered, both to tell the truth and to stop the badge sticking on
+                        // "Steering…" forever.
+                        ResolvePendingSteersAsFailed(chat.Id);
 
                         // Clear local session objects, but keep the persisted session ID so
                         // a later resume attempt can retry after the CLI/server recovers.
@@ -2038,6 +2079,7 @@ public partial class ChatViewModel
         runtime.TurnInProgress = false;
         runtime.HasPendingBackgroundWork = false;
         runtime.ActiveSubagentExecutionDepth = 0;
+        runtime.ExpectTurnStartUserEcho = false;
         runtime.StatusText = statusText ?? string.Empty;
     }
 
@@ -2078,6 +2120,9 @@ public partial class ChatViewModel
         // The assistant turn has ended; only background/idle draining may remain. Immediate steering
         // cannot inject into a turn that already ended, so drop the "turn running" signal here.
         runtime.TurnInProgress = false;
+        // The turn is over, so its turn-start echo window is closed — clear the skip flag (belt-and-suspenders
+        // for the rare case where the turn-start echo never arrived) so it can't leak into the next turn.
+        runtime.ExpectTurnStartUserEcho = false;
         if (ShouldKeepRuntimeBusyUntilSessionIdle(runtime))
         {
             MarkRuntimeActive(
