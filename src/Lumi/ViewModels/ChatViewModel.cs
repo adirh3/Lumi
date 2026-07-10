@@ -2380,6 +2380,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             ClearPendingTurnTracking(targetChat.Id);
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
+            ReconcileInProgressSubagentTools(targetChat, "Stopped");
             MarkRuntimeTerminal(runtime);
             if (CurrentChat?.Id == targetChat.Id)
             {
@@ -2398,6 +2399,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ClearPendingTurnTracking(targetChat.Id);
             var errorText = string.Format(Loc.Status_Error, "Background job session cancelled unexpectedly.");
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
+            ReconcileInProgressSubagentTools(targetChat, "Failed");
             MarkRuntimeTerminal(runtime, errorText);
             if (CurrentChat?.Id == targetChat.Id)
             {
@@ -2814,6 +2816,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // SDK cancelled internally (e.g. MCP server failure) — surface as error
             var errorText = string.Format(Loc.Status_Error, "Session cancelled unexpectedly. MCP servers may have failed to connect.");
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
+            ReconcileInProgressSubagentTools(targetChat, "Failed");
             MarkRuntimeTerminal(runtime, errorText);
             ClearPendingTurnTracking(targetChat.Id);
 
@@ -3064,6 +3067,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         var runtime = GetOrCreateRuntimeState(chat.Id);
+        ReconcileInProgressSubagentTools(chat, "Completed");
         MarkRuntimeTerminal(runtime);
         if (CurrentChat?.Id == chat.Id)
         {
@@ -3352,6 +3356,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (chat is not null)
         {
             var runtime = GetOrCreateRuntimeState(chat.Id);
+            ReconcileInProgressSubagentTools(chat, "Failed");
             MarkRuntimeTerminal(runtime, display);
 
             // Recoverable errors abandon the current server session; arm a reset so the next send (a

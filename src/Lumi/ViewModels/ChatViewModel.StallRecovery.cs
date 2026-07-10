@@ -117,6 +117,7 @@ public partial class ChatViewModel
         InvalidateLocalSessionCache(chat);
 
         var runtime = GetOrCreateRuntimeState(chat.Id);
+        ReconcileInProgressSubagentTools(chat, "Failed", updateDisplayedChatUi);
         MarkRuntimeTerminal(runtime, message);
 
         if (updateDisplayedChatUi && CurrentChat?.Id == chat.Id)
@@ -406,6 +407,7 @@ public partial class ChatViewModel
             // A recovered Idle terminal means the turn genuinely completed, so mirror the main
             // SessionIdleEvent handler and resolve any still-pending steer as delivered (never stuck).
             ResolvePendingSteersAsDelivered(chat.Id);
+            ReconcileInProgressSubagentTools(chat, "Completed");
             MarkRuntimeTerminal(runtime);
 
             if (CurrentChat?.Id == chat.Id)
@@ -435,6 +437,7 @@ public partial class ChatViewModel
             // Mirror the main session.error handler: the turn errored before the agent could consume any
             // pending steer, so resolve them as "Not delivered".
             ResolvePendingSteersAsFailed(chat.Id);
+            ReconcileInProgressSubagentTools(chat, "Failed");
             MarkRuntimeTerminal(runtime, string.Format(Loc.Status_Error, message));
 
             if (CurrentChat?.Id == chat.Id)
@@ -515,6 +518,7 @@ public partial class ChatViewModel
             // Mirror the main SessionShutdownEvent handler: the subscription is about to be detached, so
             // resolve any pending steer as "Not delivered" now — nothing else will ever run to unstick it.
             ResolvePendingSteersAsFailed(chat.Id);
+            ReconcileInProgressSubagentTools(chat, "Stopped");
             DetachSessionAfterRemoteShutdown(
                 chat,
                 wasActive: string.Equals(_activeSession?.SessionId, chat.CopilotSessionId, StringComparison.Ordinal));

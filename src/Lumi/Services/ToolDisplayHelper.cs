@@ -35,6 +35,10 @@ public static partial class ToolDisplayHelper
     public static IReadOnlyList<string> ToRuntimeToolNames(IEnumerable<string> toolNames)
         => [.. toolNames.Select(ToRuntimeToolName).Distinct(StringComparer.Ordinal)];
 
+    public static bool IsSubagentTool(string? toolName)
+        => string.Equals(toolName, "task", StringComparison.Ordinal)
+           || toolName?.StartsWith("agent:", StringComparison.Ordinal) == true;
+
     public static string GetToolGlyph(string toolName) => toolName switch
     {
         "powershell" or "run_in_terminal" or "bash" or "shell" => "⌨",
@@ -61,8 +65,7 @@ public static partial class ToolDisplayHelper
         "analyze_project" => "🏗",
         "update_todo" or "manage_todo_list" => "✅",
         "sql" => "🗃",
-        "task" => "🤖",
-        _ when toolName.StartsWith("agent:", StringComparison.Ordinal) => "🤖",
+        _ when IsSubagentTool(toolName) => "🤖",
         _ => "⚙"
     };
 

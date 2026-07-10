@@ -449,7 +449,7 @@ public class TranscriptBuilder
             return;
         }
 
-        if (toolName == "task" || toolName.StartsWith("agent:", StringComparison.Ordinal))
+        if (ToolDisplayHelper.IsSubagentTool(toolName))
         {
             ProcessSubagentToolMessage(msgVm, initialStatus, toolStableIdSeed, turnStableId);
             return;
@@ -878,6 +878,17 @@ public class TranscriptBuilder
             subagent.ReasoningText = text;
     }
 
+    /// <summary>Applies an authoritative sub-agent status even when the wrapping task tool already
+    /// reported the same terminal status and its property-change listener has been released.</summary>
+    public void UpdateSubagentToolStatus(string toolCallId, string? status)
+    {
+        if (!_subagentsByToolCallId.TryGetValue(toolCallId, out var subagent))
+            return;
+
+        subagent.Status = MapToolStatus(status);
+        UpdateSubagentState(subagent);
+    }
+
     private SubagentToolCallItem? FindOwningSubagent(string? parentToolCallId)
     {
         var current = parentToolCallId;
@@ -953,12 +964,15 @@ public class TranscriptBuilder
                 ? subagent.DurationText
                 : $"{subagent.Meta} · {subagent.DurationText}";
 
-        if (subagent.OwningGroup is null)
+        if (subagent.Status is not StrataAiToolCallStatus.InProgress)
         {
-            if (subagent.Status == StrataAiToolCallStatus.InProgress && !IsRebuildingTranscript)
-                subagent.IsExpanded = true;
-            else if (IsRebuildingTranscript)
-                subagent.IsExpanded = false;
+            // Duplicate terminal events are authoritative too: collapse a card again if it was
+            // manually reopened after finishing.
+            subagent.IsExpanded = false;
+        }
+        else if (subagent.OwningGroup is null)
+        {
+            subagent.IsExpanded = !IsRebuildingTranscript;
         }
 
         if (subagent.OwningGroup is { } owningGroup)
@@ -1029,6 +1043,7 @@ public class TranscriptBuilder
             switch (agent.Status)
             {
                 case StrataAiToolCallStatus.Completed:
+                case StrataAiToolCallStatus.Stopped:
                     completed++;
                     break;
                 case StrataAiToolCallStatus.Failed:

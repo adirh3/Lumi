@@ -516,9 +516,88 @@ public static class DebugAgentHarness
         parallelAssistant.Model = "claude-sonnet-4.6";
         chat.Messages.Add(parallelAssistant);
 
+        // ── Sub-agent terminal lifecycle matrix ───────────────────────────────
+        // Keeps each standalone card in its own turn, then exercises terminal grouped batches.
+        AddStandaloneSubagentFixture(
+            "Show a failed standalone sub-agent card.",
+            "QA failed standalone sub-agent",
+            "Failed",
+            "debug-subagent-failed");
+        AddStandaloneSubagentFixture(
+            "Show a stopped standalone sub-agent card.",
+            "QA stopped standalone sub-agent",
+            "Stopped",
+            "debug-subagent-stopped");
+        AddStandaloneSubagentFixture(
+            "Show a running standalone sub-agent after rebuilding the chat.",
+            "QA running standalone sub-agent",
+            "InProgress",
+            "debug-subagent-running");
+
+        var terminalGroupUser = Message("user", "Show a completed, failed, and stopped sub-agent batch.");
+        terminalGroupUser.Author = userName;
+        chat.Messages.Add(terminalGroupUser);
+        chat.Messages.Add(Tool(
+            "task",
+            SubagentPayload("QA completed grouped sub-agent", "research"),
+            "Completed",
+            toolCallId: "debug-group-completed"));
+        chat.Messages.Add(Tool(
+            "task",
+            SubagentPayload("QA failed grouped sub-agent", "explore"),
+            "Failed",
+            toolCallId: "debug-group-failed"));
+        chat.Messages.Add(Tool(
+            "task",
+            SubagentPayload("QA stopped grouped sub-agent", "code-review"),
+            "Stopped",
+            toolCallId: "debug-group-stopped"));
+        chat.Messages.Add(Message("assistant", "The terminal group should load collapsed with a failed badge."));
+
+        var stoppedGroupUser = Message("user", "Show an all-stopped sub-agent batch.");
+        stoppedGroupUser.Author = userName;
+        chat.Messages.Add(stoppedGroupUser);
+        chat.Messages.Add(Tool(
+            "task",
+            SubagentPayload("QA stopped grouped sub-agent A", "research"),
+            "Stopped",
+            toolCallId: "debug-group-stopped-a"));
+        chat.Messages.Add(Tool(
+            "task",
+            SubagentPayload("QA stopped grouped sub-agent B", "explore"),
+            "Stopped",
+            toolCallId: "debug-group-stopped-b"));
+        chat.Messages.Add(Message("assistant", "The all-stopped group should load finished and collapsed."));
+
         chat.Messages.Add(Message("error", "Debug fixture error bubble: simulated recoverable Copilot error with retry styling."));
 
         return chat;
+
+        void AddStandaloneSubagentFixture(
+            string userPrompt,
+            string description,
+            string status,
+            string toolCallId)
+        {
+            var user = Message("user", userPrompt);
+            user.Author = userName;
+            chat.Messages.Add(user);
+            chat.Messages.Add(Tool(
+                "task",
+                SubagentPayload(description, "explore"),
+                status,
+                toolCallId: toolCallId));
+            chat.Messages.Add(Message("assistant", $"Standalone sub-agent fixture status: {status}."));
+        }
+
+        string SubagentPayload(string description, string agentType)
+            => JsonObject(
+                JsonProperty("description", JsonString(description)),
+                JsonProperty("agent_type", JsonString(agentType)),
+                JsonProperty("agentName", JsonString(agentType)),
+                JsonProperty("agentDisplayName", JsonString($"{agentType} agent")),
+                JsonProperty("mode", JsonString("background")),
+                JsonProperty("model", JsonString("claude-haiku-4.5")));
 
         LumiChatMessage Tool(
             string name,

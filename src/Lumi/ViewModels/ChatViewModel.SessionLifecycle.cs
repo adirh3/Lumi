@@ -106,6 +106,66 @@ public partial class ChatViewModel
     internal static bool SubagentOutputIsActive(ChatRuntimeState runtime)
         => Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0;
 
+    // A successful task-tool completion only means the wrapper spawned the sub-agent.
+    // Keep the card live until the authoritative subagent.completed/subagent.failed event.
+    internal static string ResolveToolStartStatus(string? toolName, string? completedStatus)
+        => ToolDisplayHelper.IsSubagentTool(toolName) && completedStatus == "Completed"
+            ? "InProgress"
+            : completedStatus ?? "InProgress";
+
+    internal static bool ShouldApplyToolExecutionCompletionStatus(string? toolName, bool success)
+        => !success || !ToolDisplayHelper.IsSubagentTool(toolName);
+
+    internal static IReadOnlyList<ChatMessage> SetInProgressSubagentStatuses(
+        Chat chat,
+        string terminalStatus)
+    {
+        if (terminalStatus is not ("Completed" or "Failed" or "Stopped"))
+            throw new ArgumentOutOfRangeException(nameof(terminalStatus), terminalStatus, "Expected a terminal tool status.");
+
+        var changed = new List<ChatMessage>();
+        foreach (var message in chat.Messages)
+        {
+            if (!string.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(message.ToolStatus, "InProgress", StringComparison.OrdinalIgnoreCase)
+                || !ToolDisplayHelper.IsSubagentTool(message.ToolName))
+            {
+                continue;
+            }
+
+            message.ToolStatus = terminalStatus;
+            changed.Add(message);
+        }
+
+        return changed;
+    }
+
+    private static bool HasInProgressSubagentTools(Chat chat)
+        => chat.Messages.Any(message =>
+            string.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(message.ToolStatus, "InProgress", StringComparison.OrdinalIgnoreCase)
+            && ToolDisplayHelper.IsSubagentTool(message.ToolName));
+
+    private void ReconcileInProgressSubagentTools(
+        Chat chat,
+        string terminalStatus,
+        bool updateDisplayedChatUi = true)
+    {
+        var changed = SetInProgressSubagentStatuses(chat, terminalStatus);
+        if (changed.Count == 0 || !updateDisplayedChatUi || CurrentChat?.Id != chat.Id)
+            return;
+
+        foreach (var message in changed)
+        {
+            var viewModel = Messages.FirstOrDefault(candidate =>
+                ReferenceEquals(candidate.Message, message) || candidate.Message.Id == message.Id);
+            viewModel?.NotifyToolStatusChanged();
+
+            if (!string.IsNullOrWhiteSpace(message.ToolCallId))
+                _transcriptBuilder.UpdateSubagentToolStatus(message.ToolCallId, terminalStatus);
+        }
+    }
+
     /// <summary>Subscribes to events on a CopilotSession. Each subscription captures its own
     /// streaming state via closures and always updates the Chat model. UI updates are gated
     /// on _activeSession so only the displayed chat's events touch the UI.
@@ -201,6 +261,10 @@ public partial class ChatViewModel
 
         bool IsDisplayedSession() => CurrentChat?.Id == chat.Id && _activeSession == session;
 
+        bool IsAuthoritativeSession()
+            => !_sessionCache.TryGetValue(chat.Id, out var cachedSession)
+               || ReferenceEquals(cachedSession, session);
+
         // Subscribe to CLI process exit — fires instantly when the process is killed,
         // unlike SDK events which go silent on crash.
         var cliExitGeneration = _copilotService.ConnectionGeneration;
@@ -212,7 +276,10 @@ public partial class ChatViewModel
 
             Dispatcher.UIThread.Post(() =>
             {
-                if (!runtime.IsBusy && streamingMsg is null && reasoningMsg is null)
+                if (!runtime.IsBusy
+                    && streamingMsg is null
+                    && reasoningMsg is null
+                    && !HasInProgressSubagentTools(chat))
                     return;
 
                 var shouldUpdateDisplayedChatUi = CurrentChat?.Id == chat.Id
@@ -255,6 +322,8 @@ public partial class ChatViewModel
                 }
                 reasoningStream?.Clear();
 
+                if (IsAuthoritativeSession())
+                    ReconcileInProgressSubagentTools(chat, "Failed");
                 MarkRuntimeTerminal(runtime);
                 var wasActive = _activeSession == session;
                 if (shouldUpdateDisplayedChatUi)
@@ -874,7 +943,9 @@ public partial class ChatViewModel
                         ToolDisplayHelper.FormatProgressLabel(displayName),
                         isStreaming: runtime.IsStreaming);
                     var toolMsg = chat.Messages.LastOrDefault(m => m.ToolCallId == startToolCallId);
-                    var toolStatus = completedToolStatusesByCallId.GetValueOrDefault(startToolCallId) ?? "InProgress";
+                    var toolStatus = ResolveToolStartStatus(
+                        toolStart.Data.ToolName,
+                        completedToolStatusesByCallId.GetValueOrDefault(startToolCallId));
                     var completedToolOutput = toolStatus == "Failed"
                         && completedToolOutputsByCallId.TryGetValue(startToolCallId, out var cachedCompletedToolOutput)
                             ? cachedCompletedToolOutput
@@ -1000,11 +1071,14 @@ public partial class ChatViewModel
                         if (!success)
                             toolMsg.ToolOutput = completedToolOutput;
 
-                        toolMsg.ToolStatus = success ? "Completed" : "Failed";
-                        if (IsDisplayedSession())
+                        if (ShouldApplyToolExecutionCompletionStatus(toolMsg.ToolName, success))
                         {
-                            var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == toolEnd.Data.ToolCallId);
-                            vm?.NotifyToolStatusChanged();
+                            toolMsg.ToolStatus = completedToolStatus;
+                            if (IsDisplayedSession())
+                            {
+                                var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == toolEnd.Data.ToolCallId);
+                                vm?.NotifyToolStatusChanged();
+                            }
                         }
 
                         var toolName = toolMsg.ToolName;
@@ -1215,6 +1289,8 @@ public partial class ChatViewModel
                     Dispatcher.UIThread.Post(() =>
                     {
                         var shouldUpdateDisplayedChatUi = IsDisplayedSession();
+                        if (IsAuthoritativeSession())
+                            ReconcileInProgressSubagentTools(chat, "Completed");
                         FinalizeCompletedTurnStreams(shouldUpdateDisplayedChatUi);
                         DropCompletedTurnState(chat.Id, dropCancellation: false);
                         // Fallback: if any steered message never got an explicit consume echo, the turn
@@ -1382,9 +1458,13 @@ public partial class ChatViewModel
                         if (CopilotService.IsTransientServerAuthError(
                                 err.Data.StatusCode, err.Data.ErrorType, err.Data.Message))
                         {
-                            ApplyUnexpectedAbortState(chat, Loc.Status_TransientAuthRetry, shouldUpdateDisplayedChatUi);
+                            if (IsAuthoritativeSession())
+                                ApplyUnexpectedAbortState(chat, Loc.Status_TransientAuthRetry, shouldUpdateDisplayedChatUi);
                             return;
                         }
+
+                        if (IsAuthoritativeSession())
+                            ReconcileInProgressSubagentTools(chat, "Failed");
 
                         // Classify the terminal error. Anything that is NOT a hard auth / quota /
                         // context / policy limit is recoverable by rebuilding the session from the
@@ -1552,11 +1632,14 @@ public partial class ChatViewModel
                             reasoningVm = null;
                         }
                         reasoningStream.Clear();
+                        if (wasUserStopRequested && IsAuthoritativeSession())
+                            ReconcileInProgressSubagentTools(chat, "Stopped");
                         MarkRuntimeTerminal(runtime);
 
                         if (!wasUserStopRequested)
                         {
-                            ApplyUnexpectedAbortState(chat, GetUnexpectedAbortMessage(), updateDisplayedChatUi: shouldUpdateDisplayedChatUi);
+                            if (IsAuthoritativeSession())
+                                ApplyUnexpectedAbortState(chat, GetUnexpectedAbortMessage(), updateDisplayedChatUi: shouldUpdateDisplayedChatUi);
                             return;
                         }
 
@@ -1608,6 +1691,8 @@ public partial class ChatViewModel
                         reasoningStream.Clear();
 
                         var isError = shutdown.Data.ShutdownType == ShutdownType.Error;
+                        if (IsAuthoritativeSession())
+                            ReconcileInProgressSubagentTools(chat, isError ? "Failed" : "Stopped");
                         if (isError && shouldUpdateDisplayedChatUi)
                         {
                             _transcriptBuilder.HideTypingIndicator();
@@ -1697,6 +1782,7 @@ public partial class ChatViewModel
                         var existingReasoning = ToolDisplayHelper.ExtractJsonField(existing.Content, "reasoning")
                             ?? GetSubagentStream(subagentReasoningStreams, subStart.Data.ToolCallId)?.SnapshotOrNull();
                         existing.ToolName = $"agent:{subStart.Data.AgentName}";
+                        existing.ToolStatus = "InProgress";
                         existing.Content = BuildSubagentPayloadJson(
                             description: existingDescription,
                             agentName: subStart.Data.AgentName,
@@ -1711,6 +1797,7 @@ public partial class ChatViewModel
                         {
                             var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == subStart.Data.ToolCallId);
                             vm?.NotifyContentChanged();
+                            vm?.NotifyToolStatusChanged();
                             ApplyDisplayedRuntimeState(runtime);
                         }
                     }
@@ -1755,6 +1842,7 @@ public partial class ChatViewModel
                     {
                         foreach (var vm in Messages.Where(m => m.Message.ToolCallId == subEnd.Data.ToolCallId))
                             vm.NotifyToolStatusChanged();
+                        _transcriptBuilder.UpdateSubagentToolStatus(subEnd.Data.ToolCallId, "Completed");
                     }
                     });
                     break;
@@ -1776,6 +1864,7 @@ public partial class ChatViewModel
                     {
                         foreach (var vm in Messages.Where(m => m.Message.ToolCallId == subFail.Data.ToolCallId))
                             vm.NotifyToolStatusChanged();
+                        _transcriptBuilder.UpdateSubagentToolStatus(subFail.Data.ToolCallId, "Failed");
                     }
                     });
                     break;
@@ -2051,6 +2140,8 @@ public partial class ChatViewModel
                 System.Diagnostics.Debug.WriteLine($"[Lumi] Session event handler error: {ex}");
                 Dispatcher.UIThread.Post(() =>
                 {
+                    if (IsAuthoritativeSession())
+                        ReconcileInProgressSubagentTools(chat, "Failed");
                     MarkRuntimeTerminal(runtime, string.Format(Loc.Status_Error, ex.Message));
                     if (IsDisplayedSession())
                     {
@@ -2295,6 +2386,8 @@ public partial class ChatViewModel
             // drop each chat's running-shell seed map so a later switch-back does not resurrect a stuck
             // "Running in background" card (RebuildTranscript would otherwise re-seed from it).
             runtime.RunningBackgroundShells.Clear();
+            if (runtime.Chat is { } runtimeChat)
+                ReconcileInProgressSubagentTools(runtimeChat, "Failed");
             MarkRuntimeTerminal(runtime);
         }
 

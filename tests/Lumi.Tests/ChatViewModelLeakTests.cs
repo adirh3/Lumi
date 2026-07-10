@@ -873,6 +873,87 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public void MarkInProgressToolsStopped_CollapsesDisplayedSubagent()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var subagentMessage = CreateSubagentMessage("agent-stop", "InProgress");
+        var chat = new Chat
+        {
+            Title = "subagent-stop",
+            Messages = [subagentMessage]
+        };
+
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+        vm.Messages.Add(new ChatMessageViewModel(subagentMessage));
+        var card = Assert.IsType<SubagentToolCallItem>(
+            Assert.Single(Assert.Single(vm.TranscriptTurns).Items));
+        Assert.True(card.IsExpanded);
+
+        var changed = InvokePrivate<bool>(vm, "MarkInProgressToolsStopped", chat);
+
+        Assert.True(changed);
+        Assert.Equal("Stopped", subagentMessage.ToolStatus);
+        Assert.False(card.IsActive);
+        Assert.False(card.IsExpanded);
+    }
+
+    [Fact]
+    public void ReconcileInProgressSubagentTools_IdleFallbackCompletesDisplayedCard()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var subagentMessage = CreateSubagentMessage("agent-idle", "InProgress");
+        var chat = new Chat
+        {
+            Title = "subagent-idle",
+            Messages = [subagentMessage]
+        };
+
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+        vm.Messages.Add(new ChatMessageViewModel(subagentMessage));
+        var card = Assert.IsType<SubagentToolCallItem>(
+            Assert.Single(Assert.Single(vm.TranscriptTurns).Items));
+        Assert.True(card.IsExpanded);
+
+        InvokePrivate(vm, "ReconcileInProgressSubagentTools", chat, "Completed", true);
+
+        Assert.Equal("Completed", subagentMessage.ToolStatus);
+        Assert.False(card.IsActive);
+        Assert.False(card.IsExpanded);
+    }
+
+    [Fact]
+    public void ReconcileInProgressSubagentTools_InactiveChatRebuildsCollapsed()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var activeChat = new Chat { Title = "active" };
+        var subagentMessage = CreateSubagentMessage("agent-background", "InProgress");
+        var backgroundChat = new Chat
+        {
+            Title = "background",
+            Messages = [subagentMessage]
+        };
+
+        dataStore.Data.Chats.Add(activeChat);
+        dataStore.Data.Chats.Add(backgroundChat);
+        vm.CurrentChat = activeChat;
+
+        InvokePrivate(vm, "ReconcileInProgressSubagentTools", backgroundChat, "Completed", true);
+        Assert.Equal("Completed", subagentMessage.ToolStatus);
+
+        vm.CurrentChat = backgroundChat;
+        vm.Messages.Add(new ChatMessageViewModel(subagentMessage));
+        var card = Assert.IsType<SubagentToolCallItem>(
+            Assert.Single(Assert.Single(vm.TranscriptTurns).Items));
+        Assert.False(card.IsActive);
+        Assert.False(card.IsExpanded);
+    }
+
+    [Fact]
     public void TranscriptBuilder_RendersStoppedToolAsTerminal()
     {
         var dataStore = CreateDataStore();
@@ -1757,7 +1838,12 @@ public sealed class ChatViewModelLeakTests
     {
         var dataStore = CreateDataStore();
         var vm = new ChatViewModel(dataStore, new CopilotService());
-        var chat = new Chat { Title = "abort-chat" };
+        var subagentMessage = CreateSubagentMessage("agent-abort", "InProgress");
+        var chat = new Chat
+        {
+            Title = "abort-chat",
+            Messages = [subagentMessage]
+        };
 
         dataStore.Data.Chats.Add(chat);
         var runtime = new ChatRuntimeState
@@ -1780,6 +1866,7 @@ public sealed class ChatViewModelLeakTests
         Assert.False(runtime.IsStreaming);
         Assert.False(runtime.HasPendingBackgroundWork);
         Assert.Equal("Connection to Copilot was lost.", runtime.StatusText);
+        Assert.Equal("Failed", subagentMessage.ToolStatus);
     }
 
     [Fact]
@@ -2087,6 +2174,16 @@ public sealed class ChatViewModelLeakTests
         type.GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)
             ?.Invoke(null, args);
     }
+
+    private static ChatMessage CreateSubagentMessage(string toolCallId, string status)
+        => new()
+        {
+            Role = "tool",
+            ToolName = "task",
+            ToolCallId = toolCallId,
+            ToolStatus = status,
+            Content = "{\"description\":\"Inspect repo\",\"agent_type\":\"explore\",\"mode\":\"background\"}"
+        };
 
     private static UserMessageEvent CreateUserMessageEvent(string content)
         => new()

@@ -775,7 +775,7 @@ public partial class SubagentGroupItem : TranscriptItem
     [ObservableProperty] private string? _meta;
     [ObservableProperty] private double _progressValue = -1;
     [ObservableProperty] private bool _isActive;
-    [ObservableProperty] private bool _isExpanded = true;
+    [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private int _totalCount;
     [ObservableProperty] private int _doneCount;
     [ObservableProperty] private int _runningCount;
@@ -803,6 +803,8 @@ public partial class SubagentGroupItem : TranscriptItem
     {
         OnPropertyChanged(nameof(ShowDoneBadge));
         OnPropertyChanged(nameof(ShowFailedBadge));
+        if (!value)
+            IsExpanded = false;
     }
     partial void OnTotalCountChanged(int value) => OnPropertyChanged(nameof(ShowDoneBadge));
 
