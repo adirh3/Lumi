@@ -4677,7 +4677,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (WorktreePath is { Length: > 0 } wtPath && attachments.Count > 0)
             {
                 var projDir = GetProjectWorkingDirectory();
-                RebaseAttachmentPaths(attachments, newUserMsg, projDir, wtPath);
+                // Mirror the normal send path: rebase against the effective worktree working
+                // directory (not the raw worktree root) so subdirectory-rooted projects resolve
+                // attachment paths correctly. Re-save afterwards so the persisted message carries
+                // the corrected paths (the earlier save ran before this rebase).
+                var effectiveWorktreeDir = GitService.ResolveWorktreeWorkingDirectory(wtPath, projDir);
+                RebaseAttachmentPaths(attachments, newUserMsg, projDir, effectiveWorktreeDir);
+                QueueSaveChat(CurrentChat, saveIndex: false);
             }
 
             // After a successful rewind the edit is a normal fresh turn; only the fallback
