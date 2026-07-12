@@ -21,6 +21,8 @@ namespace Lumi.Services;
 /// </summary>
 public sealed partial class BrowserService : IAsyncDisposable
 {
+    private const int WebViewInvalidStateHResult = unchecked((int)0x8007139F);
+
     // Shared environment so all per-chat instances share cookies/sessions
     private static CoreWebView2Environment? _sharedEnvironment;
     private static readonly SemaphoreSlim _sharedEnvLock = new(1, 1);
@@ -124,18 +126,113 @@ public sealed partial class BrowserService : IAsyncDisposable
     /// </summary>
     public void SetTheme(bool isDark)
     {
+        _isDark = isDark;
+
+        if (_isDisposed || (_controller is null && _webView is null))
+            return;
+
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(ApplyStoredTheme);
+            return;
+        }
+
+        ApplyStoredTheme();
+    }
+
+    private void ApplyStoredTheme()
+    {
         if (_isDisposed)
             return;
 
-        _isDark = isDark;
-        if (_controller is not null)
-            _controller.DefaultBackgroundColor = isDark
-                ? System.Drawing.Color.FromArgb(255, 30, 30, 30)
-                : System.Drawing.Color.FromArgb(255, 255, 255, 255);
-        if (_webView is not null)
-            _webView.Profile.PreferredColorScheme = isDark
-                ? CoreWebView2PreferredColorScheme.Dark
-                : CoreWebView2PreferredColorScheme.Light;
+        var controller = _controller;
+        var webView = _webView;
+
+        try
+        {
+            if (controller is not null)
+                controller.DefaultBackgroundColor = _isDark
+                    ? System.Drawing.Color.FromArgb(255, 30, 30, 30)
+                    : System.Drawing.Color.FromArgb(255, 255, 255, 255);
+            if (webView is not null)
+                webView.Profile.PreferredColorScheme = _isDark
+                    ? CoreWebView2PreferredColorScheme.Dark
+                    : CoreWebView2PreferredColorScheme.Light;
+        }
+        catch (Exception ex) when (IsWebViewInvalidState(ex))
+        {
+            // The parent window or a concurrent teardown already closed the native controller.
+            // Drop the stale wrappers so the next browser use can create a fresh controller.
+            _controller = null;
+            _webView = null;
+            _initialized = false;
+            _webViewHwnd = IntPtr.Zero;
+            System.Diagnostics.Debug.WriteLine(
+                $"WebView2 theme update skipped because the controller is already closed: {ex.Message}");
+            if (controller is not null)
+                CloseControllerIgnoringInvalidState(controller, "after a failed theme update");
+        }
+    }
+
+    internal static bool IsWebViewInvalidState(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is COMException { HResult: WebViewInvalidStateHResult })
+                return true;
+        }
+
+        return false;
+    }
+
+    private static void CloseControllerIgnoringInvalidState(
+        CoreWebView2Controller controller,
+        string operation)
+    {
+        try
+        {
+            controller.Close();
+        }
+        catch (Exception ex) when (IsWebViewInvalidState(ex))
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"WebView2 controller was already closed {operation}: {ex.Message}");
+        }
+    }
+
+    private void DisposeNativeBrowserOnUiThread()
+    {
+        System.Diagnostics.Debug.Assert(Dispatcher.UIThread.CheckAccess());
+
+        var webView = _webView;
+        var controller = _controller;
+
+        _controller = null;
+        _webView = null;
+        _environment = null;
+        _initialized = false;
+        _webViewHwnd = IntPtr.Zero;
+
+        try
+        {
+            if (webView is not null)
+            {
+                webView.NavigationCompleted -= OnNavigationCompleted;
+                webView.SourceChanged -= OnSourceChanged;
+                webView.NewWindowRequested -= OnNewWindowRequested;
+                webView.DownloadStarting -= OnDownloadStarting;
+            }
+        }
+        catch (Exception ex) when (IsWebViewInvalidState(ex))
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"WebView2 event cleanup found an already closed controller: {ex.Message}");
+        }
+        finally
+        {
+            if (controller is not null)
+                CloseControllerIgnoringInvalidState(controller, "during disposal");
+        }
     }
 
     /// <summary>The underlying CoreWebView2 (for direct access if needed).</summary>
@@ -184,31 +281,41 @@ public sealed partial class BrowserService : IAsyncDisposable
                 _sharedEnvLock.Release();
             }
 
-            _controller = await _environment.CreateCoreWebView2ControllerAsync(_parentHwnd);
-            _webView = _controller.CoreWebView2;
+            var controller = await _environment.CreateCoreWebView2ControllerAsync(_parentHwnd);
+            if (_isDisposed)
+            {
+                CloseControllerIgnoringInvalidState(controller, "after initialization was cancelled");
+                throw new ObjectDisposedException(GetType().FullName);
+            }
+
+            var webView = controller.CoreWebView2;
+            _controller = controller;
+            _webView = webView;
 
             // Sync theme with app
             SetTheme(_isDark);
+            if (!ReferenceEquals(_controller, controller) || !ReferenceEquals(_webView, webView))
+                throw new InvalidOperationException("WebView2 controller closed during initialization.");
 
             // Configure settings
-            _webView.Settings.IsScriptEnabled = true;
-            _webView.Settings.AreDefaultScriptDialogsEnabled = true;
-            _webView.Settings.IsWebMessageEnabled = true;
-            _webView.Settings.AreDevToolsEnabled = false;
-            _webView.Settings.IsStatusBarEnabled = false;
-            _webView.Settings.AreDefaultContextMenusEnabled = true;
+            webView.Settings.IsScriptEnabled = true;
+            webView.Settings.AreDefaultScriptDialogsEnabled = true;
+            webView.Settings.IsWebMessageEnabled = true;
+            webView.Settings.AreDevToolsEnabled = false;
+            webView.Settings.IsStatusBarEnabled = false;
+            webView.Settings.AreDefaultContextMenusEnabled = true;
 
             // Track navigation completion
-            _webView.NavigationCompleted += OnNavigationCompleted;
+            webView.NavigationCompleted += OnNavigationCompleted;
 
             // Track URL changes (including SPA hash navigations that skip NavigationCompleted)
-            _webView.SourceChanged += OnSourceChanged;
+            webView.SourceChanged += OnSourceChanged;
 
             // Intercept target="_blank" links — redirect to our single browser instance
-            _webView.NewWindowRequested += OnNewWindowRequested;
+            webView.NewWindowRequested += OnNewWindowRequested;
 
             // Track downloads so we can detect click-triggered downloads
-            _webView.DownloadStarting += OnDownloadStarting;
+            webView.DownloadStarting += OnDownloadStarting;
 
             _initialized = true;
             BrowserReady?.Invoke();
@@ -2343,21 +2450,14 @@ public sealed partial class BrowserService : IAsyncDisposable
                 _pendingParentHwnd = IntPtr.Zero;
             }
 
-            if (_webView is not null)
+            if (_controller is not null || _webView is not null)
+                await InvokeOnUiThreadAsync(DisposeNativeBrowserOnUiThread).ConfigureAwait(false);
+            else
             {
-                _webView.NavigationCompleted -= OnNavigationCompleted;
-                _webView.SourceChanged -= OnSourceChanged;
-                _webView.NewWindowRequested -= OnNewWindowRequested;
-                _webView.DownloadStarting -= OnDownloadStarting;
+                _environment = null;
+                _initialized = false;
+                _webViewHwnd = IntPtr.Zero;
             }
-            if (_controller is not null)
-            {
-                _controller.Close();
-                _controller = null;
-            }
-            _webView = null;
-            _environment = null;
-            _initialized = false;
         }
         finally
         {
