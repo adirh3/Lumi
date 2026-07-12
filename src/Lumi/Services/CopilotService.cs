@@ -749,7 +749,7 @@ public class CopilotService : IAsyncDisposable
             forceReauth,
             clientName: "Lumi",
             callbackSuccessMessage: $"Signed in to \"{serverName}\". You can return to Lumi — the MCP server will reconnect automatically.",
-            ct).ConfigureAwait(false);
+            cancellationToken: ct).ConfigureAwait(false);
 
         var url = result?.AuthorizationUrl;
         if (!string.IsNullOrWhiteSpace(url))

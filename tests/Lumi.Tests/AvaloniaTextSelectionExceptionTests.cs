@@ -8,7 +8,7 @@ public sealed class AvaloniaTextSelectionExceptionTests
     [Fact]
     public void IsAvaloniaTextSelectionBoundsFailure_MatchesSelectionHandleCrash()
     {
-        var exception = CaptureSelectionHandleCrash();
+        var exception = Capture(TextSelectionHandleCanvas.Render);
 
         Assert.True(Program.IsAvaloniaTextSelectionBoundsFailure(exception));
     }
@@ -16,7 +16,23 @@ public sealed class AvaloniaTextSelectionExceptionTests
     [Fact]
     public void IsAvaloniaTextSelectionBoundsFailure_MatchesSelectableTextBlockRenderCrash()
     {
-        var exception = CaptureSelectableTextBlockRenderCrash();
+        var exception = Capture(SelectableTextBlock.RenderTextLayout);
+
+        Assert.True(Program.IsAvaloniaTextSelectionBoundsFailure(exception));
+    }
+
+    [Fact]
+    public void IsAvaloniaTextSelectionBoundsFailure_MatchesTextPresenterRenderCrash()
+    {
+        var exception = Capture(TextPresenter.Render);
+
+        Assert.True(Program.IsAvaloniaTextSelectionBoundsFailure(exception));
+    }
+
+    [Fact]
+    public void IsAvaloniaTextSelectionBoundsFailure_MatchesMarkdownHitTestCrash()
+    {
+        var exception = Capture(StrataMarkdown.GetLinkAtRenderedPoint);
 
         Assert.True(Program.IsAvaloniaTextSelectionBoundsFailure(exception));
     }
@@ -29,24 +45,19 @@ public sealed class AvaloniaTextSelectionExceptionTests
         Assert.False(Program.IsAvaloniaTextSelectionBoundsFailure(exception));
     }
 
-    private static Exception CaptureSelectionHandleCrash()
+    [Fact]
+    public void IsAvaloniaTextSelectionBoundsFailure_IgnoresIncompleteHitTestStack()
     {
-        try
-        {
-            TextSelectionHandleCanvas.Render();
-            throw new InvalidOperationException("Expected simulated crash.");
-        }
-        catch (InvalidOperationException ex)
-        {
-            return ex;
-        }
+        var exception = Capture(IncompleteTextLayout.HitTestTextRange);
+
+        Assert.False(Program.IsAvaloniaTextSelectionBoundsFailure(exception));
     }
 
-    private static Exception CaptureSelectableTextBlockRenderCrash()
+    private static Exception Capture(Action action)
     {
         try
         {
-            SelectableTextBlock.RenderTextLayout();
+            action();
             throw new InvalidOperationException("Expected simulated crash.");
         }
         catch (InvalidOperationException ex)
@@ -65,7 +76,28 @@ public sealed class AvaloniaTextSelectionExceptionTests
         public static void RenderTextLayout() => TextLayout.HitTestTextRange();
     }
 
+    private static class TextPresenter
+    {
+        public static void Render() => TextLayout.HitTestTextRange();
+    }
+
+    private static class StrataMarkdown
+    {
+        public static void GetLinkAtRenderedPoint() => TextLayout.HitTestTextRange();
+    }
+
     private static class TextLayout
+    {
+        public static void HitTestTextRange() => TextLineImpl.GetTextBounds();
+    }
+
+    private static class TextLineImpl
+    {
+        public static void GetTextBounds() =>
+            throw new InvalidOperationException("Covered length must be greater than zero.");
+    }
+
+    private static class IncompleteTextLayout
     {
         public static void HitTestTextRange() =>
             throw new InvalidOperationException("Covered length must be greater than zero.");

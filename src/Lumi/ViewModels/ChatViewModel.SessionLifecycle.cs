@@ -40,6 +40,9 @@ public partial class ChatViewModel
         return string.IsNullOrWhiteSpace(existingContent) ? null : existingContent;
     }
 
+    internal static bool ShouldDeferAssistantMessageEvent(string? finalEventContent, string? phase)
+        => string.IsNullOrWhiteSpace(finalEventContent) && string.IsNullOrWhiteSpace(phase);
+
     internal static bool FinalizeTerminalAssistantMessage(Chat chat, ChatMessage streamingMessage)
     {
         streamingMessage.IsStreaming = false;
@@ -105,6 +108,66 @@ public partial class ChatViewModel
     /// </summary>
     internal static bool SubagentOutputIsActive(ChatRuntimeState runtime)
         => Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0;
+
+    // A successful task-tool completion only means the wrapper spawned the sub-agent.
+    // Keep the card live until the authoritative subagent.completed/subagent.failed event.
+    internal static string ResolveToolStartStatus(string? toolName, string? completedStatus)
+        => ToolDisplayHelper.IsSubagentTool(toolName) && completedStatus == "Completed"
+            ? "InProgress"
+            : completedStatus ?? "InProgress";
+
+    internal static bool ShouldApplyToolExecutionCompletionStatus(string? toolName, bool success)
+        => !success || !ToolDisplayHelper.IsSubagentTool(toolName);
+
+    internal static IReadOnlyList<ChatMessage> SetInProgressSubagentStatuses(
+        Chat chat,
+        string terminalStatus)
+    {
+        if (terminalStatus is not ("Completed" or "Failed" or "Stopped"))
+            throw new ArgumentOutOfRangeException(nameof(terminalStatus), terminalStatus, "Expected a terminal tool status.");
+
+        var changed = new List<ChatMessage>();
+        foreach (var message in chat.Messages)
+        {
+            if (!string.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(message.ToolStatus, "InProgress", StringComparison.OrdinalIgnoreCase)
+                || !ToolDisplayHelper.IsSubagentTool(message.ToolName))
+            {
+                continue;
+            }
+
+            message.ToolStatus = terminalStatus;
+            changed.Add(message);
+        }
+
+        return changed;
+    }
+
+    private static bool HasInProgressSubagentTools(Chat chat)
+        => chat.Messages.Any(message =>
+            string.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(message.ToolStatus, "InProgress", StringComparison.OrdinalIgnoreCase)
+            && ToolDisplayHelper.IsSubagentTool(message.ToolName));
+
+    private void ReconcileInProgressSubagentTools(
+        Chat chat,
+        string terminalStatus,
+        bool updateDisplayedChatUi = true)
+    {
+        var changed = SetInProgressSubagentStatuses(chat, terminalStatus);
+        if (changed.Count == 0 || !updateDisplayedChatUi || CurrentChat?.Id != chat.Id)
+            return;
+
+        foreach (var message in changed)
+        {
+            var viewModel = Messages.FirstOrDefault(candidate =>
+                ReferenceEquals(candidate.Message, message) || candidate.Message.Id == message.Id);
+            viewModel?.NotifyToolStatusChanged();
+
+            if (!string.IsNullOrWhiteSpace(message.ToolCallId))
+                _transcriptBuilder.UpdateSubagentToolStatus(message.ToolCallId, terminalStatus);
+        }
+    }
 
     /// <summary>Subscribes to events on a CopilotSession. Each subscription captures its own
     /// streaming state via closures and always updates the Chat model. UI updates are gated
@@ -201,6 +264,10 @@ public partial class ChatViewModel
 
         bool IsDisplayedSession() => CurrentChat?.Id == chat.Id && _activeSession == session;
 
+        bool IsAuthoritativeSession()
+            => !_sessionCache.TryGetValue(chat.Id, out var cachedSession)
+               || ReferenceEquals(cachedSession, session);
+
         // Subscribe to CLI process exit — fires instantly when the process is killed,
         // unlike SDK events which go silent on crash.
         var cliExitGeneration = _copilotService.ConnectionGeneration;
@@ -212,7 +279,10 @@ public partial class ChatViewModel
 
             Dispatcher.UIThread.Post(() =>
             {
-                if (!runtime.IsBusy && streamingMsg is null && reasoningMsg is null)
+                if (!runtime.IsBusy
+                    && streamingMsg is null
+                    && reasoningMsg is null
+                    && !HasInProgressSubagentTools(chat))
                     return;
 
                 var shouldUpdateDisplayedChatUi = CurrentChat?.Id == chat.Id
@@ -255,6 +325,8 @@ public partial class ChatViewModel
                 }
                 reasoningStream?.Clear();
 
+                if (IsAuthoritativeSession())
+                    ReconcileInProgressSubagentTools(chat, "Failed");
                 MarkRuntimeTerminal(runtime);
                 var wasActive = _activeSession == session;
                 if (shouldUpdateDisplayedChatUi)
@@ -704,6 +776,12 @@ public partial class ChatViewModel
                     if (IsSubagentOutputActive())
                         break;
                     var capturedFinalContent = msg.Data.Content;
+                    // Older CLI versions can emit an empty assistant envelope immediately before the
+                    // substantive message for the same turn. Finalizing from buffered deltas here
+                    // commits the stream once, then the following content event creates it again.
+                    // Keep the stream open instead; the content event or turn-end fallback will finish it.
+                    if (ShouldDeferAssistantMessageEvent(capturedFinalContent, msg.Data.Phase))
+                        break;
                     assistantStream.CancelPending();
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -874,7 +952,9 @@ public partial class ChatViewModel
                         ToolDisplayHelper.FormatProgressLabel(displayName),
                         isStreaming: runtime.IsStreaming);
                     var toolMsg = chat.Messages.LastOrDefault(m => m.ToolCallId == startToolCallId);
-                    var toolStatus = completedToolStatusesByCallId.GetValueOrDefault(startToolCallId) ?? "InProgress";
+                    var toolStatus = ResolveToolStartStatus(
+                        toolStart.Data.ToolName,
+                        completedToolStatusesByCallId.GetValueOrDefault(startToolCallId));
                     var completedToolOutput = toolStatus == "Failed"
                         && completedToolOutputsByCallId.TryGetValue(startToolCallId, out var cachedCompletedToolOutput)
                             ? cachedCompletedToolOutput
@@ -1000,11 +1080,14 @@ public partial class ChatViewModel
                         if (!success)
                             toolMsg.ToolOutput = completedToolOutput;
 
-                        toolMsg.ToolStatus = success ? "Completed" : "Failed";
-                        if (IsDisplayedSession())
+                        if (ShouldApplyToolExecutionCompletionStatus(toolMsg.ToolName, success))
                         {
-                            var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == toolEnd.Data.ToolCallId);
-                            vm?.NotifyToolStatusChanged();
+                            toolMsg.ToolStatus = completedToolStatus;
+                            if (IsDisplayedSession())
+                            {
+                                var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == toolEnd.Data.ToolCallId);
+                                vm?.NotifyToolStatusChanged();
+                            }
                         }
 
                         var toolName = toolMsg.ToolName;
@@ -1174,6 +1257,29 @@ public partial class ChatViewModel
                     });
                     break;
 
+                case UserMessageEvent userMessage:
+                    // The SDK echoes a user message when the agent actually CONSUMES it at a step boundary.
+                    // For an immediate-mode steer this is the authoritative "the agent has now seen your
+                    // message" signal, so flip the pending steer badge from "Steering…" to "Steered into
+                    // response" only now — never merely when SendAsync accepted the inject into the queue.
+                    // Autopilot continuations are the SDK's own internal messages, not user steers, so they
+                    // must not consume a pending steer.
+                    if (userMessage.Data?.IsAutopilotContinuation != true)
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            // The turn-start user message echoes here too. Skip exactly that first echo so it
+                            // can't be mistaken for a steer being consumed; every UserMessageEvent after it in
+                            // the turn is a genuine mid-turn steer.
+                            if (runtime.ExpectTurnStartUserEcho)
+                            {
+                                runtime.ExpectTurnStartUserEcho = false;
+                                return;
+                            }
+
+                            ConfirmOldestPendingSteer(chat.Id);
+                        });
+                    break;
+
                 case CommandQueuedEvent commandQueued:
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -1192,8 +1298,14 @@ public partial class ChatViewModel
                     Dispatcher.UIThread.Post(() =>
                     {
                         var shouldUpdateDisplayedChatUi = IsDisplayedSession();
+                        if (IsAuthoritativeSession())
+                            ReconcileInProgressSubagentTools(chat, "Completed");
                         FinalizeCompletedTurnStreams(shouldUpdateDisplayedChatUi);
                         DropCompletedTurnState(chat.Id, dropCancellation: false);
+                        // Fallback: if any steered message never got an explicit consume echo, the turn
+                        // ending means it's as delivered as it will ever be — resolve it so it can't stick
+                        // on "Steering…" forever.
+                        ResolvePendingSteersAsDelivered(chat.Id);
                         MarkRuntimeWaitingForSessionIdle(runtime);
                         if (runtime.IsBusy)
                             SchedulePostToolReconciliation(chat.Id, treatCompletedTurnAsIdle: true);
@@ -1243,6 +1355,10 @@ public partial class ChatViewModel
                         var shouldUpdateDisplayedChatUi = IsDisplayedSession();
                         FinalizeCompletedTurnStreams(shouldUpdateDisplayedChatUi);
                         AttachPendingSourcesToFinalAssistantMessage();
+
+                        // Final safety net for steer badges in case no AssistantTurnEnd preceded idle
+                        // (e.g. abort paths): never leave a steered message stuck on "Steering…".
+                        ResolvePendingSteersAsDelivered(chat.Id);
 
                         // In SDK 0.2.2+, session.idle is only emitted once background work is drained.
                         // Clearing IsBusy updates Chat.IsRunning, so keep it on the UI thread.
@@ -1351,9 +1467,13 @@ public partial class ChatViewModel
                         if (CopilotService.IsTransientServerAuthError(
                                 err.Data.StatusCode, err.Data.ErrorType, err.Data.Message))
                         {
-                            ApplyUnexpectedAbortState(chat, Loc.Status_TransientAuthRetry, shouldUpdateDisplayedChatUi);
+                            if (IsAuthoritativeSession())
+                                ApplyUnexpectedAbortState(chat, Loc.Status_TransientAuthRetry, shouldUpdateDisplayedChatUi);
                             return;
                         }
+
+                        if (IsAuthoritativeSession())
+                            ReconcileInProgressSubagentTools(chat, "Failed");
 
                         // Classify the terminal error. Anything that is NOT a hard auth / quota /
                         // context / policy limit is recoverable by rebuilding the session from the
@@ -1381,6 +1501,10 @@ public partial class ChatViewModel
                             _pendingSessionInvalidations.Add(chat.Id);
 
                         MarkRuntimeTerminal(runtime, display);
+                        // The turn errored out before consuming any in-flight steer — report it as not
+                        // delivered rather than leaving it pending (a recoverable error rebuilds the session
+                        // on the next send, so no idle fallback resolves it for this turn).
+                        ResolvePendingSteersAsFailed(chat.Id);
                         if (shouldUpdateDisplayedChatUi)
                         {
                             // Clean up typing indicator and tool groups
@@ -1458,7 +1582,6 @@ public partial class ChatViewModel
                         };
                         chat.Messages.Add(warnMsg);
                         Messages.Add(new ChatMessageViewModel(warnMsg));
-                        _transcriptBuilder.ProcessMessageToTranscript(Messages[^1]);
                         ScrollToEndRequested?.Invoke();
                     }
                     });
@@ -1517,11 +1640,14 @@ public partial class ChatViewModel
                             reasoningVm = null;
                         }
                         reasoningStream.Clear();
+                        if (wasUserStopRequested && IsAuthoritativeSession())
+                            ReconcileInProgressSubagentTools(chat, "Stopped");
                         MarkRuntimeTerminal(runtime);
 
                         if (!wasUserStopRequested)
                         {
-                            ApplyUnexpectedAbortState(chat, GetUnexpectedAbortMessage(), updateDisplayedChatUi: shouldUpdateDisplayedChatUi);
+                            if (IsAuthoritativeSession())
+                                ApplyUnexpectedAbortState(chat, GetUnexpectedAbortMessage(), updateDisplayedChatUi: shouldUpdateDisplayedChatUi);
                             return;
                         }
 
@@ -1573,6 +1699,8 @@ public partial class ChatViewModel
                         reasoningStream.Clear();
 
                         var isError = shutdown.Data.ShutdownType == ShutdownType.Error;
+                        if (IsAuthoritativeSession())
+                            ReconcileInProgressSubagentTools(chat, isError ? "Failed" : "Stopped");
                         if (isError && shouldUpdateDisplayedChatUi)
                         {
                             _transcriptBuilder.HideTypingIndicator();
@@ -1586,6 +1714,12 @@ public partial class ChatViewModel
                                 new RelayCommand(() => _ = RetryAfterConnectionLossAsync()));
                             ScrollToEndRequested?.Invoke();
                         }
+
+                        // A remote shutdown ends the turn abnormally and (below) disposes this session's
+                        // subscription, so no turn-end/idle fallback will follow: resolve any in-flight steer
+                        // here as NOT delivered, both to tell the truth and to stop the badge sticking on
+                        // "Steering…" forever.
+                        ResolvePendingSteersAsFailed(chat.Id);
 
                         // Clear local session objects, but keep the persisted session ID so
                         // a later resume attempt can retry after the CLI/server recovers.
@@ -1656,6 +1790,7 @@ public partial class ChatViewModel
                         var existingReasoning = ToolDisplayHelper.ExtractJsonField(existing.Content, "reasoning")
                             ?? GetSubagentStream(subagentReasoningStreams, subStart.Data.ToolCallId)?.SnapshotOrNull();
                         existing.ToolName = $"agent:{subStart.Data.AgentName}";
+                        existing.ToolStatus = "InProgress";
                         existing.Content = BuildSubagentPayloadJson(
                             description: existingDescription,
                             agentName: subStart.Data.AgentName,
@@ -1670,6 +1805,7 @@ public partial class ChatViewModel
                         {
                             var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == subStart.Data.ToolCallId);
                             vm?.NotifyContentChanged();
+                            vm?.NotifyToolStatusChanged();
                             ApplyDisplayedRuntimeState(runtime);
                         }
                     }
@@ -1714,6 +1850,7 @@ public partial class ChatViewModel
                     {
                         foreach (var vm in Messages.Where(m => m.Message.ToolCallId == subEnd.Data.ToolCallId))
                             vm.NotifyToolStatusChanged();
+                        _transcriptBuilder.UpdateSubagentToolStatus(subEnd.Data.ToolCallId, "Completed");
                     }
                     });
                     break;
@@ -1735,6 +1872,7 @@ public partial class ChatViewModel
                     {
                         foreach (var vm in Messages.Where(m => m.Message.ToolCallId == subFail.Data.ToolCallId))
                             vm.NotifyToolStatusChanged();
+                        _transcriptBuilder.UpdateSubagentToolStatus(subFail.Data.ToolCallId, "Failed");
                     }
                     });
                     break;
@@ -2010,6 +2148,8 @@ public partial class ChatViewModel
                 System.Diagnostics.Debug.WriteLine($"[Lumi] Session event handler error: {ex}");
                 Dispatcher.UIThread.Post(() =>
                 {
+                    if (IsAuthoritativeSession())
+                        ReconcileInProgressSubagentTools(chat, "Failed");
                     MarkRuntimeTerminal(runtime, string.Format(Loc.Status_Error, ex.Message));
                     if (IsDisplayedSession())
                     {
@@ -2038,6 +2178,7 @@ public partial class ChatViewModel
         runtime.TurnInProgress = false;
         runtime.HasPendingBackgroundWork = false;
         runtime.ActiveSubagentExecutionDepth = 0;
+        runtime.ExpectTurnStartUserEcho = false;
         runtime.StatusText = statusText ?? string.Empty;
     }
 
@@ -2078,6 +2219,9 @@ public partial class ChatViewModel
         // The assistant turn has ended; only background/idle draining may remain. Immediate steering
         // cannot inject into a turn that already ended, so drop the "turn running" signal here.
         runtime.TurnInProgress = false;
+        // The turn is over, so its turn-start echo window is closed — clear the skip flag (belt-and-suspenders
+        // for the rare case where the turn-start echo never arrived) so it can't leak into the next turn.
+        runtime.ExpectTurnStartUserEcho = false;
         if (ShouldKeepRuntimeBusyUntilSessionIdle(runtime))
         {
             MarkRuntimeActive(
@@ -2250,6 +2394,8 @@ public partial class ChatViewModel
             // drop each chat's running-shell seed map so a later switch-back does not resurrect a stuck
             // "Running in background" card (RebuildTranscript would otherwise re-seed from it).
             runtime.RunningBackgroundShells.Clear();
+            if (runtime.Chat is { } runtimeChat)
+                ReconcileInProgressSubagentTools(runtimeChat, "Failed");
             MarkRuntimeTerminal(runtime);
         }
 

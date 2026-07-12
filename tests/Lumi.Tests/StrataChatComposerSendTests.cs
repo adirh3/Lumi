@@ -113,6 +113,51 @@ public sealed class StrataChatComposerSendTests
         }, CancellationToken.None);
     }
 
+    [Fact]
+    public async Task AltEnter_WhileBusy_ExecutesStopAndSendCommand()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var stopAndSend = new CaptureCommand();
+            var stopAndSendRaised = 0;
+            var composer = new StrataChatComposer
+            {
+                IsBusy = true,
+                SteerWhileBusy = true,
+                StopAndSendCommand = stopAndSend,
+            };
+            composer.StopAndSendRequested += (_, _) => stopAndSendRaised++;
+
+            var window = new Window { Width = 360, Height = 180, Content = composer };
+            window.Show();
+            await PumpAsync();
+
+            var input = composer.GetVisualDescendants()
+                .OfType<TextBox>()
+                .Single(control => control.Name == "PART_Input");
+            input.Text = "steer or abort?";
+            input.Focus();
+            await PumpAsync();
+
+            var keyArgs = new KeyEventArgs
+            {
+                RoutedEvent = InputElement.KeyDownEvent,
+                Key = Key.Enter,
+                KeyModifiers = KeyModifiers.Alt,
+            };
+            input.RaiseEvent(keyArgs);
+            await PumpAsync();
+
+            Assert.True(keyArgs.Handled);
+            Assert.Equal(1, stopAndSendRaised);
+            Assert.Equal("steer or abort?", stopAndSend.Parameter);
+
+            window.Close();
+        }, CancellationToken.None);
+    }
+
     private static void Click(Window window, Visual target)
     {
         var topLeft = target.TranslatePoint(new Point(0, 0), window)

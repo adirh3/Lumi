@@ -39,4 +39,27 @@ public class DataStoreSearchSnapshotTests
         var message = Assert.Single(refreshed.Messages);
         Assert.Equal("Updated answer", message.Text);
     }
+
+    [Fact]
+    public void GetChatSearchSnapshot_PreservesMessageRoleForRelevanceWeighting()
+    {
+        var chat = new Chat
+        {
+            Id = Guid.NewGuid(),
+            Messages =
+            [
+                new ChatMessage
+                {
+                    Role = "user",
+                    Content = "memory design",
+                    Timestamp = DateTimeOffset.UtcNow
+                }
+            ]
+        };
+        var store = new DataStore(new AppData { Chats = [chat] });
+
+        var snapshot = store.GetChatSearchSnapshot(chat);
+
+        Assert.Equal("user", Assert.Single(snapshot.Messages).Role);
+    }
 }

@@ -1,14 +1,11 @@
 using System;
 using System.Linq;
-using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Animation;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
-using Avalonia.Media;
-using Avalonia.Media.Transformation;
 using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -20,15 +17,17 @@ public partial class SearchOverlay : UserControl
 {
     private Border? _scrim;
     private Border? _searchCard;
-    private Border? _stratumLine;
     private TextBox? _searchInput;
     private ItemsControl? _resultsList;
-    private TextBlock? _emptyState;
     private ScrollViewer? _resultsScroller;
+    private Control? _emptyState;
+    private Control? _searchingState;
+    private SearchOverlayViewModel? _subscribedVm;
     private int _lastRenderedSelection = -1;
     private long _lastAnimateOpenTick;
-    private SearchOverlayViewModel? _subscribedVm;
-    private Transitions? _stratumLineTransitions;
+    private bool _isUserNavigating;
+    private bool _pendingViewUpdate;
+    private bool _resetScrollOnNextUpdate;
 
     public SearchOverlay()
     {
@@ -39,144 +38,163 @@ public partial class SearchOverlay : UserControl
     {
         AvaloniaXamlLoader.Load(this);
         _scrim = this.FindControl<Border>("Scrim");
-        _searchCard = this.FindControl<Border>("SearchCard");
-        _stratumLine = this.FindControl<Border>("StratumLine");
-        _stratumLineTransitions = _stratumLine?.Transitions;
+        _searchCard = this.FindControl<Border>("OverlayCard");
         _searchInput = this.FindControl<TextBox>("SearchInput");
         _resultsList = this.FindControl<ItemsControl>("ResultsList");
-        _emptyState = this.FindControl<TextBlock>("EmptyState");
-        _resultsScroller = this.FindControl<ScrollViewer>("ResultsScroller");
-
-        if (_scrim is not null)
-            _scrim.PointerPressed += OnScrimPressed;
+        _resultsScroller = this.FindControl<ScrollViewer>("ResultsScroll");
+        _emptyState = this.FindControl<Control>("EmptyState");
+        _searchingState = this.FindControl<Control>("SearchingState");
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
 
-        if (change.Property == IsVisibleProperty && change.GetNewValue<bool>())
+        if (change.Property != IsVisibleProperty || !change.GetNewValue<bool>())
+            return;
+
+        var now = Environment.TickCount64;
+        if (now - _lastAnimateOpenTick < 300)
+            return;
+
+        _lastAnimateOpenTick = now;
+
+        if (_searchCard is not null)
+            _searchCard.Opacity = 0;
+        if (_scrim is not null)
+            _scrim.Opacity = 0;
+
+        Dispatcher.UIThread.Post(() =>
         {
-            // Debounce: ignore repeated IsVisible=true within the animation window
-            var now = Environment.TickCount64;
-            if (now - _lastAnimateOpenTick < 400) return;
-            _lastAnimateOpenTick = now;
-
-            // Hide card and scrim BEFORE layout to prevent the 1-frame flash
-            // (Avalonia renders at full opacity before composition animations start)
-            if (_searchCard is not null) _searchCard.Opacity = 0;
-            if (_scrim is not null) _scrim.Opacity = 0;
-
-            // Reset stratum line to collapsed state (bypass transitions for instant reset)
-            if (_stratumLine is not null)
-            {
-                _stratumLine.Transitions = null;
-                _stratumLine.Opacity = 0;
-                _stratumLine.RenderTransform = TransformOperations.Parse("scaleX(0)");
-            }
-
-            Dispatcher.UIThread.Post(() =>
-            {
-                _searchInput?.Focus();
-                _searchInput?.SelectAll();
-                AnimateOpen();
-            }, DispatcherPriority.Render);
-        }
+            _searchInput?.Focus();
+            _searchInput?.SelectAll();
+            AnimateOpen();
+        }, DispatcherPriority.Render);
     }
 
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
 
-        // Unsubscribe from previous VM
         if (_subscribedVm is not null)
-        {
             _subscribedVm.PropertyChanged -= OnVmPropertyChanged;
-            _subscribedVm.ResultGroups.CollectionChanged -= OnResultGroupsChanged;
-            _subscribedVm = null;
-        }
 
-        if (DataContext is SearchOverlayViewModel vm)
-        {
-            vm.PropertyChanged += OnVmPropertyChanged;
-            vm.ResultGroups.CollectionChanged += OnResultGroupsChanged;
-            _subscribedVm = vm;
-        }
+        _subscribedVm = DataContext as SearchOverlayViewModel;
+        if (_subscribedVm is not null)
+            _subscribedVm.PropertyChanged += OnVmPropertyChanged;
     }
 
     private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
     {
-        if (args.PropertyName == nameof(SearchOverlayViewModel.SelectedIndex))
-            UpdateSelectionVisuals();
-        else if (args.PropertyName == nameof(SearchOverlayViewModel.IsOpen) && sender is SearchOverlayViewModel vm && !vm.IsOpen)
-            _lastRenderedSelection = -1;
-        else if (args.PropertyName == nameof(SearchOverlayViewModel.IsSearching)
-                 || args.PropertyName == nameof(SearchOverlayViewModel.SearchQuery))
-            UpdateEmptyState();
+        switch (args.PropertyName)
+        {
+            case nameof(SearchOverlayViewModel.SelectedIndex):
+                if (_isUserNavigating)
+                    UpdateSelectionVisuals();
+                else
+                    PostDeferredViewUpdate();
+                break;
+
+            case nameof(SearchOverlayViewModel.FlatResults):
+                _lastRenderedSelection = int.MinValue;
+                PostDeferredViewUpdate();
+                break;
+
+            case nameof(SearchOverlayViewModel.SearchQuery):
+            case nameof(SearchOverlayViewModel.SelectedCategory):
+                PostDeferredViewUpdate(resetScroll: true);
+                break;
+
+            case nameof(SearchOverlayViewModel.IsSearching):
+            case nameof(SearchOverlayViewModel.IsDeepSearching):
+                UpdateEmptyState();
+                break;
+
+            case nameof(SearchOverlayViewModel.IsOpen)
+                when sender is SearchOverlayViewModel { IsOpen: false }:
+                _lastRenderedSelection = -1;
+                _resetScrollOnNextUpdate = false;
+                break;
+        }
     }
 
-    private void OnResultGroupsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    private void PostDeferredViewUpdate(bool resetScroll = false)
     {
+        _resetScrollOnNextUpdate |= resetScroll;
+        if (_pendingViewUpdate)
+            return;
+
+        _pendingViewUpdate = true;
         Dispatcher.UIThread.Post(() =>
         {
+            _pendingViewUpdate = false;
+
+            if (_resetScrollOnNextUpdate)
+            {
+                if (_resultsScroller is not null)
+                    _resultsScroller.Offset = new Vector(_resultsScroller.Offset.X, 0);
+
+                _resetScrollOnNextUpdate = false;
+            }
+
             UpdateEmptyState();
             UpdateSelectionVisuals();
+            Dispatcher.UIThread.Post(UpdateSelectionVisuals, DispatcherPriority.Background);
         }, DispatcherPriority.Render);
     }
 
     private void UpdateEmptyState()
     {
-        if (_emptyState is null || DataContext is not SearchOverlayViewModel vm) return;
-        _emptyState.IsVisible = !vm.IsSearching
-                                && !string.IsNullOrEmpty(vm.SearchQuery)
-                                && vm.FlatResults.Count == 0;
+        if (DataContext is not SearchOverlayViewModel vm)
+            return;
+
+        var hasQuery = !string.IsNullOrWhiteSpace(vm.SearchQuery);
+        var noResults = vm.ResultCount == 0;
+
+        if (_emptyState is not null)
+            _emptyState.IsVisible = !vm.IsSearchPending && hasQuery && noResults;
+
+        if (_searchingState is not null)
+            _searchingState.IsVisible = vm.IsSearchPending && hasQuery && noResults;
     }
 
     private void UpdateSelectionVisuals()
     {
-        if (DataContext is not SearchOverlayViewModel vm || _resultsList is null) return;
+        if (DataContext is not SearchOverlayViewModel vm || _resultsList is null)
+            return;
 
-        var flatIndex = vm.SelectedIndex;
-        if (flatIndex == _lastRenderedSelection) return;
-        _lastRenderedSelection = flatIndex;
+        var buttons = _resultsList
+            .GetVisualDescendants()
+            .OfType<Button>()
+            .Where(static button => button.Classes.Contains("search-result-item"))
+            .ToList();
+        if (buttons.Count == 0 || vm.SelectedIndex == _lastRenderedSelection)
+            return;
 
-        int currentFlatIndex = 0;
-        foreach (var groupContainer in _resultsList.GetVisualDescendants().OfType<ItemsControl>())
+        _lastRenderedSelection = vm.SelectedIndex;
+        for (var index = 0; index < buttons.Count; index++)
         {
-            if (groupContainer == _resultsList) continue;
-
-            foreach (var button in groupContainer.GetVisualDescendants().OfType<Button>())
+            var button = buttons[index];
+            var isSelected = index == vm.SelectedIndex;
+            if (isSelected)
             {
-                if (!button.Classes.Contains("search-result-item")) continue;
+                if (!button.Classes.Contains("selected"))
+                    button.Classes.Add("selected");
 
-                var isSelected = currentFlatIndex == flatIndex;
-
-                if (isSelected)
-                {
-                    if (!button.Classes.Contains("selected"))
-                        button.Classes.Add("selected");
+                if (_isUserNavigating)
                     button.BringIntoView();
-                }
-                else
-                {
-                    button.Classes.Remove("selected");
-                }
-
-                // Toggle the selection pipe inside the button
-                var pipe = button.GetVisualDescendants()
-                    .OfType<Border>()
-                    .FirstOrDefault(b => b.Name == "SelectionPipe");
-                if (pipe is not null)
-                    pipe.Opacity = isSelected ? 1 : 0;
-
-                currentFlatIndex++;
+            }
+            else
+            {
+                button.Classes.Remove("selected");
             }
         }
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        if (DataContext is not SearchOverlayViewModel vm) return;
+        if (DataContext is not SearchOverlayViewModel vm)
+            return;
 
         switch (e.Key)
         {
@@ -186,12 +204,12 @@ public partial class SearchOverlay : UserControl
                 break;
 
             case Key.Down:
-                vm.MoveSelection(1);
+                MoveSelection(vm, 1);
                 e.Handled = true;
                 break;
 
             case Key.Up:
-                vm.MoveSelection(-1);
+                MoveSelection(vm, -1);
                 e.Handled = true;
                 break;
 
@@ -201,90 +219,128 @@ public partial class SearchOverlay : UserControl
                 break;
 
             case Key.Tab:
-                // Tab also moves selection down
-                vm.MoveSelection(1);
+                if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
+                {
+                    vm.CycleCategory(e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? -1 : 1);
+                }
+                else
+                {
+                    MoveSelection(vm, e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? -1 : 1);
+                }
+
                 e.Handled = true;
                 break;
         }
     }
 
-    private void OnScrimPressed(object? sender, PointerPressedEventArgs e)
+    private void MoveSelection(SearchOverlayViewModel vm, int delta)
+    {
+        _isUserNavigating = true;
+        try
+        {
+            vm.MoveSelection(delta);
+        }
+        finally
+        {
+            _isUserNavigating = false;
+        }
+    }
+
+    private void OnOverlayPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (DataContext is SearchOverlayViewModel vm)
             vm.Close();
+
         e.Handled = true;
     }
 
-    private void AnimateOpen()
+    private static void OnCardPointerPressed(object? sender, PointerPressedEventArgs e)
+        => e.Handled = true;
+
+    private void OnClearSearchClick(object? sender, RoutedEventArgs e)
     {
-        // Restore Avalonia opacity (was zeroed in OnPropertyChanged to prevent flash)
-        if (_scrim is not null) _scrim.Opacity = 1;
-        if (_searchCard is not null) _searchCard.Opacity = 1;
+        if (DataContext is SearchOverlayViewModel vm)
+            vm.ClearSearch();
 
-        // ── Scrim fade-in via composition ──
-        if (_scrim is not null)
-        {
-            var scrimVisual = ElementComposition.GetElementVisual(_scrim);
-            if (scrimVisual?.Compositor is { } scrimComp)
-            {
-                var scrimFade = scrimComp.CreateScalarKeyFrameAnimation();
-                scrimFade.InsertKeyFrame(0f, 0f);
-                scrimFade.InsertKeyFrame(1f, 1f);
-                scrimFade.Duration = TimeSpan.FromMilliseconds(180);
-                scrimVisual.StartAnimation("Opacity", scrimFade);
-            }
-        }
-
-        // ── Card entrance ──
-        if (_searchCard is null) return;
-
-        var visual = ElementComposition.GetElementVisual(_searchCard);
-        if (visual?.Compositor is not { } compositor) return;
-
-        var w = (float)_searchCard.Bounds.Width;
-        var h = (float)_searchCard.Bounds.Height;
-        if (w <= 0) w = 560;
-        if (h <= 0) h = 400;
-        visual.CenterPoint = new System.Numerics.Vector3(w / 2f, h / 2f, 0f);
-
-        // Scale: 0.92 → 1.005 (overshoot at 60%) → 1.0
-        var scaleAnim = compositor.CreateVector3KeyFrameAnimation();
-        scaleAnim.InsertKeyFrame(0f, new System.Numerics.Vector3(0.92f, 0.92f, 1f));
-        scaleAnim.InsertKeyFrame(0.6f, new System.Numerics.Vector3(1.005f, 1.005f, 1f));
-        scaleAnim.InsertKeyFrame(1f, new System.Numerics.Vector3(1f, 1f, 1f));
-        scaleAnim.Duration = TimeSpan.FromMilliseconds(220);
-        visual.StartAnimation("Scale", scaleAnim);
-
-        // Opacity: 0 → 1 (fast, completes before scale)
-        var opacityAnim = compositor.CreateScalarKeyFrameAnimation();
-        opacityAnim.InsertKeyFrame(0f, 0f);
-        opacityAnim.InsertKeyFrame(0.45f, 1f);
-        opacityAnim.InsertKeyFrame(1f, 1f);
-        opacityAnim.Duration = TimeSpan.FromMilliseconds(220);
-        visual.StartAnimation("Opacity", opacityAnim);
-
-        // ── Stratum line sweep-in ──
-        if (_stratumLine is not null)
-        {
-            Dispatcher.UIThread.Post(async () =>
-            {
-                await Task.Delay(100);
-                if (_stratumLine is null) return;
-                _stratumLine.Transitions = _stratumLineTransitions;
-                _stratumLine.Opacity = 1;
-                _stratumLine.RenderTransform = TransformOperations.Parse("scaleX(1)");
-            });
-        }
+        _searchInput?.Focus();
+        e.Handled = true;
     }
 
-    /// <summary>Called from result item button clicks.</summary>
-    public void OnResultItemClicked(object? sender, RoutedEventArgs e)
+    private void OnShowAllClick(object? sender, RoutedEventArgs e)
     {
-        if (sender is Button button && button.Tag is SearchResultItem item
-            && DataContext is SearchOverlayViewModel vm)
+        if (sender is not Button { Tag: SearchResultGroup group } ||
+            DataContext is not SearchOverlayViewModel vm)
+        {
+            return;
+        }
+
+        vm.SelectCategory(group.CategoryKey);
+        _searchInput?.Focus();
+        e.Handled = true;
+    }
+
+    private void OnBackToAllClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is SearchOverlayViewModel vm)
+            vm.SelectCategory(null);
+
+        _searchInput?.Focus();
+        e.Handled = true;
+    }
+
+    private void OnResultClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: SearchResultItem item } &&
+            DataContext is SearchOverlayViewModel vm)
         {
             vm.Close();
             vm.RaiseResultSelected(item);
         }
+    }
+
+    private void AnimateOpen()
+    {
+        if (_scrim is not null)
+        {
+            _scrim.Opacity = 1;
+            var scrimVisual = ElementComposition.GetElementVisual(_scrim);
+            if (scrimVisual?.Compositor is { } scrimCompositor)
+            {
+                var fade = scrimCompositor.CreateScalarKeyFrameAnimation();
+                fade.InsertKeyFrame(0f, 0f);
+                fade.InsertKeyFrame(1f, 1f);
+                fade.Duration = TimeSpan.FromMilliseconds(140);
+                scrimVisual.StartAnimation("Opacity", fade);
+            }
+        }
+
+        if (_searchCard is null)
+            return;
+
+        _searchCard.Opacity = 1;
+        var visual = ElementComposition.GetElementVisual(_searchCard);
+        if (visual?.Compositor is not { } compositor)
+            return;
+
+        var width = (float)_searchCard.Bounds.Width;
+        var height = (float)_searchCard.Bounds.Height;
+        if (width <= 0)
+            width = 820;
+        if (height <= 0)
+            height = 600;
+
+        visual.CenterPoint = new System.Numerics.Vector3(width / 2f, 0f, 0f);
+
+        var scale = compositor.CreateVector3KeyFrameAnimation();
+        scale.InsertKeyFrame(0f, new System.Numerics.Vector3(0.985f, 0.985f, 1f));
+        scale.InsertKeyFrame(1f, new System.Numerics.Vector3(1f, 1f, 1f));
+        scale.Duration = TimeSpan.FromMilliseconds(160);
+        visual.StartAnimation("Scale", scale);
+
+        var opacity = compositor.CreateScalarKeyFrameAnimation();
+        opacity.InsertKeyFrame(0f, 0f);
+        opacity.InsertKeyFrame(1f, 1f);
+        opacity.Duration = TimeSpan.FromMilliseconds(140);
+        visual.StartAnimation("Opacity", opacity);
     }
 }

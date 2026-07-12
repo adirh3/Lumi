@@ -64,16 +64,13 @@ public partial class ChatView : UserControl
     private Button? _worktreeToggleBtn;
     private bool _worktreeHighlightUpdateQueued;
     private bool _isApplyingTranscriptMutation;
-    private bool _resizeRestoreQueued;
     private bool _viewportEvaluationQueued;
     private bool _viewportEvaluationRequested;
-    private bool _heightCompensationQueued;
-    private bool _tailRecoveryQueued;
     private bool _isTranscriptScrollbarDragging;
     private Control? _transcriptScrollbarCaptureSource;
     private int _initialTranscriptTailSyncVersion;
-    private double _pendingHeightCompensationDelta;
-    private ScrollAnchorState? _pendingResizeAnchor;
+    private int _resizeRestoreVersion;
+    private int _tailRecoveryVersion;
     private readonly Dictionary<string, double> _observedTurnHeights = new(StringComparer.Ordinal);
     private readonly HashSet<TranscriptTurn> _heightSubscribedTurns = new();
 
@@ -104,7 +101,7 @@ public partial class ChatView : UserControl
     [JsonSerializable(typeof(ClipboardCopyPayload))]
     private partial class ClipboardJsonContext : JsonSerializerContext;
 
-    private sealed record ScrollAnchorState(string StableId, double ViewportY);
+    private sealed record ScrollAnchorState(string StableId, double ViewportY, long ScrollGeneration);
 
     public ChatView()
     {
@@ -233,10 +230,9 @@ public partial class ChatView : UserControl
         base.OnDataContextChanged(e);
         UnsubscribeFromViewModel();
         ResetSearchState();
-        _pendingHeightCompensationDelta = 0;
-        _heightCompensationQueued = false;
-        _tailRecoveryQueued = false;
         _viewportEvaluationRequested = false;
+        _resizeRestoreVersion++;
+        _tailRecoveryVersion++;
         _lastObservedCurrentChat = null;
 
         if (DataContext is ChatViewModel vm)
@@ -302,6 +298,8 @@ public partial class ChatView : UserControl
         _subscribedVm = null;
         _lastObservedCurrentChat = null;
         _initialTranscriptTailSyncVersion++;
+        _resizeRestoreVersion++;
+        _tailRecoveryVersion++;
     }
 
     private void SubscribeToMountedTurns(ObservableCollection<TranscriptTurn> mountedTurns)
@@ -399,11 +397,12 @@ public partial class ChatView : UserControl
     // changes the live scroll extent without producing a height delta on an existing turn.
     private void QueueViewportRecoveryAfterMountedTurnsChanged()
     {
+        _chatShell?.NotifyTranscriptLayoutChanged();
+
         if (_chatShell is null
             || _subscribedVm is null
             || _subscribedVm.CurrentChat is null
-            || _subscribedVm.IsLoadingChat
-            || (!_subscribedVm.IsBusy && !_chatShell.IsPinnedToBottom))
+            || _subscribedVm.IsLoadingChat)
         {
             return;
         }
@@ -415,8 +414,6 @@ public partial class ChatView : UserControl
         }
 
         QueueTranscriptViewportEvaluation();
-        if (_chatShell.IsPinnedToBottom)
-            Dispatcher.UIThread.Post(() => _chatShell?.ScrollToEnd(), DispatcherPriority.Loaded);
     }
 
     private void UnsubscribeAllTurnHeights()
@@ -450,25 +447,10 @@ public partial class ChatView : UserControl
         if (Math.Abs(delta) < 0.5)
             return;
 
-        // While streaming or pinned, use the live extent to decide whether older
-        // pages need to be mounted instead of compensating the reader offset.
-        if (_subscribedVm is { IsBusy: true })
+        if (_subscribedVm is { IsBusy: true } || _chatShell.IsFollowingTail)
         {
             QueueTranscriptViewportEvaluation();
-            // Re-pin on follow-tail INTENT, not the distance-based IsPinnedToBottom: a turn growing
-            // past its placeholder height (deferred realization, tool expand, streaming) can itself
-            // push us >8px from the bottom in a single frame, which flips IsPinnedToBottom false and
-            // would strand the scroll part-way up. As long as the user hasn't deliberately scrolled
-            // away, snap back to the bottom.
-            if (_chatShell.IsFollowingTail)
-                Dispatcher.UIThread.Post(() => _chatShell?.ScrollToEnd(), DispatcherPriority.Loaded);
-            return;
-        }
-
-        if (_chatShell.IsFollowingTail)
-        {
-            QueueTranscriptViewportEvaluation();
-            Dispatcher.UIThread.Post(() => _chatShell?.ScrollToEnd(), DispatcherPriority.Loaded);
+            _chatShell.NotifyTranscriptLayoutChanged();
             return;
         }
 
@@ -481,15 +463,10 @@ public partial class ChatView : UserControl
         if (point.Value.Y + control.Bounds.Height > 0)
             return;
 
-        _pendingHeightCompensationDelta += delta;
-        if (_heightCompensationQueued)
-            return;
-
-        _heightCompensationQueued = true;
-        Dispatcher.UIThread.Post(ApplyPendingHeightCompensation, DispatcherPriority.Loaded);
+        _chatShell.CompensateForContentAbove(delta);
     }
 
-    private void OnScrollToEndRequested() => _chatShell?.ScrollToEnd();
+    private void OnScrollToEndRequested() => _chatShell?.NotifyTranscriptContentChanged();
 
     private void OnTranscriptScrollViewerPointerPressed(object? sender, PointerPressedEventArgs e)
     {
@@ -562,33 +539,6 @@ public partial class ChatView : UserControl
             return;
 
         _subscribedVm.UpdateTranscriptPinnedState(_chatShell.IsPinnedToBottom, _chatShell.CurrentDistanceFromBottom);
-    }
-
-    private void ApplyPendingHeightCompensation()
-    {
-        _heightCompensationQueued = false;
-
-        if (_chatShell is null || _subscribedVm is null)
-        {
-            _pendingHeightCompensationDelta = 0;
-            return;
-        }
-
-        if (_isApplyingTranscriptMutation)
-        {
-            _heightCompensationQueued = true;
-            Dispatcher.UIThread.Post(ApplyPendingHeightCompensation, DispatcherPriority.Loaded);
-            return;
-        }
-
-        var delta = _pendingHeightCompensationDelta;
-        _pendingHeightCompensationDelta = 0;
-        if (Math.Abs(delta) < 0.5 || _subscribedVm.IsBusy || _chatShell.IsPinnedToBottom)
-            return;
-
-        var beforeOffset = _chatShell.VerticalOffset;
-        _chatShell.ScrollToVerticalOffset(beforeOffset + delta);
-        _subscribedVm.RecordTranscriptScrollCompensation("height-change", beforeOffset, _chatShell.VerticalOffset);
     }
 
     private void OnJumpToLatestRequested() => JumpToLatest(focusComposer: false);
@@ -719,7 +669,7 @@ public partial class ChatView : UserControl
             if (viewModel.CurrentChat is null)
                 return;
 
-            chatShell.EnterFollowTailMode();
+            chatShell.RequestInitialBottom();
             viewModel.InitializeMountedTranscript(chatShell.ViewportHeight);
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
             if (syncVersion != _initialTranscriptTailSyncVersion || !ReferenceEquals(viewModel, _subscribedVm))
@@ -730,7 +680,7 @@ public partial class ChatView : UserControl
             if (syncVersion != _initialTranscriptTailSyncVersion || !ReferenceEquals(viewModel, _subscribedVm))
                 return;
 
-            chatShell.JumpToLatest();
+            chatShell.NotifyTranscriptLayoutChanged();
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
             if (syncVersion != _initialTranscriptTailSyncVersion || !ReferenceEquals(viewModel, _subscribedVm))
                 return;
@@ -782,9 +732,7 @@ public partial class ChatView : UserControl
 
         while (DateTime.UtcNow < deadline)
         {
-            // Stay glued to the bottom while the turns grow underneath the overlay.
-            if (chatShell.IsFollowingTail)
-                chatShell.JumpToLatest();
+            chatShell.NotifyTranscriptLayoutChanged();
 
             await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Background);
             if (syncVersion != _initialTranscriptTailSyncVersion || !ReferenceEquals(viewModel, _subscribedVm))
@@ -812,7 +760,7 @@ public partial class ChatView : UserControl
         // Final authoritative pin to the now fully-measured bottom before the overlay clears.
         if (chatShell.IsFollowingTail)
         {
-            chatShell.JumpToLatest();
+            chatShell.NotifyTranscriptLayoutChanged();
             await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Loaded);
             if (syncVersion != _initialTranscriptTailSyncVersion || !ReferenceEquals(viewModel, _subscribedVm))
                 return;
@@ -874,7 +822,7 @@ public partial class ChatView : UserControl
                     || _transcriptScrollViewer is null)
                     return;
 
-                var anchor = _chatShell.IsPinnedToBottom ? null : CaptureAnchor();
+                var anchor = _chatShell.IsFollowingTail ? null : CaptureAnchor();
                 var mutation = _subscribedVm.EnsureMountedTranscriptCoverage(
                     _chatShell.ViewportHeight,
                     _chatShell.ExtentHeight);
@@ -920,13 +868,12 @@ public partial class ChatView : UserControl
         if (_isApplyingTranscriptMutation || _subscribedVm is null || _chatShell is null)
             return;
 
-        var anchor = _chatShell.IsPinnedToBottom ? null : CaptureAnchor();
+        var anchor = _chatShell.IsFollowingTail ? null : CaptureAnchor();
         var mutation = _subscribedVm.EnsureMountedTranscriptCoverage(_chatShell.ViewportHeight, _chatShell.ExtentHeight);
         if (mutation.HasChanges)
             await CompleteTranscriptMutationAsync(anchor, mutation);
 
-        if (_chatShell.IsPinnedToBottom)
-            Dispatcher.UIThread.Post(() => _chatShell?.ScrollToEnd(), DispatcherPriority.Loaded);
+        _chatShell.NotifyTranscriptLayoutChanged();
     }
 
     private void OnChatViewSizeChanged(object? sender, SizeChangedEventArgs e)
@@ -937,23 +884,18 @@ public partial class ChatView : UserControl
         if (Math.Abs(e.PreviousSize.Width - e.NewSize.Width) < 0.5)
             return;
 
-        if (_chatShell.IsPinnedToBottom)
+        if (_chatShell.IsFollowingTail)
         {
-            Dispatcher.UIThread.Post(() => _chatShell?.ScrollToEnd(), DispatcherPriority.Loaded);
+            _chatShell.NotifyTranscriptLayoutChanged();
             return;
         }
 
-        _pendingResizeAnchor ??= CaptureAnchor();
-        if (_resizeRestoreQueued)
-            return;
-
-        _resizeRestoreQueued = true;
+        var anchor = CaptureAnchor();
+        var restoreVersion = ++_resizeRestoreVersion;
         Dispatcher.UIThread.Post(() =>
         {
-            _resizeRestoreQueued = false;
-            var anchor = _pendingResizeAnchor;
-            _pendingResizeAnchor = null;
-            RestoreAnchor(anchor, "resize");
+            if (restoreVersion == _resizeRestoreVersion)
+                RestoreAnchor(anchor, "resize");
         }, DispatcherPriority.Loaded);
     }
 
@@ -986,8 +928,7 @@ public partial class ChatView : UserControl
                 });
 
             SyncTranscriptPinnedState();
-            if (_chatShell?.IsPinnedToBottom == true)
-                Dispatcher.UIThread.Post(() => _chatShell?.ScrollToEnd(), DispatcherPriority.Loaded);
+            _chatShell?.NotifyTranscriptLayoutChanged();
         }
         finally
         {
@@ -999,28 +940,30 @@ public partial class ChatView : UserControl
 
     private void QueueCompletedAssistantTailRecovery()
     {
-        if (_tailRecoveryQueued
-            || _subscribedVm is not { CurrentChat: not null, IsBusy: false, IsLoadingChat: false }
+        if (_subscribedVm is not { CurrentChat: not null, IsBusy: false, IsLoadingChat: false }
             || _chatShell is null)
         {
             return;
         }
 
-        _tailRecoveryQueued = true;
-        Dispatcher.UIThread.Post(() => _ = RecoverCompletedAssistantTailAsync(), DispatcherPriority.Loaded);
+        var recoveryVersion = ++_tailRecoveryVersion;
+        Dispatcher.UIThread.Post(
+            () => _ = RecoverCompletedAssistantTailAsync(recoveryVersion),
+            DispatcherPriority.Loaded);
     }
 
-    private async Task RecoverCompletedAssistantTailAsync()
+    private async Task RecoverCompletedAssistantTailAsync(int recoveryVersion)
     {
-        _tailRecoveryQueued = false;
-
-        if (_isApplyingTranscriptMutation)
+        for (var attempt = 0; attempt < 4 && _isApplyingTranscriptMutation; attempt++)
         {
-            QueueCompletedAssistantTailRecovery();
-            return;
+            await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Loaded);
+            if (recoveryVersion != _tailRecoveryVersion)
+                return;
         }
 
-        if (_subscribedVm is not { CurrentChat: not null, IsBusy: false, IsLoadingChat: false } viewModel
+        if (recoveryVersion != _tailRecoveryVersion
+            || _isApplyingTranscriptMutation
+            || _subscribedVm is not { CurrentChat: not null, IsBusy: false, IsLoadingChat: false } viewModel
             || _chatShell is null)
         {
             return;
@@ -1038,12 +981,13 @@ public partial class ChatView : UserControl
         if (_chatShell.IsFollowingTail)
         {
             if (viewModel.EnsureLatestTranscriptMounted())
-            {
                 await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-                SyncTranscriptPinnedState();
-                Dispatcher.UIThread.Post(() => _chatShell?.ScrollToEnd(), DispatcherPriority.Loaded);
-            }
 
+            if (recoveryVersion != _tailRecoveryVersion)
+                return;
+
+            _chatShell.NotifyTranscriptLayoutChanged();
+            SyncTranscriptPinnedState();
             return;
         }
 
@@ -1072,7 +1016,10 @@ public partial class ChatView : UserControl
             if (control.Turn is null)
                 continue;
 
-            return new ScrollAnchorState(control.Turn.StableId, point.Value.Y);
+            return new ScrollAnchorState(
+                control.Turn.StableId,
+                point.Value.Y,
+                _chatShell?.ScrollGeneration ?? 0);
         }
 
         return null;
@@ -1080,7 +1027,10 @@ public partial class ChatView : UserControl
 
     private void RestoreAnchor(ScrollAnchorState? anchor, string reason)
     {
-        if (anchor is null || _chatShell is null || _transcriptScrollViewer is null)
+            if (anchor is null
+                || _chatShell is null
+                || _transcriptScrollViewer is null
+                || anchor.ScrollGeneration != _chatShell.ScrollGeneration)
             return;
 
         var control = FindRealizedTurnControl(anchor.StableId);
@@ -1093,8 +1043,8 @@ public partial class ChatView : UserControl
             return;
 
         var beforeOffset = _chatShell.VerticalOffset;
-        _chatShell.ScrollToVerticalOffset(beforeOffset + delta);
-        _subscribedVm?.RecordTranscriptScrollCompensation(reason, beforeOffset, _chatShell.VerticalOffset);
+        if (_chatShell.TryScrollToVerticalOffset(beforeOffset + delta, anchor.ScrollGeneration))
+            _subscribedVm?.RecordTranscriptScrollCompensation(reason, beforeOffset, _chatShell.VerticalOffset);
     }
 
     private TranscriptTurnControl? FindRealizedTurnControl(string stableId)
@@ -1143,6 +1093,7 @@ public partial class ChatView : UserControl
             return;
 
         var offset = Math.Max(0, _chatShell.VerticalOffset + point.Value.Y - 64);
+        _chatShell.PreserveViewport();
         _chatShell.ScrollToVerticalOffset(offset);
     }
 

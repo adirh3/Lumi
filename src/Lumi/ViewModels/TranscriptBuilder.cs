@@ -17,11 +17,13 @@ public class TranscriptBuilder
 {
     private readonly DataStore _dataStore;
     private readonly Action<FileChangeItem> _showDiffAction;
+    private readonly Action<Guid>? _openChatAction;
     private readonly Action<string, string> _submitQuestionAnswerAction;
     private readonly Func<ChatMessage, bool, Task> _resendFromMessageAction;
     private readonly Action<SkillReference>? _openSkillAction;
     private readonly Func<string, SkillReference?>? _resolveSkill;
     private readonly Func<string?> _getSelectedModel;
+    private readonly Func<ChatMessageViewModel, Task>? _sendSteeredNowAsync;
 
     private ToolGroupItem? _currentToolGroup;
     private int _currentToolGroupCount;
@@ -53,7 +55,9 @@ public class TranscriptBuilder
     public bool IsRebuildingTranscript { get; set; }
 
     public HashSet<string> ShownFileChips { get; } = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<Guid> _processedMessageIds = [];
     private readonly HashSet<string> _shownSkillNames = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _shownLinkedChatKeys = new(StringComparer.Ordinal);
     private PlanCardItem? _pendingPlanCard;
     private string? _pendingModelName;
 
@@ -76,7 +80,9 @@ public class TranscriptBuilder
         Func<ChatMessage, bool, Task> resendFromMessageAction,
         Func<string?> getSelectedModel,
         Action<SkillReference>? openSkillAction = null,
-        Func<string, SkillReference?>? resolveSkill = null)
+        Func<string, SkillReference?>? resolveSkill = null,
+        Action<Guid>? openChatAction = null,
+        Func<ChatMessageViewModel, Task>? sendSteeredNowAsync = null)
     {
         _dataStore = dataStore;
         _showDiffAction = showDiffAction;
@@ -85,6 +91,8 @@ public class TranscriptBuilder
         _getSelectedModel = getSelectedModel;
         _openSkillAction = openSkillAction;
         _resolveSkill = resolveSkill;
+        _openChatAction = openChatAction;
+        _sendSteeredNowAsync = sendSteeredNowAsync;
     }
 
     /// <summary>
@@ -189,7 +197,9 @@ public class TranscriptBuilder
         _pendingFileOriginalContents.Clear();
         _pendingWorkspaceFileChanges.Clear();
         ShownFileChips.Clear();
+        _processedMessageIds.Clear();
         _shownSkillNames.Clear();
+        _shownLinkedChatKeys.Clear();
     }
 
     private static StrataAiToolCallStatus MapToolStatus(string? status)
@@ -206,6 +216,9 @@ public class TranscriptBuilder
 
     public void ProcessMessageToTranscript(ChatMessageViewModel msgVm)
     {
+        if (!_processedMessageIds.Add(msgVm.Message.Id))
+            return;
+
         var showToolCalls = _dataStore.Data.Settings.ShowToolCalls;
         var showReasoning = _dataStore.Data.Settings.ShowReasoning;
         var showTimestamps = _dataStore.Data.Settings.ShowTimestamps;
@@ -429,12 +442,19 @@ public class TranscriptBuilder
 
         if (!showToolCalls)
         {
+            // Tool cards are hidden, but the open-chat chip is a first-class transcript affordance
+            // (like a loaded-skill chip), so it must still surface. Emit any link already known at
+            // process time (a rebuild replaying history, or a stamp that landed before the card) and
+            // subscribe for one that arrives asynchronously after the manage_chats call completes.
+            TryEmitLinkedChatChip(msgVm);
+            if (!IsRebuildingTranscript && msgVm.Message.LinkedChatId is null && toolName == "manage_chats")
+                SubscribeLinkedChatChip(msgVm);
             if (shouldFlushLateFileEdit && diffs.Count > 0)
                 FlushPendingFileEdits();
             return;
         }
 
-        if (toolName == "task" || toolName.StartsWith("agent:", StringComparison.Ordinal))
+        if (ToolDisplayHelper.IsSubagentTool(toolName))
         {
             ProcessSubagentToolMessage(msgVm, initialStatus, toolStableIdSeed, turnStableId);
             return;
@@ -547,6 +567,11 @@ public class TranscriptBuilder
             PropertyChangedEventHandler? handler = null;
             handler = (_, args) =>
             {
+                if (args.PropertyName == nameof(ChatMessageViewModel.LinkedChatId))
+                {
+                    TryEmitLinkedChatChip(msgVm);
+                    return;
+                }
                 if (args.PropertyName != nameof(ChatMessageViewModel.ToolStatus))
                     return;
 
@@ -591,6 +616,52 @@ public class TranscriptBuilder
         UpdateToolGroupLabel();
         if (shouldFlushLateFileEdit && diffs.Count > 0)
             FlushPendingFileEdits();
+
+        // Surface the linked-chat chip for any message that already carries a LinkedChatId at
+        // process time — rebuilds replaying persisted history, or a stamp that landed before the
+        // card was built. The live PropertyChanged hook above covers the async-arrival case; the
+        // per-tool-call de-dup guarantees exactly one chip regardless of which path fires first.
+        TryEmitLinkedChatChip(msgVm);
+    }
+
+    /// <summary>
+    /// Surfaces a chat that Lumi created or messaged via <c>manage_chats</c> as a first-class
+    /// transcript chip (like a loaded-skill chip), placed after the current tool group so the
+    /// "open chat" affordance is always visible instead of buried inside a collapsed tool card.
+    /// De-duplicated per tool call so it renders exactly once across the async live stamp and any
+    /// later transcript rebuild.
+    /// </summary>
+    private void TryEmitLinkedChatChip(ChatMessageViewModel msgVm)
+    {
+        if (msgVm.Message.LinkedChatId is not Guid chatId)
+            return;
+
+        var key = msgVm.Message.ToolCallId ?? msgVm.Message.Id.ToString();
+        if (!_shownLinkedChatKeys.Add(key))
+            return;
+
+        var chip = new LinkedChatChipItem(chatId, msgVm.Message.LinkedChatTitle ?? string.Empty,
+            () => _openChatAction?.Invoke(chatId));
+        CloseCurrentToolGroup();
+        AppendToCurrentTurn(new LinkedChatItem(chip), TurnStableIdFor($"linked-chat:{key}"));
+    }
+
+    /// <summary>
+    /// Subscribes for an asynchronous <see cref="ChatMessageViewModel.LinkedChatId"/> stamp so the
+    /// open-chat chip surfaces even when tool cards are hidden (the live tool-card handler that
+    /// normally carries this is never attached in that mode). The de-dup in
+    /// <see cref="TryEmitLinkedChatChip"/> guarantees a single chip if a rebuild later replays it.
+    /// </summary>
+    private void SubscribeLinkedChatChip(ChatMessageViewModel msgVm)
+    {
+        PropertyChangedEventHandler? handler = null;
+        handler = (_, args) =>
+        {
+            if (args.PropertyName == nameof(ChatMessageViewModel.LinkedChatId))
+                TryEmitLinkedChatChip(msgVm);
+        };
+        msgVm.PropertyChanged += handler;
+        _pendingToolHandlers.Add((msgVm, handler));
     }
 
     private static string? BuildToolCallMoreInfo(
@@ -812,6 +883,17 @@ public class TranscriptBuilder
             subagent.ReasoningText = text;
     }
 
+    /// <summary>Applies an authoritative sub-agent status even when the wrapping task tool already
+    /// reported the same terminal status and its property-change listener has been released.</summary>
+    public void UpdateSubagentToolStatus(string toolCallId, string? status)
+    {
+        if (!_subagentsByToolCallId.TryGetValue(toolCallId, out var subagent))
+            return;
+
+        subagent.Status = MapToolStatus(status);
+        UpdateSubagentState(subagent);
+    }
+
     private SubagentToolCallItem? FindOwningSubagent(string? parentToolCallId)
     {
         var current = parentToolCallId;
@@ -887,12 +969,15 @@ public class TranscriptBuilder
                 ? subagent.DurationText
                 : $"{subagent.Meta} · {subagent.DurationText}";
 
-        if (subagent.OwningGroup is null)
+        if (subagent.Status is not StrataAiToolCallStatus.InProgress)
         {
-            if (subagent.Status == StrataAiToolCallStatus.InProgress && !IsRebuildingTranscript)
-                subagent.IsExpanded = true;
-            else if (IsRebuildingTranscript)
-                subagent.IsExpanded = false;
+            // Duplicate terminal events are authoritative too: collapse a card again if it was
+            // manually reopened after finishing.
+            subagent.IsExpanded = false;
+        }
+        else if (subagent.OwningGroup is null)
+        {
+            subagent.IsExpanded = !IsRebuildingTranscript;
         }
 
         if (subagent.OwningGroup is { } owningGroup)
@@ -963,6 +1048,7 @@ public class TranscriptBuilder
             switch (agent.Status)
             {
                 case StrataAiToolCallStatus.Completed:
+                case StrataAiToolCallStatus.Stopped:
                     completed++;
                     break;
                 case StrataAiToolCallStatus.Failed:
@@ -1058,7 +1144,7 @@ public class TranscriptBuilder
             var newSkills = msgVm.Message.ActiveSkills
                 .Where(s => _shownSkillNames.Add(s.Name))
                 .ToList();
-            var userItem = new UserMessageItem(msgVm, showTimestamps, newSkills, (msg, edited) => _ = _resendFromMessageAction(msg, edited), _openSkillAction);
+            var userItem = new UserMessageItem(msgVm, showTimestamps, newSkills, (msg, edited) => _ = _resendFromMessageAction(msg, edited), _openSkillAction, _sendSteeredNowAsync);
             AppendToCurrentTurn(userItem, TurnStableIdFor($"message:{msgVm.Message.Id}"));
             FinalizeCurrentTurn();
             return;

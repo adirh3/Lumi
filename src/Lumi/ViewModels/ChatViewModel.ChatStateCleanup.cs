@@ -246,7 +246,12 @@ public partial class ChatViewModel
         }
     }
 
-    private void CancelPendingQuestions(Chat chat)
+    /// <summary>
+    /// Cancels a chat's tracked question tasks and marks any unanswered <c>ask_question</c> tool
+    /// messages as expired. Returns <c>true</c> when it mutated a persisted message field, so the
+    /// caller knows the chat's on-disk snapshot is now stale and must not be unloaded.
+    /// </summary>
+    private bool CancelPendingQuestions(Chat chat)
     {
         var pendingQuestionIds = chat.Messages
             .Where(static m => !string.IsNullOrWhiteSpace(m.QuestionId))
@@ -264,6 +269,7 @@ public partial class ChatViewModel
         }
 
         // Mark unanswered ask_question tool messages as Failed so rebuild renders them as expired
+        var markedExpired = false;
         foreach (var msg in chat.Messages)
         {
             if (msg.ToolName == "ask_question"
@@ -271,11 +277,13 @@ public partial class ChatViewModel
                 && string.IsNullOrEmpty(msg.ToolOutput))
             {
                 msg.ToolStatus = "Failed";
+                markedExpired = true;
             }
         }
 
         // Expire any live QuestionItem cards in the current transcript
         ExpireUnansweredQuestions(chat.Id);
+        return markedExpired;
     }
 
     private bool MarkInProgressToolsStopped(Chat chat)
@@ -322,6 +330,11 @@ public partial class ChatViewModel
     private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest, bool deleteServerSession)
     {
         _queuedBusySendPrompts.Remove(chatId);
+        // Drop any still-pending steer confirmations for this chat. Without this a chat deleted / released
+        // while a steer is in flight leaks its entry (and the referenced ChatMessageViewModel), and — because
+        // a remote-shutdown keeps CopilotSessionId for resume — a later Retry's turn-start echo could pop the
+        // stale steer and flip it to a false "Steered into response".
+        _pendingSteerConfirmations.Remove(chatId);
         ReleaseChatCancellation(chatId, cancelActiveRequest);
         ClearPendingTurnTracking(chatId);
         DisposeSessionSubscription(chatId);
@@ -393,12 +406,17 @@ public partial class ChatViewModel
         // back to the UI thread and drops the entry (guarded by the same ReferenceEquals check).
     }
 
-    private void ReleaseInactiveChatState(Chat chat)
+    private void ReleaseInactiveChatState(Chat chat, bool unloadMessages = false, int expectedMessageCount = -1)
     {
         if (CurrentChat?.Id == chat.Id || IsChatRuntimeActive(chat.Id))
             return;
 
-        CancelPendingQuestions(chat);
+        // CancelPendingQuestions can flip an unanswered ask_question tool message to "Failed" in
+        // memory. That mutation happens AFTER the caller persisted this chat, so the on-disk
+        // snapshot no longer matches memory. Unloading would then discard the Failed state and
+        // reload the question as a stuck "live" card on next open, so skip the message unload when
+        // it mutated — the chat becomes unloadable again once a later save persists the new state.
+        var mutatedPersistedMessages = CancelPendingQuestions(chat);
         ReleaseSessionResources(chat.Id, cancelActiveRequest: false, deleteServerSession: false);
         RemoveSuggestionTracking(chat.Id);
         // Intentionally keep the chat's BrowserService alive. A browser session belongs to the
@@ -406,6 +424,43 @@ public partial class ChatViewModel
         // instead of losing the browser (and its toggle button). The service is disposed when the
         // chat is deleted (CleanupSession) or the app shuts down (Dispose).
         _runtimeStates.Remove(chat.Id);
+
+        if (unloadMessages && !mutatedPersistedMessages)
+            TryUnloadInactiveChatMessages(chat, expectedMessageCount);
+    }
+
+    /// <summary>
+    /// Releases the in-memory <see cref="Chat.Messages"/> of an inactive chat to reclaim RAM.
+    /// Every chat opened during a session otherwise stays fully loaded for the app's lifetime,
+    /// so a long session that browses many (or large) chats accumulates their message models
+    /// on the managed heap. The messages are lazily reloaded from the per-chat file on next open.
+    ///
+    /// Only ever called after the caller has just durably persisted the chat's messages, and it
+    /// re-verifies the live count still matches what was persisted so a message added between the
+    /// save and this (UI-thread) call is never dropped. Skipped when auto-save is off (no file to
+    /// reload from) or the file is missing.
+    /// </summary>
+    private void TryUnloadInactiveChatMessages(Chat chat, int expectedMessageCount)
+    {
+        if (chat.Messages.Count == 0)
+            return;
+
+        // Never unload the visible chat or one with live work — belt-and-suspenders on top of the
+        // ReleaseInactiveChatState guard, since this can run after an await hop.
+        if (CurrentChat?.Id == chat.Id || IsChatRuntimeActive(chat.Id))
+            return;
+
+        // Only safe when the messages are durably on disk and unchanged since we persisted them.
+        if (!_dataStore.Data.Settings.AutoSaveChats)
+            return;
+        if (expectedMessageCount >= 0 && chat.Messages.Count != expectedMessageCount)
+            return;
+        if (!_dataStore.HasStoredMessages(chat.Id))
+            return;
+
+        chat.MessageCount = chat.Messages.Count;
+        chat.Messages.Clear();
+        chat.Messages.TrimExcess();
     }
 
     /// <summary>

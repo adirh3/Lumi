@@ -144,6 +144,7 @@ public partial class AgentsViewModel : ObservableObject
         ("manage_mcps", "Manage MCPs", "Utility", "List, create, update, or delete Lumi MCP servers on explicit request."),
         ("manage_jobs", "Manage Jobs", "Utility", "Create, pause, resume, or delete Lumi background jobs on explicit request."),
         ("manage_memories", "Manage Memories", "Utility", "List, create, update, or delete Lumi memories on explicit request."),
+        ("manage_chats", "Manage Chats", "Utility", "Create, list, message, and track other chats — act as a manager orchestrating chats across projects."),
         ("search_chats", "Search Chats", "Utility", "Search the user's past chats by topic, keyword, person, or time."),
         ("read_chat", "Read Chat", "Utility", "Open and read the transcript of a past chat by id, title, or phrase."),
         ("code_review", "Code Review", "Coding", "Expert code review for bugs, security, performance, and best practices."),

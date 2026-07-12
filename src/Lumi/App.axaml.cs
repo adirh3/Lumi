@@ -184,6 +184,9 @@ public partial class App : Application
 #if DEBUG
                 if (Program.UiHarnessOptions is { Enabled: true } uiHarnessOptions)
                     StartUiResponsivenessHarness(desktop, vm, dataStore, uiHarnessOptions);
+
+                if (Program.ProgressBarLeakReproEnabled)
+                    ProgressBarLeakRepro.Start(desktop);
 #endif
             };
 
@@ -447,6 +450,9 @@ public partial class App : Application
         chatVm.ChatTitleChanged += OnDetachedChatTitleChanged;
         chatVm.DefaultModelSelectionChanged += OnDetachedDefaultModelSelectionChanged;
 
+        void OnDetachedOpenChatRequested(Guid requestedChatId) => ShowMainWindow(requestedChatId);
+        chatVm.OpenChatRequested += OnDetachedOpenChatRequested;
+
         Guid? trackedChatId = initialChatId;
         ChatWindow? window = null;
         void TrackCurrentChat()
@@ -486,6 +492,7 @@ public partial class App : Application
             chatVm.ChatUpdated -= OnDetachedChatUpdated;
             chatVm.ChatTitleChanged -= OnDetachedChatTitleChanged;
             chatVm.DefaultModelSelectionChanged -= OnDetachedDefaultModelSelectionChanged;
+            chatVm.OpenChatRequested -= OnDetachedOpenChatRequested;
             windowVm.Dispose();
             request.ReleaseSurface();
         };

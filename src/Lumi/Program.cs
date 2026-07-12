@@ -24,6 +24,9 @@ class Program
 
     /// <summary>Parsed options for the UI responsiveness harness (enabled via CLI flag, debug only).</summary>
     public static UiPerf.UiHarnessOptions? UiHarnessOptions { get; private set; }
+
+    /// <summary>When true, runs the DEBUG-only ProgressBar animation retention repro once the window opens.</summary>
+    public static bool ProgressBarLeakReproEnabled { get; private set; }
 #endif
 
     [STAThread]
@@ -44,6 +47,16 @@ class Program
         // user's real Lumi data is never touched, and it skips onboarding on the fresh data dir.
         UiHarnessOptions = UiPerf.UiHarnessOptions.Parse(args);
         if (UiHarnessOptions.Enabled)
+        {
+            AttachParentConsole();
+            EnsureIsolatedUiHarnessAppDataDir();
+            SkipOnboarding = true;
+        }
+
+        // ProgressBar animation retention repro — boots the real headed app (needs a real Compositor),
+        // runs in an isolated app-data dir, and skips onboarding on the fresh data dir.
+        ProgressBarLeakReproEnabled = args.Any(ProgressBarLeakRepro.IsFlag);
+        if (ProgressBarLeakReproEnabled)
         {
             AttachParentConsole();
             EnsureIsolatedUiHarnessAppDataDir();
@@ -126,8 +139,8 @@ class Program
             return false;
         }
 
-        return stackTrace.Contains("TextSelectionHandleCanvas", StringComparison.Ordinal)
-            || stackTrace.Contains("SelectableTextBlock.RenderTextLayout", StringComparison.Ordinal);
+        return stackTrace.Contains("TextLineImpl.GetTextBounds", StringComparison.Ordinal)
+            && stackTrace.Contains("TextLayout.HitTestTextRange", StringComparison.Ordinal);
     }
 
 #if DEBUG

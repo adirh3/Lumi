@@ -675,6 +675,375 @@ public sealed class StrataChatShellScrollTests
         Assert.True(after > before + 10, "Explicit BringIntoView() should still scroll the transcript.");
     }
 
+    [Fact]
+    public async Task QueuedFollow_IsCancelledWhenReaderScrollsAwayBeforeItRuns()
+    {
+        using var session = HeadlessTestSession.Start();
+        double readerOffset = 0;
+        double finalOffset = 0;
+        bool isFollowingTail = true;
+
+        await session.Dispatch(async () =>
+        {
+            var transcript = new StackPanel { Spacing = 8 };
+            for (var i = 0; i < 48; i++)
+                transcript.Children.Add(new Border { Height = 56 });
+
+            var shell = new StrataChatShell
+            {
+                Transcript = transcript,
+                Composer = new Border { Height = 48 },
+            };
+            var window = new Window { Width = 720, Height = 520, Content = shell };
+            window.Show();
+            await PumpAsync();
+            await PumpAsync();
+
+            var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
+            shell.JumpToLatest();
+            await PumpAsync();
+
+            shell.NotifyTranscriptLayoutChanged();
+            var wheelPoint = GetCenterPoint(window, scrollViewer);
+            window.MouseWheel(wheelPoint, new Vector(0, 1), RawInputModifiers.None);
+            await PumpAsync();
+            await PumpAsync();
+
+            readerOffset = scrollViewer.Offset.Y;
+            await PumpAsync();
+            finalOffset = scrollViewer.Offset.Y;
+            isFollowingTail = shell.IsFollowingTail;
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.False(isFollowingTail);
+        Assert.InRange(Math.Abs(finalOffset - readerOffset), 0, 1.5);
+    }
+
+    [Fact]
+    public async Task QueuedContentFollow_CancelledBeforeLanding_MarksNewContent()
+    {
+        using var session = HeadlessTestSession.Start();
+        bool isFollowingTail = true;
+        bool hasNewContent = false;
+
+        await session.Dispatch(async () =>
+        {
+            var transcript = new StackPanel { Spacing = 8 };
+            for (var i = 0; i < 48; i++)
+                transcript.Children.Add(new Border { Height = 56 });
+
+            var shell = new StrataChatShell
+            {
+                Transcript = transcript,
+                Composer = new Border { Height = 48 },
+            };
+            var window = new Window { Width = 720, Height = 520, Content = shell };
+            window.Show();
+            await PumpAsync();
+            await PumpAsync();
+
+            shell.JumpToLatest();
+            await PumpAsync();
+
+            transcript.Children.Add(new Border { Height = 56 });
+            shell.PreserveViewport();
+            await PumpAsync();
+            await PumpAsync();
+
+            isFollowingTail = shell.IsFollowingTail;
+            hasNewContent = shell.HasNewContent;
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.False(isFollowingTail);
+        Assert.True(hasNewContent);
+    }
+
+    [Fact]
+    public async Task PageUpDuringProgrammaticScrollSuppression_LeavesFollowMode()
+    {
+        using var session = HeadlessTestSession.Start();
+        double before = 0;
+        double after = 0;
+        bool isFollowingTail = true;
+
+        await session.Dispatch(async () =>
+        {
+            var transcript = new StackPanel { Spacing = 8 };
+            for (var i = 0; i < 48; i++)
+            {
+                transcript.Children.Add(new Border
+                {
+                    Height = 56,
+                    Focusable = true,
+                });
+            }
+
+            var shell = new StrataChatShell
+            {
+                Transcript = transcript,
+                Composer = new Border { Height = 48 },
+            };
+            var window = new Window { Width = 720, Height = 520, Content = shell };
+            window.Show();
+            await PumpAsync();
+            await PumpAsync();
+
+            var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
+            shell.JumpToLatest();
+            await PumpAsync();
+
+            before = scrollViewer.Offset.Y;
+            shell.ScrollToVerticalOffset(before);
+            Assert.True(((Border)transcript.Children[^1]).Focus());
+            window.KeyPress(Key.PageUp, RawInputModifiers.None, PhysicalKey.None, null);
+            await PumpAsync();
+            await PumpAsync();
+
+            after = scrollViewer.Offset.Y;
+            isFollowingTail = shell.IsFollowingTail;
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.True(after < before - 1, "PageUp should scroll history even while a programmatic-scroll release is pending.");
+        Assert.False(isFollowingTail);
+    }
+
+    [Fact]
+    public async Task TouchScrollDuringProgrammaticScrollSuppression_LeavesFollowMode()
+    {
+        using var session = HeadlessTestSession.Start();
+        long generationBefore = 0;
+        long generationAfter = 0;
+        bool isFollowingTail = true;
+
+        await session.Dispatch(async () =>
+        {
+            var transcript = new StackPanel { Spacing = 8 };
+            for (var i = 0; i < 48; i++)
+                transcript.Children.Add(new Border { Height = 56 });
+
+            var shell = new StrataChatShell
+            {
+                Transcript = transcript,
+                Composer = new Border { Height = 48 },
+            };
+            var window = new Window { Width = 720, Height = 520, Content = shell };
+            window.Show();
+            await PumpAsync();
+            await PumpAsync();
+
+            var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
+            shell.JumpToLatest();
+            await PumpAsync();
+
+            shell.ScrollToVerticalOffset(scrollViewer.Offset.Y);
+            generationBefore = shell.ScrollGeneration;
+            transcript.RaiseEvent(new ScrollGestureEventArgs(
+                ScrollGestureEventArgs.GetNextFreeId(),
+                new Vector(0, -120))
+            {
+                RoutedEvent = InputElement.ScrollGestureEvent,
+            });
+            await PumpAsync();
+            await PumpAsync();
+
+            generationAfter = shell.ScrollGeneration;
+            isFollowingTail = shell.IsFollowingTail;
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.True(generationAfter > generationBefore);
+        Assert.False(isFollowingTail);
+    }
+
+    [Fact]
+    public async Task QueuedCompensation_IsCancelledByANewUserScroll()
+    {
+        using var session = HeadlessTestSession.Start();
+        double beforeSecondUserScroll = 0;
+        double afterSecondUserScroll = 0;
+        long compensationGeneration = 0;
+        long userGeneration = 0;
+        bool isFollowingTail = true;
+
+        await session.Dispatch(async () =>
+        {
+            var transcript = new StackPanel { Spacing = 8 };
+            for (var i = 0; i < 48; i++)
+                transcript.Children.Add(new Border { Height = 56 });
+
+            var shell = new StrataChatShell
+            {
+                Transcript = transcript,
+                Composer = new Border { Height = 48 },
+            };
+            var window = new Window { Width = 720, Height = 520, Content = shell };
+            window.Show();
+            await PumpAsync();
+            await PumpAsync();
+
+            var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
+            shell.JumpToLatest();
+            await PumpAsync();
+
+            var wheelPoint = GetCenterPoint(window, scrollViewer);
+            window.MouseWheel(wheelPoint, new Vector(0, 1), RawInputModifiers.None);
+            await PumpAsync();
+
+            beforeSecondUserScroll = scrollViewer.Offset.Y;
+            compensationGeneration = shell.ScrollGeneration;
+            shell.CompensateForContentAbove(1_000);
+            window.MouseWheel(wheelPoint, new Vector(0, 1), RawInputModifiers.None);
+            userGeneration = shell.ScrollGeneration;
+            await PumpAsync();
+            await PumpAsync();
+
+            afterSecondUserScroll = scrollViewer.Offset.Y;
+            isFollowingTail = shell.IsFollowingTail;
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.False(isFollowingTail);
+        Assert.True(userGeneration > compensationGeneration);
+        Assert.True(
+            afterSecondUserScroll <= beforeSecondUserScroll + 1.5,
+            "Stale positive compensation must not move the reader down after new user input.");
+    }
+
+    [Fact]
+    public async Task LayoutGrowthWhileFollowing_RemainsPinnedToBottom()
+    {
+        using var session = HeadlessTestSession.Start();
+        bool isFollowingTail = false;
+        bool isPinnedToBottom = false;
+
+        await session.Dispatch(async () =>
+        {
+            var transcript = new StackPanel { Spacing = 8 };
+            for (var i = 0; i < 48; i++)
+                transcript.Children.Add(new Border { Height = 56 });
+
+            var shell = new StrataChatShell
+            {
+                Transcript = transcript,
+                Composer = new Border { Height = 48 },
+            };
+            var window = new Window { Width = 720, Height = 520, Content = shell };
+            window.Show();
+            await PumpAsync();
+            await PumpAsync();
+
+            shell.JumpToLatest();
+            await PumpAsync();
+
+            ((Border)transcript.Children[^1]).Height += 320;
+            shell.NotifyTranscriptLayoutChanged();
+            await PumpAsync();
+            await PumpAsync();
+
+            isFollowingTail = shell.IsFollowingTail;
+            isPinnedToBottom = shell.IsPinnedToBottom;
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.True(isFollowingTail);
+        Assert.True(isPinnedToBottom);
+    }
+
+    [Fact]
+    public async Task DirectEndAppendWhileScrolledAway_MarksNewContent()
+    {
+        using var session = HeadlessTestSession.Start();
+        bool isFollowingTail = true;
+        bool hasNewContent = false;
+
+        await session.Dispatch(async () =>
+        {
+            var transcript = new StackPanel { Spacing = 8 };
+            for (var i = 0; i < 48; i++)
+                transcript.Children.Add(new Border { Height = 56 });
+
+            var shell = new StrataChatShell
+            {
+                Transcript = transcript,
+                Composer = new Border { Height = 48 },
+            };
+            var window = new Window { Width = 720, Height = 520, Content = shell };
+            window.Show();
+            await PumpAsync();
+            await PumpAsync();
+
+            var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
+            shell.JumpToLatest();
+            await PumpAsync();
+
+            var wheelPoint = GetCenterPoint(window, scrollViewer);
+            window.MouseWheel(wheelPoint, new Vector(0, 1), RawInputModifiers.None);
+            await PumpAsync();
+
+            transcript.Children.Add(new Border { Height = 56 });
+            await PumpAsync();
+
+            isFollowingTail = shell.IsFollowingTail;
+            hasNewContent = shell.HasNewContent;
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.False(isFollowingTail);
+        Assert.True(hasNewContent);
+    }
+
+    [Fact]
+    public async Task ReattachedShell_RestoresScrollAndAppendHandlers()
+    {
+        using var session = HeadlessTestSession.Start();
+        bool isFollowingTail = true;
+        bool hasNewContent = false;
+
+        await session.Dispatch(async () =>
+        {
+            var transcript = new StackPanel { Spacing = 8 };
+            for (var i = 0; i < 48; i++)
+                transcript.Children.Add(new Border { Height = 56 });
+
+            var shell = new StrataChatShell
+            {
+                Transcript = transcript,
+                Composer = new Border { Height = 48 },
+            };
+            var window = new Window { Width = 720, Height = 520, Content = shell };
+            window.Show();
+            await PumpAsync();
+            await PumpAsync();
+
+            window.Content = null;
+            await PumpAsync();
+            window.Content = shell;
+            await PumpAsync();
+            await PumpAsync();
+
+            var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
+            shell.JumpToLatest();
+            await PumpAsync();
+
+            var wheelPoint = GetCenterPoint(window, scrollViewer);
+            window.MouseWheel(wheelPoint, new Vector(0, 1), RawInputModifiers.None);
+            await PumpAsync();
+
+            transcript.Children.Add(new Border { Height = 56 });
+            await PumpAsync();
+
+            isFollowingTail = shell.IsFollowingTail;
+            hasNewContent = shell.HasNewContent;
+            window.Close();
+        }, CancellationToken.None);
+
+        Assert.False(isFollowingTail);
+        Assert.True(hasNewContent);
+    }
+
     private static async Task PumpAsync()
     {
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
