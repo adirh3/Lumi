@@ -20,6 +20,7 @@
          and center, so on large/maximized windows content stays a balanced column
          instead of clinging to the edges. On narrow windows it grows to full width. -->
     <x:Double x:Key="Chat.ReadingColumnWidth">900</x:Double>
+    <x:Double x:Key="Chat.SubagentContentMaxHeight">420</x:Double>
 
     <!-- Shared chip for files Lumi produced/announced. Right-click exposes file actions
          (open, reveal in folder, copy the file, copy path/name). Used by both the user and
@@ -1017,7 +1018,9 @@
                         IsActive="{Binding IsActive}"
                         ProgressValue="{Binding ProgressValue}">
         <sc:StrataThink.Content>
-          <StackPanel Spacing="6">
+          <ScrollViewer MaxHeight="{StaticResource Chat.SubagentContentMaxHeight}"
+                        VerticalScrollBarVisibility="Auto"
+                        HorizontalScrollBarVisibility="Disabled"><StackPanel Spacing="6">
             <!-- Agent byline — visible only when expanded -->
             <StackPanel Orientation="Horizontal" Spacing="4"
                         Margin="0,0,0,2">
@@ -1080,6 +1083,7 @@
               </ItemsControl.ItemsPanel>
             </ItemsControl>
           </StackPanel>
+          </ScrollViewer>
         </sc:StrataThink.Content>
         </sc:StrataThink>
     </DataTemplate>
@@ -1123,7 +1127,9 @@
           </ItemsControl>
         </sc:StrataThink.HeaderExtra>
         <sc:StrataThink.Content>
-          <ItemsControl ItemsSource="{Binding Subagents}">
+          <ScrollViewer MaxHeight="{StaticResource Chat.SubagentContentMaxHeight}"
+                        VerticalScrollBarVisibility="Auto"
+                        HorizontalScrollBarVisibility="Disabled"><ItemsControl ItemsSource="{Binding Subagents}">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
@@ -1183,6 +1189,7 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
+          </ScrollViewer>
         </sc:StrataThink.Content>
       </sc:StrataThink>
     </DataTemplate>
