@@ -697,4 +697,84 @@ public sealed class LumiFeatureManagerTests
         }
         finally { CleanupDir(dir); }
     }
+
+    [Fact]
+    public void ManageSkills_RenameThenFailedPatch_LeavesSkillUnchanged()
+    {
+        var dir = NewTempSkillsDir();
+        try
+        {
+            var (_, manager, skill) = NewSkillStore(dir, "original body", name: "Old Skill");
+
+            var result = manager.ManageSkills("update", identifier: "Old Skill", name: "New Skill",
+                updateMode: "patch", editOldString: "missing", editNewString: "replacement");
+
+            Assert.False(result.DataChanged);
+            Assert.Contains("not found", result.Message, StringComparison.OrdinalIgnoreCase);
+            // The failed content edit must not leave a half-applied rename behind.
+            Assert.Equal("Old Skill", skill.Name);
+            Assert.Equal("original body", skill.Content);
+        }
+        finally { CleanupDir(dir); }
+    }
+
+    [Fact]
+    public void ManageSkills_ReplaceSection_DuplicateHeading_Fails()
+    {
+        var dir = NewTempSkillsDir();
+        try
+        {
+            var content = "# Skill\n\n## Steps\nfirst\n\n## Steps\nsecond";
+            var (_, manager, skill) = NewSkillStore(dir, content);
+
+            var result = manager.ManageSkills("update", identifier: skill.Name, updateMode: "replaceSection",
+                editOldString: "## Steps", editNewString: "## Steps\nreplaced");
+
+            Assert.False(result.DataChanged);
+            Assert.Contains("matched 2 times", result.Message);
+            Assert.Equal(content, skill.Content);
+        }
+        finally { CleanupDir(dir); }
+    }
+
+    [Fact]
+    public void ManageSkills_Update_CollidingSanitizedFileName_Fails()
+    {
+        var dir = NewTempSkillsDir();
+        try
+        {
+            var existing = new Skill { Id = Guid.NewGuid(), Name = "a_b", Description = "d", Content = "one" };
+            var target = new Skill { Id = Guid.NewGuid(), Name = "Other", Description = "d", Content = "two" };
+            var data = new AppData();
+            data.Skills.Add(existing);
+            data.Skills.Add(target);
+            var store = new DataStore(data, dir);
+            var manager = new LumiFeatureManager(store);
+
+            // "a/b" is a different display name but sanitizes to the same "a_b.md" mirror file.
+            var result = manager.ManageSkills("update", identifier: target.Id.ToString(), name: "a/b");
+
+            Assert.False(result.DataChanged);
+            Assert.Contains("mirror file", result.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal("Other", target.Name);
+        }
+        finally { CleanupDir(dir); }
+    }
+
+    [Fact]
+    public void ManageSkills_Update_NameWithLineBreak_Fails()
+    {
+        var dir = NewTempSkillsDir();
+        try
+        {
+            var (_, manager, skill) = NewSkillStore(dir, "body", name: "Clean Name");
+
+            var result = manager.ManageSkills("update", identifier: skill.Id.ToString(), name: "Bad\nName");
+
+            Assert.False(result.DataChanged);
+            Assert.Contains("line breaks", result.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal("Clean Name", skill.Name);
+        }
+        finally { CleanupDir(dir); }
+    }
 }

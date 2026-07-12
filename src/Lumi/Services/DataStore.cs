@@ -824,6 +824,16 @@ public class DataStore
     public string GetSkillFilePath(string skillName)
         => Path.Combine(SkillsDirectory, $"{SanitizeFileName(skillName)}.md");
 
+    /// <summary>True when another skill's name sanitizes to the same mirror filename, which would
+    /// let one skill's <c>.md</c> mirror overwrite another's (and make <c>import</c> read the wrong file).</summary>
+    public bool SkillFileNameConflicts(string skillName, Guid? excludeSkillId = null)
+    {
+        var target = SanitizeFileName(skillName);
+        return _data.Skills.Any(existing =>
+            existing.Id != excludeSkillId
+            && string.Equals(SanitizeFileName(existing.Name), target, StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>Directory holding rolling per-skill content backups.</summary>
     public string SkillBackupsDirectory => Path.Combine(SkillsDirectory, ".backups");
 

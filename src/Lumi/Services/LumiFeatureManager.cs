@@ -639,6 +639,10 @@ public sealed class LumiFeatureManager
             return Failure("Skill content is required.");
         if (HasConflictingLabel(_dataStore.Data.Skills, normalizedName, static skill => skill.Name, static skill => skill.Id))
             return Failure($"A skill named \"{normalizedName}\" already exists.");
+        if (ValidateSkillMirrorScalars(normalizedName, NormalizeOrNull(description)) is { } scalarError)
+            return Failure(scalarError);
+        if (_dataStore.SkillFileNameConflicts(normalizedName))
+            return Failure($"Skill name \"{normalizedName}\" maps to the same mirror file as an existing skill. Choose a more distinct name.");
 
         var skill = new Skill
         {
@@ -682,23 +686,25 @@ public sealed class LumiFeatureManager
         if (!contentEditRequested && !metadataChange)
             return Failure("No skill changes were provided.");
 
-        // Metadata edits first so a rename + content edit in one call yields the correct .md filename.
+        // Stage and validate every requested change before mutating the skill, so a failed
+        // content edit can never leave a half-applied rename or metadata change behind.
+        string? stagedName = null;
         if (name is not null)
         {
-            var normalizedName = NormalizeOrNull(name);
-            if (normalizedName is null)
+            stagedName = NormalizeOrNull(name);
+            if (stagedName is null)
                 return Failure("Skill name cannot be empty.");
-            if (HasConflictingLabel(_dataStore.Data.Skills, normalizedName, static item => item.Name, static item => item.Id, skill.Id))
-                return Failure($"A skill named \"{normalizedName}\" already exists.");
-            skill.Name = normalizedName;
+            if (HasConflictingLabel(_dataStore.Data.Skills, stagedName, static item => item.Name, static item => item.Id, skill.Id))
+                return Failure($"A skill named \"{stagedName}\" already exists.");
+            if (_dataStore.SkillFileNameConflicts(stagedName, skill.Id))
+                return Failure($"Skill name \"{stagedName}\" maps to the same mirror file as an existing skill. Choose a more distinct name.");
         }
 
-        if (description is not null)
-            skill.Description = NormalizeOrNull(description) ?? "";
+        var stagedDescription = description is not null ? NormalizeOrNull(description) ?? "" : null;
+        if (ValidateSkillMirrorScalars(stagedName, stagedDescription) is { } scalarError)
+            return Failure(scalarError);
 
-        if (iconGlyph is not null)
-            skill.IconGlyph = NormalizeOrNull(iconGlyph) ?? "⚡";
-
+        string? stagedContent = null;
         if (contentEditRequested)
         {
             var (ok, newContent, error) = ComputeEditedContent(mode, skill.Content, content, editOldString, editNewString);
@@ -706,8 +712,19 @@ public sealed class LumiFeatureManager
                 return Failure(error!);
             if (string.IsNullOrWhiteSpace(newContent))
                 return Failure("Skill content cannot be empty.");
-            ApplySkillContentChange(skill, newContent!);
+            stagedContent = newContent;
         }
+
+        // All validations passed — commit. Metadata first so a rename + content edit in one
+        // call still yields the correct .md filename.
+        if (stagedName is not null)
+            skill.Name = stagedName;
+        if (stagedDescription is not null)
+            skill.Description = stagedDescription;
+        if (iconGlyph is not null)
+            skill.IconGlyph = NormalizeOrNull(iconGlyph) ?? "⚡";
+        if (stagedContent is not null)
+            ApplySkillContentChange(skill, stagedContent);
 
         return SkillSuccess(skill, "Skill updated.");
     }
@@ -750,6 +767,10 @@ public sealed class LumiFeatureManager
         {
             return Failure($"A skill named \"{newName}\" already exists.");
         }
+        if (ValidateSkillMirrorScalars(newName, NormalizeOrNull(importedDescription)) is { } importScalarError)
+            return Failure(importScalarError);
+        if (_dataStore.SkillFileNameConflicts(newName, skill.Id))
+            return Failure($"Imported skill name \"{newName}\" maps to the same mirror file as an existing skill.");
 
         skill.Name = newName;
         skill.Description = importedDescription ?? "";
@@ -767,6 +788,22 @@ public sealed class LumiFeatureManager
 
         skill.Content = newContent;
     }
+
+    /// <summary>Rejects skill name/description values that would corrupt the single-line YAML
+    /// frontmatter in the on-disk mirror (line breaks, or a leading frontmatter delimiter).</summary>
+    private static string? ValidateSkillMirrorScalars(string? name, string? description)
+    {
+        if (name is not null && IsMirrorUnsafeScalar(name))
+            return "Skill name cannot contain line breaks or start with a frontmatter delimiter (---).";
+        if (description is not null && IsMirrorUnsafeScalar(description))
+            return "Skill description cannot contain line breaks or start with a frontmatter delimiter (---).";
+        return null;
+    }
+
+    private static bool IsMirrorUnsafeScalar(string value)
+        => value.IndexOf('\n') >= 0
+            || value.IndexOf('\r') >= 0
+            || value.TrimStart().StartsWith("---", StringComparison.Ordinal);
 
     private FeatureChangeResult SkillSuccess(Skill skill, string headline)
     {
@@ -842,16 +879,20 @@ public sealed class LumiFeatureManager
 
         var lines = content.Split('\n');
         var start = -1;
+        var matches = 0;
         for (var i = 0; i < lines.Length; i++)
         {
             if (string.Equals(lines[i].Trim(), heading, StringComparison.Ordinal))
             {
-                start = i;
-                break;
+                matches++;
+                if (start < 0)
+                    start = i;
             }
         }
         if (start < 0)
             return (false, null, $"Section heading not found: \"{heading}\".");
+        if (matches > 1)
+            return (false, null, $"Section heading \"{heading}\" matched {matches} times; duplicate headings are ambiguous — make the heading unique before using replaceSection.");
 
         var end = lines.Length;
         for (var j = start + 1; j < lines.Length; j++)

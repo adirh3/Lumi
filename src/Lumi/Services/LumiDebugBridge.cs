@@ -1033,7 +1033,9 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             result.SyncSkillFiles,
             result.RenamedMcpOldName,
             result.RenamedMcpNewName,
-            result.DeletedMcpName
+            result.DeletedMcpName,
+            result.SkillContentBytes,
+            result.SkillContentHash
         };
     }
 
