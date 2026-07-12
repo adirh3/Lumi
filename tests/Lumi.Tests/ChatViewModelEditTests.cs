@@ -38,6 +38,7 @@ public sealed class ChatViewModelEditTests
                 Content = "Original message",
                 Model = "claude-sonnet-4.6",
                 ReasoningEffort = "high",
+                ContextWindowTier = ModelContextWindowTiers.LongContext,
                 AgentId = agent.Id,
                 HasAgentSelection = true,
                 ActiveMcpServerNames = [activeMcp.Name],
@@ -59,7 +60,8 @@ public sealed class ChatViewModelEditTests
                 Title = "Edit test",
                 Messages = [message],
                 ActiveMcpServerNames = [inactiveForMessageMcp.Name],
-                LastModelUsed = "gpt-5-mini"
+                LastModelUsed = "gpt-5-mini",
+                LastContextWindowTierUsed = "default"
             };
             var appData = new AppData
             {
@@ -74,6 +76,9 @@ public sealed class ChatViewModelEditTests
                 CurrentChat = chat,
                 PromptText = "Draft before editing"
             };
+            viewModel.UpdateModelCapabilities(
+                [],
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "claude-sonnet-4.6" });
 
             InvokeBeginComposerEdit(viewModel, message);
 
@@ -85,6 +90,15 @@ public sealed class ChatViewModelEditTests
             Assert.Equal("claude-sonnet-4.6", viewModel.SelectedModel);
             Assert.Equal(skill.Id, Assert.Single(viewModel.ActiveSkillIds));
             Assert.Equal(activeMcp.Name, Assert.Single(viewModel.ActiveMcpServerNames));
+            Assert.Equal(ModelContextWindowTiers.LongContext, viewModel.GetSelectedContextWindowTier());
+
+            // Hydrating a historical turn is composer-only: merely opening Edit must not mutate the
+            // persisted chat or route the live session before the user chooses Send.
+            Assert.Null(chat.AgentId);
+            Assert.Empty(chat.ActiveSkillIds);
+            Assert.Equal(inactiveForMessageMcp.Name, Assert.Single(chat.ActiveMcpServerNames));
+            Assert.Equal("gpt-5-mini", chat.LastModelUsed);
+            Assert.Equal("default", chat.LastContextWindowTierUsed);
         }
         finally
         {
@@ -190,6 +204,132 @@ public sealed class ChatViewModelEditTests
             if (Directory.Exists(tempRoot))
                 Directory.Delete(tempRoot, recursive: true);
         }
+    }
+
+    [Fact]
+    public void CancelComposerEdit_RestoresPersistedModelAndContextTierChangedDuringEdit()
+    {
+        var message = new ChatMessage { Role = "user", Content = "Original message" };
+        var chat = new Chat
+        {
+            Id = Guid.NewGuid(),
+            Title = "Edit test",
+            Messages = [message],
+            LastModelUsed = "model-A",
+            LastReasoningEffortUsed = "high",
+            LastContextWindowTierUsed = "default"
+        };
+        var viewModel = new ChatViewModel(new DataStore(new AppData { Chats = [chat] }), new CopilotService())
+        {
+            CurrentChat = chat
+        };
+        viewModel.UpdateModelCapabilities(
+            [],
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "model-A", "model-B" });
+        viewModel.ApplyModelSelection("model-A", "high", "default");
+
+        InvokeBeginComposerEdit(viewModel, message);
+
+        // Exercise the real composer setters: these mutate per-chat persisted fields and, with a
+        // normal composer, queue a mid-session SetModelAsync. Edit mode keeps them transactional.
+        viewModel.SelectedModel = "model-B";
+        viewModel.SelectedContextWindowTier = "Long";
+        Assert.Equal("model-B", viewModel.SelectedModel);
+        Assert.Equal(ModelContextWindowTiers.LongContext, viewModel.GetSelectedContextWindowTier());
+        Assert.Equal("model-A", chat.LastModelUsed);
+        Assert.Equal("default", chat.LastContextWindowTierUsed);
+
+        viewModel.CancelComposerEditCommand.Execute(null);
+
+        // Cancel must roll the visible composer and persisted selection back to the pre-edit values,
+        // not leave the chat/session on the discarded in-edit selection.
+        Assert.Equal("model-A", viewModel.SelectedModel);
+        Assert.Equal("default", viewModel.GetSelectedContextWindowTier());
+        Assert.Equal("model-A", chat.LastModelUsed);
+        Assert.Equal("high", chat.LastReasoningEffortUsed);
+        Assert.Equal("default", chat.LastContextWindowTierUsed);
+    }
+
+    [Fact]
+    public void ComposerSelectionDivergesFromSnapshot_DetectsAgentAndMcpChanges()
+    {
+        var agent = new LumiAgent { Id = Guid.NewGuid(), Name = "Agent" };
+        var mcp = new McpServer { Name = "docs", IsEnabled = true };
+        var chat = new Chat
+        {
+            Id = Guid.NewGuid(),
+            Messages = [new ChatMessage { Role = "user", Content = "x" }]
+        };
+        var appData = new AppData { Chats = [chat], Agents = [agent], McpServers = [mcp] };
+        var viewModel = new ChatViewModel(new DataStore(appData), new CopilotService()) { CurrentChat = chat };
+
+        // Snapshot the baseline (no agent, no MCP, no skills).
+        var snapshot = CaptureSnapshot(viewModel);
+
+        // No composer change since the snapshot → the rewound session is still valid.
+        Assert.False(InvokeDiverges(viewModel, snapshot));
+
+        // Activating an MCP server diverges from the snapshot → must recreate the session.
+        viewModel.ActiveMcpServerNames.Add("different-mcp");
+        Assert.True(InvokeDiverges(viewModel, snapshot));
+    }
+
+    [Fact]
+    public void ComposerSelectionDivergesFromSnapshot_WhenActiveSkillStillNeedsInjection()
+    {
+        var skill = new Skill { Id = Guid.NewGuid(), Name = "Skill" };
+        var chat = new Chat
+        {
+            Id = Guid.NewGuid(),
+            CopilotSessionId = "existing-session",
+            Messages = [new ChatMessage { Role = "user", Content = "x" }]
+        };
+        var appData = new AppData { Chats = [chat], Skills = [skill] };
+        var viewModel = new ChatViewModel(new DataStore(appData), new CopilotService()) { CurrentChat = chat };
+
+        // AddSkill on an existing session marks the skill for next-turn injection. Even if the edit
+        // leaves the visible skill selection unchanged, the reused session is stale and must rebuild.
+        viewModel.AddSkill(skill);
+        var snapshot = CaptureSnapshot(viewModel);
+
+        Assert.True(InvokeDiverges(viewModel, snapshot));
+    }
+
+    [Fact]
+    public void ComposerSelectionDivergesFromSnapshot_DetectsAgentChange()
+    {
+        var agent = new LumiAgent { Id = Guid.NewGuid(), Name = "Agent" };
+        var chat = new Chat
+        {
+            Id = Guid.NewGuid(),
+            Messages = [new ChatMessage { Role = "user", Content = "x" }]
+        };
+        var appData = new AppData { Chats = [chat], Agents = [agent] };
+        var viewModel = new ChatViewModel(new DataStore(appData), new CopilotService()) { CurrentChat = chat };
+
+        var snapshot = CaptureSnapshot(viewModel);
+        Assert.False(InvokeDiverges(viewModel, snapshot));
+
+        viewModel.SetActiveAgent(agent);
+        Assert.True(InvokeDiverges(viewModel, snapshot));
+    }
+
+    private static object CaptureSnapshot(ChatViewModel viewModel)
+    {
+        var method = typeof(ChatViewModel).GetMethod(
+            "CaptureComposerEditSnapshot",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return method!.Invoke(viewModel, null)!;
+    }
+
+    private static bool InvokeDiverges(ChatViewModel viewModel, object snapshot)
+    {
+        var method = typeof(ChatViewModel).GetMethod(
+            "ComposerSelectionDivergesFromSnapshot",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return (bool)method!.Invoke(viewModel, [snapshot])!;
     }
 
     private static void InvokeBeginComposerEdit(ChatViewModel viewModel, ChatMessage message)

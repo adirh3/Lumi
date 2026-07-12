@@ -328,7 +328,7 @@ public partial class ChatViewModel
             ApplyKnownContextTokenLimit(activeChat, runtime, value, updateDisplayed: true);
         }
 
-        if (_suppressModelSelectionSideEffects || string.IsNullOrWhiteSpace(value))
+        if (_suppressModelSelectionSideEffects || IsEditingMessage || string.IsNullOrWhiteSpace(value))
             return;
 
         var reasoningEffort = GetPersistedReasoningEffortPreference();
@@ -375,11 +375,16 @@ public partial class ChatViewModel
             cts.Token, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
     }
 
-    private void QueueMidSessionModelSelectionSync()
+    private void CancelPendingMidSessionModelSync()
     {
         _modelSelectionSyncCts?.Cancel();
         _modelSelectionSyncCts?.Dispose();
         _modelSelectionSyncCts = null;
+    }
+
+    private void QueueMidSessionModelSelectionSync()
+    {
+        CancelPendingMidSessionModelSync();
 
         if (_activeSession is null || string.IsNullOrWhiteSpace(SelectedModel))
             return;
@@ -396,10 +401,14 @@ public partial class ChatViewModel
             TaskScheduler.Default).Unwrap();
     }
 
-    private async Task SwitchModelMidSessionAsync(string modelId, string? reasoningEffort, string? contextTier)
+    private async Task<bool> SwitchModelMidSessionAsync(string? modelId, string? reasoningEffort, string? contextTier)
     {
         if (_activeSession is null)
-            return;
+            return false;
+
+        // No specific model to switch to — treat the session as already consistent.
+        if (string.IsNullOrWhiteSpace(modelId))
+            return true;
 
         try
         {
@@ -411,11 +420,14 @@ public partial class ChatViewModel
                     ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
                     ContextTier = SessionConfigBuilder.CreateContextTier(contextTier)
                 });
+            return true;
         }
         catch
         {
-            // Fallback: SDK may not support mid-session switch for all models.
-            // The next SendMessage will create/resume with the new model.
+            // Fallback: SDK may not support mid-session switch for all models. Callers that need the
+            // switch to take effect this turn (e.g. an edited-message resend) recreate the session on
+            // a false result; the debounced mid-session sync just relies on the next send.
+            return false;
         }
     }
 

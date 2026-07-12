@@ -22,6 +22,7 @@ namespace Lumi.ViewModels;
 public partial class ChatViewModel
 {
     private bool _suppressComposerAgentSync;
+    private bool _suppressAgentSelectionSideEffects;
     private bool _suppressComposerProjectSync;
     private bool _suppressActiveMcpCollectionSync;
     private CancellationTokenSource? _fileSearchCts;
@@ -436,7 +437,7 @@ public partial class ChatViewModel
 
     partial void OnSelectedQualityChanged(string? value)
     {
-        if (_suppressSelectedQualitySync || _suppressModelSelectionSideEffects)
+        if (_suppressSelectedQualitySync || _suppressModelSelectionSideEffects || IsEditingMessage)
             return;
 
         var effort = GetPersistedReasoningEffortPreference();
@@ -463,7 +464,7 @@ public partial class ChatViewModel
 
     partial void OnSelectedContextWindowTierChanged(string? value)
     {
-        if (_suppressSelectedContextWindowTierSync || _suppressModelSelectionSideEffects)
+        if (_suppressSelectedContextWindowTierSync || _suppressModelSelectionSideEffects || IsEditingMessage)
             return;
 
         var contextTier = GetSelectedContextWindowTier();
@@ -1183,6 +1184,9 @@ public partial class ChatViewModel
     {
         SyncComposerAgentSelectionFromState();
         RefreshAgentBadge();
+
+        if (_suppressAgentSelectionSideEffects || IsEditingMessage)
+            return;
 
         if (CurrentChat is not null)
         {

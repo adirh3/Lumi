@@ -21,6 +21,9 @@ public partial class ChatViewModel
     {
         var previousAgent = ActiveAgent;
         ActiveAgent = agent;
+        if (_suppressAgentSelectionSideEffects || IsEditingMessage)
+            return;
+
         if (CurrentChat is not null)
         {
             CurrentChat.AgentId = agent?.Id;
@@ -147,7 +150,7 @@ public partial class ChatViewModel
         ActiveSkillIds.Add(skill.Id);
         ActiveSkillChips.Add(new StrataTheme.Controls.StrataComposerChip(skill.Name, skill.IconGlyph));
         // If added to an existing chat with a session, inject via next message instead of system prompt
-        if (CurrentChat?.CopilotSessionId is not null)
+        if (!IsEditingMessage && CurrentChat?.CopilotSessionId is not null)
             _pendingSkillInjections.Add(skill.Id);
         SyncActiveSkillsToChat();
     }
@@ -164,7 +167,7 @@ public partial class ChatViewModel
             if (ActiveSkillIds.Contains(skill.Id)) return;
             ActiveSkillIds.Add(skill.Id);
             // If added to an existing chat with a session, inject via next message
-            if (CurrentChat?.CopilotSessionId is not null)
+            if (!IsEditingMessage && CurrentChat?.CopilotSessionId is not null)
                 _pendingSkillInjections.Add(skill.Id);
             SyncActiveSkillsToChat();
         }
@@ -172,7 +175,7 @@ public partial class ChatViewModel
 
     private void SyncActiveSkillsToChat()
     {
-        if (CurrentChat is not null)
+        if (!IsEditingMessage && CurrentChat is not null)
         {
             CurrentChat.ActiveSkillIds = new List<Guid>(ActiveSkillIds);
             CurrentChat.ActiveExternalSkillNames = [];
@@ -236,7 +239,7 @@ public partial class ChatViewModel
 
     public void SyncActiveMcpsToChat()
     {
-        if (CurrentChat is not null)
+        if (!IsEditingMessage && CurrentChat is not null)
         {
             CurrentChat.ActiveMcpServerNames = new List<string>(ActiveMcpServerNames);
             CurrentChat.HasExplicitMcpServerSelection = true;

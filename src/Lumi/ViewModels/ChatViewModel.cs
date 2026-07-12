@@ -541,7 +541,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         string? SdkAgentName,
         string? SelectedModel,
         string? SelectedReasoningEffort,
-        List<string> ActiveMcpServerNames);
+        string? SelectedContextWindowTier,
+        List<string> ActiveMcpServerNames,
+        string? ChatLastModelUsed,
+        string? ChatLastReasoningEffortUsed,
+        string? ChatLastContextWindowTierUsed,
+        List<Guid> PendingSkillInjections);
 
     private ComposerEditSnapshot? _preEditComposerSnapshot;
     private ChatMessage? _editingUserMessage;
@@ -2519,10 +2524,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         PromptText = userMessage.Content;
         ReplacePendingAttachments(userMessage.Attachments);
-        ReplaceActiveSkillsFromMessage(userMessage);
-        ApplyMessageAgentSelection(userMessage);
+        ReplaceActiveSkillsFromMessage(userMessage, syncToChat: false);
+        ApplyMessageAgentSelection(userMessage, syncToChatAndSession: false);
         ApplyMessageModelSelection(userMessage);
-        ApplyMessageMcpSelection(userMessage);
+        ApplyMessageMcpSelection(userMessage, syncToChat: false);
 
         FocusComposerRequested?.Invoke();
     }
@@ -2537,7 +2542,49 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             SelectedSdkAgentName,
             SelectedModel,
             GetSelectedReasoningEffort(),
-            ActiveMcpServerNames.ToList());
+            GetSelectedContextWindowTier(),
+            ActiveMcpServerNames.ToList(),
+            CurrentChat?.LastModelUsed,
+            CurrentChat?.LastReasoningEffortUsed,
+            CurrentChat?.LastContextWindowTierUsed,
+            _pendingSkillInjections.ToList());
+
+    /// <summary>
+    /// True when the composer's CURRENT selection (agent, MCP servers, or active skills) differs from
+    /// the pre-edit snapshot — i.e. from what the live Copilot session was built with. Those settings
+    /// are baked into the session at create/resume (system prompt + registered tools) and cannot be
+    /// reconfigured on a reused session, so a divergence means the history-rewind fast-path must be
+    /// replaced by a full recreate. Compared against the snapshot (not CurrentChat), because by send
+    /// time the composer selection has already been copied onto the chat and message.
+    /// </summary>
+    private bool ComposerSelectionDivergesFromSnapshot(ComposerEditSnapshot? snapshot)
+    {
+        if (snapshot is null)
+            return false;
+
+        if (snapshot.AgentId != ActiveAgent?.Id
+            || !string.Equals(snapshot.SdkAgentName, SelectedSdkAgentName, StringComparison.Ordinal))
+            return true;
+
+        if (!new HashSet<string>(snapshot.ActiveMcpServerNames, StringComparer.OrdinalIgnoreCase)
+                .SetEquals(ActiveMcpServerNames))
+            return true;
+
+        if (!new HashSet<Guid>(snapshot.ActiveSkillIds).SetEquals(ActiveSkillIds))
+            return true;
+
+        if (!new HashSet<string>(snapshot.ActiveExternalSkillNames, StringComparer.OrdinalIgnoreCase)
+                .SetEquals(_activeExternalSkillNames))
+            return true;
+
+        // A skill selected before editing can already be active in the composer/chat while still
+        // waiting for next-turn prompt injection because the live session predates it. Recreate so
+        // the edited turn's session is built with that skill instead of skipping the pending injection.
+        if (snapshot.PendingSkillInjections.Any(snapshot.ActiveSkillIds.Contains))
+            return true;
+
+        return false;
+    }
 
     private void RestoreComposerEditSnapshot(ComposerEditSnapshot snapshot)
     {
@@ -2545,8 +2592,28 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ReplacePendingAttachments(snapshot.PendingAttachments);
         ReplaceActiveSkills(snapshot.ActiveSkillIds, snapshot.ActiveExternalSkillNames, syncToChat: true);
         ApplyAgentSelection(snapshot.AgentId, snapshot.SdkAgentName);
-        ApplyModelSelection(snapshot.SelectedModel, snapshot.SelectedReasoningEffort);
+        ApplyModelSelection(snapshot.SelectedModel, snapshot.SelectedReasoningEffort, snapshot.SelectedContextWindowTier);
         ReplaceActiveMcpSelection(snapshot.ActiveMcpServerNames, syncToChat: true);
+
+        // Restoring active skills above doesn't touch the pending-injection queue, so a skill added
+        // during the edit (which AddSkill queued for prompt injection) would otherwise leak into the
+        // next send even though it's no longer active. Reset the queue to its pre-edit contents.
+        _pendingSkillInjections.Clear();
+        _pendingSkillInjections.AddRange(snapshot.PendingSkillInjections);
+
+        // ApplyModelSelection restores the composer UI with side effects suppressed, so it neither
+        // rolls back the per-chat persisted model fields nor re-syncs the live session — both of which
+        // the in-edit model/quality/context changes mutated. Restore the persisted fields and re-sync
+        // the live session explicitly so a cancelled edit leaves persisted + live state exactly as
+        // before editing (otherwise Cancel could leave the chat/session on a discarded selection).
+        if (CurrentChat is { } chat)
+        {
+            chat.LastModelUsed = snapshot.ChatLastModelUsed;
+            chat.LastReasoningEffortUsed = snapshot.ChatLastReasoningEffortUsed;
+            chat.LastContextWindowTierUsed = snapshot.ChatLastContextWindowTierUsed;
+            QueueModelSelectionSave();
+            QueueMidSessionModelSelectionSync();
+        }
     }
 
     [RelayCommand]
@@ -2588,6 +2655,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ApplyCurrentComposerSelectionsToMessage(userMessage, selectedReasoningEffort);
         ApplyCurrentComposerSelectionsToChat(CurrentChat, selectedReasoningEffort);
 
+        // Decide whether the edit changed agent/MCP/skills vs. the pre-edit (session-built) selection
+        // NOW, while the snapshot still exists and before it's cleared below. Comparing against the
+        // snapshot rather than the chat/message is essential: the two Apply* calls above have already
+        // copied the composer selection onto both, so a chat-vs-message comparison would always match.
+        var requiresSessionRebuild = ComposerSelectionDivergesFromSnapshot(_preEditComposerSnapshot);
+
         _editingUserMessage = null;
         _preEditComposerSnapshot = null;
         IsEditingMessage = false;
@@ -2595,7 +2668,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         PromptText = string.Empty;
         _chatDrafts.Remove(CurrentChat.Id);
 
-        await ResendFromMessageAsync(userMessage, wasEdited: true, attachments);
+        await ResendFromMessageAsync(userMessage, wasEdited: true, attachments, requiresSessionRebuild);
     }
 
     private void ReplacePendingAttachments(IEnumerable<string> paths)
@@ -2607,10 +2680,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             AddAttachment(path);
     }
 
-    private void ReplaceActiveSkillsFromMessage(ChatMessage message)
+    private void ReplaceActiveSkillsFromMessage(ChatMessage message, bool syncToChat)
     {
         var (skillIds, externalSkillNames) = ResolveSkillSelectionsFromReferences(message.ActiveSkills);
-        ReplaceActiveSkills(skillIds, externalSkillNames, syncToChat: true);
+        ReplaceActiveSkills(skillIds, externalSkillNames, syncToChat);
     }
 
     private (List<Guid> SkillIds, List<string> ExternalSkillNames) ResolveSkillSelectionsFromReferences(
@@ -2665,36 +2738,47 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             SyncActiveSkillsToChat();
     }
 
-    private void ApplyMessageAgentSelection(ChatMessage message)
+    private void ApplyMessageAgentSelection(ChatMessage message, bool syncToChatAndSession)
     {
         if (!message.HasAgentSelection)
             return;
 
-        ApplyAgentSelection(message.AgentId, message.SdkAgentName);
+        ApplyAgentSelection(message.AgentId, message.SdkAgentName, syncToChatAndSession);
     }
 
-    private void ApplyAgentSelection(Guid? agentId, string? sdkAgentName)
+    private void ApplyAgentSelection(
+        Guid? agentId,
+        string? sdkAgentName,
+        bool syncToChatAndSession = true)
     {
-        if (agentId.HasValue)
+        _suppressAgentSelectionSideEffects = !syncToChatAndSession;
+        try
         {
-            var agent = _dataStore.Data.Agents.FirstOrDefault(a => a.Id == agentId.Value);
-            if (agent is not null)
+            if (agentId.HasValue)
             {
-                SelectedSdkAgentName = null;
-                SetActiveAgent(agent);
+                var agent = _dataStore.Data.Agents.FirstOrDefault(a => a.Id == agentId.Value);
+                if (agent is not null)
+                {
+                    SelectedSdkAgentName = null;
+                    SetActiveAgent(agent);
+                    return;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(sdkAgentName))
+            {
+                SetActiveAgent(null);
+                SelectedSdkAgentName = sdkAgentName;
                 return;
             }
-        }
 
-        if (!string.IsNullOrWhiteSpace(sdkAgentName))
-        {
+            SelectedSdkAgentName = null;
             SetActiveAgent(null);
-            SelectedSdkAgentName = sdkAgentName;
-            return;
         }
-
-        SelectedSdkAgentName = null;
-        SetActiveAgent(null);
+        finally
+        {
+            _suppressAgentSelectionSideEffects = false;
+        }
     }
 
     private void ApplyMessageModelSelection(ChatMessage message)
@@ -2703,7 +2787,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ? message.Model
             : ResolveModelForMessageEdit(message);
 
-        ApplyModelSelection(model, message.ReasoningEffort ?? CurrentChat?.LastReasoningEffortUsed);
+        ApplyModelSelection(
+            model,
+            message.ReasoningEffort ?? CurrentChat?.LastReasoningEffortUsed,
+            message.ContextWindowTier ?? CurrentChat?.LastContextWindowTierUsed);
     }
 
     private string? ResolveModelForMessageEdit(ChatMessage message)
@@ -2728,12 +2815,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return chat.LastModelUsed ?? SelectedModel ?? _dataStore.Data.Settings.PreferredModel;
     }
 
-    private void ApplyMessageMcpSelection(ChatMessage message)
+    private void ApplyMessageMcpSelection(ChatMessage message, bool syncToChat)
     {
         if (!message.HasMcpSelection)
             return;
 
-        ReplaceActiveMcpSelection(message.ActiveMcpServerNames, syncToChat: true);
+        ReplaceActiveMcpSelection(message.ActiveMcpServerNames, syncToChat);
     }
 
     private void ReplaceActiveMcpSelection(IEnumerable<string> serverNames, bool syncToChat)
@@ -2769,6 +2856,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         message.Model = SelectedModel;
         message.ReasoningEffort = selectedReasoningEffort;
+        message.ContextWindowTier = GetSelectedContextWindowTier();
         message.AgentId = ActiveAgent?.Id;
         message.SdkAgentName = SelectedSdkAgentName;
         message.HasAgentSelection = true;
@@ -2786,6 +2874,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         chat.ActiveMcpServerNames = new List<string>(ActiveMcpServerNames);
         chat.LastModelUsed = SelectedModel;
         chat.LastReasoningEffortUsed = selectedReasoningEffort;
+        chat.LastContextWindowTierUsed = GetSelectedContextWindowTier();
         QueueSaveChat(chat, saveIndex: true);
     }
 
@@ -2807,6 +2896,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (!string.IsNullOrWhiteSpace(message.Model))
             chat.LastModelUsed = message.Model;
         chat.LastReasoningEffortUsed = selectedReasoningEffort;
+        if (!string.IsNullOrWhiteSpace(message.ContextWindowTier))
+            chat.LastContextWindowTierUsed = message.ContextWindowTier;
         QueueSaveChat(chat, saveIndex: true);
     }
 
@@ -2956,6 +3047,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
                 Model = SelectedModel,
                 ReasoningEffort = selectedReasoningEffort,
+                ContextWindowTier = selectedContextTier,
                 AgentId = ActiveAgent?.Id,
                 SdkAgentName = SelectedSdkAgentName,
                 HasAgentSelection = true,
@@ -4512,7 +4604,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private async Task ResendFromMessageAsync(
         ChatMessage userMessage,
         bool wasEdited,
-        List<Attachment>? attachmentsOverride)
+        List<Attachment>? attachmentsOverride,
+        bool requiresSessionRebuild = false)
     {
         if (CurrentChat is null) return;
 
@@ -4526,6 +4619,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var prompt = userMessage.Content;
         var attachments = attachmentsOverride ?? BuildUserMessageAttachments(userMessage.Attachments);
         var selectedReasoningEffort = userMessage.ReasoningEffort ?? GetPersistedReasoningEffortPreference();
+        var selectedContextWindowTier =
+            userMessage.ContextWindowTier ?? GetSelectedContextWindowTier();
+
+        // Whether the edited turn's agent/MCP/skills diverge from what the live session was built with.
+        // The caller (SendEditedMessage) computes this against the pre-edit composer snapshot, because
+        // by now the edited selection has already been copied onto both the chat and the message, so a
+        // local chat-vs-message comparison would always match. When they diverge we must recreate the
+        // session (those settings only apply at create/resume) rather than take the history-rewind
+        // fast-path, otherwise the replacement turn would run with stale agent/MCP/skills.
+        var editRequiresSessionRebuild = wasEdited && requiresSessionRebuild;
+
         ApplyMessageSelectionsToChat(CurrentChat, userMessage, selectedReasoningEffort);
 
         // Remove the user message and everything after it
@@ -4564,6 +4668,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             Author = userMessage.Author,
             Model = userMessage.Model,
             ReasoningEffort = userMessage.ReasoningEffort,
+            ContextWindowTier = userMessage.ContextWindowTier,
             AgentId = userMessage.AgentId,
             SdkAgentName = userMessage.SdkAgentName,
             HasAgentSelection = userMessage.HasAgentSelection,
@@ -4644,7 +4749,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var cts = new CancellationTokenSource();
 
             var historyRewound = false;
-            if (wasEdited)
+            if (wasEdited && !editRequiresSessionRebuild)
             {
                 historyRewound = await TryRewindEditedHistoryAsync(CurrentChat, retainedContext, cts.Token);
                 if (historyRewound)
@@ -4658,6 +4763,36 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     // Rewind unavailable — recreate the session and replay the retained
                     // transcript as text so no pre-edit server context leaks into the reply.
                     InvalidateCurrentSession();
+                    needsSessionSetup = true;
+                }
+            }
+            else if (wasEdited)
+            {
+                // The edited turn changed agent/MCP/skills, which only apply at session create/resume.
+                // Recreate the session (and replay the retained transcript) so it is rebuilt from the
+                // edited selection now persisted on the chat, instead of reusing a stale session.
+                InvalidateCurrentSession();
+                _pendingSkillInjections.Clear();
+                needsSessionSetup = true;
+            }
+
+            if (historyRewound)
+            {
+                // On the reused (rewound) session, model/effort/context aren't re-applied by session
+                // setup and the begin-edit hydration was side-effect-suppressed. Reconcile them here,
+                // awaited, so the replacement turn runs on the model/effort/context recorded in the
+                // edited ChatMessage. If the reused session can't adopt them (SetModelAsync failed),
+                // recreate + replay so the turn never silently runs on the session's stale model.
+                CancelPendingMidSessionModelSync();
+                var reconciled = await SwitchModelMidSessionAsync(
+                    userMessage.Model,
+                    selectedReasoningEffort,
+                    selectedContextWindowTier);
+                if (!reconciled)
+                {
+                    InvalidateCurrentSession();
+                    historyRewound = false;
+                    shouldReplayPrompt = true;
                     needsSessionSetup = true;
                 }
             }

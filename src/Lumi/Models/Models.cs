@@ -40,6 +40,7 @@ public class ChatMessage
     public bool IsStreaming { get; set; }
     public string? Model { get; set; }
     public string? ReasoningEffort { get; set; }
+    public string? ContextWindowTier { get; set; }
     public Guid? AgentId { get; set; }
     public string? SdkAgentName { get; set; }
     public bool HasAgentSelection { get; set; }

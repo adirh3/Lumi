@@ -271,6 +271,7 @@ public class DataStore
                 IsStreaming = m.IsStreaming,
                 Model = m.Model,
                 ReasoningEffort = m.ReasoningEffort,
+                ContextWindowTier = m.ContextWindowTier,
                 AgentId = m.AgentId,
                 SdkAgentName = m.SdkAgentName,
                 HasAgentSelection = m.HasAgentSelection,
