@@ -46,6 +46,7 @@ public sealed class GlobalSearchMatch
 public sealed class ChatSearchMessage
 {
     public string Text { get; init; } = "";
+    public string Role { get; init; } = "";
     public DateTimeOffset Timestamp { get; init; }
 }
 
@@ -61,6 +62,8 @@ public sealed class GlobalSearchService
     private readonly Func<DateTimeOffset> _nowProvider;
     private readonly ChatContentIndex _contentIndex;
     private const int InteractiveColdChatContentLimit = 16;
+    private const double UserMessageSearchWeight = 3.0;
+    private const double AssistantMessageSearchWeight = 1.0;
 
     // Chat titles are often long auto-generated sentences, so the fuzzy text engine can match a
     // query against an unrelated word (e.g. "exposes"/"expert" for "expenses") and the high primary
@@ -124,6 +127,36 @@ public sealed class GlobalSearchService
     /// <summary>Number of chats whose content is currently indexed (full-coverage progress).</summary>
     public int IndexedChatCount => _contentIndex.Count;
 
+    /// <summary>
+    /// Captures one consistent data snapshot and parses the query once so progressive UI phases
+    /// can reuse that work instead of repeatedly copying the full application data.
+    /// Must be called from the UI thread because <see cref="AppData"/> collections are UI-owned.
+    /// </summary>
+    public PreparedSearch PrepareSearch(string query)
+    {
+        var snapshot = CaptureSnapshot(_getData());
+        var trimmedQuery = query?.Trim() ?? "";
+
+        if (string.IsNullOrEmpty(trimmedQuery))
+            return new PreparedSearch(
+                snapshot,
+                SearchQuery.Create(""),
+                range: null,
+                hasRecencyIntent: false,
+                useDefaultResults: true);
+
+        var now = _nowProvider();
+        var timeQuery = SearchTimeQuery.Parse(trimmedQuery, now);
+        var textQuery = SearchQuery.Create(timeQuery.ResidualText);
+
+        return new PreparedSearch(
+            snapshot,
+            textQuery,
+            timeQuery.Range,
+            timeQuery.HasRecencyIntent,
+            useDefaultResults: textQuery.IsEmpty && !timeQuery.HasAnyTimeSignal);
+    }
+
     public Task<IReadOnlyList<GlobalSearchMatch>> SearchAsync(
         string query,
         CancellationToken cancellationToken = default)
@@ -133,33 +166,30 @@ public sealed class GlobalSearchService
         string query,
         GlobalSearchExecutionMode executionMode,
         CancellationToken cancellationToken = default)
+        => SearchAsync(PrepareSearch(query), executionMode, cancellationToken);
+
+    public Task<IReadOnlyList<GlobalSearchMatch>> SearchAsync(
+        PreparedSearch preparedSearch,
+        GlobalSearchExecutionMode executionMode,
+        CancellationToken cancellationToken = default)
     {
-        var snapshot = CaptureSnapshot(_getData());
-        var trimmedQuery = query?.Trim() ?? "";
+        ArgumentNullException.ThrowIfNull(preparedSearch);
 
-        if (string.IsNullOrEmpty(trimmedQuery))
+        if (preparedSearch.UseDefaultResults)
         {
             return Task.Run<IReadOnlyList<GlobalSearchMatch>>(
-                () => BuildDefaultResults(snapshot),
+                () => BuildDefaultResults(preparedSearch.Snapshot),
                 cancellationToken);
         }
 
-        var now = _nowProvider();
-        var timeQuery = SearchTimeQuery.Parse(trimmedQuery, now);
-        var textQuery = SearchQuery.Create(timeQuery.ResidualText);
-
-        // Nothing searchable and no temporal signal → fall back to the default listing.
-        if (textQuery.IsEmpty && !timeQuery.HasAnyTimeSignal)
-        {
-            return Task.Run<IReadOnlyList<GlobalSearchMatch>>(
-                () => BuildDefaultResults(snapshot),
-                cancellationToken);
-        }
-
-        var context = new SearchContext(textQuery, timeQuery.Range, timeQuery.HasRecencyIntent, executionMode);
+        var context = new SearchContext(
+            preparedSearch.TextQuery,
+            preparedSearch.Range,
+            preparedSearch.HasRecencyIntent,
+            executionMode);
 
         return Task.Run<IReadOnlyList<GlobalSearchMatch>>(
-            () => SearchCore(snapshot, context, cancellationToken),
+            () => SearchCore(preparedSearch.Snapshot, context, cancellationToken),
             cancellationToken);
     }
 
@@ -229,15 +259,19 @@ public sealed class GlobalSearchService
 
             if (!evaluation.IsMatch && context.Mode != GlobalSearchExecutionMode.Preview)
             {
-                var contentField = GetChatContentField(
+                var contentFields = GetChatContentFields(
                     chat,
                     context.Mode,
                     interactiveColdChatIds,
                     context.TextQuery,
                     cancellationToken);
 
-                if (contentField is not null)
-                    evaluation = SearchEngine.Evaluate(context.TextQuery, [titleField, contentField]);
+                if (contentFields is not null)
+                {
+                    var fields = new List<PreparedSearchField>(1 + contentFields.Count) { titleField };
+                    fields.AddRange(contentFields);
+                    evaluation = SearchEngine.Evaluate(context.TextQuery, fields);
+                }
             }
 
             if (!evaluation.IsMatch)
@@ -886,7 +920,7 @@ public sealed class GlobalSearchService
     /// the most recent cold chats; Full builds everything. A cheap substring gate avoids running the
     /// fuzzy evaluator on chats whose content cannot contain the query.
     /// </summary>
-    private PreparedSearchField? GetChatContentField(
+    private IReadOnlyList<PreparedSearchField>? GetChatContentFields(
         Chat chat,
         GlobalSearchExecutionMode executionMode,
         IReadOnlySet<Guid>? interactiveColdChatIds,
@@ -923,7 +957,7 @@ public sealed class GlobalSearchService
         if (entry is null || entry.IsEmpty || !entry.MayMatch(query))
             return null;
 
-        return entry.ToContentField(1.0);
+        return entry.ToContentFields(UserMessageSearchWeight, AssistantMessageSearchWeight);
     }
 
     private static IReadOnlyList<GlobalSearchMatch> LimitResultsPerCategory(
@@ -1238,7 +1272,7 @@ public sealed class GlobalSearchService
             => Range is not { } window || window.Contains(timestamp);
     }
 
-    private sealed class SearchSnapshot(
+    internal sealed class SearchSnapshot(
         Chat[] chats,
         Project[] projects,
         Skill[] skills,
@@ -1260,6 +1294,29 @@ public sealed class GlobalSearchService
         public IReadOnlyDictionary<Guid, string> ProjectNames { get; } = projectNames;
         public IReadOnlyDictionary<Guid, int> ProjectChatCounts { get; } = projectChatCounts;
         public IReadOnlyDictionary<Guid, DateTimeOffset> ProjectLastActivity { get; } = projectLastActivity;
+    }
+
+    public sealed class PreparedSearch
+    {
+        internal PreparedSearch(
+            SearchSnapshot snapshot,
+            SearchQuery textQuery,
+            SearchTimeRange? range,
+            bool hasRecencyIntent,
+            bool useDefaultResults)
+        {
+            Snapshot = snapshot;
+            TextQuery = textQuery;
+            Range = range;
+            HasRecencyIntent = hasRecencyIntent;
+            UseDefaultResults = useDefaultResults;
+        }
+
+        internal SearchSnapshot Snapshot { get; }
+        internal SearchQuery TextQuery { get; }
+        internal SearchTimeRange? Range { get; }
+        internal bool HasRecencyIntent { get; }
+        internal bool UseDefaultResults { get; }
     }
 
     private readonly record struct SearchSettingEntry(string Name, string Page, int PageIndex);

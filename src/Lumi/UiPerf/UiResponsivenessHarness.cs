@@ -145,11 +145,11 @@ internal sealed class UiResponsivenessHarness
         }
         finally
         {
-            if (load is not null)
+            if (load is not null && !_options.KeepOpen)
                 await load.StopAsync();
             _probe.Dispose();
             if (_options.KeepOpen)
-                Console.WriteLine("[ui-perf] --ui-perf-keep-open set; leaving the window open for inspection.");
+                Console.WriteLine("[ui-perf] --ui-perf-keep-open set; leaving the window and simulated streams active for inspection.");
             else
                 _requestShutdown(_exitCode);
         }

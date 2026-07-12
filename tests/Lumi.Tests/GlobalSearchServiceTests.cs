@@ -93,6 +93,34 @@ public class GlobalSearchServiceTests
     }
 
     [Fact]
+    public async Task PreparedSearch_ReusesOneDataSnapshotAcrossProgressivePhases()
+    {
+        var chat = new Chat
+        {
+            Id = Guid.NewGuid(),
+            Title = "Alpha planning",
+            UpdatedAt = Now.AddHours(-2)
+        };
+        var dataCalls = 0;
+        var service = new GlobalSearchService(
+            () =>
+            {
+                dataCalls++;
+                return new AppData { Chats = [chat] };
+            },
+            _ => new ChatSearchSnapshot { Version = "empty" },
+            () => Now);
+
+        var prepared = service.PrepareSearch("alpha");
+        await service.SearchAsync(prepared, GlobalSearchExecutionMode.Preview);
+        await service.SearchAsync(prepared, GlobalSearchExecutionMode.Fast);
+        await service.SearchAsync(prepared, GlobalSearchExecutionMode.Interactive);
+        await service.SearchAsync(prepared, GlobalSearchExecutionMode.Full);
+
+        Assert.Equal(1, dataCalls);
+    }
+
+    [Fact]
     public async Task SearchAsync_PreviewModeSkipsColdPersistedHistoryUntilFullPass()
     {
         var chat = new Chat
@@ -278,6 +306,165 @@ public class GlobalSearchServiceTests
         var match = Assert.Single(results);
         Assert.Same(chat, match.Item);
         Assert.True(match.IsContentMatch);
+    }
+
+    [Fact]
+    public async Task SearchAsync_MatchesTermsDeepInsideLongChatContent()
+    {
+        var chat = new Chat
+        {
+            Id = Guid.NewGuid(),
+            Title = "Lumi Issue 13 Fix Plan",
+            UpdatedAt = Now.AddHours(-3)
+        };
+        var content = $"design {string.Join(' ', Enumerable.Repeat("filler", 140))} memory";
+        var service = CreateService(
+            new AppData { Chats = [chat] },
+            new Dictionary<Guid, ChatSearchSnapshot>
+            {
+                [chat.Id] = new()
+                {
+                    Version = "long-content",
+                    Messages =
+                    [
+                        new ChatSearchMessage
+                        {
+                            Text = content,
+                            Timestamp = Now.AddHours(-2)
+                        }
+                    ]
+                }
+            });
+
+        var results = await service.SearchAsync("memory design");
+
+        var match = Assert.Single(results);
+        Assert.Same(chat, match.Item);
+        Assert.True(match.IsContentMatch);
+    }
+
+    [Fact]
+    public async Task SearchAsync_MatchesTermAtEndOfSingleOversizedMessage()
+    {
+        var chat = new Chat
+        {
+            Id = Guid.NewGuid(),
+            Title = "Long response",
+            UpdatedAt = Now.AddHours(-3)
+        };
+        var service = CreateService(
+            new AppData { Chats = [chat] },
+            new Dictionary<Guid, ChatSearchSnapshot>
+            {
+                [chat.Id] = new()
+                {
+                    Version = "oversized-tail",
+                    Messages =
+                    [
+                        new ChatSearchMessage
+                        {
+                            Role = "assistant",
+                            Text = $"{new string('x', 7_000)} tailneedle",
+                            Timestamp = Now.AddHours(-2)
+                        }
+                    ]
+                }
+            });
+
+        var results = await service.SearchAsync("tailneedle");
+
+        Assert.Same(chat, Assert.Single(results).Item);
+    }
+
+    [Fact]
+    public async Task SearchAsync_PrioritizesDirectUserMessageMatchOverMixedTitleAndAssistantMatch()
+    {
+        var userMatch = new Chat
+        {
+            Id = Guid.NewGuid(),
+            Title = "Lumi Issue 13 Fix Plan",
+            UpdatedAt = Now.AddHours(-2)
+        };
+        var mixedMatch = new Chat
+        {
+            Id = Guid.NewGuid(),
+            Title = "Memory Leak Investigation",
+            UpdatedAt = Now.AddHours(-1)
+        };
+        var service = CreateService(
+            new AppData { Chats = [mixedMatch, userMatch] },
+            new Dictionary<Guid, ChatSearchSnapshot>
+            {
+                [userMatch.Id] = new()
+                {
+                    Version = "user-match",
+                    Messages =
+                    [
+                        new ChatSearchMessage
+                        {
+                            Role = "user",
+                            Text = "Please inspect the memory system and design a robust fix.",
+                            Timestamp = Now.AddHours(-2)
+                        }
+                    ]
+                },
+                [mixedMatch.Id] = new()
+                {
+                    Version = "mixed-match",
+                    Messages =
+                    [
+                        new ChatSearchMessage
+                        {
+                            Role = "assistant",
+                            Text = "We should design a diagnostic workflow.",
+                            Timestamp = Now.AddHours(-1)
+                        }
+                    ]
+                }
+            });
+
+        var results = (await service.SearchAsync("memory design"))
+            .Where(static result => result.Category == GlobalSearchCategory.Chats)
+            .ToList();
+
+        Assert.Equal(userMatch, results[0].Item);
+        Assert.Equal(mixedMatch, results[1].Item);
+    }
+
+    [Theory]
+    [InlineData("tool")]
+    [InlineData("reasoning")]
+    [InlineData("system")]
+    public async Task SearchAsync_IgnoresInternalTranscriptNoise(string role)
+    {
+        var chat = new Chat
+        {
+            Id = Guid.NewGuid(),
+            Title = "Unrelated chat",
+            UpdatedAt = Now
+        };
+        var service = CreateService(
+            new AppData { Chats = [chat] },
+            new Dictionary<Guid, ChatSearchSnapshot>
+            {
+                [chat.Id] = new()
+                {
+                    Version = $"noise-{role}",
+                    Messages =
+                    [
+                        new ChatSearchMessage
+                        {
+                            Role = role,
+                            Text = "memory design",
+                            Timestamp = Now
+                        }
+                    ]
+                }
+            });
+
+        var results = await service.SearchAsync("memory design");
+
+        Assert.Empty(results);
     }
 
     [Fact]

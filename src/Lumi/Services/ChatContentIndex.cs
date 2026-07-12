@@ -20,8 +20,9 @@ namespace Lumi.Services;
 /// </summary>
 public sealed class ChatContentIndex
 {
-    private const int MaxIndexedChars = 12_000;
-    private const string PersistMagic = "LCI2";
+    private const int MaxUserIndexedChars = 12_000;
+    private const int MaxAssistantIndexedChars = 8_000;
+    private const string PersistMagic = "LCI3";
     private const int MaxPersistedEntries = 5_000_000;
 
     private readonly Func<Chat, ChatSearchSnapshot> _snapshotProvider;
@@ -174,36 +175,106 @@ public sealed class ChatContentIndex
 
     private static Entry CreateEntry(ChatSearchSnapshot snapshot, long sourceTicks)
     {
-        var raw = ConcatenateCapped(snapshot.Messages, MaxIndexedChars);
-        var prepared = SearchText.Create(raw);
-        return new Entry(snapshot.Version, prepared.Normalized, prepared.Compact, sourceTicks);
+        var userText = ConcatenateBalanced(
+            snapshot.Messages,
+            MaxUserIndexedChars,
+            static message => string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase));
+        var assistantText = ConcatenateBalanced(
+            snapshot.Messages,
+            MaxAssistantIndexedChars,
+            static message => IsAssistantSearchableRole(message.Role));
+        var preparedUser = SearchText.Create(userText);
+        var preparedAssistant = SearchText.Create(assistantText);
+
+        return new Entry(
+            snapshot.Version,
+            preparedUser.Normalized,
+            preparedUser.Compact,
+            preparedAssistant.Normalized,
+            preparedAssistant.Compact,
+            sourceTicks);
     }
 
-    private static string ConcatenateCapped(IReadOnlyList<ChatSearchMessage> messages, int maxChars)
+    private static bool IsAssistantSearchableRole(string? role)
     {
-        if (messages.Count == 0)
+        return string.IsNullOrWhiteSpace(role)
+               || string.Equals(role, "assistant", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(role, "error", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ConcatenateBalanced(
+        IReadOnlyList<ChatSearchMessage> messages,
+        int maxChars,
+        Func<ChatSearchMessage, bool> include)
+    {
+        if (messages.Count == 0 || maxChars <= 0)
             return "";
 
-        var builder = new StringBuilder(Math.Min(maxChars, 4096));
-        foreach (var message in messages)
-        {
-            if (string.IsNullOrWhiteSpace(message.Text))
-                continue;
+        var eligible = messages
+            .Where(message => include(message) && !string.IsNullOrWhiteSpace(message.Text))
+            .Select(static message => message.Text)
+            .ToArray();
+        if (eligible.Length == 0)
+            return "";
 
-            if (builder.Length > 0)
+        long totalLength = Math.Max(0, eligible.Length - 1);
+        foreach (var text in eligible)
+            totalLength += text.Length;
+
+        if (totalLength <= maxChars)
+            return string.Join('\n', eligible);
+
+        var headBudget = (maxChars * 2) / 3;
+        var tailBudget = maxChars - headBudget - 1;
+        return $"{BuildHead(eligible, headBudget)}\n{BuildTail(eligible, tailBudget)}";
+    }
+
+    private static string BuildHead(IReadOnlyList<string> texts, int maxChars)
+    {
+        var builder = new StringBuilder(maxChars);
+        for (var index = 0; index < texts.Count && builder.Length < maxChars; index++)
+        {
+            if (index > 0)
                 builder.Append('\n');
 
             var remaining = maxChars - builder.Length;
             if (remaining <= 0)
                 break;
 
-            if (message.Text.Length <= remaining)
-                builder.Append(message.Text);
-            else
-                builder.Append(message.Text, 0, remaining);
+            var text = texts[index];
+            builder.Append(text.Length <= remaining ? text : text[..remaining]);
         }
 
         return builder.ToString();
+    }
+
+    private static string BuildTail(IReadOnlyList<string> texts, int maxChars)
+    {
+        var reversedParts = new List<string>();
+        var remaining = maxChars;
+
+        for (var index = texts.Count - 1; index >= 0 && remaining > 0; index--)
+        {
+            var text = texts[index];
+            if (text.Length >= remaining)
+            {
+                reversedParts.Add(text[^remaining..]);
+                remaining = 0;
+                break;
+            }
+
+            reversedParts.Add(text);
+            remaining -= text.Length;
+
+            if (index > 0 && remaining > 0)
+            {
+                reversedParts.Add("\n");
+                remaining--;
+            }
+        }
+
+        reversedParts.Reverse();
+        return string.Concat(reversedParts);
     }
 
     /// <summary>
@@ -212,21 +283,31 @@ public sealed class ChatContentIndex
     /// </summary>
     public sealed class Entry
     {
-        public Entry(string version, string normalized, string compact, long sourceTicks = 0)
+        public Entry(
+            string version,
+            string userNormalized,
+            string userCompact,
+            string assistantNormalized,
+            string assistantCompact,
+            long sourceTicks = 0)
         {
             Version = version;
-            Normalized = normalized;
-            Compact = compact;
+            UserNormalized = userNormalized;
+            UserCompact = userCompact;
+            AssistantNormalized = assistantNormalized;
+            AssistantCompact = assistantCompact;
             SourceTicks = sourceTicks;
         }
 
         public string Version { get; }
-        public string Normalized { get; }
-        public string Compact { get; }
+        public string UserNormalized { get; }
+        public string UserCompact { get; }
+        public string AssistantNormalized { get; }
+        public string AssistantCompact { get; }
 
         /// <summary>UTC ticks of the source chat file's last-write time when this entry was built (0 if unknown).</summary>
         public long SourceTicks { get; }
-        public bool IsEmpty => Normalized.Length == 0;
+        public bool IsEmpty => UserNormalized.Length == 0 && AssistantNormalized.Length == 0;
 
         /// <summary>Cheap gate: true when any query term appears in the content (substring or compact).</summary>
         public bool MayMatch(SearchQuery query)
@@ -236,19 +317,42 @@ public sealed class ChatContentIndex
 
             foreach (var term in query.Terms)
             {
-                if (term.Normalized.Length > 0 && Normalized.Contains(term.Normalized, StringComparison.Ordinal))
+                if (FieldMayMatch(UserNormalized, UserCompact, term)
+                    || FieldMayMatch(AssistantNormalized, AssistantCompact, term))
+                {
                     return true;
-                if (term.Compact.Length > 0 && Compact.Contains(term.Compact, StringComparison.Ordinal))
-                    return true;
+                }
             }
 
-            // Single-token queries have one term equal to the whole text; the loop above covers them.
             return false;
         }
 
-        /// <summary>Builds a content search field for full scoring (only done for candidates).</summary>
-        public PreparedSearchField ToContentField(double weight)
-            => new(Normalized, weight, SearchFieldKind.Content);
+        public IReadOnlyList<PreparedSearchField> ToContentFields(
+            double userWeight,
+            double assistantWeight)
+        {
+            if (UserNormalized.Length > 0 && AssistantNormalized.Length > 0)
+            {
+                return
+                [
+                    new PreparedSearchField(UserNormalized, userWeight, SearchFieldKind.Content),
+                    new PreparedSearchField(AssistantNormalized, assistantWeight, SearchFieldKind.Content)
+                ];
+            }
+
+            if (UserNormalized.Length > 0)
+                return [new PreparedSearchField(UserNormalized, userWeight, SearchFieldKind.Content)];
+
+            return AssistantNormalized.Length > 0
+                ? [new PreparedSearchField(AssistantNormalized, assistantWeight, SearchFieldKind.Content)]
+                : Array.Empty<PreparedSearchField>();
+        }
+
+        private static bool FieldMayMatch(string normalized, string compact, SearchText term)
+        {
+            return (term.Normalized.Length > 0 && normalized.Contains(term.Normalized, StringComparison.Ordinal))
+                   || (term.Compact.Length > 0 && compact.Contains(term.Compact, StringComparison.Ordinal));
+        }
     }
 
     // ── Persistence ──────────────────────────────────────────────────────────
@@ -279,7 +383,8 @@ public sealed class ChatContentIndex
                     writer.Write(id.ToByteArray());
                     writer.Write(entry.Version);
                     writer.Write(entry.SourceTicks);
-                    writer.Write(entry.Normalized);
+                    writer.Write(entry.UserNormalized);
+                    writer.Write(entry.AssistantNormalized);
                 }
             }
 
@@ -325,8 +430,15 @@ public sealed class ChatContentIndex
                 var id = new Guid(reader.ReadBytes(16));
                 var version = reader.ReadString();
                 var sourceTicks = reader.ReadInt64();
-                var normalized = reader.ReadString();
-                loaded[id] = new Entry(version, normalized, StripSpaces(normalized), sourceTicks);
+                var userNormalized = reader.ReadString();
+                var assistantNormalized = reader.ReadString();
+                loaded[id] = new Entry(
+                    version,
+                    userNormalized,
+                    StripSpaces(userNormalized),
+                    assistantNormalized,
+                    StripSpaces(assistantNormalized),
+                    sourceTicks);
             }
 
             lock (_sync)

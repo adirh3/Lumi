@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.ViewModels;
 using Xunit;
@@ -9,6 +10,25 @@ namespace Lumi.Tests;
 
 public class ModelSelectionHelperTests
 {
+    [Fact]
+    public void ApplyModelCapabilities_PreservesMaximumReasoningEffortFromSdk()
+    {
+        var reasoningEfforts = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var defaultEfforts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var model = new ModelInfo
+        {
+            Id = "gpt-5.6-sol",
+            Name = "GPT-5.6 Sol",
+            SupportedReasoningEfforts = ["none", "low", "medium", "high", "xhigh", "max"],
+            DefaultReasoningEffort = "high"
+        };
+
+        ModelSelectionHelper.ApplyModelCapabilities([model], reasoningEfforts, defaultEfforts);
+
+        Assert.Equal(["none", "low", "medium", "high", "xhigh", "max"], reasoningEfforts[model.Id]);
+        Assert.Contains("Max", ModelSelectionHelper.GetQualityLevels(model.Id, reasoningEfforts)!);
+    }
+
     [Fact]
     public void NormalizeEffort_PrefersHighWhenNoEffortIsStored()
     {

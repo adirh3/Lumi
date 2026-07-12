@@ -261,6 +261,8 @@ public class DataStore
                 ParentToolCallId = m.ParentToolCallId,
                 ToolStatus = m.ToolStatus,
                 ToolOutput = m.ToolOutput,
+                LinkedChatId = m.LinkedChatId,
+                LinkedChatTitle = m.LinkedChatTitle,
                 QuestionId = m.QuestionId,
                 QuestionText = m.QuestionText,
                 QuestionOptions = m.QuestionOptions,
@@ -291,6 +293,10 @@ public class DataStore
             })
             .ToList();
 
+        // Keep the persisted message count in sync so has-content checks work even after
+        // the chat's messages are unloaded from memory while it is inactive.
+        chat.MessageCount = messagesSnapshot.Count;
+
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -315,6 +321,15 @@ public class DataStore
 
         ChatContentChanged?.Invoke(chat.Id);
     }
+
+    /// <summary>
+    /// True when a chat has a persisted messages file on disk. Used as a migration-safe
+    /// "has content" signal for chats whose <see cref="Chat.MessageCount"/> predates that
+    /// field (existing chats default to 0 until first saved/loaded) and whose messages are
+    /// not currently loaded in memory.
+    /// </summary>
+    public bool HasStoredMessages(Guid chatId)
+        => _usesPersistentStorage && File.Exists(Path.Combine(ChatsDir, $"{chatId}.json"));
 
     /// <summary>Loads messages from a chat's per-chat file into chat.Messages.</summary>
     public async Task LoadChatMessagesAsync(Chat chat, CancellationToken cancellationToken = default)
@@ -354,6 +369,7 @@ public class DataStore
 
                     if (messages is not null)
                         chat.Messages.AddRange(messages);
+                    chat.MessageCount = chat.Messages.Count;
                     break;
                 }
                 catch (IOException) when (attempt < maxReadAttempts)
@@ -683,6 +699,7 @@ public class DataStore
             searchMessages.Add(new ChatSearchMessage
             {
                 Text = text,
+                Role = message.Role,
                 Timestamp = message.Timestamp
             });
         }
@@ -706,11 +723,13 @@ public class DataStore
             searchMessages.Add(new ChatSearchMessage
             {
                 Text = text,
+                Role = message.Role,
                 Timestamp = message.Timestamp
             });
 
             signature.Add(index);
             signature.Add(message.Id);
+            signature.Add(message.Role, StringComparer.OrdinalIgnoreCase);
             signature.Add(message.Timestamp.UtcTicks);
             signature.Add(text, StringComparer.Ordinal);
         }

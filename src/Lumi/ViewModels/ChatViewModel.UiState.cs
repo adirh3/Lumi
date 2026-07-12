@@ -315,21 +315,44 @@ public partial class ChatViewModel
 
     internal string? ResolvePersistedReasoningEffortForChat(Chat chat, string? modelId)
     {
-        if (CurrentChat?.Id == chat.Id)
-            return GetPersistedReasoningEffortPreference();
-
-        var storedEffort = !string.IsNullOrWhiteSpace(chat.LastReasoningEffortUsed)
-            ? chat.LastReasoningEffortUsed
-            : _dataStore.Data.Settings.ReasoningEffort;
+        // For the surface's own current chat we start from the live UI preference (composer quality
+        // dropdown / stored preference); for any other hidden or background chat we use its persisted
+        // effort, falling back to the global default. Either way the result MUST be validated against
+        // the model the session will actually use (modelId) via ResolveReasoningEffortForModel so we
+        // never forward an unsupported effort to the SDK. That matters for manage_chats orchestration:
+        // the target chat is loaded as the executor surface's CurrentChat, so this takes the
+        // CurrentChat branch — and without the shared validation a stale effort (e.g. "low") would
+        // reach an effort-less model such as claude-sonnet-4.5 and error the session on setup.
+        var storedEffort = CurrentChat?.Id == chat.Id
+            ? GetPersistedReasoningEffortPreference()
+            : !string.IsNullOrWhiteSpace(chat.LastReasoningEffortUsed)
+                ? chat.LastReasoningEffortUsed
+                : _dataStore.Data.Settings.ReasoningEffort;
 
         if (string.IsNullOrWhiteSpace(storedEffort))
             return null;
 
-        return ModelSelectionHelper.NormalizeEffort(
+        return ResolveReasoningEffortForModel(storedEffort, modelId);
+    }
+
+    // Resolves a reasoning effort against a model's capabilities. ModelSelectionHelper.NormalizeEffort returns
+    // null in two very different situations: (a) the model catalog has not loaded yet, and (b) a known model has
+    // no reasoning-effort support (e.g. claude-sonnet-4.5). These must be treated differently. Before the catalog
+    // loads we preserve the caller's stored effort so a pre-load selection/override isn't lost; once the catalog
+    // is known, a null means the model genuinely has no effort support, so we drop the effort rather than forward
+    // an unsupported value to the SDK. Forwarding it errors the turn on session setup and, on a mid-session model
+    // switch, is swallowed and silently keeps the previous model — which would defeat a manage_chats model override.
+    internal string? ResolveReasoningEffortForModel(string? storedEffort, string? modelId)
+    {
+        var normalized = ModelSelectionHelper.NormalizeEffort(
             storedEffort,
             modelId,
             _modelReasoningEfforts,
-            _modelDefaultEfforts) ?? storedEffort;
+            _modelDefaultEfforts);
+        if (normalized is not null)
+            return normalized;
+
+        return _modelReasoningEfforts.Count == 0 ? storedEffort : null;
     }
 
     internal string? ResolveSelectedContextWindowTierForChat(Chat chat, string? modelId)

@@ -779,8 +779,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (!string.IsNullOrWhiteSpace(effectiveModel))
             chat.LastModelUsed = effectiveModel;
 
+        // Mirror the effectiveModel fallback above: a session event that omits the reasoning effort
+        // (e.g. SessionStart/ModelChange for a background/orchestrated send, which does not always echo
+        // the effort back) must NOT clobber the chat's persisted effort to null — otherwise an explicit
+        // per-send effort override is silently dropped after it was applied. Fall back to the chat's
+        // current effort so a real value from the session still wins but an empty one preserves intent.
+        var effectiveEffort = string.IsNullOrWhiteSpace(reasoningEffort)
+            ? chat.LastReasoningEffortUsed
+            : reasoningEffort;
+
         chat.LastReasoningEffortUsed = ModelSelectionHelper.NormalizeEffort(
-            reasoningEffort,
+            effectiveEffort,
             effectiveModel,
             _modelReasoningEfforts,
             _modelDefaultEfforts);
@@ -947,7 +956,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             resendFromMessageAction: ResendFromMessageAsync,
             openSkillAction: OpenSkillPreview,
             resolveSkill: name => FindSkillReferenceByName(name),
-            getSelectedModel: () => SelectedModel);
+            openChatAction: id => OpenChatRequested?.Invoke(id),
+            getSelectedModel: () => SelectedModel,
+            sendSteeredNowAsync: SendSteeredNowAsync);
         _transcriptBuilder.SetLiveTarget(_transcriptTurns);
         _transcriptWindow.BindTranscript(_transcriptTurns, "ctor");
         _transcriptWindow.PropertyChanged += OnTranscriptWindowPropertyChanged;
@@ -2183,7 +2194,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return OwnsLiveChat(chatId);
     }
 
-    public async Task SendBackgroundJobMessageAsync(
+    public Task SendBackgroundJobMessageAsync(
         BackgroundJob job,
         string triggerContext,
         CancellationToken cancellationToken = default)
@@ -2193,6 +2204,29 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var targetChat = _dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == job.ChatId)
             ?? throw new InvalidOperationException($"Background job chat not found: {job.ChatId}");
 
+        var prompt = BuildBackgroundJobPrompt(job, triggerContext);
+        return SendExternalMessageAsync(targetChat, prompt, $"Lumi Job - {job.Name}", cancellationToken);
+    }
+
+    /// <summary>
+    /// Sends an externally-authored message (a background job trigger, or an orchestrated instruction
+    /// from Lumi acting as a manager over another chat) to <paramref name="targetChat"/> and runs a full
+    /// turn, whether or not the chat is the currently displayed one. This is the shared, robust
+    /// target-chat send path: it loads the chat, ensures/recreates its Copilot session, tracks the
+    /// pending turn, and streams the response — updating the visible surface when the target chat is the
+    /// active one and marking it unread otherwise. <paramref name="author"/> labels the injected user
+    /// message so the transcript shows where it came from.
+    /// </summary>
+    public async Task SendExternalMessageAsync(
+        Chat targetChat,
+        string prompt,
+        string author,
+        CancellationToken cancellationToken = default,
+        string? modelOverride = null,
+        string? reasoningEffortOverride = null)
+    {
+        ArgumentNullException.ThrowIfNull(targetChat);
+
         if (IsChatBusy(targetChat.Id))
             throw new InvalidOperationException($"Chat \"{targetChat.Title}\" is already running.");
 
@@ -2200,6 +2234,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         if (!_copilotService.IsConnected)
             await _copilotService.ConnectAsync(cancellationToken);
+
+        // Explicit per-send model / reasoning-effort override (used by manage_chats send). Overwriting the
+        // chat's persisted selection makes both a fresh session (applied via EnsureSessionAsync) and an
+        // already-cached session (applied via SetModelAsync below) honour the requested model/effort. When
+        // omitted, the chat keeps its current selection — which for a manager-created chat is the new-chat
+        // default (Settings.PreferredModel / Settings.ReasoningEffort).
+        var hasModelOverride = !string.IsNullOrWhiteSpace(modelOverride);
+        var hasEffortOverride = !string.IsNullOrWhiteSpace(reasoningEffortOverride);
+        if (hasModelOverride)
+            targetChat.LastModelUsed = modelOverride!.Trim();
+        if (hasEffortOverride)
+            targetChat.LastReasoningEffortUsed = reasoningEffortOverride!.Trim();
 
         if (string.IsNullOrWhiteSpace(targetChat.LastModelUsed))
         {
@@ -2222,12 +2268,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 targetChat.LastContextWindowTierUsed = targetTier;
         }
 
-        var prompt = BuildBackgroundJobPrompt(job, triggerContext);
         var userMsg = new ChatMessage
         {
             Role = "user",
             Content = prompt,
-            Author = $"Lumi Job - {job.Name}",
+            Author = author,
             ActiveSkills = BuildSkillReferences(targetChat.ActiveSkillIds)
         };
 
@@ -2301,6 +2346,42 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 : _activeSession!;
             RestoreActiveSessionIfSwitched(targetChat);
 
+            // EnsureSessionAsync re-resolves the effort via ResolvePersistedReasoningEffortForChat, which for a
+            // currently-displayed target chat returns the live UI selection and overwrites an explicit per-send
+            // effort override (the model is preserved through LastModelUsed, but the effort is not). Restore the
+            // override so it is applied to the session below and persisted for subsequent sends.
+            if (hasEffortOverride)
+                targetChat.LastReasoningEffortUsed = reasoningEffortOverride!.Trim();
+
+            // Push an explicit per-send model/effort override onto the resolved session:
+            //  - cached session: EnsureSessionAsync never ran, so nothing has applied the override yet;
+            //  - fresh/resumed session: the model was already applied inside EnsureSessionAsync, but an effort
+            //    override can be dropped (see above), so re-apply whenever the effort was overridden.
+            if (sendSession is not null
+                && !string.IsNullOrWhiteSpace(targetChat.LastModelUsed)
+                && (hasEffortOverride || (hasModelOverride && !needsSessionSetup)))
+            {
+                var overrideModel = targetChat.LastModelUsed!;
+                var overrideEffort = ResolveReasoningEffortForModel(
+                    targetChat.LastReasoningEffortUsed,
+                    overrideModel);
+                try
+                {
+                    await sendSession.SetModelAsync(
+                        overrideModel,
+                        new SetModelOptions
+                        {
+                            ReasoningEffort = string.IsNullOrWhiteSpace(overrideEffort) ? null : overrideEffort,
+                            ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
+                            ContextTier = SessionConfigBuilder.CreateContextTier(targetChat.LastContextWindowTierUsed)
+                        });
+                }
+                catch
+                {
+                    // Best-effort: keep the session's current model if the mid-session switch fails.
+                }
+            }
+
             var basePrompt = needsReplayPrompt
                 ? BuildSessionRecoveryReplayPrompt(retainedContext, prompt)
                 : prompt;
@@ -2358,6 +2439,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             ClearPendingTurnTracking(targetChat.Id);
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
+            ReconcileInProgressSubagentTools(targetChat, "Stopped");
             MarkRuntimeTerminal(runtime);
             if (CurrentChat?.Id == targetChat.Id)
             {
@@ -2376,6 +2458,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ClearPendingTurnTracking(targetChat.Id);
             var errorText = string.Format(Loc.Status_Error, "Background job session cancelled unexpectedly.");
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
+            ReconcileInProgressSubagentTools(targetChat, "Failed");
             MarkRuntimeTerminal(runtime, errorText);
             if (CurrentChat?.Id == targetChat.Id)
             {
@@ -2751,126 +2834,34 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Steers the chat's in-flight turn: injects <paramref name="prompt"/> into the running turn via
-    /// the Copilot SDK's immediate send mode instead of stopping it (old stop-and-send) or deferring it
-    /// to a fresh turn (old busy queue). The agent interjects the message at its next step boundary.
+    /// Abort + send: stops the running turn and sends the current draft as a brand-new turn, instead of
+    /// steering it into the running turn. The draft is queued first so <see cref="StopGeneration"/>'s
+    /// drain (which runs after the abort settles and pending-turn tracking is cleared) dispatches it as a
+    /// fresh, non-steered turn. When no live turn is active this just behaves like a normal send.
     /// </summary>
-    /// <remarks>
-    /// Safety invariants (do not violate — they keep stall-recovery/reconciliation correct):
-    /// <list type="bullet">
-    /// <item>The user message is added to the transcript locally. Lumi has no <c>UserMessageEvent</c>
-    /// switch case, so the SDK's echo of the steering message does not duplicate it.</item>
-    /// <item>The running turn's pending-turn tracking is left untouched — no new CTS, no re-arm, and
-    /// <c>PendingSessionUserMessageCount</c> keeps pointing at the ORIGINAL turn so the analyzer still
-    /// scans the whole (original + steered) turn to the end. Bumping it would drop the original turn's
-    /// assistant messages.</item>
-    /// <item>The turn is NOT aborted and <c>IsBusy</c> stays true.</item>
-    /// </list>
-    /// Falls back to the deferred busy queue when no live session exists yet (turn still in setup) or when
-    /// the turn has already ended and the runtime is only draining background work (no live step boundary).
-    /// </remarks>
-    private async Task SteerActiveTurnAsync(Chat activeChat, string prompt, bool consumeComposerPrompt)
+    [RelayCommand]
+    private async Task StopAndSendMessage()
     {
-        var chatId = activeChat.Id;
+        var prompt = PromptText?.Trim();
+        if (string.IsNullOrWhiteSpace(prompt))
+            return;
 
-        // Resolve the live session driving the running turn. If it isn't up yet (turn still in setup),
-        // fall back to the deferred queue so the message is sent as a fresh turn once the turn is idle.
-        if (!_sessionCache.TryGetValue(chatId, out var session))
-            session = _activeSession;
-
-        // Immediate-mode steering only lands while a live assistant turn is running, i.e. a future step
-        // boundary is still coming. TurnInProgress — set at turn initiation (the same point the runtime is
-        // marked actively streaming) and cleared only at AssistantTurnEnd/terminal — is the authoritative
-        // signal. Crucially it is NOT cleared mid-turn by
-        // compaction, sub-agent, or background-task events (all of which force runtime.IsStreaming to false
-        // for the rest of the turn), so steering during those phases still injects into the running turn
-        // instead of silently deferring to the post-turn queue. After the turn ends the runtime may stay
-        // busy only to drain background work; there is no live turn to interject into then, so fall back to
-        // the deferred queue and let the message land as a fresh turn once idle.
-        _runtimeStates.TryGetValue(chatId, out var runtime);
-
-        if (session is null || runtime is null || !CanSteerImmediately(runtime))
+        // No live turn to abort — nothing to stop, so send normally as a fresh turn.
+        if (CurrentChat is not { } chat || !IsChatRuntimeActive(chat.Id))
         {
-            QueueBusySendPrompt(chatId, prompt);
-            if (consumeComposerPrompt)
-            {
-                PromptText = "";
-                _chatDrafts.Remove(chatId);
-            }
-
+            await SendMessageCore(prompt, consumeComposerPrompt: true);
             return;
         }
 
-        var attachments = TakePendingAttachments();
-
-        // Add the steering message to the transcript up-front so it renders before any assistant
-        // reaction to it. There is no await between here and the send below, so ordering is stable.
-        var userMsg = new ChatMessage
-        {
-            Role = "user",
-            Content = prompt,
-            Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
-            Attachments = attachments?.OfType<AttachmentFile>().Select(a => a.Path).ToList() ?? [],
-            ActiveSkills = BuildSkillReferences(ActiveSkillIds)
-        };
-
-        // Mirror the normal send path: files dragged from the project directory while a worktree is
-        // already active must be rebased onto the worktree so the agent reads the right copy. No-op
-        // when there's no worktree or the paths don't sit under the project directory.
-        if (WorktreePath is { Length: > 0 } wtPath && attachments is { Count: > 0 })
-        {
-            var projDir = GetProjectWorkingDirectory();
-            var effectiveWorktreeDir = GitService.ResolveWorktreeWorkingDirectory(wtPath, projDir);
-            RebaseAttachmentPaths(attachments, userMsg, projDir, effectiveWorktreeDir);
-        }
-
-        activeChat.Messages.Add(userMsg);
-        Messages.Add(new ChatMessageViewModel(userMsg));
-        QueueSaveChat(activeChat, saveIndex: true, touchIndex: true);
-        ChatUpdated?.Invoke();
-        UserMessageSent?.Invoke();
-
-        if (consumeComposerPrompt)
-        {
-            PromptText = "";
-            _chatDrafts.Remove(chatId);
-        }
-        ClearSuggestions();
-
-        var sendOptions = new MessageOptions
-        {
-            Prompt = prompt + BuildSendPromptAdditions(),
-            Mode = GitHub.Copilot.Rpc.SendMode.Immediate.Value
-        };
-        if (attachments is { Count: > 0 })
-            sendOptions.Attachments = attachments;
-
-        // Immediate mode returns a message id almost instantly and does NOT abort or restart the turn;
-        // send on the running turn's token so a user Stop still tears the inject down with the turn.
-        var token = _ctsSources.TryGetValue(chatId, out var cts) ? cts.Token : CancellationToken.None;
-        try
-        {
-            await session.SendAsync(sendOptions, token);
-        }
-        catch (Exception ex)
-        {
-            // Steering is best-effort: a failed inject must never tear down the running turn or its
-            // pending-turn tracking. Keep the already-added user message and just log.
-            Debug.WriteLine($"[Steer] Immediate send failed for chat {chatId}: {ex.Message}");
-        }
+        // Queue the draft, then stop. StopGeneration marks the runtime terminal, clears pending-turn
+        // tracking, and drains the queue via SendMessageCore as a fresh (non-steered) turn. Any pending
+        // attachments stay in the pending set and are consumed by that drained send.
+        var chatId = chat.Id;
+        QueueBusySendPrompt(chatId, prompt);
+        PromptText = "";
+        _chatDrafts.Remove(chatId);
+        await StopGeneration();
     }
-
-    /// <summary>
-    /// Whether a steer can be injected into a live running turn right now (immediate mode), versus being
-    /// deferred to the post-turn queue. <see cref="ChatRuntimeState.TurnInProgress"/> is the primary
-    /// signal — it stays true for the whole turn even when compaction / sub-agent / background-task events
-    /// force <see cref="ChatRuntimeState.IsStreaming"/> to false. Active tool/sub-agent execution is kept
-    /// as a defensive OR: both imply a live turn regardless of how the flags were last set.
-    /// </summary>
-    private static bool CanSteerImmediately(ChatRuntimeState runtime)
-        => runtime.TurnInProgress
-           || runtime.ActiveToolCount > 0
-           || runtime.ActiveSubagentExecutionDepth > 0;
 
     private async Task SendMessageCore(string? promptText, bool consumeComposerPrompt)
     {
@@ -3144,6 +3135,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 targetChat,
                 expectedSessionUserMessageCount,
                 localAssistantMessageCount);
+            // This turn-start send produces exactly one UserMessageEvent echo when the agent consumes the
+            // prompt. Mark it so the steer-confirmation logic skips that first echo instead of mistaking it
+            // for a steer being consumed (steers are only injected once the turn is already running).
+            runtime.ExpectTurnStartUserEcho = true;
             await sendSession.SendAsync(sendOptions, cts.Token);
         }
         catch (Exception ex) when (IsSessionNotFoundError(ex) && cts is not null && sendOptions is not null)
@@ -3175,6 +3170,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     targetChat,
                     expectedSessionUserMessageCount,
                     localAssistantMessageCount);
+                // Recovery replay is also a turn-start send: expect (and skip) its one turn-start echo.
+                // `runtime` is scoped to the try above, so re-fetch the same cached per-chat state here.
+                GetOrCreateRuntimeState(targetChat.Id).ExpectTurnStartUserEcho = true;
                 await sendSession.SendAsync(sendOptions, cts.Token);
             }
             catch (Exception retryEx)
@@ -3214,6 +3212,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // SDK cancelled internally (e.g. MCP server failure) — surface as error
             var errorText = string.Format(Loc.Status_Error, "Session cancelled unexpectedly. MCP servers may have failed to connect.");
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
+            ReconcileInProgressSubagentTools(targetChat, "Failed");
             MarkRuntimeTerminal(runtime, errorText);
             ClearPendingTurnTracking(targetChat.Id);
 
@@ -3464,6 +3463,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         var runtime = GetOrCreateRuntimeState(chat.Id);
+        ReconcileInProgressSubagentTools(chat, "Completed");
         MarkRuntimeTerminal(runtime);
         if (CurrentChat?.Id == chat.Id)
         {
@@ -3752,6 +3752,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (chat is not null)
         {
             var runtime = GetOrCreateRuntimeState(chat.Id);
+            ReconcileInProgressSubagentTools(chat, "Failed");
             MarkRuntimeTerminal(runtime, display);
 
             // Recoverable errors abandon the current server session; arm a reset so the next send (a
@@ -3807,7 +3808,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private async Task StopGeneration()
+    private Task StopGeneration() => StopGenerationInternal(resolvePendingSteersAsFailed: true);
+
+    /// <summary>Core stop/abort path shared by the Stop button and the inline "Send now" steer action.</summary>
+    /// <param name="resolvePendingSteersAsFailed">
+    /// When true (a plain Stop), any still-pending steers are marked "Not delivered" before the abort.
+    /// When false (the inline "Send now" action), the steer is intentionally kept registered so the SDK's
+    /// post-abort autopilot continuation can reprocess it and the turn-end/idle fallback resolves it to
+    /// "Steered into response" instead of a false "Not delivered".
+    /// </param>
+    private async Task StopGenerationInternal(bool resolvePendingSteersAsFailed)
     {
         if (CurrentChat is null) return;
 
@@ -3815,6 +3825,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var chatId = chat.Id;
         SetManualStopRequested(chatId, true);
         ReleaseChatCancellation(chatId, cancel: true);
+
+        // A user abort tears the turn down before the agent can consume any still-pending steer, so mark
+        // them "Not delivered" now — synchronously, before AbortAsync yields the UI thread. The abort's own
+        // session.idle would otherwise hit the unconditional ResolvePendingSteersAsDelivered fallback and
+        // flip these to a false "Steered into response"; clearing the registry here makes that a no-op.
+        // "Send now" opts out (resolvePendingSteersAsFailed: false) precisely so that fallback delivers it.
+        if (resolvePendingSteersAsFailed)
+            ResolvePendingSteersAsFailed(chatId);
 
         // Get the session for this specific chat (not _activeSession which may differ)
         if (_sessionCache.TryGetValue(chatId, out var session))
@@ -4332,13 +4350,19 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private async Task SaveChatAsync(Chat chat, bool saveIndex, bool releaseIfInactive = false, CancellationToken cancellationToken = default)
     {
+        var persisted = false;
+        var persistedMessageCount = -1;
         try
         {
             if (_dataStore.Data.Settings.AutoSaveChats)
             {
+                persistedMessageCount = chat.Messages.Count;
                 await _dataStore.SaveChatAsync(chat, cancellationToken);
                 if (saveIndex)
                     await _dataStore.SaveAsync(cancellationToken);
+                // The per-chat messages file now reflects chat.Messages, so it is safe to unload
+                // them for an inactive chat and lazily reload on next open.
+                persisted = true;
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -4353,9 +4377,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (releaseIfInactive)
         {
             if (Dispatcher.UIThread.CheckAccess())
-                ReleaseInactiveChatState(chat);
+                ReleaseInactiveChatState(chat, unloadMessages: persisted, expectedMessageCount: persistedMessageCount);
             else
-                Dispatcher.UIThread.Post(() => ReleaseInactiveChatState(chat));
+                Dispatcher.UIThread.Post(() => ReleaseInactiveChatState(chat, unloadMessages: persisted, expectedMessageCount: persistedMessageCount));
         }
     }
 
@@ -4936,6 +4960,44 @@ public partial class ChatMessageViewModel : ObservableObject
     [ObservableProperty] private string _content;
     [ObservableProperty] private bool _isStreaming;
     [ObservableProperty] private string? _toolStatus;
+    [ObservableProperty] private Guid? _linkedChatId;
+    [ObservableProperty] private string? _linkedChatTitle;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSteerBadge))]
+    [NotifyPropertyChangedFor(nameof(IsSteerInProgress))]
+    [NotifyPropertyChangedFor(nameof(IsSteerDelivered))]
+    [NotifyPropertyChangedFor(nameof(IsSteerFailed))]
+    [NotifyPropertyChangedFor(nameof(ShowSteerDot))]
+    [NotifyPropertyChangedFor(nameof(SteerBadgeText))]
+    private MessageSteerState _steerState;
+
+    /// <summary>True when this message carries a steering-delivery badge (steering / steered / failed).</summary>
+    public bool HasSteerBadge => SteerState is not MessageSteerState.None;
+
+    /// <summary>True while the steered message is still being delivered to the running turn.</summary>
+    public bool IsSteerInProgress => SteerState is MessageSteerState.Steering;
+
+    /// <summary>True once the agent has actually consumed the steered message into the running turn.</summary>
+    public bool IsSteerDelivered => SteerState is MessageSteerState.Steered;
+
+    /// <summary>True when the steer failed to reach the session.</summary>
+    public bool IsSteerFailed => SteerState is MessageSteerState.Failed;
+
+    /// <summary>The status dot is shown for in-flight and failed steers; a delivered steer swaps it for a check glyph.</summary>
+    public bool ShowSteerDot => HasSteerBadge && !IsSteerDelivered;
+
+    public string SteerBadgeText => SteerState switch
+    {
+        MessageSteerState.Steering => Loc.Steer_Steering,
+        MessageSteerState.Steered => Loc.Steer_Delivered,
+        MessageSteerState.Failed => Loc.Steer_Failed,
+        _ => string.Empty
+    };
+
+    // Mirror the transient steer state onto the model so the badge survives transcript/VM rebuilds
+    // (reconciliation, stall recovery, remount) within the session — VMs are recreated from the model.
+    partial void OnSteerStateChanged(MessageSteerState value) => Message.SteerDelivery = value;
 
     public string Role => Message.Role;
     public string? Author => Message.Author;
@@ -4949,6 +5011,9 @@ public partial class ChatMessageViewModel : ObservableObject
         _content = message.Content;
         _isStreaming = message.IsStreaming;
         _toolStatus = message.ToolStatus;
+        _linkedChatId = message.LinkedChatId;
+        _linkedChatTitle = message.LinkedChatTitle;
+        _steerState = message.SteerDelivery;
     }
 
     public void NotifyContentChanged()
@@ -4965,5 +5030,11 @@ public partial class ChatMessageViewModel : ObservableObject
     public void NotifyToolStatusChanged()
     {
         ToolStatus = Message.ToolStatus;
+    }
+
+    public void NotifyLinkedChatChanged()
+    {
+        LinkedChatId = Message.LinkedChatId;
+        LinkedChatTitle = Message.LinkedChatTitle;
     }
 }

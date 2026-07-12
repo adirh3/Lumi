@@ -16,6 +16,64 @@ namespace Lumi.Tests;
 /// </summary>
 public sealed class BusyStateSubagentTests
 {
+    [Theory]
+    [InlineData("task")]
+    [InlineData("agent:explore")]
+    public void ResolveToolStartStatus_EarlySuccessfulSubagentWrapper_RemainsInProgress(string toolName)
+    {
+        var status = ChatViewModel.ResolveToolStartStatus(toolName, "Completed");
+
+        Assert.Equal("InProgress", status);
+    }
+
+    [Fact]
+    public void ResolveToolStartStatus_FailedSubagentWrapper_RemainsFailed()
+    {
+        var status = ChatViewModel.ResolveToolStartStatus("task", "Failed");
+
+        Assert.Equal("Failed", status);
+    }
+
+    [Theory]
+    [InlineData("task")]
+    [InlineData("agent:explore")]
+    public void ShouldApplyToolExecutionCompletionStatus_SuccessfulSubagentWrapper_IsDeferred(string toolName)
+    {
+        Assert.False(ChatViewModel.ShouldApplyToolExecutionCompletionStatus(toolName, success: true));
+    }
+
+    [Fact]
+    public void ShouldApplyToolExecutionCompletionStatus_NormalToolOrFailure_IsApplied()
+    {
+        Assert.True(ChatViewModel.ShouldApplyToolExecutionCompletionStatus("web_search", success: true));
+        Assert.True(ChatViewModel.ShouldApplyToolExecutionCompletionStatus("task", success: false));
+    }
+
+    [Theory]
+    [InlineData("Completed")]
+    [InlineData("Failed")]
+    [InlineData("Stopped")]
+    public void SetInProgressSubagentStatuses_ChangesOnlySubagentMessages(string terminalStatus)
+    {
+        var task = CreateToolMessage("task", "InProgress", "agent-1");
+        var namedAgent = CreateToolMessage("agent:explore", "InProgress", "agent-2");
+        var normalTool = CreateToolMessage("web_search", "InProgress", "search-1");
+        var alreadyTerminal = CreateToolMessage("task", "Completed", "agent-3");
+        var chat = new Chat
+        {
+            Title = "terminal fallback",
+            Messages = [task, namedAgent, normalTool, alreadyTerminal]
+        };
+
+        var changed = ChatViewModel.SetInProgressSubagentStatuses(chat, terminalStatus);
+
+        Assert.Equal(2, changed.Count);
+        Assert.Equal(terminalStatus, task.ToolStatus);
+        Assert.Equal(terminalStatus, namedAgent.ToolStatus);
+        Assert.Equal("InProgress", normalTool.ToolStatus);
+        Assert.Equal("Completed", alreadyTerminal.ToolStatus);
+    }
+
     [Fact]
     public void HasActiveWork_TrueWhileSubagentExecuting()
     {
@@ -154,4 +212,14 @@ public sealed class BusyStateSubagentTests
             ?? throw new InvalidOperationException($"Static method {name} was not found.");
         method.Invoke(null, args);
     }
+
+    private static ChatMessage CreateToolMessage(string toolName, string status, string toolCallId)
+        => new()
+        {
+            Role = "tool",
+            ToolName = toolName,
+            ToolStatus = status,
+            ToolCallId = toolCallId,
+            Content = "{}"
+        };
 }

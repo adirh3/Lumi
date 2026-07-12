@@ -5,6 +5,19 @@ using System.Text.Json.Serialization;
 
 namespace Lumi.Models;
 
+/// <summary>
+/// Transient delivery status for a user message that was steered into a running turn. Session-only
+/// (never persisted) — it exists so the transcript can confirm whether a mid-turn message actually
+/// landed in the live turn (<see cref="Steered"/>) versus a normal turn-start message.
+/// </summary>
+public enum MessageSteerState
+{
+    None,
+    Steering,
+    Steered,
+    Failed
+}
+
 public class ChatMessage
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -17,6 +30,8 @@ public class ChatMessage
     public string? ParentToolCallId { get; set; }
     public string? ToolStatus { get; set; } // InProgress, Completed, Failed, Stopped
     public string? ToolOutput { get; set; }
+    public Guid? LinkedChatId { get; set; }
+    public string? LinkedChatTitle { get; set; }
     public string? QuestionId { get; set; }
     public string? QuestionText { get; set; }
     public string? QuestionOptions { get; set; }
@@ -33,6 +48,11 @@ public class ChatMessage
     public List<string> Attachments { get; set; } = [];
     public List<SearchSource> Sources { get; set; } = [];
     public List<SkillReference> ActiveSkills { get; set; } = [];
+
+    /// <summary>Session-only steer delivery status (not serialized). Set when this message is steered
+    /// into a running turn so the badge survives transcript/VM rebuilds within the session.</summary>
+    [JsonIgnore]
+    public MessageSteerState SteerDelivery { get; set; }
 }
 
 public class SkillReference
@@ -89,6 +109,13 @@ public class Chat : INotifyPropertyChanged
     public string? CopilotSessionId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
+    /// <summary>
+    /// Number of messages last persisted for this chat. Maintained on save/load so that
+    /// "does this chat have content" checks keep working even when <see cref="Messages"/>
+    /// has been unloaded from memory to reclaim RAM for inactive chats.
+    /// </summary>
+    public int MessageCount { get; set; }
+
     [JsonIgnore]
     public List<ChatMessage> Messages { get; set; } = [];
     public List<Guid> ActiveSkillIds { get; set; } = [];

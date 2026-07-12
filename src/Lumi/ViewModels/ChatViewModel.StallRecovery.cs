@@ -117,6 +117,7 @@ public partial class ChatViewModel
         InvalidateLocalSessionCache(chat);
 
         var runtime = GetOrCreateRuntimeState(chat.Id);
+        ReconcileInProgressSubagentTools(chat, "Failed", updateDisplayedChatUi);
         MarkRuntimeTerminal(runtime, message);
 
         if (updateDisplayedChatUi && CurrentChat?.Id == chat.Id)
@@ -403,6 +404,10 @@ public partial class ChatViewModel
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             var runtime = GetOrCreateRuntimeState(chat.Id);
+            // A recovered Idle terminal means the turn genuinely completed, so mirror the main
+            // SessionIdleEvent handler and resolve any still-pending steer as delivered (never stuck).
+            ResolvePendingSteersAsDelivered(chat.Id);
+            ReconcileInProgressSubagentTools(chat, "Completed");
             MarkRuntimeTerminal(runtime);
 
             if (CurrentChat?.Id == chat.Id)
@@ -429,6 +434,10 @@ public partial class ChatViewModel
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             var runtime = GetOrCreateRuntimeState(chat.Id);
+            // Mirror the main session.error handler: the turn errored before the agent could consume any
+            // pending steer, so resolve them as "Not delivered".
+            ResolvePendingSteersAsFailed(chat.Id);
+            ReconcileInProgressSubagentTools(chat, "Failed");
             MarkRuntimeTerminal(runtime, string.Format(Loc.Status_Error, message));
 
             if (CurrentChat?.Id == chat.Id)
@@ -453,7 +462,6 @@ public partial class ChatViewModel
             {
                 var vm = new ChatMessageViewModel(errorMsg);
                 Messages.Add(vm);
-                _transcriptBuilder.ProcessMessageToTranscript(vm);
                 ScrollToEndRequested?.Invoke();
             }
 
@@ -468,6 +476,11 @@ public partial class ChatViewModel
         ClearPendingTurnTracking(chat.Id);
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
+            // A recovered Abort terminal (user stop OR unexpected/connection-lost abort) tore the turn down
+            // before the agent consumed any pending steer, so resolve them as "Not delivered". Placed before
+            // the branch so it also covers the early-returning unexpected-abort path.
+            ResolvePendingSteersAsFailed(chat.Id);
+
             if (!wasUserStopRequested)
             {
                 ApplyUnexpectedAbortState(chat, GetUnexpectedAbortMessage());
@@ -501,6 +514,10 @@ public partial class ChatViewModel
         ClearPendingTurnTracking(chat.Id);
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
+            // Mirror the main SessionShutdownEvent handler: the subscription is about to be detached, so
+            // resolve any pending steer as "Not delivered" now — nothing else will ever run to unstick it.
+            ResolvePendingSteersAsFailed(chat.Id);
+            ReconcileInProgressSubagentTools(chat, "Stopped");
             DetachSessionAfterRemoteShutdown(
                 chat,
                 wasActive: string.Equals(_activeSession?.SessionId, chat.CopilotSessionId, StringComparison.Ordinal));

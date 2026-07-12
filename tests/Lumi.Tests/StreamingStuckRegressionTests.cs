@@ -184,6 +184,23 @@ public sealed class StreamingStuckRegressionTests
         Assert.Equal("final answer", result);
     }
 
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", null)]
+    [InlineData(" \r\n", " ")]
+    public void ShouldDeferAssistantMessageEvent_EmptyEnvelope_ReturnsTrue(string? content, string? phase)
+    {
+        Assert.True(ChatViewModel.ShouldDeferAssistantMessageEvent(content, phase));
+    }
+
+    [Theory]
+    [InlineData("final answer", null)]
+    [InlineData("", "final_answer")]
+    public void ShouldDeferAssistantMessageEvent_SubstantiveEvent_ReturnsFalse(string? content, string? phase)
+    {
+        Assert.False(ChatViewModel.ShouldDeferAssistantMessageEvent(content, phase));
+    }
+
     [Fact]
     public async Task StreamingTextAccumulator_CancelPendingThenAppend_FlushesNewContent()
     {

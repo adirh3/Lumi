@@ -35,6 +35,10 @@ public static partial class ToolDisplayHelper
     public static IReadOnlyList<string> ToRuntimeToolNames(IEnumerable<string> toolNames)
         => [.. toolNames.Select(ToRuntimeToolName).Distinct(StringComparer.Ordinal)];
 
+    public static bool IsSubagentTool(string? toolName)
+        => string.Equals(toolName, "task", StringComparison.Ordinal)
+           || toolName?.StartsWith("agent:", StringComparison.Ordinal) == true;
+
     public static string GetToolGlyph(string toolName) => toolName switch
     {
         "powershell" or "run_in_terminal" or "bash" or "shell" => "⌨",
@@ -53,6 +57,7 @@ public static partial class ToolDisplayHelper
         "manage_lumis" => "✦",
         "manage_mcps" => "🔌",
         "manage_memories" => "🧠",
+        "manage_chats" => "🗂",
         "search_chats" or "read_chat" => "💬",
         "code_review" => "🔍",
         "generate_tests" => "🧪",
@@ -60,8 +65,7 @@ public static partial class ToolDisplayHelper
         "analyze_project" => "🏗",
         "update_todo" or "manage_todo_list" => "✅",
         "sql" => "🗃",
-        "task" => "🤖",
-        _ when toolName.StartsWith("agent:", StringComparison.Ordinal) => "🤖",
+        _ when IsSubagentTool(toolName) => "🤖",
         _ => "⚙"
     };
 
@@ -184,6 +188,17 @@ public static partial class ToolDisplayHelper
                 return ("Managing MCP servers", ExtractJsonField(argsJson, "action"));
             case "manage_memories":
                 return ("Managing memories", ExtractJsonField(argsJson, "action"));
+            case "manage_chats":
+            {
+                var action = ExtractJsonField(argsJson, "action");
+                var target = ExtractJsonField(argsJson, "title")
+                    ?? ExtractJsonField(argsJson, "identifier")
+                    ?? ExtractJsonField(argsJson, "query");
+                var info = string.IsNullOrWhiteSpace(target)
+                    ? action
+                    : string.IsNullOrWhiteSpace(action) ? target : $"{action}: {target}";
+                return ("Orchestrating chats", string.IsNullOrWhiteSpace(info) ? null : info);
+            }
             case "search_chats":
             {
                 var query = ExtractJsonField(argsJson, "query");

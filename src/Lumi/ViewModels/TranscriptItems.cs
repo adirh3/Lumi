@@ -59,6 +59,10 @@ public partial class UserMessageItem : TranscriptItem
 
     public string? Author => _source.Author;
     public ChatMessage Message => _source.Message;
+
+    /// <summary>The backing message view-model, exposed so the transcript template can bind live
+    /// transient state (e.g. steering-delivery status) that updates after the item is created.</summary>
+    public ChatMessageViewModel Source => _source;
     public List<FileAttachmentItem> Attachments { get; }
     public List<SkillReference> Skills { get; }
     public List<SkillChipItem> SkillChips { get; }
@@ -76,13 +80,18 @@ public partial class UserMessageItem : TranscriptItem
     /// <summary>Command invoked when user clicks Regenerate/Retry on the message.</summary>
     public ICommand ResendCommand { get; }
 
+    /// <summary>Command invoked from the inline "Send now" affordance beside an in-flight steering
+    /// badge — forces the still-pending steered message through to the running turn immediately.</summary>
+    public IAsyncRelayCommand SendNowCommand { get; }
+
     public UserMessageItem(
         ChatMessageViewModel source,
         bool showTimestamps,
         List<SkillReference>? filteredSkills = null,
         Action<ChatMessage>? beginEditAction = null,
         Action<ChatMessage, bool>? resendAction = null,
-        Action<SkillReference>? openSkillAction = null)
+        Action<SkillReference>? openSkillAction = null,
+        Func<ChatMessageViewModel, Task>? sendSteeredNowAsync = null)
         : base($"message:user:{source.Message.Id}")
     {
         _source = source;
@@ -97,6 +106,8 @@ public partial class UserMessageItem : TranscriptItem
         BeginEditCommand = new RelayCommand(() => _beginEditAction?.Invoke(_source.Message));
         ConfirmEditCommand = new RelayCommand<string>(text => EditAndResend(text ?? Content));
         ResendCommand = new RelayCommand(ResendFromMessage);
+        SendNowCommand = new AsyncRelayCommand(
+            () => sendSteeredNowAsync?.Invoke(_source) ?? Task.CompletedTask);
     }
 
     public void ResendFromMessage() => _resendAction?.Invoke(_source.Message, false);
@@ -146,6 +157,47 @@ public sealed class SkillLoadedItem : TranscriptItem
 
     public SkillLoadedItem(SkillChipItem chip, string? stableId = null)
         : base(stableId ?? TranscriptIds.Create("skill-loaded"))
+    {
+        Chip = chip;
+    }
+}
+
+// ── Linked-chat chip (clickable; opens a chat Lumi orchestrated via manage_chats) ──
+
+/// <summary>
+/// A chip representing a chat that Lumi created or messaged through the
+/// <c>manage_chats</c> orchestration tool. Clicking it opens that chat.
+/// Rendered as a first-class transcript pill (like a loaded-skill chip), so the
+/// affordance is always visible instead of buried inside the tool-call group.
+/// </summary>
+public partial class LinkedChatChipItem
+{
+    private readonly Action? _openAction;
+
+    public Guid ChatId { get; }
+    public string Title { get; }
+
+    public LinkedChatChipItem(Guid chatId, string title, Action? openAction)
+    {
+        ChatId = chatId;
+        Title = string.IsNullOrWhiteSpace(title) ? Loc.OpenChat : title;
+        _openAction = openAction;
+    }
+
+    [RelayCommand]
+    private void Open() => _openAction?.Invoke();
+}
+
+/// <summary>
+/// A turn-level item that renders a single linked-chat chip inline, at the point
+/// where Lumi orchestrated (created/messaged) another chat. Mirrors <see cref="SkillLoadedItem"/>.
+/// </summary>
+public sealed class LinkedChatItem : TranscriptItem
+{
+    public LinkedChatChipItem Chip { get; }
+
+    public LinkedChatItem(LinkedChatChipItem chip, string? stableId = null)
+        : base(stableId ?? TranscriptIds.Create("linked-chat"))
     {
         Chip = chip;
     }
@@ -732,7 +784,7 @@ public partial class SubagentGroupItem : TranscriptItem
     [ObservableProperty] private string? _meta;
     [ObservableProperty] private double _progressValue = -1;
     [ObservableProperty] private bool _isActive;
-    [ObservableProperty] private bool _isExpanded = true;
+    [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private int _totalCount;
     [ObservableProperty] private int _doneCount;
     [ObservableProperty] private int _runningCount;
@@ -760,6 +812,8 @@ public partial class SubagentGroupItem : TranscriptItem
     {
         OnPropertyChanged(nameof(ShowDoneBadge));
         OnPropertyChanged(nameof(ShowFailedBadge));
+        if (!value)
+            IsExpanded = false;
     }
     partial void OnTotalCountChanged(int value) => OnPropertyChanged(nameof(ShowDoneBadge));
 

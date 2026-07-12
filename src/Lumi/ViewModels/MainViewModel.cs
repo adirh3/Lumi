@@ -37,6 +37,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly ChatSurfaceRegistry _chatSurfaceRegistry;
     private readonly ChatSessionStore _chatSessionStore;
     private readonly bool _ownsChatSessionStore;
+    private readonly ChatOrchestrationService _chatOrchestrationService;
     private readonly bool _ownsChatSurfaceRegistry;
     private readonly HashSet<Chat> _runningStateSubscriptions = [];
     private readonly GlobalSearchService _globalSearchService;
@@ -207,6 +208,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
             chatFileTimestampProvider: _dataStore.GetChatFileTimestamp);
         _chatSessionStore = chatSessionStore ?? new ChatSessionStore(dataStore, copilotService, _chatSurfaceRegistry, _globalSearchService);
         _ownsChatSessionStore = chatSessionStore is null;
+
+        // Backs the manage_chats tool ("Lumi as a manager"): create/list/status/send across chats.
+        // The backend is owned by the (possibly shared) session store for the store's whole lifetime,
+        // so every window observes the same instance and none disposes it per-window. We only subscribe.
+        _chatOrchestrationService = _chatSessionStore.OrchestrationService;
+        _chatOrchestrationService.ChatsChanged += OnOrchestrationChatsChanged;
 
         var settings = _dataStore.Data.Settings;
         _isDarkTheme = settings.IsDarkTheme;
@@ -401,6 +408,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.ChatTitleChanged += OnChatTitleChanged;
         chatVm.PropertyChanged += OnChatViewModelPropertyChanged;
         chatVm.ComposerProjectFilterRequested += OnComposerProjectFilterRequested;
+        chatVm.OpenChatRequested += OnChatOpenChatRequested;
     }
 
     private void DetachChatViewModel(ChatViewModel chatVm)
@@ -410,7 +418,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.ChatTitleChanged -= OnChatTitleChanged;
         chatVm.PropertyChanged -= OnChatViewModelPropertyChanged;
         chatVm.ComposerProjectFilterRequested -= OnComposerProjectFilterRequested;
+        chatVm.OpenChatRequested -= OnChatOpenChatRequested;
     }
+
+    private void OnChatOpenChatRequested(Guid chatId) => _ = OpenChatByIdAsync(chatId);
 
     private void ShowChatSurface(ChatViewModel surface)
     {
@@ -575,6 +586,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _searchIndexCts.Dispose();
         _backgroundJobService.JobsChanged -= OnBackgroundJobServiceJobsChanged;
         _chatSessionStore.SurfaceFeatureManagementStateChanged -= OnChatFeatureManagementStateChanged;
+        _chatOrchestrationService.ChatsChanged -= OnOrchestrationChatsChanged;
         if (_ownsBackgroundJobService)
             _backgroundJobService.Dispose();
         DetachChatViewModel(ChatVM);
@@ -707,6 +719,23 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             if (!_isDisposed)
                 RefreshFeatureManagementUi();
+        });
+    }
+
+    /// <summary>
+    /// Fired when the orchestration service creates a managed chat or a managed run starts/finishes.
+    /// Refreshes the sidebar chat list, wires running-state subscriptions for any new chats, and
+    /// recomputes project running indicators so orchestrated work is visible in the UI.
+    /// </summary>
+    private void OnOrchestrationChatsChanged()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_isDisposed)
+                return;
+            SubscribeChatRunningState();
+            RefreshChatList();
+            RefreshProjectRunningState();
         });
     }
 
@@ -1360,7 +1389,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (value.HasValue)
         {
             var recent = _dataStore.Data.Chats
-                .Where(c => c.ProjectId == value.Value && c.Messages.Count > 0)
+                .Where(c => c.ProjectId == value.Value && ChatHasContent(c))
                 .OrderByDescending(c => c.UpdatedAt)
                 .FirstOrDefault();
             if (recent is not null)
@@ -1373,6 +1402,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // No existing chat for this project (or clearing filter) — start a new chat.
         NewChat();
     }
+
+    /// <summary>
+    /// True when a chat has at least one message, working whether or not the chat's messages
+    /// are currently loaded in memory. Inactive chats have their messages unloaded to reclaim
+    /// RAM, so this falls back to the persisted count and, for pre-existing chats that predate
+    /// that count, to the presence of a stored messages file.
+    /// </summary>
+    private bool ChatHasContent(Chat chat)
+        => chat.Messages.Count > 0 || chat.MessageCount > 0 || _dataStore.HasStoredMessages(chat.Id);
 
     partial void OnActiveChatIdChanged(Guid? value)
     {

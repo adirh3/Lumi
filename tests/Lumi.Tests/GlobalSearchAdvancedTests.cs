@@ -444,7 +444,7 @@ public class GlobalSearchAdvancedTests
             var truncated = Path.Combine(dir, "truncated.bin");
             using (var writer = new BinaryWriter(File.Create(truncated), Encoding.UTF8))
             {
-                writer.Write("LCI2");
+                writer.Write("LCI3");
                 writer.Write(int.MaxValue);
             }
             Assert.Equal(0, service.LoadChatContentIndex(truncated));

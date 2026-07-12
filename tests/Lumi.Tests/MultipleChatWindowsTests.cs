@@ -381,6 +381,36 @@ public sealed class MultipleChatWindowsTests
     }
 
     [Fact]
+    public async Task ChatSessionStore_SharesSingleOrchestrationServiceAcrossSurfaces()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var chatA = new Chat { Title = "Chat A" };
+            var chatB = new Chat { Title = "Chat B" };
+            using var registry = new ChatSurfaceRegistry();
+            using var store = new ChatSessionStore(CreateDataStore(chatA, chatB), new CopilotService(), registry);
+
+            // The store owns exactly one orchestration backend for its whole lifetime, so every surface
+            // (i.e. every window sharing this store) drives the same manage_chats instance and no single
+            // consumer can null or dispose it out from under the others.
+            var service = store.OrchestrationService;
+            Assert.NotNull(service);
+
+            var surfaceA = await store.AcquireChatAsync(chatA);
+            var surfaceB = await store.AcquireChatAsync(chatB);
+            Assert.Same(service, surfaceA.OrchestrationService);
+            Assert.Same(service, surfaceB.OrchestrationService);
+
+            // Releasing a surface (e.g. closing a window) must not swap or drop the shared service.
+            store.Release(surfaceB);
+            store.Release(surfaceA);
+            Assert.Same(service, store.OrchestrationService);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task ChatSessionStore_SerializesConcurrentAcquireLoadForSamePersistedChat()
     {
         var chat = new Chat { Title = "Concurrent shared chat" };

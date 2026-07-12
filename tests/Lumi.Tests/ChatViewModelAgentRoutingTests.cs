@@ -177,6 +177,126 @@ public sealed class ChatViewModelAgentRoutingTests
     }
 
     [Fact]
+    public void ResolvePersistedReasoningEffortForChat_DropsEffort_ForEffortLessModel_WhenCatalogLoaded()
+    {
+        // Regression guard for the manage_chats send/create override on effort-less models (e.g.
+        // claude-sonnet-4.5). With a loaded catalog, a stored/global effort must NOT be forwarded to a model
+        // that has no reasoning-effort support — doing so errors the turn on session setup (and is swallowed on a
+        // mid-session switch, silently keeping the previous model and defeating the model override).
+        var targetChat = new Chat { Id = Guid.NewGuid(), Title = "Job chat" };
+        var visibleChat = CreateChatWithMessage("Visible chat");
+        using var harness = CreateHarness(new AppData
+        {
+            Settings = new UserSettings { ReasoningEffort = "high" },
+            Chats = [targetChat, visibleChat]
+        });
+        harness.ViewModel.UpdateModelCapabilities([CreateModel("effort-capable", "low", "medium", "high")]);
+        harness.ViewModel.CurrentChat = visibleChat;
+
+        var effort = harness.ViewModel.ResolvePersistedReasoningEffortForChat(targetChat, modelId: "effort-less");
+
+        Assert.Null(effort);
+    }
+
+    [Fact]
+    public void ResolvePersistedReasoningEffortForChat_KeepsEffort_ForEffortCapableModel_WhenCatalogLoaded()
+    {
+        var targetChat = new Chat { Id = Guid.NewGuid(), Title = "Job chat" };
+        var visibleChat = CreateChatWithMessage("Visible chat");
+        using var harness = CreateHarness(new AppData
+        {
+            Settings = new UserSettings { ReasoningEffort = "low" },
+            Chats = [targetChat, visibleChat]
+        });
+        harness.ViewModel.UpdateModelCapabilities([CreateModel("effort-capable", "low", "medium", "high")]);
+        harness.ViewModel.CurrentChat = visibleChat;
+
+        var effort = harness.ViewModel.ResolvePersistedReasoningEffortForChat(targetChat, modelId: "effort-capable");
+
+        Assert.Equal("low", effort);
+    }
+
+    [Fact]
+    public void ResolvePersistedReasoningEffortForChat_DropsEffort_ForEffortLessModel_WhenChatIsCurrentSurface()
+    {
+        // The manage_chats orchestration executor loads the target chat as its OWN CurrentChat, so
+        // ResolvePersistedReasoningEffortForChat takes the CurrentChat branch (live UI preference) rather
+        // than the hidden-chat branch. That branch must STILL validate the effort against the resolved
+        // model: a stored "low" on an effort-less model such as claude-sonnet-4.5 must be dropped, not
+        // forwarded to the SDK (which errors the session on setup). Direct regression guard for the live
+        // bug where manage_chats create/send model=claude-sonnet-4.5 reasoningEffort=low errored the worker
+        // turn even though the model catalog was fully loaded — the older code returned the raw preference
+        // here and skipped model validation entirely.
+        var currentChat = new Chat
+        {
+            Id = Guid.NewGuid(),
+            Title = "Worker chat",
+            LastReasoningEffortUsed = "low",
+            Messages = [new Lumi.Models.ChatMessage { Role = "user", Content = "hello" }]
+        };
+        using var harness = CreateHarness(new AppData
+        {
+            Settings = new UserSettings { ReasoningEffort = "high" },
+            Chats = [currentChat]
+        });
+        harness.ViewModel.UpdateModelCapabilities([CreateModel("effort-capable", "low", "medium", "high")]);
+        harness.ViewModel.CurrentChat = currentChat;
+
+        var effort = harness.ViewModel.ResolvePersistedReasoningEffortForChat(currentChat, modelId: "effort-less");
+
+        Assert.Null(effort);
+    }
+
+    [Fact]
+    public void ResolvePersistedReasoningEffortForChat_KeepsEffort_ForEffortCapableModel_WhenChatIsCurrentSurface()
+    {
+        // Companion to the effort-less current-surface guard: the CurrentChat branch must still return a
+        // supported effort for a model that DOES support it, so an orchestrated create/send with a valid
+        // model+effort override isn't silently downgraded.
+        var currentChat = new Chat
+        {
+            Id = Guid.NewGuid(),
+            Title = "Worker chat",
+            LastReasoningEffortUsed = "low",
+            Messages = [new Lumi.Models.ChatMessage { Role = "user", Content = "hello" }]
+        };
+        using var harness = CreateHarness(new AppData
+        {
+            Settings = new UserSettings { ReasoningEffort = "high" },
+            Chats = [currentChat]
+        });
+        harness.ViewModel.UpdateModelCapabilities([CreateModel("effort-capable", "low", "medium", "high")]);
+        harness.ViewModel.CurrentChat = currentChat;
+
+        var effort = harness.ViewModel.ResolvePersistedReasoningEffortForChat(currentChat, modelId: "effort-capable");
+
+        Assert.Equal("low", effort);
+    }
+
+    [Fact]
+    public void ResolveReasoningEffortForModel_PreservesStoredEffort_WhenCatalogNotLoaded()
+    {
+        // Before the model catalog loads NormalizeEffort returns null for every model; the stored effort must be
+        // preserved so a pre-load selection/override isn't lost (distinct from a known effort-less model).
+        using var harness = CreateHarness(new AppData());
+
+        var effort = harness.ViewModel.ResolveReasoningEffortForModel("high", "any-model");
+
+        Assert.Equal("high", effort);
+    }
+
+    [Fact]
+    public void ResolveReasoningEffortForModel_DropsEffort_ForEffortLessModel_WhenCatalogLoaded()
+    {
+        using var harness = CreateHarness(new AppData());
+        harness.ViewModel.UpdateModelCapabilities([CreateModel("effort-capable", "low", "medium", "high")]);
+
+        var effort = harness.ViewModel.ResolveReasoningEffortForModel("high", "effort-less");
+
+        Assert.Null(effort);
+    }
+
+    [Fact]
     public void FindSkillReferenceByName_DoesNotResolveExternalSkills()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"lumi-fetch-skill-route-test-{Guid.NewGuid():N}");
@@ -260,6 +380,15 @@ public sealed class ChatViewModelAgentRoutingTests
             Messages = [new Lumi.Models.ChatMessage { Role = "user", Content = "hello" }]
         };
     }
+
+    private static GitHub.Copilot.ModelInfo CreateModel(string id, params string[] efforts)
+        => new()
+        {
+            Id = id,
+            Name = id,
+            SupportedReasoningEfforts = efforts.ToList(),
+            DefaultReasoningEffort = efforts.Length > 0 ? "high" : null
+        };
 
     private static List<AIFunction> InvokeBuildCustomTools(ChatViewModel viewModel)
     {

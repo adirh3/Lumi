@@ -45,3 +45,5 @@ publish/
 
 ## Local diagnostic captures
 diagnostics/
+.qa-lumi-debug.log
+*.qa-lumi-debug.log
