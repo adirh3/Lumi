@@ -2591,7 +2591,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         PromptText = snapshot.PromptText;
         ReplacePendingAttachments(snapshot.PendingAttachments);
         ReplaceActiveSkills(snapshot.ActiveSkillIds, snapshot.ActiveExternalSkillNames, syncToChat: true);
-        ApplyAgentSelection(snapshot.AgentId, snapshot.SdkAgentName);
+        // Restore the visible/persisted selection without treating the draft agent as live routing.
+        // The explicit awaited reconciliation in CancelComposerEdit handles the session afterwards.
+        ApplyAgentSelection(snapshot.AgentId, snapshot.SdkAgentName, syncToChatAndSession: false);
         ApplyModelSelection(snapshot.SelectedModel, snapshot.SelectedReasoningEffort, snapshot.SelectedContextWindowTier);
         ReplaceActiveMcpSelection(snapshot.ActiveMcpServerNames, syncToChat: true);
 
@@ -2617,10 +2619,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private void CancelComposerEdit()
-        => CancelComposerEditInternal(restoreComposer: true, focusComposer: true);
+    private async Task CancelComposerEdit()
+    {
+        var snapshot = CancelComposerEditInternal(restoreComposer: true, focusComposer: true);
+        if (snapshot is not null)
+            await ReconcileSessionAgentSelectionAsync(snapshot);
+    }
 
-    private void CancelComposerEditInternal(bool restoreComposer, bool focusComposer)
+    private ComposerEditSnapshot? CancelComposerEditInternal(bool restoreComposer, bool focusComposer)
     {
         var snapshot = _preEditComposerSnapshot;
         _editingUserMessage = null;
@@ -2633,6 +2639,35 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         if (focusComposer)
             FocusComposerRequested?.Invoke();
+
+        return snapshot;
+    }
+
+    /// <summary>Re-applies the pre-edit agent route after Cancel. State restoration above is
+    /// deliberately side-effect-free, so draft agent state can never trigger a spurious deselect;
+    /// this awaited step makes the live session explicitly match the restored snapshot.</summary>
+    private async Task ReconcileSessionAgentSelectionAsync(ComposerEditSnapshot snapshot)
+    {
+        if (_activeSession is null)
+            return;
+
+        if (snapshot.AgentId is { } agentId)
+        {
+            var agent = _dataStore.Data.Agents.FirstOrDefault(candidate => candidate.Id == agentId);
+            if (agent is not null)
+            {
+                await SelectAgentOnSessionAsync(agent.Name);
+                return;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(snapshot.SdkAgentName))
+        {
+            await SelectAgentOnSessionAsync(snapshot.SdkAgentName);
+            return;
+        }
+
+        await DeselectAgentOnSessionAsync();
     }
 
     private async Task SendEditedMessage()

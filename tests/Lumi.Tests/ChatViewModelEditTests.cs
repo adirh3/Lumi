@@ -1,4 +1,5 @@
 using System.Reflection;
+using CommunityToolkit.Mvvm.Input;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -312,6 +313,38 @@ public sealed class ChatViewModelEditTests
 
         viewModel.SetActiveAgent(agent);
         Assert.True(InvokeDiverges(viewModel, snapshot));
+    }
+
+    [Fact]
+    public async Task CancelComposerEdit_SdkAgentToDraftLumiAgent_RestoresSdkAgent()
+    {
+        var draftAgent = new LumiAgent { Id = Guid.NewGuid(), Name = "Draft Lumi Agent" };
+        var message = new ChatMessage { Role = "user", Content = "Original message" };
+        var chat = new Chat
+        {
+            Id = Guid.NewGuid(),
+            SdkAgentName = "sdk-reviewer",
+            Messages = [message]
+        };
+        var appData = new AppData { Chats = [chat], Agents = [draftAgent] };
+        var viewModel = new ChatViewModel(new DataStore(appData), new CopilotService())
+        {
+            CurrentChat = chat,
+            SelectedSdkAgentName = chat.SdkAgentName
+        };
+
+        InvokeBeginComposerEdit(viewModel, message);
+        viewModel.SelectedAgentName = draftAgent.Name;
+        Assert.Same(draftAgent, viewModel.ActiveAgent);
+        Assert.Null(viewModel.SelectedSdkAgentName);
+
+        var command = Assert.IsAssignableFrom<IAsyncRelayCommand>(viewModel.CancelComposerEditCommand);
+        await command.ExecuteAsync(null);
+
+        Assert.Null(viewModel.ActiveAgent);
+        Assert.Equal("sdk-reviewer", viewModel.SelectedSdkAgentName);
+        Assert.Equal("sdk-reviewer", chat.SdkAgentName);
+        Assert.Null(chat.AgentId);
     }
 
     private static object CaptureSnapshot(ChatViewModel viewModel)
