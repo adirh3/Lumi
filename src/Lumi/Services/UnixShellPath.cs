@@ -33,6 +33,7 @@ internal static class UnixShellPath
     private const string PathStartMarker = "__LUMI_PATH_START__";
     private const string PathEndMarker = "__LUMI_PATH_END__";
     private const int ProbeTimeoutMs = 4000;
+    private const int ProcessReapTimeoutMs = 500;
 
     /// <summary>
     /// Warms the login-shell PATH probe on a background thread so the first real consumer — which may be
@@ -159,15 +160,20 @@ internal static class UnixShellPath
 
             if (!drained.Wait(ProbeTimeoutMs))
             {
-                try { process.Kill(entireProcessTree: true); } catch { /* best-effort */ }
+                TerminateAndReap(process);
                 // After Kill the pipes EOF and the drain finishes; observe it so a late fault never
                 // surfaces as an unobserved task exception.
                 _ = drained.ContinueWith(static t => { _ = t.Exception; }, TaskScheduler.Default);
                 return null;
             }
 
-            // Streams hit EOF, so the shell has effectively finished; reap it quickly.
-            try { process.WaitForExit(500); } catch { /* best-effort */ }
+            // EOF normally means the shell is exiting, but require it to do so before accepting the
+            // result. A profile can close both redirected streams and keep the shell alive.
+            if (!process.WaitForExit(ProcessReapTimeoutMs))
+            {
+                TerminateAndReap(process);
+                return null;
+            }
 
             var stdout = stdoutTask.Result;
             var start = stdout.IndexOf(PathStartMarker, StringComparison.Ordinal);
@@ -183,6 +189,12 @@ internal static class UnixShellPath
         {
             return null;
         }
+    }
+
+    private static void TerminateAndReap(Process process)
+    {
+        try { process.Kill(entireProcessTree: true); } catch { /* best-effort */ }
+        try { process.WaitForExit(ProcessReapTimeoutMs); } catch { /* best-effort */ }
     }
 
     private static IEnumerable<string> GetCommonToolDirectories()

@@ -1619,6 +1619,19 @@ public partial class ChatViewModel
     private void OpenInIDE()
     {
         var dir = GetEffectiveWorkingDirectory();
+        if (OperatingSystem.IsWindows())
+        {
+            OpenInIdeCore(dir);
+            return;
+        }
+
+        // Login-shell PATH discovery is bounded but can take several seconds. Keep it off the UI
+        // thread when launching an IDE immediately after startup.
+        _ = Task.Run(() => OpenInIdeCore(dir));
+    }
+
+    private static void OpenInIdeCore(string dir)
+    {
         try
         {
             // On Windows, UseShellExecute resolves the "code" launcher via App Paths. On macOS/Linux

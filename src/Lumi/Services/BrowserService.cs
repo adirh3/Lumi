@@ -2529,6 +2529,7 @@ public sealed partial class BrowserService : IAsyncDisposable
 public sealed class BrowserService : IAsyncDisposable
 {
     private const string NotSupported = "The embedded browser is only available on Windows.";
+    private const int WebViewInvalidStateHResult = unchecked((int)0x8007139F);
 
 #pragma warning disable CS0067 // Part of the shared API surface; never raised in the stub.
     public event Action? BrowserReady;
@@ -2539,6 +2540,17 @@ public sealed class BrowserService : IAsyncDisposable
     public string CurrentTitle => "";
     public bool IsInitialized => false;
     public bool HasController => false;
+
+    internal static bool IsWebViewInvalidState(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is COMException { HResult: WebViewInvalidStateHResult })
+                return true;
+        }
+
+        return false;
+    }
 
     public void SetTheme(bool isDark) { }
     public void SetControllerVisible(bool visible) { }

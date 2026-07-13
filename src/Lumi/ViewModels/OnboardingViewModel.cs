@@ -537,13 +537,7 @@ public partial class OnboardingViewModel : ObservableObject
         var results = new List<string>();
         try
         {
-            var paths = new[]
-            {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Google\Chrome\User Data\Default\Bookmarks"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Microsoft\Edge\User Data\Default\Bookmarks"),
-            };
-
-            foreach (var path in paths)
+            foreach (var path in GetChromiumDefaultProfileFiles("Bookmarks"))
             {
                 if (!File.Exists(path)) continue;
                 try
@@ -561,6 +555,38 @@ public partial class OnboardingViewModel : ObservableObject
         return results.Count == 0
             ? "No bookmarks found."
             : $"Found {results.Count} bookmarks:\n{string.Join("\n", results)}";
+    }
+
+    private static string[] GetChromiumDefaultProfileFiles(string fileName)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        if (OperatingSystem.IsWindows())
+        {
+            var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            return
+            [
+                Path.Combine(local, "Google", "Chrome", "User Data", "Default", fileName),
+                Path.Combine(local, "Microsoft", "Edge", "User Data", "Default", fileName),
+            ];
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            var applicationSupport = Path.Combine(home, "Library", "Application Support");
+            return
+            [
+                Path.Combine(applicationSupport, "Google", "Chrome", "Default", fileName),
+                Path.Combine(applicationSupport, "Microsoft Edge", "Default", fileName),
+            ];
+        }
+
+        var config = Path.Combine(home, ".config");
+        return
+        [
+            Path.Combine(config, "google-chrome", "Default", fileName),
+            Path.Combine(config, "microsoft-edge", "Default", fileName),
+        ];
     }
 
     private Task<string> ScanRecentFilesAsync(CancellationToken ct)
@@ -653,13 +679,7 @@ public partial class OnboardingViewModel : ObservableObject
         var domainCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            var historyPaths = new[]
-            {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Microsoft\Edge\User Data\Default\History"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Google\Chrome\User Data\Default\History"),
-            };
-
-            foreach (var histPath in historyPaths)
+            foreach (var histPath in GetChromiumDefaultProfileFiles("History"))
             {
                 if (!File.Exists(histPath)) continue;
                 try
@@ -684,7 +704,8 @@ public partial class OnboardingViewModel : ObservableObject
                     await File.WriteAllTextAsync(scriptFile, script, ct);
                     try
                     {
-                        var output = await RunPowerShellAsync($"python \"{scriptFile}\"", ct);
+                        var python = OperatingSystem.IsWindows() ? "python" : "python3";
+                        var output = await RunPowerShellAsync($"{python} \"{scriptFile}\"", ct);
                         foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                         {
                             var spaceIdx = line.IndexOf(' ');
@@ -1044,6 +1065,9 @@ public partial class OnboardingViewModel : ObservableObject
                 RedirectStandardOutput = true, RedirectStandardError = true,
                 UseShellExecute = false, CreateNoWindow = true
             };
+
+        if (!OperatingSystem.IsWindows())
+            UnixShellPath.ApplyTo(startInfo);
 
         using var process = new Process { StartInfo = startInfo };
         try { process.Start(); }
