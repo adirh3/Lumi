@@ -25,8 +25,8 @@ class Program
     /// <summary>Parsed options for the UI responsiveness harness (enabled via CLI flag, debug only).</summary>
     public static UiPerf.UiHarnessOptions? UiHarnessOptions { get; private set; }
 
-    /// <summary>When true, runs the DEBUG-only ProgressBar animation retention repro once the window opens.</summary>
-    public static bool ProgressBarLeakReproEnabled { get; private set; }
+    /// <summary>When true, runs the DEBUG-only animation lifecycle retention proof once the window opens.</summary>
+    public static bool AnimationLifecycleLeakReproEnabled { get; private set; }
 #endif
 
     [STAThread]
@@ -53,10 +53,10 @@ class Program
             SkipOnboarding = true;
         }
 
-        // ProgressBar animation retention repro — boots the real headed app (needs a real Compositor),
+        // Animation lifecycle retention proof — boots the real headed app (needs a real Compositor),
         // runs in an isolated app-data dir, and skips onboarding on the fresh data dir.
-        ProgressBarLeakReproEnabled = args.Any(ProgressBarLeakRepro.IsFlag);
-        if (ProgressBarLeakReproEnabled)
+        AnimationLifecycleLeakReproEnabled = args.Any(AnimationLifecycleLeakRepro.IsFlag);
+        if (AnimationLifecycleLeakReproEnabled)
         {
             AttachParentConsole();
             EnsureIsolatedUiHarnessAppDataDir();

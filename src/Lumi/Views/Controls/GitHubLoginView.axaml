@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sa="using:StrataTheme.Animation"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.Controls.GitHubLoginView"
@@ -9,12 +10,12 @@
   <UserControl.Styles>
     <!-- Pulsing dot animation for "waiting" state -->
     <Style Selector="Border.login-pulse">
-      <Style.Animations>
-        <Animation Duration="0:0:1.2" IterationCount="INFINITE" PlaybackDirection="Alternate" Easing="SineEaseInOut">
-          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.3" /></KeyFrame>
-          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1.0" /></KeyFrame>
-        </Animation>
-      </Style.Animations>
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.3" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.2" />
+      <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+      <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
   </UserControl.Styles>
 

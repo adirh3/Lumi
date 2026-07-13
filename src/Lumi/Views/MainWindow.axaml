@@ -284,12 +284,11 @@
       <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
     <Style Selector="Border#PillBusyDot">
-      <Style.Animations>
-        <Animation Duration="0:0:1.2" IterationCount="INFINITE" PlaybackDirection="Alternate">
-          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
-          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.3"/></KeyFrame>
-        </Animation>
-      </Style.Animations>
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.3" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.2" />
+      <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
 
     <Style Selector="ScrollViewer.hover-scroll ScrollBar">
@@ -752,12 +751,11 @@
                                           IsVisible="{Binding IsRunning}">
                                     <Border.Styles>
                                       <Style Selector="Border#BusyIndicator">
-                                        <Style.Animations>
-                                          <Animation Duration="0:0:1.2" IterationCount="INFINITE" PlaybackDirection="Alternate">
-                                            <KeyFrame Cue="0%"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
-                                            <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.3"/></KeyFrame>
-                                          </Animation>
-                                        </Style.Animations>
+                                        <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+                                        <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.3" />
+                                        <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.2" />
+                                        <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+                                        <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
                                       </Style>
                                     </Border.Styles>
                                   </Border>
@@ -935,12 +933,11 @@
                               <Setter Property="IsVisible" Value="False" />
                             </Style>
                             <Style Selector="Border#ProjectBusyIndicator">
-                              <Style.Animations>
-                                <Animation Duration="0:0:1.2" IterationCount="INFINITE" PlaybackDirection="Alternate">
-                                  <KeyFrame Cue="0%"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
-                                  <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.3"/></KeyFrame>
-                                </Animation>
-                              </Style.Animations>
+                              <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+                              <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.3" />
+                              <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.2" />
+                              <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+                              <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
                             </Style>
                           </Border.Styles>
                         </Border>

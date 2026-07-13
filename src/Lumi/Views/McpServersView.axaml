@@ -170,13 +170,12 @@
                      Foreground="{DynamicResource Brush.TextTertiary}">
             <TextBlock.Styles>
               <Style Selector="TextBlock">
-                <Style.Animations>
-                  <Animation Duration="0:0:0.8" IterationCount="Infinite"
-                             PlaybackDirection="Alternate" Easing="SineEaseInOut">
-                    <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.3" /></KeyFrame>
-                    <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1" /></KeyFrame>
-                  </Animation>
-                </Style.Animations>
+                <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.3" />
+                <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="1" />
+                <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:0.8" />
+                <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+                <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
+                <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
               </Style>
             </TextBlock.Styles>
           </TextBlock>

@@ -185,8 +185,8 @@ public partial class App : Application
                 if (Program.UiHarnessOptions is { Enabled: true } uiHarnessOptions)
                     StartUiResponsivenessHarness(desktop, vm, dataStore, uiHarnessOptions);
 
-                if (Program.ProgressBarLeakReproEnabled)
-                    ProgressBarLeakRepro.Start(desktop);
+                if (Program.AnimationLifecycleLeakReproEnabled)
+                    AnimationLifecycleLeakRepro.Start(desktop);
 #endif
             };
 

@@ -211,13 +211,11 @@
     </Style>
     <!-- In-flight steer: gently pulsing dot signals the message is being delivered. -->
     <Style Selector="Border.steer-pill.steering Ellipse.steer-dot">
-      <Style.Animations>
-        <Animation Duration="0:0:1.1" IterationCount="INFINITE" Easing="SineEaseInOut">
-          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="1" /></KeyFrame>
-          <KeyFrame Cue="50%"><Setter Property="Opacity" Value="0.25" /></KeyFrame>
-          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1" /></KeyFrame>
-        </Animation>
-      </Style.Animations>
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.25" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.1" />
+      <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
     <!-- Failed steer: danger treatment. -->
     <Style Selector="Border.steer-pill.failed">
@@ -461,33 +459,27 @@
       <Setter Property="Height" Value="30" />
     </Style>
     <Style Selector="Border.suggestion-pill.pill-a">
-      <Style.Animations>
-        <Animation Duration="0:0:0.95" IterationCount="INFINITE">
-          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.3" /></KeyFrame>
-          <KeyFrame Cue="38%"><Setter Property="Opacity" Value="0.6" /></KeyFrame>
-          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.3" /></KeyFrame>
-        </Animation>
-      </Style.Animations>
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.3" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.6" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:0.95" />
+      <Setter Property="sa:LifecycleOpacityPulse.PeakAt" Value="0.38" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
     <Style Selector="Border.suggestion-pill.pill-b">
-      <Style.Animations>
-        <Animation Duration="0:0:0.95" IterationCount="INFINITE">
-          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.3" /></KeyFrame>
-          <KeyFrame Cue="18%"><Setter Property="Opacity" Value="0.3" /></KeyFrame>
-          <KeyFrame Cue="56%"><Setter Property="Opacity" Value="0.6" /></KeyFrame>
-          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.3" /></KeyFrame>
-        </Animation>
-      </Style.Animations>
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.3" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.6" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:0.95" />
+      <Setter Property="sa:LifecycleOpacityPulse.HoldUntil" Value="0.18" />
+      <Setter Property="sa:LifecycleOpacityPulse.PeakAt" Value="0.56" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
     <Style Selector="Border.suggestion-pill.pill-c">
-      <Style.Animations>
-        <Animation Duration="0:0:0.95" IterationCount="INFINITE">
-          <KeyFrame Cue="0%"><Setter Property="Opacity" Value="0.3" /></KeyFrame>
-          <KeyFrame Cue="36%"><Setter Property="Opacity" Value="0.3" /></KeyFrame>
-          <KeyFrame Cue="74%"><Setter Property="Opacity" Value="0.6" /></KeyFrame>
-          <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.3" /></KeyFrame>
-        </Animation>
-      </Style.Animations>
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.3" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.6" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:0.95" />
+      <Setter Property="sa:LifecycleOpacityPulse.HoldUntil" Value="0.36" />
+      <Setter Property="sa:LifecycleOpacityPulse.PeakAt" Value="0.74" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
 
     <!-- ── Ctrl+F search bar ── -->
@@ -1726,12 +1718,11 @@
                     Background="{DynamicResource Brush.AccentDefault}" VerticalAlignment="Center">
               <Border.Styles>
                 <Style Selector="Border#GitRefreshDot">
-                  <Style.Animations>
-                    <Animation Duration="0:0:0.9" IterationCount="INFINITE" PlaybackDirection="Alternate">
-                      <KeyFrame Cue="0%"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
-                      <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.25"/></KeyFrame>
-                    </Animation>
-                  </Style.Animations>
+                  <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+                  <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.25" />
+                  <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:0.9" />
+                  <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+                  <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
                 </Style>
               </Border.Styles>
             </Border>
