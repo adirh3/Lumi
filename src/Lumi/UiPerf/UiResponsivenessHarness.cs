@@ -392,6 +392,7 @@ internal sealed class UiResponsivenessHarness
                 offsetY: 8d,
                 viewportHeight: 720d,
                 extentHeight: 12000d,
+                isFollowingTail: false,
                 isPinnedToBottom: false,
                 distanceFromBottom: 11000d));
             await DrainAsync(DispatcherPriority.Render);

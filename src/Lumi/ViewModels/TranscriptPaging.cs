@@ -207,6 +207,7 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
     private int _lastMountedPageIndex = -1;
     private bool _disposed;
     private string _diagnosticsText = string.Empty;
+    private bool _isFollowingTail = true;
     private bool _isPinnedToBottom = true;
     private double _distanceFromBottom;
     private int _pageLoadCount;
@@ -240,6 +241,8 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         get => _isPinnedToBottom;
         private set => SetProperty(ref _isPinnedToBottom, value);
     }
+
+    public bool IsFollowingTail => _isFollowingTail;
 
     public double DistanceFromBottom
     {
@@ -299,6 +302,7 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
     {
         viewportHeight = SanitizeViewportHeight(viewportHeight);
         var stopwatch = Stopwatch.StartNew();
+        _isFollowingTail = true;
 
         RebuildPages();
         if (_pages.Count == 0)
@@ -386,8 +390,18 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
     }
 
     public TranscriptWindowMutation UpdateViewport(TranscriptViewportState state, string reason)
+        => UpdateViewport(state, state.IsPinnedToBottom, reason);
+
+    public TranscriptWindowMutation UpdateViewport(
+        TranscriptViewportState state,
+        bool isFollowingTail,
+        string reason)
     {
-        UpdatePinnedState(state.IsPinnedToBottom, state.DistanceFromBottom, $"viewport:{reason}");
+        UpdateScrollState(
+            isFollowingTail,
+            state.IsPinnedToBottom,
+            state.DistanceFromBottom,
+            $"viewport:{reason}");
 
         if (_pages.Count == 0 || MountedPageCount == 0)
             return TranscriptWindowMutation.None;
@@ -459,12 +473,20 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
     }
 
     public void UpdatePinnedState(bool isPinnedToBottom, double distanceFromBottom, string reason)
+        => UpdateScrollState(isPinnedToBottom, isPinnedToBottom, distanceFromBottom, reason);
+
+    public void UpdateScrollState(
+        bool isFollowingTail,
+        bool isPinnedToBottom,
+        double distanceFromBottom,
+        string reason)
     {
-        var changed = IsPinnedToBottom != isPinnedToBottom;
+        var changed = _isFollowingTail != isFollowingTail || IsPinnedToBottom != isPinnedToBottom;
+        _isFollowingTail = isFollowingTail;
         IsPinnedToBottom = isPinnedToBottom;
         DistanceFromBottom = distanceFromBottom;
         if (changed)
-            UpdateDiagnostics("pinned", reason);
+            UpdateDiagnostics("scroll-state", reason);
     }
 
     /// <summary>
@@ -474,6 +496,8 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
     /// </summary>
     public bool EnsureLatestMounted(string reason)
     {
+        _isFollowingTail = true;
+
         if (_pages.Count == 0)
             return false;
 
@@ -543,6 +567,9 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
 
         if (targetPageIndex < 0) return false;
 
+        if (targetPageIndex < _pages.Count - 1)
+            _isFollowingTail = false;
+
         if (targetPageIndex >= _firstMountedPageIndex && targetPageIndex <= _lastMountedPageIndex)
             return false; // Already mounted
 
@@ -603,10 +630,7 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
             return;
 
         var previousPageCount = _pages.Count;
-        var wasMountedToLatestTail = previousPageCount > 0
-            && _lastMountedPageIndex >= 0
-            && _lastMountedPageIndex >= previousPageCount - 1;
-        var shouldTrackLatestTail = IsPinnedToBottom && wasMountedToLatestTail;
+        var shouldTrackLatestTail = _isFollowingTail;
         RebuildPages();
 
         if (_pages.Count == 0)
@@ -906,7 +930,8 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
             .Append(" | mounted turns ").Append(snapshot.MountedTurnCount)
             .Append(" | mounted items ").Append(snapshot.MountedItemCount)
             .AppendLine();
-        builder.Append("pinned ").Append(snapshot.IsPinnedToBottom)
+        builder.Append("following ").Append(IsFollowingTail)
+            .Append(" | pinned ").Append(snapshot.IsPinnedToBottom)
             .Append(" | dist ").Append(snapshot.DistanceFromBottom.ToString("0.0"))
             .Append(" | loads ").Append(snapshot.PageLoadCount)
             .Append(" | unloads ").Append(snapshot.PageUnloadCount)

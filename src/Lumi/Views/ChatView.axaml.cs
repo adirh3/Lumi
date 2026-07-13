@@ -538,7 +538,10 @@ public partial class ChatView : UserControl
         if (_subscribedVm is null || _chatShell is null)
             return;
 
-        _subscribedVm.UpdateTranscriptPinnedState(_chatShell.IsPinnedToBottom, _chatShell.CurrentDistanceFromBottom);
+        _subscribedVm.UpdateTranscriptScrollState(
+            _chatShell.IsFollowingTail,
+            _chatShell.IsPinnedToBottom,
+            _chatShell.CurrentDistanceFromBottom);
     }
 
     private void OnJumpToLatestRequested() => JumpToLatest(focusComposer: false);
@@ -547,6 +550,7 @@ public partial class ChatView : UserControl
     {
         _subscribedVm?.EnsureLatestTranscriptMounted();
         _chatShell?.JumpToLatest();
+        SyncTranscriptPinnedState();
         Dispatcher.UIThread.Post(SyncTranscriptPinnedState, DispatcherPriority.Loaded);
 
         if (focusComposer)
@@ -583,7 +587,10 @@ public partial class ChatView : UserControl
             _lastObservedCurrentChat = currentChat;
 
             if (chatReferenceChanged && currentChat is not null)
+            {
                 _chatShell?.EnterFollowTailMode();
+                SyncTranscriptPinnedState();
+            }
         }
 
         if (e.PropertyName == nameof(ChatViewModel.IsChatSurfaceLoading))
@@ -774,7 +781,10 @@ public partial class ChatView : UserControl
         if (_subscribedVm is null)
             return;
 
-        _subscribedVm.UpdateTranscriptPinnedState(e.IsPinnedToBottom, e.DistanceFromBottom);
+        _subscribedVm.UpdateTranscriptScrollState(
+            _chatShell?.IsFollowingTail ?? e.IsPinnedToBottom,
+            e.IsPinnedToBottom,
+            e.DistanceFromBottom);
 
         if (_isTranscriptScrollbarDragging)
         {
@@ -833,6 +843,7 @@ public partial class ChatView : UserControl
                         _chatShell.VerticalOffset,
                         _chatShell.ViewportHeight,
                         _chatShell.ExtentHeight,
+                        _chatShell.IsFollowingTail,
                         _chatShell.IsPinnedToBottom,
                         _chatShell.CurrentDistanceFromBottom);
                 }
