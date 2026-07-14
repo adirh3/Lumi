@@ -304,6 +304,82 @@ public sealed class ChatViewScrollBehaviorTests
     }
 
     [Fact]
+    public async Task StreamingTailWhileFollowing_RemountsDuringTransientUnpin()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var chat = CreateLongChat(pairCount: 28);
+            var data = new AppData
+            {
+                Settings = new UserSettings
+                {
+                    AutoSaveChats = false,
+                    EnableMemoryAutoSave = false
+                }
+            };
+            data.Chats.Add(chat);
+
+            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+            var view = new ChatView { DataContext = viewModel };
+            var window = new Window
+            {
+                Width = 1100,
+                Height = 820,
+                Content = view,
+            };
+
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                await PumpAsync();
+
+                await viewModel.LoadChatAsync(chat);
+                await WaitUntilAsync(() => view.FindControl<StrataChatShell>("ChatShell")?.TranscriptScrollViewer is not null);
+
+                var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
+                shell.JumpToLatest();
+                await PumpAsync();
+
+                Assert.True(shell.IsFollowingTail);
+
+                // Layout growth can temporarily move the viewport outside the bottom tolerance even
+                // though the shell still intends to follow. Reproduce that brief state deterministically.
+                viewModel.UpdateTranscriptScrollState(
+                    isFollowingTail: true,
+                    isPinnedToBottom: false,
+                    distanceFromBottom: 240);
+                var beforeAppend = viewModel.CaptureTranscriptDiagnostics();
+                Assert.False(beforeAppend.IsPinnedToBottom);
+
+                TranscriptTurn? assistantTurn = null;
+                TranscriptWindowDiagnosticsSnapshot afterAppend = default;
+                for (var i = 0; i < 4 && afterAppend.TotalPageCount <= beforeAppend.TotalPageCount; i++)
+                {
+                    assistantTurn = CreateCompletedAssistantTailTurn($"turn:test-streaming-tail:{i}");
+                    viewModel.TranscriptTurns.Add(assistantTurn);
+                    afterAppend = viewModel.CaptureTranscriptDiagnostics();
+                }
+
+                await PumpAsync();
+
+                Assert.NotNull(assistantTurn);
+                Assert.True(afterAppend.TotalPageCount > beforeAppend.TotalPageCount);
+                Assert.True(shell.IsFollowingTail);
+                Assert.Contains(
+                    viewModel.MountedTranscriptTurns,
+                    turn => turn.StableId == assistantTurn.StableId);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task ScrollbarThumbDrag_DefersViewportPagingUntilReleaseOrCaptureLoss()
     {
         using var session = HeadlessTestSession.Start();
@@ -439,9 +515,10 @@ public sealed class ChatViewScrollBehaviorTests
             && Math.Abs(highlight.Width - target.Bounds.Width) < 0.5;
     }
 
-    private static TranscriptTurn CreateCompletedAssistantTailTurn()
+    private static TranscriptTurn CreateCompletedAssistantTailTurn(
+        string stableId = "turn:test-completed-assistant-tail")
     {
-        var turn = new TranscriptTurn("turn:test-completed-assistant-tail");
+        var turn = new TranscriptTurn(stableId);
         for (var i = 0; i < 4; i++)
         {
             var message = new ChatMessage

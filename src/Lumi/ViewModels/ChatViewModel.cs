@@ -1244,6 +1244,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         double offsetY,
         double viewportHeight,
         double extentHeight,
+        bool isFollowingTail,
         bool isPinnedToBottom,
         double distanceFromBottom)
     {
@@ -1254,15 +1255,23 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 extentHeight,
                 isPinnedToBottom,
                 distanceFromBottom),
+            isFollowingTail,
             "scroll");
         if (ShowTranscriptDiagnostics)
             OnPropertyChanged(nameof(TranscriptDiagnosticsText));
         return mutation;
     }
 
-    internal void UpdateTranscriptPinnedState(bool isPinnedToBottom, double distanceFromBottom)
+    internal void UpdateTranscriptScrollState(
+        bool isFollowingTail,
+        bool isPinnedToBottom,
+        double distanceFromBottom)
     {
-        _transcriptWindow.UpdatePinnedState(isPinnedToBottom, distanceFromBottom, "scroll-state");
+        _transcriptWindow.UpdateScrollState(
+            isFollowingTail,
+            isPinnedToBottom,
+            distanceFromBottom,
+            "scroll-state");
     }
 
     internal bool EnsureLatestTranscriptMounted()
