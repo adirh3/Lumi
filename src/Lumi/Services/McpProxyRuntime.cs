@@ -461,17 +461,25 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
     private const int DiagnosticLineLimit = 8;
     private const int DiagnosticLineMaxLength = 500;
     private const int DiagnosticTextMaxLength = 2_000;
+    private const int InitializeRetryLimit = 1;
+    private const int SessionRecoveryRetryLimit = 1;
     private static readonly Regex SensitiveDiagnosticPattern = new(
         @"(?i)(authorization|token|api[_-]?key|secret|password)(\s*[=:]\s*)([^\s,;]+)",
         RegexOptions.Compiled);
     private static readonly Regex BearerDiagnosticPattern = new(
         @"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+",
         RegexOptions.Compiled);
+    private static readonly (int Code, string Message)[] RecoverableSessionLossErrors =
+    [
+        (-32_001, "Session not found"),
+        (-32_600, "Session terminated")
+    ];
 
     private readonly McpProxyServerDefinition _definition;
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
-    private readonly Dictionary<string, TaskCompletionSource<JsonElement>> _pending = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PendingRequest> _pending = new(StringComparer.Ordinal);
+    private readonly Dictionary<int, string?> _sessionRecoveryOutcomes = [];
     private readonly List<Task> _retiredIoTasks = [];
     private readonly object _diagnosticOutputLock = new();
     private readonly Queue<string> _recentStdout = new();
@@ -485,6 +493,10 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
     private Task? _stderrTask;
     private int _nextId;
     private int _processGeneration;
+    private int _sessionRecoveryAttempts;
+    private int _sessionRecoverySuccesses;
+    private int _sessionRecoveryFailures;
+    private JsonElement? _initializeParams;
     private JsonElement? _initializeResult;
     private bool _disposed;
 
@@ -526,9 +538,32 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
 
         try
         {
-            await EnsureInitializedAsync(null, cancellationToken).ConfigureAwait(false);
-            var response = await ForwardRequestAsync(message, cancellationToken).ConfigureAwait(false);
-            return JsonRpc.ReplaceId(response, clientId);
+            var canRetryAfterInterruption = CanRetryAfterSessionInterruption(method);
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    var (response, processGeneration) = await ForwardRequestAsync(message, cancellationToken).ConfigureAwait(false);
+                    if (!IsRecoverableSessionLossResponse(response))
+                        return JsonRpc.ReplaceId(response, clientId);
+
+                    await RecoverExpiredServerSessionAsync(processGeneration, cancellationToken).ConfigureAwait(false);
+                    if (!canRetryAfterInterruption || attempt >= SessionRecoveryRetryLimit)
+                        return JsonRpc.ReplaceId(response, clientId);
+                }
+                catch (McpServerSessionRetiredException ex)
+                    when (canRetryAfterInterruption && attempt < SessionRecoveryRetryLimit)
+                {
+                    await RecoverExpiredServerSessionAsync(ex.ProcessGeneration, cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+        catch (McpServerSessionRetiredException)
+        {
+            return JsonRpc.Error(
+                clientId,
+                -32000,
+                $"MCP server '{_definition.Name}' restarted while '{method ?? "unknown"}' was in flight. Its outcome is unknown, so Lumi did not retry it.");
         }
         catch (Exception ex)
         {
@@ -555,6 +590,7 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
             _stdin = null;
             _stdoutTask = null;
             _stderrTask = null;
+            _initializeParams = null;
             _initializeResult = null;
             _disposed = true;
             CompletePendingWithError(new ObjectDisposedException(_definition.Name));
@@ -594,28 +630,220 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            ThrowIfDisposed();
-            if (_initializeResult is { } current && IsProcessRunning(_process))
-                return current;
-
-            if (_process is not null && !IsProcessRunning(_process))
-                ResetStoppedProcess();
-
-            StartProcess();
-            var initParams = clientParams ?? JsonRpc.DefaultInitializeParams();
-            var initResponse = await SendRequestAsync("initialize", initParams, cancellationToken).ConfigureAwait(false);
-            if (!initResponse.TryGetProperty("result", out var result))
-                throw new InvalidOperationException($"MCP server '{_definition.Name}' did not return an initialize result.");
-
-            _initializeResult = result.Clone();
-            await SendNotificationAsync("notifications/initialized", null, cancellationToken).ConfigureAwait(false);
-            return _initializeResult.Value;
+            return await EnsureInitializedUnderLockAsync(clientParams, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _lifecycleLock.Release();
         }
     }
+
+    private async Task<JsonElement> EnsureInitializedUnderLockAsync(
+        JsonElement? clientParams,
+        CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+        if (_initializeResult is { } current && IsProcessRunning(_process))
+            return current;
+
+        if (_process is not null && !IsProcessRunning(_process))
+            ResetStoppedProcess();
+
+        StartProcess();
+        try
+        {
+            var initParams = clientParams ?? _initializeParams ?? JsonRpc.DefaultInitializeParams();
+            var initializedResult = await SendInitializeWithRetryAsync(initParams, cancellationToken).ConfigureAwait(false);
+            await SendNotificationAsync("notifications/initialized", null, cancellationToken).ConfigureAwait(false);
+            _initializeParams = initParams.Clone();
+            _initializeResult = initializedResult;
+            return initializedResult;
+        }
+        catch
+        {
+            RetireProcessAfterFailedInitialization();
+            throw;
+        }
+    }
+
+    private async Task<JsonElement> SendInitializeWithRetryAsync(
+        JsonElement initParams,
+        CancellationToken cancellationToken)
+    {
+        JsonElement initResponse;
+        for (var attempt = 0; ; attempt++)
+        {
+            initResponse = await SendRequestAsync("initialize", initParams, cancellationToken).ConfigureAwait(false);
+            if (initResponse.TryGetProperty("result", out _))
+                break;
+
+            if (attempt >= InitializeRetryLimit || !IsRetryableInitializeErrorResponse(initResponse))
+                throw new InvalidOperationException(BuildInitializeErrorMessage(initResponse));
+
+            Trace.TraceWarning(
+                "MCP server '{0}' returned a transient server error during initialization; retrying once.",
+                _definition.Name);
+        }
+
+        return initResponse.GetProperty("result").Clone();
+    }
+
+    internal static bool IsRetryableInitializeErrorResponse(JsonElement response)
+        => response.TryGetProperty("error", out var error)
+            && error.ValueKind == JsonValueKind.Object
+            && error.TryGetProperty("code", out var code)
+            && code.TryGetInt32(out var errorCode)
+            && errorCode is <= -32_000 and >= -32_099;
+
+    private string BuildInitializeErrorMessage(JsonElement response)
+    {
+        if (response.TryGetProperty("error", out var error)
+            && error.ValueKind == JsonValueKind.Object
+            && error.TryGetProperty("message", out var message)
+            && message.ValueKind == JsonValueKind.String
+            && !string.IsNullOrWhiteSpace(message.GetString()))
+        {
+            return $"MCP server '{_definition.Name}' failed to initialize: {message.GetString()!.Trim()}";
+        }
+
+        return $"MCP server '{_definition.Name}' did not return an initialize result.";
+    }
+
+    private async Task RecoverExpiredServerSessionAsync(int observedGeneration, CancellationToken cancellationToken)
+    {
+        await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ThrowIfDisposed();
+
+            if (_sessionRecoveryOutcomes.TryGetValue(observedGeneration, out var recoveryError))
+            {
+                if (recoveryError is not null)
+                    throw new IOException(recoveryError);
+                return;
+            }
+
+            // Another caller may already have recovered the shared process while this request waited.
+            if (observedGeneration != Volatile.Read(ref _processGeneration)
+                && _initializeResult is not null
+                && IsProcessRunning(_process))
+            {
+                return;
+            }
+
+            var attempts = Interlocked.Increment(ref _sessionRecoveryAttempts);
+            try
+            {
+                RestartProcessForExpiredSession();
+                StartProcess();
+
+                var initParams = _initializeParams ?? JsonRpc.DefaultInitializeParams();
+                var initializedResult = await SendInitializeWithRetryAsync(initParams, cancellationToken).ConfigureAwait(false);
+                await SendNotificationAsync("notifications/initialized", null, cancellationToken).ConfigureAwait(false);
+                _initializeResult = initializedResult;
+                _sessionRecoveryOutcomes[observedGeneration] = null;
+                var successes = Interlocked.Increment(ref _sessionRecoverySuccesses);
+                Trace.TraceInformation(
+                    "MCP server '{0}' session recovery succeeded. Attempts: {1}; successes: {2}; failures: {3}.",
+                    _definition.Name,
+                    attempts,
+                    successes,
+                    Volatile.Read(ref _sessionRecoveryFailures));
+            }
+            catch (Exception ex)
+            {
+                RestartProcessForExpiredSession();
+                _sessionRecoveryOutcomes[observedGeneration] = ex.Message;
+                var failures = Interlocked.Increment(ref _sessionRecoveryFailures);
+                Trace.TraceWarning(
+                    "MCP server '{0}' session recovery failed. Attempts: {1}; successes: {2}; failures: {3}.",
+                    _definition.Name,
+                    attempts,
+                    Volatile.Read(ref _sessionRecoverySuccesses),
+                    failures);
+                throw;
+            }
+        }
+        finally
+        {
+            _lifecycleLock.Release();
+        }
+    }
+
+    private void RestartProcessForExpiredSession()
+    {
+        var retiredGeneration = Volatile.Read(ref _processGeneration);
+        RetireCurrentProcess(
+            retiredGeneration,
+            new McpServerSessionRetiredException(_definition.Name, retiredGeneration));
+    }
+
+    private void RetireProcessAfterFailedInitialization()
+    {
+        var retiredGeneration = Volatile.Read(ref _processGeneration);
+        RetireCurrentProcess(
+            retiredGeneration,
+            new IOException($"MCP server '{_definition.Name}' initialization failed."));
+    }
+
+    private void RetireCurrentProcess(int retiredGeneration, Exception pendingError)
+    {
+        var process = _process;
+        var oldIoCts = _ioCts;
+        var oldStdoutTask = _stdoutTask;
+        var oldStderrTask = _stderrTask;
+
+        _process = null;
+        _stdin = null;
+        _stdoutTask = null;
+        _stderrTask = null;
+        _initializeResult = null;
+        _ioCts = new CancellationTokenSource();
+        CompletePendingWithErrorForGeneration(retiredGeneration, pendingError);
+
+        oldIoCts.Cancel();
+        if (process is not null)
+        {
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch { }
+
+            process.Dispose();
+        }
+
+        TrackRetiredIoTasks(oldIoCts, oldStdoutTask, oldStderrTask);
+    }
+
+    internal static bool IsRecoverableSessionLossResponse(JsonElement response)
+    {
+        if (!response.TryGetProperty("error", out var error)
+            || error.ValueKind != JsonValueKind.Object
+            || !error.TryGetProperty("code", out var code)
+            || !code.TryGetInt32(out var errorCode)
+            || !error.TryGetProperty("message", out var message)
+            || message.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        var errorMessage = message.GetString()?.Trim();
+        return RecoverableSessionLossErrors.Any(signature =>
+            errorCode == signature.Code
+            && string.Equals(errorMessage, signature.Message, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool CanRetryAfterSessionInterruption(string? method)
+        => method is "ping"
+            or "tools/list"
+            or "resources/list"
+            or "resources/templates/list"
+            or "resources/read"
+            or "prompts/list"
+            or "prompts/get"
+            or "completion/complete";
 
     private void StartProcess()
     {
@@ -798,6 +1026,7 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
     private void ResetStoppedProcess()
     {
         var process = _process;
+        var retiredGeneration = Volatile.Read(ref _processGeneration);
         var oldIoCts = _ioCts;
         var oldStdoutTask = _stdoutTask;
         var oldStderrTask = _stderrTask;
@@ -807,7 +1036,9 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         _stderrTask = null;
         _initializeResult = null;
         _ioCts = new CancellationTokenSource();
-        CompletePendingWithError(new IOException($"MCP server '{_definition.Name}' stopped."));
+        CompletePendingWithErrorForGeneration(
+            retiredGeneration,
+            new IOException($"MCP server '{_definition.Name}' stopped."));
 
         oldIoCts.Cancel();
         TrackRetiredIoTasks(oldIoCts, oldStdoutTask, oldStderrTask);
@@ -859,22 +1090,48 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         }
     }
 
-    private async Task<JsonElement> ForwardRequestAsync(JsonElement clientMessage, CancellationToken cancellationToken)
+    private async Task<(JsonElement Response, int ProcessGeneration)> ForwardRequestAsync(
+        JsonElement clientMessage,
+        CancellationToken cancellationToken)
     {
         var internalId = Interlocked.Increment(ref _nextId);
         var request = JsonRpc.WithId(clientMessage, internalId);
         var key = internalId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var tcs = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var processGeneration = 0;
+        var pendingRegistered = false;
 
-        lock (_pending)
-            _pending[key] = tcs;
+        await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await EnsureInitializedUnderLockAsync(null, cancellationToken).ConfigureAwait(false);
+            processGeneration = Volatile.Read(ref _processGeneration);
+            lock (_pending)
+                _pending[key] = new PendingRequest(processGeneration, tcs);
+            pendingRegistered = true;
+            await SendRawAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            if (pendingRegistered)
+            {
+                lock (_pending)
+                    _pending.Remove(key);
+            }
+
+            throw;
+        }
+        finally
+        {
+            _lifecycleLock.Release();
+        }
 
         try
         {
-            await SendRawAsync(request, cancellationToken).ConfigureAwait(false);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(_timeoutMilliseconds);
-            return await tcs.Task.WaitAsync(timeoutCts.Token).ConfigureAwait(false);
+            var response = await tcs.Task.WaitAsync(timeoutCts.Token).ConfigureAwait(false);
+            return (response, processGeneration);
         }
         finally
         {
@@ -889,9 +1146,10 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         var request = JsonRpc.Request(internalId, method, parameters);
         var key = internalId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var tcs = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var processGeneration = Volatile.Read(ref _processGeneration);
 
         lock (_pending)
-            _pending[key] = tcs;
+            _pending[key] = new PendingRequest(processGeneration, tcs);
 
         try
         {
@@ -909,10 +1167,18 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
 
     private async Task ForwardNotificationIfRunningAsync(JsonElement clientMessage, CancellationToken cancellationToken)
     {
-        if (_process is not { HasExited: false })
-            return;
+        await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_process is not { HasExited: false })
+                return;
 
-        await SendRawAsync(clientMessage.GetRawText(), cancellationToken).ConfigureAwait(false);
+            await SendRawAsync(clientMessage.GetRawText(), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycleLock.Release();
+        }
     }
 
     private async Task SendNotificationAsync(string method, JsonElement? parameters, CancellationToken cancellationToken)
@@ -978,8 +1244,19 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
 
     private void CompletePendingWithErrorForGeneration(int generation, Exception error)
     {
-        if (generation == Volatile.Read(ref _processGeneration))
-            CompletePendingWithError(error);
+        PendingRequest[] pending;
+        lock (_pending)
+        {
+            var matching = _pending
+                .Where(pair => pair.Value.ProcessGeneration == generation)
+                .ToArray();
+            pending = matching.Select(pair => pair.Value).ToArray();
+            foreach (var pair in matching)
+                _pending.Remove(pair.Key);
+        }
+
+        foreach (var request in pending)
+            request.Completion.TrySetException(error);
     }
 
     private void HandleServerLine(string line)
@@ -989,10 +1266,10 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         if (message.TryGetProperty("id", out var id) && !message.TryGetProperty("method", out _))
         {
             var key = JsonRpc.IdKey(id);
-            TaskCompletionSource<JsonElement>? tcs;
+            PendingRequest? pending;
             lock (_pending)
-                _pending.TryGetValue(key, out tcs);
-            tcs?.TrySetResult(message);
+                _pending.TryGetValue(key, out pending);
+            pending?.Completion.TrySetResult(message);
             return;
         }
 
@@ -1093,15 +1370,25 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
 
     private void CompletePendingWithError(Exception error)
     {
-        TaskCompletionSource<JsonElement>[] pending;
+        PendingRequest[] pending;
         lock (_pending)
         {
             pending = _pending.Values.ToArray();
             _pending.Clear();
         }
 
-        foreach (var tcs in pending)
-            tcs.TrySetException(error);
+        foreach (var request in pending)
+            request.Completion.TrySetException(error);
+    }
+
+    private sealed record PendingRequest(
+        int ProcessGeneration,
+        TaskCompletionSource<JsonElement> Completion);
+
+    private sealed class McpServerSessionRetiredException(string serverName, int processGeneration)
+        : IOException($"MCP server '{serverName}' session expired.")
+    {
+        public int ProcessGeneration { get; } = processGeneration;
     }
 
     private static async Task IgnoreAsync(Task? task)
