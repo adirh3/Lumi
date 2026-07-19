@@ -855,6 +855,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         try
         {
             var surface = await AcquireChatSurfaceAsync(chat);
+
+            // Cached chat surfaces can be acquired synchronously. Yield one render turn before swapping
+            // the transcript so selection and other composition animations are committed to the render
+            // thread instead of waiting behind a potentially expensive cached transcript realization.
+            if (shouldBridgeLoading)
+                await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Render);
+
             if (shouldBridgeLoading && !ReferenceEquals(visibleSurface, surface))
                 visibleSurface.IsLoadingChat = false;
 

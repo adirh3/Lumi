@@ -96,6 +96,32 @@ public sealed class AnimationLifecycleRegressionTests
     }
 
     [Fact]
+    public void NavPillScaleAnimation_DoesNotUseWallClockStopFinalization()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "src",
+            "Lumi",
+            "Views",
+            "MainWindow.axaml.cs"));
+        var methodStart = source.IndexOf(
+            "private static void AnimateNavPillScale",
+            StringComparison.Ordinal);
+        var nextMethod = source.IndexOf(
+            "private void NewChatButton_Click",
+            methodStart,
+            StringComparison.Ordinal);
+
+        Assert.True(methodStart >= 0);
+        Assert.True(nextMethod > methodStart);
+
+        var method = source[methodStart..nextMethod];
+        Assert.Contains("StartAnimation(\"Scale\"", method, StringComparison.Ordinal);
+        Assert.DoesNotContain("StopAnimation", method, StringComparison.Ordinal);
+        Assert.DoesNotContain("Task.Delay", method, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public Task ToolCompletionRace_DetachesEveryPulseAndCollectsEveryCard() =>
         Task.Run(RunToolCompletionRaceAsync);
 

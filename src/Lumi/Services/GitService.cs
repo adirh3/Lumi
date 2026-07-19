@@ -377,12 +377,15 @@ public static class GitService
             using var proc = Process.Start(psi);
             if (proc is null) return null;
 
+            using var standardOutput = proc.StandardOutput;
+            using var standardError = proc.StandardError;
+
             // Close stdin immediately so git can never block waiting on input (e.g. a
             // credential or config prompt); it should fail fast instead of hanging.
             try { proc.StandardInput.Close(); } catch { /* stdin may already be gone */ }
 
-            var stdoutTask = proc.StandardOutput.ReadToEndAsync();
-            var stderrTask = proc.StandardError.ReadToEndAsync();
+            var stdoutTask = standardOutput.ReadToEndAsync();
+            var stderrTask = standardError.ReadToEndAsync();
             using var timeoutCts = new CancellationTokenSource(effectiveTimeout);
 
             try

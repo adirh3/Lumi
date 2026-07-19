@@ -43,6 +43,7 @@ public partial class ChatViewModel
         }
 
         foreach (var chatId in _sessionCache.Keys
+                     .Concat(_sessionsPendingResume.Keys)
                      .Concat(_ctsSources.Keys)
                      .Concat(_runtimeStates.Keys)
                      .Concat(_chatBrowserServices.Keys)
@@ -341,6 +342,17 @@ public partial class ChatViewModel
 
         if (_sessionCache.Remove(chatId, out var session))
             TrackSessionRelease(chatId, session, deleteServerSession);
+
+        if (_sessionsPendingResume.Remove(chatId, out var pendingSession)
+            && (session is null
+                || (!ReferenceEquals(pendingSession, session)
+                    && !string.Equals(
+                        pendingSession.SessionId,
+                        session.SessionId,
+                        StringComparison.Ordinal))))
+        {
+            TrackSessionRelease(chatId, pendingSession, deleteServerSession);
+        }
 
         _inProgressMessages.Remove(chatId);
     }

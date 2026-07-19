@@ -96,7 +96,6 @@ public partial class MainWindow : Window
     private int _activeNavIndex = -1;
     private int _hoveredNavIndex = -1;
     private int _pendingNavHoverIndex = -1;
-    private int _navPillScaleAnimationVersion;
     private bool _isNavPillWidthLocked;
     private bool _navHoverInitPending;
     private double _expandedSidebarWidth = DefaultSidebarWidth;
@@ -1778,42 +1777,24 @@ public partial class MainWindow : Window
             AnimateNavPillScale(pill, new Avalonia.Vector3D(1, 1, 1), TimeSpan.FromMilliseconds(250));
     }
 
-    private async void AnimateNavPillScale(Border pill, Avalonia.Vector3D targetScale, TimeSpan duration)
+    private static void AnimateNavPillScale(Border pill, Avalonia.Vector3D targetScale, TimeSpan duration)
     {
         var visual = ElementComposition.GetElementVisual(pill);
         if (visual is null) return;
 
-        var version = ++_navPillScaleAnimationVersion;
         var w = pill.Bounds.Width;
         var h = pill.Bounds.Height;
         visual.CenterPoint = new Avalonia.Vector3D(w / 2, h / 2, 0);
-        visual.StopAnimation("Scale");
 
         var compositor = visual.Compositor;
         var scaleAnim = compositor.CreateVector3DKeyFrameAnimation();
         scaleAnim.Target = "Scale";
         scaleAnim.InsertKeyFrame(1f, targetScale);
         scaleAnim.Duration = duration;
+
+        // Let compositor time determine completion. Stopping after a wall-clock delay can
+        // preserve a transient server value while the client still believes Scale is final.
         visual.StartAnimation("Scale", scaleAnim);
-
-        try
-        {
-            await Task.Delay(duration + TimeSpan.FromMilliseconds(20));
-        }
-        catch (ObjectDisposedException)
-        {
-            return;
-        }
-
-        if (version != _navPillScaleAnimationVersion || !pill.IsAttachedToVisualTree())
-            return;
-
-        var currentVisual = ElementComposition.GetElementVisual(pill);
-        if (currentVisual is null)
-            return;
-
-        currentVisual.StopAnimation("Scale");
-        currentVisual.Scale = targetScale;
     }
 
     private void NewChatButton_Click(object? sender, RoutedEventArgs e)

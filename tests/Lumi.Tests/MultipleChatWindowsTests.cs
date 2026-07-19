@@ -500,6 +500,62 @@ public sealed class MultipleChatWindowsTests
     }
 
     [Fact]
+    public async Task OpenChatByIdAsync_CachedSurfaceYieldsRenderBeforeSwap()
+    {
+        using var session = HeadlessTestSession.Start();
+        var completedSynchronously = false;
+        var previousChatStayedVisible = false;
+        var reusedCachedSurface = false;
+
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            var chatA = new Chat { Title = "Cached A" };
+            var chatB = new Chat { Title = "Cached B" };
+            chatA.Messages.Add(new ChatMessage { Role = "user", Content = "a" });
+            chatB.Messages.Add(new ChatMessage { Role = "user", Content = "b" });
+            var dataStore = CreateDataStore(chatA, chatB);
+            var copilotService = new CopilotService();
+            using var registry = new ChatSurfaceRegistry();
+            using var store = new ChatSessionStore(
+                dataStore,
+                copilotService,
+                registry,
+                static (surface, chatToLoad) =>
+                {
+                    surface.CurrentChat = chatToLoad;
+                    return Task.CompletedTask;
+                });
+            var viewModel = new MainViewModel(
+                dataStore,
+                copilotService,
+                new UpdateService(),
+                startBackgroundJobs: false,
+                chatSurfaceRegistry: registry,
+                chatSessionStore: store);
+
+            await viewModel.OpenChatByIdAsync(chatA.Id);
+            await viewModel.OpenChatByIdAsync(chatB.Id);
+            var surfaceB = viewModel.ChatVM;
+            await viewModel.OpenChatByIdAsync(chatA.Id);
+
+            var switchTask = viewModel.OpenChatByIdAsync(chatB.Id);
+            completedSynchronously = switchTask.IsCompleted;
+            previousChatStayedVisible = viewModel.ActiveChatId == chatA.Id;
+
+            Assert.True(await switchTask);
+            reusedCachedSurface = ReferenceEquals(surfaceB, viewModel.ChatVM);
+            viewModel.Dispose();
+        }, CancellationToken.None);
+
+        Assert.False(
+            completedSynchronously,
+            "A cached switch must yield a render turn so composition animations can commit before transcript realization.");
+        Assert.True(previousChatStayedVisible);
+        Assert.True(reusedCachedSurface);
+    }
+
+    [Fact]
     public async Task ChatSessionStore_DisposesBrowserOnDeleteAfterRuntimeSwept()
     {
         using var session = HeadlessTestSession.Start();

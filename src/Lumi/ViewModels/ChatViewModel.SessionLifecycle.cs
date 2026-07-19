@@ -197,6 +197,17 @@ public partial class ChatViewModel
             TrackSessionRelease(chat.Id, previousSession, deleteServerSession: false);
         }
 
+        // Invalidation detached the old handle from the SDK registry but retained it here so an
+        // abandoned server session could still be destroyed. A successful same-ID resume adopts that
+        // server session, so the old handle can now be dropped without destroy. A different-ID
+        // replacement abandons the old server session and must release it to reap its MCP processes.
+        if (_sessionsPendingResume.Remove(chat.Id, out var pendingSession)
+            && !ReferenceEquals(pendingSession, session)
+            && !string.Equals(pendingSession.SessionId, session.SessionId, StringComparison.Ordinal))
+        {
+            TrackSessionRelease(chat.Id, pendingSession, deleteServerSession: false);
+        }
+
         // This surface may have been disposed while the session was being created/resumed (the user
         // switched away and the pool evicted us mid-await). Dispose() already swept _sessionCache, so
         // caching now would strand this session: nothing would ever release it, leaking its MCP
@@ -2358,6 +2369,7 @@ public partial class ChatViewModel
         // RPC can't be delivered over the dead connection anyway, so there is nothing to reap here —
         // dropping the handles is correct. Persisted CopilotSessionIds remain resumable on the new client.
         _sessionCache.Clear();
+        _sessionsPendingResume.Clear();
         _activeSession = null;
 
         // Those sessions can never reconnect, so drop their per-session OAuth chip/login state too

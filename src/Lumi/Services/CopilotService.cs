@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
@@ -49,6 +50,13 @@ internal readonly record struct SendFailureClassification(bool Recoverable, bool
 
 public class CopilotService : IAsyncDisposable
 {
+    private static readonly MethodInfo? RemoveSessionFromClientMethod = typeof(CopilotSession).GetMethod(
+        "RemoveFromClient",
+        BindingFlags.Instance | BindingFlags.NonPublic,
+        binder: null,
+        types: Type.EmptyTypes,
+        modifiers: null);
+
     private CopilotClient? _client;
     /// <summary>Exposes the underlying CopilotClient for advanced usage (e.g. test harness).</summary>
     public CopilotClient? Client => _client;
@@ -71,6 +79,43 @@ public class CopilotService : IAsyncDisposable
     // sequencing destroy-before-resume across surfaces. Concurrent because releases and resumes run
     // from independent surfaces / continuations.
     private readonly ConcurrentDictionary<string, Task> _pendingReleasesBySessionId = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Removes a session handle from the SDK client's strong registry without sending
+    /// <c>session.destroy</c>. Lumi uses this only while replacing an unhealthy local handle for the
+    /// same resumable server session; the caller must retain ownership until resume succeeds or the
+    /// server session is explicitly abandoned.
+    /// </summary>
+    internal bool TryDetachSessionFromSdkRegistry(CopilotSession session)
+    {
+        if (RemoveSessionFromClientMethod is null)
+        {
+            Debug.WriteLine("[Lumi] Copilot SDK no longer exposes RemoveFromClient; session invalidation was skipped.");
+            return false;
+        }
+
+        try
+        {
+            RemoveSessionFromClientMethod.Invoke(session, null);
+            return true;
+        }
+        catch (TargetInvocationException ex)
+        {
+            var error = ex.InnerException ?? ex;
+            Debug.WriteLine($"[Lumi] Failed to detach Copilot session {session.SessionId} from SDK registry: {error.Message}");
+            return false;
+        }
+        catch (MethodAccessException ex)
+        {
+            Debug.WriteLine($"[Lumi] Cannot access the SDK session registry detach method: {ex.Message}");
+            return false;
+        }
+        catch (TargetException ex)
+        {
+            Debug.WriteLine($"[Lumi] Cannot detach Copilot session {session.SessionId} from SDK registry: {ex.Message}");
+            return false;
+        }
+    }
 
     /// <summary>Fires after the CopilotClient has been replaced (reconnection).
     /// Consumers should discard any cached CopilotSession objects.</summary>

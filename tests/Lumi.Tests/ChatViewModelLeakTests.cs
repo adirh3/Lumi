@@ -237,7 +237,50 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
-    public void InvalidateLocalSessionCache_EvictsLocallyWithoutDestroyingResumableSession()
+    public async Task SubscribeToSession_WhenPendingSameId_AdoptsServerSessionWithoutDestroy()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "same-id-resume", CopilotSessionId = "sid-shared" };
+        dataStore.Data.Chats.Add(chat);
+
+        var pending = CreateDetachedSession("sid-shared");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume")[chat.Id] = pending;
+
+        // Stop before real event subscription; the pending-resume reconciliation runs first.
+        SetPrivateField(vm, "_isDisposed", true);
+        var resumed = CreateDetachedSession("sid-shared");
+
+        InvokePrivate(vm, "SubscribeToSession", resumed, chat, "C:\\work");
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        Assert.False(SessionWasDisposed(pending));
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume").ContainsKey(chat.Id));
+    }
+
+    [Fact]
+    public async Task SubscribeToSession_WhenPendingDifferentId_DestroysAbandonedServerSession()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "different-id-resume", CopilotSessionId = "sid-new" };
+        dataStore.Data.Chats.Add(chat);
+
+        var pending = CreateDetachedSession("sid-old");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume")[chat.Id] = pending;
+
+        SetPrivateField(vm, "_isDisposed", true);
+        var replacement = CreateDetachedSession("sid-new");
+
+        InvokePrivate(vm, "SubscribeToSession", replacement, chat, "C:\\work");
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        Assert.True(SessionWasDisposed(pending));
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume").ContainsKey(chat.Id));
+    }
+
+    [Fact]
+    public void InvalidateLocalSessionCache_DetachesSdkRegistryAndRetainsResumableSession()
     {
         var dataStore = CreateDataStore();
         var service = new CopilotService();
@@ -245,13 +288,19 @@ public sealed class ChatViewModelLeakTests
         var chat = new Chat { Title = "invalidate", CopilotSessionId = "sid-inv" };
         dataStore.Data.Chats.Add(chat);
 
-        var evicted = CreateDetachedSession("sid-inv");
+        var (evicted, sdkRegistry) = CreateRegisteredDetachedSession("sid-inv");
         GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = evicted;
 
         InvokePrivate(vm, "InvalidateLocalSessionCache", chat);
 
-        // The local handle is dropped so EnsureSessionAsync re-establishes the session next send...
+        // The old handle no longer blocks the SDK from registering a replacement for the same id.
+        Assert.False(sdkRegistry.ContainsKey("sid-inv"));
+        // The active cache is cleared so EnsureSessionAsync re-establishes the session next send...
         Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache").ContainsKey(chat.Id));
+        // ...but Lumi keeps explicit ownership until resume succeeds or the chat is abandoned.
+        Assert.Same(
+            evicted,
+            GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume")[chat.Id]);
         // ...and the id is KEPT so that next send RESUMES the SAME server session (reusing its live MCP).
         Assert.Equal("sid-inv", chat.CopilotSessionId);
         // Crucially it must NOT destroy the evicted handle: this path fires on an unhealthy/slow CLI, so a
@@ -271,16 +320,80 @@ public sealed class ChatViewModelLeakTests
         var chat = new Chat { Title = "detach", CopilotSessionId = "sid-det" };
         dataStore.Data.Chats.Add(chat);
 
-        var detached = CreateDetachedSession("sid-det");
+        var (detached, _) = CreateRegisteredDetachedSession("sid-det");
         GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = detached;
+
+        // Reproduce the real leak sequence: invalidation removes the active cache entry, then a failed
+        // resume abandons the persisted id. Before retained ownership, detach could no longer find the
+        // old handle and its MCP subprocesses survived until CLI exit.
+        InvokePrivate(vm, "InvalidateLocalSessionCache", chat);
+        Assert.True(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume").ContainsKey(chat.Id));
 
         InvokePrivate(vm, "DetachPersistedSession", chat, null);
         await DrainSessionReleaseAsync(vm, chat.Id);
 
         Assert.True(SessionWasDisposed(detached));
         Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache").ContainsKey(chat.Id));
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume").ContainsKey(chat.Id));
         // The id is cleared so the caller creates a FRESH session (new id) — no same-id resume race.
         Assert.Null(chat.CopilotSessionId);
+    }
+
+    [Fact]
+    public async Task ReleaseInactiveChatState_DestroysPendingResumeSession()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var activeChat = new Chat { Title = "active" };
+        var inactiveChat = new Chat { Title = "inactive", CopilotSessionId = "sid-idle" };
+        dataStore.Data.Chats.Add(activeChat);
+        dataStore.Data.Chats.Add(inactiveChat);
+        vm.CurrentChat = activeChat;
+
+        var pending = CreateDetachedSession("sid-idle");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume")[inactiveChat.Id] = pending;
+
+        InvokePrivate(vm, "ReleaseInactiveChatState", inactiveChat);
+        await DrainSessionReleaseAsync(vm, inactiveChat.Id);
+
+        Assert.True(SessionWasDisposed(pending));
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume").ContainsKey(inactiveChat.Id));
+    }
+
+    [Fact]
+    public async Task CleanupSession_DestroysPendingResumeSession()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "deleted", CopilotSessionId = "sid-delete" };
+        dataStore.Data.Chats.Add(chat);
+
+        var pending = CreateDetachedSession("sid-delete");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume")[chat.Id] = pending;
+
+        vm.CleanupSession(chat.Id);
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        Assert.True(SessionWasDisposed(pending));
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume").ContainsKey(chat.Id));
+    }
+
+    [Fact]
+    public async Task Dispose_DestroysPendingResumeSession()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var chat = new Chat { Title = "surface-dispose", CopilotSessionId = "sid-dispose" };
+        dataStore.Data.Chats.Add(chat);
+
+        var pending = CreateDetachedSession("sid-dispose");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume")[chat.Id] = pending;
+
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        Assert.True(SessionWasDisposed(pending));
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume").ContainsKey(chat.Id));
     }
 
     // --- Cross-surface (cross-ChatViewModel) destroy-before-resume sequencing ---
@@ -1005,6 +1118,8 @@ public sealed class ChatViewModelLeakTests
         GetField<Dictionary<Guid, IDisposable>>(vm, "_sessionSubs")[chat.Id] = subscription;
         GetField<Dictionary<Guid, ChatMessage>>(vm, "_inProgressMessages")[chat.Id] =
             new ChatMessage { Role = "assistant", Content = "partial" };
+        var pending = CreateDetachedSession("sid-old-cli");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume")[chat.Id] = pending;
 
         InvokePrivate(vm, "ResetAfterCopilotReconnect");
 
@@ -1012,6 +1127,8 @@ public sealed class ChatViewModelLeakTests
         Assert.False(GetField<Dictionary<Guid, CancellationTokenSource>>(vm, "_ctsSources").ContainsKey(chat.Id));
         Assert.False(GetField<Dictionary<Guid, IDisposable>>(vm, "_sessionSubs").ContainsKey(chat.Id));
         Assert.False(GetField<Dictionary<Guid, ChatMessage>>(vm, "_inProgressMessages").ContainsKey(chat.Id));
+        Assert.Empty(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume"));
+        Assert.False(SessionWasDisposed(pending));
         Assert.False(runtime.IsBusy);
         Assert.False(runtime.IsStreaming);
         Assert.False(runtime.HasPendingBackgroundWork);
@@ -2089,6 +2206,24 @@ public sealed class ChatViewModelLeakTests
         // disposal explicitly in these tests, so suppress the real finalizer.
         GC.SuppressFinalize(session);
         return session;
+    }
+
+    private static (CopilotSession Session, ConcurrentDictionary<string, CopilotSession> Registry)
+        CreateRegisteredDetachedSession(string sessionId)
+    {
+        var client = (CopilotClient)System.Runtime.CompilerServices.RuntimeHelpers
+            .GetUninitializedObject(typeof(CopilotClient));
+        var registry = new ConcurrentDictionary<string, CopilotSession>(StringComparer.Ordinal);
+        typeof(CopilotClient)
+            .GetField("_sessions", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(client, registry);
+
+        var session = CreateDetachedSession(sessionId);
+        typeof(CopilotSession)
+            .GetField("_parentClient", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(session, client);
+        registry[sessionId] = session;
+        return (session, registry);
     }
 
     private static bool SessionWasDisposed(CopilotSession session)

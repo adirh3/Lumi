@@ -499,6 +499,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private CopilotSession? _activeSession;
     /// <summary>Maps chat ID → locally attached CopilotSession objects for active or running chats.</summary>
     private readonly Dictionary<Guid, CopilotSession> _sessionCache = new();
+    /// <summary>
+    /// Owns invalidated session handles after they are detached from the SDK registry. A same-ID
+    /// resume adopts the existing server session and drops the old handle without destroy; every
+    /// abandonment path explicitly releases it so its MCP subprocesses are reaped.
+    /// </summary>
+    private readonly Dictionary<Guid, CopilotSession> _sessionsPendingResume = new();
     /// <summary>Tracks SDK session disposal in progress so resume waits until the prior handle is released.</summary>
     private readonly Dictionary<Guid, Task> _sessionReleaseTasks = new();
     /// <summary>Maps chat ID → live event subscriptions for locally attached sessions.</summary>
@@ -3804,34 +3810,44 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// re-establish it via ResumeSessionAsync, preserving server-side context.</summary>
     private void InvalidateLocalSessionCache(Chat chat)
     {
-        // Drop ONLY the local cache handle — do NOT send session.destroy here. Every caller fires when
-        // the session is meant to be RESUMED under the same chat.CopilotSessionId (a 2s health-miss on a
-        // live-but-slow CLI, a session-not-found, a transport blip, or a mid-turn abort), which we keep
-        // intact below. Destroying on this path is wrong twice over: (1) it reaps the very MCP
-        // subprocesses the imminent same-id resume reuses, forcing a needless cold respawn; and (2) on
-        // the unhealthy/broken CLI that triggers this path the destroy RPC hangs, and because releases
-        // are tracked by server session id it makes the destroy-before-resume gate block that resume for
-        // the whole session-setup budget — surfacing as "MCP server connection timed out". Genuine
-        // session ABANDONMENT (a different id, a fresh-id detach, chat delete, idle eviction) still routes
-        // through ReleaseSessionResources / DetachPersistedSession / the SubscribeToSession overwrite
-        // guard, which DO destroy and reap MCP. The one gap this leaves is a live-but-slow session evicted
-        // here (health-miss) that is then abandoned with NO later send: its handle is already gone from
-        // _sessionCache, so no abandon path can reap it and its MCP subprocesses linger until the CLI exits.
-        // That is the pre-bb470e8 behavior and a deliberate trade — bb470e8's destroy-on-this-path is
-        // precisely what hangs the common resume and surfaces as an MCP-setup timeout, which is far worse
-        // than an occasional idle MCP set the CLI already reaps on shutdown.
-        _sessionCache.Remove(chat.Id);
-        if (_sessionSubs.TryGetValue(chat.Id, out var sub))
+        _sessionCache.TryGetValue(chat.Id, out var invalidatedSession);
+        if (invalidatedSession is not null
+            && !_copilotService.TryDetachSessionFromSdkRegistry(invalidatedSession))
         {
-            sub.Dispose();
-            _sessionSubs.Remove(chat.Id);
+            // Resuming while the SDK still owns the old same-ID handle would fail registration and
+            // route events to the poisoned object. Preserve the current attachment rather than enter
+            // a half-detached state that neither recovery nor cleanup can own safely.
+            return;
         }
+
+        DisposeSessionSubscription(chat.Id);
 
         if (CurrentChat?.Id == chat.Id
             || string.Equals(_activeSession?.SessionId, chat.CopilotSessionId, StringComparison.Ordinal))
         {
             _activeSession = null;
         }
+
+        // Do not send session.destroy on invalidation: every caller intends an immediate same-ID
+        // resume, and destroy can hang on the unhealthy CLI that triggered recovery. Instead remove
+        // the old handle from the SDK registry synchronously and retain it under Lumi ownership. A
+        // successful same-ID resume adopts the server session; every abandonment path below releases
+        // this retained handle and reaps its MCP subprocesses.
+        if (invalidatedSession is null)
+            return;
+
+        _sessionCache.Remove(chat.Id);
+        if (_sessionsPendingResume.Remove(chat.Id, out var previousCandidate)
+            && !ReferenceEquals(previousCandidate, invalidatedSession)
+            && !string.Equals(
+                previousCandidate.SessionId,
+                invalidatedSession.SessionId,
+                StringComparison.Ordinal))
+        {
+            TrackSessionRelease(chat.Id, previousCandidate, deleteServerSession: false);
+        }
+
+        _sessionsPendingResume[chat.Id] = invalidatedSession;
     }
 
     private void DetachPersistedSession(Chat chat, string? sessionId = null)
@@ -3839,12 +3855,34 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var detachedSessionId = sessionId ?? chat.CopilotSessionId;
         DisposeSessionSubscription(chat.Id);
 
-        // Best-effort release the detached session so its MCP subprocesses are reaped rather than
-        // orphaned. Every caller either recreates a FRESH session with a new id (resume failed /
-        // send hit session-not-found) or is reacting to a server-side deletion — and we null
-        // CopilotSessionId below — so no same-id resume can race this destroy.
-        if (_sessionCache.Remove(chat.Id, out var detachedSession))
-            TrackSessionRelease(chat.Id, detachedSession, deleteServerSession: false);
+        // Best-effort release every matching handle so its MCP subprocesses are reaped rather than
+        // orphaned. This includes an invalidated handle retained while same-ID resume was attempted.
+        CopilotSession? releasedSession = null;
+        if (_sessionCache.TryGetValue(chat.Id, out var cachedSession)
+            && (string.IsNullOrWhiteSpace(detachedSessionId)
+                || string.Equals(cachedSession.SessionId, detachedSessionId, StringComparison.Ordinal)))
+        {
+            _sessionCache.Remove(chat.Id);
+            TrackSessionRelease(chat.Id, cachedSession, deleteServerSession: false);
+            releasedSession = cachedSession;
+        }
+
+        if (_sessionsPendingResume.TryGetValue(chat.Id, out var pendingSession)
+            && (string.IsNullOrWhiteSpace(detachedSessionId)
+                || string.Equals(pendingSession.SessionId, detachedSessionId, StringComparison.Ordinal)))
+        {
+            _sessionsPendingResume.Remove(chat.Id);
+            if (releasedSession is null
+                || (!ReferenceEquals(releasedSession, pendingSession)
+                    && !string.Equals(
+                        releasedSession.SessionId,
+                        pendingSession.SessionId,
+                        StringComparison.Ordinal)))
+            {
+                TrackSessionRelease(chat.Id, pendingSession, deleteServerSession: false);
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(detachedSessionId)
             && string.Equals(_activeSession?.SessionId, detachedSessionId, StringComparison.Ordinal))
         {
