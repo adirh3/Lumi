@@ -105,6 +105,8 @@
   "Menu_OpenInNewWindow": "פתיחה בחלון חדש",
   "Menu_MoveToProject": "העברה לפרויקט",
   "Menu_RemoveFromProject": "הסרה מפרויקט",
+  "Menu_Pin": "הצמדה",
+  "Menu_Unpin": "ביטול הצמדה",
   "Menu_Delete": "מחיקה",
 
   "Common_Save": "שמירה",
@@ -261,10 +263,12 @@
   "Empty_SelectMemory": "בחר או צור זיכרון",
   "Empty_NoProjectChats": "אין עדיין צ׳אטים בפרויקט הזה.",
 
+  "ChatGroup_Pinned": "מוצמדים",
   "ChatGroup_Today": "היום",
   "ChatGroup_Yesterday": "אתמול",
   "ChatGroup_Previous7Days": "7 הימים האחרונים",
   "ChatGroup_Older": "ישן יותר",
+  "Chat_PinnedTooltip": "צ׳אט מוצמד",
 
   "Status_Disconnected": "מנותק",
   "Status_Connecting": "מתחבר ל-GitHub Copilot\u2026",

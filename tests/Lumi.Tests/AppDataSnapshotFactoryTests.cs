@@ -271,6 +271,30 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void CreateIndexSnapshot_AndJsonContext_PreserveChatPinState()
+    {
+        var source = new AppData
+        {
+            Chats =
+            [
+                CreateChat(
+                    Guid.NewGuid(),
+                    title: "Pinned chat",
+                    copilotSessionId: null,
+                    updatedAt: new DateTimeOffset(2026, 7, 19, 17, 0, 0, TimeSpan.Zero),
+                    isPinned: true)
+            ]
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+        Assert.True(Assert.Single(snapshot.Chats).IsPinned);
+
+        var json = JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData);
+        using var document = JsonDocument.Parse(json);
+        Assert.True(document.RootElement.GetProperty("chats")[0].GetProperty("isPinned").GetBoolean());
+    }
+
+    [Fact]
     public void AppDataJsonContext_SerializesChatContextUsage()
     {
         var data = new AppData
@@ -709,7 +733,8 @@ public class AppDataSnapshotFactoryTests
         long contextTokenLimit = 0,
         string? planContent = null,
         List<string>? followUpSuggestions = null,
-        Guid? followUpSuggestionAssistantMessageId = null)
+        Guid? followUpSuggestionAssistantMessageId = null,
+        bool isPinned = false)
     {
         return new Chat
         {
@@ -728,7 +753,8 @@ public class AppDataSnapshotFactoryTests
             ContextTokenLimit = contextTokenLimit,
             PlanContent = planContent,
             FollowUpSuggestions = followUpSuggestions ?? [],
-            FollowUpSuggestionAssistantMessageId = followUpSuggestionAssistantMessageId
+            FollowUpSuggestionAssistantMessageId = followUpSuggestionAssistantMessageId,
+            IsPinned = isPinned
         };
     }
 

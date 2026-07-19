@@ -160,6 +160,86 @@ public sealed class ChatOrchestrationServiceTests
     }
 
     [Fact]
+    public async Task List_PutsPinnedChatsFirstAndReportsPinnedState()
+    {
+        using var session = HeadlessTestSession.Start();
+        var pinned = new Chat
+        {
+            Title = "Pinned reference",
+            IsPinned = true,
+            UpdatedAt = DateTimeOffset.Now.AddDays(-5)
+        };
+        var recent = new Chat
+        {
+            Title = "Recent work",
+            UpdatedAt = DateTimeOffset.Now.AddMinutes(-1)
+        };
+        var (store, registry, sessionStore) = CreateEnvironment(CreateData(recent, pinned));
+        using (registry)
+        using (sessionStore)
+        using (var service = new ChatOrchestrationService(store, registry, sessionStore))
+        {
+            sessionStore.OrchestrationService = service;
+
+            var result = await RunAsync(session, service, "list");
+
+            Assert.True(result.IndexOf("Pinned reference", StringComparison.Ordinal)
+                < result.IndexOf("Recent work", StringComparison.Ordinal));
+            Assert.Contains("pinned", result);
+        }
+    }
+
+    [Fact]
+    public async Task PinAndUnpin_UpdateChatAndRaiseChatsChanged()
+    {
+        using var session = HeadlessTestSession.Start();
+        var chat = new Chat { Title = "Priority chat" };
+        var (store, registry, sessionStore) = CreateEnvironment(CreateData(chat));
+        using (registry)
+        using (sessionStore)
+        using (var service = new ChatOrchestrationService(store, registry, sessionStore))
+        {
+            sessionStore.OrchestrationService = service;
+            var changes = 0;
+            service.ChatsChanged += () => Interlocked.Increment(ref changes);
+            var pinResult = "";
+            var duplicateResult = "";
+            var unpinResult = "";
+            Exception? failure = null;
+
+            await session.Dispatch(async () =>
+            {
+                try
+                {
+                    pinResult = await service.ManageChatsAsync(
+                        "pin",
+                        identifier: chat.Id.ToString(),
+                        cancellationToken: CancellationToken.None);
+                    duplicateResult = await service.ManageChatsAsync(
+                        "pin",
+                        identifier: chat.Id.ToString(),
+                        cancellationToken: CancellationToken.None);
+                    unpinResult = await service.ManageChatsAsync(
+                        "unpin",
+                        identifier: chat.Id.ToString(),
+                        cancellationToken: CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                }
+            }, CancellationToken.None);
+
+            Assert.Null(failure);
+            Assert.False(chat.IsPinned);
+            Assert.Contains("Pinned chat", pinResult);
+            Assert.Contains("already pinned", duplicateResult);
+            Assert.Contains("Unpinned chat", unpinResult);
+            Assert.Equal(2, changes);
+        }
+    }
+
+    [Fact]
     public async Task List_FiltersByProject()
     {
         using var session = HeadlessTestSession.Start();

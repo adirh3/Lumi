@@ -28,6 +28,8 @@ public sealed class ManagementToolSerializerOptionsTests
         // JsonTypeInfo under the trimmed runtime unless AppDataJsonContext supplies it.
         var window = source.Substring(index, Math.Min(2000, source.Length - index));
         Assert.Contains("AppDataJsonContext.Default.Options", window);
+        Assert.Contains("'pin'", window);
+        Assert.Contains("'unpin'", window);
     }
 
     private static string ReadToolsSource()

@@ -88,6 +88,7 @@ public class Chat : INotifyPropertyChanged
     private string _title = "New Chat";
     private bool _isRunning;
     private bool _hasUnreadMessages;
+    private bool _isPinned;
     private bool _showProjectBadge;
     private string? _projectBadgeText;
     private List<string> _activeExternalSkillNames = [];
@@ -170,6 +171,18 @@ public class Chat : INotifyPropertyChanged
 
     /// <summary>Assistant message ID that produced <see cref="FollowUpSuggestions"/>.</summary>
     public Guid? FollowUpSuggestionAssistantMessageId { get; set; }
+
+    /// <summary>Whether this chat should stay at the top of its project chat list.</summary>
+    public bool IsPinned
+    {
+        get => _isPinned;
+        set
+        {
+            if (_isPinned == value) return;
+            _isPinned = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsPinned)));
+        }
+    }
 
     /// <summary>Runtime-only flag indicating this chat is actively generating a response.</summary>
     [JsonIgnore]

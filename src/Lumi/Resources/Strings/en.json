@@ -105,6 +105,8 @@
   "Menu_OpenInNewWindow": "Open in New Window",
   "Menu_MoveToProject": "Move to Project",
   "Menu_RemoveFromProject": "Remove from Project",
+  "Menu_Pin": "Pin",
+  "Menu_Unpin": "Unpin",
   "Menu_Delete": "Delete",
 
   "Common_Save": "Save",
@@ -261,10 +263,12 @@
   "Empty_SelectMemory": "Select or create a memory",
   "Empty_NoProjectChats": "No chats in this project yet.",
 
+  "ChatGroup_Pinned": "Pinned",
   "ChatGroup_Today": "Today",
   "ChatGroup_Yesterday": "Yesterday",
   "ChatGroup_Previous7Days": "Previous 7 Days",
   "ChatGroup_Older": "Older",
+  "Chat_PinnedTooltip": "Pinned chat",
 
   "Status_Disconnected": "Disconnected",
   "Status_Connecting": "Connecting to GitHub Copilot\u2026",

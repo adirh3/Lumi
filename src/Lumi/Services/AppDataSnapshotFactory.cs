@@ -255,6 +255,7 @@ internal static class AppDataSnapshotFactory
             PlanContent = source.PlanContent,
             FollowUpSuggestions = [..source.FollowUpSuggestions],
             FollowUpSuggestionAssistantMessageId = source.FollowUpSuggestionAssistantMessageId,
+            IsPinned = source.IsPinned,
         };
     }
 }

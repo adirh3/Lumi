@@ -137,7 +137,8 @@ public partial class ProjectsViewModel : ObservableObject
         ProjectChats.Clear();
         foreach (var chat in _dataStore.Data.Chats
             .Where(c => c.ProjectId == projectId)
-            .OrderByDescending(c => c.UpdatedAt))
+            .OrderByDescending(c => c.IsPinned)
+            .ThenByDescending(c => c.UpdatedAt))
         {
             ProjectChats.Add(chat);
         }

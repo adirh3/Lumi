@@ -739,6 +739,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 return;
             SubscribeChatRunningState();
             RefreshChatList();
+            ProjectsVM.RefreshSelectedProjectChats();
             RefreshProjectRunningState();
         });
     }
@@ -792,7 +793,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (SelectedProjectFilter.HasValue)
             chats = chats.Where(c => c.ProjectId == SelectedProjectFilter.Value);
 
-        var allOrdered = chats.OrderByDescending(c => c.UpdatedAt).ToList();
+        var allOrdered = chats
+            .OrderByDescending(c => c.IsPinned)
+            .ThenByDescending(c => c.UpdatedAt)
+            .ToList();
         HasMoreChats = allOrdered.Count > _chatLoadLimit;
         var ordered = allOrdered.Take(_chatLoadLimit).ToList();
 
@@ -816,11 +820,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         ChatGroups.Clear();
 
-        var todayChats = ordered.Where(c => c.UpdatedAt.Date == today).ToList();
-        var yesterdayChats = ordered.Where(c => c.UpdatedAt.Date == yesterday).ToList();
-        var weekChats = ordered.Where(c => c.UpdatedAt.Date < yesterday && c.UpdatedAt.Date >= weekAgo).ToList();
-        var olderChats = ordered.Where(c => c.UpdatedAt.Date < weekAgo).ToList();
+        var pinnedChats = ordered.Where(c => c.IsPinned).ToList();
+        var unpinnedChats = ordered.Where(c => !c.IsPinned).ToList();
+        var todayChats = unpinnedChats.Where(c => c.UpdatedAt.Date == today).ToList();
+        var yesterdayChats = unpinnedChats.Where(c => c.UpdatedAt.Date == yesterday).ToList();
+        var weekChats = unpinnedChats.Where(c => c.UpdatedAt.Date < yesterday && c.UpdatedAt.Date >= weekAgo).ToList();
+        var olderChats = unpinnedChats.Where(c => c.UpdatedAt.Date < weekAgo).ToList();
 
+        if (pinnedChats.Count > 0)
+            ChatGroups.Add(new ChatGroup { Label = Loc.ChatGroup_Pinned, Chats = new(pinnedChats) });
         if (todayChats.Count > 0)
             ChatGroups.Add(new ChatGroup { Label = Loc.ChatGroup_Today, Chats = new(todayChats) });
         if (yesterdayChats.Count > 0)
@@ -1109,6 +1117,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 return dir;
         }
         return null;
+    }
+
+    [RelayCommand]
+    private void ToggleChatPin(Chat? chat)
+    {
+        if (chat is null) return;
+
+        chat.IsPinned = !chat.IsPinned;
+        _dataStore.MarkChatChanged(chat);
+        _ = _dataStore.SaveAsync();
+        RefreshChatList();
+        ProjectsVM.RefreshSelectedProjectChats();
     }
 
     [ObservableProperty] private Chat? _renamingChat;

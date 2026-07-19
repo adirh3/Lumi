@@ -182,6 +182,13 @@
                                  Foreground="{DynamicResource Brush.TextTertiary}"
                                  VerticalAlignment="Center" Margin="12,0,0,0"
                                  Text="{Binding UpdatedAt, StringFormat='{}{0:MMM d}'}" />
+                      <PathIcon DockPanel.Dock="Right" Data="{StaticResource Icon.Pin}"
+                                Width="12" Height="12" VerticalAlignment="Center"
+                                Foreground="{DynamicResource Brush.AccentDefault}"
+                                Margin="8,0,0,0"
+                                Opacity="0.9"
+                                IsVisible="{Binding IsPinned}"
+                                ToolTip.Tip="{loc:Str Chat_PinnedTooltip}" />
                       <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Chat}"
                                 Width="13" Height="13" VerticalAlignment="Center"
                                 Foreground="{DynamicResource Brush.TextTertiary}" Margin="0,0,8,0" />

@@ -2844,8 +2844,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Keeps the chat's context menu associated with its row's <see cref="Chat"/> and pre-builds its
-    /// "Move to Project" submenu. A ContextMenu does not inherit its owner's DataContext until it opens,
+    /// Keeps the chat's context menu associated with its row's <see cref="Chat"/> and prepares its
+    /// chat-specific actions. A ContextMenu does not inherit its owner's DataContext until it opens,
     /// so we stash the Chat on the menu's Tag (fired when the row is realized or recycled), read it back
     /// when the menu opens, and eagerly populate the submenu now so it always has items — and its flyout
     /// arrow — regardless of when (or whether) the Opening event fires.
@@ -2857,7 +2857,10 @@ public partial class MainWindow : Window
         var chat = row.DataContext as Chat;
         menu.Tag = chat;
         if (chat is not null)
+        {
+            UpdateChatPinMenuItem(menu, chat);
             TryPopulateMoveToProjectSubmenu(menu, chat);
+        }
     }
 
     /// <summary>
@@ -2872,7 +2875,22 @@ public partial class MainWindow : Window
         // The menu's own DataContext is not yet inherited when Opening fires, so resolve the row's
         // Chat from the Tag we stashed on DataContextChanged (falling back to DataContext if present).
         if ((menu.Tag as Chat ?? menu.DataContext as Chat) is Chat chat)
+        {
+            UpdateChatPinMenuItem(menu, chat);
             TryPopulateMoveToProjectSubmenu(menu, chat);
+        }
+    }
+
+    private void UpdateChatPinMenuItem(ContextMenu menu, Chat chat)
+    {
+        var pinMenu = menu.Items.OfType<MenuItem>()
+            .FirstOrDefault(item => item.Name == "TogglePinChatMenuItem");
+        if (pinMenu is null) return;
+
+        pinMenu.Header = chat.IsPinned ? Loc.Menu_Unpin : Loc.Menu_Pin;
+        pinMenu.CommandParameter = chat;
+        if (pinMenu.Icon is PathIcon icon)
+            icon.Data = GetIconGeometry(chat.IsPinned ? "Icon.PinOff" : "Icon.Pin");
     }
 
     /// <summary>Finds the "Move to Project" submenu within a chat context menu and (re)builds its targets.</summary>

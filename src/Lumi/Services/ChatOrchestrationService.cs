@@ -15,7 +15,7 @@ namespace Lumi.Services;
 /// <summary>
 /// Backs the <c>manage_chats</c> tool, letting Lumi act as a "manager" that orchestrates other chats:
 /// create new chats (optionally in a project / with a Lumi agent), send messages into existing chats,
-/// track their progress, and list them — all without leaving the current conversation.
+/// track their progress, pin or unpin them, and list them — all without leaving the current conversation.
 ///
 /// Messages are delivered through the same robust target-chat send path that background jobs use
 /// (<see cref="ChatViewModel.SendExternalMessageAsync"/>). Executor resolution mirrors
@@ -98,8 +98,10 @@ public sealed class ChatOrchestrationService : IDisposable
             "create" or "new" => CreateChatAsync(title, message, project, agent, skills, model, reasoningEffort, worktree, wait, timeoutSeconds, sourceChatId, onChatLinked, cancellationToken),
             "send" or "message" or "reply" => SendMessageAsync(identifier, message, model, reasoningEffort, wait, timeoutSeconds, sourceChatId, onChatLinked, cancellationToken),
             "status" or "progress" or "read" => GetStatusAsync(identifier, maxMessages, cancellationToken),
+            "pin" => SetPinnedAsync(identifier, isPinned: true, cancellationToken),
+            "unpin" => SetPinnedAsync(identifier, isPinned: false, cancellationToken),
             _ => Task.FromResult(
-                $"Unknown manage_chats action \"{action}\". Use list, create, send, or status.")
+                $"Unknown manage_chats action \"{action}\". Use list, create, send, status, pin, or unpin.")
         };
     }
 
@@ -123,7 +125,11 @@ public sealed class ChatOrchestrationService : IDisposable
             if (trimmedQuery.Length > 0)
                 chats = chats.Where(c => c.Title.Contains(trimmedQuery, StringComparison.OrdinalIgnoreCase));
 
-            var ordered = chats.OrderByDescending(c => c.UpdatedAt).Take(max).ToList();
+            var ordered = chats
+                .OrderByDescending(c => c.IsPinned)
+                .ThenByDescending(c => c.UpdatedAt)
+                .Take(max)
+                .ToList();
             if (ordered.Count == 0)
                 return trimmedQuery.Length > 0 || projectFilter is not null
                     ? "No chats matched that filter."
@@ -135,7 +141,7 @@ public sealed class ChatOrchestrationService : IDisposable
                 : "Chats");
             if (trimmedQuery.Length > 0)
                 builder.Append($" matching \"{trimmedQuery}\"");
-            builder.Append($" ({ordered.Count}, most recent first):\n");
+            builder.Append($" ({ordered.Count}, pinned first, then most recent):\n");
 
             var index = 1;
             foreach (var chat in ordered)
@@ -146,9 +152,43 @@ public sealed class ChatOrchestrationService : IDisposable
                 builder.Append("   status: ").Append(DescribeLiveState(chat)).Append('\n');
             }
 
-            builder.Append("\nUse manage_chats action=status with an id to see a chat's progress, or action=send to message it.");
+            builder.Append("\nUse manage_chats action=status with an id to see progress, action=send to message it, or action=pin/unpin to change its priority.");
             return builder.ToString();
         }).ConfigureAwait(false);
+    }
+
+    // ── pin / unpin ─────────────────────────────────────────────────────────
+
+    private async Task<string> SetPinnedAsync(
+        string? identifier,
+        bool isPinned,
+        CancellationToken cancellationToken)
+    {
+        var result = await InvokeUiAsync(() =>
+        {
+            var (chat, error) = ResolveChat(identifier);
+            if (chat is null)
+                return (Changed: false, Message: error!);
+
+            if (chat.IsPinned == isPinned)
+            {
+                var state = isPinned ? "pinned" : "not pinned";
+                return (Changed: false, Message: $"Chat {Quote(chat.Title)} is already {state}.");
+            }
+
+            chat.IsPinned = isPinned;
+            _dataStore.MarkChatChanged(chat);
+            var verb = isPinned ? "Pinned" : "Unpinned";
+            var note = isPinned ? " It will appear at the top of its project." : "";
+            return (Changed: true, Message: $"{verb} chat {Quote(chat.Title)} (id: {chat.Id}).{note}");
+        }).ConfigureAwait(false);
+
+        if (!result.Changed)
+            return result.Message;
+
+        await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(false);
+        RaiseChatsChanged();
+        return result.Message;
     }
 
     // ── create ──────────────────────────────────────────────────────────────
@@ -646,6 +686,8 @@ public sealed class ChatOrchestrationService : IDisposable
     private string DescribeMeta(Chat chat)
     {
         var parts = new List<string>();
+        if (chat.IsPinned)
+            parts.Add("pinned");
         if (chat.ProjectId is not null)
             parts.Add($"project: {GetProjectName(chat.ProjectId)}");
         if (chat.AgentId is not null)

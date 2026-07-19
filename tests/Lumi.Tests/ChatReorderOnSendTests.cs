@@ -1,6 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -52,6 +53,49 @@ public class ChatReorderOnSendTests
 
         firstChat = GetFirstChat(vm);
         Assert.Equal("Older", firstChat?.Title);
+    }
+
+    [Fact]
+    public void ToggleChatPin_PutsChatInDedicatedFirstGroupWithinProject()
+    {
+        var projectId = Guid.NewGuid();
+        var older = new Chat
+        {
+            Title = "Pinned candidate",
+            ProjectId = projectId,
+            UpdatedAt = DateTimeOffset.Now.AddDays(-10)
+        };
+        var newer = new Chat
+        {
+            Title = "Recent chat",
+            ProjectId = projectId,
+            UpdatedAt = DateTimeOffset.Now.AddMinutes(-2)
+        };
+        var otherProjectPinned = new Chat
+        {
+            Title = "Other project",
+            ProjectId = Guid.NewGuid(),
+            IsPinned = true,
+            UpdatedAt = DateTimeOffset.Now
+        };
+        var ds = CreateDataStore(older, newer, otherProjectPinned);
+        var vm = new MainViewModel(ds, new CopilotService(), new UpdateService())
+        {
+            SelectedProjectFilter = projectId
+        };
+
+        vm.ToggleChatPinCommand.Execute(older);
+
+        Assert.True(older.IsPinned);
+        Assert.Equal(Loc.ChatGroup_Pinned, vm.ChatGroups[0].Label);
+        Assert.Equal(older, Assert.Single(vm.ChatGroups[0].Chats));
+        Assert.DoesNotContain(otherProjectPinned, vm.ChatGroups.SelectMany(group => group.Chats));
+
+        vm.ToggleChatPinCommand.Execute(older);
+
+        Assert.False(older.IsPinned);
+        Assert.DoesNotContain(vm.ChatGroups, group => group.Label == Loc.ChatGroup_Pinned);
+        Assert.Equal(newer, GetFirstChat(vm));
     }
 
     [Fact]
