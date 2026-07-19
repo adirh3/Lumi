@@ -214,6 +214,112 @@ public sealed class ChatWorkspaceViewTests
     }
 
     [Fact]
+    public void WorkspaceIndexesLinksFromAssistantOutput()
+    {
+        Loc.Load("en");
+        var dataStore = new DataStore(CreateAppData());
+        using var chatVm = new ChatViewModel(dataStore, new CopilotService());
+
+        chatVm.Messages.Add(new ChatMessageViewModel(new ChatMessage
+        {
+            Role = "user",
+            Content = "Do not index [this user link](https://user.example/request).",
+        }));
+        chatVm.Messages.Add(new ChatMessageViewModel(new ChatMessage
+        {
+            Role = "assistant",
+            Content = """
+                Read the [Lumi guide](https://example.com/lumi/guide) and
+                [Lumi repository](https://github.com/adirh3/Lumi).
+
+                A third link: [Avalonia docs](https://avaloniaui.net/docs).
+                Duplicate: [same guide](https://example.com/lumi/guide).
+
+                Inline code `[ignored](https://ignored.example/inline)` is not a link.
+                ![Image](https://ignored.example/image.png)
+
+                ```text
+                [ignored](https://ignored.example/fenced)
+                ```
+                """,
+        }));
+
+        chatVm.RebuildTranscript();
+
+        Assert.True(chatVm.HasWorkspaceLinks);
+        Assert.True(chatVm.HasWorkspaceContent);
+        chatVm.WorkspaceSelectedTab = ChatViewModel.WorkspaceTabLinks;
+        Assert.True(chatVm.IsLinksTabSelected);
+        Assert.Equal("3", chatVm.WorkspaceLinksCountLabel);
+        Assert.Collection(
+            chatVm.WorkspaceLinks,
+            guide =>
+            {
+                Assert.Equal("Lumi guide", guide.Title);
+                Assert.Equal("example.com", guide.Domain);
+                Assert.Equal("https://example.com/lumi/guide", guide.Url);
+            },
+            github =>
+            {
+                Assert.Equal("Lumi repository", github.Title);
+                Assert.Equal("https://github.com/adirh3/Lumi", github.Url);
+            },
+            avalonia =>
+            {
+                Assert.Equal("Avalonia docs", avalonia.Title);
+                Assert.Equal("https://avaloniaui.net/docs", avalonia.Url);
+            });
+
+        chatVm.WorkspaceSearchText = "github";
+
+        Assert.Single(chatVm.WorkspaceLinks);
+        Assert.Equal("github.com", chatVm.WorkspaceLinks[0].Domain);
+
+        chatVm.Messages.Clear();
+
+        Assert.False(chatVm.HasWorkspaceLinks);
+        Assert.Empty(chatVm.WorkspaceLinks);
+        Assert.Equal("0", chatVm.WorkspaceLinksCountLabel);
+    }
+
+    [Fact]
+    public void WorkspaceCachesAssistantLinksUntilMessageContentChanges()
+    {
+        Loc.Load("en");
+        var dataStore = new DataStore(CreateAppData());
+        using var chatVm = new ChatViewModel(dataStore, new CopilotService());
+        var assistantVm = new ChatMessageViewModel(new ChatMessage
+        {
+            Role = "assistant",
+            Content = "[First](https://example.com/first)",
+        });
+        chatVm.Messages.Add(assistantVm);
+
+        chatVm.RebuildTranscript();
+        var firstCachedItem = Assert.Single(chatVm.WorkspaceLinks);
+
+        chatVm.RebuildWorkspacePanel();
+
+        Assert.Same(firstCachedItem, Assert.Single(chatVm.WorkspaceLinks));
+
+        assistantVm.Message.Content += "\n[Second](https://example.com/second)";
+        assistantVm.NotifyContentChanged();
+        chatVm.RebuildWorkspacePanel();
+
+        Assert.Equal(2, chatVm.WorkspaceLinks.Count);
+        Assert.NotSame(firstCachedItem, chatVm.WorkspaceLinks[0]);
+        var updatedCachedItem = chatVm.WorkspaceLinks[0];
+
+        chatVm.Messages.Clear();
+        Assert.Empty(chatVm.WorkspaceLinks);
+
+        chatVm.Messages.Add(assistantVm);
+        chatVm.RebuildWorkspacePanel();
+
+        Assert.NotSame(updatedCachedItem, chatVm.WorkspaceLinks[0]);
+    }
+
+    [Fact]
     public void MainAndDetachedHostXamlUseSameWorkspaceComponent()
     {
         var root = FindRepoRoot();
@@ -245,6 +351,8 @@ public sealed class ChatWorkspaceViewTests
             chatWindowXaml.IndexOf("x:Name=\"DetachedChatView\"", StringComparison.Ordinal));
         var workspaceXaml = File.ReadAllText(Path.Combine(root, "src", "Lumi", "Views", "ChatWorkspaceView.axaml"));
         Assert.Contains("UseShellChrome=\"{Binding UseChatIslandChrome", workspaceXaml);
+        Assert.Contains("x:Name=\"WsTabLinks\"", workspaceXaml);
+        Assert.Contains("ItemsSource=\"{Binding WorkspaceLinks}\"", workspaceXaml);
         Assert.Contains("x:Name=\"WsTabMessages\"", workspaceXaml);
         Assert.Contains("ItemsSource=\"{Binding WorkspaceUserMessages}\"", workspaceXaml);
         var chatViewXaml = File.ReadAllText(Path.Combine(root, "src", "Lumi", "Views", "ChatView.axaml"));

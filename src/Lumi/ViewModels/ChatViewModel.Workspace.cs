@@ -7,14 +7,16 @@ using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Services;
+using StrataTheme.Controls;
 
 namespace Lumi.ViewModels;
 
 /// <summary>
 /// Companion "Workspace" panel data: a first-class, tabbed, searchable index of the current chat's
-/// key landmarks — user messages, deliverable files, web sources, an activity timeline (intents +
-/// searches) that can jump to the transcript, and the files Lumi changed. Aggregated from the chat's
-/// messages so the transcript stays a clean conversation while these stay glanceable.
+/// key landmarks — user messages, deliverable files, assistant links, web sources, an activity
+/// timeline (intents + searches) that can jump to the transcript, and the files Lumi changed.
+/// Aggregated from the chat's messages so the transcript stays a clean conversation while these stay
+/// glanceable.
 /// </summary>
 public partial class ChatViewModel
 {
@@ -24,13 +26,16 @@ public partial class ChatViewModel
     public const int WorkspaceTabActivity = 2;
     public const int WorkspaceTabChanges = 3;
     public const int WorkspaceTabMessages = 4;
+    public const int WorkspaceTabLinks = 5;
 
     // ── Backing (unfiltered) sets ──
     private readonly List<FileAttachmentItem> _allDeliverables = [];
     private readonly List<SourceItem> _allSources = [];
+    private readonly List<SourceItem> _allLinks = [];
     private readonly List<WorkspaceActivityItem> _allActivities = [];
     private readonly List<FileChangeItem> _allChanges = [];
     private readonly List<WorkspaceUserMessageItem> _allUserMessages = [];
+    private readonly Dictionary<Guid, CachedAssistantLinks> _assistantLinkCache = [];
 
     // Reverse index (activity seed → owning turn StableId), rebuilt with the panel. The activity
     // timeline uses it to resolve each row's transcript jump target in O(1). Without it, every
@@ -44,6 +49,7 @@ public partial class ChatViewModel
     // ── Displayed (search-filtered) collections the view binds to ──
     public ObservableCollection<FileAttachmentItem> WorkspaceDeliverables { get; } = [];
     public ObservableCollection<SourceItem> WorkspaceSources { get; } = [];
+    public ObservableCollection<SourceItem> WorkspaceLinks { get; } = [];
     public ObservableCollection<WorkspaceActivityItem> WorkspaceActivities { get; } = [];
     public ObservableCollection<FileChangeItem> WorkspaceChanges { get; } = [];
     public ObservableCollection<WorkspaceUserMessageItem> WorkspaceUserMessages { get; } = [];
@@ -55,6 +61,10 @@ public partial class ChatViewModel
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasWorkspaceContent))]
     private bool _hasWorkspaceSources;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasWorkspaceContent))]
+    private bool _hasWorkspaceLinks;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasWorkspaceContent))]
@@ -70,18 +80,20 @@ public partial class ChatViewModel
 
     [ObservableProperty] private string _workspaceDeliverablesCountLabel = "0";
     [ObservableProperty] private string _workspaceSourcesCountLabel = "0";
+    [ObservableProperty] private string _workspaceLinksCountLabel = "0";
     [ObservableProperty] private string _workspaceActivitiesCountLabel = "0";
     [ObservableProperty] private string _workspaceChangesCountLabel = "0";
     [ObservableProperty] private string _workspaceUserMessagesCountLabel = "0";
 
     /// <summary>True when the panel has anything worth showing.</summary>
     public bool HasWorkspaceContent =>
-        HasWorkspaceDeliverables || HasWorkspaceSources || HasWorkspaceActivities || HasWorkspaceChanges || HasWorkspaceUserMessages;
+        HasWorkspaceDeliverables || HasWorkspaceSources || HasWorkspaceLinks || HasWorkspaceActivities || HasWorkspaceChanges || HasWorkspaceUserMessages;
 
     // ── Active tab ──
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsDeliverablesTabSelected))]
     [NotifyPropertyChangedFor(nameof(IsSourcesTabSelected))]
+    [NotifyPropertyChangedFor(nameof(IsLinksTabSelected))]
     [NotifyPropertyChangedFor(nameof(IsActivityTabSelected))]
     [NotifyPropertyChangedFor(nameof(IsChangesTabSelected))]
     [NotifyPropertyChangedFor(nameof(IsMessagesTabSelected))]
@@ -89,6 +101,7 @@ public partial class ChatViewModel
 
     public bool IsDeliverablesTabSelected => WorkspaceSelectedTab == WorkspaceTabDeliverables;
     public bool IsSourcesTabSelected => WorkspaceSelectedTab == WorkspaceTabSources;
+    public bool IsLinksTabSelected => WorkspaceSelectedTab == WorkspaceTabLinks;
     public bool IsActivityTabSelected => WorkspaceSelectedTab == WorkspaceTabActivity;
     public bool IsChangesTabSelected => WorkspaceSelectedTab == WorkspaceTabChanges;
     public bool IsMessagesTabSelected => WorkspaceSelectedTab == WorkspaceTabMessages;
@@ -177,6 +190,9 @@ public partial class ChatViewModel
         var deliverables = new List<FileAttachmentItem>();
         var seenSources = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var sources = new List<SourceItem>();
+        var seenLinks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var links = new List<SourceItem>();
+        var activeAssistantMessageIds = new HashSet<Guid>();
         var activities = new List<WorkspaceActivityItem>();
         var userMessages = new List<WorkspaceUserMessageItem>();
 
@@ -202,6 +218,16 @@ public partial class ChatViewModel
 
             TryAppendActivity(activities, i);
 
+            if (string.Equals(message.Role, "assistant", StringComparison.OrdinalIgnoreCase))
+            {
+                activeAssistantMessageIds.Add(message.Id);
+                foreach (var link in GetAssistantLinks(messageVm))
+                {
+                    if (seenLinks.Add(link.Url))
+                        links.Add(link);
+                }
+            }
+
             foreach (var source in message.Sources)
             {
                 if (string.IsNullOrWhiteSpace(source.Url) || !seenSources.Add(source.Url))
@@ -211,21 +237,25 @@ public partial class ChatViewModel
         }
 
         var changes = CollectChangedFiles();
+        PruneAssistantLinkCache(activeAssistantMessageIds);
 
         ReplaceAll(_allDeliverables, deliverables);
         ReplaceAll(_allSources, sources);
+        ReplaceAll(_allLinks, links);
         ReplaceAll(_allActivities, activities);
         ReplaceAll(_allChanges, changes);
         ReplaceAll(_allUserMessages, userMessages);
 
         HasWorkspaceDeliverables = _allDeliverables.Count > 0;
         HasWorkspaceSources = _allSources.Count > 0;
+        HasWorkspaceLinks = _allLinks.Count > 0;
         HasWorkspaceActivities = _allActivities.Count > 0;
         HasWorkspaceChanges = _allChanges.Count > 0;
         HasWorkspaceUserMessages = _allUserMessages.Count > 0;
 
         WorkspaceDeliverablesCountLabel = _allDeliverables.Count.ToString();
         WorkspaceSourcesCountLabel = _allSources.Count.ToString();
+        WorkspaceLinksCountLabel = _allLinks.Count.ToString();
         WorkspaceActivitiesCountLabel = _allActivities.Count.ToString();
         WorkspaceChangesCountLabel = _allChanges.Count.ToString();
         WorkspaceUserMessagesCountLabel = _allUserMessages.Count.ToString();
@@ -470,7 +500,7 @@ public partial class ChatViewModel
         if (TabHasContent(WorkspaceSelectedTab))
             return;
 
-        foreach (var tab in new[] { WorkspaceTabDeliverables, WorkspaceTabSources, WorkspaceTabMessages, WorkspaceTabActivity, WorkspaceTabChanges })
+        foreach (var tab in new[] { WorkspaceTabDeliverables, WorkspaceTabSources, WorkspaceTabLinks, WorkspaceTabMessages, WorkspaceTabActivity, WorkspaceTabChanges })
         {
             if (TabHasContent(tab))
             {
@@ -486,6 +516,7 @@ public partial class ChatViewModel
     {
         WorkspaceTabDeliverables => HasWorkspaceDeliverables,
         WorkspaceTabSources => HasWorkspaceSources,
+        WorkspaceTabLinks => HasWorkspaceLinks,
         WorkspaceTabMessages => HasWorkspaceUserMessages,
         WorkspaceTabActivity => HasWorkspaceActivities,
         WorkspaceTabChanges => HasWorkspaceChanges,
@@ -503,6 +534,9 @@ public partial class ChatViewModel
         ReplaceAll(WorkspaceSources, hasQuery
             ? _allSources.Where(s => Contains(s.Title, q) || Contains(s.Domain, q) || Contains(s.Url, q)).ToList()
             : _allSources);
+        ReplaceAll(WorkspaceLinks, hasQuery
+            ? _allLinks.Where(l => Contains(l.Title, q) || Contains(l.Domain, q) || Contains(l.Url, q)).ToList()
+            : _allLinks);
         ReplaceAll(WorkspaceUserMessages, hasQuery
             ? _allUserMessages.Where(m => Contains(m.Preview, q) || Contains(m.MetaText, q) || Contains(m.NumberLabel, q)).ToList()
             : _allUserMessages);
@@ -531,11 +565,168 @@ public partial class ChatViewModel
         {
             WorkspaceTabDeliverables => WorkspaceDeliverables.Count == 0,
             WorkspaceTabSources => WorkspaceSources.Count == 0,
+            WorkspaceTabLinks => WorkspaceLinks.Count == 0,
             WorkspaceTabMessages => WorkspaceUserMessages.Count == 0,
             WorkspaceTabActivity => WorkspaceActivities.Count == 0,
             WorkspaceTabChanges => WorkspaceChanges.Count == 0,
             _ => false,
         };
+    }
+
+    private IReadOnlyList<SourceItem> GetAssistantLinks(ChatMessageViewModel message)
+    {
+        var messageId = message.Message.Id;
+        var content = message.Content;
+
+        // Strings are immutable, and a message keeps the same instance until its content changes.
+        if (_assistantLinkCache.TryGetValue(messageId, out var cached)
+            && ReferenceEquals(cached.Content, content))
+        {
+            return cached.Links;
+        }
+
+        var links = ExtractAssistantLinks(content)
+            .Select(link => new SourceItem(link.Title, link.Url))
+            .ToArray();
+        _assistantLinkCache[messageId] = new CachedAssistantLinks(content, links);
+        return links;
+    }
+
+    private void PruneAssistantLinkCache(HashSet<Guid> activeMessageIds)
+    {
+        List<Guid>? removedMessageIds = null;
+        foreach (var messageId in _assistantLinkCache.Keys)
+        {
+            if (!activeMessageIds.Contains(messageId))
+                (removedMessageIds ??= []).Add(messageId);
+        }
+
+        if (removedMessageIds is null)
+            return;
+
+        foreach (var messageId in removedMessageIds)
+            _assistantLinkCache.Remove(messageId);
+    }
+
+    private static IEnumerable<AssistantLink> ExtractAssistantLinks(string? markdown)
+    {
+        if (string.IsNullOrWhiteSpace(markdown))
+            yield break;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var block in MarkdownParser.Parse(markdown))
+        {
+            if (block.Kind is MdBlockKind.CodeBlock
+                or MdBlockKind.Chart
+                or MdBlockKind.Mermaid
+                or MdBlockKind.Confidence
+                or MdBlockKind.Comparison
+                or MdBlockKind.Card
+                or MdBlockKind.Sources)
+            {
+                continue;
+            }
+
+            foreach (var link in ExtractInlineLinks(block.Content))
+            {
+                if (seen.Add(link.Url))
+                    yield return link;
+            }
+        }
+    }
+
+    private static List<AssistantLink> ExtractInlineLinks(string text)
+    {
+        var links = new List<AssistantLink>();
+        var span = text.AsSpan();
+
+        for (var position = 0; position < span.Length; position++)
+        {
+            if (span[position] == '`')
+            {
+                var relativeClose = span[(position + 1)..].IndexOf('`');
+                if (relativeClose >= 0)
+                {
+                    position += relativeClose + 1;
+                    continue;
+                }
+            }
+
+            if (span[position] == '!' && position + 1 < span.Length && span[position + 1] == '[')
+            {
+                var imageBracketClose = FindClosingBracket(span, position + 2);
+                if (imageBracketClose >= 0
+                    && imageBracketClose + 1 < span.Length
+                    && span[imageBracketClose + 1] == '(')
+                {
+                    var imageParenClose = FindClosingParen(span, imageBracketClose + 2);
+                    if (imageParenClose >= 0)
+                    {
+                        position = imageParenClose;
+                        continue;
+                    }
+                }
+            }
+
+            if (span[position] != '[')
+                continue;
+
+            var bracketClose = FindClosingBracket(span, position + 1);
+            if (bracketClose < 0
+                || bracketClose + 1 >= span.Length
+                || span[bracketClose + 1] != '(')
+            {
+                continue;
+            }
+
+            var parenClose = FindClosingParen(span, bracketClose + 2);
+            if (parenClose < 0)
+                continue;
+
+            var label = text[(position + 1)..bracketClose].Trim();
+            var url = text[(bracketClose + 2)..parenClose].Trim();
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri)
+                && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+                && !string.IsNullOrWhiteSpace(uri.Host))
+            {
+                links.Add(new AssistantLink(label, url));
+            }
+
+            position = parenClose;
+        }
+
+        return links;
+    }
+
+    private static int FindClosingBracket(ReadOnlySpan<char> span, int start)
+    {
+        for (var i = start; i < span.Length; i++)
+        {
+            if (span[i] == ']')
+                return i;
+            if (span[i] == '[')
+                return -1;
+        }
+
+        return -1;
+    }
+
+    private static int FindClosingParen(ReadOnlySpan<char> span, int start)
+    {
+        var depth = 1;
+        for (var i = start; i < span.Length; i++)
+        {
+            if (span[i] == '(')
+            {
+                depth++;
+            }
+            else if (span[i] == ')' && --depth == 0)
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private static bool Contains(string? haystack, string needle)
@@ -547,6 +738,9 @@ public partial class ChatViewModel
         foreach (var item in desired)
             target.Add(item);
     }
+
+    private readonly record struct AssistantLink(string Title, string Url);
+    private sealed record CachedAssistantLinks(string Content, SourceItem[] Links);
 }
 
 /// <summary>A single user prompt indexed in the Workspace panel so long chats can jump between asks.</summary>

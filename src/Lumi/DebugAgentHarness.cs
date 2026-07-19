@@ -186,7 +186,11 @@ public static class DebugAgentHarness
         var firstAssistant = Message("assistant", """
             ### Transcript fixture is active
 
-            This assistant message verifies **markdown**, `inline code`, selectable plain text, and source chips.
+            This assistant message verifies **markdown**, `inline code`, selectable plain text, source chips,
+            and workspace links such as [Avalonia docs](https://docs.avaloniaui.net/) and
+            [the Avalonia repository](https://github.com/AvaloniaUI/Avalonia).
+
+            The inline-code link `[hidden](https://example.com/not-a-workspace-link)` must not appear in Links.
 
             | Item | Expected |
             | --- | --- |

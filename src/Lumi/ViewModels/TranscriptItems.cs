@@ -1111,10 +1111,15 @@ public partial class SourceItem : ObservableObject
     public Avalonia.Media.IBrush AccentBrush { get; }
 
     public SourceItem(SearchSource source)
+        : this(source.Title, source.Url)
     {
-        Title = source.Title;
-        Url = source.Url;
-        Domain = ExtractDomain(source.Url);
+    }
+
+    public SourceItem(string title, string url)
+    {
+        Url = url;
+        Domain = ExtractDomain(url);
+        Title = string.IsNullOrWhiteSpace(title) ? Domain : title.Trim();
         InitialLetter = ComputeInitial(Domain, Title);
         AccentBrush = ComputeAccent(Domain);
     }
