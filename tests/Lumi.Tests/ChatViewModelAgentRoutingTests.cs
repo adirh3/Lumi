@@ -392,9 +392,16 @@ public sealed class ChatViewModelAgentRoutingTests
         Assert.Contains("manage_current_chat", toolNames);
         Assert.Contains("manage_lumis", toolNames);
         Assert.Contains("code_review", toolNames);
-        Assert.Contains(ToolDisplayHelper.BrowserOpenToolName, toolNames);
         if (OperatingSystem.IsWindows())
+        {
+            Assert.Contains(ToolDisplayHelper.BrowserOpenToolName, toolNames);
             Assert.Contains("ui_list_windows", toolNames);
+        }
+        else
+        {
+            Assert.DoesNotContain(ToolDisplayHelper.BrowserOpenToolName, toolNames);
+            Assert.DoesNotContain("ui_list_windows", toolNames);
+        }
     }
 
     [Fact]

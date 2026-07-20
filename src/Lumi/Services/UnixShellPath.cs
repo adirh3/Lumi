@@ -65,21 +65,23 @@ internal static class UnixShellPath
     }
 
     /// <summary>
-    /// Applies the augmented PATH (see <see cref="Augment"/>) to a child process's environment so a
-    /// command Lumi spawns directly resolves the same tools the user has in their terminal (Homebrew,
-    /// nvm, etc.). No-op on Windows, where GUI processes already inherit the full user PATH. Use for
-    /// PATH-resolved commands Lumi launches itself (background jobs, git, "open in IDE") — not needed
-    /// for commands routed through the Copilot CLI, whose environment is already augmented.
+    /// Applies the augmented PATH (see <see cref="Augment"/>) to a child process's environment and
+    /// resolves a bare <see cref="ProcessStartInfo.FileName"/> against it before launch. The explicit
+    /// resolution is required because <see cref="Process.Start(ProcessStartInfo)"/> locates the
+    /// executable from Lumi's parent PATH, not from the PATH assigned to the child environment.
+    /// No-op on Windows, where GUI processes already inherit the full user PATH.
     /// </summary>
     public static void ApplyTo(ProcessStartInfo startInfo)
     {
         if (OperatingSystem.IsWindows())
             return;
 
-        var current = startInfo.Environment.TryGetValue("PATH", out var existing) && !string.IsNullOrEmpty(existing)
+        var current = startInfo.Environment.TryGetValue("PATH", out var existing)
             ? existing
             : Environment.GetEnvironmentVariable("PATH");
-        startInfo.Environment["PATH"] = Augment(current);
+        var augmentedPath = Augment(current);
+        startInfo.Environment["PATH"] = augmentedPath;
+        startInfo.FileName = ResolveExecutable(startInfo.FileName, augmentedPath, startInfo.WorkingDirectory);
     }
 
     /// <summary>
@@ -94,20 +96,29 @@ internal static class UnixShellPath
         var ordered = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
-        void AddEntries(string? value)
+        void AddEntries(string? value, bool preserveEmptyEntries)
         {
-            if (string.IsNullOrEmpty(value))
+            if (value is null)
                 return;
             foreach (var raw in value.Split(':'))
             {
                 var entry = raw.Trim();
-                if (entry.Length > 0 && seen.Add(entry))
+                if (entry.Length == 0)
+                {
+                    // Preserve a genuine "::" / leading / trailing empty entry, but retain the
+                    // existing behavior of ignoring entries that contain only whitespace.
+                    if (!preserveEmptyEntries || raw.Length > 0)
+                        continue;
+                }
+                if (seen.Add(entry))
                     ordered.Add(entry);
             }
         }
 
-        AddEntries(currentPath);
-        AddEntries(loginShellPath);
+        // Empty entries in the actual child PATH mean its working directory on POSIX. An empty
+        // login-shell probe, however, means the probe yielded no usable value and must be ignored.
+        AddEntries(currentPath, preserveEmptyEntries: true);
+        AddEntries(loginShellPath, preserveEmptyEntries: false);
         foreach (var dir in extraDirectories)
         {
             if (!string.IsNullOrWhiteSpace(dir) && seen.Add(dir))
@@ -115,6 +126,59 @@ internal static class UnixShellPath
         }
 
         return string.Join(':', ordered);
+    }
+
+    internal static string ResolveExecutable(string command, string? path, string? workingDirectory = null)
+    {
+        if (OperatingSystem.IsWindows()
+            || string.IsNullOrWhiteSpace(command)
+            || Path.IsPathRooted(command)
+            || command.Contains(Path.DirectorySeparatorChar)
+            || command.Contains(Path.AltDirectorySeparatorChar)
+            || string.IsNullOrWhiteSpace(path))
+        {
+            return command;
+        }
+
+        var effectiveWorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory)
+            ? Environment.CurrentDirectory
+            : Path.GetFullPath(workingDirectory);
+
+        foreach (var rawDirectory in path.Split(Path.PathSeparator))
+        {
+            var directory = rawDirectory.Trim().Trim('"');
+            if (directory.Length == 0)
+                directory = effectiveWorkingDirectory;
+            else if (!Path.IsPathRooted(directory))
+                directory = Path.GetFullPath(directory, effectiveWorkingDirectory);
+
+            var candidate = Path.Combine(directory, command);
+            if (IsExecutableFile(candidate))
+                return Path.GetFullPath(candidate);
+        }
+
+        return command;
+    }
+
+    private static bool IsExecutableFile(string path)
+    {
+        if (OperatingSystem.IsWindows())
+            return false;
+
+        if (!File.Exists(path))
+            return false;
+
+        try
+        {
+            var mode = File.GetUnixFileMode(path);
+            return (mode & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0;
+        }
+        catch (Exception ex) when (ex is IOException
+                                   or UnauthorizedAccessException
+                                   or PlatformNotSupportedException)
+        {
+            return false;
+        }
     }
 
     private static string? GetLoginShellPath() => LoginShellPath.Value;

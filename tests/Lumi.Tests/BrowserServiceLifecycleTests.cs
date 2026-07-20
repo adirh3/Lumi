@@ -2,7 +2,9 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Lumi.Services;
+#if WINDOWS
 using Microsoft.Web.WebView2.Core;
+#endif
 using Xunit;
 
 namespace Lumi.Tests;
@@ -31,6 +33,7 @@ public sealed class BrowserServiceLifecycleTests
         Assert.False(BrowserService.IsWebViewInvalidState(exception));
     }
 
+#if WINDOWS
     [Theory]
     [InlineData(CoreWebView2ScriptDialogKind.Alert, false)]
     [InlineData(CoreWebView2ScriptDialogKind.Confirm, false)]
@@ -42,6 +45,7 @@ public sealed class BrowserServiceLifecycleTests
     {
         Assert.Equal(expected, BrowserService.ShouldAcceptScriptDialog(kind));
     }
+#endif
 
     [Fact]
     public async Task ThemeUpdatesRemainSafeAfterDisposal()

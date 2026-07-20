@@ -338,7 +338,83 @@ public sealed class McpProxyRuntimeTests
             using var initialize = await PostJsonAsync(http, remote.Url, """
                 {"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
                 """);
-            Assert.True(initialize.RootElement.TryGetProperty("result", out _));
+            Assert.True(
+                initialize.RootElement.TryGetProperty("result", out _),
+                initialize.RootElement.GetRawText());
+
+            using var call = await PostJsonAsync(http, remote.Url, """
+                {"jsonrpc":"2.0","id":"call","method":"tools/call","params":{"name":"emit_marker","arguments":{}}}
+                """);
+            Assert.Equal("PATH_MARKER", call.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString());
+
+            var start = Assert.Single(await File.ReadAllLinesAsync(logPath));
+            Assert.Contains(workDir, start);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+        }
+    }
+
+    [SkippableFact]
+    public async Task Proxy_ResolvesPathCommandBeforeStartingStdioServer_OnUnix()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var root = Path.Combine(Path.GetTempPath(), "lumi-mcp-proxy-path-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var workDir = Path.Combine(root, "work");
+            var binDir = Path.Combine(workDir, "node_modules", ".bin");
+            Directory.CreateDirectory(binDir);
+
+            var shimPath = Path.Combine(binDir, "fake-npx");
+            var logPath = Path.Combine(root, "starts.log");
+            await File.WriteAllTextAsync(shimPath, """
+                #!/bin/sh
+                printf '%s|%s\n' "$$" "$PWD" >> "$MCP_TEST_LOG"
+                while IFS= read -r line; do
+                    id="$(printf '%s' "$line" | /usr/bin/sed -n 's/.*"id":\([^,}]*\).*/\1/p')"
+                    case "$line" in
+                        *'"method":"initialize"'*)
+                            printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"path-test-mcp","version":"1"}}}\n' "$id"
+                            ;;
+                        *'"method":"tools/call"'*)
+                            printf '{"jsonrpc":"2.0","id":%s,"result":{"content":[{"type":"text","text":"PATH_MARKER"}]}}\n' "$id"
+                            ;;
+                    esac
+                done
+                """.ReplaceLineEndings("\n"));
+            File.SetUnixFileMode(
+                shimPath,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+            await using var runtime = new McpProxyRuntime();
+            var remote = runtime.Register(new McpProxyServerDefinition(
+                "test:path-unix",
+                "path-test-unix",
+                new McpStdioServerConfig
+                {
+                    Command = "fake-npx",
+                    WorkingDirectory = workDir,
+                    Env = new Dictionary<string, string>
+                    {
+                        ["MCP_TEST_LOG"] = logPath,
+                        ["PATH"] = "./node_modules/.bin"
+                    },
+                    Tools = ["*"]
+                }));
+
+            using var http = new HttpClient();
+            using var initialize = await PostJsonAsync(http, remote.Url, """
+                {"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+                """);
+            Assert.True(
+                initialize.RootElement.TryGetProperty("result", out _),
+                initialize.RootElement.GetRawText());
 
             using var call = await PostJsonAsync(http, remote.Url, """
                 {"jsonrpc":"2.0","id":"call","method":"tools/call","params":{"name":"emit_marker","arguments":{}}}

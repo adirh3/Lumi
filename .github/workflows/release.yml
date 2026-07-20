@@ -1,10 +1,9 @@
 # Release pipeline — builds, signs and publishes Velopack installers + auto-update
 # feeds for Windows, Linux and macOS from a single workflow_dispatch run.
 #
-# Auto-update: Lumi's UpdateService uses Velopack's GithubSource, which automatically
-# selects the per-OS/arch "channel" feed (releases.<channel>.json) matching the installed
-# build. Each job below packs and uploads its own channel, so Windows, Linux and macOS
-# users all receive in-app updates with no application code change.
+# Auto-update: Velopack's GithubSource uses the default win/linux channels on those
+# platforms, while Lumi's UpdateService explicitly selects osx-arm64 or osx-x64 on macOS.
+# Each job below packs and uploads the matching channel feed (releases.<channel>.json).
 #
 #   Channel     Platform                       Installer produced by Velopack
 #   --------    ---------------------------    ------------------------------------------
@@ -211,8 +210,8 @@ jobs:
           --merge
 
   # macOS: native build per architecture (Apple Silicon + Intel). Each arch is its own
-  # Velopack channel (osx-arm64 / osx-x64); GithubSource auto-selects the right one for the
-  # user's Mac. macOS packaging MUST run on macOS (codesign/xcrun/productbuild are required),
+  # Velopack channel (osx-arm64 / osx-x64); UpdateService selects the architecture-matched
+  # channel. macOS packaging MUST run on macOS (codesign/xcrun/productbuild are required),
   # so each arch builds on its native runner.
   release-macos:
     needs: release-windows
@@ -223,7 +222,7 @@ jobs:
           - rid: osx-arm64
             runner: macos-latest
           - rid: osx-x64
-            runner: macos-13
+            runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
