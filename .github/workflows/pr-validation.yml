@@ -24,14 +24,10 @@ jobs:
         include:
           # Windows is the primary/shipping platform: full build + test suite.
           - os: windows-latest
-            run_tests: true
-          # Linux and macOS validate that the cross-platform (net11.0) target compiles.
-          # The unit-test suite still carries Windows-only path/host assumptions, so it is
-          # gated on Windows for now.
+          # Linux and macOS build the full solution and run the platform-sensitive subset.
+          # The remaining suite still contains Windows-only host and animation assumptions.
           - os: ubuntu-latest
-            run_tests: false
           - os: macos-latest
-            run_tests: false
 
     steps:
       - name: Checkout
@@ -51,14 +47,34 @@ jobs:
       - name: Build
         run: dotnet build Lumi.slnx --configuration Release --no-restore
 
-      - name: Test
-        if: ${{ matrix.run_tests }}
+      - name: Test (full Windows suite)
+        if: ${{ runner.os == 'Windows' }}
         run: dotnet test Lumi.slnx --configuration Release --no-build --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
 
+      - name: Test (cross-platform runtime behavior)
+        if: ${{ runner.os != 'Windows' }}
+        run: >
+          dotnet test tests/Lumi.Tests/Lumi.Tests.csproj
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=test-results.trx"
+          --results-directory TestResults
+          --filter
+          "(FullyQualifiedName~Lumi.Tests.UnixShellPathTests
+          |FullyQualifiedName~Lumi.Tests.McpProxyRuntimeTests.Proxy_ResolvesPathCommandBeforeStartingStdioServer_OnUnix
+          |FullyQualifiedName~Lumi.Tests.SystemPromptBuilderTests
+          |FullyQualifiedName~Lumi.Tests.AgentsViewModelToolSelectionTests
+          |FullyQualifiedName~Lumi.Tests.ChatViewModelAgentRoutingTests
+          |FullyQualifiedName~Lumi.Tests.RebaseAttachmentPathsTests
+          |FullyQualifiedName~Lumi.Tests.ToolDisplayHelperTests
+          |FullyQualifiedName~Lumi.Tests.BrowserServiceLifecycleTests
+          |FullyQualifiedName~Lumi.Tests.DataStorePlatformSkillMigrationTests
+          |FullyQualifiedName~Lumi.Tests.LocKeyboardHintTests)"
+
       - name: Upload test results
-        if: ${{ always() && matrix.run_tests }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: test-results-${{ matrix.os }}
           path: TestResults
           if-no-files-found: ignore

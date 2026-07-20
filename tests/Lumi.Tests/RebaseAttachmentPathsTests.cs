@@ -31,8 +31,7 @@ public class RebaseAttachmentPathsTests
 
     // The path literals below were written for Windows. Convert them to the host OS format so the
     // same assertions hold on Windows, macOS, and Linux. Windows: unchanged (byte-for-byte). Unix:
-    // drop a leading drive letter and flip '\' to '/'. The rebase logic itself is OS-agnostic
-    // (it keys off Path.DirectorySeparatorChar), so exercising it with native paths is the correct test.
+    // drop a leading drive letter and flip '\' to '/'.
     private static string P(string windowsPath)
     {
         if (OperatingSystem.IsWindows()) return windowsPath;
@@ -106,16 +105,38 @@ public class RebaseAttachmentPathsTests
     }
 
     [Fact]
-    public void Case_insensitive_prefix_matching()
+    public void Prefix_matching_uses_platform_path_case_rules()
     {
-        var (attachments, msg) = MakeAttachments(P(@"e:\git\lumi\src\file.cs"));
+        var original = P(@"e:\git\lumi\src\file.cs");
+        var (attachments, msg) = MakeAttachments(original);
 
         ChatViewModel.RebaseAttachmentPaths(
             attachments, msg,
             P(@"E:\Git\Lumi"),
             P(@"E:\Git\Lumi-wt-abc123"));
 
-        Assert.Equal(P(@"E:\Git\Lumi-wt-abc123\src\file.cs"), FileAt(attachments, 0).Path);
+        var expected = OperatingSystem.IsLinux()
+            ? original
+            : P(@"E:\Git\Lumi-wt-abc123\src\file.cs");
+        Assert.Equal(expected, FileAt(attachments, 0).Path);
+    }
+
+    [Fact]
+    public void Project_worktree_equality_uses_platform_path_case_rules()
+    {
+        var original = P(@"E:\Git\Lumi\src\file.cs");
+        var (attachments, msg) = MakeAttachments(original);
+
+        ChatViewModel.RebaseAttachmentPaths(
+            attachments, msg,
+            P(@"E:\Git\Lumi"),
+            P(@"e:\git\lumi"));
+
+        var expected = OperatingSystem.IsLinux()
+            ? P(@"e:\git\lumi\src\file.cs")
+            : original;
+        Assert.Equal(expected, FileAt(attachments, 0).Path);
+        Assert.Equal(expected, msg.Attachments[0]);
     }
 
     [Fact]
