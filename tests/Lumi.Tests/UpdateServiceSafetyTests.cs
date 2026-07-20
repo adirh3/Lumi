@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using Lumi.Services;
 using NuGet.Versioning;
 using Velopack;
@@ -10,6 +11,26 @@ namespace Lumi.Tests;
 
 public sealed class UpdateServiceSafetyTests
 {
+    [Theory]
+    [InlineData(Architecture.Arm64, "osx-arm64")]
+    [InlineData(Architecture.X64, "osx-x64")]
+    public void UpdateChannel_ForMacOS_MatchesProcessArchitecture(
+        Architecture processArchitecture,
+        string expectedChannel)
+    {
+        Assert.Equal(
+            expectedChannel,
+            UpdateService.ResolveUpdateChannel(isMacOS: true, processArchitecture));
+    }
+
+    [Theory]
+    [InlineData(Architecture.Arm64)]
+    [InlineData(Architecture.X64)]
+    public void UpdateChannel_ForNonMacOS_UsesVelopackDefault(Architecture processArchitecture)
+    {
+        Assert.Null(UpdateService.ResolveUpdateChannel(isMacOS: false, processArchitecture));
+    }
+
     [Fact]
     public void SafeWorkingDirectory_IsOutsideVelopackInstallTree()
     {

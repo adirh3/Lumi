@@ -69,7 +69,8 @@ jobs:
           |FullyQualifiedName~Lumi.Tests.ToolDisplayHelperTests
           |FullyQualifiedName~Lumi.Tests.BrowserServiceLifecycleTests
           |FullyQualifiedName~Lumi.Tests.DataStorePlatformSkillMigrationTests
-          |FullyQualifiedName~Lumi.Tests.LocKeyboardHintTests)"
+          |FullyQualifiedName~Lumi.Tests.LocKeyboardHintTests
+          |FullyQualifiedName~Lumi.Tests.UpdateServiceSafetyTests.UpdateChannel_)"
 
       - name: Upload test results
         if: ${{ always() }}

@@ -139,13 +139,18 @@ public sealed class UpdateService
     /// </summary>
     private static UpdateOptions? ResolveUpdateOptions()
     {
-        if (!OperatingSystem.IsMacOS())
+        var channel = ResolveUpdateChannel(
+            OperatingSystem.IsMacOS(),
+            RuntimeInformation.ProcessArchitecture);
+        return channel is null ? null : new UpdateOptions { ExplicitChannel = channel };
+    }
+
+    internal static string? ResolveUpdateChannel(bool isMacOS, Architecture processArchitecture)
+    {
+        if (!isMacOS)
             return null;
 
-        var channel = RuntimeInformation.ProcessArchitecture == Architecture.Arm64
-            ? "osx-arm64"
-            : "osx-x64";
-        return new UpdateOptions { ExplicitChannel = channel };
+        return processArchitecture == Architecture.Arm64 ? "osx-arm64" : "osx-x64";
     }
 
     /// <summary>Start periodic background checks. Call once after UI is ready.</summary>
