@@ -1292,8 +1292,8 @@ public partial class ChatViewModel
             var isGit = GitService.IsGitRepo(projectDir);
             IsCodingProject = isGit;
 
-            // Worktree state comes exclusively from the current chat's persisted data.
-            // On welcome screen (no chat), always reset to local.
+            // Existing chats use their persisted worktree. Drafts preserve the user's pre-chat
+            // selection, including the project's default-to-worktree preference.
             string? savedWorktreePath = null;
             if (CurrentChat?.WorktreePath is { Length: > 0 } savedWt && Directory.Exists(savedWt))
             {
@@ -1301,10 +1301,19 @@ public partial class ChatViewModel
                 WorktreePath = savedWt;
                 IsWorktreeMode = true;
             }
-            else
+            else if (CurrentChat is not null || !isGit)
             {
                 WorktreePath = null;
                 IsWorktreeMode = false;
+            }
+            else if (WorktreePath is { Length: > 0 } draftWt && Directory.Exists(draftWt))
+            {
+                savedWorktreePath = draftWt;
+                IsWorktreeMode = true;
+            }
+            else
+            {
+                WorktreePath = null;
             }
 
             if (!isGit)

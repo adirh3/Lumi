@@ -229,6 +229,11 @@ public class Project : INotifyPropertyChanged
     public string Name { get; set; } = "";
     public string Instructions { get; set; } = "";
     public string? WorkingDirectory { get; set; }
+    public bool AutoSyncMainBranchDaily { get; set; }
+    public bool DefaultNewChatsUseWorktree { get; set; }
+    public DateTimeOffset? LastMainBranchSyncAttemptAt { get; set; }
+    public DateTimeOffset? LastMainBranchSyncAt { get; set; }
+    public string? LastMainBranchSyncError { get; set; }
     public List<string> AdditionalContextDirectories
     {
         get => _additionalContextDirectories;

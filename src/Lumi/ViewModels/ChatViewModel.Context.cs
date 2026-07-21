@@ -78,6 +78,7 @@ public partial class ChatViewModel
         {
             // Will be applied when the chat is created in SendMessage
             _pendingProjectId = projectId;
+            ApplyDraftProjectWorkspaceDefault(projectId);
             OnPropertyChanged(nameof(CurrentChat));
         }
 
@@ -129,6 +130,7 @@ public partial class ChatViewModel
         else
         {
             _pendingProjectId = null;
+            ApplyDraftProjectWorkspaceDefault(null);
             OnPropertyChanged(nameof(CurrentChat));
         }
 
@@ -137,6 +139,23 @@ public partial class ChatViewModel
         RefreshComposerCatalogs(); // Re-scan to remove project-context and user Copilot agents/skills
         QueueRefreshCodingProjectState();
     }
+
+    private void ApplyDraftProjectWorkspaceDefault(Guid? projectId)
+    {
+        if (CurrentChat is not null)
+            return;
+
+        WorktreePath = null;
+        var project = projectId.HasValue
+            ? _dataStore.Data.Projects.FirstOrDefault(candidate => candidate.Id == projectId.Value)
+            : null;
+        IsWorktreeMode = project is
+        {
+            DefaultNewChatsUseWorktree: true,
+            WorkingDirectory: { Length: > 0 } workingDirectory
+        } && GitService.IsGitRepo(workingDirectory);
+    }
+
     public void AddSkill(Skill skill)
     {
         if (ActiveSkillIds.Contains(skill.Id)) return;

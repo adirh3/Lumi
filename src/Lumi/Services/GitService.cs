@@ -135,6 +135,202 @@ public static class GitService
         return string.IsNullOrWhiteSpace(shortSha) ? null : $"Detached {shortSha}";
     }
 
+    /// <summary>
+    /// Detects the repository's default branch. The remote HEAD is authoritative when available;
+    /// repositories without one fall back to remote or local <c>main</c>, then <c>master</c>.
+    /// </summary>
+    public static async Task<GitDefaultBranchInfo?> GetDefaultBranchInfoAsync(
+        string dir,
+        CancellationToken cancellationToken = default)
+    {
+        var gitRoot = FindRepoRoot(dir);
+        if (gitRoot is null)
+            return null;
+
+        var remotes = ParseLines(await RunGitAsync(
+                gitRoot,
+                "remote",
+                cancellationToken: cancellationToken).ConfigureAwait(false))
+            .OrderBy(static remote => string.Equals(remote, "origin", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(static remote => remote, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        foreach (var remote in remotes)
+        {
+            var remoteHeadRef = $"refs/remotes/{remote}/HEAD";
+            var symbolic = NormalizeBranchName(await RunGitAsync(
+                gitRoot,
+                $"symbolic-ref --quiet --short {QuoteGitArgument(remoteHeadRef)}",
+                cancellationToken: cancellationToken).ConfigureAwait(false));
+            var prefix = remote + "/";
+            if (symbolic is null || !symbolic.StartsWith(prefix, StringComparison.Ordinal))
+                continue;
+
+            var branchName = symbolic[prefix.Length..];
+            if (await RefExistsAsync(
+                    gitRoot,
+                    $"refs/remotes/{remote}/{branchName}",
+                    cancellationToken).ConfigureAwait(false))
+                return new GitDefaultBranchInfo(branchName, remote);
+        }
+
+        foreach (var candidate in new[] { "main", "master" })
+        {
+            foreach (var remote in remotes)
+            {
+                if (await RefExistsAsync(
+                        gitRoot,
+                        $"refs/remotes/{remote}/{candidate}",
+                        cancellationToken).ConfigureAwait(false))
+                    return new GitDefaultBranchInfo(candidate, remote);
+            }
+        }
+
+        foreach (var candidate in new[] { "main", "master" })
+        {
+            if (await RefExistsAsync(
+                    gitRoot,
+                    $"refs/heads/{candidate}",
+                    cancellationToken).ConfigureAwait(false))
+                return new GitDefaultBranchInfo(candidate, null);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Fetches and safely synchronizes the detected default branch. A checked-out branch is updated
+    /// only when its worktree is clean and a fast-forward is possible; an unmounted local branch is
+    /// moved only when it has no commits that would be discarded.
+    /// </summary>
+    public static async Task<GitBranchSyncResult> SyncDefaultBranchAsync(
+        string dir,
+        CancellationToken cancellationToken = default)
+    {
+        var gitRoot = FindRepoRoot(dir);
+        if (gitRoot is null)
+            return new GitBranchSyncResult(false, null, false, "The project is not inside a git repository.");
+
+        var defaultBranch = await GetDefaultBranchInfoAsync(gitRoot, cancellationToken).ConfigureAwait(false);
+        if (defaultBranch is null)
+            return new GitBranchSyncResult(false, null, false, "Could not detect the repository default branch.");
+        if (string.IsNullOrWhiteSpace(defaultBranch.RemoteName))
+        {
+            return new GitBranchSyncResult(
+                false,
+                defaultBranch.BranchName,
+                false,
+                $"Default branch \"{defaultBranch.BranchName}\" has no detected remote.");
+        }
+
+        var remote = defaultBranch.RemoteName;
+        var branch = defaultBranch.BranchName;
+        var remoteRef = $"refs/remotes/{remote}/{branch}";
+        var fetchRefSpec = $"+refs/heads/{branch}:{remoteRef}";
+        var fetchResult = await RunGitAsync(
+            gitRoot,
+            $"fetch --prune {QuoteGitArgument(remote)} {QuoteGitArgument(fetchRefSpec)}",
+            WorktreeGitCommandTimeout,
+            cancellationToken).ConfigureAwait(false);
+        if (fetchResult is null)
+        {
+            return new GitBranchSyncResult(
+                false,
+                branch,
+                false,
+                $"Failed to fetch \"{remote}/{branch}\".");
+        }
+
+        var remoteCommit = await ResolveCommitAsync(gitRoot, remoteRef, cancellationToken).ConfigureAwait(false);
+        if (remoteCommit is null)
+        {
+            return new GitBranchSyncResult(
+                false,
+                branch,
+                false,
+                $"Fetched \"{remote}/{branch}\", but its commit could not be resolved.");
+        }
+
+        var localRef = $"refs/heads/{branch}";
+        var localCommit = await ResolveCommitAsync(gitRoot, localRef, cancellationToken).ConfigureAwait(false);
+        if (localCommit is null)
+        {
+            var createResult = await RunGitAsync(
+                gitRoot,
+                $"branch --force {QuoteGitArgument(branch)} {QuoteGitArgument(remoteRef)}",
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            return createResult is null
+                ? new GitBranchSyncResult(false, branch, false, $"Could not create local branch \"{branch}\" from \"{remote}/{branch}\".")
+                : new GitBranchSyncResult(true, branch, true, $"Created local branch \"{branch}\" from \"{remote}/{branch}\".");
+        }
+
+        if (string.Equals(localCommit, remoteCommit, StringComparison.OrdinalIgnoreCase))
+            return new GitBranchSyncResult(true, branch, false, $"Branch \"{branch}\" is already up to date.");
+
+        var aheadBehind = await GetAheadBehindAsync(
+            gitRoot,
+            localRef,
+            remoteRef,
+            cancellationToken).ConfigureAwait(false);
+        if (aheadBehind is null)
+            return new GitBranchSyncResult(false, branch, false, $"Could not compare \"{branch}\" with \"{remote}/{branch}\".");
+
+        if (aheadBehind.Value.RemoteOnly == 0)
+        {
+            return new GitBranchSyncResult(
+                true,
+                branch,
+                false,
+                $"Branch \"{branch}\" already contains the latest \"{remote}/{branch}\" commits.");
+        }
+
+        if (aheadBehind.Value.LocalOnly > 0)
+        {
+            return new GitBranchSyncResult(
+                false,
+                branch,
+                false,
+                $"Branch \"{branch}\" has diverged from \"{remote}/{branch}\"; automatic sync was skipped.");
+        }
+
+        var checkedOutWorktree = (await ListWorktreeInfoAsync(gitRoot, cancellationToken).ConfigureAwait(false))
+            .FirstOrDefault(worktree => string.Equals(worktree.Branch, branch, StringComparison.Ordinal));
+        if (checkedOutWorktree is not null)
+        {
+            var status = await RunGitAsync(
+                checkedOutWorktree.Path,
+                "status --porcelain -uall",
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (status is null)
+                return new GitBranchSyncResult(false, branch, false, $"Could not inspect the \"{branch}\" worktree.");
+            if (!string.IsNullOrWhiteSpace(status))
+            {
+                return new GitBranchSyncResult(
+                    false,
+                    branch,
+                    false,
+                    $"Branch \"{branch}\" has uncommitted changes; automatic sync was skipped.");
+            }
+
+            var mergeResult = await RunGitAsync(
+                checkedOutWorktree.Path,
+                $"merge --ff-only {QuoteGitArgument(remoteRef)}",
+                WorktreeGitCommandTimeout,
+                cancellationToken).ConfigureAwait(false);
+            return mergeResult is null
+                ? new GitBranchSyncResult(false, branch, false, $"Could not fast-forward \"{branch}\" to \"{remote}/{branch}\".")
+                : new GitBranchSyncResult(true, branch, true, $"Fast-forwarded \"{branch}\" to \"{remote}/{branch}\".");
+        }
+
+        var updateResult = await RunGitAsync(
+            gitRoot,
+            $"branch --force {QuoteGitArgument(branch)} {QuoteGitArgument(remoteRef)}",
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return updateResult is null
+            ? new GitBranchSyncResult(false, branch, false, $"Could not fast-forward local branch \"{branch}\".")
+            : new GitBranchSyncResult(true, branch, true, $"Fast-forwarded local branch \"{branch}\" to \"{remote}/{branch}\".");
+    }
+
     /// <summary>Returns the list of changed files (staged + unstaged + untracked) with line stats.</summary>
     public static async Task<List<GitFileChange>> GetChangedFilesAsync(string dir)
     {
@@ -304,9 +500,14 @@ public static class GitService
     }
 
     /// <summary>Lists existing worktrees with their branch names.</summary>
-    public static async Task<List<WorktreeInfo>> ListWorktreeInfoAsync(string dir)
+    public static async Task<List<WorktreeInfo>> ListWorktreeInfoAsync(
+        string dir,
+        CancellationToken cancellationToken = default)
     {
-        var output = await RunGitAsync(dir, "worktree list --porcelain").ConfigureAwait(false);
+        var output = await RunGitAsync(
+            dir,
+            "worktree list --porcelain",
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(output)) return [];
 
         var results = new List<WorktreeInfo>();
@@ -358,12 +559,17 @@ public static class GitService
     // pipeline at a time closes the handle-inheritance window.
     private static readonly SemaphoreSlim GitInvocationGate = new(1, 1);
 
-    private static async Task<string?> RunGitAsync(string workDir, string args, TimeSpan? timeout = null)
+    private static async Task<string?> RunGitAsync(
+        string workDir,
+        string args,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
     {
         var effectiveTimeout = timeout ?? DefaultGitCommandTimeout;
-        await GitInvocationGate.WaitAsync().ConfigureAwait(false);
+        await GitInvocationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var psi = new ProcessStartInfo("git", args)
             {
                 WorkingDirectory = workDir,
@@ -387,26 +593,36 @@ public static class GitService
             var stdoutTask = standardOutput.ReadToEndAsync();
             var stderrTask = standardError.ReadToEndAsync();
             using var timeoutCts = new CancellationTokenSource(effectiveTimeout);
+            using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(
+                timeoutCts.Token,
+                cancellationToken);
 
             try
             {
-                await proc.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+                await proc.WaitForExitAsync(waitCts.Token).ConfigureAwait(false);
                 // Bound the output drain by the same deadline. The process having exited does
                 // NOT guarantee the pipes reach EOF — a leaked/inherited write handle in a
                 // grandchild can keep them open, and an unbounded read would hang forever.
-                await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(timeoutCts.Token).ConfigureAwait(false);
+                await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(waitCts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
                 TryKillProcessTree(proc);
                 await WaitForExitQuietlyAsync(proc, TimedOutGitCleanupTimeout).ConfigureAwait(false);
                 await DrainOutputQuietlyAsync(stdoutTask, stderrTask, TimedOutGitCleanupTimeout).ConfigureAwait(false);
+                if (cancellationToken.IsCancellationRequested)
+                    throw;
+
                 System.Diagnostics.Debug.WriteLine($"[Lumi] Git command timed out after {effectiveTimeout.TotalSeconds:N0}s: git {args}");
                 return null;
             }
 
             var output = stdoutTask.Result;
             return proc.ExitCode == 0 ? output : null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -510,9 +726,67 @@ public static class GitService
 
         return NormalizeBranchName(branch);
     }
+
+    private static async Task<bool> RefExistsAsync(
+        string gitRoot,
+        string refName,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await RunGitAsync(
+            gitRoot,
+            $"show-ref --verify --quiet {QuoteGitArgument(refName)}",
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return result is not null;
+    }
+
+    private static async Task<string?> ResolveCommitAsync(
+        string gitRoot,
+        string refName,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await RunGitAsync(
+            gitRoot,
+            $"rev-parse --verify {QuoteGitArgument(refName + "^{commit}")}",
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return string.IsNullOrWhiteSpace(result) ? null : result.Trim();
+    }
+
+    private static async Task<(int LocalOnly, int RemoteOnly)?> GetAheadBehindAsync(
+        string gitRoot,
+        string localRef,
+        string remoteRef,
+        CancellationToken cancellationToken = default)
+    {
+        var output = await RunGitAsync(
+            gitRoot,
+            $"rev-list --left-right --count {QuoteGitArgument(localRef + "..." + remoteRef)}",
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+
+        var parts = output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2
+            && int.TryParse(parts[0], out var localOnly)
+            && int.TryParse(parts[1], out var remoteOnly)
+                ? (localOnly, remoteOnly)
+                : null;
+    }
+
+    private static IEnumerable<string> ParseLines(string? output)
+    {
+        return string.IsNullOrWhiteSpace(output)
+            ? []
+            : output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    private static string QuoteGitArgument(string value) => $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
 }
 
 public enum GitChangeKind { Modified, Added, Deleted, Renamed, Untracked }
+
+public sealed record GitDefaultBranchInfo(string BranchName, string? RemoteName);
+
+public sealed record GitBranchSyncResult(bool Succeeded, string? BranchName, bool Updated, string Message);
 
 /// <summary>Represents a git worktree with its path and branch name.</summary>
 public record WorktreeInfo(string Path, string? Branch)

@@ -29,6 +29,7 @@ public partial class App : Application
     private ChatSurfaceRegistry? _chatSurfaceRegistry;
     private ChatSessionStore? _chatSessionStore;
     private GlobalSearchService? _globalSearchService;
+    private ProjectGitSyncService? _projectGitSyncService;
     private readonly List<MainWindow> _windows = [];
     private int _secondaryWindowSequence;
     private MainViewModel? _mainViewModel;
@@ -66,6 +67,7 @@ public partial class App : Application
                 releaseChatSnapshot: dataStore.EvictChatSearchSnapshot,
                 chatFileTimestampProvider: dataStore.GetChatFileTimestamp);
             _chatSessionStore = new ChatSessionStore(dataStore, copilotService, _chatSurfaceRegistry, _globalSearchService);
+            _projectGitSyncService = new ProjectGitSyncService(dataStore);
             var vm = CreateMainViewModel(
                 forceOnboarding: Program.ForceOnboarding,
                 startBackgroundJobs: true
@@ -107,6 +109,16 @@ public partial class App : Application
 
             async Task DisposeServicesAsync()
             {
+                try
+                {
+                    if (_projectGitSyncService is not null)
+                        await _projectGitSyncService.DisposeAsync();
+                }
+                catch (Exception ex)
+                {
+                    Trace.TraceWarning($"[Shutdown] Failed to stop project git sync: {ex.Message}");
+                }
+
                 try
                 {
                     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -229,6 +241,7 @@ public partial class App : Application
 
                     // Start checking for updates in background
                     updateService.StartPeriodicChecks();
+                    _projectGitSyncService?.Start();
                 }, DispatcherPriority.Background);
 
 #if DEBUG
@@ -309,7 +322,8 @@ public partial class App : Application
             startBackgroundJobs,
             _chatSurfaceRegistry,
             _chatSessionStore,
-            _globalSearchService
+            _globalSearchService,
+            _projectGitSyncService
 #if DEBUG
             , openAgentDebugHarness,
             skipOnboarding

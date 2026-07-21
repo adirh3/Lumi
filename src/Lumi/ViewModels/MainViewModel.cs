@@ -189,7 +189,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         bool startBackgroundJobs = true,
         ChatSurfaceRegistry? chatSurfaceRegistry = null,
         ChatSessionStore? chatSessionStore = null,
-        GlobalSearchService? globalSearchService = null
+        GlobalSearchService? globalSearchService = null,
+        ProjectGitSyncService? projectGitSyncService = null
 #if DEBUG
         , bool openAgentDebugHarness = false,
         bool skipOnboarding = false
@@ -260,7 +261,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         JobsVM = new BackgroundJobsViewModel(dataStore, _backgroundJobService);
         SkillsVM = new SkillsViewModel(dataStore);
         AgentsVM = new AgentsViewModel(dataStore);
-        ProjectsVM = new ProjectsViewModel(dataStore);
+        ProjectsVM = new ProjectsViewModel(dataStore, projectGitSyncService);
         MemoriesVM = new MemoriesViewModel(dataStore);
         McpServersVM = new McpServersViewModel(dataStore);
         SettingsVM = new SettingsViewModel(dataStore, copilotService, _settingsBrowserService, updateService);

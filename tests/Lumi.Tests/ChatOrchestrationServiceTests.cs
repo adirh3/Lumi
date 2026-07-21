@@ -480,6 +480,82 @@ public sealed class ChatOrchestrationServiceTests
     }
 
     [Fact]
+    public async Task Create_UsesProjectWorktreeDefault_WhenNotExplicitlySpecified()
+    {
+        using var session = HeadlessTestSession.Start();
+        var tempDir = Path.Combine(Path.GetTempPath(), "Lumi-orch-default-wt-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var project = new Project
+            {
+                Name = "Code",
+                WorkingDirectory = tempDir,
+                DefaultNewChatsUseWorktree = true
+            };
+            var data = CreateData();
+            data.Projects.Add(project);
+            var (store, registry, sessionStore) = CreateEnvironment(data);
+            using (registry)
+            using (sessionStore)
+            using (var service = new ChatOrchestrationService(store, registry, sessionStore))
+            {
+                sessionStore.OrchestrationService = service;
+
+                var result = await RunAsync(session, service, "create", title: "Default worktree", project: "Code");
+
+                Assert.Contains("worktree was requested", result, StringComparison.OrdinalIgnoreCase);
+                Assert.Null(Assert.Single(store.Data.Chats).WorktreePath);
+            }
+        }
+        finally
+        {
+            TryDeleteDir(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task Create_ExplicitLocalOverride_WinsOverProjectWorktreeDefault()
+    {
+        using var session = HeadlessTestSession.Start();
+        var tempDir = Path.Combine(Path.GetTempPath(), "Lumi-orch-local-override-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var project = new Project
+            {
+                Name = "Code",
+                WorkingDirectory = tempDir,
+                DefaultNewChatsUseWorktree = true
+            };
+            var data = CreateData();
+            data.Projects.Add(project);
+            var (store, registry, sessionStore) = CreateEnvironment(data);
+            using (registry)
+            using (sessionStore)
+            using (var service = new ChatOrchestrationService(store, registry, sessionStore))
+            {
+                sessionStore.OrchestrationService = service;
+
+                var result = await RunAsync(
+                    session,
+                    service,
+                    "create",
+                    title: "Local override",
+                    project: "Code",
+                    worktree: false);
+
+                Assert.DoesNotContain("worktree was requested", result, StringComparison.OrdinalIgnoreCase);
+                Assert.Null(Assert.Single(store.Data.Chats).WorktreePath);
+            }
+        }
+        finally
+        {
+            TryDeleteDir(tempDir);
+        }
+    }
+
+    [Fact]
     public async Task Send_WithoutMessage_ReturnsValidationError()
     {
         using var session = HeadlessTestSession.Start();

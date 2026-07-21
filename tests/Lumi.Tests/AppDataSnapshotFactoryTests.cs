@@ -158,6 +158,42 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void ProjectCodingSettings_AreSerializedAndPreservedInSnapshots()
+    {
+        var attempt = DateTimeOffset.Parse("2026-07-21T09:00:00+03:00");
+        var success = attempt.AddMinutes(1);
+        var source = new AppData
+        {
+            Projects =
+            [
+                new Project
+                {
+                    Name = "Code",
+                    AutoSyncMainBranchDaily = true,
+                    DefaultNewChatsUseWorktree = true,
+                    LastMainBranchSyncAttemptAt = attempt,
+                    LastMainBranchSyncAt = success,
+                    LastMainBranchSyncError = "previous error"
+                }
+            ]
+        };
+
+        var json = JsonSerializer.Serialize(source, AppDataJsonContext.Default.AppData);
+        using var document = JsonDocument.Parse(json);
+        var serialized = document.RootElement.GetProperty("projects")[0];
+        Assert.True(serialized.GetProperty("autoSyncMainBranchDaily").GetBoolean());
+        Assert.True(serialized.GetProperty("defaultNewChatsUseWorktree").GetBoolean());
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+        var project = Assert.Single(snapshot.Projects);
+        Assert.True(project.AutoSyncMainBranchDaily);
+        Assert.True(project.DefaultNewChatsUseWorktree);
+        Assert.Equal(attempt, project.LastMainBranchSyncAttemptAt);
+        Assert.Equal(success, project.LastMainBranchSyncAt);
+        Assert.Equal("previous error", project.LastMainBranchSyncError);
+    }
+
+    [Fact]
     public void CreateIndexSnapshot_PreservesAgentToolSelectionState()
     {
         var source = new AppData

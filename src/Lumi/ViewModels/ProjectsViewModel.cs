@@ -1,9 +1,13 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using StrataSearch;
@@ -13,6 +17,8 @@ namespace Lumi.ViewModels;
 public partial class ProjectsViewModel : ObservableObject
 {
     private readonly DataStore _dataStore;
+    private readonly ProjectGitSyncService? _projectGitSyncService;
+    private int _defaultBranchDetectionVersion;
 
     [ObservableProperty] private Project? _selectedProject;
     [ObservableProperty] private bool _isEditing;
@@ -21,7 +27,18 @@ public partial class ProjectsViewModel : ObservableObject
     [ObservableProperty] private string _editWorkingDirectory = "";
     [ObservableProperty] private string _editAdditionalContextDirectories = "";
     [ObservableProperty] private bool _isCodingProject;
+    [ObservableProperty] private bool _isGitProject;
+    [ObservableProperty] private bool _editAutoSyncMainBranchDaily;
+    [ObservableProperty] private bool _editDefaultNewChatsUseWorktree;
+    [ObservableProperty] private string? _detectedDefaultBranch;
+    [ObservableProperty] private bool _isDetectingDefaultBranch;
     [ObservableProperty] private string _searchQuery = "";
+
+    public string DefaultBranchSummary => IsDetectingDefaultBranch
+        ? Loc.Project_DefaultBranchDetecting
+        : !string.IsNullOrWhiteSpace(DetectedDefaultBranch)
+            ? string.Format(Loc.Project_DefaultBranchDetected, DetectedDefaultBranch)
+            : Loc.Project_DefaultBranchUnknown;
 
     [RelayCommand]
     private void ClearSearch() => SearchQuery = "";
@@ -32,9 +49,10 @@ public partial class ProjectsViewModel : ObservableObject
     /// <summary>Fired when a chat is clicked in the project detail view. MainViewModel navigates to it.</summary>
     public event Action<Chat>? ChatOpenRequested;
 
-    public ProjectsViewModel(DataStore dataStore)
+    public ProjectsViewModel(DataStore dataStore, ProjectGitSyncService? projectGitSyncService = null)
     {
         _dataStore = dataStore;
+        _projectGitSyncService = projectGitSyncService;
         RefreshList();
     }
 
@@ -94,7 +112,12 @@ public partial class ProjectsViewModel : ObservableObject
         EditInstructions = "";
         EditWorkingDirectory = "";
         EditAdditionalContextDirectories = "";
+        EditAutoSyncMainBranchDaily = false;
+        EditDefaultNewChatsUseWorktree = false;
         IsCodingProject = false;
+        IsGitProject = false;
+        DetectedDefaultBranch = null;
+        IsDetectingDefaultBranch = false;
         IsEditing = true;
     }
 
@@ -122,7 +145,9 @@ public partial class ProjectsViewModel : ObservableObject
         EditInstructions = project.Instructions;
         EditWorkingDirectory = project.WorkingDirectory ?? "";
         EditAdditionalContextDirectories = ProjectContextDirectoryHelper.FormatFolderList(project.AdditionalContextDirectories);
-        IsCodingProject = SystemPromptBuilder.IsCodingProject(project.WorkingDirectory);
+        EditAutoSyncMainBranchDaily = project.AutoSyncMainBranchDaily;
+        EditDefaultNewChatsUseWorktree = project.DefaultNewChatsUseWorktree;
+        RefreshCodingProjectState(project.WorkingDirectory);
     }
 
     /// <summary>Refreshes the chat list for the currently selected project. Called on tab navigation.</summary>
@@ -164,12 +189,34 @@ public partial class ProjectsViewModel : ObservableObject
         var workDir = string.IsNullOrWhiteSpace(EditWorkingDirectory) ? null : EditWorkingDirectory.Trim();
         var additionalContextDirectories = ProjectContextDirectoryHelper.ParseFolderList(EditAdditionalContextDirectories);
 
+        Project savedProject;
         if (SelectedProject is not null)
         {
+            var workingDirectoryChanged = !string.Equals(
+                SelectedProject.WorkingDirectory,
+                workDir,
+                StringComparison.OrdinalIgnoreCase);
+            var autoSyncEnabled = !SelectedProject.AutoSyncMainBranchDaily && EditAutoSyncMainBranchDaily;
+
             SelectedProject.Name = EditName.Trim();
             SelectedProject.Instructions = EditInstructions.Trim();
             SelectedProject.WorkingDirectory = workDir;
             SelectedProject.AdditionalContextDirectories = additionalContextDirectories;
+            SelectedProject.AutoSyncMainBranchDaily = EditAutoSyncMainBranchDaily;
+            SelectedProject.DefaultNewChatsUseWorktree = EditDefaultNewChatsUseWorktree;
+            if (workingDirectoryChanged)
+            {
+                SelectedProject.LastMainBranchSyncAttemptAt = null;
+                SelectedProject.LastMainBranchSyncAt = null;
+                SelectedProject.LastMainBranchSyncError = null;
+            }
+            else if (autoSyncEnabled)
+            {
+                SelectedProject.LastMainBranchSyncAttemptAt = null;
+                SelectedProject.LastMainBranchSyncError = null;
+            }
+
+            savedProject = SelectedProject;
         }
         else
         {
@@ -178,12 +225,17 @@ public partial class ProjectsViewModel : ObservableObject
                 Name = EditName.Trim(),
                 Instructions = EditInstructions.Trim(),
                 WorkingDirectory = workDir,
-                AdditionalContextDirectories = additionalContextDirectories
+                AdditionalContextDirectories = additionalContextDirectories,
+                AutoSyncMainBranchDaily = EditAutoSyncMainBranchDaily,
+                DefaultNewChatsUseWorktree = EditDefaultNewChatsUseWorktree
             };
             _dataStore.Data.Projects.Add(project);
+            savedProject = project;
         }
 
         _ = _dataStore.SaveAsync();
+        if (savedProject.AutoSyncMainBranchDaily)
+            _projectGitSyncService?.RequestSync();
         IsEditing = false;
         RefreshList();
         ProjectsChanged?.Invoke();
@@ -223,8 +275,11 @@ public partial class ProjectsViewModel : ObservableObject
 
     partial void OnEditWorkingDirectoryChanged(string value)
     {
-        IsCodingProject = SystemPromptBuilder.IsCodingProject(value);
+        RefreshCodingProjectState(value);
     }
+
+    partial void OnDetectedDefaultBranchChanged(string? value) => OnPropertyChanged(nameof(DefaultBranchSummary));
+    partial void OnIsDetectingDefaultBranchChanged(bool value) => OnPropertyChanged(nameof(DefaultBranchSummary));
 
     [RelayCommand]
     private void ClearWorkingDirectory()
@@ -244,5 +299,38 @@ public partial class ProjectsViewModel : ObservableObject
     private void ClearAdditionalContextDirectories()
     {
         EditAdditionalContextDirectories = "";
+    }
+
+    private void RefreshCodingProjectState(string? workingDirectory)
+    {
+        var version = Interlocked.Increment(ref _defaultBranchDetectionVersion);
+        IsCodingProject = SystemPromptBuilder.IsCodingProject(workingDirectory);
+        IsGitProject = !string.IsNullOrWhiteSpace(workingDirectory) && GitService.IsGitRepo(workingDirectory);
+        DetectedDefaultBranch = null;
+        IsDetectingDefaultBranch = IsGitProject;
+
+        if (IsGitProject)
+            _ = DetectDefaultBranchAsync(workingDirectory!, version);
+    }
+
+    private async Task DetectDefaultBranchAsync(string workingDirectory, int version)
+    {
+        try
+        {
+            var defaultBranch = await GitService.GetDefaultBranchInfoAsync(workingDirectory);
+            if (version != Volatile.Read(ref _defaultBranchDetectionVersion))
+                return;
+
+            DetectedDefaultBranch = defaultBranch?.BranchName;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Lumi] Default branch detection failed: {ex}");
+        }
+        finally
+        {
+            if (version == Volatile.Read(ref _defaultBranchDetectionVersion))
+                IsDetectingDefaultBranch = false;
+        }
     }
 }

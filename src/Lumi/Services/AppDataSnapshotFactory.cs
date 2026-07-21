@@ -62,6 +62,11 @@ internal static class AppDataSnapshotFactory
                      Name = p.Name,
                      Instructions = p.Instructions,
                      WorkingDirectory = p.WorkingDirectory,
+                     AutoSyncMainBranchDaily = p.AutoSyncMainBranchDaily,
+                     DefaultNewChatsUseWorktree = p.DefaultNewChatsUseWorktree,
+                     LastMainBranchSyncAttemptAt = p.LastMainBranchSyncAttemptAt,
+                     LastMainBranchSyncAt = p.LastMainBranchSyncAt,
+                     LastMainBranchSyncError = p.LastMainBranchSyncError,
                      AdditionalContextDirectories = [..p.AdditionalContextDirectories],
                      CreatedAt = p.CreatedAt
                  })

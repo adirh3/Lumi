@@ -214,18 +214,18 @@ public sealed class ChatOrchestrationService : IDisposable
         {
             var proj = ResolveProject(project);
             if (!string.IsNullOrWhiteSpace(project) && proj is null)
-                return (Chat: (Chat?)null, Error: $"No project matches \"{project}\".", ProjectName: "", AgentName: "", ProjectDir: (string?)null);
+                return (Chat: (Chat?)null, Error: $"No project matches \"{project}\".", ProjectName: "", AgentName: "", ProjectDir: (string?)null, DefaultWorktree: false);
 
             var lumi = ResolveAgent(agent);
             if (!string.IsNullOrWhiteSpace(agent) && lumi is null)
-                return (Chat: (Chat?)null, Error: $"No Lumi/agent matches \"{agent}\".", ProjectName: "", AgentName: "", ProjectDir: (string?)null);
+                return (Chat: (Chat?)null, Error: $"No Lumi/agent matches \"{agent}\".", ProjectName: "", AgentName: "", ProjectDir: (string?)null, DefaultWorktree: false);
 
             var skillIds = new List<Guid>();
             foreach (var s in skills ?? [])
             {
                 var skill = ResolveSkill(s);
                 if (skill is null)
-                    return (Chat: (Chat?)null, Error: $"No skill matches \"{s}\".", ProjectName: "", AgentName: "", ProjectDir: (string?)null);
+                    return (Chat: (Chat?)null, Error: $"No skill matches \"{s}\".", ProjectName: "", AgentName: "", ProjectDir: (string?)null, DefaultWorktree: false);
                 if (!skillIds.Contains(skill.Id))
                     skillIds.Add(skill.Id);
             }
@@ -255,7 +255,13 @@ public sealed class ChatOrchestrationService : IDisposable
             // Capture the display names + project working dir here (on the UI thread) so the header can be
             // built and the worktree created off-thread below without touching _dataStore.Data.Projects /
             // .Agents from a background SDK thread.
-            return (Chat: (Chat?)chat, Error: (string?)null, ProjectName: proj?.Name ?? "", AgentName: lumi?.Name ?? "", ProjectDir: proj?.WorkingDirectory);
+            return (
+                Chat: (Chat?)chat,
+                Error: (string?)null,
+                ProjectName: proj?.Name ?? "",
+                AgentName: lumi?.Name ?? "",
+                ProjectDir: proj?.WorkingDirectory,
+                DefaultWorktree: proj?.DefaultNewChatsUseWorktree == true);
         }).ConfigureAwait(false);
 
         if (setup.Chat is null)
@@ -266,7 +272,10 @@ public sealed class ChatOrchestrationService : IDisposable
         // Optional git worktree — only for a coding project (git repo). Created before the first message
         // so the worker's session works inside the isolated worktree from its very first turn. Done off the
         // UI-thread mutation above (git is I/O); Chat.WorktreePath is a plain field with no observers yet.
-        var worktreeNote = await MaybeCreateWorktreeAsync(created, worktree == true, setup.ProjectDir).ConfigureAwait(false);
+        var worktreeNote = await MaybeCreateWorktreeAsync(
+            created,
+            worktree ?? setup.DefaultWorktree,
+            setup.ProjectDir).ConfigureAwait(false);
 
         onChatLinked?.Invoke(created.Id, created.Title);
         await _dataStore.SaveChatAsync(created, cancellationToken).ConfigureAwait(false);
