@@ -23,6 +23,7 @@ public class DataStore
         ResolveAppDataRoot(), "Lumi");
     private static readonly string DataFile = Path.Combine(AppDir, "data.json");
     private static readonly string IndexLockFile = Path.Combine(AppDir, "data.lock");
+    private static readonly TimeSpan StartupIndexLockTimeout = TimeSpan.FromSeconds(10);
 
     public static string SkillsDir { get; } = Path.Combine(AppDir, "skills");
     public static string ChatsDir { get; } = Path.Combine(AppDir, "chats");
@@ -217,18 +218,9 @@ public class DataStore
                     backgroundJobsChangeVersion > 0);
             }
 
-            await using var stream = new FileStream(
+            await JsonFilePersistence.SaveAppDataAsync(
                 DataFile,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                81920,
-                FileOptions.Asynchronous);
-
-            await JsonSerializer.SerializeAsync(
-                stream,
                 snapshot,
-                AppDataJsonContext.Default.AppData,
                 cancellationToken).ConfigureAwait(false);
 
             AcknowledgeChatChangeVersions(dirtyChatVersions, deletedChatVersions);
@@ -1696,11 +1688,20 @@ public class DataStore
 
     private static AppData Load()
     {
-        if (!File.Exists(DataFile))
-            return new AppData();
-
-        var json = File.ReadAllText(DataFile);
-        return JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData) ?? new AppData();
+        using var timeout = new CancellationTokenSource(StartupIndexLockTimeout);
+        try
+        {
+            using var indexLock = AcquireIndexLockAsync(timeout.Token)
+                .GetAwaiter()
+                .GetResult();
+            return JsonFilePersistence.LoadAppData(DataFile);
+        }
+        catch (OperationCanceledException ex) when (timeout.IsCancellationRequested)
+        {
+            throw new IOException(
+                $"Timed out waiting to read Lumi data after {StartupIndexLockTimeout.TotalSeconds:0} seconds.",
+                ex);
+        }
     }
 
     private (Dictionary<Guid, long> dirty, Dictionary<Guid, long> deleted) SnapshotChatChangeVersions()
@@ -1750,25 +1751,16 @@ public class DataStore
 
     private static AppData? TryLoadIndexSnapshot()
     {
-        if (!File.Exists(DataFile))
-            return null;
-
         try
         {
-            using var stream = new FileStream(
-                DataFile,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete,
-                81920,
-                FileOptions.SequentialScan);
-            return JsonSerializer.Deserialize(stream, AppDataJsonContext.Default.AppData);
+            var primary = JsonFilePersistence.ReadPrimaryAppData(DataFile);
+            return primary.Status == AppDataReadStatus.Valid ? primary.Data : null;
         }
         catch (IOException)
         {
             return null;
         }
-        catch (JsonException)
+        catch (UnauthorizedAccessException)
         {
             return null;
         }
