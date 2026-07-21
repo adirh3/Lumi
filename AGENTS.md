@@ -120,6 +120,43 @@ src/Lumi/
 - `partial void On<PropertyName>Changed()` for property change side effects
 - All Copilot event handlers must dispatch to UI thread via `Dispatcher.UIThread.Post()`
 
+## Focused Engineering
+
+Lumi prefers the smallest complete solution: everything required for the requested behavior to work correctly on supported, realistic paths, without speculative infrastructure or hardening.
+
+### Scope and implementation
+
+- Before editing, identify the requested observable behavior, how it will be verified, and what behavior must remain unchanged.
+- Make the smallest coherent change across existing ownership boundaries. Necessary model, service, ViewModel, UI, persistence, and test wiring is in scope; unrelated cleanup or redesign is not.
+- Prefer direct code and existing patterns or helpers. Introduce a new abstraction, service, state machine, protocol, compatibility layer, or configuration surface only when it is the most straightforward and cohesive way to satisfy a concrete current requirement, not for hypothetical reuse or future needs.
+- Handle the normal-use inputs and failures applicable to the changed path, including empty, missing, first-run, cancellation, and error states, using established repository patterns. Do not add speculative global hardening such as new persistence frameworks, generalized concurrency or merge/version protocols, speculative migrations, retry/rollback frameworks, generalized validation, or unrelated UI/platform infrastructure.
+- Do not fix pre-existing issues unless they directly block the requested behavior. Report important unrelated issues separately.
+- Before creating a new subsystem, changing behavior outside the requested path, or materially expanding the production implementation, identify the concrete requirement or demonstrated regression that requires it. If the connection is indirect or debatable, keep the smaller in-scope solution and surface the larger change as a follow-up. Ask for approval before expanding; if approval is unavailable, defer it.
+
+### Handling review feedback
+
+- Treat every review finding, whether human, automated, or from a subagent, as a hypothesis. Verify it against the current diff, requested behavior, and a supported realistic scenario before changing code.
+- Fix a finding within the current change only when all of the following are true:
+  1. It was introduced by the current change, or fixing it is necessary for the requested behavior to work correctly on the changed supported path.
+  2. It is high-confidence and reachable in a realistic supported scenario.
+  3. Its impact is material, such as incorrect behavior, a crash, data loss, a security issue, a meaningful user-visible regression, or a clear violation of an established repository boundary introduced by the change.
+  4. It has a focused fix that does not create a new subsystem or intentionally change behavior outside the requested path.
+- Classify findings that fail this gate as separate follow-ups and state why they are outside the current change. Report them, but do not implement them without explicit approval.
+- New build failures or existing test failures caused by the current change are always in scope.
+- A review-only request, including "review" or "run code review," is read-only. A request to "address the review" authorizes only verified, in-scope findings, not every suggestion.
+- Never broaden the implementation merely to obtain an `APPROVE` verdict or eliminate all reviewer comments.
+- After accepted fixes, rerun relevant validation. Repeat review only when the fixes materially changed the logic or new evidence warrants it; do not enter recursive review-and-hardening loops.
+- Completion is determined by the requested behavior and validation results, not by reviewer silence.
+
+### Proportional validation
+
+- Run the existing builds, tests, and harnesses relevant to the changed surface.
+- Add focused tests in the existing relevant test project or harness for the requested behavior, likely regressions, and important boundaries on the changed path.
+- If no suitable automated test surface exists, use the existing relevant validation path, such as MCP or focused manual verification, rather than creating generalized test infrastructure solely for the task.
+- Do not create combinatorial test matrices, generalized test infrastructure, new harnesses, or platform-wide stress coverage solely for theoretical edge cases.
+- Expand validation only when the changed surface, acceptance criteria, or an observed failure justifies it.
+- The task is complete when the requested behavior is verified, relevant validation passes, and no known in-scope blocker remains.
+
 ## Build & Test
 
 ```bash
@@ -127,7 +164,7 @@ dotnet build src/Lumi/Lumi.csproj
 cd src/Lumi && dotnet run
 ```
 
-No test project exists yet. StrataTheme is referenced via the `Strata/` git submodule.
+Automated tests live in `tests/Lumi.Tests`. StrataTheme is referenced via the `Strata/` git submodule.
 
 ### Lumi MCP and UI Testing
 
