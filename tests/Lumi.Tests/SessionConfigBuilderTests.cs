@@ -130,6 +130,38 @@ public sealed class SessionConfigBuilderTests
     }
 
     [Fact]
+    public void Build_GptToneOverrideIncludesConcreteVisualizationTriggers()
+    {
+        var config = SessionConfigBuilder.Build(
+            systemPrompt: "prompt",
+            model: "gpt-5.6-sol",
+            workingDirectory: @"C:\Repo",
+            skillDirectories: [],
+            customAgents: [],
+            tools: [],
+            mcpServers: new Dictionary<string, McpServerConfig>(),
+            reasoningEffort: "high",
+            userInputHandler: null,
+            onPermission: null,
+            hooks: null);
+
+        Assert.NotNull(config.SystemMessage);
+        Assert.Equal(SystemMessageMode.Customize, config.SystemMessage!.Mode);
+        Assert.NotNull(config.SystemMessage.Sections);
+        var tone = config.SystemMessage.Sections![SystemMessageSection.Tone];
+        Assert.Equal(SectionOverrideAction.Replace, tone.Action);
+        Assert.Contains("exactly two meaningful alternatives", tone.Content);
+        Assert.Contains("compact profile/lookup/digest/deal", tone.Content);
+        Assert.Contains("final URL-delivered artifact", tone.Content);
+        Assert.Contains("one clear Markdown action link in the card's always-visible summary", tone.Content);
+        Assert.Contains("bare URL or prose-only link", tone.Content);
+        Assert.Contains("central numeric values or trends", tone.Content);
+        Assert.Contains("functional UI controls", tone.Content);
+        Assert.Contains("use that block instead of substituting a plain list or table", tone.Content);
+        Assert.Contains("Do not wait for an explicit visualization request", tone.Content);
+    }
+
+    [Fact]
     public void Build_AppliesContextTier()
     {
         var config = SessionConfigBuilder.Build(

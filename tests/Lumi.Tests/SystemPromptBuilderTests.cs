@@ -94,6 +94,66 @@ public sealed class SystemPromptBuilderTests
     }
 
     [Fact]
+    public void Build_AppendsConcretePresentationCheckAfterDynamicContext()
+    {
+        const string projectSentinel = "PROJECT_INSTRUCTIONS_SENTINEL";
+        const string jobSentinel = "BACKGROUND_JOB_SENTINEL";
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en" },
+            agent: null,
+            project: new Project
+            {
+                Name = "Lumi",
+                Instructions = projectSentinel
+            },
+            allSkills: [],
+            activeSkills: [],
+            memories: [],
+            backgroundJobs:
+            [
+                new BackgroundJob
+                {
+                    Name = jobSentinel,
+                    IsEnabled = true
+                }
+            ]);
+
+        var presentationCheckIndex = prompt.LastIndexOf(
+            "--- Response Presentation Check ---",
+            StringComparison.Ordinal);
+
+        Assert.True(presentationCheckIndex > prompt.LastIndexOf(projectSentinel, StringComparison.Ordinal));
+        Assert.True(presentationCheckIndex > prompt.LastIndexOf(jobSentinel, StringComparison.Ordinal));
+        Assert.Contains("exactly two meaningful alternatives", prompt);
+        Assert.Contains("two or more central numeric values", prompt);
+        Assert.Contains("a single compact profile, lookup, digest, deal, or result", prompt);
+        Assert.Contains("a finished artifact delivered primarily by URL", prompt);
+        Assert.Contains("do not return only a bare URL or prose-only link", prompt);
+        Assert.Contains("functional UI controls", prompt);
+        Assert.Contains("When a trigger matches, use the matching block as the default presentation", prompt);
+        Assert.Contains("If none fits, use normal Markdown", prompt);
+    }
+
+    [Fact]
+    public void Build_PresentsFinalUrlArtifactsAsCards()
+    {
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en" },
+            agent: null,
+            project: null,
+            allSkills: [],
+            activeSkills: [],
+            memories: []);
+
+        Assert.Contains("## Link Deliverables", prompt);
+        Assert.Contains("When the primary final artifact is a URL", prompt);
+        Assert.Contains("one clear Markdown action link in the always-visible `summary`", prompt);
+        Assert.Contains("[Open the finished dashboard](https://example.com/expense-dashboard)", prompt);
+        Assert.Contains("not ordinary citations, source lists, or incidental links", prompt);
+        Assert.Contains("Continue using `announce_file` for local files", prompt);
+    }
+
+    [Fact]
     public void Build_DoesNotContainModelSpecificCalibration()
     {
         var gptPrompt = SystemPromptBuilder.Build(

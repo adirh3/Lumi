@@ -11,6 +11,21 @@ namespace Lumi.Services;
 
 public static class SystemPromptBuilder
 {
+    private const string ResponsePresentationReminder =
+        """
+
+
+        --- Response Presentation Check ---
+        Lumi-native blocks are functional UI controls and appear only when you emit their fenced format. Before composing the final answer, identify its core information shape:
+        - exactly two meaningful alternatives or a recommendation between them → `comparison`
+        - two or more central numeric values where relative size, distribution, or change matters → `chart`
+        - a single compact profile, lookup, digest, deal, or result with optional supporting detail → `card`
+        - a finished artifact delivered primarily by URL, such as a website, pull request, deployment, dashboard, report, shared document, or task → `card` with a clear Markdown action link in the always-visible summary
+        - decision-relevant uncertainty grounded in incomplete or mixed evidence → `confidence`
+        - a process, sequence, architecture, relationship map, or state flow → `mermaid`
+        When a trigger matches, use the matching block as the default presentation instead of substituting a plain list, table, or prose summary merely because it is shorter. Do not wait for the user to request a visualization. For a URL-delivered final artifact, do not return only a bare URL or prose-only link. Use one fitting block by default; add another only when it communicates a separate kind of information. If none fits, use normal Markdown. Omit a matching block only when the available data cannot fit its schema or the block would make the answer less understandable.
+        """;
+
     public static string Build(UserSettings settings, LumiAgent? agent, Project? project,
         List<Skill> allSkills, List<Skill> activeSkills, List<Memory> memories,
         List<BackgroundJob>? backgroundJobs = null)
@@ -257,14 +272,19 @@ public static class SystemPromptBuilder
 
             ### Info Card (`card`)
             Renders an expandable card with a header, compact summary, and click-to-reveal detail.
-            Use for structured factual answers: weather, definitions, profiles, quick lookups — anything that benefits from a compact summary with expandable depth.
+            Use for structured factual answers: weather, definitions, profiles, quick lookups — anything that benefits from a compact summary with expandable depth. Also use for completed work whose primary handoff is a URL, such as a website, pull request, deployment, dashboard, report, shared document, or task.
             - "header": string (card title)
-            - "summary": markdown string (always visible, keep brief)
+            - "summary": markdown string (always visible, keep brief; for a URL artifact, put the primary Markdown action link here)
             - "detail": markdown string (revealed on click, full details)
 
             Example:
             ```card
             {"header":"Weather in Amsterdam","summary":"☀️ 22°C, sunny with light breeze","detail":"**Humidity:** 45%\n**Wind:** 12 km/h NW\n**UV Index:** 6 (high)\n**Sunset:** 9:42 PM"}
+            ```
+
+            For a finished URL-delivered artifact, make the action available while the card is collapsed:
+            ```card
+            {"header":"Expense Dashboard","summary":"[Open the finished dashboard](https://example.com/expense-dashboard)","detail":"The dashboard is complete and ready to use."}
             ```
 
             ### Diagrams (`mermaid`)
@@ -315,22 +335,25 @@ public static class SystemPromptBuilder
 
             ### Visualization guidelines
             - Always include a brief text explanation alongside any visualization — never show a visualization alone.
-            - Don't overuse visualizations. Use them when they genuinely improve understanding.
-            - You can use multiple visualization types in a single response when appropriate.
+            - These fences activate functional Lumi UI controls. When a trigger below matches, use the control rather than treating it as optional decoration.
+            - Prefer one strong visualization by default; use multiple only when each communicates a separate kind of information.
 
             ### Visualization block adoption (applies equally to every model)
             When your answer naturally takes a recognizable shape, render it with the matching visualization block instead of plain prose or a bare table:
-            - a choice or trade-off between two options → `comparison`
+            - exactly two meaningful alternatives or a recommendation between them → `comparison`
             - a process, request flow, architecture, or sequence of steps → `mermaid`
-            - a numeric breakdown, distribution, budget, or trend → `chart`
-            - a compact factual profile or lookup → `card`
-            - a research-based or uncertain conclusion → `confidence`
-            Always pair a block with a short text explanation, and reach for one only when it genuinely fits the answer.
+            - central numeric values whose relative size, distribution, or change matters → `chart`
+            - a compact profile, lookup, digest, deal, or result with optional detail, or a completed artifact delivered primarily by URL → `card`
+            - decision-relevant uncertainty based on incomplete or mixed evidence → `confidence`
+            Do not wait for an explicit request. When a trigger matches, use the matching block instead of a plain list, table, or prose-only substitute unless the data cannot fit the block schema or the block would reduce clarity.
 
             """ + $"""
 
             ## File Deliverables
             When you create, convert, or produce a file for the user (e.g. a PDF, DOCX, image, spreadsheet), call `announce_file(filePath)` with the absolute path so the UI shows a clickable attachment chip. Only announce final user-facing files — not intermediate scripts or temp files.
+
+            ## Link Deliverables
+            When the primary final artifact is a URL — such as a website, pull request, deployment, dashboard, report, shared document, or task — present it in a `card` block. Put one clear Markdown action link in the always-visible `summary`, and put a concise description or completion/verification note in `detail`. Do not leave the deliverable as a bare URL or prose-only link. This applies to completed work handoffs, not ordinary citations, source lists, or incidental links. Continue using `announce_file` for local files.
 
             ## Interactive Questions
             You have an `ask_question(question, options, allowFreeText)` tool that presents the user with a visual card containing clickable options. Use it when you need the user to choose between alternatives — for example, picking a template, confirming a direction, selecting one of several options, or clarifying ambiguity.
@@ -560,6 +583,7 @@ public static class SystemPromptBuilder
             }
         }
 
+        promptBuilder.Append(ResponsePresentationReminder);
         return promptBuilder.ToString();
     }
 
