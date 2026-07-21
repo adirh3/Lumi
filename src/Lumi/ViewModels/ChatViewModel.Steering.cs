@@ -17,6 +17,15 @@ public partial class ChatViewModel
 
     private async Task SteerActiveTurnAsync(Chat activeChat, string prompt, bool consumeComposerPrompt)
     {
+        if (BlockSendForByokOnly(
+                activeChat,
+                ResolveSelectedModelForChat(activeChat),
+                prompt,
+                consumeComposerPrompt))
+        {
+            return;
+        }
+
         var chatId = activeChat.Id;
 
         if (!_sessionCache.TryGetValue(chatId, out var session))
@@ -92,6 +101,7 @@ public partial class ChatViewModel
         try
         {
             // SendAsync confirms queue acceptance; the event stream confirms actual consumption.
+            await AcquireByokRateSlotAsync(activeChat, token);
             await session.SendAsync(sendOptions, token);
         }
         catch (Exception ex)

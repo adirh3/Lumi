@@ -312,7 +312,12 @@ public partial class ChatViewModel
             ApplyKnownContextTokenLimit(activeChat, runtime, value, updateDisplayed: true);
         }
 
-        if (_suppressModelSelectionSideEffects || IsEditingMessage || string.IsNullOrWhiteSpace(value))
+        if (IsModelBlockedByByokOnlyFlag(value))
+            StatusText = Loc.Byok_Error_ByokOnly;
+        else if (string.Equals(StatusText, Loc.Byok_Error_ByokOnly, StringComparison.Ordinal))
+            StatusText = string.Empty;
+
+    if (_suppressModelSelectionSideEffects || IsEditingMessage || string.IsNullOrWhiteSpace(value))
             return;
 
         var reasoningEffort = GetPersistedReasoningEffortPreference();
@@ -332,10 +337,22 @@ public partial class ChatViewModel
 
         if (CurrentChat is { } chat)
         {
+            // Detect provider-route change using the authoritative persisted signature.
+            // Null = GitHub default backend; non-null = BYOK endpoint. Different values
+            // mean the existing session would route to the wrong backend and must be recreated.
+            var previousSignature = chat.SessionProviderSignature;
+            var newSignature = ByokConfigHelper.BuildProviderSignature(ResolveModelRouteForChat(value, chat).Provider);
+
             chat.LastModelUsed = value;
             chat.LastReasoningEffortUsed = reasoningEffort;
             if (contextTier is not null)
                 chat.LastContextWindowTierUsed = contextTier;
+
+            if (!string.IsNullOrWhiteSpace(chat.CopilotSessionId)
+                && !string.Equals(previousSignature, newSignature, StringComparison.Ordinal))
+            {
+                InvalidateCurrentSessionForModelSwitch();
+            }
         }
 
         QueueModelSelectionSave();
@@ -394,10 +411,30 @@ public partial class ChatViewModel
         if (string.IsNullOrWhiteSpace(modelId))
             return true;
 
+        // The SDK's SetModelAsync only swaps the model id inside the existing session — it does
+        // NOT touch the Provider config (BaseUrl, Type, WireApi, ApiKey, Headers). If the new
+        // model resolves to a different BYOK endpoint, calling SetModelAsync would route the new
+        // model's id through the OLD endpoint and fail (or worse, leak the previous endpoint's
+        // auth header to the new provider). Detect this mismatch here and force a session
+        // recreation on the next SendMessage instead.
+        var modelRoute = ResolveModelRouteForChat(modelId);
+        if (modelRoute.IsInvalidByok || string.IsNullOrWhiteSpace(modelRoute.WireModelId))
+        {
+            InvalidateCurrentSessionForModelSwitch();
+            return false;
+        }
+
+        var newSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider);
+        if (!string.Equals(newSignature, _activeSessionProviderSignature, StringComparison.Ordinal))
+        {
+            InvalidateCurrentSessionForModelSwitch();
+            return false;
+        }
+
         try
         {
             await _activeSession.SetModelAsync(
-                modelId,
+                modelRoute.WireModelId,
                 new SetModelOptions
                 {
                     ReasoningEffort = string.IsNullOrWhiteSpace(reasoningEffort) ? null : reasoningEffort,
@@ -413,6 +450,18 @@ public partial class ChatViewModel
             // a false result; the debounced mid-session sync just relies on the next send.
             return false;
         }
+    }
+
+    /// <summary>
+    /// Marks the current chat's session for recreation so the next <c>SendMessage</c> will route
+    /// to the new endpoint instead of the cached one. Mirrors how feature changes (agent, skills,
+    /// MCP) invalidate sessions today.
+    /// </summary>
+    private void InvalidateCurrentSessionForModelSwitch()
+    {
+        if (CurrentChat is null) return;
+        _pendingSessionInvalidations.Add(CurrentChat.Id);
+        StatusText = Loc.Status_Reconnecting;
     }
 
     private List<AIFunction> BuildUIAutomationTools()

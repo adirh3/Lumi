@@ -67,6 +67,16 @@ public class DataStore
         Directory.CreateDirectory(ChatsDir);
         Directory.CreateDirectory(CopilotConfigDir);
         _data = Load();
+        // One-time migration: previous Lumi versions auto-injected an "api-key" header for Azure
+        // AI Foundry URLs (services.ai.azure.com / *.openai.azure.com). Lumi no longer treats
+        // those URLs specially — every BYOK endpoint is now a plain OpenAI-compatible target.
+        // For users whose /responses path was working only because of that auto-injection,
+        // promote the key into endpoint.Headers["api-key"] so existing setups keep working.
+        // /chat/completions is also fixed (the bearer+api-key collision was breaking it).
+        if (MigrateByokAutoInjectedApiKey(_data.Settings))
+        {
+            Save();
+        }
         CleanOrphanedChats();
         SeedDefaults();
         SeedCodingLumi();
@@ -1701,6 +1711,75 @@ public class DataStore
 
         var json = File.ReadAllText(DataFile);
         return JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData) ?? new AppData();
+    }
+
+    /// <summary>
+    /// One-time migration that normalizes legacy Azure AI Foundry BYOK endpoints so custom
+    /// <c>api-key</c> auth is dynamic and does not duplicate plaintext secrets in
+    /// <see cref="ByokEndpoint.Headers"/>.
+    ///
+    /// Migration behavior:
+    /// - If <c>headers["api-key"]</c> is missing and the endpoint has a resolvable BYOK key,
+    ///   set it to <see cref="ByokConfigHelper.ApiKeyHeaderToken"/>.
+    /// - If <c>headers["api-key"]</c> exists and equals the currently-resolved BYOK key,
+    ///   replace it with <see cref="ByokConfigHelper.ApiKeyHeaderToken"/>.
+    /// - If <c>headers["api-key"]</c> exists with a different user-specified value,
+    ///   preserve it as-is.
+    ///
+    /// Safe to run on every startup and idempotent. Returns <c>true</c> when any endpoint was
+    /// modified (caller should persist).
+    /// </summary>
+    internal static bool MigrateByokAutoInjectedApiKey(UserSettings settings)
+    {
+        var changed = false;
+        foreach (var endpoint in settings.ByokEndpoints)
+        {
+            if (!ByokConfigHelper.IsAzureAiFoundryUrl(endpoint.BaseUrl))
+                continue;
+
+            if (endpoint.Headers is null)
+            {
+                endpoint.Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+            else if (endpoint.Headers.Comparer != StringComparer.OrdinalIgnoreCase)
+            {
+                // Normalize to case-insensitive so subsequent lookups for "api-key" succeed.
+                endpoint.Headers = new Dictionary<string, string>(endpoint.Headers, StringComparer.OrdinalIgnoreCase);
+            }
+
+            var key = ByokConfigHelper.ResolveApiKey(endpoint);
+
+            if (endpoint.Headers.TryGetValue("api-key", out var existingValue))
+            {
+                // Already on dynamic placeholder format.
+                if (string.Equals(existingValue, ByokConfigHelper.ApiKeyHeaderToken, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(existingValue, ByokConfigHelper.ApiKeyHeaderTokenLegacy, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                // Convert only when legacy literal matches the endpoint's resolved BYOK key.
+                // If it differs, treat as explicit user override and preserve it.
+                if (!string.IsNullOrEmpty(key)
+                    && string.Equals(existingValue, key, StringComparison.Ordinal))
+                {
+                    endpoint.Headers["api-key"] = ByokConfigHelper.ApiKeyHeaderToken;
+                    changed = true;
+                }
+
+                continue;
+            }
+
+            // No api-key header exists yet. If we can resolve the key, add dynamic placeholder
+            // so the runtime value comes from ApiKeyMode (stored/env var) without persisting it
+            // in plain text inside headers.
+            if (!string.IsNullOrEmpty(key))
+            {
+                endpoint.Headers["api-key"] = ByokConfigHelper.ApiKeyHeaderToken;
+                changed = true;
+            }
+        }
+        return changed;
     }
 
     private (Dictionary<Guid, long> dirty, Dictionary<Guid, long> deleted) SnapshotChatChangeVersions()

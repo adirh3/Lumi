@@ -48,6 +48,18 @@ public sealed record ModelContextWindowCatalog(
 /// </summary>
 internal readonly record struct SendFailureClassification(bool Recoverable, bool IsImageError);
 
+/// <summary>
+/// Thrown when a session creation is attempted without a BYOK provider while the user has enabled
+/// <c>UseBYOKOnly</c> (the BYOK Only block). This is the hard guarantee that no inference request ever
+/// reaches GitHub's internal Copilot endpoints when the flag is on. Background helper callers
+/// (memory agent, coding tool, etc.) catch this and degrade gracefully; the main chat path checks
+/// the flag up front and shows a friendly error instead.
+/// </summary>
+public class ByokOnlyRequestBlockedException : InvalidOperationException
+{
+    public ByokOnlyRequestBlockedException(string message) : base(message) { }
+}
+
 public class CopilotService : IAsyncDisposable
 {
     private static readonly MethodInfo? RemoveSessionFromClientMethod = typeof(CopilotSession).GetMethod(
@@ -115,6 +127,42 @@ public class CopilotService : IAsyncDisposable
             Debug.WriteLine($"[Lumi] Cannot detach Copilot session {session.SessionId} from SDK registry: {ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Optional accessor for the live <see cref="UserSettings"/>. When set and
+    /// <see cref="UserSettings.UseBYOKOnly"/> is on, any session created without a BYOK
+    /// <c>Provider</c> throws <see cref="ByokOnlyRequestBlockedException"/> — the hard guarantee that
+    /// no inference request reaches GitHub's endpoints. Set once from <c>App.axaml.cs</c> after the
+    /// <see cref="DataStore"/> is loaded; left null in tests so the default is permissive.
+    /// </summary>
+    private Func<UserSettings>? _settingsProvider;
+
+    /// <summary>Wires the live settings accessor used for the non-BYOK block check.</summary>
+    public void SetSettingsProvider(Func<UserSettings>? settingsProvider) => _settingsProvider = settingsProvider;
+
+    /// <summary>
+    /// True when the BYOK Only block is active (<see cref="UserSettings.UseBYOKOnly"/> flag on AND a
+    /// settings provider is wired). Callers that want to short-circuit gracefully (e.g. skip
+    /// title/suggestion generation) can check this before attempting a session that has no BYOK
+    /// provider.
+    /// </summary>
+    public bool IsUseByokOnly => _settingsProvider?.Invoke()?.UseBYOKOnly == true;
+
+    /// <summary>
+    /// Throws <see cref="ByokOnlyRequestBlockedException"/> when the BYOK Only block is active and the
+    /// caller did not supply a BYOK provider with a real endpoint URL. This is the hard guarantee
+    /// that no session without a usable BYOK <c>Provider</c> (one carrying a non-empty BaseUrl) is
+    /// ever created while the flag is on.
+    /// </summary>
+    private void ThrowIfByokOnlyWithoutProvider(bool hasValidByokProvider)
+    {
+        if (hasValidByokProvider || !IsUseByokOnly)
+            return;
+
+        throw new ByokOnlyRequestBlockedException(
+            "This request was blocked because \"Block internal Copilot requests (BYOK Only)\" is on and no BYOK " +
+            "endpoint URL was configured for it. Select a BYOK model or turn it off in Settings → BYOK.");
     }
 
     /// <summary>Fires after the CopilotClient has been replaced (reconnection).
@@ -611,6 +659,7 @@ public class CopilotService : IAsyncDisposable
     public async Task<CopilotSession> CreateSessionAsync(SessionConfig config, CancellationToken ct = default)
     {
         if (_client is null) throw new InvalidOperationException("Not connected");
+        ThrowIfByokOnlyWithoutProvider(ByokConfigHelper.HasValidByokUrl(config.Provider));
         return await _client.CreateSessionAsync(config, ct);
     }
 
@@ -674,6 +723,7 @@ public class CopilotService : IAsyncDisposable
         // exact server session, wait for that destroy to complete before resuming, otherwise the
         // late destroy could reap the session we are about to hand back live.
         await AwaitPendingReleaseAsync(sessionId, ct).ConfigureAwait(false);
+        ThrowIfByokOnlyWithoutProvider(ByokConfigHelper.HasValidByokUrl(config.Provider));
         return await _client.ResumeSessionAsync(sessionId, config, ct);
     }
 
@@ -1520,6 +1570,11 @@ public class CopilotService : IAsyncDisposable
     {
         if (_client is null) return null;
 
+        // Title generation uses a lightweight (non-BYOK) session. When the BYOK Only block is on,
+        // skip it entirely rather than throwing — a missing title is preferable to leaking the
+        // user's message to GitHub's endpoints.
+        if (IsUseByokOnly) return null;
+
         var fastModel = await GetFastestModelIdAsync(ct).ConfigureAwait(false);
         var systemContent = $"""
             Generate a short title (3-6 words) for a chat that starts with this message. Output ONLY the title text, nothing else.
@@ -1600,6 +1655,11 @@ public class CopilotService : IAsyncDisposable
         CancellationToken ct = default)
     {
         if (_client is null) return null;
+
+        // Suggestion generation uses a lightweight (non-BYOK) session. When the BYOK Only block is
+        // on, skip it entirely rather than throwing — no suggestions is preferable to leaking the
+        // conversation context to GitHub's endpoints.
+        if (IsUseByokOnly) return null;
 
         var contextBuilder = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(userMessage))

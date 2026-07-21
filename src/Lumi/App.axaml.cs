@@ -54,6 +54,8 @@ public partial class App : Application
             Loc.Load(dataStore.Data.Settings.Language);
 
             var copilotService = new CopilotService();
+            // (UseBYOKOnly) at the session-creation chokepoint.
+            copilotService.SetSettingsProvider(() => dataStore.Data.Settings);
             _copilotService = copilotService;
             var updateService = new UpdateService();
             _updateService = updateService;
@@ -65,7 +67,7 @@ public partial class App : Application
                 dataStore.GetChatSearchSnapshot,
                 releaseChatSnapshot: dataStore.EvictChatSearchSnapshot,
                 chatFileTimestampProvider: dataStore.GetChatFileTimestamp);
-            _chatSessionStore = new ChatSessionStore(dataStore, copilotService, _chatSurfaceRegistry, _globalSearchService);
+            _chatSessionStore = new ChatSessionStore(dataStore, copilotService, _chatSurfaceRegistry, _globalSearchService, Lumi.Services.Byok.SecureKeyStoreFactory.Instance);
             var vm = CreateMainViewModel(
                 forceOnboarding: Program.ForceOnboarding,
                 startBackgroundJobs: true
@@ -309,7 +311,8 @@ public partial class App : Application
             startBackgroundJobs,
             _chatSurfaceRegistry,
             _chatSessionStore,
-            _globalSearchService
+            _globalSearchService,
+            Lumi.Services.Byok.SecureKeyStoreFactory.Instance
 #if DEBUG
             , openAgentDebugHarness,
             skipOnboarding
