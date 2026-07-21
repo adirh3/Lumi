@@ -47,7 +47,6 @@ public partial class ProjectsViewModel : ObservableObject
         OperatingSystem.IsWindows() ? @"C:\Projects\MyApp" : "/home/you/projects/myapp";
     public string AdditionalContextDirsPlaceholder =>
         OperatingSystem.IsWindows() ? "C:\\Projects\\SharedSkills\nD:\\McpConfigs" : "/home/you/shared-skills\n/home/you/mcp-configs";
-        OperatingSystem.IsWindows() ? "C:\\Projects\\SharedSkills\nD:\\McpConfigs" : "/home/you/shared-skills\n/home/you/mcp-configs";
 
     [RelayCommand]
     private void ClearSearch() => SearchQuery = "";

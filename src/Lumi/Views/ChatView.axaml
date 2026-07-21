@@ -993,14 +993,16 @@
                   Padding="5,0" MinHeight="0" Height="18"
                   Cursor="Hand">
             <StackPanel Orientation="Horizontal" Spacing="3">
-              <!-- Segoe icon fonts are Windows-only; keep the native glyph on Windows and show a
-                   cross-platform vector on macOS/Linux so the icon never renders as a tofu box. -->
-              <TextBlock Text="&#xE8A7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
-                         FontSize="9" VerticalAlignment="Center"
-                         IsVisible="{OnPlatform Default=true, macOS=false, Linux=false}" />
-              <PathIcon Data="M4 4h6v16H4z M14 4h6v16h-6z" Width="9" Height="9"
-                        VerticalAlignment="Center"
-                        IsVisible="{OnPlatform Default=false, macOS=true, Linux=true}" />
+              <OnPlatform>
+                <On Options="macOS, Linux">
+                  <PathIcon Data="M4 4h6v16H4z M14 4h6v16h-6z" Width="9" Height="9"
+                            VerticalAlignment="Center" />
+                </On>
+                <On Options="Default">
+                  <TextBlock Text="&#xE8A7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                             FontSize="9" VerticalAlignment="Center" />
+                </On>
+              </OnPlatform>
               <TextBlock Text="{loc:Str ShowDiff}" FontSize="9" VerticalAlignment="Center" />
             </StackPanel>
           </Button>
@@ -1238,14 +1240,16 @@
                   Padding="5,0" MinHeight="0" Height="18"
                   Cursor="Hand">
             <StackPanel Orientation="Horizontal" Spacing="3">
-              <!-- Segoe icon fonts are Windows-only; keep the native glyph on Windows and show a
-                   cross-platform vector on macOS/Linux so the icon never renders as a tofu box. -->
-              <TextBlock Text="&#xE8A7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
-                         FontSize="9" VerticalAlignment="Center"
-                         IsVisible="{OnPlatform Default=true, macOS=false, Linux=false}" />
-              <PathIcon Data="M4 4h6v16H4z M14 4h6v16h-6z" Width="9" Height="9"
-                        VerticalAlignment="Center"
-                        IsVisible="{OnPlatform Default=false, macOS=true, Linux=true}" />
+              <OnPlatform>
+                <On Options="macOS, Linux">
+                  <PathIcon Data="M4 4h6v16H4z M14 4h6v16h-6z" Width="9" Height="9"
+                            VerticalAlignment="Center" />
+                </On>
+                <On Options="Default">
+                  <TextBlock Text="&#xE8A7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                             FontSize="9" VerticalAlignment="Center" />
+                </On>
+              </OnPlatform>
               <TextBlock Text="{loc:Str ShowDiff}" FontSize="9" VerticalAlignment="Center" />
             </StackPanel>
           </Button>
