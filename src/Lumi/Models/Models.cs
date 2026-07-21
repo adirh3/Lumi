@@ -594,7 +594,7 @@ public class UserSettings
 
     // ── AI & Models ──
     public string PreferredModel { get; set; } = "";
-    public string ReasoningEffort { get; set; } = ""; // "", "low", "medium", "high", "xhigh"
+    public string ReasoningEffort { get; set; } = ""; // CLI-defined value, e.g. low, medium, high, xhigh, max
     public string ContextWindowTier { get; set; } = ModelContextWindowTiers.Default;
 
     // ── MCP ──

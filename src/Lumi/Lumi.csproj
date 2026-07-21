@@ -22,7 +22,7 @@
     <Features>$(Features);runtime-async=on</Features>
     <NoWarn>$(NoWarn);GHCP001</NoWarn>
     <!-- Pin the bundled Copilot CLI version so new models and reliability fixes are available. -->
-    <CopilotCliVersion>1.0.71</CopilotCliVersion>
+    <CopilotCliVersion>1.0.73</CopilotCliVersion>
   </PropertyGroup>
 
   <ItemGroup>
