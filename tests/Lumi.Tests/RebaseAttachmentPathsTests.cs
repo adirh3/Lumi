@@ -115,9 +115,9 @@ public class RebaseAttachmentPathsTests
             P(@"E:\Git\Lumi"),
             P(@"E:\Git\Lumi-wt-abc123"));
 
-        var expected = OperatingSystem.IsLinux()
-            ? original
-            : P(@"E:\Git\Lumi-wt-abc123\src\file.cs");
+        var expected = OperatingSystem.IsWindows()
+            ? P(@"E:\Git\Lumi-wt-abc123\src\file.cs")
+            : original;
         Assert.Equal(expected, FileAt(attachments, 0).Path);
     }
 
@@ -132,9 +132,9 @@ public class RebaseAttachmentPathsTests
             P(@"E:\Git\Lumi"),
             P(@"e:\git\lumi"));
 
-        var expected = OperatingSystem.IsLinux()
-            ? P(@"e:\git\lumi\src\file.cs")
-            : original;
+        var expected = OperatingSystem.IsWindows()
+            ? original
+            : P(@"e:\git\lumi\src\file.cs");
         Assert.Equal(expected, FileAt(attachments, 0).Path);
         Assert.Equal(expected, msg.Attachments[0]);
     }

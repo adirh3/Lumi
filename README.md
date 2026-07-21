@@ -53,6 +53,24 @@ dotnet build src/Lumi/Lumi.csproj
 cd src/Lumi && dotnet run
 ```
 
+### Linux Release Packages
+
+The auto-updating Linux release is an AppImage. Make it executable before launching:
+
+```bash
+chmod +x Lumi-*.AppImage
+./Lumi-*.AppImage
+```
+
+Ubuntu 24.04 requires `libfuse2t64` for AppImages (`libfuse2` on older Ubuntu releases).
+If FUSE is unavailable, use the release's `linux-x64-portable.tar.gz` archive instead:
+
+```bash
+tar -xzf Lumi-*-linux-x64-portable.tar.gz
+chmod +x Lumi
+./Lumi
+```
+
 ### Local StrataTheme Development
 
 If you have the [Strata](https://github.com/adirh3/Strata) repo cloned as a sibling directory (i.e., `../Strata/` relative to this repo), the build automatically uses your local copy instead of the submodule. No configuration needed — just clone both repos side by side:

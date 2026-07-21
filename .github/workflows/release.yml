@@ -168,9 +168,8 @@ jobs:
           retention-days: 3
 
   # Linux: self-contained AppImage (channel "linux"), merged onto the Windows release.
-  # The AppImage bundles the app's own dependencies but relies on base desktop libraries
-  # (libX11/libICE/libSM/fontconfig) being present on the user's machine — standard on a
-  # Linux desktop.
+  # A portable tarball is also published for systems without FUSE 2 (including stock
+  # Ubuntu 24.04), while the AppImage remains the auto-updating package.
   release-linux:
     needs: release-windows
     runs-on: ubuntu-latest
@@ -223,6 +222,12 @@ jobs:
           -i src/Lumi/Assets/lumi-icon.png
           --channel linux
 
+      - name: Create FUSE-independent portable archive
+        run: >
+          tar -C publish-linux
+          -czf "Releases/Lumi-${{ inputs.version }}-linux-x64-portable.tar.gz"
+          .
+
       - name: Merge onto GitHub release
         if: ${{ inputs.dry_run == false }}
         run: >
@@ -232,6 +237,15 @@ jobs:
           --tag v${{ inputs.version }}
           --channel linux
           --merge
+
+      - name: Upload portable Linux archive
+        if: ${{ inputs.dry_run == false }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release upload "v${{ inputs.version }}"
+          "Releases/Lumi-${{ inputs.version }}-linux-x64-portable.tar.gz"
+          --clobber
 
       - name: Upload dry-run Linux packages
         if: ${{ inputs.dry_run }}

@@ -527,9 +527,9 @@ public partial class ChatViewModel
         var normalizedWorktreePath = worktreePath.TrimEnd(
                 Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             + Path.DirectorySeparatorChar;
-        var pathComparison = OperatingSystem.IsLinux()
-            ? StringComparison.Ordinal
-            : StringComparison.OrdinalIgnoreCase;
+        var pathComparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
 
         if (string.Equals(normalizedProjectDir, normalizedWorktreePath, pathComparison))
             return;
