@@ -71,6 +71,43 @@ public sealed class TranscriptBuilderToolGroupTests
     }
 
     [Fact]
+    public void ToolGroup_Expanding_CollapsesNestedTools()
+    {
+        var group = new ToolGroupItem("Finished");
+        var tool = new ToolCallItem("Read file", StrataTheme.Controls.StrataAiToolCallStatus.Completed)
+        {
+            IsExpanded = true,
+        };
+        var terminal = new TerminalPreviewItem(
+            "Run command",
+            "dotnet test",
+            StrataTheme.Controls.StrataAiToolCallStatus.Completed)
+        {
+            IsExpanded = true,
+        };
+        var todo = new TodoProgressItem("Update plan", StrataTheme.Controls.StrataAiToolCallStatus.Completed)
+        {
+            IsExpanded = true,
+        };
+
+        group.ToolCalls.Add(tool);
+        group.ToolCalls.Add(terminal);
+        group.ToolCalls.Add(todo);
+
+        group.IsExpanded = true;
+
+        Assert.False(tool.IsExpanded);
+        Assert.False(terminal.IsExpanded);
+        Assert.False(todo.IsExpanded);
+
+        tool.IsExpanded = true;
+        group.IsExpanded = false;
+        group.IsExpanded = true;
+
+        Assert.False(tool.IsExpanded);
+    }
+
+    [Fact]
     public void ProcessMessageToTranscript_FailedTerminalStatusUpdateShowsCapturedOutput()
     {
         var builder = CreateBuilder();

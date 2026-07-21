@@ -20,6 +20,7 @@
          and center, so on large/maximized windows content stays a balanced column
          instead of clinging to the edges. On narrow windows it grows to full width. -->
     <x:Double x:Key="Chat.ReadingColumnWidth">900</x:Double>
+    <x:Double x:Key="Chat.ToolGroupContentMaxHeight">420</x:Double>
     <x:Double x:Key="Chat.SubagentContentMaxHeight">420</x:Double>
 
     <!-- Shared chip for files Lumi produced/announced. Right-click exposes file actions
@@ -954,24 +955,28 @@
           </Border>
         </sc:StrataThink.HeaderExtra>
         <sc:StrataThink.Content>
-          <ItemsControl ItemsSource="{Binding ToolCalls}">
-            <ItemsControl.Styles>
-              <Style Selector="ContentPresenter">
-                <Setter Property="Margin" Value="0,0,6,6" />
-              </Style>
-              <Style Selector="sc|StrataAiToolCall">
-                <Setter Property="MinWidth" Value="320" />
-                <Setter Property="MaxWidth" Value="420" />
-              </Style>
-              <Style Selector="sc|StrataTerminalPreview">
-                <Setter Property="MinWidth" Value="360" />
-                <Setter Property="MaxWidth" Value="560" />
-              </Style>
-            </ItemsControl.Styles>
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-          </ItemsControl>
+          <ScrollViewer MaxHeight="{StaticResource Chat.ToolGroupContentMaxHeight}"
+                        VerticalScrollBarVisibility="Auto"
+                        HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding ToolCalls}">
+              <ItemsControl.Styles>
+                <Style Selector="ContentPresenter">
+                  <Setter Property="Margin" Value="0,0,6,6" />
+                </Style>
+                <Style Selector="sc|StrataAiToolCall">
+                  <Setter Property="MinWidth" Value="320" />
+                  <Setter Property="MaxWidth" Value="420" />
+                </Style>
+                <Style Selector="sc|StrataTerminalPreview">
+                  <Setter Property="MinWidth" Value="360" />
+                  <Setter Property="MaxWidth" Value="560" />
+                </Style>
+              </ItemsControl.Styles>
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+            </ItemsControl>
+          </ScrollViewer>
         </sc:StrataThink.Content>
       </sc:StrataThink>
     </DataTemplate>

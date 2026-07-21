@@ -565,6 +565,28 @@ public partial class ToolGroupItem : TranscriptItem
         _label = label;
     }
 
+    partial void OnIsExpandedChanged(bool value)
+    {
+        if (!value)
+            return;
+
+        foreach (var toolCall in ToolCalls)
+        {
+            switch (toolCall)
+            {
+                case ToolCallItem item:
+                    item.IsExpanded = false;
+                    break;
+                case TerminalPreviewItem terminal:
+                    terminal.IsExpanded = false;
+                    break;
+                case TodoProgressItem todo:
+                    todo.IsExpanded = false;
+                    break;
+            }
+        }
+    }
+
     partial void OnStreamingSummaryChanged(string? value) => OnPropertyChanged(nameof(HasStreamingSummary));
 }
 
