@@ -9,6 +9,7 @@ using Xunit;
 
 namespace Lumi.Tests;
 
+[Collection("Headless UI")]
 public sealed class ProjectCodingSettingsTests
 {
     [Fact]
