@@ -339,6 +339,13 @@ public static class SystemPromptBuilder
             - `allowFreeText`: Whether to show a free-text input (default true). Set to false for strict choices.
             Don't overuse this — only ask when the choice genuinely affects the outcome. For simple yes/no or when the user's intent is clear, just proceed.
 
+            ## Keeping the Current Chat Aligned
+            Use `manage_current_chat` to inspect or update the chat you are currently working in.
+            - After you create or select a git worktree yourself, immediately call `manage_current_chat(action: "update", workspace: "<worktree path>")`. This keeps the chat's working directory and future turns aligned with where you are actually editing.
+            - Use `clearWorkspace=true` to return the chat to its local/project directory.
+            - You may also use it to give the chat a more useful title.
+            Workspace changes update Lumi immediately, but an already-running Copilot turn cannot change its own working directory. Use absolute paths for any remaining commands in that turn; Lumi rebuilds the session in the new workspace before the next turn.
+
             ## Managing Lumi Itself
             You also have dedicated management tools for Lumi's own data: projects, skills, Lumis, MCP servers, background jobs, and memories.
             These are only for explicit user requests about Lumi itself — for example: "create a skill from this conversation", "show my projects", "edit that Lumi", "add an MCP server", "monitor this every morning", or "delete this memory".

@@ -612,6 +612,23 @@ public partial class ChatViewModel
         {
             AIFunctionFactory.Create(
                 async (
+                    [Description("Action: get or update. Use get to inspect the current chat; use update to change one or more properties.")] string action,
+                    [Description("New title for the current chat. Omit to keep the existing title.")] string? title = null,
+                    [Description("Existing linked git worktree path to use as this chat's workspace. You may pass the worktree root or a folder inside it. Omit to keep the current workspace.")] string? workspace = null,
+                    [Description("Set true to clear the worktree workspace and return the chat to its local/project working directory.")] bool clearWorkspace = false) =>
+                    await ManageCurrentChatAsync(
+                        chatId,
+                        action,
+                        title,
+                        workspace,
+                        clearWorkspace,
+                        GetCurrentCancellationToken()),
+                "manage_current_chat",
+                "Read or update properties of the chat executing this tool. After you create or select a git worktree yourself, immediately set workspace to that linked worktree so later turns and workspace-scoped context use the same directory. Updating workspace safely rebuilds the Copilot session before the next turn; the already-running turn keeps its original working directory, so use absolute paths for any remaining work in that turn.",
+                Lumi.Models.AppDataJsonContext.Default.Options),
+
+            AIFunctionFactory.Create(
+                async (
                     [Description("Action: list, create, update, or delete")] string action,
                     [Description("Project ID or exact name for update/delete. Omit for create/list.")] string? identifier = null,
                     [Description("Project name for create, or the new name for update.")] string? name = null,
@@ -780,6 +797,412 @@ public partial class ChatViewModel
             tools.Add(BuildManageChatsTool(chatId));
 
         return tools;
+    }
+
+    private sealed record ManagedCurrentChatMutation(
+        string PreviousTitle,
+        string NewTitle,
+        string? PreviousWorktreePath,
+        string? NewWorktreePath,
+        List<string> Changes,
+        bool TitleChanged,
+        bool WorkspaceChanged);
+
+    private sealed record ManagedCurrentChatUpdateResult(
+        Chat? Chat,
+        ManagedCurrentChatMutation? Mutation,
+        string? Error);
+
+    internal async Task<string> ManageCurrentChatAsync(
+        Guid chatId,
+        string action,
+        string? title = null,
+        string? workspace = null,
+        bool clearWorkspace = false,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedAction = action?.Trim().ToLowerInvariant();
+        if (normalizedAction is not ("get" or "update"))
+            return $"Unknown manage_current_chat action \"{action}\". Use get or update.";
+
+        var context = await InvokeOnUiThreadAsync(() =>
+        {
+            var currentChat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+            var projectDirectory = currentChat?.ProjectId is { } projectId
+                ? _dataStore.Data.Projects.FirstOrDefault(project => project.Id == projectId)?.WorkingDirectory
+                : null;
+            return (
+                Chat: currentChat,
+                ProjectId: currentChat?.ProjectId,
+                ProjectDirectory: projectDirectory);
+        });
+        var chat = context.Chat;
+        if (chat is null)
+            return "The current chat no longer exists.";
+
+        if (normalizedAction == "get")
+        {
+            return await InvokeOnUiThreadAsync(() =>
+            {
+                var liveChat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+                return liveChat is null
+                    ? "The current chat no longer exists."
+                    : DescribeManagedCurrentChat(liveChat);
+            });
+        }
+
+        if (clearWorkspace && workspace is not null)
+            return "Pass either workspace or clearWorkspace=true, not both.";
+
+        string? normalizedTitle = null;
+        if (title is not null)
+        {
+            normalizedTitle = NormalizeChatTitle(title);
+            if (normalizedTitle is null)
+                return "The chat title cannot be empty.";
+        }
+
+        string? normalizedWorktreeRoot = null;
+        if (workspace is not null)
+        {
+            var validation = await ValidateManagedWorkspaceAsync(workspace, context.ProjectDirectory);
+            if (validation.Error is not null)
+                return validation.Error;
+
+            normalizedWorktreeRoot = validation.WorktreeRoot;
+        }
+
+        if (normalizedTitle is null && normalizedWorktreeRoot is null && !clearWorkspace)
+            return "No properties were supplied. Pass title, workspace, or clearWorkspace=true.";
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var update = await InvokeOnUiThreadAsync(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var liveChat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+            if (liveChat is null)
+            {
+                return new ManagedCurrentChatUpdateResult(
+                    null,
+                    null,
+                    "The current chat no longer exists.");
+            }
+
+            if (workspace is not null)
+            {
+                var liveProjectDirectory = liveChat.ProjectId is { } liveProjectId
+                    ? _dataStore.Data.Projects.FirstOrDefault(project => project.Id == liveProjectId)?.WorkingDirectory
+                    : null;
+                if (liveChat.ProjectId != context.ProjectId
+                    || !PathsEqual(liveProjectDirectory, context.ProjectDirectory))
+                {
+                    return new ManagedCurrentChatUpdateResult(
+                        null,
+                        null,
+                        "The current chat's project changed while the workspace was being validated. Retry the update against the current project.");
+                }
+            }
+
+            var mutation = ApplyManagedCurrentChatModelUpdate(
+                liveChat,
+                normalizedTitle,
+                normalizedWorktreeRoot,
+                workspaceRequested: workspace is not null || clearWorkspace,
+                clearWorkspace);
+            return new ManagedCurrentChatUpdateResult(liveChat, mutation, null);
+        });
+
+        if (update.Error is not null)
+            return update.Error;
+
+        var liveChat = update.Chat!;
+        var mutation = update.Mutation!;
+
+        if (mutation.Changes.Count == 0)
+            return $"No current chat properties changed.\n\n{await InvokeOnUiThreadAsync(() => DescribeManagedCurrentChat(liveChat))}";
+
+        _dataStore.MarkChatChanged(liveChat);
+        try
+        {
+            // Cancellation is honored before mutation. Once the commit starts, finish it so stopping
+            // the active turn cannot leave the UI changed while persistence is cancelled halfway.
+            await _dataStore.SaveAsync(CancellationToken.None);
+        }
+        catch
+        {
+            await InvokeOnUiThreadAsync(() =>
+            {
+                var current = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+                if (ReferenceEquals(current, liveChat))
+                {
+                    RollBackManagedCurrentChatModelUpdate(liveChat, mutation);
+                    _dataStore.MarkChatChanged(liveChat);
+                }
+
+                return true;
+            });
+            throw;
+        }
+
+        var published = await InvokeOnUiThreadAsync(() =>
+        {
+            var current = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+            if (!ReferenceEquals(current, liveChat))
+                return false;
+
+            PublishManagedCurrentChatUpdate(liveChat, mutation);
+            return true;
+        });
+        if (!published)
+            return "The current chat no longer exists.";
+
+        var state = await InvokeOnUiThreadAsync(() => DescribeManagedCurrentChat(liveChat));
+        var result = $"Updated current chat:\n- {string.Join("\n- ", mutation.Changes)}\n\n{state}";
+        if (workspace is not null || clearWorkspace)
+        {
+            result += "\n\nLumi is synchronized to the new workspace now. The current Copilot turn still uses its original working directory; the next turn will rebuild in the updated workspace.";
+        }
+
+        return result;
+    }
+
+    internal List<string> ApplyManagedCurrentChatUpdate(
+        Chat chat,
+        string? normalizedTitle,
+        string? normalizedWorktreeRoot,
+        bool workspaceRequested,
+        bool clearWorkspace)
+    {
+        var mutation = ApplyManagedCurrentChatModelUpdate(
+            chat,
+            normalizedTitle,
+            normalizedWorktreeRoot,
+            workspaceRequested,
+            clearWorkspace);
+        PublishManagedCurrentChatUpdate(chat, mutation);
+        return mutation.Changes;
+    }
+
+    private ManagedCurrentChatMutation ApplyManagedCurrentChatModelUpdate(
+        Chat chat,
+        string? normalizedTitle,
+        string? normalizedWorktreeRoot,
+        bool workspaceRequested,
+        bool clearWorkspace)
+    {
+        var previousTitle = chat.Title;
+        var previousWorktreePath = chat.WorktreePath;
+        var changes = new List<string>();
+        var titleChanged = false;
+        var workspaceChanged = false;
+
+        if (normalizedTitle is not null
+            && !string.Equals(chat.Title, normalizedTitle, StringComparison.Ordinal))
+        {
+            chat.Title = normalizedTitle;
+            changes.Add($"title: {chat.Title}");
+            titleChanged = true;
+        }
+
+        if (workspaceRequested)
+        {
+            var desiredWorktreeRoot = clearWorkspace ? null : normalizedWorktreeRoot;
+            if (!PathsEqual(chat.WorktreePath, desiredWorktreeRoot))
+            {
+                chat.WorktreePath = desiredWorktreeRoot;
+                workspaceChanged = true;
+                changes.Add(desiredWorktreeRoot is null
+                    ? "workspace: local/project directory"
+                    : $"workspace: {GetEffectiveWorkingDirectory(chat)}");
+            }
+        }
+
+        return new ManagedCurrentChatMutation(
+            previousTitle,
+            chat.Title,
+            previousWorktreePath,
+            chat.WorktreePath,
+            changes,
+            titleChanged,
+            workspaceChanged);
+    }
+
+    private void PublishManagedCurrentChatUpdate(
+        Chat chat,
+        ManagedCurrentChatMutation mutation)
+    {
+        if (mutation.TitleChanged)
+            ChatTitleChanged?.Invoke(chat.Id, chat.Title);
+
+        if (mutation.WorkspaceChanged)
+        {
+            _pendingSessionInvalidations.Add(chat.Id);
+
+            if (CurrentChat?.Id == chat.Id)
+            {
+                WorktreePath = chat.WorktreePath;
+                IsWorktreeMode = chat.WorktreePath is not null;
+                OnPropertyChanged(nameof(CurrentChat));
+                RefreshComposerCatalogs();
+                QueueRefreshCodingProjectState();
+            }
+        }
+
+        if (mutation.Changes.Count > 0)
+            ChatUpdated?.Invoke();
+    }
+
+    private static void RollBackManagedCurrentChatModelUpdate(
+        Chat chat,
+        ManagedCurrentChatMutation mutation)
+    {
+        if (mutation.TitleChanged
+            && string.Equals(chat.Title, mutation.NewTitle, StringComparison.Ordinal))
+        {
+            chat.Title = mutation.PreviousTitle;
+        }
+
+        if (mutation.WorkspaceChanged
+            && PathsEqual(chat.WorktreePath, mutation.NewWorktreePath))
+        {
+            chat.WorktreePath = mutation.PreviousWorktreePath;
+        }
+    }
+
+    internal static async Task<(string? WorktreeRoot, string? Error)> ValidateManagedWorkspaceAsync(
+        string workspace,
+        string? projectDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(workspace))
+            return (null, "The workspace path cannot be empty. Use clearWorkspace=true to return to local/project mode.");
+
+        string requestedPath;
+        try
+        {
+            requestedPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspace.Trim()));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return (null, $"The workspace path is invalid: {ex.Message}");
+        }
+
+        if (!Directory.Exists(requestedPath))
+            return (null, $"The workspace directory does not exist: {requestedPath}");
+
+        var worktreeRoot = GitService.FindRepoRoot(requestedPath);
+        if (worktreeRoot is null)
+            return (null, $"The workspace is not inside a Git repository: {requestedPath}");
+
+        worktreeRoot = NormalizeDirectoryPath(worktreeRoot);
+        if (!IsLinkedGitWorktree(worktreeRoot))
+        {
+            return (null,
+                $"The workspace is a normal checkout, not a linked Git worktree: {worktreeRoot}. "
+                + "Use clearWorkspace=true for local/project mode.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(projectDirectory)
+            && Directory.Exists(projectDirectory)
+            && GitService.IsGitRepo(projectDirectory))
+        {
+            var registeredWorktrees = await GitService.ListWorktreesAsync(projectDirectory);
+            if (!registeredWorktrees.Any(path => PathsEqual(path, worktreeRoot)))
+            {
+                return (null,
+                    $"The workspace is not a registered worktree of the current chat project's repository: {worktreeRoot}");
+            }
+        }
+
+        return (worktreeRoot, null);
+    }
+
+    internal string DescribeManagedCurrentChat(Chat chat)
+    {
+        var projectName = chat.ProjectId is { } projectId
+            ? _dataStore.Data.Projects.FirstOrDefault(project => project.Id == projectId)?.Name
+            : null;
+        var agentName = chat.AgentId is { } agentId
+            ? _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == agentId)?.Name
+            : null;
+        var workspaceMode = chat.WorktreePath is { Length: > 0 } ? "worktree" : "local";
+        var effectiveWorkspace = GetEffectiveWorkingDirectory(chat);
+        var model = ResolveSelectedModelForChat(chat);
+        var reasoningEffort = ResolvePersistedReasoningEffortForChat(chat, model);
+
+        return $"""
+            Current chat
+            id: {chat.Id}
+            title: {chat.Title}
+            project: {projectName ?? "(none)"}
+            agent: {agentName ?? "(none)"}
+            workspaceMode: {workspaceMode}
+            workspace: {effectiveWorkspace}
+            worktreeRoot: {chat.WorktreePath ?? "(none)"}
+            model: {model}
+            reasoningEffort: {reasoningEffort ?? "(default)"}
+            """;
+    }
+
+    private static bool IsLinkedGitWorktree(string worktreeRoot)
+    {
+        var gitFile = Path.Combine(worktreeRoot, ".git");
+        if (!File.Exists(gitFile))
+            return false;
+
+        try
+        {
+            var pointer = File.ReadAllText(gitFile).Trim();
+            const string prefix = "gitdir:";
+            if (!pointer.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var gitDirectory = pointer[prefix.Length..].Trim();
+            if (!Path.IsPathRooted(gitDirectory))
+                gitDirectory = Path.GetFullPath(Path.Combine(worktreeRoot, gitDirectory));
+
+            return Directory.Exists(gitDirectory)
+                   && File.Exists(Path.Combine(gitDirectory, "commondir"));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool PathsEqual(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return string.IsNullOrWhiteSpace(left) && string.IsNullOrWhiteSpace(right);
+
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        if (string.Equals(left, right, comparison))
+            return true;
+
+        try
+        {
+            return string.Equals(
+                NormalizeDirectoryPath(left),
+                NormalizeDirectoryPath(right),
+                comparison);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+    }
+
+    private static string NormalizeDirectoryPath(string path)
+        => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+
+    private static async Task<T> InvokeOnUiThreadAsync<T>(Func<T> action)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+            return action();
+
+        return await Dispatcher.UIThread.InvokeAsync(action);
     }
 
     private AIFunction BuildManageChatsTool(Guid chatId)

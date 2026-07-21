@@ -106,6 +106,31 @@ public class ToolDisplayHelperTests
     }
 
     [Fact]
+    public void GetFriendlyToolDisplay_ManageCurrentChat_DescribesInspection()
+    {
+        var (name, info) = ToolDisplayHelper.GetFriendlyToolDisplay(
+            "manage_current_chat",
+            null,
+            "{\"action\":\"get\"}");
+
+        Assert.Equal("Inspecting current chat", name);
+        Assert.Equal("get", info);
+        Assert.Equal("💬", ToolDisplayHelper.GetToolGlyph("manage_current_chat"));
+    }
+
+    [Fact]
+    public void GetFriendlyToolDisplay_ManageCurrentChat_DescribesWorkspaceUpdate()
+    {
+        var (name, info) = ToolDisplayHelper.GetFriendlyToolDisplay(
+            "manage_current_chat",
+            null,
+            "{\"action\":\"update\",\"workspace\":\"E:\\\\repo-wt\"}");
+
+        Assert.Equal("Updating current chat", name);
+        Assert.Equal("update: E:\\repo-wt", info);
+    }
+
+    [Fact]
     public void BuildToolActivitySummary_UsesRecentLabelsAndOverflowCount()
     {
         var summary = ToolDisplayHelper.BuildToolActivitySummary(

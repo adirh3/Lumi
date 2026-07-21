@@ -49,6 +49,24 @@ public sealed class SystemPromptBuilderTests
     }
 
     [Fact]
+    public void Build_InstructsAgentsToSynchronizeCreatedWorktrees()
+    {
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en" },
+            agent: null,
+            project: null,
+            allSkills: [],
+            activeSkills: [],
+            memories: []);
+
+        Assert.Contains("## Keeping the Current Chat Aligned", prompt);
+        Assert.Contains("manage_current_chat", prompt);
+        Assert.Contains("immediately call", prompt);
+        Assert.Contains("git worktree", prompt);
+        Assert.Contains("the next turn", prompt);
+    }
+
+    [Fact]
     public void Build_IncludesWritingStyleGuidance()
     {
         var prompt = SystemPromptBuilder.Build(

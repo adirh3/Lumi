@@ -71,6 +71,7 @@ public class DataStore
         CleanOrphanedChats();
         SeedDefaults();
         SeedCodingLumi();
+        EnsureCurrentChatManagementTool();
         EnsureFeatureManagerSkill();
     }
 
@@ -1482,7 +1483,7 @@ public class DataStore
             ToolNames = [
                 "code_review", "generate_tests", "explain_code", "analyze_project",
                 "lumi_fetch",
-                "announce_file", "fetch_skill", "recall_memory",
+                "announce_file", "fetch_skill", "recall_memory", "manage_current_chat",
             ],
             SystemPrompt = """
                 You are **Coding Lumi** — an elite software engineering agent. You combine deep technical expertise with practical engineering wisdom to produce exceptional code and solve hard problems.
@@ -1593,6 +1594,24 @@ public class DataStore
         _data.Settings.CodingLumiSeeded = true;
         Save();
         SyncSkillFiles();
+    }
+
+    private void EnsureCurrentChatManagementTool()
+    {
+        if (_data.Settings.CurrentChatManagementToolSeeded)
+            return;
+
+        var codingLumi = _data.Agents.FirstOrDefault(agent =>
+            agent.IsBuiltIn
+            && string.Equals(agent.Name, "Coding Lumi", StringComparison.OrdinalIgnoreCase));
+        if (codingLumi is { HasToolRestrictions: true }
+            && !codingLumi.ToolNames.Contains("manage_current_chat", StringComparer.Ordinal))
+        {
+            codingLumi.ToolNames.Add("manage_current_chat");
+        }
+
+        _data.Settings.CurrentChatManagementToolSeeded = true;
+        Save();
     }
 
     private void EnsureFeatureManagerSkill()

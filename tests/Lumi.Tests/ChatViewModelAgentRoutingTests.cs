@@ -377,6 +377,7 @@ public sealed class ChatViewModelAgentRoutingTests
 
         Assert.Contains("lumi_fetch", toolNames);
         Assert.Contains("ask_question", toolNames);
+        Assert.Contains("manage_current_chat", toolNames);
         Assert.Contains("manage_lumis", toolNames);
         Assert.Contains("code_review", toolNames);
         Assert.Contains(ToolDisplayHelper.BrowserOpenToolName, toolNames);

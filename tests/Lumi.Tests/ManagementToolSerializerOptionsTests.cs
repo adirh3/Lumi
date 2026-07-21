@@ -32,6 +32,17 @@ public sealed class ManagementToolSerializerOptionsTests
         Assert.Contains("'unpin'", window);
     }
 
+    [Fact]
+    public void ManageCurrentChatTool_PassesSourceGeneratedSerializerOptions()
+    {
+        var source = ReadToolsSource();
+        var index = source.IndexOf("\"manage_current_chat\"", StringComparison.Ordinal);
+        Assert.True(index >= 0, "manage_current_chat tool registration not found in ChatViewModel.Tools.cs.");
+
+        var window = source.Substring(index, Math.Min(1000, source.Length - index));
+        Assert.Contains("AppDataJsonContext.Default.Options", window);
+    }
+
     private static string ReadToolsSource()
     {
         var dir = AppContext.BaseDirectory;

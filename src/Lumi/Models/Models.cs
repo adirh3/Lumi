@@ -563,6 +563,7 @@ public class UserSettings
     public bool IsOnboarded { get; set; }
     public bool DefaultsSeeded { get; set; }
     public bool CodingLumiSeeded { get; set; }
+    public bool CurrentChatManagementToolSeeded { get; set; }
     public string Language { get; set; } = "en";
     public bool LaunchAtStartup { get; set; }
     public bool StartMinimized { get; set; }
