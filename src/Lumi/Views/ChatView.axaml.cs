@@ -1171,7 +1171,13 @@ public partial class ChatView : UserControl
                 return;
             }
 
-            using var bitmap = await dataTransfer.TryGetBitmapAsync();
+            // Skia can't decode macOS clipboard TIFF; supply the AppKit transcoder on macOS so those
+            // (e.g. screenshots) still paste. Null elsewhere — the built-in decode path is used as before.
+            Func<byte[], byte[]?>? nativeImageToPng = null;
+            if (OperatingSystem.IsMacOS())
+                nativeImageToPng = Services.MacOsNative.TryConvertImageToPng;
+
+            using var bitmap = await ClipboardImage.TryGetImageAsync(dataTransfer, nativeImageToPng);
             if (bitmap is not null)
             {
                 Directory.CreateDirectory(ClipboardImagesDir);
@@ -1659,7 +1665,10 @@ public partial class ChatView : UserControl
         base.OnKeyDown(e);
         if (e.Handled) return;
 
-        var ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+        // Command modifier: Cmd on macOS, Ctrl on Windows/Linux (unchanged on Windows/Linux).
+        var ctrl = OperatingSystem.IsMacOS()
+            ? (e.KeyModifiers & KeyModifiers.Meta) != 0
+            : (e.KeyModifiers & KeyModifiers.Control) != 0;
 
         if (ctrl && e.Key == Key.F)
         {

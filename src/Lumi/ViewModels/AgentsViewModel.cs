@@ -161,10 +161,19 @@ public partial class AgentsViewModel : ObservableObject
         var hasRestrictions = agent?.HasToolRestrictions == true;
         foreach (var (name, displayName, group, description) in KnownTools)
         {
+            // Browser and Desktop (UI automation) tools are Windows-only and never registered off
+            // Windows (see ChatViewModel.BuildCustomTools), so don't offer them as assignable here.
+            if (!IsToolGroupAvailable(group))
+                continue;
             var isAssigned = !hasRestrictions || runtimeToolNames.Contains(name);
             AvailableTools.Add(new ToolToggle(name, displayName, group, description, isAssigned));
         }
     }
+
+    /// <summary>Whether a tool group is usable on this platform. Browser/Desktop groups are
+    /// Windows-only; everything else is cross-platform.</summary>
+    private static bool IsToolGroupAvailable(string group)
+        => OperatingSystem.IsWindows() || group is not ("Browser" or "Desktop");
 
     [RelayCommand]
     private void NewAgent()
@@ -219,11 +228,33 @@ public partial class AgentsViewModel : ObservableObject
             .Select(s => s.McpServerId)
             .ToList();
 
-        // Keep the explicit flag so an empty selected list can mean "no Lumi tools".
-        var allSelected = AvailableTools.All(t => t.IsSelected);
-        var selectedToolNames = allSelected
+        // Empty list = all tools available; only store names when some are deselected.
+        // Preserve any tools the agent already has that aren't shown on this platform (Windows-only
+        // Browser/Desktop tools edited on Linux/macOS) so a Windows configuration is never erased.
+        var shownToolNames = KnownTools
+            .Where(t => IsToolGroupAvailable(t.Group))
+            .Select(t => t.Name)
+            .ToHashSet();
+        var preservedHidden = ToolDisplayHelper.ToRuntimeToolNames(SelectedAgent?.ToolNames ?? [])
+            .Where(n => !shownToolNames.Contains(n))
+            .ToList();
+
+        // "[]" means "all tools, unrestricted". Collapsing to [] is only safe when no tool groups
+        // are hidden on this platform, or the agent was already unrestricted. Otherwise — e.g. a
+        // Windows agent that deliberately excluded the Browser/Desktop groups, edited on Linux/macOS
+        // where those groups are hidden — collapsing would silently re-enable those Windows-only tools.
+        var hasHiddenGroups = KnownTools.Any(t => !IsToolGroupAvailable(t.Group));
+        var wasRestricted = SelectedAgent?.HasToolRestrictions == true;
+        var canBeUnrestricted = !(hasHiddenGroups && wasRestricted);
+
+        var allShownSelected = AvailableTools.All(t => t.IsSelected);
+        var isUnrestricted = allShownSelected && preservedHidden.Count == 0 && canBeUnrestricted;
+        var selectedToolNames = isUnrestricted
             ? []
-            : AvailableTools.Where(t => t.IsSelected).Select(t => t.ToolName).ToList();
+            : AvailableTools.Where(t => t.IsSelected).Select(t => t.ToolName)
+                .Concat(preservedHidden)
+                .Distinct()
+                .ToList();
 
         if (SelectedAgent is not null)
         {
@@ -234,7 +265,7 @@ public partial class AgentsViewModel : ObservableObject
             SelectedAgent.SkillIds = selectedSkillIds;
             SelectedAgent.McpServerIds = selectedMcpServerIds;
             SelectedAgent.ToolNames = selectedToolNames;
-            SelectedAgent.HasExplicitToolSelection = !allSelected;
+            SelectedAgent.HasExplicitToolSelection = !isUnrestricted;
         }
         else
         {
@@ -247,7 +278,7 @@ public partial class AgentsViewModel : ObservableObject
                 SkillIds = selectedSkillIds,
                 McpServerIds = selectedMcpServerIds,
                 ToolNames = selectedToolNames,
-                HasExplicitToolSelection = !allSelected
+                HasExplicitToolSelection = !isUnrestricted
             };
             _dataStore.Data.Agents.Add(agent);
         }

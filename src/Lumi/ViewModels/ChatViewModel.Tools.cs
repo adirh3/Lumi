@@ -106,7 +106,10 @@ public partial class ChatViewModel
         tools.Add(BuildAskQuestionTool(chatId));
         tools.AddRange(BuildLumiManagementTools(chatId));
         tools.AddRange(BuildWebTools());
-        tools.AddRange(BuildBrowserTools(chatId));
+        // The embedded browser is built on WebView2 (Windows-only), so the lumi_browser_* tools
+        // are only offered on Windows. On Linux/macOS the agent uses web_search + lumi_fetch instead.
+        if (OperatingSystem.IsWindows())
+            tools.AddRange(BuildBrowserTools(chatId));
         tools.AddRange(_codingToolService.BuildCodingTools());
         if (OperatingSystem.IsWindows())
             tools.AddRange(BuildUIAutomationTools());
@@ -144,6 +147,8 @@ public partial class ChatViewModel
 
     private List<AIFunction> BuildWebTools()
     {
+        // Keep the temp-file read hint accurate per platform (the file is read with the OS shell).
+        var fileReadHint = OperatingSystem.IsWindows() ? "Get-Content" : "cat or sed";
         return
         [
             AIFunctionFactory.Create(
@@ -152,7 +157,7 @@ public partial class ChatViewModel
                     return WebFetchService.FetchAsync(url);
                 },
                 "lumi_fetch",
-                "Fetch a webpage and return its text content. For long pages, returns a preview and saves the full content to a temp file you can read with Get-Content. If this fails, do NOT retry the same URL — try a different source instead."),
+                $"Fetch a webpage and return its text content. For long pages, returns a preview and saves the full content to a temp file you can read with {fileReadHint}. If this fails, do NOT retry the same URL — try a different source instead."),
         ];
     }
 
@@ -737,7 +742,11 @@ public partial class ChatViewModel
                     [Description("For advanced time triggers: five-field cron expression: minute hour day-of-month month day-of-week. Example: 0 8 * * Mon-Fri.")] string? cronExpression = null,
                     [Description("For once time triggers: local date/time, e.g. 2026-04-25 08:00.")] string? runAt = null,
                     [Description("For script triggers: one-shot script content. Lumi starts it once, waits until the process exits, then wakes the linked chat with stdout, stderr, and exit code. For continued monitoring, create another script job after the wake.")] string? scriptContent = null,
+#if WINDOWS
                     [Description("For script triggers: powershell, python, node, or command.")] string? scriptLanguage = null,
+#else
+                    [Description("For script triggers: command (shell), python, or node.")] string? scriptLanguage = null,
+#endif
                     [Description("True for a temporary time job that pauses after a successful invocation. Script jobs are always one-shot.")] bool? isTemporary = null,
                     [Description("Whether the job should be enabled.")] bool? isEnabled = null,
                     [Description("Set true to queue the job immediately.")] bool? runNow = null,

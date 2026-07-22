@@ -20,7 +20,11 @@ public sealed class SystemPromptBuilderTests
         Assert.Contains("## Async Command Guidance", prompt);
         Assert.Contains("prefer letting the tool generate the `shellId`", prompt);
         Assert.Contains("read it as soon as that command completes", prompt);
-        Assert.Contains("call `read_powershell` promptly", prompt);
+        // The async shell tool hint is platform-specific (Windows names `read_powershell`; macOS/Linux
+        // say "read its output"), so it is asserted per-platform in Build_Windows_* and the leakage
+        // tests. Here assert the platform-common background-agent guidance so this host-OS build passes
+        // on every CI runner (windows/ubuntu/macos).
+        Assert.Contains("call `read_agent` promptly", prompt);
     }
 
     [Fact]
@@ -265,5 +269,111 @@ public sealed class SystemPromptBuilderTests
         Assert.Contains("Lumi UI convention", prompt);
         Assert.DoesNotContain("Blast UI convention", prompt);
         Assert.DoesNotContain("Archived project memory", prompt);
+    }
+
+    private static string BuildForPlatform(SystemPromptBuilder.PromptPlatform platform)
+        => SystemPromptBuilder.Build(
+            new UserSettings { Language = "en", UserName = "Adir" },
+            agent: null,
+            project: null,
+            allSkills: [],
+            activeSkills: [],
+            memories: [],
+            platform);
+
+    [Fact]
+    public void Build_Windows_AdvertisesWindowsOnlyCapabilities()
+    {
+        var prompt = BuildForPlatform(SystemPromptBuilder.PromptPlatform.Windows);
+
+        // The embedded browser + desktop UI automation sections are present on Windows.
+        Assert.Contains("## Browser Automation", prompt);
+        Assert.Contains("## Window Automation (UI Automation)", prompt);
+        Assert.Contains("lumi_browser_open", prompt);
+        Assert.Contains("ui_inspect", prompt);
+
+        // PowerShell / COM / winget / WMI techniques are Windows-only.
+        Assert.Contains("via PowerShell or Python", prompt);
+        Assert.Contains("automate Office apps via COM", prompt);
+        Assert.Contains("New-Object -ComObject", prompt);
+        Assert.Contains("winget list", prompt);
+        Assert.Contains("Get-CimInstance Win32_OperatingSystem", prompt);
+
+        // The async-tool guidance uses the Windows shell-tool names.
+        Assert.Contains("call `read_powershell`", prompt);
+    }
+
+    [Fact]
+    public void WindowsCapabilitiesSection_MatchesBaselineWhitespace()
+    {
+        // Locks the "## What You Can Do" section to the prior release's EXACT (intentionally ragged)
+        // leading whitespace so the Windows prompt cannot silently drift if the literal is reformatted.
+        var prompt = BuildForPlatform(SystemPromptBuilder.PromptPlatform.Windows).ReplaceLineEndings("\n");
+        const string expected =
+            "  ## What You Can Do\n" +
+            "   - **Run any command** via PowerShell or Python — you have a shell with full access\n" +
+            " - **Read and write files** anywhere on the filesystem\n" +
+            " - **Search the web** and fetch webpages\n" +
+            " - **Automate the browser** (navigate, click, type, screenshot)\n" +
+            "- **Automate any desktop window** via UI Automation — click buttons, type text, read values in any app\n" +
+            "- **Query app databases** — most apps store data locally in SQLite, JSON, or XML files\n" +
+            " - **Automate Office** — Word, Excel, PowerPoint via COM objects in PowerShell (for email/calendar, use webmail in the browser — see **Email** under Quick Reference)\n" +
+            " - **Manage the system** — processes, disk space, installed apps, network, clipboard, and more\n";
+        Assert.Contains(expected, prompt);
+    }
+
+    [Fact]
+    public void Build_Linux_DoesNotLeakWindowsOnlyCapabilities()
+        => AssertNoWindowsOnlyLeakage(SystemPromptBuilder.PromptPlatform.Linux);
+
+    [Fact]
+    public void Build_MacOS_DoesNotLeakWindowsOnlyCapabilities()
+        => AssertNoWindowsOnlyLeakage(SystemPromptBuilder.PromptPlatform.MacOS);
+
+    private static void AssertNoWindowsOnlyLeakage(SystemPromptBuilder.PromptPlatform platform)
+    {
+        var prompt = BuildForPlatform(platform);
+
+        // Windows-only tool sections must NOT be advertised (the tools aren't registered).
+        Assert.DoesNotContain("## Browser Automation", prompt);
+        Assert.DoesNotContain("## Window Automation", prompt);
+        Assert.DoesNotContain("lumi_browser_open", prompt);
+        Assert.DoesNotContain("ui_inspect", prompt);
+        Assert.DoesNotContain("ui_list_windows", prompt);
+
+        // Windows-only shell/automation techniques must NOT leak.
+        Assert.DoesNotContain("via PowerShell or Python", prompt);
+        Assert.DoesNotContain("automate Office apps via COM", prompt);
+        Assert.DoesNotContain("New-Object -ComObject", prompt);
+        Assert.DoesNotContain("winget", prompt);
+        Assert.DoesNotContain("Get-CimInstance", prompt);
+        Assert.DoesNotContain("HKLM:", prompt);
+        Assert.DoesNotContain("read_powershell", prompt);
+
+        // Cross-platform guidance IS present.
+        Assert.Contains("the shell (bash/zsh)", prompt);
+        Assert.Contains("python-docx", prompt);
+        Assert.Contains("async shell command", prompt);
+    }
+
+    [Fact]
+    public void Build_Linux_UsesLinuxNativeTechniques()
+    {
+        var prompt = BuildForPlatform(SystemPromptBuilder.PromptPlatform.Linux);
+
+        Assert.Contains("xdg-open", prompt);
+        Assert.Contains("/etc/os-release", prompt);
+        Assert.DoesNotContain("pbcopy", prompt);
+    }
+
+    [Fact]
+    public void Build_MacOS_UsesMacNativeTechniques()
+    {
+        var prompt = BuildForPlatform(SystemPromptBuilder.PromptPlatform.MacOS);
+
+        Assert.Contains("open <url-or-path>", prompt);
+        Assert.Contains("pbcopy", prompt);
+        Assert.Contains("sw_vers", prompt);
+        Assert.DoesNotContain("xdg-open", prompt);
     }
 }

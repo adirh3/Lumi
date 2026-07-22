@@ -459,12 +459,12 @@ public partial class OnboardingViewModel : ObservableObject
 
             // Run a command to dig deeper
             AIFunctionFactory.Create(
-                async ([Description("PowerShell command to execute (must be read-only, no mutations)")] string command) =>
+                async ([Description("Read-only shell command to execute (no mutations)")] string command) =>
                 {
                     return await RunSafeCommandAsync(command, ct);
                 },
                 "run_command",
-                "Execute a read-only PowerShell command to investigate the user's PC. Use this to dig deeper into specific areas of interest discovered in the scan data. Examples: read config files, check git repos, inspect app settings, list recent browser history."),
+                $"Execute a read-only {OnboardingShellLabel} command to investigate the user's PC. Use this to dig deeper into specific areas of interest discovered in the scan data. Examples: read config files, check git repos, inspect app settings, list recent browser history."),
 
             // Read a specific file
             AIFunctionFactory.Create(
@@ -537,13 +537,7 @@ public partial class OnboardingViewModel : ObservableObject
         var results = new List<string>();
         try
         {
-            var paths = new[]
-            {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Google\Chrome\User Data\Default\Bookmarks"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Microsoft\Edge\User Data\Default\Bookmarks"),
-            };
-
-            foreach (var path in paths)
+            foreach (var path in GetChromiumDefaultProfileFiles("Bookmarks"))
             {
                 if (!File.Exists(path)) continue;
                 try
@@ -561,6 +555,38 @@ public partial class OnboardingViewModel : ObservableObject
         return results.Count == 0
             ? "No bookmarks found."
             : $"Found {results.Count} bookmarks:\n{string.Join("\n", results)}";
+    }
+
+    private static string[] GetChromiumDefaultProfileFiles(string fileName)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        if (OperatingSystem.IsWindows())
+        {
+            var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            return
+            [
+                Path.Combine(local, "Google", "Chrome", "User Data", "Default", fileName),
+                Path.Combine(local, "Microsoft", "Edge", "User Data", "Default", fileName),
+            ];
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            var applicationSupport = Path.Combine(home, "Library", "Application Support");
+            return
+            [
+                Path.Combine(applicationSupport, "Google", "Chrome", "Default", fileName),
+                Path.Combine(applicationSupport, "Microsoft Edge", "Default", fileName),
+            ];
+        }
+
+        var config = Path.Combine(home, ".config");
+        return
+        [
+            Path.Combine(config, "google-chrome", "Default", fileName),
+            Path.Combine(config, "microsoft-edge", "Default", fileName),
+        ];
     }
 
     private Task<string> ScanRecentFilesAsync(CancellationToken ct)
@@ -653,13 +679,7 @@ public partial class OnboardingViewModel : ObservableObject
         var domainCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            var historyPaths = new[]
-            {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Microsoft\Edge\User Data\Default\History"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Google\Chrome\User Data\Default\History"),
-            };
-
-            foreach (var histPath in historyPaths)
+            foreach (var histPath in GetChromiumDefaultProfileFiles("History"))
             {
                 if (!File.Exists(histPath)) continue;
                 try
@@ -684,7 +704,8 @@ public partial class OnboardingViewModel : ObservableObject
                     await File.WriteAllTextAsync(scriptFile, script, ct);
                     try
                     {
-                        var output = await RunPowerShellAsync($"python \"{scriptFile}\"", ct);
+                        var python = OperatingSystem.IsWindows() ? "python" : "python3";
+                        var output = await RunPowerShellAsync($"{python} \"{scriptFile}\"", ct);
                         foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                         {
                             var spaceIdx = line.IndexOf(' ');
@@ -822,7 +843,7 @@ public partial class OnboardingViewModel : ObservableObject
 
             var info = new FileInfo(path);
             if (info.Length > 512 * 1024)
-                return $"File too large ({info.Length / 1024}KB). Try reading a smaller file or using run_command with Select-String.";
+                return $"File too large ({info.Length / 1024}KB). Try reading a smaller file or using run_command with {(OperatingSystem.IsWindows() ? "Select-String" : "grep")}.";
 
             var lines = await File.ReadAllLinesAsync(path, ct);
             var taken = lines.Take(maxLines).ToArray();
@@ -891,7 +912,7 @@ public partial class OnboardingViewModel : ObservableObject
             You have scan data as a starting point, but scan/tool output is only evidence for questions — not memory material by itself.
 
             ## Your tools
-            - run_command: Run safe PowerShell commands to gather light context
+            - run_command: Run safe {OnboardingShellLabel} commands to gather light context
             - read_file: Read small files only when needed for context
             - list_directory: Explore folders only when needed for context
             - save_memory: Save a durable personal fact the user explicitly states or chooses (key + content + category)
@@ -1023,19 +1044,34 @@ public partial class OnboardingViewModel : ObservableObject
     private static string Truncate(string text, int maxLength) =>
         text.Length <= maxLength ? text : text[..maxLength] + "…";
 
+    /// <summary>Label for the platform shell, used in agent-facing tool descriptions.</summary>
+    private static string OnboardingShellLabel => OperatingSystem.IsWindows() ? "PowerShell" : "bash";
+
     private static async Task<string> RunPowerShellAsync(string command, CancellationToken ct)
     {
-        using var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
+        // Use the platform's default shell: PowerShell on Windows, bash elsewhere.
+        var startInfo = OperatingSystem.IsWindows()
+            ? new ProcessStartInfo
             {
                 FileName = "powershell",
                 Arguments = $"-NoProfile -NoLogo -NonInteractive -Command {command}",
                 RedirectStandardOutput = true, RedirectStandardError = true,
                 UseShellExecute = false, CreateNoWindow = true
             }
-        };
-        process.Start();
+            : new ProcessStartInfo
+            {
+                FileName = "/bin/bash",
+                ArgumentList = { "-c", command },
+                RedirectStandardOutput = true, RedirectStandardError = true,
+                UseShellExecute = false, CreateNoWindow = true
+            };
+
+        if (!OperatingSystem.IsWindows())
+            UnixShellPath.ApplyTo(startInfo);
+
+        using var process = new Process { StartInfo = startInfo };
+        try { process.Start(); }
+        catch { return ""; } // Shell unavailable — scans degrade gracefully.
         var output = await process.StandardOutput.ReadToEndAsync(ct);
         try { await process.WaitForExitAsync(ct); }
         catch (OperationCanceledException) { try { process.Kill(); } catch { } throw; }

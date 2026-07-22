@@ -325,6 +325,14 @@ public static class BackgroundJobScriptLanguages
     public const string Python = "python";
     public const string Node = "node";
     public const string Command = "command";
+
+    /// <summary>
+    /// The default script language for newly created jobs on the current OS. PowerShell on Windows
+    /// (unchanged), the platform shell (<see cref="Command"/> → bash/sh) on Linux/macOS, where
+    /// <c>pwsh</c> is not guaranteed to be installed and must not be the implicit default.
+    /// </summary>
+    public static string DefaultForCurrentOs()
+        => OperatingSystem.IsWindows() ? PowerShell : Command;
 }
 
 public static class BackgroundJobRunStatuses
@@ -359,7 +367,7 @@ public class BackgroundJob : INotifyPropertyChanged
     public string CronExpression { get; set; } = "";
     public DateTimeOffset? RunAt { get; set; }
     public string ScriptContent { get; set; } = "";
-    public string ScriptLanguage { get; set; } = BackgroundJobScriptLanguages.PowerShell;
+    public string ScriptLanguage { get; set; } = BackgroundJobScriptLanguages.DefaultForCurrentOs();
     public bool IsEnabled { get; set; } = true;
     public bool IsTemporary { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;

@@ -1049,7 +1049,7 @@ public partial class FileAttachmentItem : ObservableObject
     public FileAttachmentItem(string filePath, bool isRemovable = false, Action<string>? removeAction = null)
     {
         FilePath = filePath;
-        FileName = Path.GetFileName(filePath);
+        FileName = ToolDisplayHelper.GetDisplayFileName(filePath);
         IsRemovable = isRemovable;
         _removeAction = removeAction;
 
@@ -1088,6 +1088,17 @@ public partial class FileAttachmentItem : ObservableObject
                 {
                     UseShellExecute = true
                 });
+                return;
+            }
+
+            // macOS: `open -R` reveals the file in Finder with it selected, matching Windows' /select.
+            // ArgumentList avoids manual quoting for paths with spaces/special characters.
+            if (OperatingSystem.IsMacOS() && File.Exists(path))
+            {
+                var revealPsi = new ProcessStartInfo("open") { UseShellExecute = false };
+                revealPsi.ArgumentList.Add("-R");
+                revealPsi.ArgumentList.Add(path);
+                Process.Start(revealPsi);
                 return;
             }
 
@@ -1224,7 +1235,7 @@ public partial class FileChangeItem : ObservableObject
     public FileChangeItem(string filePath, bool isCreate, Action<FileChangeItem>? showDiffAction = null)
     {
         FilePath = filePath;
-        FileName = Path.GetFileName(filePath);
+        FileName = ToolDisplayHelper.GetDisplayFileName(filePath);
         Directory = Path.GetDirectoryName(filePath);
         IsCreate = isCreate;
         _showDiffAction = showDiffAction;

@@ -1031,11 +1031,120 @@ public class DataStore
             Save();
     }
 
+    internal sealed record PlatformSkillText(
+        string DocumentWord,
+        string DocumentExcel,
+        string DocumentPowerPoint,
+        string WebsiteDescription,
+        string WebsitePresentation,
+        string WebsiteSaveStep,
+        string WebsiteOpenStep,
+        string WebsiteOpenRule);
+
+    internal static PlatformSkillText CreatePlatformSkillText(bool isWindows)
+    {
+        if (isWindows)
+        {
+            return new PlatformSkillText(
+                "Use PowerShell with COM automation or python-docx to create Word documents.",
+                "Use PowerShell with COM automation or openpyxl to create spreadsheets.",
+                "Use PowerShell with COM automation or python-pptx to create presentations.",
+                "Creates beautiful interactive websites from chat content and opens them in Lumi's browser",
+                "Transform any content from the conversation into a beautiful, modern, interactive single-page website and present it in Lumi's built-in browser.",
+                """
+                5. **Save the file** — Use the `create` tool to write the HTML file. Use this exact path format:
+                   - Path: `C:\Users\<username>\Documents\lumi-website-<short-slug>.html`
+                   - Use the user's Documents folder (resolve from `$env:USERPROFILE` if needed via a quick PowerShell call).
+                   - Use a short descriptive slug (e.g., `lumi-website-tokyo-itinerary.html`).
+                """,
+                """
+                6. **Open in Lumi's browser** — Use the `lumi_browser_open` tool to navigate to the local file URL:
+                   - Convert the file path to a `file:///` URL: replace backslashes with forward slashes and prefix with `file:///`.
+                   - Example: `C:\Users\John\Documents\lumi-website-tokyo.html` → `file:///C:/Users/John/Documents/lumi-website-tokyo.html`
+                   - This opens the website inside Lumi's built-in browser panel so the user sees it immediately.
+                """,
+                "Never use `localhost` or start a web server. Just save an `.html` file and open it with the `lumi_browser_open` tool.");
+        }
+
+        return new PlatformSkillText(
+            "Use `python-docx` to create Word documents.",
+            "Use `openpyxl` to create spreadsheets.",
+            "Use `python-pptx` to create presentations.",
+            "Creates beautiful interactive websites from chat content and opens them in a browser",
+            "Transform any content from the conversation into a beautiful, modern, interactive single-page website and present it in a browser.",
+            """
+            5. **Save the file** — Use the `create` tool to write the HTML file:
+               - Save it into the user's Documents folder, resolving the real path for the current OS
+                 (e.g. `~/Documents` on macOS/Linux, `%USERPROFILE%\Documents` on Windows). Do NOT hardcode a drive letter.
+               - Use a short descriptive slug (e.g., `lumi-website-tokyo-itinerary.html`).
+            """,
+            """
+            6. **Open it so the user sees it immediately** — Convert the saved path to a `file://` URL
+               (forward slashes; prefix `file://`), then open it in the user's default browser
+               (`open <url>` on macOS, `xdg-open <url>` on Linux).
+            """,
+            "Never use `localhost` or start a web server. Just save an `.html` file and open it in a browser (see step 6 for the per-OS way to open it).");
+    }
+
+    internal static bool MigratePlatformSpecificBuiltInSkills(AppData data, bool isWindows)
+    {
+        var desired = CreatePlatformSkillText(isWindows);
+        var obsolete = CreatePlatformSkillText(!isWindows);
+        var changed = false;
+
+        var documentCreator = FindBuiltInSkill(data, "Document Creator");
+        changed |= ReplaceSkillContent(documentCreator, obsolete.DocumentWord, desired.DocumentWord);
+        changed |= ReplaceSkillContent(documentCreator, obsolete.DocumentExcel, desired.DocumentExcel);
+        changed |= ReplaceSkillContent(documentCreator, obsolete.DocumentPowerPoint, desired.DocumentPowerPoint);
+
+        var websiteCreator = FindBuiltInSkill(data, "Website Creator");
+        if (websiteCreator is not null
+            && string.Equals(websiteCreator.Description, obsolete.WebsiteDescription, StringComparison.Ordinal))
+        {
+            websiteCreator.Description = desired.WebsiteDescription;
+            changed = true;
+        }
+
+        changed |= ReplaceSkillContent(websiteCreator, obsolete.WebsitePresentation, desired.WebsitePresentation);
+        changed |= ReplaceSkillContent(websiteCreator, obsolete.WebsiteSaveStep, desired.WebsiteSaveStep);
+        changed |= ReplaceSkillContent(websiteCreator, obsolete.WebsiteOpenStep, desired.WebsiteOpenStep);
+        changed |= ReplaceSkillContent(websiteCreator, obsolete.WebsiteOpenRule, desired.WebsiteOpenRule);
+        return changed;
+    }
+
+    private static Skill? FindBuiltInSkill(AppData data, string name)
+        => data.Skills.FirstOrDefault(skill =>
+            skill.IsBuiltIn && string.Equals(skill.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private static bool ReplaceSkillContent(Skill? skill, string obsolete, string desired)
+    {
+        if (skill is null || !skill.Content.Contains(obsolete, StringComparison.Ordinal))
+            return false;
+
+        skill.Content = skill.Content.Replace(obsolete, desired, StringComparison.Ordinal);
+        return true;
+    }
+
     private void SeedDefaults()
     {
-        if (_data.Settings.DefaultsSeeded) return;
+        // A few built-in skills reference OS-specific mechanics (PowerShell COM automation, the
+        // Windows-only embedded browser, Windows path formats). The Windows wording is preserved
+        // verbatim so the Windows system prompt stays byte-for-byte unchanged; other platforms get
+        // a portable equivalent that never advertises a Windows-only tool.
+        var isWindows = OperatingSystem.IsWindows();
+        var platformText = CreatePlatformSkillText(isWindows);
+        if (_data.Settings.DefaultsSeeded)
+        {
+            if (MigratePlatformSpecificBuiltInSkills(_data, isWindows))
+            {
+                Save();
+                SyncSkillFiles();
+            }
+            return;
+        }
 
         // ── Default Skills ──
+
         _data.Skills.AddRange([
             new Skill
             {
@@ -1043,16 +1152,16 @@ public class DataStore
                 Description = "Creates Word, Excel, and PowerPoint documents from user descriptions",
                 IconGlyph = "📄",
                 IsBuiltIn = true,
-                Content = """
+                Content = $"""
                     # Document Creator
 
                     You can create Office documents for the user. When asked to create a document:
 
-                    1. **Word (.docx)**: Use PowerShell with COM automation or python-docx to create Word documents.
+                    1. **Word (.docx)**: {platformText.DocumentWord}
                        Write the content with proper headings, formatting, and structure.
-                    2. **Excel (.xlsx)**: Use PowerShell with COM automation or openpyxl to create spreadsheets.
+                    2. **Excel (.xlsx)**: {platformText.DocumentExcel}
                        Include headers, data formatting, and formulas where appropriate.
-                    3. **PowerPoint (.pptx)**: Use PowerShell with COM automation or python-pptx to create presentations.
+                    3. **PowerPoint (.pptx)**: {platformText.DocumentPowerPoint}
                        Create slides with titles, content, and professional layout.
 
                     Always save files to the user's working directory and report the file path.
@@ -1145,13 +1254,13 @@ public class DataStore
             new Skill
             {
                 Name = "Website Creator",
-                Description = "Creates beautiful interactive websites from chat content and opens them in Lumi's browser",
+                Description = platformText.WebsiteDescription,
                 IconGlyph = "🌐",
                 IsBuiltIn = true,
-                Content = """
+                Content = $"""
                     # Website Creator
 
-                    Transform any content from the conversation into a beautiful, modern, interactive single-page website and present it in Lumi's built-in browser.
+                    {platformText.WebsitePresentation}
 
                     ## When to Use
                     Use this skill whenever the user asks you to visualize, present, or turn conversation content into a website or webpage. This works for any content type: itineraries, reports, plans, guides, comparisons, portfolios, dashboards, timelines, recipes, study notes, or anything else.
@@ -1191,21 +1300,15 @@ public class DataStore
                        - **Profiles/portfolios**: Hero banner with bio, grid of work/projects
                        - **Study notes/knowledge**: Table of contents sidebar, collapsible sections, highlight boxes for key concepts
 
-                    5. **Save the file** — Use the `create` tool to write the HTML file. Use this exact path format:
-                       - Path: `C:\Users\<username>\Documents\lumi-website-<short-slug>.html`
-                       - Use the user's Documents folder (resolve from `$env:USERPROFILE` if needed via a quick PowerShell call).
-                       - Use a short descriptive slug (e.g., `lumi-website-tokyo-itinerary.html`).
+                    {platformText.WebsiteSaveStep}
 
-                    6. **Open in Lumi's browser** — Use the `lumi_browser_open` tool to navigate to the local file URL:
-                       - Convert the file path to a `file:///` URL: replace backslashes with forward slashes and prefix with `file:///`.
-                       - Example: `C:\Users\John\Documents\lumi-website-tokyo.html` → `file:///C:/Users/John/Documents/lumi-website-tokyo.html`
-                       - This opens the website inside Lumi's built-in browser panel so the user sees it immediately.
+                    {platformText.WebsiteOpenStep}
 
                     7. **Announce it** — Call `announce_file(filePath)` with the HTML file path so the user gets a clickable attachment. Then tell the user the website is ready and summarize what it contains.
 
                     ## Important Rules
                     - The HTML file MUST be fully self-contained and valid. All styles and scripts are inlined or loaded from CDNs.
-                    - Never use `localhost` or start a web server. Just save an `.html` file and open it with the `lumi_browser_open` tool.
+                    - {platformText.WebsiteOpenRule}
                     - Make the website genuinely impressive — not a basic page with plain text. Use modern CSS, animations, and interactivity.
                     - If the conversation content is long, organize it into navigable sections with a sticky navigation bar or sidebar.
                     - Always include a header/hero section with a title and brief description.

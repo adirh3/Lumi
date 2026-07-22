@@ -140,6 +140,10 @@ public partial class MainWindow : Window
         Background = Avalonia.Media.Brushes.Transparent;
         TransparencyBackgroundFallback = Avalonia.Media.Brushes.Transparent;
 
+        // Give the window an icon on platforms that don't get one from the executable (Linux taskbar,
+        // macOS window/menu). No-op on Windows so its embedded .ico stays authoritative.
+        Services.AppIcon.ApplyWindowIcon(this);
+
         // Watch for window state changes that affect chrome/layout.
         this.PropertyChanged += (_, e) =>
         {
@@ -641,7 +645,12 @@ public partial class MainWindow : Window
         if (TryHandleChatHistoryNavigationKey(vm, e))
             return;
 
-        var ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+        // Primary command modifier: Cmd (Meta) on macOS, Ctrl on Windows/Linux — so shortcuts
+        // feel native on each platform. On Windows/Linux this is exactly the previous Control
+        // check, so their behavior is unchanged.
+        var ctrl = OperatingSystem.IsMacOS()
+            ? (e.KeyModifiers & KeyModifiers.Meta) != 0
+            : (e.KeyModifiers & KeyModifiers.Control) != 0;
         var shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
         var alt = (e.KeyModifiers & KeyModifiers.Alt) != 0;
         var noMods = e.KeyModifiers == KeyModifiers.None;
@@ -2263,8 +2272,15 @@ public partial class MainWindow : Window
                 if (enable)
                 {
                     Directory.CreateDirectory(autostartDir);
+                    // Quote the Exec value and escape the Desktop Entry reserved chars so paths with
+                    // spaces or special characters launch correctly.
+                    var execEscaped = exePath
+                        .Replace("\\", "\\\\")
+                        .Replace("\"", "\\\"")
+                        .Replace("`", "\\`")
+                        .Replace("$", "\\$");
                     File.WriteAllText(desktopFile,
-                        $"[Desktop Entry]\nType=Application\nName=Lumi\nExec={exePath}\nX-GNOME-Autostart-enabled=true\n");
+                        $"[Desktop Entry]\nType=Application\nName=Lumi\nExec=\"{execEscaped}\"\nX-GNOME-Autostart-enabled=true\n");
                 }
                 else if (File.Exists(desktopFile))
                 {
@@ -2281,6 +2297,8 @@ public partial class MainWindow : Window
                 if (enable)
                 {
                     Directory.CreateDirectory(launchAgentsDir);
+                    // Escape XML special characters so paths containing & < > etc. produce a valid plist.
+                    var exePathXml = System.Security.SecurityElement.Escape(exePath);
                     File.WriteAllText(plistFile,
                         $"""
                         <?xml version="1.0" encoding="UTF-8"?>
@@ -2288,7 +2306,7 @@ public partial class MainWindow : Window
                         <plist version="1.0">
                         <dict>
                             <key>Label</key><string>com.lumi.app</string>
-                            <key>ProgramArguments</key><array><string>{exePath}</string></array>
+                            <key>ProgramArguments</key><array><string>{exePathXml}</string></array>
                             <key>RunAtLoad</key><true/>
                         </dict>
                         </plist>
@@ -3002,6 +3020,11 @@ public partial class MainWindow : Window
         if (ActualTransparencyLevel == WindowTransparencyLevel.None)
             opacity = 0.88;
         else if (ActualTransparencyLevel == WindowTransparencyLevel.Mica)
+            opacity = 0.62;
+        else if (ActualTransparencyLevel == WindowTransparencyLevel.Blur && OperatingSystem.IsMacOS())
+            // macOS uses the Blur level (native vibrancy); lighten the fallback so the vibrancy shows
+            // through. Gated to macOS because Linux (KDE/KWin) can also resolve to Blur, and its fallback
+            // opacity must stay unchanged. Windows never resolves to Blur (it gets AcrylicBlur/Mica).
             opacity = 0.62;
 
         _acrylicFallback.Opacity = opacity;

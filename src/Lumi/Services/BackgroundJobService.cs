@@ -589,7 +589,8 @@ public sealed class BackgroundJobService : IDisposable
         switch (language)
         {
             case BackgroundJobScriptLanguages.Python:
-                psi.FileName = "python";
+                // macOS ships only "python3"; "python" is frequently absent on Linux too.
+                psi.FileName = OperatingSystem.IsWindows() ? "python" : "python3";
                 psi.ArgumentList.Add(scriptPath);
                 break;
             case BackgroundJobScriptLanguages.Node:
@@ -619,6 +620,10 @@ public sealed class BackgroundJobService : IDisposable
                 psi.ArgumentList.Add(scriptPath);
                 break;
         }
+
+        // GUI-launched Lumi has a truncated PATH on macOS/Linux; ensure job interpreters
+        // (python3/node/pwsh) resolve the same way they would in the user's terminal. No-op on Windows.
+        UnixShellPath.ApplyTo(psi);
 
         return psi;
     }

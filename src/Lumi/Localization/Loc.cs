@@ -38,11 +38,50 @@ public static partial class Loc
     }
 
     /// <summary>Gets a localized string by key via FrozenDictionary lookup.</summary>
+#if WINDOWS
     public static string Get(string key) => GetByKey(key);
+#else
+    public static string Get(string key) => AdaptKeyboardHint(GetByKey(key));
+#endif
 
     /// <summary>Gets a localized string with format arguments.</summary>
+#if WINDOWS
     public static string Get(string key, params object[] args)
         => string.Format(GetByKey(key), args);
+#else
+    public static string Get(string key, params object[] args)
+        => AdaptKeyboardHint(string.Format(GetByKey(key), args));
+#endif
+
+#if !WINDOWS
+    private static readonly bool IsMacOs = OperatingSystem.IsMacOS();
+#endif
+
+    /// <summary>
+    /// On macOS, renders keyboard-shortcut hints embedded in UI strings with native modifier
+    /// symbols (⌘/⌥/⇧) instead of the Windows/Linux "Ctrl/Alt/Shift" wording — e.g. "Search
+    /// (Ctrl+K)" becomes "Search (⌘K)". No-op on Windows and Linux, so their strings are
+    /// unchanged. Apply this to any shortcut hint that is built outside the localization table
+    /// (e.g. typed <c>Loc.*</c> properties or literal XAML text).
+    /// </summary>
+#if WINDOWS
+    public static string AdaptKeyboardHint(string value) => value;
+#else
+    public static string AdaptKeyboardHint(string value) => AdaptKeyboardHint(value, IsMacOs);
+#endif
+
+    /// <summary>Testable core of <see cref="AdaptKeyboardHint(string)"/>; <paramref name="isMac"/>
+    /// is the only platform input so the transform can be unit-tested on any host.</summary>
+    internal static string AdaptKeyboardHint(string value, bool isMac)
+    {
+        if (!isMac || string.IsNullOrEmpty(value) || value.IndexOf('+') < 0)
+            return value;
+        return value
+            .Replace("Ctrl+", "⌘")
+            .Replace("Shift+", "⇧")
+            .Replace("Alt+", "⌥")
+            .Replace("Win+", "⌘");
+    }
 
     /// <summary>Available language codes and their display names.</summary>
     public static readonly (string Code, string DisplayName)[] AvailableLanguages =

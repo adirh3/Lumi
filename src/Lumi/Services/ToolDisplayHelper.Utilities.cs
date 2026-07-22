@@ -111,6 +111,25 @@ public static partial class ToolDisplayHelper
         return string.Join(' ', words);
     }
 
+    /// <summary>
+    /// Extracts the file name from a path for DISPLAY, tolerant of both '/' and '\' separators.
+    /// On Windows this is exactly <see cref="Path.GetFileName(string)"/> (which already splits on
+    /// both), so Windows output is byte-for-byte unchanged. On macOS/Linux, <see cref="Path.GetFileName(string)"/>
+    /// only splits on '/', so a foreign Windows-style path (e.g. from a Windows-authored tool call or
+    /// a chat synced from Windows) would otherwise render in full; honoring '\' too keeps the label to
+    /// just the file name. Display-only — never use for semantic path manipulation.
+    /// </summary>
+    [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(path))]
+    public static string? GetDisplayFileName(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return path;
+        if (OperatingSystem.IsWindows())
+            return Path.GetFileName(path);
+        var idx = path.AsSpan().LastIndexOfAny('/', '\\');
+        return idx >= 0 ? path[(idx + 1)..] : path;
+    }
+
     /// <summary>Builds a compact one-line summary for a streaming tool group using the most recent tool labels.</summary>
     public static string? BuildToolActivitySummary(IEnumerable<string?> labels, int maxVisible = 3, int maxLabelLength = 28)
     {
@@ -152,9 +171,22 @@ public static partial class ToolDisplayHelper
             or "insert" or "write" or "save_file";
     }
 
+    /// <summary>
+    /// The primary shell-command invocation tool: <c>powershell</c> on Windows, <c>bash</c>/<c>shell</c>
+    /// on Linux/macOS. These start a terminal session (get a live preview) and frequently mutate the
+    /// repo (git, builds, file moves), so they also drive live git/file-chip refresh. On Windows the
+    /// CLI only ever emits <c>powershell</c>, so this matches the previous <c>== "powershell"</c> checks
+    /// exactly there; the extra names only ever appear on Linux/macOS.
+    /// </summary>
+    public static bool IsShellCommandTool(string? toolName)
+    {
+        return toolName is "powershell" or "bash" or "shell";
+    }
+
     public static bool IsTerminalStreamingTool(string? toolName)
     {
-        return toolName is "powershell" or "read_powershell" or "write_powershell" or "stop_powershell";
+        return IsShellCommandTool(toolName)
+            || toolName is "read_powershell" or "write_powershell" or "stop_powershell";
     }
 
     public static bool IsSearchTool(string? toolName)

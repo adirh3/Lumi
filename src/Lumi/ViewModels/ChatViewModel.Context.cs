@@ -527,8 +527,11 @@ public partial class ChatViewModel
         var normalizedWorktreePath = worktreePath.TrimEnd(
                 Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             + Path.DirectorySeparatorChar;
+        var pathComparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
 
-        if (string.Equals(normalizedProjectDir, normalizedWorktreePath, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(normalizedProjectDir, normalizedWorktreePath, pathComparison))
             return;
 
         for (var i = 0; i < attachments.Count; i++)
@@ -537,7 +540,7 @@ public partial class ChatViewModel
                 continue;
 
             var path = file.Path;
-            if (path.StartsWith(normalizedProjectDir, StringComparison.OrdinalIgnoreCase))
+            if (path.StartsWith(normalizedProjectDir, pathComparison))
             {
                 var rebasedPath = normalizedWorktreePath + path[normalizedProjectDir.Length..];
                 file.Path = rebasedPath;

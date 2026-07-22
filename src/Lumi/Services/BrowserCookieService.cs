@@ -12,7 +12,9 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
+#if WINDOWS
 using Microsoft.Web.WebView2.Core;
+#endif
 
 namespace Lumi.Services;
 
@@ -209,6 +211,7 @@ public sealed class BrowserCookieService
         return null;
     }
 
+#if WINDOWS
     /// <summary>
     /// Import cookies from the selected browser profile into WebView2.
     /// Returns the number of cookies imported.
@@ -348,6 +351,7 @@ public sealed class BrowserCookieService
             return false;
         }
     }
+#endif
 
     /// <summary>
     /// Tries to decrypt cookies directly from the SQLite database using DPAPI + AES-GCM.
@@ -776,6 +780,7 @@ public sealed class BrowserCookieService
         return cookies;
     }
 
+#if WINDOWS
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static byte[]? ReadMasterKey(string userDataPath)
     {
@@ -812,6 +817,10 @@ public sealed class BrowserCookieService
             return null;
         }
     }
+#else
+    // DPAPI (ProtectedData) is Windows-only; cookie import is unavailable on Linux/macOS.
+    private static byte[]? ReadMasterKey(string userDataPath) => null;
+#endif
 
     private static string? DecryptCookieValue(byte[] encrypted, byte[]? masterKey)
     {
@@ -842,6 +851,7 @@ public sealed class BrowserCookieService
         return null;
     }
 
+#if WINDOWS
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static string? DecryptDpapi(byte[] encrypted)
     {
@@ -855,6 +865,9 @@ public sealed class BrowserCookieService
             return null;
         }
     }
+#else
+    private static string? DecryptDpapi(byte[] encrypted) => null;
+#endif
 
     private static string? DecryptAesGcm(byte[] encrypted, byte[] masterKey)
     {

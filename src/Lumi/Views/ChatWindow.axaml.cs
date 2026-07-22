@@ -24,6 +24,7 @@ public partial class ChatWindow : Window
         ExtendClientAreaTitleBarHeightHint = 38;
         Background = Brushes.Transparent;
         TransparencyBackgroundFallback = Brushes.Transparent;
+        AppIcon.ApplyWindowIcon(this);
     }
 
     public ChatWindow(DataStore dataStore, ChatWindowViewModel viewModel) : this()

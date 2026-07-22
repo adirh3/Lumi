@@ -140,7 +140,7 @@
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
 
-        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Keyboard}">
+        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Keyboard}" IsVisible="{Binding IsGlobalHotkeyAvailable}">
           <sc:StrataSetting Header="{loc:Str Setting_GlobalHotkey}" Description="{loc:Str SettingDesc_GlobalHotkey}"
                             IsModified="{Binding IsGlobalHotkeyModified}">
             <Button x:Name="HotkeyRecorderButton" Classes="subtle motion-action" Padding="14,6" MinHeight="0"
@@ -319,7 +319,7 @@
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
 
-        <sc:StrataSettingGroup Header="Browser">
+        <sc:StrataSettingGroup Header="Browser" IsVisible="{Binding IsEmbeddedBrowserAvailable}">
           <sc:StrataSetting Header="Import browser cookies"
                             Description="{Binding BrowserCookieStatus}">
             <Button Classes="subtle motion-action" Content="Import cookies" Padding="14,6" MinHeight="0"

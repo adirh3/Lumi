@@ -876,7 +876,10 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         }
 
         var configuredCommand = _definition.Config.Command;
-        startInfo.FileName = ResolveCommandPath(configuredCommand, startInfo.Environment);
+        startInfo.FileName = configuredCommand;
+        UnixShellPath.ApplyTo(startInfo);
+        if (OperatingSystem.IsWindows())
+            startInfo.FileName = ResolveCommandPath(configuredCommand, startInfo.Environment);
 
         Process process;
         try

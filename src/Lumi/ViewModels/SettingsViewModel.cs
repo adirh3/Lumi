@@ -352,6 +352,14 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     public BrowserService BrowserService => _browserService;
 
+    /// <summary>Global hotkey registration is Windows-only (Win32 RegisterHotKey), so the
+    /// keyboard-shortcut settings group is hidden on Linux/macOS.</summary>
+    public bool IsGlobalHotkeyAvailable => OperatingSystem.IsWindows();
+
+    /// <summary>The embedded WebView2 browser (and its cookie import) is Windows-only, so the
+    /// browser settings group is hidden on Linux/macOS.</summary>
+    public bool IsEmbeddedBrowserAvailable => OperatingSystem.IsWindows();
+
     public SettingsViewModel(DataStore dataStore, CopilotService copilotService, BrowserService browserService, UpdateService updateService)
     {
         _dataStore = dataStore;

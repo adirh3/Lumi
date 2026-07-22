@@ -31,6 +31,10 @@ public partial class ChatViewModel
     private string _textBeforeVoice = "";
     private bool _voiceStarting;
 
+    /// <summary>True when push-to-talk voice input is available on this platform (Windows only).
+    /// Bound to the composer so the mic button is hidden on Linux/macOS.</summary>
+    public bool IsVoiceAvailable => _voiceService.IsAvailable;
+
     [ObservableProperty] private bool _sendWithEnter = true;
     [ObservableProperty] private bool _isRecording;
     [ObservableProperty] private string? _selectedAgentName;
@@ -1548,28 +1552,51 @@ public partial class ChatViewModel
     private void OpenInTerminal()
     {
         var dir = GetEffectiveWorkingDirectory().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (OperatingSystem.IsWindows())
+        {
+            // Windows Terminal, falling back to cmd if it isn't installed.
+            if (TryStartTerminal("wt", $"-d \"{dir}\"", null)) return;
+            TryStartTerminal("cmd.exe", null, dir);
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            TryStartTerminal("open", $"-a Terminal \"{dir}\"", null);
+        }
+        else
+        {
+            // Linux: try the common terminal emulators in order until one launches.
+            foreach (var (file, args) in new (string, string?)[]
+                     {
+                         ("x-terminal-emulator", $"--working-directory=\"{dir}\""),
+                         ("gnome-terminal", $"--working-directory=\"{dir}\""),
+                         ("konsole", $"--workdir \"{dir}\""),
+                         ("xfce4-terminal", $"--working-directory=\"{dir}\""),
+                         ("xterm", null),
+                     })
+            {
+                if (TryStartTerminal(file, args, args is null ? dir : null)) return;
+            }
+        }
+    }
+
+    /// <summary>Launches a terminal process. UseShellExecute is true only on Windows (to resolve the
+    /// `wt` execution alias); on Linux/macOS the terminal binary is exec'd directly from PATH.</summary>
+    private static bool TryStartTerminal(string fileName, string? arguments, string? workingDirectory)
+    {
         try
         {
-            Process.Start(new ProcessStartInfo
+            var psi = new ProcessStartInfo
             {
-                FileName = "wt",
-                Arguments = $"-d \"{dir}\"",
-                UseShellExecute = true,
-            });
+                FileName = fileName,
+                UseShellExecute = OperatingSystem.IsWindows(),
+            };
+            if (arguments is not null) psi.Arguments = arguments;
+            if (workingDirectory is not null) psi.WorkingDirectory = workingDirectory;
+            return Process.Start(psi) is not null;
         }
         catch
         {
-            // Fallback to cmd if Windows Terminal is not installed
-            try
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = "cmd.exe",
-                    WorkingDirectory = dir,
-                    UseShellExecute = true,
-                });
-            }
-            catch { /* ignore */ }
+            return false;
         }
     }
 
@@ -1592,14 +1619,39 @@ public partial class ChatViewModel
     private void OpenInIDE()
     {
         var dir = GetEffectiveWorkingDirectory();
+        if (OperatingSystem.IsWindows())
+        {
+            OpenInIdeCore(dir);
+            return;
+        }
+
+        // Login-shell PATH discovery is bounded but can take several seconds. Keep it off the UI
+        // thread when launching an IDE immediately after startup.
+        _ = Task.Run(() => OpenInIdeCore(dir));
+    }
+
+    private static void OpenInIdeCore(string dir)
+    {
         try
         {
-            Process.Start(new ProcessStartInfo
+            // On Windows, UseShellExecute resolves the "code" launcher via App Paths. On macOS/Linux
+            // UseShellExecute would try to *open a file* named "code"; instead exec the CLI directly
+            // from the (PATH-augmented) environment so it resolves like it does in the user's terminal.
+            var psi = new ProcessStartInfo
             {
                 FileName = "code",
                 Arguments = $"\"{dir}\"",
-                UseShellExecute = true,
-            });
+            };
+            if (OperatingSystem.IsWindows())
+            {
+                psi.UseShellExecute = true;
+            }
+            else
+            {
+                psi.UseShellExecute = false;
+                Lumi.Services.UnixShellPath.ApplyTo(psi);
+            }
+            Process.Start(psi);
         }
         catch { /* ignore */ }
     }

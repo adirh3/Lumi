@@ -993,8 +993,16 @@
                   Padding="5,0" MinHeight="0" Height="18"
                   Cursor="Hand">
             <StackPanel Orientation="Horizontal" Spacing="3">
-              <TextBlock Text="&#xE8A7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
-                         FontSize="9" VerticalAlignment="Center" />
+              <OnPlatform>
+                <On Options="macOS, Linux">
+                  <PathIcon Data="M4 4h6v16H4z M14 4h6v16h-6z" Width="9" Height="9"
+                            VerticalAlignment="Center" />
+                </On>
+                <On Options="Default">
+                  <TextBlock Text="&#xE8A7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                             FontSize="9" VerticalAlignment="Center" />
+                </On>
+              </OnPlatform>
               <TextBlock Text="{loc:Str ShowDiff}" FontSize="9" VerticalAlignment="Center" />
             </StackPanel>
           </Button>
@@ -1232,8 +1240,16 @@
                   Padding="5,0" MinHeight="0" Height="18"
                   Cursor="Hand">
             <StackPanel Orientation="Horizontal" Spacing="3">
-              <TextBlock Text="&#xE8A7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
-                         FontSize="9" VerticalAlignment="Center" />
+              <OnPlatform>
+                <On Options="macOS, Linux">
+                  <PathIcon Data="M4 4h6v16H4z M14 4h6v16h-6z" Width="9" Height="9"
+                            VerticalAlignment="Center" />
+                </On>
+                <On Options="Default">
+                  <TextBlock Text="&#xE8A7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                             FontSize="9" VerticalAlignment="Center" />
+                </On>
+              </OnPlatform>
               <TextBlock Text="{loc:Str ShowDiff}" FontSize="9" VerticalAlignment="Center" />
             </StackPanel>
           </Button>
@@ -1855,6 +1871,7 @@
                              CancelEditCommand="{Binding CancelComposerEditCommand}"
                              EditingSubmitLabel="{loc:Str Chat_EditSubmit}"
                              IsRecording="{Binding IsRecording}"
+                             CanVoice="{Binding IsVoiceAvailable}"
                              SendWithEnter="{Binding SendWithEnter}"
                              SendCommand="{Binding SendMessageCommand}"
                              StopCommand="{Binding StopGenerationCommand}"
