@@ -23,6 +23,7 @@
     <NoWarn>$(NoWarn);GHCP001</NoWarn>
     <!-- Pin the bundled Copilot CLI version so new models and reliability fixes are available. -->
     <CopilotCliVersion>1.0.73</CopilotCliVersion>
+    <RestoreAdditionalProjectSources>$(MSBuildThisFileDirectory)..\..\packages;$(RestoreAdditionalProjectSources)</RestoreAdditionalProjectSources>
   </PropertyGroup>
 
   <ItemGroup>
@@ -51,7 +52,9 @@
     <PackageReference Include="Avalonia.Themes.Simple" Version="12.1.0" />
     <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.1.0" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
-    <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.7" />
+    <!-- Temporary local package built from adirh3/copilot-sdk commit 919c27a for
+         https://github.com/github/copilot-sdk/pull/2047. Return to the official package once released. -->
+    <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.7-lumi-pr2047.919c27a" />
     <PackageReference Include="StreamJsonRpc" Version="2.25.29" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.5" />
     <!-- Override the transitive SQLitePCLRaw.bundle_e_sqlite3 2.1.10 (vulnerable SQLite < 3.50.2, CVE-2025-6965 / GHSA-2m69-gcr7-jv3q).
