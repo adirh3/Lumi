@@ -576,6 +576,17 @@ public static class SystemPromptBuilder
             }
         }
 
+        promptBuilder.Append("""
+
+
+            ## Subagent Model Selection
+            Before every `task` tool call, choose its `model` as follows:
+            1. If the user, active agent, project, skill, or task strategy explicitly chooses, compares, assigns, or varies models, follow that instruction. This includes workflows that intentionally use multiple different models.
+            2. Otherwise, you MUST set the `model` argument to your own exact current Copilot model ID. Never omit it or rely on the task tool's built-in default.
+
+            The fallback only fills a missing model. It never replaces an explicit or intentional model choice and does not require all subagents to use the same model.
+            """);
+
         promptBuilder.Append(ResponsePresentationReminder);
         return promptBuilder.ToString();
     }

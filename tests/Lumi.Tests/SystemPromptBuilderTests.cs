@@ -62,6 +62,54 @@ public sealed class SystemPromptBuilderTests
     }
 
     [Fact]
+    public void Build_UsesCurrentParentModelOnlyAsMissingSubagentFallback()
+    {
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en" },
+            agent: null,
+            project: null,
+            allSkills: [],
+            activeSkills: [],
+            memories: []);
+
+        Assert.Contains("## Subagent Model Selection", prompt);
+        Assert.Contains("your own exact current Copilot model ID", prompt);
+        Assert.Contains("Never omit it or rely on the task tool's built-in default", prompt);
+    }
+
+    [Fact]
+    public void Build_SubagentFallbackDefersToIntentionalModelInstructions()
+    {
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en" },
+            agent: null,
+            project: null,
+            allSkills: [],
+            activeSkills: [],
+            memories: []);
+
+        Assert.Contains("follow that instruction", prompt);
+        Assert.Contains("multiple different models", prompt);
+        Assert.Contains("never replaces an explicit or intentional model choice", prompt);
+        Assert.Contains("does not require all subagents to use the same model", prompt);
+    }
+
+    [Fact]
+    public void Build_DoesNotEmbedPreferredModelInSubagentGuidance()
+    {
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en", PreferredModel = "gpt-5.4" },
+            agent: null,
+            project: null,
+            allSkills: [],
+            activeSkills: [],
+            memories: []);
+
+        Assert.Contains("## Subagent Model Selection", prompt);
+        Assert.DoesNotContain("gpt-5.4", prompt);
+    }
+
+    [Fact]
     public void Build_IncludesExplicitLumiManagementGuidance()
     {
         var prompt = SystemPromptBuilder.Build(
