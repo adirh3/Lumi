@@ -261,6 +261,22 @@
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
 
+        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Instructions}">
+          <sc:StrataSetting Header="{loc:Str Setting_GlobalCustomInstructions}"
+                            Description="{loc:Str SettingDesc_GlobalCustomInstructions}"
+                            IsModified="{Binding IsGlobalCustomInstructionsModified}">
+            <TextBox x:Name="GlobalCustomInstructionsTextBox"
+                     Text="{Binding GlobalCustomInstructions, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     MinHeight="100"
+                     MaxHeight="280"
+                     Width="220"
+                     VerticalContentAlignment="Top"
+                     PlaceholderText="{loc:Str Watermark_GlobalCustomInstructions}" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Model}">
           <sc:StrataSetting Header="{loc:Str Setting_PreferredModel}" Description="{loc:Str SettingDesc_PreferredModel}"
                             IsModified="{Binding IsDefaultModelSelectionModified}">

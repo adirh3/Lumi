@@ -28,6 +28,24 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void CreateIndexSnapshot_PreservesGlobalCustomInstructions()
+    {
+        var source = new AppData
+        {
+            Settings = new UserSettings
+            {
+                GlobalCustomInstructions = "Use metric units and concise answers."
+            }
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+
+        Assert.Equal(
+            "Use metric units and concise answers.",
+            snapshot.Settings.GlobalCustomInstructions);
+    }
+
+    [Fact]
     public void CreateIndexSnapshot_PreservesUseMcpProxy()
     {
         var source = new AppData { Settings = new UserSettings { UseMcpProxy = true } };

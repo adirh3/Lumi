@@ -38,6 +38,7 @@ internal static class AppDataSnapshotFactory
                 AutoGenerateTitles = settings.AutoGenerateTitles,
                 PreferredModel = settings.PreferredModel,
                 ReasoningEffort = settings.ReasoningEffort,
+                GlobalCustomInstructions = settings.GlobalCustomInstructions,
                 UseMcpProxy = settings.UseMcpProxy,
                 ContextWindowTier = settings.ContextWindowTier,
                 EnableMemoryAutoSave = settings.EnableMemoryAutoSave,

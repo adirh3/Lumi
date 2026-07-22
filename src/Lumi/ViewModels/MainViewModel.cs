@@ -344,6 +344,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             RefreshChatList();
         };
+        SettingsVM.SystemPromptSettingsChanged += () =>
+        {
+            _chatSessionStore.ApplyToSurfaces(surface => surface.InvalidateSystemPromptSession());
+        };
 
         AttachChatViewModel(ChatVM);
 

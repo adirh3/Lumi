@@ -610,6 +610,7 @@ public class UserSettings
     public string PreferredModel { get; set; } = "";
     public string ReasoningEffort { get; set; } = ""; // CLI-defined value, e.g. low, medium, high, xhigh, max
     public string ContextWindowTier { get; set; } = ModelContextWindowTiers.Default;
+    public string GlobalCustomInstructions { get; set; } = "";
 
     // ── MCP ──
     // When true, local MCP servers are routed through Lumi's shared proxy so they

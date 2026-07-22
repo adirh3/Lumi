@@ -415,6 +415,12 @@ public static class SystemPromptBuilder
             ? activeSkills.Select(static s => s.Id).ToHashSet()
             : null;
 
+        if (!string.IsNullOrWhiteSpace(settings.GlobalCustomInstructions))
+        {
+            promptBuilder.Append("\n\n--- Global Custom Instructions ---\n")
+                .Append(settings.GlobalCustomInstructions.Trim());
+        }
+
         if (agent is not null)
         {
             promptBuilder.Append($"""

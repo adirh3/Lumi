@@ -7,6 +7,40 @@ namespace Lumi.Tests;
 public sealed class SystemPromptBuilderTests
 {
     [Fact]
+    public void Build_IncludesConfiguredGlobalCustomInstructions()
+    {
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings
+            {
+                Language = "en",
+                GlobalCustomInstructions = "\n  Always use metric units and explain acronyms.  \n"
+            },
+            agent: null,
+            project: null,
+            allSkills: [],
+            activeSkills: [],
+            memories: []);
+
+        Assert.Contains("--- Global Custom Instructions ---", prompt);
+        Assert.Contains("Always use metric units and explain acronyms.", prompt);
+        Assert.DoesNotContain("  Always use metric units", prompt);
+    }
+
+    [Fact]
+    public void Build_OmitsBlankGlobalCustomInstructions()
+    {
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en", GlobalCustomInstructions = " \r\n\t " },
+            agent: null,
+            project: null,
+            allSkills: [],
+            activeSkills: [],
+            memories: []);
+
+        Assert.DoesNotContain("--- Global Custom Instructions ---", prompt);
+    }
+
+    [Fact]
     public void Build_IncludesAsyncCommandGuidance()
     {
         var prompt = SystemPromptBuilder.Build(

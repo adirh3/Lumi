@@ -2139,7 +2139,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// Refreshes agent definitions and Lumi-injected tools while preserving the resumable Copilot session history.
     /// Busy turns finish on their existing configuration; the refresh is consumed before the next send.
     /// </summary>
-    public void InvalidateAgentSession()
+    public void InvalidateAgentSession() => InvalidateSessionConfiguration();
+
+    /// <summary>
+    /// Refreshes the system prompt while preserving the resumable Copilot session history.
+    /// Busy turns finish with the previous prompt; the new prompt is used on the next send.
+    /// </summary>
+    public void InvalidateSystemPromptSession() => InvalidateSessionConfiguration();
+
+    private void InvalidateSessionConfiguration()
     {
         if (CurrentChat is not { } chat)
             return;

@@ -89,6 +89,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _contextWindowTier;
     [ObservableProperty] private string[]? _contextWindowTiers;
     [ObservableProperty] private string? _selectedContextWindowTier;
+    [ObservableProperty] private string _globalCustomInstructions;
     private bool _suppressSelectedQualitySync;
     private bool _suppressSelectedContextWindowTierSync;
     private readonly Dictionary<string, List<string>> _modelReasoningEfforts = new(StringComparer.OrdinalIgnoreCase);
@@ -348,6 +349,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     /// <summary>Raised when a setting that affects other ViewModels changes.</summary>
     public event Action? SettingsChanged;
+    public event Action? SystemPromptSettingsChanged;
     public event Action? CookieImportDialogRequested;
 
     public BrowserService BrowserService => _browserService;
@@ -397,6 +399,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _contextWindowTier = string.IsNullOrWhiteSpace(s.ContextWindowTier)
             ? ModelContextWindowTiers.Default
             : s.ContextWindowTier;
+        _globalCustomInstructions = s.GlobalCustomInstructions ?? "";
         if (!string.IsNullOrWhiteSpace(_preferredModel))
             AvailableModels.Add(_preferredModel);
         UpdateQualityLevels(_preferredModel);
@@ -621,6 +624,13 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     partial void OnShowReasoningChanged(bool value) { _dataStore.Data.Settings.ShowReasoning = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnExpandReasoningWhileStreamingChanged(bool value) { _dataStore.Data.Settings.ExpandReasoningWhileStreaming = value; Save(); NotifyModified(); }
     partial void OnAutoGenerateTitlesChanged(bool value) { _dataStore.Data.Settings.AutoGenerateTitles = value; Save(); NotifyModified(); }
+    partial void OnGlobalCustomInstructionsChanged(string value)
+    {
+        _dataStore.Data.Settings.GlobalCustomInstructions = value;
+        Save();
+        SystemPromptSettingsChanged?.Invoke();
+        NotifyModified();
+    }
 
     private void UpdateQualityLevels(string? modelId)
     {
@@ -962,6 +972,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         || ContextWindowTier != _defaults.ContextWindowTier;
     public bool IsPreferredModelModified=> PreferredModel != _defaults.PreferredModel;
     public bool IsReasoningEffortModified => ReasoningEffort != _defaults.ReasoningEffort;
+    public bool IsGlobalCustomInstructionsModified => GlobalCustomInstructions != _defaults.GlobalCustomInstructions;
     public bool IsUseMcpProxyModified => UseMcpProxy != _defaults.UseMcpProxy;
     public bool IsContextWindowTierModified => ContextWindowTier != _defaults.ContextWindowTier;
     public bool IsEnableMemoryAutoSaveModified => EnableMemoryAutoSave != _defaults.EnableMemoryAutoSave;
@@ -988,6 +999,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsDefaultModelSelectionModified));
         OnPropertyChanged(nameof(IsPreferredModelModified));
         OnPropertyChanged(nameof(IsReasoningEffortModified));
+        OnPropertyChanged(nameof(IsGlobalCustomInstructionsModified));
         OnPropertyChanged(nameof(IsUseMcpProxyModified));
         OnPropertyChanged(nameof(IsContextWindowTierModified));
         OnPropertyChanged(nameof(IsEnableMemoryAutoSaveModified));
@@ -1018,6 +1030,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ReasoningEffort = _defaults.ReasoningEffort;
         ContextWindowTier = _defaults.ContextWindowTier;
     }
+    [RelayCommand] private void RevertGlobalCustomInstructions() => GlobalCustomInstructions = _defaults.GlobalCustomInstructions;
     [RelayCommand] private void RevertUseMcpProxy() => UseMcpProxy = _defaults.UseMcpProxy;
     [RelayCommand] private void RevertEnableMemoryAutoSave() => EnableMemoryAutoSave = _defaults.EnableMemoryAutoSave;
     [RelayCommand] private void RevertEnableMemoryAutoMaintenance() => EnableMemoryAutoMaintenance = _defaults.EnableMemoryAutoMaintenance;
