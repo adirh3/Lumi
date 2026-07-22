@@ -2370,7 +2370,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         try
         {
             var chatId = targetChat.Id;
-            if (ReleasePreviousTurnCancellation(chatId)
+            var abortedPreviousTurn = ReleasePreviousTurnCancellation(chatId);
+            if (abortedPreviousTurn
                 && _sessionCache.TryGetValue(chatId, out var abortSession))
             {
                 try { await abortSession.AbortAsync(); }
@@ -2461,7 +2462,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                 sendSession,
                 localUserMessageCount,
-                cts.Token);
+                cts.Token,
+                verifyWithLiveEvents: abortedPreviousTurn);
             PreparePendingTurnTracking(targetChat, expectedSessionUserMessageCount, localAssistantMessageCount);
             await sendSession.SendAsync(sendOptions, cts.Token);
         }
@@ -2482,7 +2484,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                     sendSession,
                     localUserMessageCount,
-                    cts.Token);
+                    cts.Token,
+                    verifyWithLiveEvents: true);
                 PreparePendingTurnTracking(targetChat, expectedSessionUserMessageCount, localAssistantMessageCount);
                 await sendSession.SendAsync(sendOptions, cts.Token);
             }
@@ -3259,7 +3262,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             // Cancel any previous in-flight request for this chat
             var chatId = targetChat.Id;
-            if (ReleasePreviousTurnCancellation(chatId))
+            var abortedPreviousTurn = ReleasePreviousTurnCancellation(chatId);
+            if (abortedPreviousTurn)
             {
                 // Abort the session so the SDK fully stops the old turn before
                 // we send a new one. Without this, two concurrent SendAsync calls
@@ -3338,7 +3342,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                 sendSession,
                 localUserMessageCount,
-                cts.Token);
+                cts.Token,
+                verifyWithLiveEvents: abortedPreviousTurn);
             PreparePendingTurnTracking(
                 targetChat,
                 expectedSessionUserMessageCount,
@@ -3373,7 +3378,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                     sendSession,
                     localUserMessageCount,
-                    cts.Token);
+                    cts.Token,
+                    verifyWithLiveEvents: true);
                 PreparePendingTurnTracking(
                     targetChat,
                     expectedSessionUserMessageCount,
@@ -3544,7 +3550,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                 recoveredSession,
                 pendingSessionUserMessageCount,
-                recoveredTurnCts.Token);
+                recoveredTurnCts.Token,
+                verifyWithLiveEvents: true);
             SetPendingSessionUserMessageCount(chat.Id, expectedSessionUserMessageCount);
             await recoveredSession.SendAsync(sendOptions.Clone(), recoveredTurnCts.Token);
             return (true, null);
@@ -3616,7 +3623,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private async Task<int> CaptureExpectedSessionUserMessageCountAsync(
         CopilotSession session,
         int fallbackExpectedSessionUserMessageCount,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool verifyWithLiveEvents)
     {
         var observedSessionUserMessageCount = 0;
         var foundObservedCount = false;
@@ -3629,6 +3637,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             observedSessionUserMessageCount = persistedUserMessageCount.Value;
             foundObservedCount = true;
         }
+
+        // An idle session's persisted log is the authoritative session-local ordinal and avoids
+        // retransferring/deserializing the entire history through GetEventsAsync. Recovery retries
+        // and sends that just aborted an active turn still request the live cross-check because
+        // persistence can lag after the server has already accepted a user message.
+        if (foundObservedCount && !verifyWithLiveEvents)
+            return observedSessionUserMessageCount + 1;
 
         var liveEvents = await TryGetSessionEventsAsync(session, ct);
         if (liveEvents is not null)
@@ -4868,7 +4883,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             // Cancel any previous in-flight request for this chat
             var chatId = CurrentChat.Id;
-            if (ReleasePreviousTurnCancellation(chatId))
+            var abortedPreviousTurn = ReleasePreviousTurnCancellation(chatId);
+            if (abortedPreviousTurn)
             {
                 if (_sessionCache.TryGetValue(chatId, out var cachedSession))
                 {
@@ -5011,7 +5027,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                 _activeSession!,
                 localUserMessageCount,
-                cts.Token);
+                cts.Token,
+                verifyWithLiveEvents: abortedPreviousTurn);
             PreparePendingTurnTracking(
                 CurrentChat,
                 expectedSessionUserMessageCount,
@@ -5050,7 +5067,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                     _activeSession!,
                     localUserMessageCount,
-                    cts.Token);
+                    cts.Token,
+                    verifyWithLiveEvents: true);
                 PreparePendingTurnTracking(
                     CurrentChat,
                     expectedSessionUserMessageCount,

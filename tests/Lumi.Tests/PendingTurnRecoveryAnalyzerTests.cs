@@ -359,6 +359,23 @@ public sealed class PendingTurnRecoveryAnalyzerTests
     }
 
     [Fact]
+    public void CountPersistedLogUserMessages_FastPathPreservesLegacyAndMalformedSemantics()
+    {
+        var lines = new[]
+        {
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"canonical\"}}",
+            "{\"type\":\"assistant.message\",\"data\":{\"content\":\"reply\"}}",
+            "  {\"data\":{\"content\":\"legacy\"},\"type\":\"user.message\"}",
+            "{\"type\":\"user.message_edited\",\"data\":{}}",
+            "{\"type\":\"user.message\""
+        };
+
+        var count = PendingTurnRecoveryAnalyzer.CountPersistedLogUserMessages(lines);
+
+        Assert.Equal(2, count);
+    }
+
+    [Fact]
     public void AnalyzePersistedLog_RequiresSessionLocalOrdinal_NotLocalChatOrdinal()
     {
         var lines = new List<string>();

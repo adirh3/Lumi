@@ -43,6 +43,9 @@ internal sealed class PendingTurnRecoveryAnalysis
 
 internal static class PendingTurnRecoveryAnalyzer
 {
+    private const string CompactEventTypePrefix = "{\"type\":\"";
+    private const string CompactUserMessageEventPrefix = "{\"type\":\"user.message\"";
+
     public static PendingTurnRecoveryAnalysis Analyze(
         IReadOnlyList<SessionEvent> events,
         int expectedSessionUserMessageCount)
@@ -274,7 +277,7 @@ internal static class PendingTurnRecoveryAnalyzer
             while (true)
             {
                 ct.ThrowIfCancellationRequested();
-                var line = await reader.ReadLineAsync();
+                var line = await reader.ReadLineAsync(ct).ConfigureAwait(false);
                 if (line is null)
                     break;
 
@@ -410,6 +413,13 @@ internal static class PendingTurnRecoveryAnalyzer
     {
         if (string.IsNullOrWhiteSpace(line))
             return false;
+
+        var trimmed = line.AsSpan().TrimStart();
+        if (trimmed.StartsWith(CompactEventTypePrefix, StringComparison.Ordinal)
+            && !trimmed.StartsWith(CompactUserMessageEventPrefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
 
         try
         {
