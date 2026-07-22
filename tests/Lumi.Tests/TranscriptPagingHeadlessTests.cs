@@ -140,7 +140,7 @@ public sealed class TranscriptPagingHeadlessTests
     {
         using var session = HeadlessTestSession.Start();
 
-        await session.Dispatch(async () =>
+        await DispatchAsync(session, async () =>
         {
             TranscriptTurnControl.ResetDiagnostics();
             var turn = new TranscriptTurn("turn:0000");
@@ -163,27 +163,149 @@ public sealed class TranscriptPagingHeadlessTests
             }));
 
             window.Show();
+            control.RealizePendingHost();
             await PumpAsync();
             Assert.Equal(1, GetHostedItemCount(control));
+            var realizedHost = Assert.IsType<StackPanel>(control.Content);
+            Assert.Same(realizedHost, turn.RealizedItemsHost);
 
             host.Children.Clear();
             await PumpAsync();
-            Assert.Equal(0, GetHostedItemCount(control));
+            Assert.Null(control.Content);
 
             turn.Items.Add(new VisualTranscriptItem("item:0001", 72, "Two"));
-            Assert.Equal(0, GetHostedItemCount(control));
+            Assert.Single(realizedHost.Children);
 
             host.Children.Add(control);
+            control.RealizePendingHost();
             await PumpAsync();
             Assert.Equal(2, GetHostedItemCount(control));
+            Assert.Same(realizedHost, control.Content);
+            Assert.Same(realizedHost, turn.RealizedItemsHost);
 
             turn.Items.Add(new VisualTranscriptItem("item:0002", 72, "Three"));
             Assert.Equal(3, GetHostedItemCount(control));
 
             window.Close();
             await PumpAsync();
-            Assert.Equal(0, GetHostedItemCount(control));
-        }, CancellationToken.None);
+            Assert.Null(control.Content);
+        });
+    }
+
+    [Fact]
+    public async Task SameTurnShownInTwoWindows_DoesNotReparentRealizedHostAcrossLayoutRoots()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await DispatchAsync(session, async () =>
+        {
+            var turn = new TranscriptTurn("turn:shared");
+            turn.Items.Add(new VisualTranscriptItem("item:0000", 72, "One"));
+
+            static Window CreateWindow(TranscriptTurn turn)
+            {
+                var window = new Window
+                {
+                    Width = 480,
+                    Height = 320,
+                    Content = new TranscriptTurnControl { Turn = turn },
+                };
+                window.DataTemplates.Add(new FuncDataTemplate<VisualTranscriptItem>((item, _) => new Border
+                {
+                    Height = item.DesiredHeight,
+                    Child = new TextBlock { Text = item.Text },
+                }));
+                return window;
+            }
+
+            var firstWindow = CreateWindow(turn);
+            firstWindow.Show();
+            var firstControl = Assert.IsType<TranscriptTurnControl>(firstWindow.Content);
+            firstControl.RealizePendingHost();
+            await PumpAsync();
+
+            var firstHost = Assert.IsType<StackPanel>(firstControl.Content);
+            Assert.Same(firstHost, turn.RealizedItemsHost);
+            Assert.Same(firstWindow, TopLevel.GetTopLevel(firstHost));
+
+            var secondWindow = CreateWindow(turn);
+            secondWindow.Show();
+            var secondControl = Assert.IsType<TranscriptTurnControl>(secondWindow.Content);
+            secondControl.RealizePendingHost();
+            await PumpAsync();
+
+            var secondHost = Assert.IsType<StackPanel>(secondControl.Content);
+
+            Assert.NotSame(firstHost, secondHost);
+            Assert.Same(secondHost, turn.RealizedItemsHost);
+            Assert.Same(secondWindow, TopLevel.GetTopLevel(secondHost));
+            Assert.Same(firstHost, firstControl.Content);
+            Assert.Same(secondHost, secondControl.Content);
+
+            turn.Items.Add(new VisualTranscriptItem("item:0001", 72, "Two"));
+            Assert.Equal(2, GetHostedItemCount(firstControl));
+            Assert.Equal(2, GetHostedItemCount(secondControl));
+
+            secondWindow.Close();
+            firstWindow.Close();
+            await PumpAsync();
+        });
+    }
+
+    [Fact]
+    public async Task TurnMovedToAnotherWindow_RebuildsCachedHostForNewLayoutRoot()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await DispatchAsync(session, async () =>
+        {
+            var turn = new TranscriptTurn("turn:moved");
+            turn.Items.Add(new VisualTranscriptItem("item:0000", 72, "One"));
+
+            static Window CreateWindow(TranscriptTurnControl control)
+            {
+                var window = new Window
+                {
+                    Width = 480,
+                    Height = 320,
+                    Content = control,
+                };
+                window.DataTemplates.Add(new FuncDataTemplate<VisualTranscriptItem>((item, _) => new Border
+                {
+                    Height = item.DesiredHeight,
+                    Child = new TextBlock { Text = item.Text },
+                }));
+                return window;
+            }
+
+            var firstControl = new TranscriptTurnControl { Turn = turn };
+            var firstWindow = CreateWindow(firstControl);
+            firstWindow.Show();
+            firstControl.RealizePendingHost();
+            await PumpAsync();
+
+            var firstHost = Assert.IsType<StackPanel>(firstControl.Content);
+            Assert.Same(firstHost, turn.RealizedItemsHost);
+
+            firstWindow.Content = null;
+            await PumpAsync();
+            Assert.Same(firstHost, turn.RealizedItemsHost);
+            Assert.Null(firstHost.Parent);
+
+            var secondControl = new TranscriptTurnControl { Turn = turn };
+            var secondWindow = CreateWindow(secondControl);
+            secondWindow.Show();
+            secondControl.RealizePendingHost();
+            await PumpAsync();
+
+            var secondHost = Assert.IsType<StackPanel>(secondControl.Content);
+            Assert.NotSame(firstHost, secondHost);
+            Assert.Same(secondWindow, TopLevel.GetTopLevel(secondHost));
+
+            secondWindow.Close();
+            firstWindow.Close();
+            await PumpAsync();
+        });
     }
 
     [Fact]
@@ -447,6 +569,13 @@ public sealed class TranscriptPagingHeadlessTests
     {
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+    }
+
+    private static async Task DispatchAsync(HeadlessTestSession session, Func<Task> action)
+    {
+        Task? dispatchedTask = null;
+        await session.Dispatch(() => dispatchedTask = action(), CancellationToken.None);
+        await (dispatchedTask ?? throw new InvalidOperationException("Headless action was not dispatched."));
     }
 
     [Fact]

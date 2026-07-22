@@ -34,13 +34,13 @@ public sealed class TranscriptTurn : ObservableObject
     }
 
     /// <summary>
-    /// The realized item-host (a StackPanel of ContentPresenters) for this turn, cached on the
-    /// stable turn object so switching away from and back to a chat reuses the already-built and
-    /// already-parsed transcript controls instead of rebuilding them. Owned by the turn; adopted
-    /// by whichever <see cref="TranscriptTurnControl"/> currently renders it, and released by
-    /// <see cref="ReleaseRealizedHost"/> when the turn leaves the mounted window.
+    /// The realized item-host for this turn, cached on the stable turn object so switching away
+    /// from and back within the same window reuses the already-built and parsed transcript controls.
+    /// Avalonia controls cannot safely move between different layout roots, so the owning top-level
+    /// is tracked separately and a new host is built when the turn moves to another window.
     /// </summary>
     internal StackPanel? RealizedItemsHost { get; set; }
+    internal WeakReference<TopLevel>? RealizedItemsHostRoot { get; set; }
 
     public int IndexOf(TranscriptItem item) => Items.IndexOf(item);
 
@@ -49,11 +49,13 @@ public sealed class TranscriptTurn : ObservableObject
     /// <summary>Tears down and drops the cached realized host so its controls can be collected.</summary>
     internal void ReleaseRealizedHost()
     {
-        if (RealizedItemsHost is null)
+        var host = RealizedItemsHost;
+        if (host is null)
             return;
 
-        TranscriptTurnControl.ReleaseHost(RealizedItemsHost);
         RealizedItemsHost = null;
+        RealizedItemsHostRoot = null;
+        TranscriptTurnControl.ReleaseHost(host);
     }
 }
 
@@ -305,7 +307,26 @@ public sealed class TranscriptTurnControl : UserControl
         if (!_isAttachedToVisualTree || _turn is null)
             return;
 
+        var currentRoot = TopLevel.GetTopLevel(this)
+            ?? throw new InvalidOperationException("Attached transcript turn control has no top-level.");
         var host = _turn.RealizedItemsHost;
+        var canReuseCachedHost =
+            host is not null &&
+            _turn.RealizedItemsHostRoot is { } rootReference &&
+            rootReference.TryGetTarget(out var hostRoot) &&
+            ReferenceEquals(hostRoot, currentRoot);
+
+        if (host is not null && !canReuseCachedHost)
+        {
+            // Never move realized controls between windows. Avalonia can leave the old layout
+            // manager's arrange queue pointing at them and later terminate the app with
+            // "Attempt to call InvalidateArrange on wrong LayoutManager."
+            if (host.Parent is null)
+                ReleaseHost(host);
+
+            host = null;
+        }
+
         if (host is null)
         {
             host = new StackPanel
@@ -317,10 +338,11 @@ public sealed class TranscriptTurnControl : UserControl
                 host.Children.Add(CreateItemHost(item));
 
             _turn.RealizedItemsHost = host;
+            _turn.RealizedItemsHostRoot = new WeakReference<TopLevel>(currentRoot);
         }
         else
         {
-            // Defensive: detach from any stale owner before re-parenting (one-parent rule).
+            // Same layout root: detach from a stale recycled owner before re-parenting.
             if (host.Parent is ContentControl owner && !ReferenceEquals(owner, this))
                 owner.Content = null;
 
@@ -367,6 +389,10 @@ public sealed class TranscriptTurnControl : UserControl
 
         if (ReferenceEquals(Content, _host))
             Content = null;
+
+        if (_turn is not null && !ReferenceEquals(_turn.RealizedItemsHost, _host))
+            ReleaseHost(_host);
+
         _host = null;
     }
 
@@ -434,8 +460,9 @@ public sealed class TranscriptTurnControl : UserControl
         // whose Content is the data item. A ContentPresenter re-inflates its templated child every
         // time it leaves and re-enters the visual tree, which happens on every chat switch; that
         // re-parses all markdown and rebuilds the whole subtree. Holding the built view directly
-        // means a switch-away/switch-back re-parents the SAME instances, so retained markdown
-        // (StrataMarkdown.RetainContentOnDetach) and the rest of the subtree are reused, not rebuilt.
+        // means a switch-away/switch-back within the same layout root re-parents the SAME instances,
+        // so retained markdown (StrataMarkdown.RetainContentOnDetach) and the rest of the subtree are
+        // reused, not rebuilt.
         Control host;
         var template = this.FindDataTemplate(item);
         if (template?.Build(item) is { } view)
