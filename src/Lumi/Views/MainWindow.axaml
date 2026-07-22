@@ -478,6 +478,11 @@
 
   </Window.Styles>
 
+  <LayoutTransformControl x:Name="UiScaleHost">
+    <LayoutTransformControl.LayoutTransform>
+      <ScaleTransform ScaleX="{DynamicResource Lumi.UiScale}"
+                      ScaleY="{DynamicResource Lumi.UiScale}" />
+    </LayoutTransformControl.LayoutTransform>
   <Border x:Name="WindowContentRoot">
   <Panel>
     <!-- Semi-transparent background that lets Mica/Acrylic show through -->
@@ -1952,4 +1957,5 @@
     </sc:StrataDialog>
   </Panel>
   </Border>
+  </LayoutTransformControl>
 </Window>

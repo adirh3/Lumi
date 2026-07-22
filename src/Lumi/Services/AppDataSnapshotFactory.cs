@@ -29,7 +29,7 @@ internal static class AppDataSnapshotFactory
                 DismissedUpdateBannerToken = settings.DismissedUpdateBannerToken,
                 IsDarkTheme = settings.IsDarkTheme,
                 IsCompactDensity = settings.IsCompactDensity,
-                FontSize = settings.FontSize,
+                UiScalePercent = settings.UiScalePercent,
                 ShowAnimations = settings.ShowAnimations,
                 SendWithEnter = settings.SendWithEnter,
                 ShowTimestamps = settings.ShowTimestamps,

@@ -1,7 +1,9 @@
 using System;
 using System.ComponentModel;
+using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -13,6 +15,7 @@ namespace Lumi.Views;
 
 public partial class ChatWindow : Window
 {
+    private const double BaseTitleBarHeight = 38;
     private readonly ChatWindowViewModel? _viewModel;
     private ChatWorkspaceView? _chatWorkspace;
 
@@ -21,7 +24,7 @@ public partial class ChatWindow : Window
         InitializeComponent();
         WindowChromeInterop.EnableNativeMinMaxAnimations(this);
         ExtendClientAreaToDecorationsHint = true;
-        ExtendClientAreaTitleBarHeightHint = 38;
+        ExtendClientAreaTitleBarHeightHint = BaseTitleBarHeight;
         Background = Brushes.Transparent;
         TransparencyBackgroundFallback = Brushes.Transparent;
         AppIcon.ApplyWindowIcon(this);
@@ -33,6 +36,7 @@ public partial class ChatWindow : Window
         DataContext = viewModel;
         if (_chatWorkspace is not null)
             _chatWorkspace.DataStore = dataStore;
+        ApplyUiScaleToChrome(dataStore.Data.Settings.UiScalePercent);
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
         UpdateAutomationName();
     }
@@ -46,6 +50,17 @@ public partial class ChatWindow : Window
     public void FocusComposer()
     {
         Dispatcher.UIThread.Post(() => _chatWorkspace?.FocusComposer(), DispatcherPriority.Input);
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.Handled)
+            return;
+
+        var scaleDelta = UiScaleService.GetShortcutDelta(e.Key, e.KeyModifiers);
+        if (scaleDelta != 0 && Application.Current is App app && app.TryAdjustUiScale(scaleDelta))
+            e.Handled = true;
     }
 
     protected override void OnClosed(EventArgs e)
@@ -69,4 +84,7 @@ public partial class ChatWindow : Window
         Title = windowTitle;
         AutomationProperties.SetName(this, $"{windowTitle} - Lumi");
     }
+
+    internal void ApplyUiScaleToChrome(int scalePercent)
+        => ExtendClientAreaTitleBarHeightHint = BaseTitleBarHeight * UiScaleService.GetScale(scalePercent);
 }

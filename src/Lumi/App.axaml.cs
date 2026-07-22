@@ -34,6 +34,7 @@ public partial class App : Application
     private int _secondaryWindowSequence;
     private MainViewModel? _mainViewModel;
     private readonly Dictionary<Guid, ChatWindow> _chatWindows = [];
+    private readonly HashSet<ChatWindow> _openChatWindows = [];
     private bool _isShuttingDown;
 #if DEBUG
     private LumiDebugBridge? _debugBridge;
@@ -103,8 +104,9 @@ public partial class App : Application
                         window.Hide();
                 }
 
-                foreach (var chatWindow in _chatWindows.Values.ToList())
+                foreach (var chatWindow in _openChatWindows.ToList())
                     chatWindow.Close();
+                _openChatWindows.Clear();
                 _chatWindows.Clear();
                 updateService.Dispose();
                 var viewModels = mainWindows
@@ -212,6 +214,7 @@ public partial class App : Application
 
             // Apply saved density
             MainWindow.ApplyDensityStatic(dataStore.Data.Settings.IsCompactDensity);
+            UiScaleService.Apply(dataStore.Data.Settings.UiScalePercent);
 
             var window = CreateWindow(vm, isPrimary: true);
             _mainWindow = window;
@@ -390,6 +393,58 @@ public partial class App : Application
             skipOnboarding
 #endif
         );
+    }
+
+    internal void ApplyUiScaleFromSettings(SettingsViewModel source, int scalePercent)
+    {
+        var normalizedScalePercent = UiScaleService.NormalizeScalePercent(scalePercent);
+        UiScaleService.Apply(normalizedScalePercent);
+
+        var synchronizedViewModels = new HashSet<SettingsViewModel> { source };
+
+        void Synchronize(MainViewModel? viewModel)
+        {
+            if (viewModel is null || !synchronizedViewModels.Add(viewModel.SettingsVM))
+                return;
+
+            viewModel.SettingsVM.SyncUiScaleFromApplication(normalizedScalePercent);
+        }
+
+        Synchronize(_mainViewModel);
+        foreach (var window in _windows)
+            Synchronize(window.DataContext as MainViewModel);
+
+        foreach (var chatWindow in _openChatWindows)
+            chatWindow.ApplyUiScaleToChrome(normalizedScalePercent);
+    }
+
+    internal bool TryAdjustUiScale(int delta)
+    {
+        if (delta == 0 || _dataStore is null)
+            return false;
+
+        var currentScalePercent = UiScaleService.NormalizeScalePercent(_dataStore.Data.Settings.UiScalePercent);
+        var nextScalePercent = UiScaleService.AdjustScalePercent(currentScalePercent, delta);
+        var settingsViewModel = _mainViewModel?.SettingsVM
+            ?? _windows.Select(static window => window.DataContext)
+                .OfType<MainViewModel>()
+                .Select(static viewModel => viewModel.SettingsVM)
+                .FirstOrDefault();
+
+        if (settingsViewModel is not null)
+        {
+            if (settingsViewModel.UiScalePercent == nextScalePercent)
+                ApplyUiScaleFromSettings(settingsViewModel, nextScalePercent);
+            else
+                settingsViewModel.UiScalePercent = nextScalePercent;
+
+            return true;
+        }
+
+        _dataStore.Data.Settings.UiScalePercent = nextScalePercent;
+        UiScaleService.Apply(nextScalePercent);
+        _ = _dataStore.SaveAsync();
+        return true;
     }
 
     private MainWindow CreateWindow(MainViewModel vm, bool isPrimary)
@@ -603,11 +658,14 @@ public partial class App : Application
         chatVm.PropertyChanged += OnDetachedCurrentChatChanged;
 
         window = new ChatWindow(_dataStore, windowVm);
+        _openChatWindows.Add(window);
         if (trackedChatId is Guid trackedId)
             _chatWindows[trackedId] = window;
 
         window.Closed += (_, _) =>
         {
+            _openChatWindows.Remove(window);
+
             if (trackedChatId is Guid closedChatId
                 && _chatWindows.TryGetValue(closedChatId, out var trackedWindow)
                 && ReferenceEquals(trackedWindow, window))

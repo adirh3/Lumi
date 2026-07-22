@@ -258,7 +258,7 @@ public partial class SettingsView : UserControl
         [Loc.Setting_EnableNotifications] = vm => vm.RevertNotificationsEnabledCommand.Execute(null),
         [Loc.Setting_DarkMode] = vm => vm.RevertIsDarkThemeCommand.Execute(null),
         [Loc.Setting_CompactDensity] = vm => vm.RevertIsCompactDensityCommand.Execute(null),
-        [Loc.Setting_FontSize] = vm => vm.RevertFontSizeCommand.Execute(null),
+        [Loc.Setting_FontSize] = vm => vm.RevertUiScaleCommand.Execute(null),
         [Loc.Setting_ShowAnimations] = vm => vm.RevertShowAnimationsCommand.Execute(null),
         [Loc.Setting_SendWithEnter] = vm => vm.RevertSendWithEnterCommand.Execute(null),
         [Loc.Setting_ShowTimestamps] = vm => vm.RevertShowTimestampsCommand.Execute(null),

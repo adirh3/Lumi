@@ -218,6 +218,9 @@ public sealed partial class BrowserService : IAsyncDisposable
 
         try
         {
+            if (controller is not null)
+                controller.AcceleratorKeyPressed -= OnAcceleratorKeyPressed;
+
             if (webView is not null)
             {
                 webView.NavigationCompleted -= OnNavigationCompleted;
@@ -263,7 +266,7 @@ public sealed partial class BrowserService : IAsyncDisposable
             _controller.IsVisible = visible;
     }
 
-    /// <summary>Syncs the native overlay's rasterization scale with Avalonia's render scaling.</summary>
+    /// <summary>Syncs the native overlay's rasterization scale with Avalonia's effective UI scale.</summary>
     public void SyncRasterizationScale(double scale)
     {
         if (_controller is not null && Math.Abs(_controller.RasterizationScale - scale) > 0.01)
@@ -323,6 +326,8 @@ public sealed partial class BrowserService : IAsyncDisposable
             var webView = controller.CoreWebView2;
             _controller = controller;
             _webView = webView;
+            controller.ShouldDetectMonitorScaleChanges = false;
+            controller.AcceleratorKeyPressed += OnAcceleratorKeyPressed;
 
             // Sync theme with app
             SetTheme(_isDark);
@@ -365,6 +370,36 @@ public sealed partial class BrowserService : IAsyncDisposable
     private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
         _navigationTcs?.TrySetResult(e.IsSuccess);
+    }
+
+    private void OnAcceleratorKeyPressed(
+        object? sender,
+        CoreWebView2AcceleratorKeyPressedEventArgs e)
+    {
+        var isKeyDown = e.KeyEventKind is
+            CoreWebView2KeyEventKind.KeyDown or
+            CoreWebView2KeyEventKind.SystemKeyDown;
+        var delta = BrowserAcceleratorShortcut.GetUiScaleDelta(
+            (int)e.VirtualKey,
+            isKeyDown,
+            IsVirtualKeyDown(BrowserAcceleratorShortcut.ControlKey),
+            IsVirtualKeyDown(BrowserAcceleratorShortcut.AltKey),
+            IsVirtualKeyDown(BrowserAcceleratorShortcut.LeftWindowsKey)
+                || IsVirtualKeyDown(BrowserAcceleratorShortcut.RightWindowsKey));
+
+        if (delta == 0 || Application.Current is not App)
+            return;
+
+        // This event is synchronous in windowed WebView2. Defer UI work until after
+        // returning so layout updates do not make blocked cross-process COM calls.
+        e.Handled = true;
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                if (Application.Current is App app)
+                    app.TryAdjustUiScale(delta);
+            },
+            DispatcherPriority.Input);
     }
 
     internal static bool ShouldAcceptScriptDialog(CoreWebView2ScriptDialogKind kind)
@@ -548,6 +583,12 @@ public sealed partial class BrowserService : IAsyncDisposable
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string? lpszClass, string? lpszWindow);
+
+    [DllImport("user32.dll")]
+    private static extern short GetKeyState(int virtualKey);
+
+    private static bool IsVirtualKeyDown(int virtualKey) =>
+        (GetKeyState(virtualKey) & 0x8000) != 0;
 
     private async Task WaitForActionLockAsync()
     {
@@ -2576,3 +2617,34 @@ public sealed class BrowserService : IAsyncDisposable
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
 #endif
+
+internal static class BrowserAcceleratorShortcut
+{
+    internal const int ControlKey = 0x11;
+    internal const int AltKey = 0x12;
+    internal const int LeftWindowsKey = 0x5B;
+    internal const int RightWindowsKey = 0x5C;
+
+    private const int AddKey = 0x6B;
+    private const int SubtractKey = 0x6D;
+    private const int OemPlusKey = 0xBB;
+    private const int OemMinusKey = 0xBD;
+
+    internal static int GetUiScaleDelta(
+        int virtualKey,
+        bool isKeyDown,
+        bool controlDown,
+        bool altDown,
+        bool windowsDown)
+    {
+        if (!isKeyDown || !controlDown || altDown || windowsDown)
+            return 0;
+
+        return virtualKey switch
+        {
+            AddKey or OemPlusKey => 1,
+            SubtractKey or OemMinusKey => -1,
+            _ => 0,
+        };
+    }
+}

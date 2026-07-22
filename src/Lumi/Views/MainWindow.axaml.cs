@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     private const double DefaultSidebarWidth = 280;
     private const double MinSidebarWidth = 240;
     private const double MaxSidebarWidth = 420;
+    private const double BaseTitleBarHeight = 38;
     private static readonly TimeSpan ChatListDoubleClickThreshold = TimeSpan.FromMilliseconds(500);
     private const double ChatListDoubleClickMaxDistance = 8;
     private static readonly AttachedProperty<bool> ChatListHandlersAttachedProperty =
@@ -119,7 +120,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         WindowChromeInterop.EnableNativeMinMaxAnimations(this);
         ExtendClientAreaToDecorationsHint = true;
-        ExtendClientAreaTitleBarHeightHint = 38;
+        ExtendClientAreaTitleBarHeightHint = BaseTitleBarHeight;
 
 #if DEBUG
         try
@@ -636,11 +637,28 @@ public partial class MainWindow : Window
     {
         base.OnKeyDown(e);
         if (e.Handled) return;
-        if (DataContext is not MainViewModel vm || !vm.IsOnboarded) return;
+        if (DataContext is not MainViewModel vm) return;
 
         // Don't intercept shortcuts while recording a global hotkey
         var settingsPage = _settingsView;
         if (settingsPage?.IsRecordingHotkey == true) return;
+
+        var scaleDelta = UiScaleService.GetShortcutDelta(e.Key, e.KeyModifiers);
+        if (scaleDelta != 0)
+        {
+            var adjustedByApp = Application.Current is App app && app.TryAdjustUiScale(scaleDelta);
+            if (!adjustedByApp)
+            {
+                vm.SettingsVM.UiScalePercent = UiScaleService.AdjustScalePercent(
+                    vm.SettingsVM.UiScalePercent,
+                    scaleDelta);
+            }
+
+            e.Handled = true;
+            return;
+        }
+
+        if (!vm.IsOnboarded) return;
 
         if (TryHandleChatHistoryNavigationKey(vm, e))
             return;
@@ -944,15 +962,14 @@ public partial class MainWindow : Window
             // Wire search overlay result selection
             vm.SearchOverlayVM.ResultSelected += result => OnSearchResultSelected(vm, result);
 
-            // Wire settings for density and font size
+            // Keep native title-bar geometry aligned with the layout-scaled content.
             vm.SettingsVM.PropertyChanged += (_, args) =>
             {
-                if (args.PropertyName == nameof(SettingsViewModel.FontSize))
-                    ApplyFontSize(vm.SettingsVM.FontSize);
+                if (args.PropertyName == nameof(SettingsViewModel.UiScalePercent))
+                    ApplyUiScaleToChrome(vm.SettingsVM.UiScalePercent);
             };
 
-            // Apply initial font size
-            ApplyFontSize(vm.SettingsVM.FontSize);
+            ApplyUiScaleToChrome(vm.SettingsVM.UiScalePercent);
             AttachChatWorkspace(vm);
 
             // Sync initial browser theme
@@ -2224,24 +2241,10 @@ public partial class MainWindow : Window
     private void ApplyDensity(bool compact)
     {
         ApplyDensityStatic(compact);
-        // Re-apply font size override only if it was explicitly changed from default
-        if (DataContext is MainViewModel vm && vm.SettingsVM.IsFontSizeModified)
-            ApplyFontSize(vm.SettingsVM.FontSize);
     }
 
-    /// <summary>Override font size resources proportionally from the base body size.</summary>
-    private void ApplyFontSize(int bodySize)
-    {
-        var app = Application.Current;
-        if (app is null) return;
-
-        // Scale other sizes relative to the body size (default body=14)
-        app.Resources["Font.SizeCaption"] = (double)(bodySize - 2);
-        app.Resources["Font.SizeBody"] = (double)bodySize;
-        app.Resources["Font.SizeBodyStrong"] = (double)bodySize;
-        app.Resources["Font.SizeSubtitle"] = (double)(bodySize + 2);
-        app.Resources["Font.SizeTitle"] = (double)(bodySize + 6);
-    }
+    internal void ApplyUiScaleToChrome(int scalePercent)
+        => ExtendClientAreaTitleBarHeightHint = BaseTitleBarHeight * UiScaleService.GetScale(scalePercent);
 
     /// <summary>Register/unregister the app for launch at login (cross-platform).</summary>
     public static void ApplyLaunchAtStartup(bool enable)

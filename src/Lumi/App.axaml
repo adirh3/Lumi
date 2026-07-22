@@ -7,6 +7,7 @@
 
   <Application.Resources>
     <ResourceDictionary>
+      <x:Double x:Key="Lumi.UiScale">1</x:Double>
       <!-- Lumi-local override of Strata's glass-surface token. The presence field sits BEHIND the
            translucent islands, so the island fill is the only readability substrate between the chat
            text and whatever is on the desktop behind the (transparent) window. Strata's stock opacity

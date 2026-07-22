@@ -70,8 +70,20 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     // ── Appearance ──
     [ObservableProperty] private bool _isDarkTheme;
     [ObservableProperty] private bool _isCompactDensity;
-    [ObservableProperty] private int _fontSize;
+    [ObservableProperty] private int _uiScalePercent;
     [ObservableProperty] private bool _showAnimations;
+    private bool _isSynchronizingUiScaleFromApplication;
+
+    public int UiScaleLevelIndex
+    {
+        get => UiScaleService.GetLevelIndex(UiScalePercent);
+        set
+        {
+            var scalePercent = UiScaleService.GetScalePercentAtLevelIndex(value);
+            if (UiScalePercent != scalePercent)
+                UiScalePercent = scalePercent;
+        }
+    }
 
     // ── Chat ──
     [ObservableProperty] private bool _sendWithEnter;
@@ -382,7 +394,11 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         // Appearance
         _isDarkTheme = s.IsDarkTheme;
         _isCompactDensity = s.IsCompactDensity;
-        _fontSize = s.FontSize;
+        _uiScalePercent = s.LegacyFontSize > 0
+            ? UiScaleService.MigrateLegacyFontSize(s.LegacyFontSize)
+            : UiScaleService.NormalizeScalePercent(s.UiScalePercent);
+        s.UiScalePercent = _uiScalePercent;
+        s.LegacyFontSize = 0;
         _showAnimations = s.ShowAnimations;
 
         // Chat
@@ -615,7 +631,34 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnIsDarkThemeChanged(bool value) { _dataStore.Data.Settings.IsDarkTheme = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
     partial void OnIsCompactDensityChanged(bool value) { _dataStore.Data.Settings.IsCompactDensity = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
-    partial void OnFontSizeChanged(int value) { _dataStore.Data.Settings.FontSize = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
+    partial void OnUiScalePercentChanged(int value)
+    {
+        if (_isSynchronizingUiScaleFromApplication)
+        {
+            OnPropertyChanged(nameof(UiScaleLevelIndex));
+            NotifyModified();
+            return;
+        }
+
+        var normalizedScalePercent = UiScaleService.NormalizeScalePercent(value);
+        if (value != normalizedScalePercent)
+        {
+            UiScalePercent = normalizedScalePercent;
+            return;
+        }
+
+        _dataStore.Data.Settings.UiScalePercent = value;
+        _dataStore.Data.Settings.LegacyFontSize = 0;
+        if (Avalonia.Application.Current is App app)
+            app.ApplyUiScaleFromSettings(this, value);
+        else
+            UiScaleService.Apply(value);
+
+        OnPropertyChanged(nameof(UiScaleLevelIndex));
+        Save();
+        SettingsChanged?.Invoke();
+        NotifyModified();
+    }
     partial void OnShowAnimationsChanged(bool value) { _dataStore.Data.Settings.ShowAnimations = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); NeedsRestart = true; }
 
     partial void OnSendWithEnterChanged(bool value) { _dataStore.Data.Settings.SendWithEnter = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
@@ -959,7 +1002,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsNotificationsEnabledModified => NotificationsEnabled != _defaults.NotificationsEnabled;
     public bool IsDarkThemeModified => IsDarkTheme != _defaults.IsDarkTheme;
     public bool IsCompactDensityModified => IsCompactDensity != _defaults.IsCompactDensity;
-    public bool IsFontSizeModified => FontSize != _defaults.FontSize;
+    public bool IsUiScaleModified => UiScalePercent != _defaults.UiScalePercent;
     public bool IsShowAnimationsModified => ShowAnimations != _defaults.ShowAnimations;
     public bool IsSendWithEnterModified => SendWithEnter != _defaults.SendWithEnter;
     public bool IsShowTimestampsModified => ShowTimestamps != _defaults.ShowTimestamps;
@@ -988,7 +1031,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsNotificationsEnabledModified));
         OnPropertyChanged(nameof(IsDarkThemeModified));
         OnPropertyChanged(nameof(IsCompactDensityModified));
-        OnPropertyChanged(nameof(IsFontSizeModified));
+        OnPropertyChanged(nameof(IsUiScaleModified));
         OnPropertyChanged(nameof(IsShowAnimationsModified));
         OnPropertyChanged(nameof(IsSendWithEnterModified));
         OnPropertyChanged(nameof(IsShowTimestampsModified));
@@ -1007,6 +1050,23 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsAutoSaveChatsModified));
     }
 
+    internal void SyncUiScaleFromApplication(int value)
+    {
+        var normalizedScalePercent = UiScaleService.NormalizeScalePercent(value);
+        if (UiScalePercent == normalizedScalePercent)
+            return;
+
+        _isSynchronizingUiScaleFromApplication = true;
+        try
+        {
+            UiScalePercent = normalizedScalePercent;
+        }
+        finally
+        {
+            _isSynchronizingUiScaleFromApplication = false;
+        }
+    }
+
     // ── Revert commands ──
     [RelayCommand] private void RevertLaunchAtStartup() => LaunchAtStartup = _defaults.LaunchAtStartup;
     [RelayCommand] private void RevertStartMinimized() => StartMinimized = _defaults.StartMinimized;
@@ -1015,7 +1075,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand] private void RevertNotificationsEnabled() => NotificationsEnabled = _defaults.NotificationsEnabled;
     [RelayCommand] private void RevertIsDarkTheme() => IsDarkTheme = _defaults.IsDarkTheme;
     [RelayCommand] private void RevertIsCompactDensity() => IsCompactDensity = _defaults.IsCompactDensity;
-    [RelayCommand] private void RevertFontSize() => FontSize = _defaults.FontSize;
+    [RelayCommand] private void RevertUiScale() => UiScalePercent = _defaults.UiScalePercent;
     [RelayCommand] private void RevertShowAnimations() => ShowAnimations = _defaults.ShowAnimations;
     [RelayCommand] private void RevertSendWithEnter() => SendWithEnter = _defaults.SendWithEnter;
     [RelayCommand] private void RevertShowTimestamps() => ShowTimestamps = _defaults.ShowTimestamps;
@@ -1151,7 +1211,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         NotificationsEnabled = defaults.NotificationsEnabled;
         IsDarkTheme = defaults.IsDarkTheme;
         IsCompactDensity = defaults.IsCompactDensity;
-        FontSize = defaults.FontSize;
+        UiScalePercent = defaults.UiScalePercent;
         ShowAnimations = defaults.ShowAnimations;
         SendWithEnter = defaults.SendWithEnter;
         ShowTimestamps = defaults.ShowTimestamps;

@@ -11,6 +11,14 @@ namespace Lumi.Views;
 
 public partial class BrowserView : UserControl
 {
+    internal readonly record struct NativeWebViewLayout(
+        int X,
+        int Y,
+        int Width,
+        int Height,
+        int CornerRadiusPx,
+        double RasterizationScale);
+
     private Border? _loadingOverlay;
     private Border? _cookieOnboardingOverlay;
     private StackPanel? _profilePicker;
@@ -241,35 +249,60 @@ public partial class BrowserView : UserControl
         if (platformHandle is not null)
             _browserService.SetParentHwnd(platformHandle.Handle);
 
-        var scaling = topLevel.RenderScaling;
+        var layout = CalculateNativeWebViewLayout(topLevel);
+        if (layout is null) return;
 
-        // Translate the physical left edge instead of logical x=0 so RTL layouts
-        // keep the native WebView aligned with the browser island.
-        var localLeftX = FlowDirection == Avalonia.Media.FlowDirection.RightToLeft
-            ? Bounds.Width
-            : 0.0;
-        var point = this.TranslatePoint(new Point(localLeftX, 0), topLevel);
-        if (point is null) return;
+        _browserService.SyncRasterizationScale(layout.Value.RasterizationScale);
+        _browserService.SetBounds(
+            layout.Value.X,
+            layout.Value.Y,
+            layout.Value.Width,
+            layout.Value.Height,
+            layout.Value.CornerRadiusPx);
+    }
 
-        // Measure URL bar height dynamically from the actual control
+    internal NativeWebViewLayout? CalculateNativeWebViewLayout(TopLevel topLevel)
+    {
         var urlBarHeight = _urlBar?.Bounds.Height ?? 36.0;
-        if (urlBarHeight < 1) urlBarHeight = 36.0; // Guard against unmeasured layout
+        if (urlBarHeight < 1)
+            urlBarHeight = 36.0;
 
-        // Sync rasterization scale with Avalonia's render scaling for sharp text
-        _browserService.SyncRasterizationScale(scaling);
+        var localWidth = Bounds.Width;
+        var localContentHeight = Bounds.Height - urlBarHeight;
+        if (localWidth < 1 || localContentHeight < 1)
+            return null;
 
-        // Corner radius in physical pixels matching BrowserIsland's inner CornerRadius
-        // (Radius.Overlay=14 minus BorderThickness=1 = 13 logical pixels)
-        var cornerRadiusPx = (int)Math.Round(13.0 * scaling);
+        var firstCorner = this.TranslatePoint(new Point(0, urlBarHeight), topLevel);
+        var secondCorner = this.TranslatePoint(new Point(Bounds.Width, Bounds.Height), topLevel);
+        if (firstCorner is null || secondCorner is null)
+            return null;
 
-        // TranslatePoint already gives the physical left edge in the top-level
-        // coordinate space once localLeftX accounts for RTL mirroring.
-        var x = (int)Math.Round(point.Value.X * scaling);
-        var y = (int)Math.Round((point.Value.Y + urlBarHeight) * scaling);
-        var w = Math.Max(1, (int)Math.Round(Bounds.Width * scaling));
-        var h = Math.Max(1, (int)Math.Round((Bounds.Height - urlBarHeight) * scaling));
+        var left = Math.Min(firstCorner.Value.X, secondCorner.Value.X);
+        var top = Math.Min(firstCorner.Value.Y, secondCorner.Value.Y);
+        var right = Math.Max(firstCorner.Value.X, secondCorner.Value.X);
+        var bottom = Math.Max(firstCorner.Value.Y, secondCorner.Value.Y);
+        var transformedWidth = right - left;
+        if (transformedWidth < 1)
+            return null;
 
-        _browserService.SetBounds(x, y, w, h, cornerRadiusPx);
+        var renderScaling = topLevel.RenderScaling;
+        var uiScale = transformedWidth / localWidth;
+        var rasterizationScale = renderScaling * uiScale;
+        if (!double.IsFinite(rasterizationScale) || rasterizationScale <= 0)
+            return null;
+
+        var x = (int)Math.Floor(left * renderScaling);
+        var y = (int)Math.Floor(top * renderScaling);
+        var rightPx = (int)Math.Ceiling(right * renderScaling);
+        var bottomPx = (int)Math.Ceiling(bottom * renderScaling);
+
+        return new NativeWebViewLayout(
+            x,
+            y,
+            Math.Max(1, rightPx - x),
+            Math.Max(1, bottomPx - y),
+            (int)Math.Round(13.0 * rasterizationScale),
+            rasterizationScale);
     }
 
     // ── Cookie onboarding ──────────────────────────────────────────

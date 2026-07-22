@@ -588,7 +588,10 @@ public class UserSettings
     // ── Appearance ──
     public bool IsDarkTheme { get; set; } = true;
     public bool IsCompactDensity { get; set; }
-    public int FontSize { get; set; } = 14;
+    public int UiScalePercent { get; set; } = 100;
+    [JsonPropertyName("fontSize")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int LegacyFontSize { get; set; }
     public bool ShowAnimations { get; set; } = true;
 
     // ── Chat ──

@@ -16,6 +16,11 @@
         UseLayoutRounding="True"
         Background="Transparent">
 
+  <LayoutTransformControl x:Name="UiScaleHost">
+    <LayoutTransformControl.LayoutTransform>
+      <ScaleTransform ScaleX="{DynamicResource Lumi.UiScale}"
+                      ScaleY="{DynamicResource Lumi.UiScale}" />
+    </LayoutTransformControl.LayoutTransform>
   <Border x:Name="WindowIsland"
           CornerRadius="0"
           Background="{DynamicResource Brush.Surface1Translucent}"
@@ -44,4 +49,5 @@
                                PreviewIslandMargin="0,8,8,8" />
     </Grid>
   </Border>
+  </LayoutTransformControl>
 </Window>

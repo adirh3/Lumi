@@ -33,6 +33,34 @@ public sealed class BrowserServiceLifecycleTests
         Assert.False(BrowserService.IsWebViewInvalidState(exception));
     }
 
+    [Theory]
+    [InlineData(0xBB, true, true, false, false, 1)]
+    [InlineData(0x6B, true, true, false, false, 1)]
+    [InlineData(0xBD, true, true, false, false, -1)]
+    [InlineData(0x6D, true, true, false, false, -1)]
+    [InlineData(0xBB, false, true, false, false, 0)]
+    [InlineData(0xBB, true, false, false, false, 0)]
+    [InlineData(0xBB, true, true, true, false, 0)]
+    [InlineData(0xBB, true, true, false, true, 0)]
+    [InlineData(0x30, true, true, false, false, 0)]
+    public void BrowserAcceleratorOnlyMapsGlobalScaleShortcuts(
+        int virtualKey,
+        bool isKeyDown,
+        bool controlDown,
+        bool altDown,
+        bool windowsDown,
+        int expected)
+    {
+        Assert.Equal(
+            expected,
+            BrowserAcceleratorShortcut.GetUiScaleDelta(
+                virtualKey,
+                isKeyDown,
+                controlDown,
+                altDown,
+                windowsDown));
+    }
+
 #if WINDOWS
     [Theory]
     [InlineData(CoreWebView2ScriptDialogKind.Alert, false)]

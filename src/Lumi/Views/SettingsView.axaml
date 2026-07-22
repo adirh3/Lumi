@@ -35,6 +35,20 @@
         </Transitions>
       </Setter>
     </Style>
+    <Style Selector="sc|StrataSetting.stacked-content /template/ Grid#PART_Row > Border#PART_HighlightBar">
+      <Setter Property="Grid.RowSpan" Value="2" />
+    </Style>
+    <Style Selector="sc|StrataSetting.stacked-content /template/ Grid#PART_Row > StackPanel">
+      <Setter Property="Grid.ColumnSpan" Value="2" />
+      <Setter Property="Margin" Value="0" />
+    </Style>
+    <Style Selector="sc|StrataSetting.stacked-content /template/ Grid#PART_Row > ContentPresenter">
+      <Setter Property="Grid.Row" Value="1" />
+      <Setter Property="Grid.Column" Value="1" />
+      <Setter Property="Grid.ColumnSpan" Value="2" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="Margin" Value="0,10,0,0" />
+    </Style>
   </UserControl.Styles>
 
   <Panel>
@@ -170,15 +184,16 @@
                             IsModified="{Binding IsCompactDensityModified}">
             <ToggleSwitch IsChecked="{Binding IsCompactDensity}" />
           </sc:StrataSetting>
-          <sc:StrataSetting Header="{loc:Str Setting_FontSize}" Description="{loc:Str SettingDesc_FontSize}"
-                            IsModified="{Binding IsFontSizeModified}">
-            <StackPanel Orientation="Horizontal" Spacing="12">
-              <Slider Minimum="11" Maximum="18" Value="{Binding FontSize}"
-                      TickFrequency="1" IsSnapToTickEnabled="True" Width="140" />
-              <TextBlock Text="{Binding FontSize, StringFormat='{}{0}px'}"
+          <sc:StrataSetting Classes="stacked-content"
+                            Header="{loc:Str Setting_FontSize}" Description="{loc:Str SettingDesc_FontSize}"
+                            IsModified="{Binding IsUiScaleModified}">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <Slider Minimum="0" Maximum="16" Value="{Binding UiScaleLevelIndex}"
+                      TickFrequency="1" IsSnapToTickEnabled="True" MinWidth="80" />
+              <TextBlock Grid.Column="1" Text="{Binding UiScalePercent, StringFormat='{}{0}%'}"
                          VerticalAlignment="Center" FontSize="{DynamicResource Font.SizeCaption}"
-                         Foreground="{DynamicResource Brush.TextSecondary}" MinWidth="32" />
-            </StackPanel>
+                         Foreground="{DynamicResource Brush.TextSecondary}" MinWidth="40" />
+            </Grid>
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
 
