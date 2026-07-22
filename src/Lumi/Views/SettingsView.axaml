@@ -188,11 +188,13 @@
                             Header="{loc:Str Setting_FontSize}" Description="{loc:Str SettingDesc_FontSize}"
                             IsModified="{Binding IsUiScaleModified}">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-              <Slider Minimum="0" Maximum="16" Value="{Binding UiScaleLevelIndex}"
-                      TickFrequency="1" IsSnapToTickEnabled="True" MinWidth="80" />
-              <TextBlock Grid.Column="1" Text="{Binding UiScalePercent, StringFormat='{}{0}%'}"
-                         VerticalAlignment="Center" FontSize="{DynamicResource Font.SizeCaption}"
-                         Foreground="{DynamicResource Brush.TextSecondary}" MinWidth="40" />
+            <Slider x:Name="UiScaleSlider" Minimum="0" Maximum="16"
+                    Value="{Binding UiScalePreviewLevelIndex, Mode=TwoWay}"
+                    TickFrequency="1" IsSnapToTickEnabled="True" MinWidth="80" />
+            <TextBlock x:Name="UiScaleValueText" Grid.Column="1"
+                       Text="{Binding UiScalePreviewPercent, StringFormat='{}{0}%'}"
+                       VerticalAlignment="Center" FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextSecondary}" MinWidth="40" />
             </Grid>
           </sc:StrataSetting>
         </sc:StrataSettingGroup>

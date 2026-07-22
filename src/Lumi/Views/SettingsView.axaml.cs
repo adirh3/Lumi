@@ -29,6 +29,7 @@ public partial class SettingsView : UserControl
     private Button? _noResultsClearButton;
     private Controls.GitHubLoginView? _loginView;
     private Button? _hotkeyRecorderButton;
+    private Slider? _uiScaleSlider;
     private StrataSetting? _debugTransparencySetting;
     private TextBlock? _debugTransparencyValue;
     private StrataSetting? _debugFpsOverlaySetting;
@@ -100,6 +101,22 @@ public partial class SettingsView : UserControl
         {
             _hotkeyRecorderButton.Focusable = false;
             _hotkeyRecorderButton.Click += OnHotkeyRecorderButtonClick;
+        }
+
+        _uiScaleSlider = this.FindControl<Slider>("UiScaleSlider");
+        if (_uiScaleSlider is not null)
+        {
+            _uiScaleSlider.AddHandler(
+                InputElement.PointerReleasedEvent,
+                OnUiScaleSliderPointerReleased,
+                RoutingStrategies.Bubble,
+                handledEventsToo: true);
+            _uiScaleSlider.AddHandler(
+                InputElement.KeyUpEvent,
+                OnUiScaleSliderKeyUp,
+                RoutingStrategies.Bubble,
+                handledEventsToo: true);
+            _uiScaleSlider.LostFocus += OnUiScaleSliderLostFocus;
         }
 
         _debugTransparencySetting = this.FindControl<StrataSetting>("DebugTransparencySetting");
@@ -303,6 +320,29 @@ public partial class SettingsView : UserControl
             vm.CookieImportDialogRequested += () =>
                 Dispatcher.UIThread.Post(OpenCookieDialog);
         }
+    }
+
+    private void OnUiScaleSliderPointerReleased(object? sender, PointerReleasedEventArgs e)
+        => CommitUiScaleSliderPreview();
+
+    private void OnUiScaleSliderKeyUp(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down
+            or Key.PageUp or Key.PageDown or Key.Home or Key.End)
+        {
+            CommitUiScaleSliderPreview();
+        }
+    }
+
+    private void OnUiScaleSliderLostFocus(object? sender, RoutedEventArgs e)
+        => CommitUiScaleSliderPreview();
+
+    private void CommitUiScaleSliderPreview()
+    {
+        if (_uiScaleSlider is null || DataContext is not SettingsViewModel vm)
+            return;
+
+        vm.UiScaleLevelIndex = (int)Math.Round(_uiScaleSlider.Value);
     }
 
     public void ShowPage(int index)

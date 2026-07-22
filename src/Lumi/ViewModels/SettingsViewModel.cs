@@ -71,8 +71,14 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _isDarkTheme;
     [ObservableProperty] private bool _isCompactDensity;
     [ObservableProperty] private int _uiScalePercent;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(UiScalePreviewPercent))]
+    private int _uiScalePreviewLevelIndex;
     [ObservableProperty] private bool _showAnimations;
     private bool _isSynchronizingUiScaleFromApplication;
+
+    public int UiScalePreviewPercent
+        => UiScaleService.GetScalePercentAtLevelIndex(UiScalePreviewLevelIndex);
 
     public int UiScaleLevelIndex
     {
@@ -397,6 +403,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _uiScalePercent = s.LegacyFontSize > 0
             ? UiScaleService.MigrateLegacyFontSize(s.LegacyFontSize)
             : UiScaleService.NormalizeScalePercent(s.UiScalePercent);
+        _uiScalePreviewLevelIndex = UiScaleService.GetLevelIndex(_uiScalePercent);
         s.UiScalePercent = _uiScalePercent;
         s.LegacyFontSize = 0;
         _showAnimations = s.ShowAnimations;
@@ -635,7 +642,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     {
         if (_isSynchronizingUiScaleFromApplication)
         {
-            OnPropertyChanged(nameof(UiScaleLevelIndex));
+            SynchronizeUiScalePreview(value);
             NotifyModified();
             return;
         }
@@ -654,11 +661,20 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         else
             UiScaleService.Apply(value);
 
-        OnPropertyChanged(nameof(UiScaleLevelIndex));
+        SynchronizeUiScalePreview(value);
         Save();
         SettingsChanged?.Invoke();
         NotifyModified();
     }
+
+    private void SynchronizeUiScalePreview(int scalePercent)
+    {
+        var levelIndex = UiScaleService.GetLevelIndex(scalePercent);
+        if (UiScalePreviewLevelIndex != levelIndex)
+            UiScalePreviewLevelIndex = levelIndex;
+        OnPropertyChanged(nameof(UiScaleLevelIndex));
+    }
+
     partial void OnShowAnimationsChanged(bool value) { _dataStore.Data.Settings.ShowAnimations = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); NeedsRestart = true; }
 
     partial void OnSendWithEnterChanged(bool value) { _dataStore.Data.Settings.SendWithEnter = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }

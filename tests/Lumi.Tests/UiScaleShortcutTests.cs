@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -111,6 +112,92 @@ public sealed class UiScaleShortcutTests
         Assert.Equal(110, scaleAfterPlus);
         Assert.Equal(100, scaleAfterMinus);
         Assert.True(scaleControlBelowDescription);
+    }
+
+    [Fact]
+    public async Task UiScaleSlider_AppliesPreviewOnlyAfterPointerRelease()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        int scaleWhilePointerIsDown = 0;
+        int persistedScaleWhilePointerIsDown = 0;
+        string? previewTextWhilePointerIsDown = null;
+        int scaleAfterPointerRelease = 0;
+
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+
+            var data = new AppData
+            {
+                Settings = new UserSettings
+                {
+                    IsOnboarded = true,
+                    AutoSaveChats = false,
+                    EnableMemoryAutoSave = false,
+                    UiScalePercent = 100,
+                }
+            };
+            var viewModel = new MainViewModel(
+                new DataStore(data),
+                new CopilotService(),
+                new UpdateService(),
+                startBackgroundJobs: false);
+            var window = new MainWindow
+            {
+                DataContext = viewModel,
+                Width = 1100,
+                Height = 820,
+            };
+
+            window.Show();
+            try
+            {
+                viewModel.SelectedNavIndex = 7;
+                viewModel.SettingsVM.SelectedPageIndex = 2;
+                await PumpAsync();
+
+                var slider = window.GetVisualDescendants()
+                    .OfType<Slider>()
+                    .Single(control => control.Name == "UiScaleSlider");
+                var valueText = window.GetVisualDescendants()
+                    .OfType<TextBlock>()
+                    .Single(control => control.Name == "UiScaleValueText");
+                var thumb = slider.GetVisualDescendants().OfType<Thumb>().Single();
+                var thumbTopLeft = thumb.TranslatePoint(default, window)
+                    ?? throw new InvalidOperationException("Scale slider thumb is not attached.");
+                var thumbCenter = thumbTopLeft + new Point(thumb.Bounds.Width / 2, thumb.Bounds.Height / 2);
+
+                window.MouseDown(thumbCenter, MouseButton.Left, RawInputModifiers.None);
+                slider.SetCurrentValue(
+                    RangeBase.ValueProperty,
+                    (double)UiScaleService.GetLevelIndex(150));
+                await PumpAsync();
+
+                scaleWhilePointerIsDown = viewModel.SettingsVM.UiScalePercent;
+                persistedScaleWhilePointerIsDown = data.Settings.UiScalePercent;
+                previewTextWhilePointerIsDown = valueText.Text;
+
+                thumbTopLeft = thumb.TranslatePoint(default, window)
+                    ?? throw new InvalidOperationException("Scale slider thumb is not attached.");
+                thumbCenter = thumbTopLeft + new Point(thumb.Bounds.Width / 2, thumb.Bounds.Height / 2);
+                window.MouseUp(thumbCenter, MouseButton.Left, RawInputModifiers.None);
+                await PumpAsync();
+
+                scaleAfterPointerRelease = viewModel.SettingsVM.UiScalePercent;
+            }
+            finally
+            {
+                viewModel.SettingsVM.UiScalePercent = 100;
+                window.Close();
+                viewModel.Dispose();
+            }
+        }, CancellationToken.None);
+
+        Assert.Equal(100, scaleWhilePointerIsDown);
+        Assert.Equal(100, persistedScaleWhilePointerIsDown);
+        Assert.Equal("150%", previewTextWhilePointerIsDown);
+        Assert.Equal(150, scaleAfterPointerRelease);
     }
 
     [Fact]
