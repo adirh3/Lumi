@@ -1042,15 +1042,16 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void RestartApp()
     {
-        var exePath = System.Environment.ProcessPath;
-        if (!string.IsNullOrEmpty(exePath))
+        if (!LumiProcessLauncher.TryLaunch(out var error))
         {
-            System.Diagnostics.Process.Start(exePath);
-            if (Avalonia.Application.Current?.ApplicationLifetime
-                is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
-            {
-                desktop.Shutdown();
-            }
+            Trace.TraceError($"[Settings] Failed to restart Lumi: {error}");
+            return;
+        }
+
+        if (Avalonia.Application.Current?.ApplicationLifetime
+            is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.Shutdown();
         }
     }
 

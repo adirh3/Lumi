@@ -810,5 +810,16 @@
   "Update_CloseAppsAndRestart": "סגור אפליקציות והפעל מחדש",
   "Update_RetryRestart": "סגרתי אותן — נסה שוב",
   "Update_CancelRestart": "לא עכשיו",
-  "Update_BlockerCloseFailed": "לומי לא הצליחה לסגור את כל התהליכים. סגור ידנית את האפליקציות שנשארו ונסה שוב."
+  "Update_BlockerCloseFailed": "לומי לא הצליחה לסגור את כל התהליכים. סגור ידנית את האפליקציות שנשארו ונסה שוב.",
+
+  "Crash_WindowTitle": "דוח קריסה של לומי",
+  "Crash_Title": "לומי נתקלה בבעיה",
+  "Crash_Description": "לומי צריכה לפעול מחדש. האם לשלוח קודם את פרטי הקריסה לתמיכה בדוא״ל?",
+  "Crash_EmailHint": "ייתכן שיחלפו כמה שניות עד שאפליקציית הדוא״ל תופיע. היא תיפתח עם הודעה אל support@fluentsearch.net הכוללת את החריגה המלאה ומחסנית הקריאות שמוצגות למטה.",
+  "Crash_Details": "פרטי החריגה",
+  "Crash_Restart": "הפעל מחדש את לומי",
+  "Crash_SendAndRestart": "שלח משוב והפעל מחדש",
+  "Crash_OpeningEmail": "פותח את אפליקציית הדוא״ל… לומי תופעל מחדש בעוד רגע.",
+  "Crash_ActionFailed": "לא ניתן היה להשלים את הפעולה: {0}",
+  "Crash_ReporterLaunchFailed": "לומי לא הצליחה לפתוח את חלון דיווח הקריסה הנפרד: {0}"
 }

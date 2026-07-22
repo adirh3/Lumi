@@ -46,6 +46,14 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime crashDesktop
+            && Program.PendingCrashReport is { } crashReport)
+        {
+            InitializeCrashReporter(crashDesktop, crashReport);
+            base.OnFrameworkInitializationCompleted();
+            return;
+        }
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var dataStore = new DataStore();
@@ -274,6 +282,42 @@ public partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private void InitializeCrashReporter(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        CrashReportData crashReport)
+    {
+        Loc.Load(crashReport.Language);
+        RequestedThemeVariant = crashReport.IsDarkTheme ? ThemeVariant.Dark : ThemeVariant.Light;
+
+        var window = new CrashReportWindow(crashReport);
+        if (Loc.IsRightToLeft)
+            window.FlowDirection = Avalonia.Media.FlowDirection.RightToLeft;
+
+        desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
+        desktop.MainWindow = window;
+    }
+
+    internal bool TryShowCrashReportFallback(CrashReportData crashReport, string launchError)
+    {
+        if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            return false;
+
+        foreach (var window in _windows.ToList())
+            window.Hide();
+        foreach (var window in _chatWindows.Values.ToList())
+            window.Hide();
+
+        var crashWindow = new CrashReportWindow(crashReport, launchError);
+        if (Loc.IsRightToLeft)
+            crashWindow.FlowDirection = Avalonia.Media.FlowDirection.RightToLeft;
+
+        crashWindow.Closed += (_, _) => Environment.Exit(1);
+        desktop.MainWindow = crashWindow;
+        crashWindow.Show();
+        crashWindow.Activate();
+        return true;
     }
 
 #if DEBUG

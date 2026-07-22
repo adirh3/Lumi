@@ -810,5 +810,16 @@
   "Update_CloseAppsAndRestart": "Close apps & restart",
   "Update_RetryRestart": "I've closed them — try again",
   "Update_CancelRestart": "Not now",
-  "Update_BlockerCloseFailed": "Lumi couldn't close every process. Close the remaining apps manually and try again."
+  "Update_BlockerCloseFailed": "Lumi couldn't close every process. Close the remaining apps manually and try again.",
+
+  "Crash_WindowTitle": "Lumi crash report",
+  "Crash_Title": "Lumi ran into a problem",
+  "Crash_Description": "Lumi needs to restart. Would you like to email the crash details to support first?",
+  "Crash_EmailHint": "Your email app may take a few seconds to appear. It will open a message to support@fluentsearch.net with the full exception and stack trace shown below.",
+  "Crash_Details": "Exception details",
+  "Crash_Restart": "Restart Lumi",
+  "Crash_SendAndRestart": "Send feedback & restart",
+  "Crash_OpeningEmail": "Opening your email app… Lumi will restart in a moment.",
+  "Crash_ActionFailed": "Couldn't complete that action: {0}",
+  "Crash_ReporterLaunchFailed": "Lumi couldn't open the separate crash reporter: {0}"
 }
