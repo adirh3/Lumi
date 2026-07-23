@@ -260,7 +260,9 @@ public partial class App : Application
                 }, DispatcherPriority.Background);
 
 #if DEBUG
-                if (Program.UiHarnessOptions is { Enabled: true } uiHarnessOptions)
+                if (Program.MemoryHarnessOptions is { Enabled: true } memoryHarnessOptions)
+                    StartMemoryStressHarness(desktop, vm, dataStore, memoryHarnessOptions);
+                else if (Program.UiHarnessOptions is { Enabled: true } uiHarnessOptions)
                     StartUiResponsivenessHarness(desktop, vm, dataStore, uiHarnessOptions);
 
                 if (Program.AnimationLifecycleLeakReproEnabled)
@@ -324,6 +326,47 @@ public partial class App : Application
     }
 
 #if DEBUG
+    private void StartMemoryStressHarness(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        MainViewModel vm,
+        DataStore dataStore,
+        MemoryDiagnostics.MemoryHarnessOptions options)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(1200);
+                var sessionStore = _chatSessionStore
+                    ?? throw new InvalidOperationException("The chat session store is not initialized.");
+                var harness = new MemoryDiagnostics.MemoryStressHarness(
+                    vm,
+                    dataStore,
+                    sessionStore,
+                    options,
+                    snapshotDetachedWindows: () => _openChatWindows.ToArray(),
+                    isDetachedWindowTracked: window =>
+                        _openChatWindows.Contains(window)
+                        || _chatWindows.Values.Any(tracked => ReferenceEquals(tracked, window)),
+                    requestShutdown: exitCode => Dispatcher.UIThread.Post(() =>
+                    {
+                        try { Environment.ExitCode = exitCode; desktop.Shutdown(exitCode); }
+                        catch { /* already shutting down */ }
+                    }));
+                await harness.RunAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("[memory] Harness host failed: " + ex);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    try { Environment.ExitCode = 1; desktop.Shutdown(1); }
+                    catch { /* already shutting down */ }
+                });
+            }
+        });
+    }
+
     private void StartUiResponsivenessHarness(
         IClassicDesktopStyleApplicationLifetime desktop,
         MainViewModel vm,

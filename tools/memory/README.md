@@ -2,6 +2,50 @@
 
 This folder contains the repo-owned workflow for investigating memory leaks in Lumi's .NET/Avalonia desktop app.
 
+## Automated stress harness
+
+Run the headed DEBUG harness first. It uses an isolated app-data directory, seeds deterministic
+heavy chats, repeats real Lumi UI/lifecycle operations, forces full compacting collections between
+cycles, and writes a JSON report under `diagnostics\memory`.
+
+```powershell
+.\tools\memory\Run-LumiMemoryStress.ps1
+```
+
+The default suite covers:
+
+- Unique attachment thumbnails (detects process-lifetime image cache retention).
+- Chat surface eviction, including message view-models, transcript turns, and realized hosts.
+- Repeated new-chat draft surface replacement.
+- Heavy transcript rebuild replacement.
+- Detached chat window open/close lifetime.
+
+Run one scenario while investigating:
+
+```powershell
+.\tools\memory\Run-LumiMemoryStress.ps1 -Scenarios chat-surfaces -Cycles 10 -ActionsPerCycle 20
+```
+
+Available scenario IDs are `attachment-thumbnails`, `chat-surfaces`, `draft-surfaces`,
+`transcript-rebuild`, and `detached-chat-window`. Unknown or unavailable IDs fail the harness
+instead of silently running a partial filter.
+
+The process exits:
+
+- `0` when every tested scenario passes.
+- `3` when expected-dead weak references survive or managed memory keeps growing above both the
+  configured total-growth and per-cycle slope gates.
+- `1` when the harness itself fails.
+
+The JSON report records managed heap, GC heap/commit/fragmentation, working set, private bytes,
+collection counts, threads, handles, tracked weak references, retained reference kinds, and trend
+slopes for every measured cycle. Setup, filter, and orchestration failures also emit a JSON failure
+report when the configured output location is writable.
+
+Eviction/replacement scenarios enforce enough work to produce expected-dead references even when a
+smaller `-ActionsPerCycle` value is requested, and fail rather than reporting a vacuous pass if the
+target controls were not realized.
+
 ## One-time setup
 
 ```powershell

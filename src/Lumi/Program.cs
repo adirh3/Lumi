@@ -30,6 +30,9 @@ class Program
     /// <summary>Parsed options for the UI responsiveness harness (enabled via CLI flag, debug only).</summary>
     public static UiPerf.UiHarnessOptions? UiHarnessOptions { get; private set; }
 
+    /// <summary>Parsed options for the automated memory stress harness (debug only).</summary>
+    public static MemoryDiagnostics.MemoryHarnessOptions? MemoryHarnessOptions { get; private set; }
+
     /// <summary>When true, runs the DEBUG-only animation lifecycle retention proof once the window opens.</summary>
     public static bool AnimationLifecycleLeakReproEnabled { get; private set; }
 #endif
@@ -62,7 +65,15 @@ class Program
         if (UiHarnessOptions.Enabled)
         {
             AttachParentConsole();
-            EnsureIsolatedUiHarnessAppDataDir();
+            EnsureIsolatedHarnessAppDataDir("ui-perf");
+            SkipOnboarding = true;
+        }
+
+        MemoryHarnessOptions = MemoryDiagnostics.MemoryHarnessOptions.Parse(args);
+        if (MemoryHarnessOptions.Enabled)
+        {
+            AttachParentConsole();
+            EnsureIsolatedHarnessAppDataDir("memory-stress");
             SkipOnboarding = true;
         }
 
@@ -72,7 +83,7 @@ class Program
         if (AnimationLifecycleLeakReproEnabled)
         {
             AttachParentConsole();
-            EnsureIsolatedUiHarnessAppDataDir();
+            EnsureIsolatedHarnessAppDataDir("animation-leak-repro");
             SkipOnboarding = true;
         }
 
@@ -341,19 +352,22 @@ class Program
     }
 
     /// <summary>Points Lumi at a throwaway app-data directory so the harness never touches real data.</summary>
-    private static void EnsureIsolatedUiHarnessAppDataDir()
+    private static void EnsureIsolatedHarnessAppDataDir(string harnessName)
     {
         var existing = Environment.GetEnvironmentVariable("LUMI_APPDATA_DIR");
         if (!string.IsNullOrWhiteSpace(existing))
         {
-            Console.WriteLine($"[ui-perf] Using caller-provided LUMI_APPDATA_DIR: {existing}");
+            Console.WriteLine($"[{harnessName}] Using caller-provided LUMI_APPDATA_DIR: {existing}");
             return;
         }
 
-        var dir = Path.Combine(Path.GetTempPath(), "Lumi-ui-perf-appdata", Guid.NewGuid().ToString("N"));
+        var dir = Path.Combine(
+            Path.GetTempPath(),
+            $"Lumi-{harnessName}-appdata",
+            Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         Environment.SetEnvironmentVariable("LUMI_APPDATA_DIR", dir);
-        Console.WriteLine($"[ui-perf] Using isolated app-data dir: {dir}");
+        Console.WriteLine($"[{harnessName}] Using isolated app-data dir: {dir}");
     }
 #endif
 

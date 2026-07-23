@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
@@ -12,8 +11,13 @@ namespace Lumi.Services;
 /// </summary>
 internal static class FileIconHelper
 {
-    private static readonly ConcurrentDictionary<string, Avalonia.Media.Imaging.Bitmap?> IconCache = new();
-    private static readonly ConcurrentDictionary<string, Avalonia.Media.Imaging.Bitmap?> ThumbnailCache = new();
+    internal const int IconCacheCapacity = 128;
+    internal const int ThumbnailCacheCapacity = 64;
+
+    private static readonly WeakBitmapCache IconCache =
+        new(IconCacheCapacity, StringComparer.OrdinalIgnoreCase);
+    private static readonly WeakBitmapCache ThumbnailCache =
+        new(ThumbnailCacheCapacity, StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -28,9 +32,13 @@ internal static class FileIconHelper
 
         // For image files, generate a thumbnail from the file content
         if (ImageExtensions.Contains(ext) && File.Exists(filePath))
-            return ThumbnailCache.GetOrAdd(filePath, LoadThumbnail);
+        {
+            var thumbnail = ThumbnailCache.GetOrCreate(filePath, LoadThumbnail);
+            if (thumbnail is not null)
+                return thumbnail;
+        }
 
-        return IconCache.GetOrAdd(ext, GetIconForExtension);
+        return IconCache.GetOrCreate(ext, GetIconForExtension);
     }
 
     private static Avalonia.Media.Imaging.Bitmap? LoadThumbnail(string filePath)
@@ -41,18 +49,35 @@ internal static class FileIconHelper
             var full = new Avalonia.Media.Imaging.Bitmap(stream);
             // Decode at a small size to save memory (max 32px on longest side)
             var maxDim = Math.Max(full.PixelSize.Width, full.PixelSize.Height);
-            if (maxDim <= 32) return full;
+            if (maxDim <= 32)
+                return full;
 
-            stream.Seek(0, SeekOrigin.Begin);
-            return Avalonia.Media.Imaging.Bitmap.DecodeToWidth(stream,
-                Math.Min(32, full.PixelSize.Width));
+            try
+            {
+                stream.Seek(0, SeekOrigin.Begin);
+                var targetWidth = Math.Max(
+                    1,
+                    (int)Math.Round(full.PixelSize.Width * (32d / maxDim)));
+                return Avalonia.Media.Imaging.Bitmap.DecodeToWidth(stream, targetWidth);
+            }
+            finally
+            {
+                full.Dispose();
+            }
         }
         catch
         {
-            // Fall back to OS icon
-            var ext = Path.GetExtension(filePath)?.ToLowerInvariant() ?? "";
-            return IconCache.GetOrAdd(ext, GetIconForExtension);
+            return null;
         }
+    }
+
+    internal static (int IconEntries, int ThumbnailEntries) CaptureCacheDiagnostics()
+        => (IconCache.Count, ThumbnailCache.Count);
+
+    internal static void ClearCachesForTests()
+    {
+        IconCache.Clear();
+        ThumbnailCache.Clear();
     }
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416")]
@@ -120,4 +145,113 @@ internal static class FileIconHelper
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool DestroyIcon(IntPtr hIcon);
+
+    /// <summary>
+    /// Keeps a bounded set of reusable lookup keys without making the cache the lifetime owner of
+    /// native-backed bitmaps. An evicted or collected bitmap is recreated on the next request.
+    /// </summary>
+    private sealed class WeakBitmapCache
+    {
+        private readonly int _capacity;
+        private readonly object _gate = new();
+        private readonly Dictionary<string, CacheEntry> _entries;
+        private readonly LinkedList<string> _lru = new();
+
+        private sealed record CacheEntry(
+            WeakReference<Avalonia.Media.Imaging.Bitmap> Reference,
+            LinkedListNode<string> Node);
+
+        public WeakBitmapCache(int capacity, IEqualityComparer<string> comparer)
+        {
+            _capacity = capacity;
+            _entries = new Dictionary<string, CacheEntry>(comparer);
+        }
+
+        public int Count
+        {
+            get
+            {
+                lock (_gate)
+                    return _entries.Count;
+            }
+        }
+
+        public Avalonia.Media.Imaging.Bitmap? GetOrCreate(
+            string key,
+            Func<string, Avalonia.Media.Imaging.Bitmap?> factory)
+        {
+            lock (_gate)
+            {
+                if (TryGetAliveValue(key, out var cached))
+                    return cached;
+            }
+
+            var created = factory(key);
+            if (created is null)
+                return null;
+
+            lock (_gate)
+            {
+                if (TryGetAliveValue(key, out var cached))
+                {
+                    created.Dispose();
+                    return cached;
+                }
+
+                RemoveEntry(key);
+                var node = _lru.AddLast(key);
+                _entries[key] = new CacheEntry(
+                    new WeakReference<Avalonia.Media.Imaging.Bitmap>(created),
+                    node);
+                Trim();
+                return created;
+            }
+        }
+
+        public void Clear()
+        {
+            lock (_gate)
+            {
+                _entries.Clear();
+                _lru.Clear();
+            }
+        }
+
+        private bool TryGetAliveValue(
+            string key,
+            out Avalonia.Media.Imaging.Bitmap? bitmap)
+        {
+            if (_entries.TryGetValue(key, out var entry))
+            {
+                if (entry.Reference.TryGetTarget(out bitmap))
+                {
+                    _lru.Remove(entry.Node);
+                    _lru.AddLast(entry.Node);
+                    return true;
+                }
+
+                RemoveEntry(key);
+            }
+
+            bitmap = null;
+            return false;
+        }
+
+        private void Trim()
+        {
+            while (_entries.Count > _capacity && _lru.First is { } oldest)
+            {
+                _lru.RemoveFirst();
+                _entries.Remove(oldest.Value);
+            }
+        }
+
+        private void RemoveEntry(string key)
+        {
+            if (!_entries.Remove(key, out var entry))
+                return;
+
+            _lru.Remove(entry.Node);
+        }
+    }
 }
