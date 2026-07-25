@@ -50,7 +50,7 @@ public sealed class SearchOverlayKeyboardTests
 
             var input = overlay.GetVisualDescendants()
                 .OfType<TextBox>()
-                .Single(control => control.Name == "SearchInput");
+                .Single(control => control.Name == "SearchOverlayInput");
             input.Focus();
             await PumpAsync();
             inputFocused = input.IsFocused;
@@ -103,7 +103,7 @@ public sealed class SearchOverlayKeyboardTests
 
             var input = overlay.GetVisualDescendants()
                 .OfType<TextBox>()
-                .Single(control => control.Name == "SearchInput");
+                .Single(control => control.Name == "SearchOverlayInput");
             input.Focus();
             await PumpAsync();
             inputFocused = input.IsFocused;
@@ -143,7 +143,7 @@ public sealed class SearchOverlayKeyboardTests
 
             var input = overlay.GetVisualDescendants()
                 .OfType<TextBox>()
-                .Single(control => control.Name == "SearchInput");
+                .Single(control => control.Name == "SearchOverlayInput");
             input.Focus();
             await PumpAsync();
             inputFocused = input.IsFocused;

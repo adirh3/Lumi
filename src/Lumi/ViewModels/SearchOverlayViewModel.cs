@@ -67,6 +67,7 @@ public partial class SearchOverlayViewModel : ObservableObject
     private readonly GlobalSearchService _searchService;
     private readonly Func<int> _getCurrentNavIndex;
     private CancellationTokenSource? _searchCts;
+    private CancellationTokenSource? _indicatorDelayCts;
     private long _searchRequestId;
     private long _lastAppliedRequestId = -1;
     private bool _hasUserNavigatedSelection;
@@ -96,6 +97,19 @@ public partial class SearchOverlayViewModel : ObservableObject
     [ObservableProperty] private int _selectedIndex;
     [ObservableProperty] private bool _isSearching;
     [ObservableProperty] private bool _isDeepSearching;
+
+    /// <summary>
+    /// Debounced version of <see cref="IsSearchPending"/> used by the UI. Every keystroke re-queues a
+    /// search that usually resolves in a few milliseconds, so binding loading affordances straight to
+    /// the raw flag makes them strobe while typing.
+    /// </summary>
+    [ObservableProperty] private bool _isSearchIndicatorVisible;
+
+    /// <summary>
+    /// How long a search must stay pending before the loading affordances appear. Overridable so tests
+    /// can exercise the quiet window without depending on wall-clock timing.
+    /// </summary>
+    internal int SearchIndicatorDelayMs { get; set; } = 220;
 
     private IReadOnlyList<SearchResultGroup> _resultGroups = Array.Empty<SearchResultGroup>();
     public IReadOnlyList<SearchResultGroup> ResultGroups
@@ -756,17 +770,20 @@ public partial class SearchOverlayViewModel : ObservableObject
 
         var hasQuery = !string.IsNullOrWhiteSpace(SearchQuery);
         if (!hasQuery)
-            return IsSearching ? "Loading recent items..." : "Recent items";
+            return IsSearchIndicatorVisible ? "Loading recent items..." : "Recent items";
 
-        if (IsSearching)
-            return ResultCount == 0 ? "Searching..." : $"{FormatResultCount()} · refining...";
+        if (!IsSearchIndicatorVisible)
+        {
+            if (ResultCount > 0)
+                return FormatResultCount();
 
-        if (IsDeepSearching)
-            return ResultCount == 0
-                ? "Searching all history..."
-                : $"{FormatResultCount()} · checking older chats...";
+            // A fast search is still resolving: stay quiet instead of flashing "No results".
+            return IsSearchPending ? "" : "No results";
+        }
 
-        return ResultCount == 0 ? "No results" : FormatResultCount();
+        // The individual phase flags flip on every keystroke, so a phase-specific message would swap back
+        // and forth at typing cadence. One stable message covers the whole debounced loading window.
+        return ResultCount == 0 ? "Searching..." : $"{FormatResultCount()} · searching...";
     }
 
     private string FormatResultCount()
@@ -806,8 +823,66 @@ public partial class SearchOverlayViewModel : ObservableObject
     private void NotifySearchStatusChanged()
     {
         OnPropertyChanged(nameof(IsSearchPending));
+        UpdateSearchIndicator();
         OnPropertyChanged(nameof(SearchStatusText));
     }
+
+    /// <summary>
+    /// Shows the loading affordances only once a search is slow enough for the user to notice it,
+    /// so typing does not flash the progress line and the "Searching..." states on every keystroke.
+    /// </summary>
+    private void UpdateSearchIndicator()
+    {
+        if (!IsSearchPending)
+        {
+            CancelIndicatorDelay();
+            IsSearchIndicatorVisible = false;
+            return;
+        }
+
+        if (IsSearchIndicatorVisible || _indicatorDelayCts is not null)
+            return;
+
+        var cts = new CancellationTokenSource();
+        _indicatorDelayCts = cts;
+        _ = ShowSearchIndicatorAfterDelayAsync(cts);
+    }
+
+    private async Task ShowSearchIndicatorAfterDelayAsync(CancellationTokenSource cts)
+    {
+        try
+        {
+            await Task.Delay(SearchIndicatorDelayMs, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (!ReferenceEquals(_indicatorDelayCts, cts))
+                return;
+
+            _indicatorDelayCts = null;
+            cts.Dispose();
+
+            if (IsSearchPending)
+                IsSearchIndicatorVisible = true;
+        });
+    }
+
+    private void CancelIndicatorDelay()
+    {
+        if (_indicatorDelayCts is not { } cts)
+            return;
+
+        _indicatorDelayCts = null;
+        cts.Cancel();
+        cts.Dispose();
+    }
+
+    partial void OnIsSearchIndicatorVisibleChanged(bool value) => OnPropertyChanged(nameof(SearchStatusText));
 
     private static SearchResultItem ToResultItem(GlobalSearchMatch match)
     {

@@ -40,7 +40,7 @@ public partial class SearchOverlay : UserControl
         AvaloniaXamlLoader.Load(this);
         _scrim = this.FindControl<Border>("Scrim");
         _searchCard = this.FindControl<Border>("OverlayCard");
-        _searchInput = this.FindControl<TextBox>("SearchInput");
+        _searchInput = this.FindControl<TextBox>("SearchOverlayInput");
         _resultsList = this.FindControl<ItemsControl>("ResultsList");
         _resultsScroller = this.FindControl<ScrollViewer>("ResultsScroll");
         _emptyState = this.FindControl<Control>("EmptyState");
@@ -108,6 +108,7 @@ public partial class SearchOverlay : UserControl
 
             case nameof(SearchOverlayViewModel.IsSearching):
             case nameof(SearchOverlayViewModel.IsDeepSearching):
+            case nameof(SearchOverlayViewModel.IsSearchIndicatorVisible):
                 UpdateEmptyState();
                 break;
 
@@ -155,8 +156,10 @@ public partial class SearchOverlay : UserControl
         if (_emptyState is not null)
             _emptyState.IsVisible = !vm.IsSearchPending && hasQuery && noResults;
 
+        // Gated on the debounced flag so a fast search leaves the body untouched instead of
+        // flashing the centered "Searching..." panel between keystrokes.
         if (_searchingState is not null)
-            _searchingState.IsVisible = vm.IsSearchPending && hasQuery && noResults;
+            _searchingState.IsVisible = vm.IsSearchIndicatorVisible && hasQuery && noResults;
     }
 
     private void UpdateSelectionVisuals()

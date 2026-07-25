@@ -97,22 +97,50 @@ public class SearchOverlayViewModelTests
     public void SearchStatusText_ExplainsProgressAndVisibleResultLimit()
     {
         var vm = CreateViewModel();
-        vm.IsOpen = true;
+        vm.SearchIndicatorDelayMs = int.MaxValue;
         vm.SearchQuery = "needle";
+        vm.IsOpen = true;
         vm.IsSearching = true;
+        vm.IsDeepSearching = true;
+        vm.IsSearchIndicatorVisible = true;
 
         Assert.Equal("Searching...", vm.SearchStatusText);
 
         vm.FlatResults = [Result("One")];
         vm.TotalResultCount = 5;
-        Assert.Equal("1 of 5 results · refining...", vm.SearchStatusText);
+        Assert.Equal("1 of 5 results · searching...", vm.SearchStatusText);
 
+        // A phase finishing mid-burst must not swap the message: the footer used to alternate between two
+        // phase labels on every keystroke because the individual phase flags flip per search.
         vm.IsSearching = false;
-        vm.IsDeepSearching = true;
-        Assert.Equal("1 of 5 results · checking older chats...", vm.SearchStatusText);
+        Assert.Equal("1 of 5 results · searching...", vm.SearchStatusText);
 
         vm.IsDeepSearching = false;
         Assert.Equal("1 of 5 results", vm.SearchStatusText);
+    }
+
+    // Typing used to strobe the progress line, the centered "Searching..." panel and the footer text on
+    // every keystroke, so the loading affordances are debounced and the status text stays quiet until then.
+    [Fact]
+    public void SearchStatusText_StaysQuietUntilTheLoadingIndicatorAppears()
+    {
+        var vm = CreateViewModel();
+        vm.SearchIndicatorDelayMs = int.MaxValue;
+        vm.SearchQuery = "needle";
+        vm.IsOpen = true;
+        vm.IsSearching = true;
+
+        Assert.False(vm.IsSearchIndicatorVisible);
+        Assert.Equal("", vm.SearchStatusText);
+
+        vm.IsSearchIndicatorVisible = true;
+        Assert.Equal("Searching...", vm.SearchStatusText);
+
+        vm.IsSearching = false;
+        vm.IsDeepSearching = false;
+
+        Assert.False(vm.IsSearchIndicatorVisible);
+        Assert.Equal("No results", vm.SearchStatusText);
     }
 
     [Fact]
