@@ -1888,6 +1888,7 @@
                              FileSelectedCommand="{Binding HandleFileSelectionCommand}"
                              ClipboardPasteCommand="{Binding RequestClipboardPasteCommand}"
                              Models="{Binding AvailableModels}"
+                             ModelPickerOpenedCommand="{Binding RefreshModelCatalogCommand}"
                              SelectedModel="{Binding SelectedModel, Mode=TwoWay}"
                              QualityLevels="{Binding QualityLevels}"
                              SelectedQuality="{Binding SelectedQuality, Mode=TwoWay}"

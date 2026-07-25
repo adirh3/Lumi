@@ -156,13 +156,27 @@ public partial class ChatViewModel
         IReadOnlySet<string>? longContextModelIds = null,
         IReadOnlyDictionary<string, ModelContextWindowLimits>? contextWindowLimits = null)
     {
+        // Populate fresh instances and swap them in, rather than clearing and refilling the live
+        // ones. A catalog refresh now lands while the user is interacting, so another surface may be
+        // copying this catalog at the same time and must never observe a half-filled dictionary.
+        var reasoningEfforts = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var defaultEfforts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var contextTokenLimits = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        var longContextTokenLimits = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
         ModelSelectionHelper.ApplyModelCapabilities(
             models,
-            _modelReasoningEfforts,
-            _modelDefaultEfforts,
-            _modelContextTokenLimits);
-        ApplyContextWindowLimits(contextWindowLimits);
+            reasoningEfforts,
+            defaultEfforts,
+            contextTokenLimits);
+        ApplyContextWindowLimits(contextWindowLimits, contextTokenLimits, longContextTokenLimits);
+
+        _modelReasoningEfforts = reasoningEfforts;
+        _modelDefaultEfforts = defaultEfforts;
+        _modelContextTokenLimits = contextTokenLimits;
+        _modelLongContextTokenLimits = longContextTokenLimits;
         _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
+
         UpdateQualityLevels(SelectedModel);
         UpdateContextWindowTiers(SelectedModel);
 
@@ -170,6 +184,41 @@ public partial class ChatViewModel
         {
             var runtime = GetOrCreateRuntimeState(chat.Id);
             ApplyKnownContextTokenLimit(chat, runtime, ResolveSelectedModelForChat(chat), updateDisplayed: true);
+        }
+    }
+
+    /// <summary>
+    /// Replaces this surface's model list with <paramref name="modelIds"/> using a minimal diff, so a
+    /// live catalog refresh never disturbs an open picker. The current selection is kept when it is
+    /// still offered; otherwise <paramref name="fallbackModel"/> takes over.
+    /// </summary>
+    public void ApplyAvailableModels(IReadOnlyList<string> modelIds, string? fallbackModel)
+    {
+        var selected = SelectedModel;
+        var keepsSelection = !string.IsNullOrWhiteSpace(selected)
+            && modelIds.Contains(selected, StringComparer.Ordinal);
+
+        ModelSelectionHelper.SyncAvailableModels(AvailableModels, modelIds, keepsSelection ? selected : null);
+
+        if (!keepsSelection && !string.IsNullOrWhiteSpace(fallbackModel))
+            SetSelectedModelValue(fallbackModel);
+    }
+
+    /// <summary>
+    /// Asks the Copilot service for a fresher model catalog. Bound to the composer model picker so a
+    /// model released while Lumi was running shows up the moment the user opens the picker; the
+    /// service throttles the actual RPC and only publishes a change when the catalog really differs.
+    /// </summary>
+    [RelayCommand]
+    private async Task RefreshModelCatalogAsync()
+    {
+        try
+        {
+            await _copilotService.RefreshModelCatalogAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Lumi] Composer model catalog refresh failed: {ex.Message}");
         }
     }
 
@@ -220,9 +269,11 @@ public partial class ChatViewModel
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-    private void ApplyContextWindowLimits(IReadOnlyDictionary<string, ModelContextWindowLimits>? contextWindowLimits)
+    private static void ApplyContextWindowLimits(
+        IReadOnlyDictionary<string, ModelContextWindowLimits>? contextWindowLimits,
+        IDictionary<string, long> contextTokenLimits,
+        IDictionary<string, long> longContextTokenLimits)
     {
-        _modelLongContextTokenLimits.Clear();
         if (contextWindowLimits is null)
             return;
 
@@ -232,12 +283,12 @@ public partial class ChatViewModel
                 continue;
 
             if (limits.Default > 0)
-                _modelContextTokenLimits[modelId] = limits.Default;
+                contextTokenLimits[modelId] = limits.Default;
             else if (limits.LongContext is > 0)
-                _modelContextTokenLimits.Remove(modelId);
+                contextTokenLimits.Remove(modelId);
 
             if (limits.LongContext is > 0 and var longContextLimit)
-                _modelLongContextTokenLimits[modelId] = longContextLimit;
+                longContextTokenLimits[modelId] = longContextLimit;
         }
     }
 

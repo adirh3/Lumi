@@ -883,15 +883,27 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     public void UpdateAvailableModels(System.Collections.Generic.List<string> models)
     {
-        AvailableModels.Clear();
-        foreach (var m in models)
-            AvailableModels.Add(m);
-
-        if (!string.IsNullOrWhiteSpace(PreferredModel) && !AvailableModels.Contains(PreferredModel))
-            AvailableModels.Add(PreferredModel);
-
+        ModelSelectionHelper.SyncAvailableModels(AvailableModels, models, PreferredModel);
         UpdateQualityLevels(PreferredModel);
         UpdateContextWindowTiers(PreferredModel);
+    }
+
+    /// <summary>
+    /// Asks the Copilot service for a fresher model catalog. Bound to the preferred-model picker so
+    /// a model released while Lumi was running shows up the moment the user opens the picker; the
+    /// service throttles the actual RPC and only publishes a change when the catalog really differs.
+    /// </summary>
+    [RelayCommand]
+    private async Task RefreshModelCatalogAsync()
+    {
+        try
+        {
+            await _copilotService.RefreshModelCatalogAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Lumi] Settings model catalog refresh failed: {ex.Message}");
+        }
     }
 
     public void UpdateModelCapabilities(

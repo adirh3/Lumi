@@ -299,6 +299,7 @@
                             IsModified="{Binding IsDefaultModelSelectionModified}">
             <sc:StrataModelPicker Width="300"
                                   Models="{Binding AvailableModels}"
+                                  PickerOpenedCommand="{Binding RefreshModelCatalogCommand}"
                                   SelectedModel="{Binding PreferredModel, Mode=TwoWay}"
                                   QualityLevels="{Binding QualityLevels}"
                                   SelectedQuality="{Binding SelectedQuality, Mode=TwoWay}"

@@ -60,8 +60,7 @@ public class CopilotService : IAsyncDisposable
     private CopilotClient? _client;
     /// <summary>Exposes the underlying CopilotClient for advanced usage (e.g. test harness).</summary>
     public CopilotClient? Client => _client;
-    private List<ModelInfo>? _models;
-    private ModelContextWindowCatalog? _contextWindowCatalog;
+    private readonly ModelCatalogCache _modelCatalog;
     private string? _fastestModelId;
     private long _connectionGeneration;
     private ConnectionState _state = ConnectionState.Disconnected;
@@ -79,6 +78,23 @@ public class CopilotService : IAsyncDisposable
     // sequencing destroy-before-resume across surfaces. Concurrent because releases and resumes run
     // from independent surfaces / continuations.
     private readonly ConcurrentDictionary<string, Task> _pendingReleasesBySessionId = new(StringComparer.Ordinal);
+
+    public CopilotService()
+    {
+        _modelCatalog = new ModelCatalogCache(
+            async ct => (await RequireClient().ListModelsAsync(ct).ConfigureAwait(false)).ToList(),
+            ct => LoadContextWindowCatalogAsync(RequireClient(), ct));
+
+        _modelCatalog.Changed += snapshot =>
+        {
+            // A new or removed model can change which model is the cheapest fast one.
+            _fastestModelId = null;
+            ModelCatalogChanged?.Invoke(snapshot);
+        };
+    }
+
+    private CopilotClient RequireClient()
+        => _client ?? throw new InvalidOperationException("Not connected");
 
     /// <summary>
     /// Removes a session handle from the SDK client's strong registry without sending
@@ -128,6 +144,13 @@ public class CopilotService : IAsyncDisposable
     /// <summary>Fires when a session is deleted on the server side (e.g. by another client).
     /// Subscribers receive the deleted session ID so they can detach cleanly.</summary>
     public event Action<string>? SessionDeletedRemotely;
+
+    /// <summary>
+    /// Fires when a catalog refresh discovered a model list that differs from the one currently
+    /// cached — e.g. a newly released model. Never fires when the refetched catalog is identical, so
+    /// subscribers can rebind unconditionally without causing UI churn. Raised off the UI thread.
+    /// </summary>
+    public event Action<ModelCatalogSnapshot>? ModelCatalogChanged;
 
     public bool IsConnected => _client is not null && State == ConnectionState.Connected;
 
@@ -194,9 +217,7 @@ public class CopilotService : IAsyncDisposable
 
             _client = newClient;
             _state = ConnectionState.Connected;
-            _models = null;
-            _contextWindowCatalog = null;
-            _fastestModelId = null;
+            InvalidateModelCatalog();
             await _suggestionGate.WaitAsync(ct).ConfigureAwait(false);
             try
             {
@@ -265,9 +286,7 @@ public class CopilotService : IAsyncDisposable
             oldClient = _client;
             _client = null;
             _state = ConnectionState.Disconnected;
-            _models = null;
-            _contextWindowCatalog = null;
-            _fastestModelId = null;
+            InvalidateModelCatalog();
             Interlocked.Increment(ref _connectionGeneration);
         }
         finally
@@ -465,26 +484,44 @@ public class CopilotService : IAsyncDisposable
         CliProcessExited?.Invoke(exitedGeneration);
     }
 
-    public async Task<List<ModelInfo>> GetModelsAsync(CancellationToken ct = default)
-    {
-        if (_client is null) throw new InvalidOperationException("Not connected");
-        _models ??= (await _client.ListModelsAsync(ct)).ToList();
-        return _models;
-    }
+    public Task<List<ModelInfo>> GetModelsAsync(CancellationToken ct = default)
+        => _modelCatalog.GetModelsAsync(ct);
 
     public async Task<IReadOnlySet<string>> GetLongContextModelIdsAsync(CancellationToken ct = default)
         => (await GetContextWindowCatalogAsync(ct).ConfigureAwait(false)).LongContextModelIds;
 
-    public async Task<ModelContextWindowCatalog> GetContextWindowCatalogAsync(CancellationToken ct = default)
-    {
-        if (_client is null) throw new InvalidOperationException("Not connected");
-        if (_contextWindowCatalog is not null)
-            return _contextWindowCatalog;
+    public Task<ModelContextWindowCatalog> GetContextWindowCatalogAsync(CancellationToken ct = default)
+        => _modelCatalog.GetContextWindowsAsync(ct);
 
+    /// <summary>
+    /// Asks the catalog cache for a fresher model list, raising <see cref="ModelCatalogChanged"/> when
+    /// it really differs, so newly released models appear without restarting Lumi.
+    /// </summary>
+    /// <param name="force">Bypass the freshness window (used by explicit user-driven refreshes).</param>
+    /// <returns>True when the catalog changed and subscribers were notified.</returns>
+    public Task<bool> RefreshModelCatalogAsync(bool force = false, CancellationToken ct = default)
+        => IsConnected ? _modelCatalog.RefreshAsync(force, ct) : Task.FromResult(false);
+
+    private void InvalidateModelCatalog()
+    {
+        _modelCatalog.Invalidate();
+        _fastestModelId = null;
+    }
+
+    /// <summary>
+    /// Reads the context-window metadata exposed only by the raw models RPC. Returns null when the
+    /// fetch failed, so callers can tell "the CLI did not answer" apart from "there is genuinely no
+    /// long-context data" — overwriting a good catalog with an empty one would silently strip long
+    /// context support from every model.
+    /// </summary>
+    private static async Task<ModelContextWindowCatalog?> LoadContextWindowCatalogAsync(
+        CopilotClient client,
+        CancellationToken ct)
+    {
         try
         {
 #pragma warning disable GHCP001
-            var rawModels = await _client.Rpc.Models.ListAsync(null, ct).ConfigureAwait(false);
+            var rawModels = await client.Rpc.Models.ListAsync(null, ct).ConfigureAwait(false);
 #pragma warning restore GHCP001
             var longContextModelIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var limits = new Dictionary<string, ModelContextWindowLimits>(StringComparer.OrdinalIgnoreCase);
@@ -508,7 +545,7 @@ public class CopilotService : IAsyncDisposable
                 }
             }
 
-            _contextWindowCatalog = new ModelContextWindowCatalog(longContextModelIds, limits);
+            return new ModelContextWindowCatalog(longContextModelIds, limits);
         }
         catch (OperationCanceledException)
         {
@@ -517,12 +554,8 @@ public class CopilotService : IAsyncDisposable
         catch (Exception ex)
         {
             Debug.WriteLine($"Failed to load context window model catalog: {ex}");
-            _contextWindowCatalog = new ModelContextWindowCatalog(
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                new Dictionary<string, ModelContextWindowLimits>(StringComparer.OrdinalIgnoreCase));
+            return null;
         }
-
-        return _contextWindowCatalog;
     }
 
     private static long NormalizeContextMax(double? tokens)

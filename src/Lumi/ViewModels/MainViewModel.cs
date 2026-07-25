@@ -358,6 +358,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         };
         JobsVM.OpenChatRequested += jobChatId => _ = OpenChatByIdAsync(jobChatId);
         _backgroundJobService.JobsChanged += OnBackgroundJobServiceJobsChanged;
+        _copilotService.ModelCatalogChanged += OnModelCatalogChanged;
 
         SettingsVM.SettingsChanged += () =>
         {
@@ -619,6 +620,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
         _searchIndexCts.Dispose();
         _backgroundJobService.JobsChanged -= OnBackgroundJobServiceJobsChanged;
+        _copilotService.ModelCatalogChanged -= OnModelCatalogChanged;
         _chatSessionStore.SurfaceFeatureManagementStateChanged -= OnChatFeatureManagementStateChanged;
         _chatOrchestrationService.ChatsChanged -= OnOrchestrationChatsChanged;
         if (_ownsBackgroundJobService)
@@ -653,32 +655,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
             var models = await _copilotService.GetModelsAsync();
             var contextWindowCatalog = await _copilotService.GetContextWindowCatalogAsync();
-            var longContextModelIds = contextWindowCatalog.LongContextModelIds;
-            var modelIds = models.Select(m => m.Id).ToList();
 
             IsConnected = true;
             ConnectionStatus = Loc.Status_Connected;
 
-            // Auto-select best model on clean state (no user preference saved)
-            var selected = ChatVM.SelectedModel;
-            var isCleanState = string.IsNullOrWhiteSpace(selected)
-                || !modelIds.Contains(selected);
-            if (isCleanState)
-                selected = ChatViewModel.PickBestModel(modelIds);
-
-            _chatSessionStore.ApplyToSurfaces(surface =>
-            {
-                surface.AvailableModels.Clear();
-                foreach (var id in modelIds)
-                    surface.AvailableModels.Add(id);
-                surface.UpdateModelCapabilities(models, longContextModelIds, contextWindowCatalog.Limits);
-                surface.SelectedModel = selected;
-            });
-            SettingsVM.UpdateModelCapabilities(models, longContextModelIds);
-
-            SettingsVM.UpdateAvailableModels(modelIds);
-            if (isCleanState && selected is not null)
-                SettingsVM.PreferredModel = selected;
+            ApplyModelCatalog(models, contextWindowCatalog, resetSurfaceSelections: true);
 
             // Refresh account quota in background
             _ = ChatVM.RefreshQuotaAsync();
@@ -696,6 +677,62 @@ public partial class MainViewModel : ObservableObject, IDisposable
             IsConnecting = false;
             _isRefreshingCopilotState = false;
         }
+    }
+
+    /// <summary>
+    /// Pushes a model catalog into every chat surface and Settings.
+    /// </summary>
+    /// <param name="resetSurfaceSelections">
+    /// True on (re)connect, where every surface adopts the resolved default model. False for a live
+    /// catalog refresh, where each surface keeps the model the user already chose and only falls
+    /// back when that model is no longer offered.
+    /// </param>
+    private void ApplyModelCatalog(
+        List<GitHub.Copilot.ModelInfo> models,
+        ModelContextWindowCatalog contextWindowCatalog,
+        bool resetSurfaceSelections)
+    {
+        var longContextModelIds = contextWindowCatalog.LongContextModelIds;
+        var modelIds = models
+            .Select(m => m.Id)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToList();
+
+        // Auto-select best model on clean state (no user preference saved)
+        var selected = ChatVM.SelectedModel;
+        var isCleanState = string.IsNullOrWhiteSpace(selected)
+            || !modelIds.Contains(selected);
+        if (isCleanState)
+            selected = ChatViewModel.PickBestModel(modelIds);
+
+        _chatSessionStore.ApplyToSurfaces(surface =>
+        {
+            surface.UpdateModelCapabilities(models, longContextModelIds, contextWindowCatalog.Limits);
+            surface.ApplyAvailableModels(modelIds, selected);
+            if (resetSurfaceSelections)
+                surface.SelectedModel = selected;
+        });
+
+        SettingsVM.UpdateModelCapabilities(models, longContextModelIds);
+        SettingsVM.UpdateAvailableModels(modelIds);
+        if (isCleanState && selected is not null)
+            SettingsVM.PreferredModel = selected;
+    }
+
+    /// <summary>
+    /// Applies a catalog the Copilot service refreshed on demand (e.g. when the user opened the model
+    /// picker) after a new model appeared. Only fires when the catalog actually changed, so this
+    /// never disturbs the UI on a no-op refresh.
+    /// </summary>
+    private void OnModelCatalogChanged(ModelCatalogSnapshot snapshot)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_isDisposed || _isRefreshingCopilotState || !IsConnected)
+                return;
+
+            ApplyModelCatalog(snapshot.Models.ToList(), snapshot.ContextWindows, resetSurfaceSelections: false);
+        });
     }
 
     private void LoadProjects()

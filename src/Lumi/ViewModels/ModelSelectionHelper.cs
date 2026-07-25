@@ -10,6 +10,53 @@ namespace Lumi.ViewModels;
 
 internal static class ModelSelectionHelper
 {
+    /// <summary>
+    /// Brings <paramref name="target"/> in line with <paramref name="modelIds"/> using the smallest
+    /// possible set of collection edits, keeping <paramref name="pinnedModel"/> present even when the
+    /// catalog no longer lists it (a chat may still be pinned to a retired model). Used instead of
+    /// clear-and-refill because the catalog can refresh while the model picker popup is open, and a
+    /// full reset would rebuild every row underneath the user's cursor.
+    /// </summary>
+    /// <returns>True when the collection was modified.</returns>
+    public static bool SyncAvailableModels(
+        IList<string> target,
+        IReadOnlyList<string> modelIds,
+        string? pinnedModel)
+    {
+        var desired = new List<string>(modelIds.Count + 1);
+        foreach (var id in modelIds)
+        {
+            if (!string.IsNullOrWhiteSpace(id) && !desired.Contains(id, StringComparer.Ordinal))
+                desired.Add(id);
+        }
+
+        if (!string.IsNullOrWhiteSpace(pinnedModel) && !desired.Contains(pinnedModel, StringComparer.Ordinal))
+            desired.Add(pinnedModel);
+
+        if (target.SequenceEqual(desired, StringComparer.Ordinal))
+            return false;
+
+        for (var i = target.Count - 1; i >= 0; i--)
+        {
+            if (!desired.Contains(target[i], StringComparer.Ordinal))
+                target.RemoveAt(i);
+        }
+
+        for (var i = 0; i < desired.Count; i++)
+        {
+            if (i < target.Count && string.Equals(target[i], desired[i], StringComparison.Ordinal))
+                continue;
+
+            var existingIndex = target.IndexOf(desired[i]);
+            if (existingIndex >= 0)
+                target.RemoveAt(existingIndex);
+
+            target.Insert(Math.Min(i, target.Count), desired[i]);
+        }
+
+        return true;
+    }
+
     public static void ApplyModelCapabilities(
         IEnumerable<ModelInfo> models,
         IDictionary<string, List<string>> reasoningEfforts,
