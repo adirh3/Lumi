@@ -244,6 +244,16 @@ Many tools take a `controlId` parameter. Three formats work:
 
 If the feature or fix you implement can be visibly seen by the user (e.g., layout changes, new controls, styling updates, new views), **keep the debug instance of Lumi running** after you finish — do not close it. In your message to the user, explain exactly where they should look to see the change (e.g., "Open the Agents tab and look at the top-right corner" or "Start a new chat and notice the updated welcome panel"). This lets the user immediately verify your work in the live app without having to relaunch it themselves.
 
+### Closing the debug instance when the work is approved
+
+Keep the debug window open only until the user has confirmed the work is done. Once the user signals approval/acceptance of the finished work — explicitly ("looks good", "approved", "we're done") or implicitly by asking for a wrap-up action such as "commit and push", "open a PR", or "merge it" — **close the Lumi debug instance you launched** as part of that final step, before reporting back.
+
+- Close **only your own** debug process, by the specific PID you started (`Stop-Process -Id <your-debug-pid>`). Never close other Lumi windows and never kill the Release/production Lumi process.
+- If you launched it through `lumi-mcp` (`lumi_launch`), shut down that same instance (track its PID/instance id from launch, or via `lumi_list_instances`).
+- If you started several debug instances during the task, close all of them.
+- Mention in your final message that you closed the debug window.
+- Do **not** close it earlier — while the task is still in progress, or when you are only reporting intermediate results and awaiting feedback.
+
 ## Key Conventions
 
 - **Single JSON file persistence** — no database. New data collections go in `AppData` class in `Models.cs`
