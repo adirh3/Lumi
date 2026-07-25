@@ -259,6 +259,11 @@ Keep the debug window open only until the user has confirmed the work is done. O
 - Mention in your final message that you closed the debug window.
 - Do **not** close it earlier — while the task is still in progress, or when you are only reporting intermediate results and awaiting feedback.
 
+## Git Conventions
+
+- **Never run `git stash` (or `git stash pop/apply/drop`) when working from a git worktree.** The stash ref lives in the shared common `.git` directory, so it is global to the repository — a stash created in one worktree is visible to, and can be popped or dropped by, every other worktree and the main checkout. Popping there applies the wrong tree to the wrong branch and silently destroys someone else's uncommitted work. Since agent chats routinely run in isolated worktrees, assume you are in one unless you have verified otherwise (`git rev-parse --git-common-dir` differs from `git rev-parse --git-dir` inside a worktree).
+- **Use these instead** when you need a clean tree or want to park changes: commit to your own branch (a WIP commit you amend or reset later), `git worktree add` a fresh worktree, or `git diff > patch` + `git apply` scoped to your directory. Committing is always safe — the stash is not.
+
 ## Key Conventions
 
 - **Single JSON file persistence** — no database. New data collections go in `AppData` class in `Models.cs`
