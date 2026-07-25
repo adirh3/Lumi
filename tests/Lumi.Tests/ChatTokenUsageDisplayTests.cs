@@ -37,7 +37,7 @@ public sealed class ChatTokenUsageDisplayTests
                 },
                 Chats = [chat]
             };
-            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
 
             viewModel.UpdateModelCapabilities([CreateModel("gpt-test", 1_000)]);
             await viewModel.LoadChatAsync(chat);
@@ -74,7 +74,7 @@ public sealed class ChatTokenUsageDisplayTests
                 },
                 Chats = [chat]
             };
-            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
 
             viewModel.UpdateModelCapabilities(
                 [CreateModel("gpt-5.5", 922_000)],
@@ -113,7 +113,7 @@ public sealed class ChatTokenUsageDisplayTests
                 },
                 Chats = [chat]
             };
-            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
 
             viewModel.UpdateModelCapabilities(
                 [CreateModel("gpt-5.5", 922_000)],
@@ -141,7 +141,7 @@ public sealed class ChatTokenUsageDisplayTests
                     EnableMemoryAutoSave = false
                 }
             }),
-            new CopilotService())
+            TestCopilot.Shared)
         {
             TotalInputTokens = 100,
             TotalOutputTokens = 25,
@@ -198,7 +198,7 @@ public sealed class ChatTokenUsageDisplayTests
                 },
                 Chats = [chat]
             };
-            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
             viewModel.UpdateModelCapabilities(
                 [CreateModel("gpt-5.5", 922_000)],
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "gpt-5.5" },

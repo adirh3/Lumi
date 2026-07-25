@@ -32,7 +32,7 @@ public sealed class ChatWorkspaceViewTests
             Loc.Load("en");
             var data = CreateAppData();
             var dataStore = new DataStore(data);
-            using var chatVm = new ChatViewModel(dataStore, new CopilotService());
+            using var chatVm = new ChatViewModel(dataStore, TestCopilot.Shared);
             var workspace = new ChatWorkspaceView
             {
                 DataContext = chatVm,
@@ -82,8 +82,8 @@ public sealed class ChatWorkspaceViewTests
             Loc.Load("en");
             var data = CreateAppData();
             var dataStore = new DataStore(data);
-            using var chatVm = new ChatViewModel(dataStore, new CopilotService());
-            using var nextChatVm = new ChatViewModel(dataStore, new CopilotService());
+            using var chatVm = new ChatViewModel(dataStore, TestCopilot.Shared);
+            using var nextChatVm = new ChatViewModel(dataStore, TestCopilot.Shared);
             var workspace = new ChatWorkspaceView
             {
                 DataContext = chatVm,
@@ -125,7 +125,7 @@ public sealed class ChatWorkspaceViewTests
     {
         Loc.Load("en");
         var dataStore = new DataStore(CreateAppData());
-        using var chatVm = new ChatViewModel(dataStore, new CopilotService());
+        using var chatVm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var firstId = Guid.NewGuid();
         var secondId = Guid.NewGuid();
 
@@ -193,7 +193,7 @@ public sealed class ChatWorkspaceViewTests
     {
         Loc.Load("en");
         var dataStore = new DataStore(CreateAppData());
-        using var chatVm = new ChatViewModel(dataStore, new CopilotService());
+        using var chatVm = new ChatViewModel(dataStore, TestCopilot.Shared);
 
         chatVm.Messages.Add(new ChatMessageViewModel(new ChatMessage
         {
@@ -218,7 +218,7 @@ public sealed class ChatWorkspaceViewTests
     {
         Loc.Load("en");
         var dataStore = new DataStore(CreateAppData());
-        using var chatVm = new ChatViewModel(dataStore, new CopilotService());
+        using var chatVm = new ChatViewModel(dataStore, TestCopilot.Shared);
 
         chatVm.Messages.Add(new ChatMessageViewModel(new ChatMessage
         {
@@ -287,7 +287,7 @@ public sealed class ChatWorkspaceViewTests
     {
         Loc.Load("en");
         var dataStore = new DataStore(CreateAppData());
-        using var chatVm = new ChatViewModel(dataStore, new CopilotService());
+        using var chatVm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var assistantVm = new ChatMessageViewModel(new ChatMessage
         {
             Role = "assistant",
@@ -405,7 +405,7 @@ public sealed class ChatWorkspaceViewTests
             var dataStore = new DataStore(data);
             var viewModel = new MainViewModel(
                 dataStore,
-                new CopilotService(),
+                TestCopilot.Shared,
                 new UpdateService(),
                 startBackgroundJobs: false);
             DetachedChatWindowRequest? request = null;

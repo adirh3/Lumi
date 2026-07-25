@@ -36,7 +36,7 @@ public sealed class ChatOrchestrationServiceTests
         var registry = new ChatSurfaceRegistry();
         var sessionStore = new ChatSessionStore(
             store,
-            new CopilotService(),
+            TestCopilot.Shared,
             registry,
             static (surface, chat) =>
             {

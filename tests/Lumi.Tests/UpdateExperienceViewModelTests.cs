@@ -26,7 +26,7 @@ public sealed class UpdateExperienceViewModelTests
 
         return new MainViewModel(
             new DataStore(data),
-            new CopilotService(),
+            TestCopilot.Shared,
             updateService ?? new UpdateService());
     }
 

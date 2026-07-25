@@ -29,7 +29,7 @@ public sealed class FeatureManagementUiRefreshTests
     {
         var existingProject = new Project { Name = "Existing" };
         var store = CreateDataStore(existingProject);
-        var vm = new MainViewModel(store, new CopilotService(), new UpdateService());
+        var vm = new MainViewModel(store, TestCopilot.Shared, new UpdateService());
 
         var createdProject = new Project { Name = "Created From Chat" };
         store.Data.Projects.Add(createdProject);
@@ -45,10 +45,10 @@ public sealed class FeatureManagementUiRefreshTests
     {
         var store = CreateDataStore();
         using var registry = new ChatSurfaceRegistry();
-        using var sessionStore = new ChatSessionStore(store, new CopilotService(), registry);
+        using var sessionStore = new ChatSessionStore(store, TestCopilot.Shared, registry);
         var vm = new MainViewModel(
             store,
-            new CopilotService(),
+            TestCopilot.Shared,
             new UpdateService(),
             chatSurfaceRegistry: registry,
             chatSessionStore: sessionStore);
@@ -74,7 +74,7 @@ public sealed class FeatureManagementUiRefreshTests
     {
         var project = new Project { Name = "Temporary Project" };
         var store = CreateDataStore(project);
-        var vm = new MainViewModel(store, new CopilotService(), new UpdateService());
+        var vm = new MainViewModel(store, TestCopilot.Shared, new UpdateService());
 
         vm.SelectedProjectFilter = project.Id;
         store.Data.Projects.Remove(project);

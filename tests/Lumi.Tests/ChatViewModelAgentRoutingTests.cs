@@ -510,7 +510,7 @@ public sealed class ChatViewModelAgentRoutingTests
     private static TestHarness CreateHarness(AppData data)
     {
         var store = new DataStore(data);
-        return new TestHarness(new ChatViewModel(store, new CopilotService()));
+        return new TestHarness(new ChatViewModel(store, TestCopilot.Shared));
     }
 
     private static Chat CreateChatWithMessage(string title)

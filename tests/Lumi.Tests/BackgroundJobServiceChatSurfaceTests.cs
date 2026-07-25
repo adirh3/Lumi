@@ -26,8 +26,8 @@ public sealed class BackgroundJobServiceChatSurfaceTests
         };
         var store = new DataStore(data);
         using var registry = new ChatSurfaceRegistry();
-        using var fallback = new ChatViewModel(store, new CopilotService());
-        using var detached = new ChatViewModel(store, new CopilotService())
+        using var fallback = new ChatViewModel(store, TestCopilot.Shared);
+        using var detached = new ChatViewModel(store, TestCopilot.Shared)
         {
             CurrentChat = chat
         };
@@ -54,7 +54,7 @@ public sealed class BackgroundJobServiceChatSurfaceTests
         };
         var store = new DataStore(data);
         using var registry = new ChatSurfaceRegistry();
-        using var fallback = new ChatViewModel(store, new CopilotService());
+        using var fallback = new ChatViewModel(store, TestCopilot.Shared);
         using var service = new BackgroundJobService(store, registry, fallback);
 
         var executor = service.ResolveChatExecutorForTest(chat.Id);
@@ -78,8 +78,8 @@ public sealed class BackgroundJobServiceChatSurfaceTests
         };
         var store = new DataStore(data);
         using var registry = new ChatSurfaceRegistry();
-        using var fallback = new ChatViewModel(store, new CopilotService());
-        using var liveOwner = new ChatViewModel(store, new CopilotService())
+        using var fallback = new ChatViewModel(store, TestCopilot.Shared);
+        using var liveOwner = new ChatViewModel(store, TestCopilot.Shared)
         {
             CurrentChat = running
         };
@@ -114,7 +114,7 @@ public sealed class BackgroundJobServiceChatSurfaceTests
         using var registry = new ChatSurfaceRegistry();
         using var sessionStore = new ChatSessionStore(
             store,
-            new CopilotService(),
+            TestCopilot.Shared,
             registry,
             static (surface, chatToLoad) =>
             {

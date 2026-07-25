@@ -40,7 +40,7 @@ public sealed class ChatViewScrollBehaviorTests
             };
             data.Chats.Add(chat);
 
-            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
             var view = new ChatView { DataContext = viewModel };
             var window = new Window
             {
@@ -105,7 +105,7 @@ public sealed class ChatViewScrollBehaviorTests
             };
             data.Chats.Add(chat);
 
-            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
             var view = new ChatView { DataContext = viewModel };
             var window = new Window
             {
@@ -178,11 +178,11 @@ public sealed class ChatViewScrollBehaviorTests
                 }
             };
 
-            using var worktreeViewModel = new ChatViewModel(new DataStore(data), new CopilotService())
+            using var worktreeViewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared)
             {
                 IsCodingProject = true
             };
-            using var localViewModel = new ChatViewModel(new DataStore(data), new CopilotService())
+            using var localViewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared)
             {
                 IsCodingProject = true
             };
@@ -238,7 +238,7 @@ public sealed class ChatViewScrollBehaviorTests
             };
             data.Chats.Add(chat);
 
-            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
             var view = new ChatView { DataContext = viewModel };
             var window = new Window
             {
@@ -321,7 +321,7 @@ public sealed class ChatViewScrollBehaviorTests
             };
             data.Chats.Add(chat);
 
-            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
             var view = new ChatView { DataContext = viewModel };
             var window = new Window
             {
@@ -397,7 +397,7 @@ public sealed class ChatViewScrollBehaviorTests
             };
             data.Chats.Add(chat);
 
-            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
             var view = new ChatView { DataContext = viewModel };
             var window = new Window
             {

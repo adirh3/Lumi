@@ -48,7 +48,7 @@ public sealed class ProjectCodingSettingsTests
 
         await session.Dispatch(() =>
         {
-            using var viewModel = new ChatViewModel(store, new CopilotService());
+            using var viewModel = new ChatViewModel(store, TestCopilot.Shared);
             viewModel.SetProjectId(project.Id);
             selectedWorktree = viewModel.IsWorktreeMode;
             viewModel.ClearProjectId();

@@ -26,7 +26,7 @@ public sealed class ChatViewModelLeakTests
         var chat = new Chat { Title = "leaky" };
         dataStore.Data.Chats.Add(chat);
 
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         vm.CurrentChat = chat;
 
         // While active the surface tracks the chat's title through PropertyChanged.
@@ -66,7 +66,7 @@ public sealed class ChatViewModelLeakTests
         using var registry = new ChatSurfaceRegistry();
         using var sessionStore = new ChatSessionStore(
             dataStore,
-            new CopilotService(),
+            TestCopilot.Shared,
             registry,
             static (surface, chat) =>
             {
@@ -94,7 +94,7 @@ public sealed class ChatViewModelLeakTests
     public void ReleaseInactiveChatState_ReleasesDetachedRuntimeResourcesWithoutEvictingMessages()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var activeChat = new Chat { Title = "active" };
         var inactiveChat = new Chat { Title = "inactive" };
         inactiveChat.Messages.Add(new ChatMessage { Role = "assistant", Content = "cached" });
@@ -136,7 +136,7 @@ public sealed class ChatViewModelLeakTests
     public void BrowserService_SurvivesInactiveReleaseButIsDisposedOnCleanup()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var activeChat = new Chat { Title = "active" };
         var browserChat = new Chat { Title = "browser" };
         browserChat.Messages.Add(new ChatMessage { Role = "assistant", Content = "kept" });
@@ -167,7 +167,7 @@ public sealed class ChatViewModelLeakTests
     public async Task SubscribeToSession_WhenSurfaceDisposedMidSetup_ReleasesSessionInsteadOfCaching()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "raced" };
         dataStore.Data.Chats.Add(chat);
 
@@ -191,7 +191,7 @@ public sealed class ChatViewModelLeakTests
     public async Task SubscribeToSession_WhenDifferentServerSessionCached_ReleasesStaleSessionBeforeReplacing()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "overwrite" };
         dataStore.Data.Chats.Add(chat);
 
@@ -217,7 +217,7 @@ public sealed class ChatViewModelLeakTests
     public async Task SubscribeToSession_WhenSameServerSessionCached_DoesNotDestroySharedSession()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "same-id" };
         dataStore.Data.Chats.Add(chat);
 
@@ -240,7 +240,7 @@ public sealed class ChatViewModelLeakTests
     public async Task SubscribeToSession_WhenPendingSameId_AdoptsServerSessionWithoutDestroy()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "same-id-resume", CopilotSessionId = "sid-shared" };
         dataStore.Data.Chats.Add(chat);
 
@@ -262,7 +262,7 @@ public sealed class ChatViewModelLeakTests
     public async Task SubscribeToSession_WhenPendingDifferentId_DestroysAbandonedServerSession()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "different-id-resume", CopilotSessionId = "sid-new" };
         dataStore.Data.Chats.Add(chat);
 
@@ -283,7 +283,7 @@ public sealed class ChatViewModelLeakTests
     public void InvalidateLocalSessionCache_DetachesSdkRegistryAndRetainsResumableSession()
     {
         var dataStore = CreateDataStore();
-        var service = new CopilotService();
+        var service = TestCopilot.Shared;
         var vm = new ChatViewModel(dataStore, service);
         var chat = new Chat { Title = "invalidate", CopilotSessionId = "sid-inv" };
         dataStore.Data.Chats.Add(chat);
@@ -316,7 +316,7 @@ public sealed class ChatViewModelLeakTests
     public async Task DetachPersistedSession_ReleasesDetachedSessionToReapMcp()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "detach", CopilotSessionId = "sid-det" };
         dataStore.Data.Chats.Add(chat);
 
@@ -343,7 +343,7 @@ public sealed class ChatViewModelLeakTests
     public async Task ReleaseInactiveChatState_DestroysPendingResumeSession()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var activeChat = new Chat { Title = "active" };
         var inactiveChat = new Chat { Title = "inactive", CopilotSessionId = "sid-idle" };
         dataStore.Data.Chats.Add(activeChat);
@@ -364,7 +364,7 @@ public sealed class ChatViewModelLeakTests
     public async Task CleanupSession_DestroysPendingResumeSession()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "deleted", CopilotSessionId = "sid-delete" };
         dataStore.Data.Chats.Add(chat);
 
@@ -382,7 +382,7 @@ public sealed class ChatViewModelLeakTests
     public async Task Dispose_DestroysPendingResumeSession()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "surface-dispose", CopilotSessionId = "sid-dispose" };
         dataStore.Data.Chats.Add(chat);
 
@@ -407,7 +407,7 @@ public sealed class ChatViewModelLeakTests
     [Fact]
     public async Task ReleaseSessionAsync_DisposesSessionAndSelfCleansRegistry()
     {
-        var service = new CopilotService();
+        var service = TestCopilot.Shared;
         var session = CreateDetachedSession("sid-reap");
 
         await service.ReleaseSessionAsync(session, deleteServerSession: false);
@@ -423,7 +423,7 @@ public sealed class ChatViewModelLeakTests
     [Fact]
     public async Task ResumeGate_WaitsForInFlightReleaseOfSameSessionId()
     {
-        var service = new CopilotService();
+        var service = TestCopilot.Shared;
         var destroyInFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         // Simulate a destroy of session "S" still running (started by another surface being disposed).
@@ -442,7 +442,7 @@ public sealed class ChatViewModelLeakTests
     [Fact]
     public async Task ResumeGate_DoesNotWaitForReleaseOfDifferentSessionId()
     {
-        var service = new CopilotService();
+        var service = TestCopilot.Shared;
         var destroyInFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
         registry["S"] = destroyInFlight.Task;
@@ -458,7 +458,7 @@ public sealed class ChatViewModelLeakTests
     [Fact]
     public async Task ResumeGate_HonorsCancellation()
     {
-        var service = new CopilotService();
+        var service = TestCopilot.Shared;
         var destroyInFlight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
         registry["S"] = destroyInFlight.Task;
@@ -483,7 +483,7 @@ public sealed class ChatViewModelLeakTests
         // the entire session-setup budget and then surfaces cancellation, which EnsureSessionAsync turns
         // into the "MCP server connection timed out" TimeoutException. A short budget stands in for the
         // real 30s MCP bound so the stall is measured deterministically.
-        var service = new CopilotService();
+        var service = TestCopilot.Shared;
         var hungDestroy = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
         registry["S"] = hungDestroy.Task; // never completes → a hung destroy of session S
@@ -511,7 +511,7 @@ public sealed class ChatViewModelLeakTests
         // sequences releases. Guard that ChatSessionStore invariant so a future refactor can't silently
         // give each surface its own service (which would reopen the cross-instance race).
         var dataStore = CreateDataStore();
-        var copilotService = new CopilotService();
+        var copilotService = TestCopilot.Shared;
         var registry = new ChatSurfaceRegistry();
         var store = new ChatSessionStore(dataStore, copilotService, registry);
 
@@ -540,7 +540,7 @@ public sealed class ChatViewModelLeakTests
         // idle-cache size) as the app, so it reproduces at production settings.
         var dataStore = CreateDataStore();
         using var registry = new ChatSurfaceRegistry();
-        using var store = new ChatSessionStore(dataStore, new CopilotService(), registry);
+        using var store = new ChatSessionStore(dataStore, TestCopilot.Shared, registry);
 
         var surface = store.AcquireDraft(projectId: null);
 
@@ -555,7 +555,7 @@ public sealed class ChatViewModelLeakTests
     public void ReleaseInactiveChatState_LeavesBusyChatAttached()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var activeChat = new Chat { Title = "active" };
         var busyChat = new Chat { Title = "busy" };
         busyChat.Messages.Add(new ChatMessage { Role = "assistant", Content = "cached" });
@@ -584,7 +584,7 @@ public sealed class ChatViewModelLeakTests
     public void ReleaseInactiveChatState_DoesNotCreateRuntimeStateForUnknownChat()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var activeChat = new Chat { Title = "active" };
         var detachedChat = new Chat { Title = "detached" };
         detachedChat.Messages.Add(new ChatMessage { Role = "assistant", Content = "cached" });
@@ -602,7 +602,7 @@ public sealed class ChatViewModelLeakTests
     public void DropCompletedTurnState_RemovesStaleLiveOwnershipMarkersAfterIdle()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "completed" };
         dataStore.Data.Chats.Add(chat);
 
@@ -633,7 +633,7 @@ public sealed class ChatViewModelLeakTests
     public void CancelPendingQuestions_RemovesTrackedQuestionTasks()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "question-chat" };
         chat.Messages.Add(new ChatMessage { Role = "tool", ToolName = "ask_question", QuestionId = "q-1" });
         chat.Messages.Add(new ChatMessage { Role = "tool", ToolName = "ask_question", QuestionId = "q-2" });
@@ -655,7 +655,7 @@ public sealed class ChatViewModelLeakTests
     public void CancelPendingQuestions_MarksUnansweredQuestionExpired_AndReportsMutation()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "stale-question" };
         var question = new ChatMessage
         {
@@ -679,7 +679,7 @@ public sealed class ChatViewModelLeakTests
     public void CancelPendingQuestions_WithNothingToExpire_ReportsNoMutation()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "answered-question" };
         chat.Messages.Add(new ChatMessage
         {
@@ -702,7 +702,7 @@ public sealed class ChatViewModelLeakTests
     public void IsChatBusy_ReturnsTrueWhileTurnCleanupIsPending()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "pending-chat" };
 
         dataStore.Data.Chats.Add(chat);
@@ -719,7 +719,7 @@ public sealed class ChatViewModelLeakTests
     public void IsChatBusy_ReturnsTrueWhileToolIsStillTracked()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "tool-chat" };
 
         dataStore.Data.Chats.Add(chat);
@@ -880,7 +880,7 @@ public sealed class ChatViewModelLeakTests
     public async Task SendMessage_WhenChatRuntimeActive_QueuesPromptAndClearsComposer()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "busy-chat" };
 
         dataStore.Data.Chats.Add(chat);
@@ -905,7 +905,7 @@ public sealed class ChatViewModelLeakTests
     public async Task SendMessageCore_WhenQueuedPromptFindsRuntimeStillActive_DoesNotOverwriteDraft()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "busy-chat" };
 
         dataStore.Data.Chats.Add(chat);
@@ -930,7 +930,7 @@ public sealed class ChatViewModelLeakTests
     public async Task DrainQueuedBusySendAsync_WhenChatChanged_PreservesQueuedPromptAsDraft()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var queuedChat = new Chat { Title = "queued-chat" };
         var visibleChat = new Chat { Title = "visible-chat" };
 
@@ -950,7 +950,7 @@ public sealed class ChatViewModelLeakTests
     public void MarkInProgressToolsStopped_StopsPersistedAndLiveToolMessages()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "tool-chat" };
         var runningTool = new ChatMessage
         {
@@ -989,7 +989,7 @@ public sealed class ChatViewModelLeakTests
     public void MarkInProgressToolsStopped_CollapsesDisplayedSubagent()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var subagentMessage = CreateSubagentMessage("agent-stop", "InProgress");
         var chat = new Chat
         {
@@ -1016,7 +1016,7 @@ public sealed class ChatViewModelLeakTests
     public void ReconcileInProgressSubagentTools_IdleFallbackCompletesDisplayedCard()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var subagentMessage = CreateSubagentMessage("agent-idle", "InProgress");
         var chat = new Chat
         {
@@ -1042,7 +1042,7 @@ public sealed class ChatViewModelLeakTests
     public void ReconcileInProgressSubagentTools_InactiveChatRebuildsCollapsed()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var activeChat = new Chat { Title = "active" };
         var subagentMessage = CreateSubagentMessage("agent-background", "InProgress");
         var backgroundChat = new Chat
@@ -1071,7 +1071,7 @@ public sealed class ChatViewModelLeakTests
     {
         var dataStore = CreateDataStore();
         dataStore.Data.Settings.ShowToolCalls = true;
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var toolMessage = new ChatMessage
         {
             Role = "tool",
@@ -1094,7 +1094,7 @@ public sealed class ChatViewModelLeakTests
     public void ResetAfterCopilotReconnect_ClearsTransientRuntimeState()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "recoverable-chat" };
 
         dataStore.Data.Chats.Add(chat);
@@ -1142,7 +1142,7 @@ public sealed class ChatViewModelLeakTests
     public void ReleaseInactiveChatState_CleansUpChatAfterRemoteShutdownClearsBackgroundWork()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var activeChat = new Chat { Title = "active" };
         var detachedChat = new Chat { Title = "detached", CopilotSessionId = "session-456" };
         detachedChat.Messages.Add(new ChatMessage { Role = "assistant", Content = "cached" });
@@ -1172,7 +1172,7 @@ public sealed class ChatViewModelLeakTests
     public void DetachSessionAfterRemoteShutdown_PreservesPersistedSessionId()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat
         {
             Title = "recoverable-chat",
@@ -1214,7 +1214,7 @@ public sealed class ChatViewModelLeakTests
     public void InvalidateCurrentSession_ClearsPersistedSessionId()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat
         {
             Title = "fresh-session",
@@ -1233,7 +1233,7 @@ public sealed class ChatViewModelLeakTests
     public void HandleSendError_AddsSingleTranscriptErrorItem()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "error-chat" };
         dataStore.Data.Chats.Add(chat);
         vm.CurrentChat = chat;
@@ -1260,7 +1260,7 @@ public sealed class ChatViewModelLeakTests
     public void HandleSendError_UnprocessableImage_SchedulesSessionResetAndOffersRetry()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "bricked-chat", CopilotSessionId = "poisoned-session" };
         chat.Messages.Add(new ChatMessage { Role = "user", Content = "take a screenshot" });
         chat.Messages.Add(new ChatMessage { Role = "assistant", Content = "done" });
@@ -1303,7 +1303,7 @@ public sealed class ChatViewModelLeakTests
     public void HandleSendError_GenericRecoverableError_SchedulesResetAndOffersRetry()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "error-chat", CopilotSessionId = "live-session" };
         dataStore.Data.Chats.Add(chat);
         vm.CurrentChat = chat;
@@ -1333,7 +1333,7 @@ public sealed class ChatViewModelLeakTests
     public void HandleSendError_FatalError_DoesNotScheduleResetOrOfferRetry()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "fatal-chat", CopilotSessionId = "live-session" };
         dataStore.Data.Chats.Add(chat);
         vm.CurrentChat = chat;
@@ -1360,7 +1360,7 @@ public sealed class ChatViewModelLeakTests
     public void HandleSendError_BareAuthLogout_DoesNotScheduleResetOrOfferRetry()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "logged-out", CopilotSessionId = "live-session" };
         dataStore.Data.Chats.Add(chat);
         vm.CurrentChat = chat;
@@ -1387,7 +1387,7 @@ public sealed class ChatViewModelLeakTests
     public void HandleSendError_TerminalOverrideMessage_DoesNotOfferRetry()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "session-gone", CopilotSessionId = "live-session" };
         dataStore.Data.Chats.Add(chat);
         vm.CurrentChat = chat;
@@ -1415,7 +1415,7 @@ public sealed class ChatViewModelLeakTests
     public void HandleSendError_FatalErrorWithImageMessage_UsesPlainErrorCopyAndNoRetry()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "policy-image", CopilotSessionId = "live-session" };
         dataStore.Data.Chats.Add(chat);
         vm.CurrentChat = chat;
@@ -1443,7 +1443,7 @@ public sealed class ChatViewModelLeakTests
     public void HandleSendError_QueuesChatSave_SoErrorCardSurvivesRestart()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "persist-me", CopilotSessionId = "live-session" };
         dataStore.Data.Chats.Add(chat);
         vm.CurrentChat = chat;
@@ -1470,7 +1470,7 @@ public sealed class ChatViewModelLeakTests
     public void UpdateStuckChatRetryAffordance_AuthoritativeFatalDecision_SuppressesRetryDespiteRecoverableLookingText()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "logout-bricked", CopilotSessionId = "poisoned" };
         dataStore.Data.Chats.Add(chat);
         vm.CurrentChat = chat;
@@ -1499,7 +1499,7 @@ public sealed class ChatViewModelLeakTests
     public void UpdateStuckChatRetryAffordance_RecoverableDecision_ArmsResetAndOffersRetry()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "recoverable-bricked", CopilotSessionId = "poisoned" };
         dataStore.Data.Chats.Add(chat);
         vm.CurrentChat = chat;
@@ -1521,7 +1521,7 @@ public sealed class ChatViewModelLeakTests
     public void UpdateStuckChatRetryAffordance_McpSetupTimeout_OffersRetryButKeepsSessionResumable()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "mcp-timeout", CopilotSessionId = "resumable" };
         dataStore.Data.Chats.Add(chat);
         vm.CurrentChat = chat;
@@ -1794,7 +1794,7 @@ public sealed class ChatViewModelLeakTests
     public void PreparePendingTurnTracking_ClearsManualStopRequested()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "tracked-chat" };
 
         dataStore.Data.Chats.Add(chat);
@@ -1814,7 +1814,7 @@ public sealed class ChatViewModelLeakTests
     public void AdjustPendingToolCount_ReconcilesWhenLastTrackedToolCompletes()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "tracked-chat" };
 
         dataStore.Data.Chats.Add(chat);
@@ -1834,7 +1834,7 @@ public sealed class ChatViewModelLeakTests
     public void RefreshActiveMcpSelections_RebuildsFromRenameAndDeleteWithoutStaleEntries()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat
         {
             Title = "mcp-chat",
@@ -1868,7 +1868,7 @@ public sealed class ChatViewModelLeakTests
     public void ConsumeManualStopRequested_ReturnsTrueOnlyOnce()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "tracked-chat" };
 
         dataStore.Data.Chats.Add(chat);
@@ -1902,7 +1902,7 @@ public sealed class ChatViewModelLeakTests
         dataStore.Data.Agents.Add(activeAgent);
         dataStore.Data.Agents.Add(otherAgent);
 
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         vm.SetActiveAgent(activeAgent);
 
         var configs = InvokePrivate<List<CustomAgentConfig>>(vm, "BuildCustomAgents", new object[] { null! });
@@ -1922,7 +1922,7 @@ public sealed class ChatViewModelLeakTests
             SystemPrompt = "You are a Lumi agent."
         });
 
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
 
         var catalog = new ProjectContextCatalogSnapshot(
             new[] { new CopilotSkillDefinition("SomeSkill", "desc", "content", @"C:\repo\.github\skills\some\SKILL.md") },
@@ -1954,7 +1954,7 @@ public sealed class ChatViewModelLeakTests
     public void ApplyUnexpectedAbortState_ResetsRuntimeAndDetachesCachedSession()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var subagentMessage = CreateSubagentMessage("agent-abort", "InProgress");
         var chat = new Chat
         {
@@ -1990,7 +1990,7 @@ public sealed class ChatViewModelLeakTests
     public void ApplyUnexpectedAbortState_CanSkipDisplayedChatUiCleanup()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "abort-chat" };
 
         dataStore.Data.Chats.Add(chat);
@@ -2067,7 +2067,7 @@ public sealed class ChatViewModelLeakTests
     public void BackgroundTasksChangedAfterIdleCleanup_DoesNotRestickPendingBackgroundWork()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, new CopilotService());
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
         var chat = new Chat { Title = "background-chat" };
 
         dataStore.Data.Chats.Add(chat);

@@ -50,7 +50,7 @@ public sealed class MainWindowTrayBehaviorTests
                 MinimizeToTray = minimizeToTray
             }
         };
-        var viewModel = new MainViewModel(new DataStore(data), new CopilotService(), new UpdateService());
+        var viewModel = new MainViewModel(new DataStore(data), TestCopilot.Shared, new UpdateService());
         var window = new MainWindow
         {
             DataContext = viewModel,

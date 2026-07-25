@@ -46,7 +46,7 @@ public sealed class BrowserToggleAfterChatSwitchTests
             dataStore.Data.Chats.Add(chatA);
             dataStore.Data.Chats.Add(chatB);
 
-            var vm = new ChatViewModel(dataStore, new CopilotService());
+            var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
             var shows = new List<Guid>();
             vm.BrowserShowRequested += shows.Add;
 
@@ -126,7 +126,7 @@ public sealed class BrowserToggleAfterChatSwitchTests
             var chatB = new Chat { Title = "B" };
             chatA.Messages.Add(new ChatMessage { Role = "user", Content = "a" });
             chatB.Messages.Add(new ChatMessage { Role = "user", Content = "b" });
-            var vm = new MainViewModel(CreateDataStore(chatA, chatB), new CopilotService(), new UpdateService());
+            var vm = new MainViewModel(CreateDataStore(chatA, chatB), TestCopilot.Shared, new UpdateService());
 
             // Open chat A and simulate the browser tool creating a live per-chat session and opening the panel.
             await vm.OpenChatByIdAsync(chatA.Id);
@@ -201,7 +201,7 @@ public sealed class BrowserToggleAfterChatSwitchTests
             var chatB = new Chat { Title = "B" };
             chatA.Messages.Add(new ChatMessage { Role = "user", Content = "a" });
             chatB.Messages.Add(new ChatMessage { Role = "user", Content = "b" });
-            var vm = new MainViewModel(CreateDataStore(chatA, chatB), new CopilotService(), new UpdateService());
+            var vm = new MainViewModel(CreateDataStore(chatA, chatB), TestCopilot.Shared, new UpdateService());
 
             await vm.OpenChatByIdAsync(chatA.Id);
             var surfaceA = vm.ChatVM;

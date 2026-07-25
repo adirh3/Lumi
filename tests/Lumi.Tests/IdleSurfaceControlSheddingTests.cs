@@ -36,7 +36,7 @@ public sealed class IdleSurfaceControlSheddingTests
             using var registry = new ChatSurfaceRegistry();
             using var sessionStore = new ChatSessionStore(
                 dataStore,
-                new CopilotService(),
+                TestCopilot.Shared,
                 registry,
                 LoadTranscript,
                 // Large idle cache so nothing is evicted/disposed: this isolates control shedding

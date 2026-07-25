@@ -49,3 +49,7 @@ publish-*/
 diagnostics/
 .qa-lumi-debug.log
 *.qa-lumi-debug.log
+
+# Isolated build output for the long-lived lumi-mcp stdio server (see .vscode/mcp.json).
+# Keeps the running server off src/Lumi.Mcp/bin so it never locks normal builds.
+.mcp-run/

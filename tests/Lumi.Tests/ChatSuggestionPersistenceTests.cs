@@ -31,7 +31,7 @@ public sealed class ChatSuggestionPersistenceTests
                 Chats = [firstChat, secondChat]
             };
 
-            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
 
             await viewModel.LoadChatAsync(firstChat);
             Assert.Equal("Run code review", viewModel.SuggestionA);
@@ -71,7 +71,7 @@ public sealed class ChatSuggestionPersistenceTests
                 Chats = [chat]
             };
 
-            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
 
             await viewModel.LoadChatAsync(chat);
 
@@ -100,7 +100,7 @@ public sealed class ChatSuggestionPersistenceTests
                 Chats = [activeChat, inactiveChat]
             };
 
-            var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
 
             await viewModel.LoadChatAsync(activeChat);
             viewModel.QueueChatCompletionFollowUps(inactiveChat);
@@ -128,7 +128,7 @@ public sealed class ChatSuggestionPersistenceTests
             Chats = [activeChat, targetChat]
         };
 
-        var viewModel = new ChatViewModel(new DataStore(data), new CopilotService())
+        var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared)
         {
             CurrentChat = activeChat
         };

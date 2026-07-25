@@ -318,7 +318,7 @@ public sealed class BackgroundJobsViewModelTests
     private static TestHarness CreateHarness(AppData data)
     {
         var store = new DataStore(data);
-        var chatViewModel = new ChatViewModel(store, new CopilotService());
+        var chatViewModel = new ChatViewModel(store, TestCopilot.Shared);
         var jobService = new BackgroundJobService(store, chatViewModel);
         return new TestHarness(new BackgroundJobsViewModel(store, jobService), jobService);
     }

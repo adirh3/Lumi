@@ -8,7 +8,16 @@
     "lumi-mcp": {
       "type": "stdio",
       "command": "dotnet",
-      "args": ["run", "--project", "src\\Lumi.Mcp\\Lumi.Mcp.csproj", "--"]
+      "args": [
+        "run",
+        "--project",
+        "src\\Lumi.Mcp\\Lumi.Mcp.csproj",
+        "--artifacts-path",
+        ".mcp-run",
+        "-v",
+        "quiet",
+        "--"
+      ]
     }
   }
 }

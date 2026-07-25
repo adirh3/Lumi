@@ -242,7 +242,7 @@ public sealed class MemoryAgentServiceIntegrationTests
     }
 
     private static MemoryAgentService CreateService(AppData data)
-        => new(new DataStore(data), new CopilotService());
+        => new(new DataStore(data), TestCopilot.Shared);
 
     private static MemoryAgentCheckpoint CreateCheckpoint(string userMessage, string assistantMessage)
     {

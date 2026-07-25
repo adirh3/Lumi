@@ -12,7 +12,7 @@ public sealed class ChatTitleNotificationTests
     public void CurrentChatTitle_UpdatesWhenCurrentChatTitleChanges()
     {
         var chat = new Chat { Title = "Original" };
-        var viewModel = new ChatViewModel(new DataStore(new AppData { Chats = [chat] }), new CopilotService())
+        var viewModel = new ChatViewModel(new DataStore(new AppData { Chats = [chat] }), TestCopilot.Shared)
         {
             CurrentChat = chat
         };
@@ -32,7 +32,7 @@ public sealed class ChatTitleNotificationTests
         var activeChat = new Chat { Title = "Active" };
         var viewModel = new ChatViewModel(
             new DataStore(new AppData { Chats = [originalChat, activeChat] }),
-            new CopilotService())
+            TestCopilot.Shared)
         {
             CurrentChat = originalChat
         };
@@ -60,7 +60,7 @@ public sealed class ChatTitleNotificationTests
             },
             Chats = [chat]
         };
-        var viewModel = new MainViewModel(new DataStore(data), new CopilotService(), new UpdateService());
+        var viewModel = new MainViewModel(new DataStore(data), TestCopilot.Shared, new UpdateService());
         viewModel.ChatVM.CurrentChat = chat;
         var changedProperties = new List<string?>();
         viewModel.ChatVM.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);

@@ -25,7 +25,7 @@ public sealed class ChatLoadSynchronizationTests
             var chat = new Chat { Title = "sync-chat" };
             chat.Messages.Add(new ChatMessage { Role = "user", Content = "question" });
             dataStore.Data.Chats.Add(chat);
-            var vm = new ChatViewModel(dataStore, new CopilotService());
+            var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
 
             await vm.LoadChatAsync(chat);
             chat.Messages.Add(new ChatMessage { Role = "assistant", Content = "latest answer" });
@@ -55,7 +55,7 @@ public sealed class ChatLoadSynchronizationTests
             inactiveChat.Messages.Add(new ChatMessage { Role = "assistant", Content = "finished answer" });
             dataStore.Data.Chats.Add(activeChat);
             dataStore.Data.Chats.Add(inactiveChat);
-            var vm = new ChatViewModel(dataStore, new CopilotService());
+            var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
 
             await vm.LoadChatAsync(activeChat);
             var runtimeStates = GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates");

@@ -185,7 +185,7 @@ public sealed class MoveChatProjectSyncTests
             Chats = [.. chats]
         };
 
-        return new MainViewModel(new DataStore(data), new CopilotService(), new UpdateService());
+        return new MainViewModel(new DataStore(data), TestCopilot.Shared, new UpdateService());
     }
 
     private static T GetPrivateField<T>(object target, string fieldName)

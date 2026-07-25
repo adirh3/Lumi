@@ -72,7 +72,7 @@ public sealed class ChatViewModelEditTests
                 Agents = [agent],
                 McpServers = [activeMcp, inactiveForMessageMcp]
             };
-            var viewModel = new ChatViewModel(new DataStore(appData), new CopilotService())
+            var viewModel = new ChatViewModel(new DataStore(appData), TestCopilot.Shared)
             {
                 CurrentChat = chat,
                 PromptText = "Draft before editing"
@@ -138,7 +138,7 @@ public sealed class ChatViewModelEditTests
             Agents = [agent],
             McpServers = [mcp]
         };
-        var viewModel = new ChatViewModel(new DataStore(appData), new CopilotService())
+        var viewModel = new ChatViewModel(new DataStore(appData), TestCopilot.Shared)
         {
             CurrentChat = chat
         };
@@ -183,7 +183,7 @@ public sealed class ChatViewModelEditTests
                 Title = "Edit test",
                 Messages = [firstMessage, secondMessage]
             };
-            var viewModel = new ChatViewModel(new DataStore(new AppData { Chats = [chat] }), new CopilotService())
+            var viewModel = new ChatViewModel(new DataStore(new AppData { Chats = [chat] }), TestCopilot.Shared)
             {
                 CurrentChat = chat,
                 PromptText = "Draft before editing"
@@ -220,7 +220,7 @@ public sealed class ChatViewModelEditTests
             LastReasoningEffortUsed = "high",
             LastContextWindowTierUsed = "default"
         };
-        var viewModel = new ChatViewModel(new DataStore(new AppData { Chats = [chat] }), new CopilotService())
+        var viewModel = new ChatViewModel(new DataStore(new AppData { Chats = [chat] }), TestCopilot.Shared)
         {
             CurrentChat = chat
         };
@@ -262,7 +262,7 @@ public sealed class ChatViewModelEditTests
             Messages = [new ChatMessage { Role = "user", Content = "x" }]
         };
         var appData = new AppData { Chats = [chat], Agents = [agent], McpServers = [mcp] };
-        var viewModel = new ChatViewModel(new DataStore(appData), new CopilotService()) { CurrentChat = chat };
+        var viewModel = new ChatViewModel(new DataStore(appData), TestCopilot.Shared) { CurrentChat = chat };
 
         // Snapshot the baseline (no agent, no MCP, no skills).
         var snapshot = CaptureSnapshot(viewModel);
@@ -286,7 +286,7 @@ public sealed class ChatViewModelEditTests
             Messages = [new ChatMessage { Role = "user", Content = "x" }]
         };
         var appData = new AppData { Chats = [chat], Skills = [skill] };
-        var viewModel = new ChatViewModel(new DataStore(appData), new CopilotService()) { CurrentChat = chat };
+        var viewModel = new ChatViewModel(new DataStore(appData), TestCopilot.Shared) { CurrentChat = chat };
 
         // AddSkill on an existing session marks the skill for next-turn injection. Even if the edit
         // leaves the visible skill selection unchanged, the reused session is stale and must rebuild.
@@ -306,7 +306,7 @@ public sealed class ChatViewModelEditTests
             Messages = [new ChatMessage { Role = "user", Content = "x" }]
         };
         var appData = new AppData { Chats = [chat], Agents = [agent] };
-        var viewModel = new ChatViewModel(new DataStore(appData), new CopilotService()) { CurrentChat = chat };
+        var viewModel = new ChatViewModel(new DataStore(appData), TestCopilot.Shared) { CurrentChat = chat };
 
         var snapshot = CaptureSnapshot(viewModel);
         Assert.False(InvokeDiverges(viewModel, snapshot));
@@ -327,7 +327,7 @@ public sealed class ChatViewModelEditTests
             Messages = [message]
         };
         var appData = new AppData { Chats = [chat], Agents = [draftAgent] };
-        var viewModel = new ChatViewModel(new DataStore(appData), new CopilotService())
+        var viewModel = new ChatViewModel(new DataStore(appData), TestCopilot.Shared)
         {
             CurrentChat = chat,
             SelectedSdkAgentName = chat.SdkAgentName
@@ -354,7 +354,7 @@ public sealed class ChatViewModelEditTests
         var chat = new Chat { Id = Guid.NewGuid(), Messages = [message] };
         var viewModel = new ChatViewModel(
             new DataStore(new AppData { Chats = [chat] }),
-            new CopilotService())
+            TestCopilot.Shared)
         {
             CurrentChat = chat,
             IsBusy = true
@@ -373,7 +373,7 @@ public sealed class ChatViewModelEditTests
         var chat = new Chat { Id = Guid.NewGuid(), Messages = [first, second] };
         var viewModel = new ChatViewModel(
             new DataStore(new AppData { Chats = [chat] }),
-            new CopilotService())
+            TestCopilot.Shared)
         {
             CurrentChat = chat
         };

@@ -81,7 +81,7 @@ public sealed class NotificationNavigationTests
             data.Chats.Add(firstChat);
             data.Chats.Add(secondChat);
 
-            var vm = new MainViewModel(new DataStore(data), new CopilotService(), new UpdateService())
+            var vm = new MainViewModel(new DataStore(data), TestCopilot.Shared, new UpdateService())
             {
                 SelectedNavIndex = 4
             };

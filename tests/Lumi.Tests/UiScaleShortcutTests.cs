@@ -48,7 +48,7 @@ public sealed class UiScaleShortcutTests
             };
             var viewModel = new MainViewModel(
                 new DataStore(data),
-                new CopilotService(),
+                TestCopilot.Shared,
                 new UpdateService(),
                 startBackgroundJobs: false);
             var window = new MainWindow
@@ -140,7 +140,7 @@ public sealed class UiScaleShortcutTests
             };
             var viewModel = new MainViewModel(
                 new DataStore(data),
-                new CopilotService(),
+                TestCopilot.Shared,
                 new UpdateService(),
                 startBackgroundJobs: false);
             var window = new MainWindow

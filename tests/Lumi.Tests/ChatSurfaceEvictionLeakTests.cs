@@ -45,7 +45,7 @@ public sealed class ChatSurfaceEvictionLeakTests
 
         await session.Dispatch(async () =>
         {
-            copilot = new CopilotService();
+            copilot = TestCopilot.Shared;
             var chats = Enumerable.Range(0, 6).Select(i => CreateChat($"chat{i}", messageCount: 60)).ToList();
             seededMessageCount = chats[0].Messages.Count;
             dataStore = new DataStore(new AppData
@@ -101,7 +101,7 @@ public sealed class ChatSurfaceEvictionLeakTests
 
         await session.Dispatch(async () =>
         {
-            copilot = new CopilotService();
+            copilot = TestCopilot.Shared;
             var chats = Enumerable.Range(0, chatsOpened).Select(i => CreateChat($"chat{i}", messageCount: 25)).ToList();
             dataStore = new DataStore(new AppData
             {

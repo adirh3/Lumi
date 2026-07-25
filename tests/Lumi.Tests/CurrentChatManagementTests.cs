@@ -308,7 +308,7 @@ public sealed class CurrentChatManagementTests
     }
 
     private static TestHarness CreateHarness(AppData data)
-        => new(new ChatViewModel(new DataStore(data), new CopilotService()));
+        => new(new ChatViewModel(new DataStore(data), TestCopilot.Shared));
 
     private static HashSet<Guid> GetPendingSessionInvalidations(ChatViewModel viewModel)
     {

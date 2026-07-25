@@ -117,7 +117,7 @@ public sealed class ChatSurfaceRegistryTests
             Chats = [.. chats]
         };
 
-        return new ChatViewModel(new DataStore(data), new CopilotService())
+        return new ChatViewModel(new DataStore(data), TestCopilot.Shared)
         {
             CurrentChat = chats.FirstOrDefault()
         };

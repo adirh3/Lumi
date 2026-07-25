@@ -106,7 +106,7 @@ public sealed class MultipleChatWindowsTests
                 }
             ]
         };
-        var viewModel = new MainViewModel(new DataStore(data), new CopilotService(), new UpdateService());
+        var viewModel = new MainViewModel(new DataStore(data), TestCopilot.Shared, new UpdateService());
         DetachedChatWindowRequest? request = null;
         viewModel.OpenChatWindowRequested += requested => request = requested;
 
@@ -366,7 +366,7 @@ public sealed class MultipleChatWindowsTests
             var chat = new Chat { Title = "Shared chat" };
             chat.Messages.Add(new ChatMessage { Role = "user", Content = "hello" });
             using var registry = new ChatSurfaceRegistry();
-            using var store = new ChatSessionStore(CreateDataStore(chat), new CopilotService(), registry);
+            using var store = new ChatSessionStore(CreateDataStore(chat), TestCopilot.Shared, registry);
 
             var first = await store.AcquireChatAsync(chat);
             var second = await store.AcquireChatAsync(chat);
@@ -390,7 +390,7 @@ public sealed class MultipleChatWindowsTests
             var chatA = new Chat { Title = "Chat A" };
             var chatB = new Chat { Title = "Chat B" };
             using var registry = new ChatSurfaceRegistry();
-            using var store = new ChatSessionStore(CreateDataStore(chatA, chatB), new CopilotService(), registry);
+            using var store = new ChatSessionStore(CreateDataStore(chatA, chatB), TestCopilot.Shared, registry);
 
             // The store owns exactly one orchestration backend for its whole lifetime, so every surface
             // (i.e. every window sharing this store) drives the same manage_chats instance and no single
@@ -421,7 +421,7 @@ public sealed class MultipleChatWindowsTests
         var loadCount = 0;
         using var store = new ChatSessionStore(
             CreateDataStore(chat),
-            new CopilotService(),
+            TestCopilot.Shared,
             registry,
             async (surface, chatToLoad) =>
             {
@@ -461,7 +461,7 @@ public sealed class MultipleChatWindowsTests
             var targetChat = new Chat { Title = "Target chat" };
             targetChat.Messages.Add(new ChatMessage { Role = "user", Content = "target" });
             var dataStore = CreateDataStore(visibleChat, targetChat);
-            var copilotService = new CopilotService();
+            var copilotService = TestCopilot.Shared;
             using var registry = new ChatSurfaceRegistry();
             var loadStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var allowLoadToComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -515,7 +515,7 @@ public sealed class MultipleChatWindowsTests
             chatA.Messages.Add(new ChatMessage { Role = "user", Content = "a" });
             chatB.Messages.Add(new ChatMessage { Role = "user", Content = "b" });
             var dataStore = CreateDataStore(chatA, chatB);
-            var copilotService = new CopilotService();
+            var copilotService = TestCopilot.Shared;
             using var registry = new ChatSurfaceRegistry();
             using var store = new ChatSessionStore(
                 dataStore,
@@ -567,7 +567,7 @@ public sealed class MultipleChatWindowsTests
             browserChat.Messages.Add(new ChatMessage { Role = "user", Content = "browse" });
             otherChat.Messages.Add(new ChatMessage { Role = "user", Content = "other" });
             using var registry = new ChatSurfaceRegistry();
-            using var store = new ChatSessionStore(CreateDataStore(browserChat, otherChat), new CopilotService(), registry);
+            using var store = new ChatSessionStore(CreateDataStore(browserChat, otherChat), TestCopilot.Shared, registry);
 
             var surface = await store.AcquireChatAsync(browserChat);
 
@@ -599,7 +599,7 @@ public sealed class MultipleChatWindowsTests
             var chat = new Chat { Title = "Running chat" };
             chat.Messages.Add(new ChatMessage { Role = "user", Content = "run" });
             using var registry = new ChatSurfaceRegistry();
-            using var store = new ChatSessionStore(CreateDataStore(chat), new CopilotService(), registry);
+            using var store = new ChatSessionStore(CreateDataStore(chat), TestCopilot.Shared, registry);
 
             var first = await store.AcquireChatAsync(chat);
             var runtimeStates = GetPrivateField<Dictionary<Guid, ChatRuntimeState>>(first, "_runtimeStates");
@@ -641,7 +641,7 @@ public sealed class MultipleChatWindowsTests
         using var registry = new ChatSurfaceRegistry();
         using var store = new ChatSessionStore(
             CreateDataStore(firstChat, secondChat, thirdChat),
-            new CopilotService(),
+            TestCopilot.Shared,
             registry,
             static (surface, chat) =>
             {
@@ -675,7 +675,7 @@ public sealed class MultipleChatWindowsTests
         using var registry = new ChatSurfaceRegistry();
         using var store = new ChatSessionStore(
             CreateDataStore(chat),
-            new CopilotService(),
+            TestCopilot.Shared,
             registry,
             static (_, _) => throw new InvalidOperationException("Simulated load failure."));
 
@@ -728,7 +728,7 @@ public sealed class MultipleChatWindowsTests
     {
         Loc.Load("en");
         var chat = new Chat { Title = "Initial title" };
-        var chatVm = new ChatViewModel(new DataStore(new AppData { Chats = [chat] }), new CopilotService())
+        var chatVm = new ChatViewModel(new DataStore(new AppData { Chats = [chat] }), TestCopilot.Shared)
         {
             CurrentChat = chat
         };
@@ -748,7 +748,7 @@ public sealed class MultipleChatWindowsTests
     }
 
     private static MainViewModel CreateViewModel(params Chat[] chats)
-        => new(CreateDataStore(chats), new CopilotService(), new UpdateService());
+        => new(CreateDataStore(chats), TestCopilot.Shared, new UpdateService());
 
     private static DataStore CreateDataStore(params Chat[] chats)
     {

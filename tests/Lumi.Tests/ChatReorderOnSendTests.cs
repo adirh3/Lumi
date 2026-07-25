@@ -40,7 +40,7 @@ public class ChatReorderOnSendTests
         var newer = new Chat { Title = "Newer", UpdatedAt = DateTimeOffset.Now.AddMinutes(-5) };
         var ds = CreateDataStore(older, newer);
 
-        var vm = new MainViewModel(ds, new CopilotService(), new UpdateService());
+        var vm = new MainViewModel(ds, TestCopilot.Shared, new UpdateService());
 
         // Initial order: newer first
         var firstChat = GetFirstChat(vm);
@@ -79,7 +79,7 @@ public class ChatReorderOnSendTests
             UpdatedAt = DateTimeOffset.Now
         };
         var ds = CreateDataStore(older, newer, otherProjectPinned);
-        var vm = new MainViewModel(ds, new CopilotService(), new UpdateService())
+        var vm = new MainViewModel(ds, TestCopilot.Shared, new UpdateService())
         {
             SelectedProjectFilter = projectId
         };
@@ -114,7 +114,7 @@ public class ChatReorderOnSendTests
             UpdatedAt = todayStart.AddTicks(1)
         };
         var ds = CreateDataStore(yesterday, today);
-        var vm = new MainViewModel(ds, new CopilotService(), new UpdateService());
+        var vm = new MainViewModel(ds, TestCopilot.Shared, new UpdateService());
 
         // Yesterday chat should be in a different group initially
         Assert.True(vm.ChatGroups.Count >= 2, "Expected at least two time groups");
@@ -136,7 +136,7 @@ public class ChatReorderOnSendTests
         var older = new Chat { Title = "Older", UpdatedAt = DateTimeOffset.Now.AddHours(-2) };
         var newer = new Chat { Title = "Newer", UpdatedAt = DateTimeOffset.Now.AddMinutes(-5) };
         var ds = CreateDataStore(older, newer);
-        var vm = new MainViewModel(ds, new CopilotService(), new UpdateService());
+        var vm = new MainViewModel(ds, TestCopilot.Shared, new UpdateService());
 
         // Verify initial order
         Assert.Equal("Newer", GetFirstChat(vm)?.Title);
@@ -167,7 +167,7 @@ public class ChatReorderOnSendTests
             UpdatedAt = DateTimeOffset.Now.AddMinutes(-1)
         };
         var ds = CreateDataStore(projectChat, otherChat);
-        var vm = new MainViewModel(ds, new CopilotService(), new UpdateService());
+        var vm = new MainViewModel(ds, TestCopilot.Shared, new UpdateService());
 
         // Filter by project
         vm.SelectedProjectFilter = projectId;
@@ -209,7 +209,7 @@ public class ChatReorderOnSendTests
             newer.Messages.Add(new ChatMessage { Role = "user", Content = "Hello" });
 
             var ds = CreateDataStore(older, newer);
-            var vm = new MainViewModel(ds, new CopilotService(), new UpdateService());
+            var vm = new MainViewModel(ds, TestCopilot.Shared, new UpdateService());
 
             Assert.Equal("Newer", GetFirstChat(vm)?.Title);
 

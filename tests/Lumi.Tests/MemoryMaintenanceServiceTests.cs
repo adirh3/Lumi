@@ -98,7 +98,7 @@ public sealed class MemoryMaintenanceServiceTests
                 }
             ]
         };
-        var service = new MemoryAgentService(new DataStore(data), new CopilotService());
+        var service = new MemoryAgentService(new DataStore(data), TestCopilot.Shared);
 
         await service.SaveMemoryAsync(
             "Favorite tea",
@@ -125,7 +125,7 @@ public sealed class MemoryMaintenanceServiceTests
                 }
             ]
         };
-        var service = new MemoryAgentService(new DataStore(data), new CopilotService());
+        var service = new MemoryAgentService(new DataStore(data), TestCopilot.Shared);
 
         await service.SaveMemoryAsync(
             "Favorite tea",
@@ -154,7 +154,7 @@ public sealed class MemoryMaintenanceServiceTests
         };
         var viewModel = new SettingsViewModel(
             new DataStore(data),
-            new CopilotService(),
+            TestCopilot.Shared,
             new BrowserService(),
             new UpdateService());
 
@@ -222,7 +222,7 @@ public sealed class MemoryMaintenanceServiceTests
                 }
             ]
         };
-        var viewModel = new ChatViewModel(new DataStore(data), new CopilotService());
+        var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
         var method = typeof(ChatViewModel).GetMethod(
             "CreateMemoryCheckpoint",
             BindingFlags.Instance | BindingFlags.NonPublic);

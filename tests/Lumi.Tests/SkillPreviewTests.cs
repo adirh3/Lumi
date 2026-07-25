@@ -52,7 +52,7 @@ public sealed class SkillPreviewTests
             // Full ViewModel click path: a persisted chip stored with the slug name renders the body.
             var appData = new AppData();
             appData.Projects.Add(project);
-            var viewModel = new ChatViewModel(new DataStore(appData), new CopilotService())
+            var viewModel = new ChatViewModel(new DataStore(appData), TestCopilot.Shared)
             {
                 ActiveProjectFilterId = project.Id
             };
@@ -77,7 +77,7 @@ public sealed class SkillPreviewTests
         // skill.invoked event supplies the full Content, which the chip now persists. Clicking it must
         // render that content directly — with no project working directory and no skill file on disk.
         var appData = new AppData();
-        var viewModel = new ChatViewModel(new DataStore(appData), new CopilotService());
+        var viewModel = new ChatViewModel(new DataStore(appData), TestCopilot.Shared);
 
         var chip = new SkillReference
         {

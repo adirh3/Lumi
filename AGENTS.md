@@ -166,6 +166,11 @@ cd src/Lumi && dotnet run
 
 Automated tests live in `tests/Lumi.Tests`. StrataTheme is referenced via the `Strata/` git submodule.
 
+Two things that used to make agent runs slow or flaky are now handled for you — do not reintroduce the old workarounds:
+
+- **Do not stop `Lumi.Mcp.exe` to unblock a build.** `lumi-mcp` builds and runs from `.mcp-run/` (via `--artifacts-path` in `.vscode/mcp.json`), which is outside `src/Lumi.Mcp/bin`, so a running MCP server can never lock `dotnet build`/`dotnet test` output. Previously the server ran straight out of `bin/`, and Windows locks a running `.exe` exclusively, so any build that refreshed `Lumi.Mcp` failed with `MSB3027`/`MSB3021`. If you still hit a lock, it is a *different* process — check `Get-Process Lumi.Mcp | Select Id, Path` before killing anything, and never kill another worktree's server.
+- **Never construct `new CopilotService()` in a test.** Use `TestCopilot.Shared` (`tests/Lumi.Tests/TestCopilot.cs`). Each `CopilotService` owns a real `copilot.exe` child that only dies with the test host, so inline instances used to leave ~41 CLI processes alive at once per run — enough to starve the machine and block the test host itself. The only exceptions are tests that own and dispose their own instance (`CopilotIntegrationTests`, `SuggestionAuditHarness`).
+
 ### Lumi MCP and UI Testing
 
 Lumi has two repo-configured MCP servers in `.vscode/mcp.json`:
