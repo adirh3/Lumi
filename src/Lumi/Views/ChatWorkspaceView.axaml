@@ -540,7 +540,8 @@
                   </ItemsControl.ItemsPanel>
                   <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="vm:FileAttachmentItem">
-                      <Button Classes="rail-row" Command="{Binding OpenCommand}" ToolTip.Tip="{Binding FilePath}">
+                      <Button Classes="rail-row" Command="{Binding OpenCommand}" ToolTip.Tip="{Binding FilePath}"
+                              views:FileDrag.FilePath="{Binding FilePath}">
                         <Button.ContextMenu>
                           <ContextMenu x:CompileBindings="False">
                             <MenuItem Header="{loc:Str FileMenu_Open}" Command="{Binding OpenCommand}">
@@ -809,6 +810,7 @@
                     <DataTemplate DataType="vm:FileChangeItem">
                       <Button Classes="rail-row" x:Name="WsChangeRow"
                               Command="{Binding ShowDiffCommand}"
+                              views:FileDrag.FilePath="{Binding FilePath}"
                               ToolTip.Tip="{Binding FilePath}">
                         <Grid ColumnDefinitions="Auto,*,Auto">
                           <Border Width="34" Height="34" VerticalAlignment="Center"

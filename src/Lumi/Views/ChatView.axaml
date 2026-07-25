@@ -31,6 +31,7 @@
                                FileSize="{Binding FileSize}"
                                IconImage="{Binding IconImage}"
                                Status="Completed"
+                               views:FileDrag.FilePath="{Binding FilePath}"
                                IsRemovable="False">
         <sc:StrataFileAttachment.ContextMenu>
           <ContextMenu x:CompileBindings="False">
@@ -1962,6 +1963,7 @@
                                          IconImage="{Binding IconImage}"
                                          Status="Completed"
                                          IsCompact="True"
+                                         views:FileDrag.FilePath="{Binding FilePath}"
                                          IsRemovable="{Binding IsRemovable}"
                                          RemoveCommand="{Binding RemoveCommand}"
                                          Margin="0,0,6,4" />
