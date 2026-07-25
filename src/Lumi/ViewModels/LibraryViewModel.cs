@@ -593,31 +593,49 @@ public partial class LibraryViewModel : ObservableObject
         var chats = _dataStore.Data.Chats.ToArray();
         var projects = _dataStore.Data.Projects.ToArray();
         TotalChatsToScan = chats.Length;
+
+        // Progress<T> hands its callbacks to the SynchronizationContext captured when it was built. Under
+        // the app that is the UI dispatcher, which serialises them against this method's continuation; in
+        // any other context (unit tests, a headless host) there is none, so reports are delivered straight
+        // on the thread pool and can run *concurrently with* - or *after* - the completing scan. Both
+        // publishers mutate the same collections, so a stray report could interleave with, or overwrite,
+        // the final results. The gate serialises them and makes the final publish the last word.
+        var publishGate = new object();
+        var scanFinished = false;
         try
         {
-            // Progress is created on the UI thread, so partial results marshal back automatically and
-            // the gallery fills in while the remaining chats are still being read.
             var progress = new Progress<LibraryScanProgress>(update =>
             {
                 if (token.IsCancellationRequested || !ReferenceEquals(Volatile.Read(ref _scanCts), cts))
                     return;
 
-                ScannedChats = update.ChatsScanned;
-                TotalChatsToScan = update.ChatsTotal;
-                Publish(update.Artifacts);
-                HasScanned = true;
-                RefreshEmptyStates();
+                lock (publishGate)
+                {
+                    if (scanFinished)
+                        return;
+
+                    ScannedChats = update.ChatsScanned;
+                    TotalChatsToScan = update.ChatsTotal;
+                    Publish(update.Artifacts);
+                    HasScanned = true;
+                    RefreshEmptyStates();
+                }
             });
 
             var artifacts = await Task.Run(() => _libraryService.ScanAsync(chats, projects, progress, token), token);
             if (token.IsCancellationRequested)
                 return;
 
-            _isDirty = false;
-            HasScanned = true;
-            ScannedChats = TotalChatsToScan;
-            Publish(artifacts);
-            PruneItemCache(artifacts);
+            lock (publishGate)
+            {
+                scanFinished = true;
+
+                _isDirty = false;
+                HasScanned = true;
+                ScannedChats = TotalChatsToScan;
+                Publish(artifacts);
+                PruneItemCache(artifacts);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -625,6 +643,11 @@ public partial class LibraryViewModel : ObservableObject
         }
         finally
         {
+            // Close the gate on the cancelled and faulted paths too, so nothing can publish once this
+            // scan has stopped owning the collections.
+            lock (publishGate)
+                scanFinished = true;
+
             if (ReferenceEquals(Volatile.Read(ref _scanCts), cts))
             {
                 IsLoading = false;
