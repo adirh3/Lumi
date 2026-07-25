@@ -271,12 +271,14 @@ public partial class ChatViewModel
 
         // Mark unanswered ask_question tool messages as Failed so rebuild renders them as expired
         var markedExpired = false;
+        var expiredAt = DateTimeOffset.UtcNow;
         foreach (var msg in chat.Messages)
         {
             if (msg.ToolName == "ask_question"
                 && msg.ToolStatus == "InProgress"
                 && string.IsNullOrEmpty(msg.ToolOutput))
             {
+                msg.MarkToolFinished(expiredAt);
                 msg.ToolStatus = "Failed";
                 markedExpired = true;
             }
@@ -290,12 +292,14 @@ public partial class ChatViewModel
     private bool MarkInProgressToolsStopped(Chat chat)
     {
         List<Guid>? stoppedMessageIds = null;
+        var stoppedAt = DateTimeOffset.UtcNow;
 
         foreach (var message in chat.Messages)
         {
             if (message.ToolStatus != "InProgress" || string.IsNullOrWhiteSpace(message.ToolName))
                 continue;
 
+            message.MarkToolFinished(stoppedAt);
             message.ToolStatus = "Stopped";
             (stoppedMessageIds ??= []).Add(message.Id);
         }

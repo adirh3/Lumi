@@ -1527,6 +1527,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                             ToolStatus = "InProgress",
                             Content = "",
                         };
+                        toolMsg.MarkToolStarted(DateTimeOffset.UtcNow);
                         owningChat.Messages.Add(toolMsg);
                     }
                     toolMsg.QuestionId = questionId;

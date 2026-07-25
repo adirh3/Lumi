@@ -163,6 +163,17 @@ public partial class ChatViewModel
         _trackedBackgroundShells.Remove(tracked.RootToolCallId);
         ForgetRunningBackgroundShell(tracked.RootToolCallId);
         var durationMs = Math.Max(0, (DateTime.UtcNow - tracked.StartedUtc).TotalMilliseconds);
+
+        // The shell outlived its tool call, so the Tasks-API lifetime — not the launch call — is the
+        // command's real duration. Persist it so a rebuild shows the same number instead of falling
+        // back to the misleadingly short launch time.
+        var toolMsg = CurrentChat?.Messages.LastOrDefault(m => m.ToolCallId == tracked.RootToolCallId);
+        if (toolMsg is not null)
+        {
+            toolMsg.ToolStartedAt = new DateTimeOffset(tracked.StartedUtc);
+            toolMsg.ToolDurationMs = durationMs;
+        }
+
         _transcriptBuilder.SetTerminalRunningInBackground(tracked.RootToolCallId, false, durationMs);
     }
 

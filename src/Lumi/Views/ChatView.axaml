@@ -1234,7 +1234,8 @@
                            IsExpanded="{Binding IsExpanded}"
                            InputParameters="{Binding InputParameters}"
                            MoreInfo="{Binding MoreInfo}"
-                           DurationMs="{Binding DurationMs}">
+                           DurationMs="{Binding DurationMs}"
+                           RunningSince="{Binding RunningSince}">
         <sc:StrataAiToolCall.HeaderAction>
           <Button Classes="subtle" Command="{Binding ShowDiffCommand}"
                   IsVisible="{Binding HasDiff}"
@@ -1265,7 +1266,7 @@
                                 Output="{Binding Output}"
                                 Status="{Binding Status}"
                                 IsRunningInBackground="{Binding IsRunningInBackground}"
-                                RunningSince="{Binding BackgroundStartedUtc}"
+                                RunningSince="{Binding RunningSince}"
                                 DurationMs="{Binding DurationMs}"
                                 IsExpanded="{Binding IsExpanded}" />
     </DataTemplate>

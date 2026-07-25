@@ -555,6 +555,7 @@ public partial class ChatViewModel
                                 ToolStatus = "InProgress",
                                 Content = "",
                             };
+                            toolMsg.MarkToolStarted(DateTimeOffset.UtcNow);
                             chat.Messages.Add(toolMsg);
                         }
                         toolMsg.QuestionId = questionId;

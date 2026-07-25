@@ -348,12 +348,21 @@ public partial class ChatViewModel
         if (analysis.CompletedToolCallIds.Count == 0 && analysis.FailedToolCallIds.Count == 0)
             return;
 
+        // Recovery is the terminal event this tool will ever get, so freeze its duration here too —
+        // otherwise a recovered call renders (and persists) with no time at all. Captured before the
+        // dispatch for the same reason as the live event stamps, and self-no-ops for calls whose real
+        // completion arrived first.
+        var recoveredAt = DateTimeOffset.UtcNow;
+
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             foreach (var toolCallId in analysis.CompletedToolCallIds)
             {
                 foreach (var message in chat.Messages.Where(m => m.ToolCallId == toolCallId))
+                {
+                    message.MarkToolFinished(recoveredAt);
                     message.ToolStatus = "Completed";
+                }
 
                 if (CurrentChat?.Id == chat.Id)
                 {
@@ -365,7 +374,10 @@ public partial class ChatViewModel
             foreach (var toolCallId in analysis.FailedToolCallIds)
             {
                 foreach (var message in chat.Messages.Where(m => m.ToolCallId == toolCallId))
+                {
+                    message.MarkToolFinished(recoveredAt);
                     message.ToolStatus = "Failed";
+                }
 
                 if (CurrentChat?.Id == chat.Id)
                 {

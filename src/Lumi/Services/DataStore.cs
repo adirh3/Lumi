@@ -263,6 +263,8 @@ public class DataStore
                 ParentToolCallId = m.ParentToolCallId,
                 ToolStatus = m.ToolStatus,
                 ToolOutput = m.ToolOutput,
+                ToolStartedAt = m.ToolStartedAt,
+                ToolDurationMs = m.ToolDurationMs,
                 LinkedChatId = m.LinkedChatId,
                 LinkedChatTitle = m.LinkedChatTitle,
                 QuestionId = m.QuestionId,

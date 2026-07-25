@@ -874,6 +874,12 @@ public partial class ToolCallItem : ToolCallItemBase
     [ObservableProperty] private bool _hasDiff;
     [ObservableProperty] private bool _isCompact;
 
+    /// <summary>The call's authoritative start instant (<see cref="Models.ChatMessage.ToolStartedAt"/>).
+    /// Bound to the card's <c>RunningSince</c> so the live elapsed readout is derived from a fixed
+    /// point and stays correct across control recreation (chat switch, virtualization) instead of
+    /// restarting from zero.</summary>
+    [ObservableProperty] private DateTimeOffset? _runningSince;
+
     public string? DiffFilePath { get; set; }
     public string? DiffToolName { get; set; }
     public List<(string? OldText, string? NewText)>? DiffEdits { get; set; }
@@ -919,11 +925,13 @@ public partial class TerminalPreviewItem : ToolCallItemBase
     /// card visibly "running" instead of prematurely reading "Completed".</summary>
     [ObservableProperty] private bool _isRunningInBackground;
 
-    /// <summary>The shell's authoritative start time (from the Tasks API), used to anchor the live
-    /// "running in background" elapsed clock. Bound to the card's <c>RunningSince</c> so the readout
-    /// stays correct across control recreation (chat switch, virtualization) and manual collapse —
-    /// the clock is derived from this fixed instant rather than from when the control last loaded.</summary>
-    [ObservableProperty] private DateTimeOffset? _backgroundStartedUtc;
+    /// <summary>The command's authoritative start instant — the tool call's start
+    /// (<see cref="Models.ChatMessage.ToolStartedAt"/>), replaced by the shell's real start from the
+    /// Tasks API once it is known to still be running in the background. Bound to the card's
+    /// <c>RunningSince</c> so the live elapsed readout is derived from this fixed instant and stays
+    /// correct across control recreation (chat switch, virtualization) and manual collapse, rather
+    /// than restarting from zero each time the control loads.</summary>
+    [ObservableProperty] private DateTimeOffset? _runningSince;
 
     public TerminalPreviewItem(string toolName, string command, StrataAiToolCallStatus status, string? stableId = null)
         : base(stableId ?? TranscriptIds.Create("terminal"))

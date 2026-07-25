@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -43,7 +42,6 @@ public class TranscriptBuilder
     private readonly Dictionary<string, DateTimeOffset> _knownRunningBackgroundShells = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string?> _toolParentById = new(StringComparer.Ordinal);
     private readonly Dictionary<string, SubagentToolCallItem> _subagentsByToolCallId = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, long> _toolStartTimes = [];
     private readonly HashSet<string> _trackedFileEditToolCalls = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<string>> _trackedFileEditFilesByToolCall = new(StringComparer.Ordinal);
     private readonly HashSet<string> _deferredFileEditSubscriptions = new(StringComparer.Ordinal);
@@ -191,7 +189,6 @@ public class TranscriptBuilder
         _terminalPreviewsByToolCallId.Clear();
         _toolParentById.Clear();
         _subagentsByToolCallId.Clear();
-        _toolStartTimes.Clear();
         _trackedFileEditToolCalls.Clear();
         _trackedFileEditFilesByToolCall.Clear();
         _deferredFileEditSubscriptions.Clear();
@@ -467,8 +464,6 @@ public class TranscriptBuilder
         friendlyName = $"{ToolDisplayHelper.GetToolGlyph(toolName)} {friendlyName}";
 
         var toolCallId = msgVm.Message.ToolCallId;
-        if (toolCallId is not null && initialStatus == StrataAiToolCallStatus.InProgress)
-            _toolStartTimes[toolCallId] = Stopwatch.GetTimestamp();
 
         if (ToolDisplayHelper.IsShellCommandTool(toolName))
         {
@@ -476,6 +471,8 @@ public class TranscriptBuilder
             var termPreview = new TerminalPreviewItem(friendlyName, command, initialStatus, $"terminal:{toolStableIdSeed}")
             {
                 Output = msgVm.Message.ToolOutput ?? string.Empty,
+                DurationMs = msgVm.Message.ToolDurationMs ?? 0,
+                RunningSince = msgVm.Message.ToolStartedAt,
                 IsExpanded = !IsRebuildingTranscript,
             };
             // Rebuilt while this async shell is still running in the background: recreate the card
@@ -484,7 +481,7 @@ public class TranscriptBuilder
             if (toolCallId is not null && _knownRunningBackgroundShells.TryGetValue(toolCallId, out var knownStartedUtc))
             {
                 termPreview.IsRunningInBackground = true;
-                termPreview.BackgroundStartedUtc = knownStartedUtc;
+                termPreview.RunningSince = knownStartedUtc;
                 termPreview.IsExpanded = true;
             }
             if (toolCallId is not null)
@@ -510,12 +507,8 @@ public class TranscriptBuilder
                         termPreview.Output = msgVm.Message.ToolOutput;
                     }
 
-                    if (toolCallId is not null && termPreview.Status is not StrataAiToolCallStatus.InProgress
-                        && _toolStartTimes.TryGetValue(toolCallId, out var startTick))
-                    {
-                        termPreview.DurationMs = Stopwatch.GetElapsedTime(startTick).TotalMilliseconds;
-                        _toolStartTimes.Remove(toolCallId);
-                    }
+                    if (termPreview.Status is not StrataAiToolCallStatus.InProgress)
+                        termPreview.DurationMs = msgVm.Message.ToolDurationMs ?? 0;
 
                     if (termParentSubagent is not null)
                         UpdateSubagentState(termParentSubagent);
@@ -545,6 +538,8 @@ public class TranscriptBuilder
         {
             InputParameters = ToolDisplayHelper.FormatToolArgsFriendly(toolName, msgVm.Content),
             MoreInfo = BuildToolCallMoreInfo(friendlyInfo, msgVm, initialStatus),
+            DurationMs = msgVm.Message.ToolDurationMs ?? 0,
+            RunningSince = msgVm.Message.ToolStartedAt,
             IsCompact = ToolDisplayHelper.IsCompactEligible(toolName)
                 && initialStatus == StrataAiToolCallStatus.Completed,
         };
@@ -579,12 +574,8 @@ public class TranscriptBuilder
                     return;
 
                 toolCall.Status = MapToolStatus(msgVm.ToolStatus);
-                if (toolCallId is not null && toolCall.Status is not StrataAiToolCallStatus.InProgress
-                    && _toolStartTimes.TryGetValue(toolCallId, out var startTick))
-                {
-                    toolCall.DurationMs = Stopwatch.GetElapsedTime(startTick).TotalMilliseconds;
-                    _toolStartTimes.Remove(toolCallId);
-                }
+                if (toolCall.Status is not StrataAiToolCallStatus.InProgress)
+                    toolCall.DurationMs = msgVm.Message.ToolDurationMs ?? 0;
 
                 if (toolCall.Status == StrataAiToolCallStatus.Completed && toolCall.HasDiff && toolCall.DiffFilePath is not null && !IsRebuildingTranscript)
                     toolCall.DiffCurrentContent = ReadFileContentOrEmpty(toolCall.DiffFilePath);
@@ -806,8 +797,6 @@ public class TranscriptBuilder
         CloseCurrentToolGroup();
 
         var toolCallId = msgVm.Message.ToolCallId;
-        if (toolCallId is not null && initialStatus == StrataAiToolCallStatus.InProgress)
-            _toolStartTimes[toolCallId] = Stopwatch.GetTimestamp();
 
         var displayName = ToolDisplayHelper.GetSubagentDisplayName(msgVm.ToolName ?? "", msgVm.Content, msgVm.Author);
         var subagent = new SubagentToolCallItem(displayName, initialStatus, $"subagent:{toolStableIdSeed}")
@@ -836,12 +825,8 @@ public class TranscriptBuilder
                     return;
 
                 subagent.Status = MapToolStatus(msgVm.ToolStatus);
-                if (toolCallId is not null && subagent.Status is not StrataAiToolCallStatus.InProgress
-                    && _toolStartTimes.TryGetValue(toolCallId, out var startTick))
-                {
-                    subagent.DurationMs = Stopwatch.GetElapsedTime(startTick).TotalMilliseconds;
-                    _toolStartTimes.Remove(toolCallId);
-                }
+                if (subagent.Status is not StrataAiToolCallStatus.InProgress)
+                    subagent.DurationMs = msgVm.Message.ToolDurationMs ?? 0;
 
                 UpdateSubagentState(subagent);
 
@@ -888,12 +873,15 @@ public class TranscriptBuilder
 
     /// <summary>Applies an authoritative sub-agent status even when the wrapping task tool already
     /// reported the same terminal status and its property-change listener has been released.</summary>
-    public void UpdateSubagentToolStatus(string toolCallId, string? status)
+    public void UpdateSubagentToolStatus(string toolCallId, string? status, double? durationMs = null)
     {
         if (!_subagentsByToolCallId.TryGetValue(toolCallId, out var subagent))
             return;
 
         subagent.Status = MapToolStatus(status);
+        if (durationMs is > 0 && subagent.Status is not StrataAiToolCallStatus.InProgress)
+            subagent.DurationMs = durationMs.Value;
+
         UpdateSubagentState(subagent);
     }
 
@@ -927,6 +915,7 @@ public class TranscriptBuilder
 
         subagent.TranscriptText = ToolDisplayHelper.ExtractJsonField(message.Content, "transcript");
         subagent.ReasoningText = ToolDisplayHelper.ExtractJsonField(message.Content, "reasoning");
+        subagent.DurationMs = message.ToolDurationMs ?? 0;
     }
 
     private void UpdateSubagentState(SubagentToolCallItem subagent)
@@ -2006,7 +1995,7 @@ public class TranscriptBuilder
             // recreation (chat switch, virtualization) and manual collapse. Idempotent: the monitor
             // passes the same StartedAt every poll, so the setter no-ops after the first.
             if (startedUtc is { } s)
-                card.BackgroundStartedUtc = s;
+                card.RunningSince = s;
 
             // Auto-expand only on the transition into "running in background" — NOT on every poll —
             // so a manual collapse by the user is respected instead of springing back open each tick.

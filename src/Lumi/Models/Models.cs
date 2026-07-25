@@ -31,6 +31,19 @@ public class ChatMessage
     public string? ParentToolCallId { get; set; }
     public string? ToolStatus { get; set; } // InProgress, Completed, Failed, Stopped
     public string? ToolOutput { get; set; }
+
+    /// <summary>
+    /// Wall-clock instant this tool call started, stamped from the SDK's tool-start event. Persisted
+    /// so elapsed time is a property of the command itself rather than of the UI session that
+    /// happened to observe it — switching or reopening a chat no longer restarts the clock.
+    /// </summary>
+    public DateTimeOffset? ToolStartedAt { get; set; }
+
+    /// <summary>
+    /// Final duration of this tool call in milliseconds, frozen when the call reaches a terminal
+    /// status. Null while it is still running, or when its start was never observed.
+    /// </summary>
+    public double? ToolDurationMs { get; set; }
     public Guid? LinkedChatId { get; set; }
     public string? LinkedChatTitle { get; set; }
     public string? QuestionId { get; set; }
@@ -55,6 +68,22 @@ public class ChatMessage
     /// into a running turn so the badge survives transcript/VM rebuilds within the session.</summary>
     [JsonIgnore]
     public MessageSteerState SteerDelivery { get; set; }
+
+    /// <summary>Stamps the tool call's start instant. Idempotent: a replayed or duplicated start
+    /// event keeps the original stamp so the measured duration stays honest.</summary>
+    public void MarkToolStarted(DateTimeOffset startedAt) => ToolStartedAt ??= startedAt;
+
+    /// <summary>Freezes the tool call's final duration. No-ops when the duration is already frozen
+    /// (duplicate/out-of-order terminal events) or when the start was never observed, so a call
+    /// reports no time rather than a fabricated one. Returns true when a duration was recorded.</summary>
+    public bool MarkToolFinished(DateTimeOffset finishedAt)
+    {
+        if (ToolDurationMs is not null || ToolStartedAt is not { } startedAt)
+            return false;
+
+        ToolDurationMs = Math.Max(0, (finishedAt - startedAt).TotalMilliseconds);
+        return true;
+    }
 }
 
 public class SkillReference

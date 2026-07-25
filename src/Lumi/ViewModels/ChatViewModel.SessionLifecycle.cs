@@ -127,6 +127,7 @@ public partial class ChatViewModel
             throw new ArgumentOutOfRangeException(nameof(terminalStatus), terminalStatus, "Expected a terminal tool status.");
 
         var changed = new List<ChatMessage>();
+        var terminalAt = DateTimeOffset.UtcNow;
         foreach (var message in chat.Messages)
         {
             if (!string.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase)
@@ -136,6 +137,7 @@ public partial class ChatViewModel
                 continue;
             }
 
+            message.MarkToolFinished(terminalAt);
             message.ToolStatus = terminalStatus;
             changed.Add(message);
         }
@@ -165,7 +167,7 @@ public partial class ChatViewModel
             viewModel?.NotifyToolStatusChanged();
 
             if (!string.IsNullOrWhiteSpace(message.ToolCallId))
-                _transcriptBuilder.UpdateSubagentToolStatus(message.ToolCallId, terminalStatus);
+                _transcriptBuilder.UpdateSubagentToolStatus(message.ToolCallId, terminalStatus, message.ToolDurationMs);
         }
     }
 
@@ -941,6 +943,10 @@ public partial class ChatViewModel
 
                 case ToolExecutionStartEvent toolStart:
                     AdjustPendingToolCount(chat.Id, 1);
+                    // Stamp the start on the event thread, before the UI dispatch: queuing latency
+                    // (which can be large while the UI thread is busy rendering a stream) must not
+                    // be counted as command time.
+                    var toolStartedAt = DateTimeOffset.UtcNow;
                     Dispatcher.UIThread.Post(() =>
                     {
                     var startToolCallId = toolStart.Data.ToolCallId;
@@ -998,6 +1004,9 @@ public partial class ChatViewModel
                         toolMsg.Content = toolStart.Data.Arguments?.ToString() ?? "";
                         toolMsg.Author = displayName;
                     }
+
+                    if (toolStatus == "InProgress")
+                        toolMsg.MarkToolStarted(toolStartedAt);
 
                     if (shouldSaveCachedFailureOutput)
                         QueueSaveChat(chat, saveIndex: false);
@@ -1069,6 +1078,8 @@ public partial class ChatViewModel
                     var shouldReconcileAfterTool = AdjustPendingToolCount(chat.Id, -1);
                     if (shouldReconcileAfterTool)
                         SchedulePostToolReconciliation(chat.Id);
+                    // Captured on the event thread for the same reason as the start stamp.
+                    var toolCompletedAt = DateTimeOffset.UtcNow;
                     var completedToolStatus = toolEnd.Data.Success == true ? "Completed" : "Failed";
                     completedToolStatusesByCallId[toolEnd.Data.ToolCallId] = completedToolStatus;
                     var completedToolOutput = toolEnd.Data.Success == true
@@ -1093,6 +1104,9 @@ public partial class ChatViewModel
 
                         if (ShouldApplyToolExecutionCompletionStatus(toolMsg.ToolName, success))
                         {
+                            // Sub-agent tools deliberately stay InProgress here (the wrapper only
+                            // spawned the agent) — their duration is frozen by subagent.completed.
+                            toolMsg.MarkToolFinished(toolCompletedAt);
                             toolMsg.ToolStatus = completedToolStatus;
                             if (IsDisplayedSession())
                             {
@@ -1181,6 +1195,7 @@ public partial class ChatViewModel
                     // and may not emit tool.execution_start/tool.execution_complete events.
                     externalToolCallIdByRequestId[externalToolRequest.Data.RequestId] = externalToolRequest.Data.ToolCallId;
                     AdjustPendingToolCount(chat.Id, 1);
+                    var externalToolStartedAt = DateTimeOffset.UtcNow;
                     Dispatcher.UIThread.Post(() =>
                     {
                     var arguments = externalToolRequest.Data.Arguments?.ToString();
@@ -1222,6 +1237,9 @@ public partial class ChatViewModel
                         toolMsg.Author = displayName;
                     }
 
+                    if (toolStatus == "InProgress")
+                        toolMsg.MarkToolStarted(externalToolStartedAt);
+
                     if (shouldSaveCachedFailureOutput)
                         QueueSaveChat(chat, saveIndex: false);
 
@@ -1248,6 +1266,7 @@ public partial class ChatViewModel
                     var shouldReconcileAfterExternalTool = AdjustPendingToolCount(chat.Id, -1);
                     if (shouldReconcileAfterExternalTool)
                         SchedulePostToolReconciliation(chat.Id);
+                    var externalToolCompletedAt = DateTimeOffset.UtcNow;
                     if (externalToolCallIdByRequestId.TryGetValue(externalToolComplete.Data.RequestId, out var completedExternalToolCallId))
                         completedToolStatusesByCallId[completedExternalToolCallId] = "Completed";
                     Dispatcher.UIThread.Post(() =>
@@ -1258,7 +1277,10 @@ public partial class ChatViewModel
                     externalToolCallIdByRequestId.Remove(externalToolComplete.Data.RequestId);
 
                     foreach (var msg in chat.Messages.Where(m => m.ToolCallId == externalToolCallId))
+                    {
+                        msg.MarkToolFinished(externalToolCompletedAt);
                         msg.ToolStatus = "Completed";
+                    }
 
                     if (IsDisplayedSession())
                     {
@@ -1775,6 +1797,7 @@ public partial class ChatViewModel
                 case SubagentStartedEvent subStart:
                     Interlocked.Increment(ref runtime.ActiveSubagentExecutionDepth);
                     RegisterActiveSubagent(subStart.Data.ToolCallId);
+                    var subagentStartedAt = DateTimeOffset.UtcNow;
                     Dispatcher.UIThread.Post(() =>
                     {
                     var displayName = subStart.Data.AgentDisplayName ?? subStart.Data.AgentName ?? "Agent";
@@ -1802,6 +1825,7 @@ public partial class ChatViewModel
                             ?? GetSubagentStream(subagentReasoningStreams, subStart.Data.ToolCallId)?.SnapshotOrNull();
                         existing.ToolName = $"agent:{subStart.Data.AgentName}";
                         existing.ToolStatus = "InProgress";
+                        existing.MarkToolStarted(subagentStartedAt);
                         existing.Content = BuildSubagentPayloadJson(
                             description: existingDescription,
                             agentName: subStart.Data.AgentName,
@@ -1832,6 +1856,7 @@ public partial class ChatViewModel
                             Content = subagentPayload,
                             Author = displayName
                         };
+                        toolMsg.MarkToolStarted(subagentStartedAt);
                         chat.Messages.Add(toolMsg);
                         if (IsDisplayedSession())
                         {
@@ -1851,17 +1876,23 @@ public partial class ChatViewModel
                         && Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0)
                         Interlocked.Decrement(ref runtime.ActiveSubagentExecutionDepth);
                     CompleteSubagentStreams(subEnd.Data.ToolCallId);
+                    var subagentCompletedAt = DateTimeOffset.UtcNow;
                     Dispatcher.UIThread.Post(() =>
                     {
                     // Mark ALL messages with this ToolCallId as Completed
                     // (covers both ToolExecutionStart and SubagentStarted entries).
+                    double? subagentDurationMs = null;
                     foreach (var msg in chat.Messages.Where(m => m.ToolCallId == subEnd.Data.ToolCallId))
+                    {
+                        msg.MarkToolFinished(subagentCompletedAt);
+                        subagentDurationMs ??= msg.ToolDurationMs;
                         msg.ToolStatus = "Completed";
+                    }
                     if (IsDisplayedSession())
                     {
                         foreach (var vm in Messages.Where(m => m.Message.ToolCallId == subEnd.Data.ToolCallId))
                             vm.NotifyToolStatusChanged();
-                        _transcriptBuilder.UpdateSubagentToolStatus(subEnd.Data.ToolCallId, "Completed");
+                        _transcriptBuilder.UpdateSubagentToolStatus(subEnd.Data.ToolCallId, "Completed", subagentDurationMs);
                     }
                     });
                     break;
@@ -1871,11 +1902,15 @@ public partial class ChatViewModel
                         && Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0)
                         Interlocked.Decrement(ref runtime.ActiveSubagentExecutionDepth);
                     CompleteSubagentStreams(subFail.Data.ToolCallId);
+                    var subagentFailedAt = DateTimeOffset.UtcNow;
                     Dispatcher.UIThread.Post(() =>
                     {
                     // Mark ALL messages with this ToolCallId as Failed
+                    double? failedSubagentDurationMs = null;
                     foreach (var msg in chat.Messages.Where(m => m.ToolCallId == subFail.Data.ToolCallId))
                     {
+                        msg.MarkToolFinished(subagentFailedAt);
+                        failedSubagentDurationMs ??= msg.ToolDurationMs;
                         msg.ToolStatus = "Failed";
                         msg.ToolOutput = subFail.Data.Error;
                     }
@@ -1883,7 +1918,7 @@ public partial class ChatViewModel
                     {
                         foreach (var vm in Messages.Where(m => m.Message.ToolCallId == subFail.Data.ToolCallId))
                             vm.NotifyToolStatusChanged();
-                        _transcriptBuilder.UpdateSubagentToolStatus(subFail.Data.ToolCallId, "Failed");
+                        _transcriptBuilder.UpdateSubagentToolStatus(subFail.Data.ToolCallId, "Failed", failedSubagentDurationMs);
                     }
                     });
                     break;
