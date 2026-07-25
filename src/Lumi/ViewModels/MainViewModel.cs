@@ -102,12 +102,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         5 => "5 Memories (#PageMemories)",
         6 => "6 MCP Servers (#PageMcpServers)",
         7 => "7 Settings (#PageSettings)",
+        8 => "8 Library (#PageLibrary)",
         _ => $"{index} Unknown"
     };
 
     public string AgentDebugMapText =>
         "Debug-only agent map\n" +
-        "Nav: #NavChat=0, #NavJobs=1, #NavProjects=2, #NavSkills=3, #NavAgents=4, #NavMemories=5, #NavMcpServers=6, #NavSettings=7\n" +
+        "Nav: #NavChat=0, #NavJobs=1, #NavProjects=2, #NavSkills=3, #NavAgents=4, #NavMemories=5, #NavMcpServers=6, #NavSettings=7, #LibraryEntryButton=8\n" +
         "Chat controls: #PageChat, #ChatShell, #Transcript, #Composer, #SearchInput\n" +
         "CLI: --skip-onboarding --debug-agent-harness opens fixture, --test-chat-stress checks tools, --test-mcp-native checks SDK MCP";
 
@@ -120,7 +121,20 @@ public partial class MainViewModel : ObservableObject, IDisposable
             JobsVM.SetPreferredChat(ChatVM.CurrentChat);
             JobsVM.RefreshFromStore();
         }
+        else if (value == LibraryNavIndex)
+        {
+            _ = LibraryVM.EnsureLoadedAsync();
+        }
     }
+
+    /// <summary>Nav index of the Library page. It is reached from the chat sidebar, not the nav pill.</summary>
+    public const int LibraryNavIndex = 8;
+
+    [RelayCommand]
+    private void OpenLibrary() => SelectedNavIndex = LibraryNavIndex;
+
+    [RelayCommand]
+    private void CloseLibrary() => SelectedNavIndex = 0;
 
     [RelayCommand]
     private void ToggleSidebar() => IsSidebarCollapsed = !IsSidebarCollapsed;
@@ -160,6 +174,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public ProjectsViewModel ProjectsVM { get; }
     public MemoriesViewModel MemoriesVM { get; }
     public McpServersViewModel McpServersVM { get; }
+    public LibraryViewModel LibraryVM { get; }
     public SettingsViewModel SettingsVM { get; }
     public OnboardingViewModel OnboardingVM { get; }
     public SearchOverlayViewModel SearchOverlayVM { get; }
@@ -264,6 +279,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ProjectsVM = new ProjectsViewModel(dataStore, projectGitSyncService);
         MemoriesVM = new MemoriesViewModel(dataStore);
         McpServersVM = new McpServersViewModel(dataStore);
+        LibraryVM = new LibraryViewModel(
+            dataStore,
+            async chatId => await OpenChatByIdAsync(chatId),
+            () => SelectedNavIndex = 0);
         SettingsVM = new SettingsViewModel(dataStore, copilotService, _settingsBrowserService, updateService);
         SettingsVM.LoginVM = LoginVM;
         SearchOverlayVM = new SearchOverlayViewModel(
@@ -519,10 +538,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
     }
 
     private void OnDataStoreChatContentChanged(Guid chatId)
-        => _globalSearchService.InvalidateChatContent(chatId);
+    {
+        _globalSearchService.InvalidateChatContent(chatId);
+        LibraryVM.MarkDirty();
+    }
 
     private void OnDataStoreChatsContentReset()
-        => _globalSearchService.PruneChatContent();
+    {
+        _globalSearchService.PruneChatContent();
+        LibraryVM.MarkDirty();
+    }
 
     /// <summary>
     /// Builds the full-coverage chat content index in the background so search can find any chat by

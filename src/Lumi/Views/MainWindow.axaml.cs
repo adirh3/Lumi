@@ -78,6 +78,7 @@ public partial class MainWindow : Window
     private ContentControl? _mcpServersHost;
     private ContentControl? _settingsHost;
     private SettingsView? _settingsView;
+    private ContentControl? _libraryHost;
     private Border? _sidebarBorder;
     private Border? _contentArea;
     private Thumb? _sidebarResizeThumb;
@@ -234,6 +235,7 @@ public partial class MainWindow : Window
             this.FindControl<Control>("PageMemories"),         // 5
             this.FindControl<Control>("PageMcpServers"),       // 6
             this.FindControl<Control>("PageSettings"),         // 7
+            this.FindControl<Control>("PageLibrary"),          // 8
         ];
 
         _sidebarPanels =
@@ -246,6 +248,7 @@ public partial class MainWindow : Window
             this.FindControl<Panel>("SidebarMemories"),        // 5
             this.FindControl<Panel>("SidebarMcpServers"),      // 6
             this.FindControl<Panel>("SidebarSettings"),        // 7
+            this.FindControl<Panel>("SidebarLibrary"),         // 8
         ];
 
         _navButtons =
@@ -323,6 +326,7 @@ public partial class MainWindow : Window
         _memoriesHost = this.FindControl<ContentControl>("PageMemoriesHost");
         _mcpServersHost = this.FindControl<ContentControl>("PageMcpServersHost");
         _settingsHost = this.FindControl<ContentControl>("PageSettingsHost");
+        _libraryHost = this.FindControl<ContentControl>("PageLibraryHost");
 
         if (_sidebarResizeThumb is not null)
         {
@@ -3127,6 +3131,10 @@ public partial class MainWindow : Window
                 {
                     _settingsView = _settingsHost.Content as SettingsView;
                 }
+                break;
+            case 8:
+                if (_libraryHost is not null && _libraryHost.Content is null)
+                    _libraryHost.Content = new LibraryView { DataContext = vm.LibraryVM };
                 break;
         }
     }

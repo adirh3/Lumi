@@ -1,0 +1,776 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sa="using:StrataTheme.Animation"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.LibraryView"
+             x:DataType="vm:LibraryViewModel"
+             x:CompileBindings="True">
+
+  <UserControl.Styles>
+
+    <!-- ── Header ───────────────────────────────────────── -->
+    <Style Selector="TextBlock.library-title">
+      <Setter Property="FontSize" Value="21" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="TextBlock.library-caption">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+
+    <!-- Shared button motion. Every other page defines this locally; the Library was applying the
+         class without it, so its action buttons snapped between states with no transition. -->
+    <Style Selector="Button.motion-action">
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.12" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
+        </Transitions>
+      </Setter>
+    </Style>
+
+    <!-- ── Search field ─────────────────────────────────── -->
+    <Style Selector="TextBox.library-search-box">
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+    <!--
+      Strata's TextBox signals focus three ways at once: an asymmetric 1,1,1,2 border (which also
+      shifts the text by a pixel), a box-shadow ring, and an animated accent bar along the bottom.
+      Stacked they read as a glitch rather than as focus. The Library search keeps one calm ring.
+      Scoped to this class so every other TextBox in the app is untouched.
+    -->
+    <Style Selector="TextBox.library-search-box /template/ Border#FocusAccentBar">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="TextBox.library-search-box:pointerover /template/ Border#PART_Border">
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderStrong}" />
+    </Style>
+    <Style Selector="TextBox.library-search-box:focus-within /template/ Border#PART_Border">
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="BoxShadow" Value="0 0 0 3 #2E6366F1" />
+    </Style>
+
+    <!-- ── Active filter chips ──────────────────────────── -->
+    <Style Selector="Button.filter-chip">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <ContentPresenter Content="{TemplateBinding Content}" />
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Border.chip-frame">
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="Padding" Value="10,5,8,5" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.14" />
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.14" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.filter-chip:pointerover Border.chip-frame">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface3}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderStrong}" />
+    </Style>
+    <Style Selector="Button.filter-chip:pointerover PathIcon.chip-remove">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="PathIcon.chip-remove">
+      <Setter Property="Width" Value="9" />
+      <Setter Property="Height" Value="9" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.14" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="TextBlock.chip-category">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.chip-value">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="MaxWidth" Value="200" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <!-- The bar only exists while something is filtering, so it slides down rather than popping. -->
+    <Style Selector="Border.filter-bar">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="RenderTransform" Value="translateY(-6px)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.24" Easing="0.2,0 0,1" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.filter-bar[IsVisible=true]">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="RenderTransform" Value="translateY(0)" />
+    </Style>
+
+    <!-- ── Section label ────────────────────────────────── -->
+    <Style Selector="TextBlock.section-label">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="0.8" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+
+    <!-- ── Gallery tile ─────────────────────────────────── -->
+    <Style Selector="Button.tile">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <ContentPresenter Content="{TemplateBinding Content}" />
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Border.tile-frame">
+      <Setter Property="Width" Value="150" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="ClipToBounds" Value="True" />
+      <Setter Property="RenderTransform" Value="translateY(0)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="BorderBrush" Duration="0:0:0.16" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" Easing="CubicEaseOut" />
+          <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.18" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.tile:pointerover Border.tile-frame">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderStrong}" />
+      <Setter Property="RenderTransform" Value="translateY(-3px)" />
+      <Setter Property="BoxShadow" Value="0 8 20 -6 #66000000" />
+    </Style>
+    <Style Selector="Button.tile.selected Border.tile-frame">
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+
+    <!-- ── Result list ──────────────────────────────────── -->
+    <Style Selector="ListBox.library-list">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="18,10,18,24" />
+    </Style>
+    <Style Selector="ListBox.library-list:pointerover /template/ Border">
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="ListBox.library-list:focus-within /template/ Border">
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <!--
+      The item carries no chrome of its own. A row optionally starts with a date separator, and
+      letting the ListBoxItem paint the hover/selection background would sweep that separator into
+      the highlight. Border.row below owns the chrome so it covers the row only.
+    -->
+    <Style Selector="ListBox.library-list ListBoxItem">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <ContentPresenter Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}" />
+        </ControlTemplate>
+      </Setter>
+    </Style>
+
+    <!-- ── Row chrome ───────────────────────────────────── -->
+    <Style Selector="Border.row">
+      <Setter Property="Padding" Value="10,9" />
+      <Setter Property="Margin" Value="0,1" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="RenderTransform" Value="translateX(0)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.14" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.row:pointerover">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+      <Setter Property="RenderTransform" Value="translateX(2px)" />
+    </Style>
+    <Style Selector="Border.row.selected">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="RenderTransform" Value="translateX(2px)" />
+    </Style>
+    <!-- Previews decode off-thread, so fade them in rather than popping. -->
+    <Style Selector="Image.preview">
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.22" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Image.preview[IsVisible=true]">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Image.preview[IsVisible=false]">
+      <Setter Property="Opacity" Value="0" />
+    </Style>
+
+    <!-- ── Kind swatch (row + tile + detail) ────────────── -->
+    <Style Selector="Border.swatch">
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="ClipToBounds" Value="True" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- ── Date separator ───────────────────────────────── -->
+    <Style Selector="TextBlock.row-separator">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="0.8" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Margin" Value="10,14,0,8" />
+    </Style>
+
+    <!-- ── Detail pane ──────────────────────────────────── -->
+    <!--
+      An inset rounded card, not a full-bleed column: a square-cornered slab butting against the
+      page card's rounded corners was the odd one out on every Lumi surface.
+    -->
+    <Style Selector="Border.library-detail">
+      <Setter Property="Width" Value="312" />
+      <!-- Left inset opens a real gutter between the rows and the island; the other three match it. -->
+      <Setter Property="Margin" Value="16,0,16,16" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+      <Setter Property="ClipToBounds" Value="True" />
+      <Setter Property="BoxShadow" Value="0 10 30 -14 #73000000" />
+    </Style>
+    <!-- Slides in from the edge instead of appearing, so selecting a row feels like opening it. -->
+    <Style Selector="Panel.detail-host">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="RenderTransform" Value="translateX(24px)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.28" Easing="0.2,0 0,1" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Panel.detail-host[IsVisible=true]">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="RenderTransform" Value="translateX(0)" />
+    </Style>
+    <Style Selector="TextBlock.detail-label">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="0.6" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="TextBlock.detail-value">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <!-- ── Skeleton ─────────────────────────────────────── -->
+    <Style Selector="Border.skeleton-block">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+    </Style>
+
+  </UserControl.Styles>
+
+  <DockPanel>
+
+    <!-- ══════════════════════ HEADER ══════════════════════ -->
+    <Panel DockPanel.Dock="Top">
+      <!-- soft accent wash so the page has depth instead of reading as a flat table -->
+      <Border Height="150" VerticalAlignment="Top" IsHitTestVisible="False">
+        <Border.Background>
+          <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Offset="0" Color="#1E818CF8" />
+            <GradientStop Offset="1" Color="#00818CF8" />
+          </LinearGradientBrush>
+        </Border.Background>
+      </Border>
+
+      <StackPanel Spacing="18" Margin="28,22,28,18">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Button x:Name="LibraryRefreshButton"
+                    Classes="subtle motion-action" Padding="9,7" MinHeight="0"
+                    Command="{Binding RefreshCommand}"
+                    IsEnabled="{Binding !IsLoading}"
+                    ToolTip.Tip="{loc:Str Library_RefreshTooltip}">
+              <PathIcon Data="{StaticResource Icon.Refresh}" Width="14" Height="14"
+                        Foreground="{DynamicResource Brush.TextSecondary}" />
+            </Button>
+          </StackPanel>
+
+          <StackPanel Spacing="4" VerticalAlignment="Center">
+            <TextBlock Text="{loc:Str Library_Title}" Classes="library-title" />
+            <TextBlock Text="{Binding SummaryLine}" Classes="library-caption" />
+          </StackPanel>
+        </DockPanel>
+
+        <Grid ColumnSpacing="10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MaxWidth="420" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+
+          <!-- Single Strata TextBox: its own focus ring is the only highlight, instead of the
+               doubled border a wrapper Border produced. The clear button is overlaid rather than
+               passed as InnerRightContent, which does not inherit the page DataContext. It clears
+               the typed query only - the rail's filters are undone from their own chips. -->
+          <Panel Grid.Column="0">
+            <TextBox x:Name="LibrarySearchBox"
+                     Classes="library-search-box"
+                     Text="{Binding SearchQuery, Mode=TwoWay}"
+                     Padding="10,8,34,8"
+                     PlaceholderText="{loc:Str Library_SearchWatermark}">
+              <TextBox.InnerLeftContent>
+                <PathIcon Data="{StaticResource Icon.Search}" Width="13" Height="13"
+                          Margin="11,0,3,0"
+                          Foreground="{DynamicResource Brush.TextTertiary}" />
+              </TextBox.InnerLeftContent>
+            </TextBox>
+            <Button x:Name="LibraryClearSearchButton"
+                    Classes="subtle" Padding="5" MinHeight="0"
+                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                    Margin="0,0,9,0"
+                    CornerRadius="{DynamicResource Radius.Full}"
+                    Command="{Binding ClearSearchCommand}"
+                    IsVisible="{Binding HasSearchQuery}"
+                    ToolTip.Tip="{loc:Str Library_ClearSearch}">
+              <PathIcon Data="{StaticResource Icon.Close}" Width="9" Height="9"
+                        Foreground="{DynamicResource Brush.TextTertiary}" />
+            </Button>
+          </Panel>
+
+          <!-- The time window is a filter, so it sits with the other filter controls and reports
+               itself as a chip below, exactly like a rail selection. -->
+          <ComboBox Grid.Column="2"
+                    x:Name="LibraryTimeBox"
+                    ItemsSource="{Binding TimeRanges}"
+                    SelectedItem="{Binding SelectedTimeRangeOption, Mode=TwoWay}"
+                    MinHeight="0" MinWidth="130" Padding="12,7">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:LibraryFilterOption">
+                <TextBlock Text="{Binding Label}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+
+          <ComboBox Grid.Column="3"
+                    x:Name="LibrarySortBox"
+                    ItemsSource="{Binding SortOptions}"
+                    SelectedIndex="{Binding SelectedSortIndex, Mode=TwoWay}"
+                    MinHeight="0" MinWidth="136" Padding="12,7" />
+        </Grid>
+
+        <!-- ══════════════════════ ACTIVE FILTERS ══════════════════════
+             Filters are set from three different places (rail, search box, time dropdown), so the
+             only way to know what is narrowing the list is to state it next to the results. Every
+             chip names its facet and removes exactly that one constraint. -->
+        <Border Classes="filter-bar"
+                IsVisible="{Binding HasActiveFilters}"
+                Background="{DynamicResource Brush.Surface1}"
+                BorderThickness="1"
+                BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                CornerRadius="14"
+                Padding="14,10">
+          <DockPanel>
+            <TextBlock DockPanel.Dock="Left"
+                       Text="{loc:Str Library_FilteringBy}"
+                       Classes="chip-category"
+                       Margin="0,0,10,0" />
+
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="12"
+                        VerticalAlignment="Center" Margin="12,0,0,0">
+              <TextBlock Text="{Binding ResultCountLabel}"
+                         Classes="chip-category"
+                         VerticalAlignment="Center" />
+              <Button Classes="subtle"
+                      Padding="10,4" MinHeight="0"
+                      FontSize="11.5"
+                      CornerRadius="{DynamicResource Radius.Full}"
+                      Content="{loc:Str Library_ClearAll}"
+                      Command="{Binding ClearFiltersCommand}"
+                      IsVisible="{Binding HasMultipleActiveFilters}" />
+            </StackPanel>
+
+            <ItemsControl ItemsSource="{Binding ActiveFilters}" VerticalAlignment="Center">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <WrapPanel Orientation="Horizontal" ItemSpacing="7" LineSpacing="7" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:LibraryActiveFilter">
+                  <Button Classes="filter-chip"
+                          Command="{Binding RemoveCommand}"
+                          ToolTip.Tip="{loc:Str Library_RemoveFilter}">
+                    <Border Classes="chip-frame">
+                      <StackPanel Orientation="Horizontal" Spacing="7">
+                        <PathIcon Data="{Binding Icon}"
+                                  IsVisible="{Binding HasIcon}"
+                                  Width="11" Height="11"
+                                  VerticalAlignment="Center"
+                                  Foreground="{Binding Accent}" />
+                        <TextBlock Text="{Binding Category}" Classes="chip-category" />
+                        <TextBlock Text="{Binding Label}" Classes="chip-value" />
+                        <PathIcon Data="{StaticResource Icon.Close}" Classes="chip-remove" />
+                      </StackPanel>
+                    </Border>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </DockPanel>
+        </Border>
+      </StackPanel>
+    </Panel>
+
+    <!-- ══════════════════════ SCAN STRIP ══════════════════════ -->
+    <Border DockPanel.Dock="Top"
+            IsVisible="{Binding IsLoading}"
+            Padding="28,0,28,14">
+      <DockPanel>
+        <TextBlock DockPanel.Dock="Left"
+                   Text="{Binding ScanProgressLabel}"
+                   FontSize="11"
+                   VerticalAlignment="Center"
+                   Foreground="{DynamicResource Brush.TextTertiary}"
+                   sa:LifecycleOpacityPulse.IsActive="True"
+                   sa:LifecycleOpacityPulse.FromOpacity="0.45"
+                   sa:LifecycleOpacityPulse.ToOpacity="1"
+                   sa:LifecycleOpacityPulse.Duration="0:0:1.5" />
+        <ProgressBar Height="2" Margin="14,0,0,0"
+                     VerticalAlignment="Center"
+                     Minimum="0" Maximum="100"
+                     Value="{Binding ScanPercent}"
+                     IsIndeterminate="{Binding IsInitialScan}" />
+      </DockPanel>
+    </Border>
+
+    <!-- ══════════════════════ BODY ══════════════════════ -->
+    <Grid ColumnDefinitions="*,Auto">
+      <DockPanel Grid.Column="0">
+
+      <!-- ══════════════════════ GALLERY BAND ══════════════════════ -->
+      <Border DockPanel.Dock="Top"
+              IsVisible="{Binding HasHighlights}"
+              Padding="28,0,28,18"
+              BorderThickness="0,0,0,1"
+              BorderBrush="{DynamicResource Brush.BorderSubtle}">
+        <StackPanel Spacing="11">
+          <TextBlock Text="{loc:Str Library_Highlights}" Classes="section-label" />
+          <ItemsControl ItemsSource="{Binding Highlights}" ClipToBounds="True">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Orientation="Horizontal" Spacing="12" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:LibraryItemViewModel">
+                <Button Classes="tile"
+                        Classes.selected="{Binding IsSelected}"
+                        Command="{Binding SelectCommand}"
+                        ToolTip.Tip="{Binding Name}">
+                  <Border Classes="tile-frame">
+                    <StackPanel>
+                      <Panel Height="100" Background="{Binding Tint}">
+                        <PathIcon Data="{Binding Glyph}" Width="28" Height="28"
+                                  IsVisible="{Binding HasGlyph}"
+                                  Foreground="{Binding Accent}" />
+                        <Image Classes="preview" Source="{Binding IconImage}"
+                               IsVisible="{Binding IsCoverPreview}"
+                               Stretch="UniformToFill" />
+                        <Image Classes="preview" Source="{Binding IconImage}"
+                               IsVisible="{Binding IsBadgePreview}"
+                               Width="36" Height="36" Stretch="Uniform" />
+                      </Panel>
+                      <StackPanel Margin="11,9,11,11" Spacing="3">
+                        <TextBlock Text="{Binding Name}"
+                                   FontSize="12" FontWeight="Medium"
+                                   TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource Brush.TextPrimary}" />
+                        <TextBlock Text="{Binding TimeLabel}"
+                                   FontSize="10.5"
+                                   Foreground="{DynamicResource Brush.TextTertiary}" />
+                      </StackPanel>
+                    </StackPanel>
+                  </Border>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+        <Panel>
+        <ListBox x:Name="LibraryList"
+                 Classes="library-list"
+                 IsVisible="{Binding HasResults}"
+                 ItemsSource="{Binding Items}"
+                 SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:LibraryItemViewModel">
+              <StackPanel>
+                <TextBlock Text="{Binding GroupHeader}"
+                           Classes="row-separator"
+                           IsVisible="{Binding HasGroupHeader}" />
+                <Border Classes="row" Classes.selected="{Binding IsSelected}">
+                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="13">
+                    <Border Grid.Column="0" Classes="swatch"
+                            Width="40" Height="40"
+                            Background="{Binding Tint}">
+                      <Panel>
+                        <PathIcon Data="{Binding Glyph}" Width="18" Height="18"
+                                  IsVisible="{Binding HasGlyph}"
+                                  Foreground="{Binding Accent}" />
+                        <Image Classes="preview" Source="{Binding IconImage}"
+                               IsVisible="{Binding IsCoverPreview}"
+                               Stretch="UniformToFill" />
+                        <Image Classes="preview" Source="{Binding IconImage}"
+                               IsVisible="{Binding IsBadgePreview}"
+                               Width="21" Height="21" Stretch="Uniform" />
+                      </Panel>
+                    </Border>
+
+                    <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding Name}"
+                                 FontSize="13.5"
+                                 Foreground="{DynamicResource Brush.TextPrimary}"
+                                 TextTrimming="CharacterEllipsis" />
+                      <TextBlock Text="{Binding MetaLine}"
+                                 FontSize="11.5"
+                                 Foreground="{DynamicResource Brush.TextTertiary}"
+                                 TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Column="2"
+                               Text="{Binding TimeLabel}"
+                               FontSize="11"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource Brush.TextTertiary}" />
+                  </Grid>
+                </Border>
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- First scan: skeleton rows -->
+        <ItemsControl ItemsSource="{Binding SkeletonSlots}"
+                      IsVisible="{Binding IsInitialScan}"
+                      Margin="28,4,28,0"
+                      sa:LifecycleOpacityPulse.IsActive="True"
+                      sa:LifecycleOpacityPulse.FromOpacity="0.32"
+                      sa:LifecycleOpacityPulse.ToOpacity="0.62"
+                      sa:LifecycleOpacityPulse.Duration="0:0:1.3">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:Int32">
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="13" Margin="0,0,0,14">
+                <Border Grid.Column="0" Classes="skeleton-block" Width="40" Height="40" CornerRadius="10" />
+                <StackPanel Grid.Column="1" Spacing="7" VerticalAlignment="Center">
+                  <Border Classes="skeleton-block" Height="10" Width="230" />
+                  <Border Classes="skeleton-block" Height="8" Width="150" />
+                </StackPanel>
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <!-- Nothing in the library at all -->
+        <StackPanel Classes="motion-surface"
+                    IsVisible="{Binding IsEmptyLibrary}"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Spacing="10" Margin="0,0,0,50">
+          <Border Width="56" Height="56" CornerRadius="16"
+                  HorizontalAlignment="Center"
+                  Background="{DynamicResource Brush.Surface1}">
+            <PathIcon Data="{StaticResource Icon.Library}" Width="24" Height="24"
+                      Foreground="{DynamicResource Brush.AccentDefault}" />
+          </Border>
+          <TextBlock Text="{loc:Str Library_Empty_Title}"
+                     FontSize="14" FontWeight="Medium"
+                     HorizontalAlignment="Center"
+                     Foreground="{DynamicResource Brush.TextSecondary}" />
+          <TextBlock Text="{loc:Str Library_Empty_Body}"
+                     FontSize="12.5"
+                     MaxWidth="320" TextWrapping="Wrap" TextAlignment="Center"
+                     HorizontalAlignment="Center"
+                     Foreground="{DynamicResource Brush.TextTertiary}" />
+        </StackPanel>
+
+        <!-- Filters matched nothing -->
+        <StackPanel Classes="motion-surface"
+                    IsVisible="{Binding IsEmptyResult}"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Spacing="10" Margin="0,0,0,50">
+          <Border Width="56" Height="56" CornerRadius="16"
+                  HorizontalAlignment="Center"
+                  Background="{DynamicResource Brush.Surface1}">
+            <PathIcon Data="{StaticResource Icon.Search}" Width="22" Height="22"
+                      Foreground="{DynamicResource Brush.TextTertiary}" />
+          </Border>
+          <TextBlock Text="{loc:Str Library_NoMatches_Title}"
+                     FontSize="14" FontWeight="Medium"
+                     HorizontalAlignment="Center"
+                     Foreground="{DynamicResource Brush.TextSecondary}" />
+          <TextBlock Text="{loc:Str Library_NoMatches_Body}"
+                     FontSize="12.5"
+                     MaxWidth="320" TextWrapping="Wrap" TextAlignment="Center"
+                     HorizontalAlignment="Center"
+                     Foreground="{DynamicResource Brush.TextTertiary}" />
+          <Button Classes="motion-action" Padding="16,7" MinHeight="0"
+                  Margin="0,4,0,0"
+                  HorizontalAlignment="Center"
+                  Content="{loc:Str Library_ClearFilters}"
+                  Command="{Binding ClearFiltersCommand}" />
+        </StackPanel>
+        </Panel>
+      </DockPanel>
+
+      <!-- ══════════════════════ DETAIL ══════════════════════ -->
+      <Panel Grid.Column="1" Classes="detail-host" IsVisible="{Binding HasSelection}" ClipToBounds="True">
+        <Border Classes="library-detail" DataContext="{Binding SelectedItem}">
+          <ScrollViewer x:Name="LibraryDetailScroll"
+                        HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="20" Margin="22,22,22,28">
+
+              <Border Height="150" Classes="swatch"
+                      CornerRadius="14"
+                      Background="{Binding Tint}">
+                <Panel>
+                  <PathIcon Data="{Binding Glyph}" Width="40" Height="40"
+                            IsVisible="{Binding HasGlyph}"
+                            Foreground="{Binding Accent}" />
+                  <Image Classes="preview" Source="{Binding IconImage}"
+                         IsVisible="{Binding IsCoverPreview}"
+                         Stretch="UniformToFill" />
+                  <Image Classes="preview" Source="{Binding IconImage}"
+                         IsVisible="{Binding IsBadgePreview}"
+                         Width="52" Height="52" Stretch="Uniform" />
+                </Panel>
+              </Border>
+
+              <StackPanel Spacing="6">
+                <TextBlock Text="{Binding Name}"
+                           FontSize="14.5" FontWeight="SemiBold"
+                           TextWrapping="Wrap"
+                           Foreground="{DynamicResource Brush.TextPrimary}" />
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <Border CornerRadius="{DynamicResource Radius.Full}"
+                          Padding="8,2.5"
+                          Background="{Binding Tint}">
+                    <TextBlock Text="{Binding KindLabel}"
+                               FontSize="10.5" FontWeight="Medium"
+                               Foreground="{Binding Accent}" />
+                  </Border>
+                  <TextBlock Text="{Binding SizeLabel}"
+                             FontSize="11.5" VerticalAlignment="Center"
+                             Foreground="{DynamicResource Brush.TextTertiary}" />
+                </StackPanel>
+              </StackPanel>
+
+              <StackPanel Spacing="14">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="detail-label" Text="{loc:Str Library_Field_Added}" />
+                  <TextBlock Classes="detail-value" Text="{Binding FullTimeLabel}" />
+                </StackPanel>
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="detail-label" Text="{loc:Str Library_Field_Origin}" />
+                  <TextBlock Classes="detail-value" Text="{Binding OriginLabel}" />
+                </StackPanel>
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="detail-label" Text="{loc:Str Library_Field_Chat}" />
+                  <TextBlock Classes="detail-value" Text="{Binding ChatTitle}" />
+                </StackPanel>
+                <StackPanel Spacing="4" IsVisible="{Binding HasProject}">
+                  <TextBlock Classes="detail-label" Text="{loc:Str Library_Field_Project}" />
+                  <TextBlock Classes="detail-value" Text="{Binding ProjectName}" />
+                </StackPanel>
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="detail-label" Text="{loc:Str Library_Field_Location}" />
+                  <TextBlock Classes="detail-value" Text="{Binding Location}" FontSize="11" />
+                </StackPanel>
+                <StackPanel Spacing="4" IsVisible="{Binding HasDescription}">
+                  <TextBlock Classes="detail-label" Text="{loc:Str Library_Field_Snippet}" />
+                  <TextBlock Classes="detail-value" Text="{Binding Description}" FontSize="11.5" />
+                </StackPanel>
+              </StackPanel>
+
+              <StackPanel Spacing="8">
+                <Button Classes="accent motion-action"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        Padding="0,9" MinHeight="0"
+                        IsEnabled="{Binding !IsMissing}"
+                        Content="{Binding OpenActionLabel}"
+                        Command="{Binding OpenCommand}" />
+                <Button Classes="motion-action"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        Padding="0,8" MinHeight="0"
+                        Content="{loc:Str Library_Action_OpenChat}"
+                        Command="{Binding OpenSourceChatCommand}" />
+                <DockPanel LastChildFill="True">
+                  <Button DockPanel.Dock="Right" Classes="motion-action"
+                          HorizontalContentAlignment="Center"
+                          Padding="12,8" MinHeight="0" FontSize="11.5" Margin="8,0,0,0"
+                          IsVisible="{Binding !IsLink}"
+                          IsEnabled="{Binding !IsMissing}"
+                          Content="{loc:Str Library_Action_Reveal}"
+                          Command="{Binding ShowInFolderCommand}" />
+                  <Button Classes="motion-action"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                          Padding="0,8" MinHeight="0" FontSize="11.5"
+                          Content="{Binding CopyActionLabel}"
+                          Command="{Binding CopyLocationCommand}" />
+                </DockPanel>
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+      </Panel>
+    </Grid>
+  </DockPanel>
+</UserControl>

@@ -14,15 +14,52 @@ internal static class FileIconHelper
     internal const int IconCacheCapacity = 128;
     internal const int ThumbnailCacheCapacity = 64;
 
+    /// <summary>Longest-edge pixel size of the inline chip thumbnails.</summary>
+    private const int ChipThumbnailSize = 32;
+
+    /// <summary>Longest-edge pixel size of Library gallery previews, which fill a full card.</summary>
+    internal const int PreviewThumbnailSize = 320;
+
     private static readonly WeakBitmapCache IconCache =
         new(IconCacheCapacity, StringComparer.OrdinalIgnoreCase);
     private static readonly WeakBitmapCache ThumbnailCache =
+        new(ThumbnailCacheCapacity, StringComparer.OrdinalIgnoreCase);
+    private static readonly WeakBitmapCache PreviewCache =
         new(ThumbnailCacheCapacity, StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"
     };
+
+    /// <summary>True when the extension is one this helper decodes as an image rather than a shell icon.</summary>
+    internal static bool IsImageExtension(string? extension) =>
+        ImageExtensions.Contains(extension ?? "");
+
+    /// <summary>True when the file is decoded as an image preview rather than a shell type icon.</summary>
+    internal static bool IsPreviewableImage(string filePath) =>
+        IsImageExtension(Path.GetExtension(filePath)) && File.Exists(filePath);
+
+    /// <summary>
+    /// Gallery-sized preview for image files (falls back to the shell type icon for everything
+    /// else). Kept separate from <see cref="GetFileIcon"/> so inline chips stay tiny while the
+    /// Library can render a card-filling image.
+    /// </summary>
+    public static Avalonia.Media.Imaging.Bitmap? GetFilePreview(string filePath)
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+
+        if (IsPreviewableImage(filePath))
+        {
+            var preview = PreviewCache.GetOrCreate(
+                filePath,
+                path => LoadThumbnail(path, PreviewThumbnailSize));
+            if (preview is not null)
+                return preview;
+        }
+
+        return GetFileIcon(filePath);
+    }
 
     public static Avalonia.Media.Imaging.Bitmap? GetFileIcon(string filePath)
     {
@@ -33,7 +70,9 @@ internal static class FileIconHelper
         // For image files, generate a thumbnail from the file content
         if (ImageExtensions.Contains(ext) && File.Exists(filePath))
         {
-            var thumbnail = ThumbnailCache.GetOrCreate(filePath, LoadThumbnail);
+            var thumbnail = ThumbnailCache.GetOrCreate(
+                filePath,
+                path => LoadThumbnail(path, ChipThumbnailSize));
             if (thumbnail is not null)
                 return thumbnail;
         }
@@ -41,15 +80,14 @@ internal static class FileIconHelper
         return IconCache.GetOrCreate(ext, GetIconForExtension);
     }
 
-    private static Avalonia.Media.Imaging.Bitmap? LoadThumbnail(string filePath)
+    private static Avalonia.Media.Imaging.Bitmap? LoadThumbnail(string filePath, int maxSize)
     {
         try
         {
             using var stream = File.OpenRead(filePath);
             var full = new Avalonia.Media.Imaging.Bitmap(stream);
-            // Decode at a small size to save memory (max 32px on longest side)
             var maxDim = Math.Max(full.PixelSize.Width, full.PixelSize.Height);
-            if (maxDim <= 32)
+            if (maxDim <= maxSize)
                 return full;
 
             try
@@ -57,7 +95,7 @@ internal static class FileIconHelper
                 stream.Seek(0, SeekOrigin.Begin);
                 var targetWidth = Math.Max(
                     1,
-                    (int)Math.Round(full.PixelSize.Width * (32d / maxDim)));
+                    (int)Math.Round(full.PixelSize.Width * ((double)maxSize / maxDim)));
                 return Avalonia.Media.Imaging.Bitmap.DecodeToWidth(stream, targetWidth);
             }
             finally
@@ -78,6 +116,7 @@ internal static class FileIconHelper
     {
         IconCache.Clear();
         ThumbnailCache.Clear();
+        PreviewCache.Clear();
     }
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416")]

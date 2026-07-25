@@ -30,6 +30,7 @@
     <StreamGeometry x:Key="Icon.Compose">M15.2 3.8a2.4 2.4 0 0 1 3.4 0l1.6 1.6a2.4 2.4 0 0 1 0 3.4L9 20l-5 1 1-5L15.2 3.8z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Search">M10 3a7 7 0 1 0 4.2 12.6l4.1 4.1a1 1 0 0 0 1.4-1.4l-4.1-4.1A7 7 0 0 0 10 3zm-5 7a5 5 0 1 1 10 0 5 5 0 0 1-10 0z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Plus">M12 4a1 1 0 0 1 1 1v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6V5a1 1 0 0 1 1-1z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Close">M5.3 5.3a1 1 0 0 1 1.4 0L12 10.6l5.3-5.3a1 1 0 1 1 1.4 1.4L13.4 12l5.3 5.3a1 1 0 0 1-1.4 1.4L12 13.4l-5.3 5.3a1 1 0 0 1-1.4-1.4L10.6 12 5.3 6.7a1 1 0 0 1 0-1.4z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Window">M9 3.5h7.5a2 2 0 0 1 2 2V11a2 2 0 0 1-2 2H15v-1.6h1.5a.4.4 0 0 0 .4-.4V5.5a.4.4 0 0 0-.4-.4H9a.4.4 0 0 0-.4.4V7H7V5.5a2 2 0 0 1 2-2zM5.5 7h8a2 2 0 0 1 2 2v4.5a2 2 0 0 1-2 2h-2.1l-2.78 2.08c-.43.32-1.04.01-1.04-.52V15.5H5.5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zM5.5 8.6a.4.4 0 0 0-.4.4v4.5c0 .22.18.4.4.4h2.88c.44 0 .8.36.8.8v.82l1.38-1.04c.28-.21.62-.32.97-.32h1.97c.22 0 .4-.18.4-.4V9a.4.4 0 0 0-.4-.4h-8z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Trash">M9 3h6a1 1 0 0 1 1 1H7a1 1 0 0 1 1-1zM4 6h16v1H4V6zm2 2h12l-1 13H7L6 8zm4 2v8h1v-8h-1zm3 0v8h1v-8h-1z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Memory">M9.5 2A1.5 1.5 0 0 0 8 3.5V4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-4v-.5A1.5 1.5 0 0 0 14.5 2h-5zM10 4V3.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4h-4zm-2 5a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm5 0a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm-5 4a1 1 0 1 1 2 0 1 1 0 0 1-2 0zm5 0a1 1 0 1 1 2 0 1 1 0 0 1-2 0z</StreamGeometry>
@@ -43,6 +44,11 @@
     <StreamGeometry x:Key="Icon.Pin">M10.0589 2.44535C9.34701 1.73087 8.14697 1.90854 7.67261 2.79864L5.6526 6.58902L2.8419 7.52592C2.6775 7.58072 2.5532 7.71673 2.51339 7.88539C2.47357 8.05404 2.52392 8.23128 2.64646 8.35382L4.79291 10.5003L2.14645 13.1467L2 14.0003L2.85356 13.8538L5.50002 11.2074L7.64646 13.3538C7.76899 13.4764 7.94623 13.5267 8.11489 13.4869C8.28354 13.4471 8.41955 13.3228 8.47435 13.1584L9.41143 10.3472L13.1897 8.32448C14.0759 7.85006 14.2538 6.65535 13.5443 5.9433L10.0589 2.44535ZM8.55511 3.26895C8.71323 2.97225 9.11324 2.91303 9.35055 3.15119L12.836 6.64914C13.0725 6.88648 13.0131 7.28472 12.7178 7.44286L8.76403 9.55946C8.65137 9.61977 8.56608 9.72092 8.52567 9.84215L7.7815 12.0746L3.92562 8.21877L6.15812 7.47461C6.27966 7.43409 6.38101 7.34848 6.44126 7.23542L8.55511 3.26895Z</StreamGeometry>
     <StreamGeometry x:Key="Icon.PinOff">M9.56016 10.2673L14.1464 14.8536C14.3417 15.0488 14.6583 15.0488 14.8536 14.8536C15.0488 14.6583 15.0488 14.3417 14.8536 14.1464L1.85355 1.14645C1.65829 0.951184 1.34171 0.951184 1.14645 1.14645C0.951184 1.34171 0.951184 1.65829 1.14645 1.85355L5.73223 6.43934L5.6526 6.58876L2.8419 7.52566C2.6775 7.58046 2.5532 7.71648 2.51339 7.88513C2.47357 8.05378 2.52392 8.23102 2.64646 8.35356L4.79291 10.5L2.14645 13.1465L2 14L2.85356 13.8536L5.50002 11.2071L7.64646 13.3536C7.76899 13.4761 7.94623 13.5264 8.11489 13.4866C8.28354 13.4468 8.41955 13.3225 8.47435 13.1581L9.41143 10.3469L9.56016 10.2673ZM8.82138 9.52849L8.76403 9.5592C8.65137 9.61951 8.56608 9.72066 8.52567 9.84189L7.7815 12.0744L3.92562 8.21851L6.15812 7.47435C6.27966 7.43383 6.38101 7.34822 6.44126 7.23516L6.47143 7.17854L8.82138 9.52849ZM12.7178 7.4426L10.6636 8.54227L11.4024 9.28105L13.1897 8.32422C14.0759 7.84981 14.2538 6.65509 13.5443 5.94304L10.0589 2.44509C9.34701 1.73062 8.14697 1.90828 7.67261 2.79838L6.71556 4.59421L7.45476 5.33341L8.55511 3.26869C8.71323 2.97199 9.11324 2.91277 9.35055 3.15093L12.836 6.64888C13.0725 6.88623 13.0131 7.28446 12.7178 7.4426Z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Pause">M7 5h4v14H7V5zm6 0h4v14h-4V5z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Library">M4 3.5A1.5 1.5 0 0 1 5.5 2H8a1.5 1.5 0 0 1 1.5 1.5v17A1.5 1.5 0 0 1 8 22H5.5A1.5 1.5 0 0 1 4 20.5v-17zm1.8.3v16.4h1.9V3.8H5.8zM11 3.5A1.5 1.5 0 0 1 12.5 2H15a1.5 1.5 0 0 1 1.5 1.5v17A1.5 1.5 0 0 1 15 22h-2.5a1.5 1.5 0 0 1-1.5-1.5v-17zm1.8.3v16.4h1.9V3.8h-1.9zM18.4 5.1a1.5 1.5 0 0 1 1.84 1.06l3.2 12.4a1.5 1.5 0 0 1-1.08 1.83l-1.3.33a1.5 1.5 0 0 1-1.83-1.07L16.03 7.26A1.5 1.5 0 0 1 17.1 5.43l1.3-.33z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Refresh">F1 M9.06 3.92 A8.6 8.6 0 1 0 19.45 7.7 L17.2 9 A6 6 0 1 1 9.95 6.36 Z M8.34 1.95 L15.14 3.09 L10.67 8.34 Z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Filter">F1 M3.2 4.4h17.6l-7 8.3v6.4l-3.6 2v-8.4z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.ChevronLeft">M14.7 5.3a1 1 0 0 1 0 1.4L9.4 12l5.3 5.3a1 1 0 0 1-1.4 1.4l-6-6a1 1 0 0 1 0-1.4l6-6a1 1 0 0 1 1.4 0z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.ChevronRight">M9.3 5.3a1 1 0 0 1 1.4 0l6 6a1 1 0 0 1 0 1.4l-6 6a1 1 0 0 1-1.4-1.4l5.3-5.3-5.3-5.3a1 1 0 0 1 0-1.4z</StreamGeometry>
   </Window.Resources>
 
   <Window.Styles>
@@ -222,6 +228,161 @@
     <Style Selector="Button.project-switcher-toggle:pointerover Border.project-switcher-count-pill">
       <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
+    </Style>
+
+    <!-- ── Library nav rows ──────────────────────────────
+         One shared row shape used twice: "Library" at the top of the chat sidebar, and
+         "Back to chats" in the very same slot at the top of the Library sidebar. Entering
+         and leaving therefore happen at one fixed point on screen, so the trip is
+         reversible without hunting for the way out.
+
+         Quiet at rest: a permanently filled, bordered card sitting above the transparent
+         New Chat button read as though the Library were the selected tab. The surface,
+         border and lift are hover-only now. -->
+    <Style Selector="Button.library-nav">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="9,7" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.library-nav /template/ Border#PART_Surface">
+      <!-- Premultiplied so the fade out of Transparent does not dip through black. -->
+      <Setter Property="Transitions">
+        <Transitions>
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.16" Easing="CubicEaseOut" />
+          <sa:PremultipliedBrushTransition Property="BorderBrush" Duration="0:0:0.16" Easing="CubicEaseOut" />
+          <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.18" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.library-nav:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.ControlHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
+      <Setter Property="BoxShadow" Value="0 4 14 0 #12000000" />
+    </Style>
+    <Style Selector="Button.library-nav:pointerover /template/ Border#PART_Aurora">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="RenderTransform" Value="translateX(0)" />
+    </Style>
+    <Style Selector="Button.library-nav Border.library-nav-glyph">
+      <!-- Rest colours live here rather than inline: a local value outranks a style setter in
+           Avalonia, so an inline Background would make the :pointerover setter below dead. -->
+      <Setter Property="Width" Value="26" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Margin" Value="0,0,9,0" />
+      <Setter Property="Background" Value="{DynamicResource Brush.ControlDefault}" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.16" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.library-nav:pointerover Border.library-nav-glyph">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+    <!-- The books tilt off their spines on hover. The pivot sits at the foot of the stack so
+         they lean like volumes being tipped off a shelf rather than spinning in place, and the
+         slight overshoot of BackEaseOut is what sells it as physical. -->
+    <Style Selector="Button.library-nav PathIcon#LibraryEntryBooks">
+      <Setter Property="RenderTransformOrigin" Value="50%,88%" />
+      <Setter Property="RenderTransform" Value="rotate(0deg) scale(1)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.34" Easing="BackEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.library-nav:pointerover PathIcon#LibraryEntryBooks">
+      <Setter Property="RenderTransform" Value="rotate(-8deg) scale(1.12)" />
+    </Style>
+    <!-- Each chevron leans the way it travels: in on the entry row, back out on the exit row. -->
+    <Style Selector="Button.library-nav PathIcon.library-nav-chevron">
+      <Setter Property="Opacity" Value="0.6" />
+      <Setter Property="RenderTransform" Value="translateX(0)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Easing="CubicEaseOut" />
+          <DoubleTransition Property="Opacity" Duration="0:0:0.16" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.library-nav:pointerover PathIcon.library-nav-chevron">
+      <Setter Property="RenderTransform" Value="translateX(3px)" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.library-nav.back:pointerover PathIcon.library-nav-chevron">
+      <Setter Property="RenderTransform" Value="translateX(-3px)" />
+    </Style>
+
+    <!-- ── Library sidebar facet rows ── -->
+    <Style Selector="Button.library-facet">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="10,7" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.library-facet:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Button.library-facet:pointerover /template/ Border#PART_Aurora">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="RenderTransform" Value="translateX(0)" />
+    </Style>
+    <Style Selector="Button.library-facet.selected /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+    <Style Selector="Button.library-facet TextBlock.facet-label">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+    <Style Selector="Button.library-facet.selected TextBlock.facet-label">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.library-facet TextBlock.facet-count">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.library-facet.selected TextBlock.facet-count">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <!-- Kind facets carry their collection hue; the rest fall back to a neutral glyph. -->
+    <Style Selector="Button.library-facet PathIcon.facet-icon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Opacity" Value="0.9" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.library-facet:pointerover PathIcon.facet-icon">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.library-facet.empty">
+      <Setter Property="Opacity" Value="0.38" />
+    </Style>
+    <Style Selector="Border.library-section-head">
+      <Setter Property="Margin" Value="20,18,16,6" />
+    </Style>
+    <Style Selector="Border.library-section-head TextBlock">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="0.9" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
 
     <Style Selector="Border.project-switcher-panel">
@@ -620,6 +781,39 @@
           <!-- ── 0: Chat sidebar ── -->
           <Panel x:Name="SidebarChat">
             <DockPanel>
+              <!-- ── Library entry: aggregated files, artifacts and links from every chat ── -->
+              <Button x:Name="LibraryEntryButton"
+                      DockPanel.Dock="Top"
+                      Classes="library-nav"
+                      Margin="16,10,16,0"
+                      ToolTip.Tip="{loc:Str Library_EntryTooltip}"
+                      Command="{Binding OpenLibraryCommand}">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                  <Border x:Name="LibraryEntryGlyph"
+                          Classes="library-nav-glyph"
+                          Grid.Column="0">
+                    <PathIcon x:Name="LibraryEntryBooks"
+                              Data="{StaticResource Icon.Library}" Width="13" Height="13"
+                              Foreground="{DynamicResource Brush.AccentDefault}" />
+                  </Border>
+                  <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                    <TextBlock Text="{loc:Str Library_SidebarEntry}"
+                               FontWeight="SemiBold"
+                               FontSize="{DynamicResource Font.SizeBody}"
+                               Foreground="{DynamicResource Brush.TextPrimary}" />
+                    <TextBlock Text="{loc:Str Library_SidebarEntryHint}"
+                               FontSize="10.5"
+                               Foreground="{DynamicResource Brush.TextTertiary}"
+                               TextTrimming="CharacterEllipsis" />
+                  </StackPanel>
+                  <PathIcon Grid.Column="2"
+                            Classes="library-nav-chevron"
+                            Data="{StaticResource Icon.ChevronRight}"
+                            Width="11" Height="11"
+                            VerticalAlignment="Center"
+                            Foreground="{DynamicResource Brush.TextTertiary}" />
+                </Grid>
+              </Button>
               <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0" LastChildFill="True">
                 <Button DockPanel.Dock="Right"
                         x:Name="NewWindowButton"
@@ -1496,6 +1690,129 @@
              </DockPanel>
            </Panel>
 
+          <!-- ── 8: Library sidebar ── -->
+          <Panel x:Name="SidebarLibrary" IsVisible="False" DataContext="{Binding LibraryVM}" x:DataType="vm:LibraryViewModel">
+            <DockPanel>
+              <!-- Occupies the exact slot the "Library" row holds in the chat sidebar, so the way
+                   out is where the way in was. -->
+              <Button x:Name="LibraryBackButton"
+                      DockPanel.Dock="Top"
+                      Classes="library-nav back"
+                      Margin="16,10,16,0"
+                      Command="{Binding BackToChatsCommand}">
+                <Grid ColumnDefinitions="Auto,*">
+                  <Border Classes="library-nav-glyph" Grid.Column="0">
+                    <PathIcon Classes="library-nav-chevron"
+                              Data="{StaticResource Icon.ChevronLeft}" Width="13" Height="13"
+                              Foreground="{DynamicResource Brush.AccentDefault}" />
+                  </Border>
+                  <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                    <TextBlock Text="{loc:Str Library_BackToChats}"
+                               FontWeight="SemiBold"
+                               FontSize="{DynamicResource Font.SizeBody}"
+                               Foreground="{DynamicResource Brush.TextPrimary}" />
+                    <TextBlock Text="{loc:Str Library_BackToChatsHint}"
+                               FontSize="10.5"
+                               Foreground="{DynamicResource Brush.TextTertiary}"
+                               TextTrimming="CharacterEllipsis" />
+                  </StackPanel>
+                </Grid>
+              </Button>
+
+              <!-- Named for what the column does, not for the page it belongs to: every control
+                   below narrows the results, and the page header already says "Library". Undo
+                   lives on the chips above the results, not here, so there is one place to look. -->
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8"
+                          Margin="20,16,16,4" VerticalAlignment="Center">
+                <PathIcon Data="{StaticResource Icon.Filter}" Width="13" Height="13"
+                          Foreground="{DynamicResource Brush.AccentDefault}" />
+                <TextBlock Text="{loc:Str Library_FiltersHeading}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Brush.TextSecondary}"
+                           VerticalAlignment="Center" />
+              </StackPanel>
+
+              <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="0,0,0,14">
+                  <Border Classes="library-section-head">
+                    <TextBlock Text="{loc:Str Library_Filter_Collections}"
+                               FontSize="10" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Brush.TextTertiary}" />
+                  </Border>
+                  <ItemsControl ItemsSource="{Binding Kinds}" Margin="10,0">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:LibraryFilterOption">
+                        <Button Classes="library-facet"
+                                Classes.selected="{Binding IsSelected}"
+                                Classes.empty="{Binding !HasItems}"
+                                Command="{Binding SelectCommand}">
+                          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                            <PathIcon Grid.Column="0" Classes="facet-icon" Data="{Binding Icon}"
+                                      Width="14" Height="14"
+                                      VerticalAlignment="Center" IsVisible="{Binding HasIcon}"
+                                      Foreground="{Binding Accent}" />
+                            <TextBlock Grid.Column="1" Classes="facet-label" Text="{Binding Label}"
+                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding Count}" />
+                          </Grid>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+
+                  <Border Classes="library-section-head">
+                    <TextBlock Text="{loc:Str Library_Filter_Source}"
+                               FontSize="10" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Brush.TextTertiary}" />
+                  </Border>
+                  <ItemsControl ItemsSource="{Binding Origins}" Margin="10,0">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:LibraryFilterOption">
+                        <Button Classes="library-facet"
+                                Classes.selected="{Binding IsSelected}"
+                                Classes.empty="{Binding !HasItems}"
+                                Command="{Binding SelectCommand}">
+                          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                            <PathIcon Grid.Column="0" Classes="facet-icon" Data="{Binding Icon}"
+                                      Width="14" Height="14"
+                                      VerticalAlignment="Center" IsVisible="{Binding HasIcon}" />
+                            <TextBlock Grid.Column="1" Classes="facet-label" Text="{Binding Label}"
+                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding Count}" />
+                          </Grid>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+
+                  <Border Classes="library-section-head" IsVisible="{Binding HasProjectFilters}">
+                    <TextBlock Text="{loc:Str Library_Filter_Projects}"
+                               FontSize="10" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Brush.TextTertiary}" />
+                  </Border>
+                  <ItemsControl ItemsSource="{Binding Projects}" Margin="10,0"
+                                IsVisible="{Binding HasProjectFilters}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:LibraryFilterOption">
+                        <Button Classes="library-facet"
+                                Classes.selected="{Binding IsSelected}"
+                                Command="{Binding SelectCommand}">
+                          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                            <PathIcon Grid.Column="0" Classes="facet-icon"
+                                      Data="{StaticResource Icon.Folder}" Width="13" Height="13"
+                                      VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1" Classes="facet-label" Text="{Binding Label}"
+                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2" Classes="facet-count" Text="{Binding Count}" />
+                          </Grid>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </ScrollViewer>
+            </DockPanel>
+          </Panel>
+
           </Panel><!-- end sidebar content wrapper -->
         </DockPanel>
       </Border>
@@ -1636,6 +1953,13 @@
                 BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
                 BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000" ClipToBounds="True">
           <ContentControl x:Name="PageSettingsHost" />
+        </Border>
+        <Border x:Name="PageLibrary" IsVisible="False"
+                CornerRadius="{DynamicResource Radius.Overlay}"
+                Background="{DynamicResource Brush.SurfaceCard}"
+                BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="1"
+                BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000" ClipToBounds="True">
+          <ContentControl x:Name="PageLibraryHost" />
         </Border>
       </Grid>
       </DockPanel>
