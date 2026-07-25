@@ -7,13 +7,16 @@ using Lumi.Localization;
 namespace Lumi.Models;
 
 /// <summary>
-/// Transient delivery status for a user message that was steered into a running turn. Session-only
+/// Transient delivery status for a user message sent while a turn is running. Session-only
 /// (never persisted) — it exists so the transcript can confirm whether a mid-turn message actually
 /// landed in the live turn (<see cref="Steered"/>) versus a normal turn-start message.
+/// <see cref="Queued"/> covers a message that could not be injected yet (the turn is between tool
+/// calls, or the session is still starting up) and is waiting to be delivered.
 /// </summary>
 public enum MessageSteerState
 {
     None,
+    Queued,
     Steering,
     Steered,
     Failed

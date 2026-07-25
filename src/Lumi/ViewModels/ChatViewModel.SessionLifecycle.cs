@@ -726,6 +726,9 @@ public partial class ChatViewModel
                         MarkRuntimeActive(runtime, Loc.Status_Thinking);
                         if (IsDisplayedSession())
                             ApplyDisplayedRuntimeState(runtime);
+                        // A message typed in the gap between turns had no live turn to steer into. This
+                        // turn is steerable, so deliver it now rather than making the user press Stop.
+                        _ = FlushQueuedBusySendsAsSteerAsync(chat.Id);
                     });
                     break;
 
@@ -1442,6 +1445,10 @@ public partial class ChatViewModel
                             QueueSaveChat(chat, saveIndex: false, releaseIfInactive: true);
                         else
                             QueueSaveChat(chat, saveIndex: false);
+
+                        // The chat is free again. This is the authoritative "chat is idle" signal —
+                        // without it a deferred send only ever left the queue via Stop.
+                        ScheduleQueuedBusySendDrain(chat.Id);
                     });
                     break;
 
@@ -1538,6 +1545,10 @@ public partial class ChatViewModel
                         // delivered rather than leaving it pending (a recoverable error rebuilds the session
                         // on the next send, so no idle fallback resolves it for this turn).
                         ResolvePendingSteersAsFailed(chat.Id);
+                        // The user is being shown an error + retry, so flag their deferred sends rather
+                        // than auto-firing them into a session that just failed.
+                        if (IsAuthoritativeSession())
+                            FailQueuedBusySends(chat.Id);
                         if (shouldUpdateDisplayedChatUi)
                         {
                             // Clean up typing indicator and tool groups
@@ -1680,7 +1691,11 @@ public partial class ChatViewModel
                         if (!wasUserStopRequested)
                         {
                             if (IsAuthoritativeSession())
+                            {
+                                // ApplyUnexpectedAbortState resolves any deferred sends.
                                 ApplyUnexpectedAbortState(chat, GetUnexpectedAbortMessage(), updateDisplayedChatUi: shouldUpdateDisplayedChatUi);
+                            }
+
                             return;
                         }
 
@@ -2330,6 +2345,8 @@ public partial class ChatViewModel
 
         ReleaseSessionResources(chatId, cancelActiveRequest: true, deleteServerSession: true);
         _runtimeStates.Remove(chatId);
+        // The chat is gone, so nothing can ever deliver a send that was still deferred for it.
+        FailQueuedBusySends(chatId);
         RemoveSuggestionTracking(chatId);
         DisposeBrowserService(chatId);
     }
@@ -2347,6 +2364,8 @@ public partial class ChatViewModel
 
         var runtime = GetOrCreateRuntimeState(chat.Id);
         MarkRuntimeTerminal(runtime);
+        // The session is gone, so nothing can deliver a deferred send any more.
+        FailQueuedBusySends(chat.Id);
 
         if (CurrentChat?.Id == chat.Id)
         {

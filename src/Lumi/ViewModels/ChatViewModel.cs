@@ -523,8 +523,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private Guid? _suggestionDisplayChatId;
     /// <summary>Maps chat ID → unsent composer draft text. Guid.Empty is used for the "new chat" state.</summary>
     private readonly Dictionary<Guid, string> _chatDrafts = new();
-    /// <summary>Maps chat ID → prompt submitted while the chat was busy. Drained after the active turn stops.</summary>
-    private readonly Dictionary<Guid, string> _queuedBusySendPrompts = new();
+    /// <summary>
+    /// Maps chat ID → sends made while the chat was busy with no steerable turn. Each is shown in the
+    /// transcript immediately with a "Queued…" pill, kept in FIFO order, and delivered once the chat
+    /// goes idle or the next turn becomes steerable.
+    /// </summary>
+    private readonly Dictionary<Guid, List<ChatMessage>> _queuedBusySendPrompts = new();
+    /// <summary>Chats with a deferred-send drain in flight, so overlapping drains are coalesced.</summary>
+    private readonly HashSet<Guid> _drainingBusySends = [];
     /// <summary>Tracks the last assistant message ID that already produced suggestions per chat.</summary>
     private readonly Dictionary<Guid, Guid> _lastSuggestedAssistantMessageByChat = new();
     /// <summary>Cached cross-chat user-prompt history for the suggestion "frequent requests" block.
@@ -3074,7 +3080,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         await StopGeneration();
     }
 
-    private async Task SendMessageCore(string? promptText, bool consumeComposerPrompt)
+    private async Task SendMessageCore(
+        string? promptText,
+        bool consumeComposerPrompt,
+        ChatMessage? queuedMessage = null)
     {
         if (string.IsNullOrWhiteSpace(promptText))
             return;
@@ -3082,7 +3091,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var prompt = promptText.Trim();
         if (CurrentChat is { } activeChat && IsChatRuntimeActive(activeChat.Id))
         {
-            await SteerActiveTurnAsync(activeChat, prompt, consumeComposerPrompt);
+            await SteerActiveTurnAsync(activeChat, prompt, consumeComposerPrompt, queuedMessage);
             return;
         }
 
@@ -3093,7 +3102,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             catch
             {
                 StatusText = Loc.Status_CheckAccess;
-                if (!consumeComposerPrompt && CurrentChat is not null)
+                if (queuedMessage is not null)
+                {
+                    // Nothing was sent and no session event will follow, so resolve the whole queue —
+                    // otherwise later entries sit on "Queued…" with nothing to release them.
+                    MarkQueuedBusySendFailed(queuedMessage);
+                    if (CurrentChat is not null)
+                        FailQueuedBusySends(CurrentChat.Id);
+                }
+                else if (!consumeComposerPrompt && CurrentChat is not null)
                 {
                     _chatDrafts[CurrentChat.Id] = prompt;
                     if (string.IsNullOrWhiteSpace(PromptText))
@@ -3158,7 +3175,33 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _silentRetryPrompt = null;
 
         ChatMessage? userMsg = null;
-        if (!isSilentRetry)
+        if (queuedMessage is not null)
+        {
+            // The connect await above can land after the user switched chats; delivering here would put
+            // the message in the wrong conversation.
+            if (!targetChat.Messages.Contains(queuedMessage))
+            {
+                MarkQueuedBusySendFailed(queuedMessage);
+                return;
+            }
+
+            // Reuse the bubble the user already saw and clear its pill, so delivery never duplicates it.
+            userMsg = queuedMessage;
+            userMsg.Model = SelectedModel;
+            userMsg.ReasoningEffort = selectedReasoningEffort;
+            userMsg.ContextWindowTier = selectedContextTier;
+            if (attachments is { Count: > 0 })
+                userMsg.Attachments = attachments.OfType<AttachmentFile>().Select(a => a.Path).ToList();
+
+            if (ResolveQueuedViewModel(queuedMessage) is { } queuedViewModel)
+                queuedViewModel.SteerState = MessageSteerState.None;
+            else
+                userMsg.SteerDelivery = MessageSteerState.None;
+
+            QueueSaveChat(targetChat, saveIndex: true, touchIndex: true);
+            ChatUpdated?.Invoke();
+        }
+        else if (!isSilentRetry)
         {
             userMsg = new ChatMessage
             {
@@ -3253,9 +3296,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         CancellationTokenSource? cts = null;
         MessageOptions? sendOptions = null;
         CopilotSession? sendSession = null;
-        var retainedContext = userMsg is null
-            ? targetChat.Messages.ToList()
-            : targetChat.Messages.Take(Math.Max(targetChat.Messages.Count - 1, 0)).ToList();
+        // Everything before the message being sent, which is supplied separately as the live prompt.
+        // Derived from its position rather than "all but the last", because a reused queued bubble was
+        // added earlier and other messages can sit after it.
+        var retainedContext = targetChat.Messages
+            .TakeWhile(message => !ReferenceEquals(message, userMsg))
+            .ToList();
         var promptAdditions = BuildSendPromptAdditions();
         var localUserMessageCount = 0;
         var localAssistantMessageCount = 0;
@@ -3429,6 +3475,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
             ReconcileInProgressSubagentTools(targetChat, "Failed");
             MarkRuntimeTerminal(runtime, errorText);
+            // Terminal failure with no further session events to release the queue.
+            FailQueuedBusySends(targetChat.Id);
             ClearPendingTurnTracking(targetChat.Id);
 
             if (CurrentChat?.Id == targetChat.Id)
@@ -4010,6 +4058,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var runtime = GetOrCreateRuntimeState(chat.Id);
             ReconcileInProgressSubagentTools(chat, "Failed");
             MarkRuntimeTerminal(runtime, display);
+            // No session.idle/abort event will follow, so nothing else would ever release the queue.
+            FailQueuedBusySends(chat.Id);
 
             // Recoverable errors abandon the current server session; arm a reset so the next send (a
             // new message OR the Retry button) rebuilds a fresh one. Arm here — not only in the
@@ -4120,7 +4170,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (stoppedTools)
             QueueSaveChat(chat, saveIndex: false);
 
-        await DrainQueuedBusySendAsync(chatId);
+        // Scheduled rather than awaited: the follow-up send owns a full turn setup, and awaiting it here
+        // would keep StopGenerationCommand "running" (AsyncRelayCommand disallows concurrent executions),
+        // leaving the Stop button dead exactly while the new turn starts.
+        ScheduleQueuedBusySendDrain(chatId);
     }
 
     private async Task SaveCurrentChatAsync(bool saveIndex = true, bool touchIndex = false)
@@ -5274,11 +5327,15 @@ public partial class ChatMessageViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(SteerBadgeText))]
     private MessageSteerState _steerState;
 
-    /// <summary>True when this message carries a steering-delivery badge (steering / steered / failed).</summary>
+    /// <summary>True when this message carries a delivery badge (queued / steering / steered / failed).</summary>
     public bool HasSteerBadge => SteerState is not MessageSteerState.None;
 
-    /// <summary>True while the steered message is still being delivered to the running turn.</summary>
-    public bool IsSteerInProgress => SteerState is MessageSteerState.Steering;
+    /// <summary>
+    /// True while the message still has to reach the running turn — waiting for a steerable turn
+    /// (<see cref="MessageSteerState.Queued"/>) or already being injected
+    /// (<see cref="MessageSteerState.Steering"/>). Both show the pending pill and "Send now".
+    /// </summary>
+    public bool IsSteerInProgress => SteerState is MessageSteerState.Steering or MessageSteerState.Queued;
 
     /// <summary>True once the agent has actually consumed the steered message into the running turn.</summary>
     public bool IsSteerDelivered => SteerState is MessageSteerState.Steered;
@@ -5291,6 +5348,7 @@ public partial class ChatMessageViewModel : ObservableObject
 
     public string SteerBadgeText => SteerState switch
     {
+        MessageSteerState.Queued => Loc.Steer_Queued,
         MessageSteerState.Steering => Loc.Steer_Steering,
         MessageSteerState.Steered => Loc.Steer_Delivered,
         MessageSteerState.Failed => Loc.Steer_Failed,

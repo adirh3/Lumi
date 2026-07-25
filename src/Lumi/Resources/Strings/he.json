@@ -414,6 +414,7 @@
   "Status_Running": "מריץ {0}\u2026",
   "Status_BackgroundRunning": "רץ ברקע \u00b7 {0}",
   "Status_Stopped": "הופסק",
+  "Steer_Queued": "ממתין לשליחה\u2026",
   "Steer_Steering": "מנווט\u2026",
   "Steer_Delivered": "נוסף לתשובה",
   "Steer_Failed": "לא נמסר",

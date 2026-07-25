@@ -877,7 +877,7 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
-    public async Task SendMessage_WhenChatRuntimeActive_QueuesPromptAndClearsComposer()
+    public async Task SendMessage_WhenChatRuntimeActive_ShowsQueuedMessageAndClearsComposer()
     {
         var dataStore = CreateDataStore();
         var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
@@ -894,11 +894,13 @@ public sealed class ChatViewModelLeakTests
 
         await InvokePrivateAsync(vm, "SendMessage");
 
-        Assert.Empty(chat.Messages);
+        // The message is visible right away instead of vanishing until the queue is drained.
+        Assert.Equal("queued while busy", Assert.Single(chat.Messages).Content);
+        Assert.Equal(MessageSteerState.Queued, Assert.Single(vm.Messages).SteerState);
         Assert.Equal("", vm.PromptText);
         Assert.Equal(
-            "queued while busy",
-            GetField<Dictionary<Guid, string>>(vm, "_queuedBusySendPrompts")[chat.Id]);
+            new[] { "queued while busy" },
+            ReadQueuedPrompts(vm, chat.Id));
     }
 
     [Fact]
@@ -917,17 +919,17 @@ public sealed class ChatViewModelLeakTests
             IsBusy = true
         };
 
-        await InvokePrivateAsync(vm, "SendMessageCore", "queued prompt", false);
+        await InvokePrivateAsync(vm, "SendMessageCore", "queued prompt", false, null!);
 
-        Assert.Empty(chat.Messages);
+        Assert.Equal("queued prompt", Assert.Single(chat.Messages).Content);
         Assert.Equal("new draft", vm.PromptText);
         Assert.Equal(
-            "queued prompt",
-            GetField<Dictionary<Guid, string>>(vm, "_queuedBusySendPrompts")[chat.Id]);
+            new[] { "queued prompt" },
+            ReadQueuedPrompts(vm, chat.Id));
     }
 
     [Fact]
-    public async Task DrainQueuedBusySendAsync_WhenChatChanged_PreservesQueuedPromptAsDraft()
+    public async Task DrainQueuedBusySendAsync_WhenChatChanged_FlagsThePromptAsUndelivered()
     {
         var dataStore = CreateDataStore();
         var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
@@ -937,13 +939,28 @@ public sealed class ChatViewModelLeakTests
         dataStore.Data.Chats.Add(queuedChat);
         dataStore.Data.Chats.Add(visibleChat);
         vm.CurrentChat = visibleChat;
-        GetField<Dictionary<Guid, string>>(vm, "_queuedBusySendPrompts")[queuedChat.Id] = "send me later";
+        // Queued while another chat was on screen: the message still belongs to that chat, so it waits
+        // there rather than being dropped or pushed into the composer.
+        InvokePrivate(vm, "QueueBusySendPrompt", queuedChat.Id, "send me later", null);
 
         await InvokePrivateAsync(vm, "DrainQueuedBusySendAsync", queuedChat.Id);
 
-        Assert.False(GetField<Dictionary<Guid, string>>(vm, "_queuedBusySendPrompts").ContainsKey(queuedChat.Id));
-        Assert.Equal("send me later", GetField<Dictionary<Guid, string>>(vm, "_chatDrafts")[queuedChat.Id]);
-        Assert.Empty(queuedChat.Messages);
+        Assert.Empty(ReadQueuedPrompts(vm, queuedChat.Id));
+        var message = Assert.Single(queuedChat.Messages);
+        Assert.Equal("send me later", message.Content);
+        Assert.Equal(MessageSteerState.Failed, message.SteerDelivery);
+        Assert.False(GetField<Dictionary<Guid, string>>(vm, "_chatDrafts").ContainsKey(queuedChat.Id));
+    }
+
+    private static string[] ReadQueuedPrompts(ChatViewModel vm, Guid chatId)
+    {
+        var queue = GetField<System.Collections.IDictionary>(vm, "_queuedBusySendPrompts");
+        if (!queue.Contains(chatId))
+            return [];
+
+        return ((IEnumerable<ChatMessage>)queue[chatId]!)
+            .Select(message => message.Content)
+            .ToArray();
     }
 
     [Fact]

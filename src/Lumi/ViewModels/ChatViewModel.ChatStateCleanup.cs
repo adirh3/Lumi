@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using GitHub.Copilot;
+using Lumi.Localization;
 using Lumi.Models;
 
 namespace Lumi.ViewModels;
@@ -142,33 +143,242 @@ public partial class ChatViewModel
                 && _pendingQuestions.ContainsKey(questionId)));
     }
 
-    private void QueueBusySendPrompt(Guid chatId, string prompt)
+    /// <summary>
+    /// Resolved on demand, never cached: transcript view models are rebuilt from the model on every chat
+    /// switch, so a cached one would go stale and leave the bubble stuck showing "Queued…".
+    /// </summary>
+    private ChatMessageViewModel? ResolveQueuedViewModel(ChatMessage message)
+        => Messages.FirstOrDefault(viewModel => ReferenceEquals(viewModel.Message, message));
+
+    /// <summary>
+    /// Defers a send that could not be steered into a live turn. FIFO, so a second deferred message
+    /// cannot overwrite the first. Pass <paramref name="existing"/> to re-defer an already-shown
+    /// message; that is always the head a delivery path just dequeued, so it goes back to the front.
+    /// </summary>
+    private void QueueBusySendPrompt(Guid chatId, string prompt, ChatMessage? existing = null)
     {
-        if (string.IsNullOrWhiteSpace(prompt))
+        if (existing is null && string.IsNullOrWhiteSpace(prompt))
             return;
 
-        _queuedBusySendPrompts[chatId] = prompt;
+        var message = existing ?? CreateQueuedBusySend(chatId, prompt);
+        if (message is null)
+            return;
+
+        if (!_queuedBusySendPrompts.TryGetValue(chatId, out var pending))
+        {
+            pending = [];
+            _queuedBusySendPrompts[chatId] = pending;
+        }
+
+        if (existing is null)
+            pending.Add(message);
+        else
+            pending.Insert(0, message);
     }
 
+    /// <summary>
+    /// Shows a deferred send in the transcript straight away with a "Queued…" pill, so sending while the
+    /// chat is busy is never invisible even though delivery has to wait.
+    /// </summary>
+    private ChatMessage? CreateQueuedBusySend(Guid chatId, string prompt)
+    {
+        var chat = CurrentChat?.Id == chatId
+            ? CurrentChat
+            : _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+        if (chat is null)
+            return null;
+
+        var message = new ChatMessage
+        {
+            Role = "user",
+            Content = prompt,
+            Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
+            Model = SelectedModel,
+            AgentId = ActiveAgent?.Id,
+            SdkAgentName = SelectedSdkAgentName,
+            HasAgentSelection = true,
+            ActiveMcpServerNames = new List<string>(ActiveMcpServerNames),
+            HasMcpSelection = true,
+            ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
+            SteerDelivery = MessageSteerState.Queued
+        };
+
+        // An assistant message that is still streaming lives only in _inProgressMessages until the turn
+        // finalizes — and finalization APPENDS it. Persist it now so this follow-up cannot land ahead of
+        // the answer it is replying to. Same instance, so later deltas keep mutating it in place, and
+        // FinalizeTerminalAssistantMessage's id check stops it from being added twice.
+        if (_inProgressMessages.TryGetValue(chatId, out var streaming)
+            && !string.IsNullOrWhiteSpace(streaming.Content)
+            && !chat.Messages.Contains(streaming))
+        {
+            chat.Messages.Add(streaming);
+        }
+
+        chat.Messages.Add(message);
+        if (CurrentChat?.Id == chatId)
+            Messages.Add(new ChatMessageViewModel(message));
+
+        QueueSaveChat(chat, saveIndex: true, touchIndex: true);
+        ChatUpdated?.Invoke();
+        UserMessageSent?.Invoke();
+
+        return message;
+    }
+
+    private bool TryDequeueBusySend(Guid chatId, out ChatMessage message)
+    {
+        message = null!;
+        if (!_queuedBusySendPrompts.TryGetValue(chatId, out var pending) || pending.Count == 0)
+            return false;
+
+        message = pending[0];
+        pending.RemoveAt(0);
+        if (pending.Count == 0)
+            _queuedBusySendPrompts.Remove(chatId);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Delivers the oldest deferred send as a fresh turn once the chat is idle. Safe to call from any
+    /// terminal/idle transition; the rest drain on the next one, in order.
+    /// </summary>
     private async Task DrainQueuedBusySendAsync(Guid chatId)
     {
-        if (!_queuedBusySendPrompts.Remove(chatId, out var prompt) || string.IsNullOrWhiteSpace(prompt))
+        if (!_queuedBusySendPrompts.ContainsKey(chatId))
             return;
 
         if (CurrentChat?.Id != chatId)
         {
-            _chatDrafts[chatId] = prompt;
+            // A send can only be dispatched for the chat on screen.
+            FailQueuedBusySends(chatId);
             return;
         }
 
         if (IsChatRuntimeActive(chatId))
-        {
-            _queuedBusySendPrompts[chatId] = prompt;
             return;
-        }
 
-        await SendMessageCore(prompt, consumeComposerPrompt: false);
+        // Dequeue only once the send is certain, so the message cannot lose its place in the queue.
+        if (!TryDequeueBusySend(chatId, out var message))
+            return;
+
+        await SendMessageCore(message.Content, consumeComposerPrompt: false, message);
     }
+
+    /// <summary>
+    /// Always posts, never runs inline, so callers can invoke it from the middle of a session-event
+    /// handler. A single Stop schedules two drains (the stop and the session.idle it causes), so drains
+    /// are coalesced per chat — two overlapping sends would fight over the same cancellation token.
+    /// </summary>
+    private void ScheduleQueuedBusySendDrain(Guid chatId)
+    {
+        if (_isDisposed)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_isDisposed
+                || !_queuedBusySendPrompts.ContainsKey(chatId)
+                || !_drainingBusySends.Add(chatId))
+            {
+                return;
+            }
+
+            _ = DrainQueuedBusySendSafeAsync(chatId);
+        });
+    }
+
+    private async Task DrainQueuedBusySendSafeAsync(Guid chatId)
+    {
+        try
+        {
+            await DrainQueuedBusySendAsync(chatId);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Send] Deferred send drain failed for chat {chatId}: {ex.Message}");
+        }
+        finally
+        {
+            _drainingBusySends.Remove(chatId);
+        }
+    }
+
+    /// <summary>
+    /// Gives up on every deferred send for a chat. The messages stay in the transcript flagged "not
+    /// delivered" so they can be resent in place, rather than being silently discarded.
+    /// </summary>
+    private void FailQueuedBusySends(Guid chatId)
+    {
+        if (!_queuedBusySendPrompts.Remove(chatId, out var pending))
+            return;
+
+        foreach (var message in pending)
+            MarkQueuedBusySendFailed(message);
+    }
+
+    private void MarkQueuedBusySendFailed(ChatMessage message)
+    {
+        if (message.SteerDelivery != MessageSteerState.Queued)
+            return;
+
+        // The view model mirrors its state onto the model; without one, the model is all there is.
+        if (ResolveQueuedViewModel(message) is { } viewModel)
+            viewModel.SteerState = MessageSteerState.Failed;
+        else
+            message.SteerDelivery = MessageSteerState.Failed;
+    }
+
+    /// <summary>
+    /// Flushes deferred sends into a turn that just became steerable, so they land in the running
+    /// response instead of waiting for the whole run to finish. Skipped while a stop is pending — those
+    /// are deliberately held back to start a fresh turn after the abort.
+    /// </summary>
+    private bool CanFlushQueuedSendsAsSteer(Guid chatId)
+        => !_isDisposed
+            && _queuedBusySendPrompts.ContainsKey(chatId)
+            && _runtimeStates.TryGetValue(chatId, out var runtime)
+            && !runtime.ManualStopRequested
+            && !WasCancelledByUser(chatId)
+            && CanSteerImmediately(runtime);
+
+    private async Task FlushQueuedBusySendsAsSteerAsync(Guid chatId)
+    {
+        // Called straight from the turn-start handler on the UI thread, so the gate sees the runtime
+        // state that handler just applied.
+        if (CurrentChat?.Id != chatId || !CanFlushQueuedSendsAsSteer(chatId))
+            return;
+
+        // One at a time rather than emptying the list up front, so a send arriving mid-flush lines up
+        // behind these instead of overtaking them.
+        while (TryDequeueBusySend(chatId, out var message))
+        {
+            if (CurrentChat is not { } chat || chat.Id != chatId)
+            {
+                QueueBusySendPrompt(chatId, message.Content, message);
+                return;
+            }
+
+            try
+            {
+                await SteerActiveTurnAsync(chat, message.Content, consumeComposerPrompt: false, message);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Send] Deferred steer flush failed for chat {chatId}: {ex.Message}");
+                QueueBusySendPrompt(chatId, message.Content, message);
+                return;
+            }
+
+            // It re-deferred itself, so the turn is no longer steerable. Continuing would send later
+            // messages ahead of it.
+            if (IsQueuedBusySend(chatId, message))
+                return;
+        }
+    }
+
+    private bool IsQueuedBusySend(Guid chatId, ChatMessage message)
+        => _queuedBusySendPrompts.TryGetValue(chatId, out var pending) && pending.Contains(message);
 
     private void ReleaseChatCancellation(Guid chatId, bool cancel)
     {
@@ -334,7 +544,6 @@ public partial class ChatViewModel
 
     private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest, bool deleteServerSession)
     {
-        _queuedBusySendPrompts.Remove(chatId);
         // Drop any still-pending steer confirmations for this chat. Without this a chat deleted / released
         // while a steer is in flight leaks its entry (and the referenced ChatMessageViewModel), and — because
         // a remote-shutdown keeps CopilotSessionId for resume — a later Retry's turn-start echo could pop the
@@ -433,6 +642,8 @@ public partial class ChatViewModel
         // reload the question as a stuck "live" card on next open, so skip the message unload when
         // it mutated — the chat becomes unloadable again once a later save persists the new state.
         var mutatedPersistedMessages = CancelPendingQuestions(chat);
+        // The chat is neither displayed nor running, so nothing is left to deliver a deferred send.
+        FailQueuedBusySends(chat.Id);
         ReleaseSessionResources(chat.Id, cancelActiveRequest: false, deleteServerSession: false);
         RemoveSuggestionTracking(chat.Id);
         // Intentionally keep the chat's BrowserService alive. A browser session belongs to the

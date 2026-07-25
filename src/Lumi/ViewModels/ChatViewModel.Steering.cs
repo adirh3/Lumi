@@ -15,7 +15,11 @@ public partial class ChatViewModel
     // UI-thread only. Entries remain pending until the agent consumes the steer or the turn terminates.
     private readonly Dictionary<Guid, List<ChatMessageViewModel>> _pendingSteerConfirmations = new();
 
-    private async Task SteerActiveTurnAsync(Chat activeChat, string prompt, bool consumeComposerPrompt)
+    private async Task SteerActiveTurnAsync(
+        Chat activeChat,
+        string prompt,
+        bool consumeComposerPrompt,
+        ChatMessage? queuedMessage = null)
     {
         var chatId = activeChat.Id;
 
@@ -23,9 +27,15 @@ public partial class ChatViewModel
             session = _activeSession;
 
         _runtimeStates.TryGetValue(chatId, out var runtime);
-        if (session is null || runtime is null || !CanSteerImmediately(runtime))
+
+        // Ordering guard: a new send must queue behind anything already deferred, or it would overtake
+        // it. A non-null queuedMessage is the head the caller just dequeued, so nothing precedes it.
+        var hasQueuedSends = queuedMessage is null
+            && _queuedBusySendPrompts.TryGetValue(chatId, out var queued)
+            && queued.Count > 0;
+        if (hasQueuedSends || session is null || runtime is null || !CanSteerImmediately(runtime))
         {
-            QueueBusySendPrompt(chatId, prompt);
+            QueueBusySendPrompt(chatId, prompt, queuedMessage);
             if (consumeComposerPrompt)
             {
                 PromptText = "";
@@ -36,14 +46,30 @@ public partial class ChatViewModel
         }
 
         var attachments = TakePendingAttachments();
-        var userMsg = new ChatMessage
+
+        // A deferred send is already rendered — promote that bubble instead of adding a second one. No
+        // view model means the chat is off screen, so it stays queued for the drain path.
+        ChatMessageViewModel? queuedViewModel = null;
+        if (queuedMessage is not null)
+        {
+            queuedViewModel = ResolveQueuedViewModel(queuedMessage);
+            if (queuedViewModel is null)
+            {
+                QueueBusySendPrompt(chatId, prompt, queuedMessage);
+                return;
+            }
+        }
+
+        var userMsg = queuedMessage ?? new ChatMessage
         {
             Role = "user",
             Content = prompt,
             Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
-            Attachments = attachments?.OfType<AttachmentFile>().Select(a => a.Path).ToList() ?? [],
             ActiveSkills = BuildSkillReferences(ActiveSkillIds)
         };
+
+        if (attachments is { Count: > 0 })
+            userMsg.Attachments = attachments.OfType<AttachmentFile>().Select(a => a.Path).ToList();
 
         if (WorktreePath is { Length: > 0 } worktreePath && attachments is { Count: > 0 })
         {
@@ -57,12 +83,21 @@ public partial class ChatViewModel
                 effectiveWorktreeDirectory);
         }
 
-        activeChat.Messages.Add(userMsg);
-        var messageViewModel = new ChatMessageViewModel(userMsg)
+        ChatMessageViewModel messageViewModel;
+        if (queuedViewModel is not null)
         {
-            SteerState = MessageSteerState.Steering
-        };
-        Messages.Add(messageViewModel);
+            messageViewModel = queuedViewModel;
+            messageViewModel.SteerState = MessageSteerState.Steering;
+        }
+        else
+        {
+            activeChat.Messages.Add(userMsg);
+            messageViewModel = new ChatMessageViewModel(userMsg)
+            {
+                SteerState = MessageSteerState.Steering
+            };
+            Messages.Add(messageViewModel);
+        }
 
         // Register before SendAsync so a consumption event cannot race ahead of the pending entry.
         RegisterPendingSteer(chatId, messageViewModel);
@@ -167,7 +202,8 @@ public partial class ChatViewModel
 
     private async Task SendSteeredNowAsync(ChatMessageViewModel message)
     {
-        if (message.SteerState != MessageSteerState.Steering)
+        // Covers a queued send as well as an in-flight steer: stopping the turn delivers either.
+        if (message.SteerState is not (MessageSteerState.Steering or MessageSteerState.Queued))
             return;
 
         if (CurrentChat is not { } chat

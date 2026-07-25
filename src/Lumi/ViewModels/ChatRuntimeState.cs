@@ -39,8 +39,7 @@ internal sealed class ChatRuntimeState
     /// injected via immediate mode. Unlike <see cref="IsStreaming"/>, it is NOT cleared mid-turn by
     /// compaction, sub-agent, or background-task events (each of which forces <see cref="IsStreaming"/>
     /// to false for the rest of the turn), so a message steered during any of those phases still routes
-    /// to the running turn's next step boundary instead of silently falling back to the post-turn queue
-    /// (which renders no bubble and only drains at turn end).
+    /// to the running turn's next step boundary instead of falling back to the deferred-send queue.
     /// </summary>
     public bool TurnInProgress { get; set; }
 

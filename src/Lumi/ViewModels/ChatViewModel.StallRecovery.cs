@@ -119,6 +119,8 @@ public partial class ChatViewModel
         var runtime = GetOrCreateRuntimeState(chat.Id);
         ReconcileInProgressSubagentTools(chat, "Failed", updateDisplayedChatUi);
         MarkRuntimeTerminal(runtime, message);
+        // The run died before delivering anything deferred; the user gets abort/retry instead.
+        FailQueuedBusySends(chat.Id);
 
         if (updateDisplayedChatUi && CurrentChat?.Id == chat.Id)
         {
@@ -437,6 +439,8 @@ public partial class ChatViewModel
             QueueSaveChat(chat, saveIndex: false, releaseIfInactive: CurrentChat?.Id != chat.Id);
         });
 
+        // Mirror the main SessionIdleEvent handler: the chat is free again.
+        ScheduleQueuedBusySendDrain(chat.Id);
     }
 
     private async Task ApplyRecoveredErrorAsync(Chat chat, string message)
@@ -451,6 +455,8 @@ public partial class ChatViewModel
             ResolvePendingSteersAsFailed(chat.Id);
             ReconcileInProgressSubagentTools(chat, "Failed");
             MarkRuntimeTerminal(runtime, string.Format(Loc.Status_Error, message));
+            // Mirror the main session.error handler rather than auto-firing into a failed session.
+            FailQueuedBusySends(chat.Id);
 
             if (CurrentChat?.Id == chat.Id)
             {
@@ -495,6 +501,7 @@ public partial class ChatViewModel
 
             if (!wasUserStopRequested)
             {
+                // ApplyUnexpectedAbortState resolves any deferred sends.
                 ApplyUnexpectedAbortState(chat, GetUnexpectedAbortMessage());
                 return;
             }
@@ -516,8 +523,8 @@ public partial class ChatViewModel
             QueueSaveChat(chat, saveIndex: false, releaseIfInactive: CurrentChat?.Id != chat.Id);
         });
 
-        if (wasUserStopRequested)
-            await DrainQueuedBusySendAsync(chat.Id);
+        // Recovery idle is a real "chat is free" transition, not only a post-Stop one.
+        ScheduleQueuedBusySendDrain(chat.Id);
     }
 
     private async Task ApplyRecoveredShutdownAsync(Chat chat)
