@@ -284,17 +284,23 @@
                       Foreground="{DynamicResource Brush.TextSecondary}"
                       Data="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
           </Button>
-          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-            <PathIcon Width="14"
+          <!-- Grid, not StackPanel: a horizontal StackPanel measures children unbounded, so the
+               breadcrumb would never trim and would slide under the close button. -->
+          <Grid ColumnDefinitions="Auto,*" VerticalAlignment="Center">
+            <PathIcon Grid.Column="0"
+                      Width="14"
                       Height="14"
+                      Margin="0,0,8,0"
                       Foreground="{DynamicResource Brush.AccentDefault}"
                       Data="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z" />
-            <TextBlock x:Name="DiffFileNameText"
+            <TextBlock Grid.Column="1"
+                       x:Name="DiffFileNameText"
                        Text="{loc:Str Diff_Title}"
                        Classes="body-strong"
                        FontWeight="SemiBold"
+                       VerticalAlignment="Center"
                        TextTrimming="CharacterEllipsis" />
-          </StackPanel>
+          </Grid>
         </DockPanel>
         <ContentControl x:Name="DiffHost" />
       </DockPanel>

@@ -231,23 +231,24 @@
                      IsVisible="{Binding HasTotalStats}" />
         </Grid>
 
-        <StackPanel Orientation="Horizontal" Spacing="7">
-          <PathIcon Data="{StaticResource Gc.Folder}" Width="11" Height="11"
+        <Grid ColumnDefinitions="Auto,*,Auto">
+          <PathIcon Grid.Column="0" Data="{StaticResource Gc.Folder}" Width="11" Height="11"
                     Foreground="{DynamicResource Brush.TextTertiary}"
-                    VerticalAlignment="Center" />
-          <TextBlock Classes="gc-file" Text="{Binding RootName}"
+                    Margin="0,0,7,0" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Classes="gc-file" Text="{Binding RootName}"
                      TextTrimming="CharacterEllipsis"
                      ToolTip.Tip="{Binding RootPath}" />
-          <Border Classes="gc-pill" IsVisible="{Binding HasBranch}">
+          <Border Grid.Column="2" Classes="gc-pill" Margin="7,0,0,0"
+                  IsVisible="{Binding HasBranch}">
             <StackPanel Orientation="Horizontal" Spacing="5">
               <PathIcon Data="{StaticResource Gc.Branch}" Width="10" Height="10"
                         Foreground="{DynamicResource Brush.TextTertiary}"
                         VerticalAlignment="Center" />
               <TextBlock Classes="gc-mono" Text="{Binding BranchLabel}"
-                         TextTrimming="CharacterEllipsis" MaxWidth="180" />
+                         TextTrimming="CharacterEllipsis" MaxWidth="110" />
             </StackPanel>
           </Border>
-        </StackPanel>
+        </Grid>
 
         <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasKindBreakdown}">
           <TextBlock Grid.Column="0" Classes="caption"
@@ -325,7 +326,8 @@
                               Classes.expanded="{Binding IsExpanded}"
                               Data="{StaticResource Gc.Chevron}"
                               Margin="0,0,7,0" VerticalAlignment="Center" />
-                    <Panel Grid.Column="1" Margin="0,0,8,0" VerticalAlignment="Center">
+                    <Panel Grid.Column="1" Margin="0,0,8,0" VerticalAlignment="Center"
+                           ToolTip.Tip="{Binding BadgeLabel}">
                       <PathIcon Data="{StaticResource Gc.Repo}" Width="13" Height="13"
                                 Foreground="{DynamicResource Brush.TextTertiary}"
                                 IsVisible="{Binding !IsSubmodule}" />
@@ -333,17 +335,16 @@
                                 Foreground="{DynamicResource Brush.AccentDefault}"
                                 IsVisible="{Binding IsSubmodule}" />
                     </Panel>
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
-                      <TextBlock Classes="gc-source" Text="{Binding Name}"
-                                 TextTrimming="CharacterEllipsis"
-                                 ToolTip.Tip="{Binding SourcePath}" />
-                      <Border Classes="gc-pill" IsVisible="{Binding HasBadge}">
-                        <TextBlock Text="{Binding BadgeLabel}" />
-                      </Border>
-                    </StackPanel>
-                    <TextBlock Grid.Column="3" Classes="caption" Margin="10,0,10,0"
-                               Text="{Binding FileCountLabel}"
-                               VerticalAlignment="Center" />
+                    <!-- Plain TextBlock in the star column, not a horizontal StackPanel: a
+                         StackPanel measures children unbounded, so the name would never trim and
+                         would overlap the columns to its right once the island is dragged narrow. -->
+                    <TextBlock Grid.Column="2" Classes="gc-source" Text="{Binding Name}"
+                               TextTrimming="CharacterEllipsis"
+                               ToolTip.Tip="{Binding SourcePath}" />
+                    <Border Grid.Column="3" Classes="gc-pill" Margin="8,0,8,0"
+                            ToolTip.Tip="{Binding FileCountLabel}">
+                      <TextBlock Text="{Binding FileCountCompact}" />
+                    </Border>
                     <TextBlock Grid.Column="4" Classes="gc-stat added" Text="{Binding AddedCell}" />
                     <TextBlock Grid.Column="5" Classes="gc-stat removed" Text="{Binding RemovedCell}" />
                   </Grid>

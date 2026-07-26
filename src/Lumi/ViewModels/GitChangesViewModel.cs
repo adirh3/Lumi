@@ -97,8 +97,8 @@ public sealed partial class GitChangeSourceGroup : ObservableObject
     public bool IsSubmodule { get; }
     public string? SourcePath { get; }
     public string? BadgeLabel { get; }
-    public bool HasBadge => !string.IsNullOrEmpty(BadgeLabel);
     public string FileCountLabel { get; }
+    public string FileCountCompact { get; }
     public string AddedCell { get; }
     public string RemovedCell { get; }
     public ObservableCollection<GitChangeFolderGroup> Folders { get; } = [];
@@ -121,6 +121,7 @@ public sealed partial class GitChangeSourceGroup : ObservableObject
 
         var files = Folders.SelectMany(static f => f.Files).ToList();
         FileCountLabel = GitChangesViewModel.FormatFileCount(files.Count);
+        FileCountCompact = files.Count.ToString(CultureInfo.InvariantCulture);
         var added = files.Sum(static f => f.LinesAdded);
         var removed = files.Sum(static f => f.LinesRemoved);
         AddedCell = added > 0 ? $"+{added.ToString(CultureInfo.InvariantCulture)}" : "";

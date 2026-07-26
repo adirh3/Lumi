@@ -121,6 +121,11 @@ public sealed class GitChangesTests
         // Folder labels inside a submodule are relative to the submodule, not the parent repo.
         Assert.Equal("src/Controls", submodule.Folders[0].FolderLabel);
 
+        // The header shows a compact count so a narrow island still has room for the name.
+        Assert.Equal("3", main.FileCountCompact);
+        Assert.Equal("3 files changed", main.FileCountLabel);
+        Assert.Equal("1", submodule.FileCountCompact);
+
         Assert.True(vm.HasMultipleSources);
         Assert.Equal("+24", vm.TotalAddedLabel);
         Assert.Equal("−8", vm.TotalRemovedLabel);
