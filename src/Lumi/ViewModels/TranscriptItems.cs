@@ -1303,32 +1303,6 @@ public partial class FileChangeItem : ObservableObject
     private void ShowDiff() => _showDiffAction?.Invoke(this);
 }
 
-// ── Git file change display item ─────────────────────
-
-public partial class GitFileChangeViewModel : ObservableObject
-{
-    public GitFileChange Change { get; }
-    private readonly Action<GitFileChangeViewModel>? _showDiffAction;
-
-    public string FileName => Change.FileName;
-    public string? Directory => Change.Directory;
-    public string KindIcon => Change.KindIcon;
-    public string KindLabel => Change.KindLabel;
-    public GitChangeKind Kind => Change.Kind;
-    public int LinesAdded => Change.LinesAdded;
-    public int LinesRemoved => Change.LinesRemoved;
-    public bool HasStats => LinesAdded > 0 || LinesRemoved > 0;
-
-    public GitFileChangeViewModel(GitFileChange change, Action<GitFileChangeViewModel>? showDiffAction = null)
-    {
-        Change = change;
-        _showDiffAction = showDiffAction;
-    }
-
-    [RelayCommand]
-    private void ShowDiff() => _showDiffAction?.Invoke(this);
-}
-
 // ── File changes summary (standalone transcript item at end of turn) ──
 
 public partial class FileChangesSummaryItem : TranscriptItem

@@ -114,7 +114,7 @@ public partial class ChatViewModel
         _ => string.Format(Loc.Git_NChanges, GitChangedFileCount)
     };
 
-    public event Action<List<GitFileChangeViewModel>>? GitChangesShowRequested;
+    public event Action<GitChangesViewModel>? GitChangesShowRequested;
 
     public ObservableCollection<StrataComposerChip> AvailableAgentChips { get; } = [];
     public ObservableCollection<StrataComposerChip> AvailableSkillChips { get; } = [];
@@ -1584,8 +1584,15 @@ public partial class ChatViewModel
     [RelayCommand]
     private void ShowGitChanges()
     {
-        if (GitChangedFiles.Count > 0)
-            GitChangesShowRequested?.Invoke(GitChangedFiles.ToList());
+        if (GitChangedFiles.Count == 0)
+            return;
+
+        var rootPath = GitService.FindRepoRoot(GetEffectiveWorkingDirectory()) ?? GetEffectiveWorkingDirectory();
+        GitChangesShowRequested?.Invoke(new GitChangesViewModel(
+            GitChangedFiles.Select(static f => f.Change),
+            rootPath,
+            GitBranch,
+            IsWorktreeMode));
     }
 
     [RelayCommand]

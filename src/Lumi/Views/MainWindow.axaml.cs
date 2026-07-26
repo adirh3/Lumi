@@ -3147,8 +3147,8 @@ public partial class MainWindow : Window
 
     private void ShowDiffPanel(FileChangeItem fileChange) => _chatWorkspace?.ShowDiffPanel(fileChange);
     private void HideDiffPanel() => _chatWorkspace?.HideDiffPanel();
-    private void ShowGitChangesPanel(List<GitFileChangeViewModel> files)
-        => _chatWorkspace?.ShowGitChangesPanel(files);
+    private void ShowGitChangesPanel(GitChangesViewModel changes)
+        => _chatWorkspace?.ShowGitChangesPanel(changes);
 
     private bool IsPlanOpen => _chatWorkspace?.IsPlanOpen == true;
     private void ShowPlanPanel() => _chatWorkspace?.ShowPlanPanel();

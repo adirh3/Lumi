@@ -331,11 +331,27 @@ public static class GitService
             : new GitBranchSyncResult(true, branch, true, $"Fast-forwarded local branch \"{branch}\" to \"{remote}/{branch}\".");
     }
 
-    /// <summary>Returns the list of changed files (staged + unstaged + untracked) with line stats.</summary>
-    public static async Task<List<GitFileChange>> GetChangedFilesAsync(string dir)
+    /// <summary>
+    /// Returns the list of changed files (staged + unstaged + untracked) with line stats.
+    /// Submodules are expanded: git reports a dirty submodule as a single opaque entry, so each
+    /// changed submodule is enumerated recursively and its files are surfaced with the submodule
+    /// path as prefix. A <see cref="GitChangeKind.Submodule"/> row is kept when the recorded commit
+    /// pointer moved.
+    /// </summary>
+    public static Task<List<GitFileChange>> GetChangedFilesAsync(string dir)
+        => GetChangedFilesAsync(dir, 0);
+
+    /// <summary>Deepest submodule nesting level that is expanded (guards pathological repos).</summary>
+    private const int MaxSubmoduleDepth = 3;
+
+    private static async Task<List<GitFileChange>> GetChangedFilesAsync(string dir, int depth)
     {
         var output = await RunGitAsync(dir, "status --porcelain -uall").ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(output)) return [];
+
+        // Porcelain paths are always relative to the repository root, even when git runs from a
+        // subfolder — so full paths must be rebuilt from the root, not from the working directory.
+        var repoRoot = FindRepoRoot(dir) ?? dir;
 
         var changes = new List<GitFileChange>();
         foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -354,7 +370,7 @@ public static class GitService
                 _ => GitChangeKind.Modified
             };
 
-            var fullPath = Path.Combine(dir, path.Replace('/', Path.DirectorySeparatorChar));
+            var fullPath = Path.Combine(repoRoot, path.Replace('/', Path.DirectorySeparatorChar));
 
             // Skip worktree sibling directories (they appear as untracked in some configs)
             if (kind == GitChangeKind.Untracked && path.Contains("-wt-"))
@@ -364,6 +380,8 @@ public static class GitService
             {
                 RelativePath = path,
                 FullPath = fullPath,
+                RepoRoot = repoRoot,
+                RepoRelativePath = path,
                 Kind = kind,
                 StatusCode = status
             });
@@ -409,7 +427,87 @@ public static class GitService
             }
         }
 
-        return changes;
+        return await ExpandSubmoduleChangesAsync(repoRoot, changes, depth).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Replaces opaque submodule entries (git reports a whole dirty submodule as one line) with the
+    /// files actually changed inside it, keeping a commit-pointer row when the submodule moved to a
+    /// different commit.
+    /// </summary>
+    private static async Task<List<GitFileChange>> ExpandSubmoduleChangesAsync(
+        string repoRoot,
+        List<GitFileChange> changes,
+        int depth)
+    {
+        if (depth >= MaxSubmoduleDepth || changes.Count == 0)
+            return changes;
+
+        var submodules = await GetSubmoduleStatesAsync(repoRoot).ConfigureAwait(false);
+        if (submodules.Count == 0)
+            return changes;
+
+        var expanded = new List<GitFileChange>(changes.Count);
+        foreach (var change in changes)
+        {
+            if (!submodules.TryGetValue(change.RelativePath, out var state) || !state.IsInitialized)
+            {
+                expanded.Add(change);
+                continue;
+            }
+
+            var submoduleDir = Path.Combine(repoRoot, change.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+            if (!Directory.Exists(submoduleDir))
+            {
+                expanded.Add(change);
+                continue;
+            }
+
+            var nested = await GetChangedFilesAsync(submoduleDir, depth + 1).ConfigureAwait(false);
+
+            // A staged pointer bump shows up as an index-side status letter on the submodule entry.
+            var pointerMoved = state.CommitMoved || change.StatusCode.Length > 0 && change.StatusCode[0] is not ' ' and not '?';
+            if (pointerMoved || nested.Count == 0)
+                expanded.Add(change.AsSubmodulePointer());
+
+            foreach (var nestedChange in nested)
+                expanded.Add(nestedChange.WithSubmodulePrefix(change.RelativePath));
+        }
+
+        return expanded;
+    }
+
+    /// <summary>
+    /// Direct submodules of the repository keyed by their repo-relative path. Reads a single
+    /// <c>git submodule status</c> (skipped entirely when the repo has no <c>.gitmodules</c>), which
+    /// reports whether each submodule is initialized and whether its checked-out commit differs from
+    /// the one recorded by the superproject.
+    /// </summary>
+    private static async Task<Dictionary<string, (bool IsInitialized, bool CommitMoved)>> GetSubmoduleStatesAsync(string repoRoot)
+    {
+        var states = new Dictionary<string, (bool, bool)>(StringComparer.OrdinalIgnoreCase);
+        if (!File.Exists(Path.Combine(repoRoot, ".gitmodules")))
+            return states;
+
+        var output = await RunGitAsync(repoRoot, "submodule status").ConfigureAwait(false);
+        foreach (var line in ParseLines(output))
+        {
+            // Format: "<flag><sha1> <path> (<describe>)" — flag is ' ', '+', '-' or 'U'.
+            var flag = line[0];
+            var body = char.IsLetterOrDigit(flag) ? line : line[1..];
+            var separator = body.IndexOf(' ');
+            if (separator < 0) continue;
+
+            var path = body[(separator + 1)..].Trim();
+            var describeStart = path.LastIndexOf(" (", StringComparison.Ordinal);
+            if (describeStart > 0 && path.EndsWith(')'))
+                path = path[..describeStart].TrimEnd();
+            if (path.Length == 0) continue;
+
+            states[path.Replace('\\', '/')] = (flag != '-', flag == '+');
+        }
+
+        return states;
     }
 
     /// <summary>Gets the unified diff for a specific file.</summary>
@@ -420,6 +518,17 @@ public static class GitService
         if (string.IsNullOrWhiteSpace(diff))
             diff = await RunGitAsync(dir, $"diff --cached -- \"{relativePath}\"").ConfigureAwait(false);
         return string.IsNullOrWhiteSpace(diff) ? null : diff;
+    }
+
+    /// <summary>Gets the commit-log summary for a moved submodule pointer (the commits the parent
+    /// repository would gain or lose), or null when nothing is recorded.</summary>
+    public static async Task<string?> GetSubmoduleCommitLogAsync(string repoRoot, string submodulePath)
+    {
+        var quoted = QuoteGitArgument(submodulePath);
+        var log = await RunGitAsync(repoRoot, $"diff --submodule=log -- {quoted}").ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(log))
+            log = await RunGitAsync(repoRoot, $"diff --cached --submodule=log -- {quoted}").ConfigureAwait(false);
+        return string.IsNullOrWhiteSpace(log) ? null : log;
     }
 
     /// <summary>Gets the short stat summary (e.g. "3 files changed, 12 insertions(+), 5 deletions(-)").</summary>
@@ -785,7 +894,7 @@ public static class GitService
     private static string QuoteGitArgument(string value) => $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
 }
 
-public enum GitChangeKind { Modified, Added, Deleted, Renamed, Untracked }
+public enum GitChangeKind { Modified, Added, Deleted, Renamed, Untracked, Submodule }
 
 public sealed record GitDefaultBranchInfo(string BranchName, string? RemoteName);
 
@@ -800,15 +909,43 @@ public record WorktreeInfo(string Path, string? Branch)
 
 public class GitFileChange
 {
+    /// <summary>Path relative to the outermost repository the change was collected from. For files
+    /// inside a submodule this includes the submodule prefix (e.g. <c>Strata/src/Foo.cs</c>).</summary>
     public required string RelativePath { get; init; }
     public required string FullPath { get; init; }
     public required GitChangeKind Kind { get; init; }
     public required string StatusCode { get; init; }
+
+    /// <summary>Root of the git repository that actually owns this change — the submodule root for
+    /// submodule files, otherwise the outer repository root. Use this as the working directory for
+    /// per-file git commands.</summary>
+    public required string RepoRoot { get; init; }
+
+    /// <summary>Path relative to <see cref="RepoRoot"/> (no submodule prefix).</summary>
+    public required string RepoRelativePath { get; init; }
+
+    /// <summary>Repo-relative path of the submodule that owns this change, or null for the outer
+    /// repository. Nested submodules are joined with '/'.</summary>
+    public string? SubmodulePath { get; init; }
+
     public int LinesAdded { get; set; }
     public int LinesRemoved { get; set; }
 
-    public string FileName => Path.GetFileName(RelativePath);
+    public bool IsSubmoduleFile => !string.IsNullOrEmpty(SubmodulePath);
+
+    /// <summary>Display name of the owning submodule (last path segment), or null.</summary>
+    public string? SubmoduleName => string.IsNullOrEmpty(SubmodulePath)
+        ? null
+        : SubmodulePath[(SubmodulePath.LastIndexOf('/') + 1)..];
+
+    public string FileName => Kind == GitChangeKind.Submodule
+        ? RelativePath[(RelativePath.LastIndexOf('/') + 1)..]
+        : Path.GetFileName(RelativePath);
+
     public string? Directory => Path.GetDirectoryName(RelativePath)?.Replace('\\', '/');
+
+    /// <summary>Directory of this change relative to its own repository (no submodule prefix).</summary>
+    public string? RepoRelativeDirectory => Path.GetDirectoryName(RepoRelativePath)?.Replace('\\', '/');
 
     public string KindIcon => Kind switch
     {
@@ -817,6 +954,7 @@ public class GitFileChange
         GitChangeKind.Deleted => "D",
         GitChangeKind.Renamed => "R",
         GitChangeKind.Untracked => "U",
+        GitChangeKind.Submodule => "S",
         _ => "?"
     };
 
@@ -827,6 +965,39 @@ public class GitFileChange
         GitChangeKind.Deleted => "Deleted",
         GitChangeKind.Renamed => "Renamed",
         GitChangeKind.Untracked => "Untracked",
+        GitChangeKind.Submodule => "Submodule",
         _ => "Unknown"
+    };
+
+    /// <summary>Reprojects a change collected inside a submodule so it reads relative to the parent
+    /// repository, while keeping the owning repo root for per-file git commands.</summary>
+    internal GitFileChange WithSubmodulePrefix(string submodulePath)
+    {
+        var prefix = submodulePath.Replace('\\', '/').Trim('/');
+        return new GitFileChange
+        {
+            RelativePath = $"{prefix}/{RelativePath}",
+            FullPath = FullPath,
+            Kind = Kind,
+            StatusCode = StatusCode,
+            RepoRoot = RepoRoot,
+            RepoRelativePath = RepoRelativePath,
+            SubmodulePath = string.IsNullOrEmpty(SubmodulePath) ? prefix : $"{prefix}/{SubmodulePath}",
+            LinesAdded = LinesAdded,
+            LinesRemoved = LinesRemoved,
+        };
+    }
+
+    /// <summary>Turns the opaque "submodule is dirty" entry into an explicit commit-pointer row that
+    /// groups with the rest of that submodule's changes.</summary>
+    internal GitFileChange AsSubmodulePointer() => new()
+    {
+        RelativePath = RelativePath,
+        FullPath = FullPath,
+        Kind = GitChangeKind.Submodule,
+        StatusCode = StatusCode,
+        RepoRoot = RepoRoot,
+        RepoRelativePath = RepoRelativePath,
+        SubmodulePath = RepoRelativePath.Replace('\\', '/').Trim('/'),
     };
 }

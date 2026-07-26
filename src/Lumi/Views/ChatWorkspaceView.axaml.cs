@@ -115,7 +115,7 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
 
     public void HideDiffPanel() => _previewPanel?.HideDiffPanel();
 
-    public void ShowGitChangesPanel(List<GitFileChangeViewModel> files) => _previewPanel?.ShowGitChangesPanel(files);
+    public void ShowGitChangesPanel(GitChangesViewModel changes) => _previewPanel?.ShowGitChangesPanel(changes);
 
     public void ShowPlanPanel() => _previewPanel?.ShowPlanPanel();
 
@@ -233,6 +233,7 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
             ?? throw new InvalidOperationException("Chat workspace is missing DiffHost.");
         var diffFileNameText = this.FindControl<TextBlock>("DiffFileNameText")
             ?? throw new InvalidOperationException("Chat workspace is missing DiffFileNameText.");
+        var diffBackButton = this.FindControl<Button>("DiffBackButton");
         var planPanel = this.FindControl<Border>("PlanIsland")
             ?? throw new InvalidOperationException("Chat workspace is missing PlanIsland.");
         var skillPanel = this.FindControl<Border>("SkillIsland")
@@ -253,7 +254,8 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
             planPanel,
             skillPanel,
             ensureChatVisible: () => EnsureChatVisible?.Invoke(),
-            canShowBrowserPanel: chatId => CanShowBrowserPanel?.Invoke(chatId) != false);
+            canShowBrowserPanel: chatId => CanShowBrowserPanel?.Invoke(chatId) != false,
+            diffBackButton: diffBackButton);
 
         _attachedDataStore = _dataStore;
         _attachedChatViewModel = chatViewModel;

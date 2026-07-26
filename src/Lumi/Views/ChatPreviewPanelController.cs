@@ -7,15 +7,14 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Animation.Easings;
-using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
-using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -27,7 +26,6 @@ internal sealed class ChatPreviewPanelController : IDisposable
     private const double PreviewOffsetX = 40.0;
     private static readonly TimeSpan ShowDuration = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan HideDuration = TimeSpan.FromMilliseconds(200);
-    private static readonly FontFamily MonoFontFamily = new("Cascadia Code, Consolas, monospace");
 
     private readonly Control _resourceScope;
     private readonly DataStore _dataStore;
@@ -40,13 +38,16 @@ internal sealed class ChatPreviewPanelController : IDisposable
     private readonly Border _diffPanel;
     private readonly ContentControl _diffHost;
     private readonly TextBlock _diffTitleText;
+    private readonly Button? _diffBackButton;
     private readonly Border _planPanel;
     private readonly Border _skillPanel;
     private readonly Action? _ensureChatVisible;
     private readonly Func<Guid, bool>? _canShowBrowserPanel;
     private BrowserView? _browserView;
     private DiffView? _diffView;
-    private List<GitFileChangeViewModel>? _lastGitChangesList;
+    private GitChangesView? _gitChangesView;
+    private GitChangesViewModel? _lastGitChanges;
+    private double _gitChangesScrollOffset;
     private CancellationTokenSource? _browserAnimCts;
     private CancellationTokenSource? _previewAnimCts;
     private bool _isDisposed;
@@ -66,7 +67,8 @@ internal sealed class ChatPreviewPanelController : IDisposable
         Border planPanel,
         Border skillPanel,
         Action? ensureChatVisible = null,
-        Func<Guid, bool>? canShowBrowserPanel = null)
+        Func<Guid, bool>? canShowBrowserPanel = null,
+        Button? diffBackButton = null)
     {
         _resourceScope = resourceScope;
         _dataStore = dataStore;
@@ -79,10 +81,15 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _diffPanel = diffPanel;
         _diffHost = diffHost;
         _diffTitleText = diffTitleText;
+        _diffBackButton = diffBackButton;
         _planPanel = planPanel;
         _skillPanel = skillPanel;
         _ensureChatVisible = ensureChatVisible;
         _canShowBrowserPanel = canShowBrowserPanel;
+
+        if (_diffBackButton is not null)
+            _diffBackButton.IsVisible = false;
+
         WireViewModel();
     }
 
@@ -98,6 +105,13 @@ internal sealed class ChatPreviewPanelController : IDisposable
 
         _isDisposed = true;
         UnwireViewModel();
+        if (_diffBackButton is not null)
+            _diffBackButton.Click -= OnDiffBackClick;
+        _diffTitleText.PointerPressed -= OnDiffBreadcrumbClick;
+        if (_lastGitChanges is not null)
+            _lastGitChanges.FileActivated = null;
+        _gitChangesView = null;
+        _lastGitChanges = null;
         _browserView?.ClearBrowserService();
         DisposeCancellationTokenSource(ref _browserAnimCts);
         DisposeCancellationTokenSource(ref _previewAnimCts);
@@ -147,7 +161,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
     private void OnBrowserHideRequested() => PostIfActive(HideBrowserPanel);
     private void OnDiffShowRequested(FileChangeItem item) => PostIfActive(() => ShowDiffPanel(item));
     private void OnDiffHideRequested() => PostIfActive(HideDiffPanel);
-    private void OnGitChangesShowRequested(List<GitFileChangeViewModel> files) => PostIfActive(() => ShowGitChangesPanel(files));
+    private void OnGitChangesShowRequested(GitChangesViewModel changes) => PostIfActive(() => ShowGitChangesPanel(changes));
     private void OnPlanShowRequested() => PostIfActive(ShowPlanPanel);
     private void OnPlanHideRequested() => PostIfActive(HidePlanPanel);
     private void OnSkillShowRequested() => PostIfActive(ShowSkillPanel);
@@ -195,8 +209,11 @@ internal sealed class ChatPreviewPanelController : IDisposable
             return;
         }
 
+        _gitChangesView = null;
+        _lastGitChanges = null;
         EnsureDiffViewLoaded();
         ResetDiffTitle();
+        UpdateDiffBackButton(isVisible: false);
         _diffTitleText.Text = Path.GetFileName(fileChange.FilePath);
         _diffView?.SetFileChangeDiff(fileChange);
         _ = ShowDiffPanelAnimatedAsync();
@@ -213,34 +230,49 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _ = HidePreviewPanelAsync(_diffPanel, () => _viewModel.IsDiffOpen = false);
     }
 
-    public void ShowGitChangesPanel(List<GitFileChangeViewModel> files)
+    public void ShowGitChangesPanel(GitChangesViewModel changes)
     {
         if (!Dispatcher.UIThread.CheckAccess())
         {
-            Dispatcher.UIThread.Post(() => ShowGitChangesPanel(files));
+            Dispatcher.UIThread.Post(() => ShowGitChangesPanel(changes));
             return;
         }
 
-        _lastGitChangesList = files;
-        ResetDiffTitle();
+        _lastGitChanges = changes;
+        changes.FileActivated = ShowGitFileDiffWithBackNav;
+        changes.ClearSelection();
 
-        var tertiaryBrush = GetThemeBrush("Brush.TextTertiary", Brushes.Gray);
-        var listPanel = new StackPanel { Spacing = 2, Margin = new Thickness(8, 4) };
-        foreach (var file in files)
+        _gitChangesView = new GitChangesView { DataContext = changes };
+        ShowGitChangesList(restoreScrollOffset: false);
+        _ = ShowDiffPanelAnimatedAsync();
+    }
+
+    /// <summary>Restores the grouped changes list (the island's "home" view) after drilling into a
+    /// file diff, optionally putting the reader back where they left off.</summary>
+    private void ShowGitChangesList(bool restoreScrollOffset)
+    {
+        if (_gitChangesView is null || _lastGitChanges is null)
+            return;
+
+        ResetDiffTitle();
+        _diffTitleText.Text = Loc.Diff_Title;
+        _diffHost.Content = _gitChangesView;
+        UpdateDiffBackButton(isVisible: false);
+
+        if (!restoreScrollOffset)
         {
-            var row = CreateGitDiffRow(file, listPanel.Children.Count, tertiaryBrush);
-            row.Click += (_, _) => ShowGitFileDiffWithBackNav(file);
-            listPanel.Children.Add(row);
+            _gitChangesScrollOffset = 0;
+            _lastGitChanges.ClearSelection();
+            return;
         }
 
-        _diffTitleText.Text = $"Changes ({files.Count})";
-        _diffHost.Content = new ScrollViewer
+        var offset = _gitChangesScrollOffset;
+        // The list is re-attached this frame; apply the offset once layout has run.
+        Dispatcher.UIThread.Post(() =>
         {
-            Content = listPanel,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-        };
-
-        _ = ShowDiffPanelAnimatedAsync();
+            if (_gitChangesView is not null)
+                _gitChangesView.ScrollOffset = offset;
+        }, DispatcherPriority.Loaded);
     }
 
     public void ShowPlanPanel()
@@ -569,124 +601,16 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _diffTitleText.Inlines = null;
     }
 
-    private Button CreateGitDiffRow(GitFileChangeViewModel file, int rowIndex, IBrush tertiaryBrush)
-    {
-        var kindColor = file.Kind switch
-        {
-            GitChangeKind.Added or GitChangeKind.Untracked => new SolidColorBrush(Color.FromRgb(63, 185, 80)),
-            GitChangeKind.Deleted => new SolidColorBrush(Color.FromRgb(248, 81, 73)),
-            GitChangeKind.Renamed => new SolidColorBrush(Color.FromRgb(88, 166, 255)),
-            _ => new SolidColorBrush(Color.FromRgb(210, 153, 34))
-        };
-
-        var row = new Button
-        {
-            Name = CreateGitDiffRowName(file.FileName, rowIndex),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            HorizontalContentAlignment = HorizontalAlignment.Left,
-            Padding = new Thickness(10, 8),
-            Background = Brushes.Transparent,
-            Cursor = new Cursor(StandardCursorType.Hand),
-            Content = CreateGitDiffRowContent(file, kindColor, tertiaryBrush),
-        };
-        AutomationProperties.SetName(row, $"Open diff for {file.FileName}");
-        row.Classes.Add("subtle");
-        return row;
-    }
-
-    private static DockPanel CreateGitDiffRowContent(GitFileChangeViewModel file, SolidColorBrush kindColor, IBrush tertiaryBrush)
-    {
-        var content = new DockPanel();
-
-        var badge = new Border
-        {
-            Width = 22,
-            Height = 22,
-            CornerRadius = new CornerRadius(4),
-            Background = new SolidColorBrush(kindColor.Color, 0.15),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 10, 0),
-            Child = new TextBlock
-            {
-                Text = file.KindIcon,
-                FontSize = 11,
-                FontWeight = FontWeight.Bold,
-                Foreground = kindColor,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            }
-        };
-        DockPanel.SetDock(badge, Dock.Left);
-        content.Children.Add(badge);
-
-        var textStack = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
-        textStack.Children.Add(new TextBlock
-        {
-            Text = file.FileName,
-            FontSize = 12,
-            FontWeight = FontWeight.Medium,
-        });
-        if (!string.IsNullOrEmpty(file.Directory))
-        {
-            textStack.Children.Add(new TextBlock
-            {
-                Text = file.Directory,
-                FontSize = 10,
-                Foreground = tertiaryBrush,
-            });
-        }
-        content.Children.Add(textStack);
-
-        if (file.HasStats)
-            content.Children.Insert(1, CreateStatsPanel(file));
-
-        return content;
-    }
-
-    private static StackPanel CreateStatsPanel(GitFileChangeViewModel file)
-    {
-        var statsPanel = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(8, 0, 0, 0),
-        };
-        DockPanel.SetDock(statsPanel, Dock.Right);
-
-        if (file.LinesAdded > 0)
-        {
-            statsPanel.Children.Add(new TextBlock
-            {
-                Text = $"+{file.LinesAdded}",
-                FontSize = 11,
-                FontFamily = MonoFontFamily,
-                Foreground = new SolidColorBrush(Color.FromRgb(63, 185, 80)),
-            });
-        }
-
-        if (file.LinesRemoved > 0)
-        {
-            statsPanel.Children.Add(new TextBlock
-            {
-                Text = $"-{file.LinesRemoved}",
-                FontSize = 11,
-                FontFamily = MonoFontFamily,
-                Foreground = new SolidColorBrush(Color.FromRgb(248, 81, 73)),
-            });
-        }
-
-        return statsPanel;
-    }
-
-    private static string CreateGitDiffRowName(string fileName, int rowIndex)
-    {
-        var safeFileName = new string(fileName.Select(ch => char.IsLetterOrDigit(ch) ? ch : '_').ToArray());
-        return $"GitDiffRow_{rowIndex}_{safeFileName}";
-    }
-
+    /// <summary>
+    /// Opens a file from the changes island in place, remembering the list's scroll position and
+    /// selection so the back button restores the exact same context.
+    /// </summary>
     private void ShowGitFileDiffWithBackNav(GitFileChangeViewModel file)
     {
+        if (_gitChangesView is not null)
+            _gitChangesScrollOffset = _gitChangesView.ScrollOffset;
+        _lastGitChanges?.Select(file);
+
         var diffView = new DiffView();
         _diffHost.Content = diffView;
 
@@ -696,14 +620,24 @@ internal sealed class ChatPreviewPanelController : IDisposable
 
         var accentBrush = GetThemeBrush("Brush.AccentDefault", Brushes.DodgerBlue);
         var tertiaryBrush = GetThemeBrush("Brush.TextTertiary", Brushes.Gray);
-        inlines.Add(new Run("Changes") { Foreground = accentBrush });
-        inlines.Add(new Run("  >  ") { Foreground = tertiaryBrush });
+        inlines.Add(new Run(Loc.Diff_Title) { Foreground = accentBrush });
+        if (file.Change.SubmoduleName is { Length: > 0 } submoduleName)
+        {
+            inlines.Add(new Run("  ›  ") { Foreground = tertiaryBrush });
+            inlines.Add(new Run(submoduleName) { Foreground = tertiaryBrush });
+        }
+        inlines.Add(new Run("  ›  ") { Foreground = tertiaryBrush });
         inlines.Add(new Run(file.FileName));
 
         _diffTitleText.Cursor = new Cursor(StandardCursorType.Hand);
         _diffTitleText.PointerPressed += OnDiffBreadcrumbClick;
+        UpdateDiffBackButton(isVisible: true);
 
-        if (file.Change.Kind is GitChangeKind.Added or GitChangeKind.Untracked)
+        if (file.Kind == GitChangeKind.Submodule)
+        {
+            _ = ShowSubmodulePointerDiffAsync(file.Change, diffView);
+        }
+        else if (file.Change.Kind is GitChangeKind.Added or GitChangeKind.Untracked)
         {
             _ = ShowAddedGitFileDiffAsync(file.Change.FullPath, diffView);
         }
@@ -713,11 +647,23 @@ internal sealed class ChatPreviewPanelController : IDisposable
         }
     }
 
-    private void OnDiffBreadcrumbClick(object? sender, Avalonia.Input.PointerPressedEventArgs e)
+    /// <summary>Shows/hides the island's back affordance and keeps it wired to a single handler.</summary>
+    private void UpdateDiffBackButton(bool isVisible)
     {
-        if (_lastGitChangesList is not null)
-            ShowGitChangesPanel(_lastGitChangesList);
+        if (_diffBackButton is null)
+            return;
+
+        _diffBackButton.Click -= OnDiffBackClick;
+        _diffBackButton.IsVisible = isVisible && _gitChangesView is not null;
+        if (_diffBackButton.IsVisible)
+            _diffBackButton.Click += OnDiffBackClick;
     }
+
+    private void OnDiffBackClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        => ShowGitChangesList(restoreScrollOffset: true);
+
+    private void OnDiffBreadcrumbClick(object? sender, Avalonia.Input.PointerPressedEventArgs e)
+        => ShowGitChangesList(restoreScrollOffset: true);
 
     private static async Task ShowAddedGitFileDiffAsync(string filePath, DiffView diffView)
     {
@@ -737,11 +683,17 @@ internal sealed class ChatPreviewPanelController : IDisposable
         Dispatcher.UIThread.Post(() => diffView.SetSnapshotDiff(filePath, string.Empty, content));
     }
 
+    /// <summary>Renders the commit-log summary for a submodule whose recorded pointer moved.</summary>
+    private static async Task ShowSubmodulePointerDiffAsync(GitFileChange change, DiffView diffView)
+    {
+        var log = await GitService.GetSubmoduleCommitLogAsync(change.RepoRoot, change.RepoRelativePath)
+            .ConfigureAwait(false);
+        Dispatcher.UIThread.Post(() => diffView.SetSnapshotDiff(change.RelativePath, string.Empty, log ?? ""));
+    }
+
     private static async Task LoadGitUnifiedDiffAsync(GitFileChange change, DiffView diffView)
     {
-        var repoDir = Path.GetDirectoryName(change.FullPath) ?? "";
-        var diff = await GitService.GetFileDiffAsync(repoDir, Path.GetFileName(change.FullPath)).ConfigureAwait(false)
-            ?? await GitService.GetFileDiffAsync(repoDir, change.RelativePath).ConfigureAwait(false);
+        var diff = await GitService.GetFileDiffAsync(change.RepoRoot, change.RepoRelativePath).ConfigureAwait(false);
         Dispatcher.UIThread.Post(() => diffView.SetUnifiedDiffText(change.FullPath, diff));
     }
 
