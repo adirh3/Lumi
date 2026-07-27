@@ -23,6 +23,7 @@ using Lumi.Services;
 using StrataTheme.Controls;
 
 using ChatMessage = Lumi.Models.ChatMessage;
+using RpcMcpServer = GitHub.Copilot.Rpc.McpServer;
 
 namespace Lumi.ViewModels;
 
@@ -71,8 +72,99 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly ConcurrentDictionary<Guid, IReadOnlyDictionary<string, McpServerConfig>> _activeMcpConfigs = new();
 
     /// <summary>
-    /// Checks MCP server status after session creation and reacts to any server that failed or needs
-    /// authentication. Runs in the background so it doesn't block message sending.
+    /// How long the first prompt waits for remote MCP servers to connect. Without it the first turn is
+    /// dispatched while they are still <c>not_configured</c> and the model gets none of their tools.
+    /// Measured settle times are ~1.2s connected and ~4.2s with an OAuth exchange; the cap only bites
+    /// when a server is genuinely stuck, since failed and consent-pending servers exit immediately.
+    /// </summary>
+    private static readonly TimeSpan McpSettleBudget = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan McpSettlePollInterval = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>
+    /// True for statuses a server can still leave on its own. <c>NotConfigured</c> is what a remote
+    /// server reports before its transport is up; treating it as final is what let the first prompt
+    /// go out with no remote tools.
+    /// </summary>
+    internal static bool IsMcpStatusSettling(McpServerStatus status)
+        => status == McpServerStatus.Pending || status == McpServerStatus.NotConfigured;
+
+    /// <summary>
+    /// True when any configured server is remote. Only remote servers connect asynchronously over the
+    /// network and authenticate; stdio servers are local processes, ready once the session exists.
+    /// <see cref="GitHubMcpWebSearchBootstrap"/> adds a remote server to most sessions, so this is
+    /// usually true — it exists to keep genuinely stdio-only sessions off the waiting path.
+    /// </summary>
+    internal static bool HasRemoteMcpServers(IReadOnlyDictionary<string, McpServerConfig>? configuredServers)
+        => configuredServers is not null
+            && configuredServers.Values.Any(config => config is McpHttpServerConfig);
+
+    /// <summary>One poll's decision: which servers changed status, and whether to keep waiting.</summary>
+    internal readonly record struct McpSettleEvaluation(
+        IReadOnlyList<RpcMcpServer> ToHandle,
+        bool KeepWaiting);
+
+    /// <summary>
+    /// The settle loop's decision as a pure function of one poll and what was already handled, so every
+    /// ordering — including a server reporting <c>needs-auth</c> and <c>connected</c> a millisecond
+    /// apart — is unit-testable.
+    /// </summary>
+    /// <param name="handledStatuses">Last status each server was handled at, so a chip isn't re-posted.</param>
+    /// <param name="handedOff">Servers we stopped waiting for: they need the user, or sign-in failed.</param>
+    internal static McpSettleEvaluation EvaluateMcpSettle(
+        IEnumerable<RpcMcpServer> servers,
+        IReadOnlyDictionary<string, McpServerStatus> handledStatuses,
+        IReadOnlySet<string> handedOff)
+    {
+        List<RpcMcpServer> toHandle = [];
+        var keepWaiting = false;
+
+        foreach (var server in servers)
+        {
+            // Nothing this loop does will move a handed-off server: consent is pending in the browser,
+            // or sign-in couldn't be started at all.
+            if (handedOff.Contains(server.Name))
+                continue;
+
+            var isSettling = IsMcpStatusSettling(server.Status);
+
+            // React once per status change so repeated polls don't re-post the same chip.
+            if (!isSettling
+                && (!handledStatuses.TryGetValue(server.Name, out var previous) || previous != server.Status))
+            {
+                toHandle.Add(server);
+            }
+
+            // A server signing in with a cached token reconnects without any user step, so keep waiting
+            // for it rather than sending the first prompt without its tools.
+            if (isSettling || server.Status == McpServerStatus.NeedsAuth)
+                keepWaiting = true;
+        }
+
+        return new McpSettleEvaluation(toHandle, keepWaiting);
+    }
+
+    /// <summary>
+    /// Starts the post-creation MCP status check. Sessions with remote servers await it so the first
+    /// prompt is dispatched only once those servers have signed in and registered their tools; stdio-only
+    /// sessions keep the previous fire-and-forget behaviour.
+    /// </summary>
+    private Task BeginMcpServerStatusCheckAsync(
+        CopilotSession session,
+        Guid chatId,
+        IReadOnlyDictionary<string, McpServerConfig> configuredServers,
+        CancellationToken ct)
+    {
+        var check = CheckMcpServerStatusAsync(session, chatId, configuredServers, ct);
+        return HasRemoteMcpServers(configuredServers) ? check : Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Polls MCP server status until every server settles or the budget expires, surfacing a chip per
+    /// status change and driving OAuth as soon as a remote server needs it. A server that can only move
+    /// with the user's help stops being waited for and reconnects via the live status event.
+    /// Polling beats waiting on <c>mcp_server_status_changed</c> here: the first <c>ListAsync</c> returns
+    /// within milliseconds of the event, and reading the list can't miss an event fired before we
+    /// subscribed or misread two events raised in the same millisecond.
     /// </summary>
     private async Task CheckMcpServerStatusAsync(
         CopilotSession session,
@@ -81,20 +173,46 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         CancellationToken ct)
     {
         _activeMcpConfigs[chatId] = configuredServers;
+        var handledStatuses = new Dictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase);
+        var handedOff = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // The budget has to cap the whole check, not just the sleeps: a status handler can probe a failed
+        // HTTP endpoint and ListAsync can stall, and this now runs before the user's first message.
+        using var settleCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        settleCts.CancelAfter(McpSettleBudget);
+        var settleCt = settleCts.Token;
+
         try
         {
-            // Give the MCP servers a moment to connect
-            await Task.Delay(2000, ct);
-            var mcpList = await session.Rpc.Mcp.ListAsync(ct);
-            if (mcpList?.Servers is not { Count: > 0 }) return;
-
-            foreach (var server in mcpList.Servers)
+            while (true)
             {
-                if (server.Status == McpServerStatus.Failed || server.Status == McpServerStatus.NeedsAuth)
+                var mcpList = await session.Rpc.Mcp.ListAsync(settleCt).ConfigureAwait(false);
+
+                // An empty list means the runtime hasn't registered the servers we configured yet —
+                // the same "not ready" state as not_configured, so keep waiting.
+                var servers = mcpList?.Servers is { Count: > 0 } reported ? reported : null;
+                var evaluation = servers is not null
+                    ? EvaluateMcpSettle(servers, handledStatuses, handedOff)
+                    : new McpSettleEvaluation([], KeepWaiting: true);
+
+                foreach (var server in evaluation.ToHandle)
                 {
-                    await HandleMcpServerStatusAsync(
-                        session, chatId, server.Name, server.Status, server.Error, ct).ConfigureAwait(false);
+                    handledStatuses[server.Name] = server.Status;
+                    var stopWaiting = await HandleMcpServerStatusAsync(
+                        session, chatId, server.Name, server.Status, server.Error, settleCt).ConfigureAwait(false);
+                    if (stopWaiting)
+                        handedOff.Add(server.Name);
                 }
+
+                // Handing a server off changes who we're still waiting for, so settle the wait decision
+                // against the updated set rather than the pre-handling snapshot.
+                if (servers is not null && evaluation.ToHandle.Count > 0)
+                    evaluation = EvaluateMcpSettle(servers, handledStatuses, handedOff);
+
+                if (!evaluation.KeepWaiting)
+                    return;
+
+                await Task.Delay(McpSettlePollInterval, settleCt).ConfigureAwait(false);
             }
         }
         catch { /* best effort — don't let MCP status checks break the chat flow */ }
@@ -105,7 +223,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// needs OAuth, starts the interactive login once per session+server. Safe to call from both the
     /// startup status poll and live <c>mcp_server_status_changed</c> events.
     /// </summary>
-    private async Task HandleMcpServerStatusAsync(
+    /// <returns><c>true</c> when the settle loop should stop waiting for this server to connect on its own.</returns>
+    private async Task<bool> HandleMcpServerStatusAsync(
         CopilotSession session,
         Guid chatId,
         string serverName,
@@ -114,7 +233,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(serverName))
-            return;
+            return false;
 
         McpServerConfig? config = null;
         if (_activeMcpConfigs.TryGetValue(chatId, out var configured))
@@ -131,11 +250,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 _mcpOAuthResolvedMessages.Remove(connectedKey);
             }
             Dispatcher.UIThread.Post(() => ClearMcpChipError(chatId, serverName));
-            return;
+            return false;
         }
 
         if (status != McpServerStatus.NeedsAuth && status != McpServerStatus.Failed)
-            return;
+            return false;
 
         var errorMessage = await BuildMcpStatusErrorMessageAsync(
             serverName, status, error ?? "", config, ct).ConfigureAwait(false);
@@ -154,7 +273,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         Dispatcher.UIThread.Post(() => SetMcpChipError(chatId, serverName, errorMessage));
 
         if (status == McpServerStatus.NeedsAuth)
-            await TryInitiateMcpOAuthLoginAsync(session, chatId, serverName, config, ct).ConfigureAwait(false);
+            return await TryInitiateMcpOAuthLoginAsync(session, chatId, serverName, config, ct).ConfigureAwait(false);
+
+        return false;
     }
 
     /// <summary>
@@ -163,26 +284,38 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// cached token already authenticates the server the runtime reconnects silently and reports
     /// completion via a later status event that clears the chip.
     /// </summary>
-    private async Task TryInitiateMcpOAuthLoginAsync(
+    /// <returns>
+    /// <c>true</c> when this server will not reach <c>Connected</c> on its own — interactive consent is
+    /// pending in the browser, or sign-in couldn't be started — so the settle loop must stop waiting for
+    /// it. <c>false</c> only when a silent reconnect is genuinely still expected.
+    /// </returns>
+    private async Task<bool> TryInitiateMcpOAuthLoginAsync(
         CopilotSession session,
         Guid chatId,
         string serverName,
         McpServerConfig? config,
         CancellationToken ct)
     {
-        // stdio servers don't authenticate over OAuth; only remote (and unknown) servers can.
+        // stdio servers don't authenticate over OAuth; only remote (and unknown) servers can. Nothing
+        // will move this one, so don't hold the first prompt waiting for it.
         if (config is McpStdioServerConfig)
-            return;
+            return true;
 
-        // Don't pop a browser for a chat the user has navigated away from.
+        // Don't pop a browser for a chat the user has navigated away from — and since nobody is going
+        // to drive this sign-in, don't keep waiting on it either.
         if (CurrentChat?.Id != chatId || _activeSession != session)
-            return;
+            return true;
 
         var key = McpOAuthKey(session, serverName);
         lock (_mcpOAuthLoginLock)
         {
             if (!_mcpOAuthLoginAttempts.Add(key))
-                return;
+            {
+                // The live status event beat us to this server — the two paths fire within milliseconds
+                // of each other. Report *its* outcome: a resolved chip means the browser is up or sign-in
+                // failed, and anything else means the attempt is still in flight and worth waiting for.
+                return _mcpOAuthResolvedMessages.ContainsKey(key);
+            }
         }
 
         try
@@ -199,6 +332,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     $"Lumi opened your browser to sign in to MCP server '{serverName}'. " +
                     "Finish signing in and it reconnects automatically.";
                 ResolveMcpOAuthChip(chatId, serverName, key, openedMessage);
+                return true;
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -210,6 +344,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // sign-in failure and must fall through to the honest-failure branch below, not be retried.
             lock (_mcpOAuthLoginLock)
                 _mcpOAuthLoginAttempts.Remove(key);
+            return true;
         }
         catch (Exception ex)
         {
@@ -220,7 +355,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 $"Lumi couldn't start sign-in for MCP server '{serverName}' automatically " +
                 $"({DescribeMcpOAuthLoginFailure(ex)}). Open it from the MCP servers page to sign in.";
             ResolveMcpOAuthChip(chatId, serverName, key, failedMessage);
+            return true;
         }
+
+        // Empty URL: a cached token is being reused and the server reconnects shortly on its own.
+        return false;
     }
 
     /// <summary>
@@ -1613,10 +1752,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 }
                 _activeSession = createdSession;
 
-                // Check MCP server status after session creation and surface errors
+                // Check MCP server status after session creation and surface errors. Sessions with
+                // remote servers wait for them so the first prompt carries their tools.
                 if (mcpServers is { Count: > 0 })
                 {
-                    _ = CheckMcpServerStatusAsync(createdSession, chat.Id, mcpServers, ct);
+                    await BeginMcpServerStatusCheckAsync(createdSession, chat.Id, mcpServers, ct);
                 }
 
                 return true;
@@ -1649,7 +1789,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 }
                 _activeSession = session;
                 if (mcpServers is { Count: > 0 })
-                    _ = CheckMcpServerStatusAsync(session, chat.Id, mcpServers, ct);
+                    await BeginMcpServerStatusCheckAsync(session, chat.Id, mcpServers, ct);
 
                 // The SDK does not automatically change the session model on resume —
                 // ResumeSessionConfig.Model only sets a preference for the CLI process,
@@ -1713,7 +1853,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
             _activeSession = createdSession;
             if (mcpServers is { Count: > 0 })
-                _ = CheckMcpServerStatusAsync(createdSession, chat.Id, mcpServers, ct);
+                await BeginMcpServerStatusCheckAsync(createdSession, chat.Id, mcpServers, ct);
             _dataStore.MarkChatChanged(chat);
             await SaveChatAsync(chat, saveIndex: true);
             return true;
@@ -3370,10 +3510,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
 
             // Capture the session that was set up for targetChat.
-            // EnsureSessionAsync sets _activeSession, but if the user switched away
-            // during worktree creation, we must restore _activeSession to the displayed
-            // chat's session so streaming events for THIS send don't pollute the UI.
-            sendSession = _activeSession!;
+            // EnsureSessionAsync sets _activeSession, but it also awaits remote MCP servers, and the
+            // user can switch chats during that wait — so take this chat's own cached session rather
+            // than whatever _activeSession happens to point at now.
+            sendSession = _sessionCache.TryGetValue(targetChat.Id, out var sessionForTargetChat)
+                ? sessionForTargetChat
+                : _activeSession!;
             RestoreActiveSessionIfSwitched(targetChat);
 
             var basePrompt = needsReplayPrompt
@@ -3419,7 +3561,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         chat: targetChat);
                     return;
                 }
-                sendSession = _activeSession!;
+                sendSession = _sessionCache.TryGetValue(targetChat.Id, out var recoveredSessionForChat)
+                    ? recoveredSessionForChat
+                    : _activeSession!;
                 RestoreActiveSessionIfSwitched(targetChat);
                 sendOptions.Prompt = BuildSessionRecoveryReplayPrompt(retainedContext, prompt) + promptAdditions;
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
