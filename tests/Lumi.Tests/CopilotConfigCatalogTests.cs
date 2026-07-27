@@ -23,6 +23,7 @@ public sealed class CopilotConfigCatalogTests
         try
         {
             Directory.CreateDirectory(Path.Combine(workDir, ".github", "skills", "workspace-skill"));
+            Directory.CreateDirectory(Path.Combine(workDir, ".github", "skills", "investigation", "nested-skill"));
             Directory.CreateDirectory(Path.Combine(copilotRoot, "skills", "user-skill"));
             Directory.CreateDirectory(Path.Combine(copilotRoot, "pkg", "universal", LatestPackagedVersion, "builtin-skills", "package-skill"));
 
@@ -36,6 +37,17 @@ public sealed class CopilotConfigCatalogTests
 
                 # Workspace Skill
                 Use workspace-specific context.
+                """);
+            File.WriteAllText(
+                Path.Combine(workDir, ".github", "skills", "investigation", "nested-skill", "SKILL.md"),
+                """
+                ---
+                name: Nested Workspace Skill
+                description: Skill grouped under a workspace category
+                ---
+
+                # Nested Workspace Skill
+                Use nested workspace-specific context.
                 """);
             File.WriteAllText(
                 Path.Combine(workDir, ".github", "skills", "loose-skill.md"),
@@ -76,11 +88,24 @@ public sealed class CopilotConfigCatalogTests
 
             var skills = CopilotConfigCatalog.DiscoverSkills(workDir, copilotRoot);
 
-            Assert.Equal(3, skills.Count);
+            Assert.Equal(4, skills.Count);
             Assert.Contains(skills, skill => skill.Name == "Workspace Skill" && skill.Description == "Skill from the workspace");
+            Assert.Contains(skills, skill => skill.Name == "Nested Workspace Skill" && skill.Description == "Skill grouped under a workspace category");
             Assert.Contains(skills, skill => skill.Name == "User Skill" && skill.Description == "Skill loaded from the user's Copilot config");
             Assert.Contains(skills, skill => skill.Name == "Package Skill" && skill.Description == "Skill bundled with Copilot");
             Assert.DoesNotContain(skills, skill => skill.Name == "Loose Skill");
+
+            // Only the workspace roots are handed to the session (Lumi pins EnableConfigDiscovery
+            // off), so the personal and packaged skills are discoverable but not loadable.
+            var skillDirectories = CopilotConfigCatalog.GetWorkspaceSkillDirectories([workDir]);
+            var loadable = skills
+                .Where(skill => CopilotConfigCatalog.IsSessionLoadableSkill(skill, skillDirectories))
+                .Select(skill => skill.Name)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToList();
+
+            Assert.Equal(["Nested Workspace Skill", "Workspace Skill"], loadable);
+            Assert.Empty(skills.Where(skill => CopilotConfigCatalog.IsSessionLoadableSkill(skill, [])));
         }
         finally
         {

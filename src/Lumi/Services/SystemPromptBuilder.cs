@@ -458,10 +458,13 @@ public static class SystemPromptBuilder
         // Note: copilot-instructions.md / AGENTS.md injection is handled by the Copilot SDK
         // via the WorkingDirectory in SessionConfig — no need to manually inject them here.
 
-        // Active skills selected by the user for this chat (full content in system prompt)
+        // Active skills selected by the user for this chat (full content in system prompt).
+        // File-based Copilot skills are deliberately NOT included: they are activated per-turn
+        // through the SDK slash command, which is what makes them one-shot.
         if (activeSkills.Count > 0)
         {
             promptBuilder.Append("\n\n--- Active Skills (use these to help the user) ---\n");
+            promptBuilder.Append("These skills are already loaded. Follow their instructions directly; do not fetch them again.\n");
             foreach (var skill in activeSkills)
                 promptBuilder.Append("\n### ").Append(skill.Name).Append('\n').Append(skill.Content).Append('\n');
         }

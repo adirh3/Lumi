@@ -433,6 +433,7 @@
   "Status_Warning": "Warning: {0}",
   "Status_SessionExpired": "Session expired, starting fresh\u2026",
   "Status_OriginalSessionUnavailable": "This chat can't reconnect to its original Copilot session. Start a new chat to continue.",
+  "Status_SkillActivationFailed": "Couldn't load the \u201c{0}\u201d skill. It may have been renamed or removed \u2014 try reselecting it.",
   "Status_Resuming": "Resuming session\u2026",
   "Status_Reconnecting": "Reconnecting\u2026",
   "Status_CopilotStoppedResponding": "GitHub Copilot stopped responding. Lumi couldn't recover this turn automatically.",

@@ -1312,7 +1312,6 @@ public partial class ChatViewModel
             {
                 _pendingSessionInvalidations.Add(CurrentChat.Id);
                 _pendingSkillInjections.Clear();
-                _activeExternalSkillNames.Clear();
             }
             else
             {
@@ -1349,7 +1348,9 @@ public partial class ChatViewModel
     private bool RefreshActiveSkillChipsFromState()
     {
         var skillsById = _dataStore.Data.Skills.ToDictionary(skill => skill.Id);
+        var projectContextCatalog = GetProjectContextCatalog();
         var filteredIds = new List<Guid>();
+        var filteredExternalNames = new List<string>();
         var chips = new List<StrataTheme.Controls.StrataComposerChip>();
 
         foreach (var skillId in ActiveSkillIds.ToList())
@@ -1361,21 +1362,37 @@ public partial class ChatViewModel
             chips.Add(new StrataTheme.Controls.StrataComposerChip(skill.Name, skill.IconGlyph));
         }
 
+        foreach (var name in _activeExternalSkillNames
+                     .Where(static name => !string.IsNullOrWhiteSpace(name))
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var externalSkill = projectContextCatalog.FindSkill(name);
+            if (externalSkill is null)
+                continue;
+
+            filteredExternalNames.Add(externalSkill.Name);
+            chips.Add(new StrataTheme.Controls.StrataComposerChip(externalSkill.Name, ExternalSkillGlyph));
+        }
+
         ActiveSkillIds.Clear();
         _activeExternalSkillNames.Clear();
         ActiveSkillChips.Clear();
         foreach (var skillId in filteredIds)
             ActiveSkillIds.Add(skillId);
+        foreach (var name in filteredExternalNames)
+            _activeExternalSkillNames.Add(name);
         foreach (var chip in chips)
             ActiveSkillChips.Add(chip);
 
         var changed = false;
         if (CurrentChat is not null
             && (!CurrentChat.ActiveSkillIds.SequenceEqual(filteredIds)
-                || CurrentChat.ActiveExternalSkillNames.Count > 0))
+                || !CurrentChat.ActiveExternalSkillNames.SequenceEqual(
+                    filteredExternalNames,
+                    StringComparer.OrdinalIgnoreCase)))
         {
             CurrentChat.ActiveSkillIds = new List<Guid>(filteredIds);
-            CurrentChat.ActiveExternalSkillNames = [];
+            CurrentChat.ActiveExternalSkillNames = new List<string>(filteredExternalNames);
             _dataStore.MarkChatChanged(CurrentChat);
             changed = true;
         }
@@ -1388,6 +1405,9 @@ public partial class ChatViewModel
     {
         var validSkillIds = ActiveSkillIds.ToHashSet();
         _pendingSkillInjections.RemoveAll(skillId => !validSkillIds.Contains(skillId));
+
+        var validExternalNames = _activeExternalSkillNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _pendingExternalSkillInjections.RemoveAll(name => !validExternalNames.Contains(name));
     }
 
     private bool RefreshActiveMcpSelections(FeatureChangeResult result)

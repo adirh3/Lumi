@@ -282,8 +282,7 @@ public sealed class LightweightSessionOptions
         if (!string.IsNullOrWhiteSpace(systemPrompt))
             config.SystemMessage = BuildSystemMessage(systemPrompt, config.Model);
 
-        if (skillDirectories is { Count: > 0 })
-            config.SkillDirectories = skillDirectories;
+        ApplySkillDirectories(config, skillDirectories);
 
         if (customAgents is { Count: > 0 })
             config.CustomAgents = customAgents;
@@ -302,6 +301,29 @@ public sealed class LightweightSessionOptions
 
         if (!string.IsNullOrWhiteSpace(agentName))
             config.Agent = agentName;
+    }
+
+    /// <summary>
+    /// Exposes canonical skill roots to a session and switches the SDK skill subsystem on.
+    /// <para>
+    /// <see cref="SessionConfigBase.SkillDirectories"/> alone is inert: with
+    /// <see cref="SessionConfigBase.EnableSkills"/> unset the server loads no file-based skills at
+    /// all, so <c>session.skills.list</c> reports zero, <c>session.commands.list</c> returns nothing
+    /// of kind "skill", and <c>session.commands.invoke</c> fails with "Unknown slash command".
+    /// </para>
+    /// <para>
+    /// Discovery stays scoped to the directories Lumi passes, because
+    /// <see cref="SessionConfigBase.EnableConfigDiscovery"/> is off — personal, plugin and builtin
+    /// skill roots are not pulled in implicitly.
+    /// </para>
+    /// </summary>
+    private static void ApplySkillDirectories(SessionConfigBase config, List<string>? skillDirectories)
+    {
+        if (skillDirectories is not { Count: > 0 })
+            return;
+
+        config.SkillDirectories = skillDirectories;
+        config.EnableSkills = true;
     }
 
     /// <summary>Sets the shared optional properties on a <see cref="ResumeSessionConfig"/>.</summary>
@@ -325,8 +347,7 @@ public sealed class LightweightSessionOptions
         if (!string.IsNullOrWhiteSpace(systemPrompt))
             config.SystemMessage = BuildSystemMessage(systemPrompt, config.Model);
 
-        if (skillDirectories is { Count: > 0 })
-            config.SkillDirectories = skillDirectories;
+        ApplySkillDirectories(config, skillDirectories);
 
         if (customAgents is { Count: > 0 })
             config.CustomAgents = customAgents;

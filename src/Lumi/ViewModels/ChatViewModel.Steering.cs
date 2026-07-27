@@ -65,7 +65,7 @@ public partial class ChatViewModel
             Role = "user",
             Content = prompt,
             Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
-            ActiveSkills = BuildSkillReferences(ActiveSkillIds)
+            ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames)
         };
 
         if (attachments is { Count: > 0 })
@@ -112,22 +112,32 @@ public partial class ChatViewModel
         }
         ClearSuggestions();
 
-        var sendOptions = new MessageOptions
-        {
-            Prompt = prompt + BuildSendPromptAdditions(),
-            Mode = GitHub.Copilot.Rpc.SendMode.Immediate.Value
-        };
-        if (attachments is { Count: > 0 })
-            sendOptions.Attachments = attachments;
-
         var token = _ctsSources.TryGetValue(chatId, out var cts)
             ? cts.Token
             : CancellationToken.None;
 
         try
         {
+            // Inside the try: `token` belongs to the turn being steered, so pressing Stop while
+            // activation is in flight must be handled like a failed steer rather than escaping to
+            // the dispatcher's unhandled-exception path.
+            var skillDirectives = await ActivateTurnExternalSkillsAsync(
+                session,
+                activeChat,
+                sessionLostHistory: false,
+                token);
+
+            var sendOptions = new MessageOptions
+            {
+                Prompt = skillDirectives + prompt + BuildSendPromptAdditions(),
+                Mode = GitHub.Copilot.Rpc.SendMode.Immediate.Value
+            };
+            if (attachments is { Count: > 0 })
+                sendOptions.Attachments = attachments;
+
             // SendAsync confirms queue acceptance; the event stream confirms actual consumption.
             await session.SendAsync(sendOptions, token);
+            ClearPendingExternalSkillInjections();
         }
         catch (Exception ex)
         {

@@ -656,6 +656,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly ConcurrentDictionary<Guid, BrowserService> _chatBrowserServices = new();
     /// <summary>Skills activated mid-chat (after session exists). Consumed on next SendMessage to inject into prompt.</summary>
     private readonly List<Guid> _pendingSkillInjections = new();
+    /// <summary>
+    /// File-based Copilot skills the user selected but has not sent yet. Unlike Lumi-managed skills
+    /// these are never written into the system prompt: they are activated per-turn through the SDK
+    /// (<c>session.commands.invoke</c>), which is the same path the Copilot CLI uses for <c>/skill</c>.
+    /// Consumed on the next send, because a skill load is a one-shot context injection — once the
+    /// agent has invoked it the content lives in conversation history and must not be re-sent.
+    /// </summary>
+    private readonly List<string> _pendingExternalSkillInjections = new();
     /// <summary>Per-chat guard so suggestion generation is queued at most once concurrently.</summary>
     private readonly HashSet<Guid> _suggestionGenerationInFlightChats = new();
     /// <summary>Chat ID that the visible suggestion row is allowed to represent, including pending chat loads.</summary>
@@ -697,7 +705,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         string? ChatLastModelUsed,
         string? ChatLastReasoningEffortUsed,
         string? ChatLastContextWindowTierUsed,
-        List<Guid> PendingSkillInjections);
+        List<Guid> PendingSkillInjections,
+        List<string> PendingExternalSkillInjections);
 
     private ComposerEditSnapshot? _preEditComposerSnapshot;
     private ChatMessage? _editingUserMessage;
@@ -1592,7 +1601,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ? _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == chat.AgentId.Value)
             : null;
         var systemPrompt = SystemPromptBuilder.Build(
-            _dataStore.Data.Settings, activeAgent, project, allSkills, activeSkills, memories, _dataStore.SnapshotBackgroundJobs());
+            _dataStore.Data.Settings,
+            activeAgent,
+            project,
+            allSkills,
+            activeSkills,
+            memories,
+            _dataStore.SnapshotBackgroundJobs());
 
         var sdkAgentName = GetSessionSdkAgentName(chat, CurrentChat, SelectedSdkAgentName);
         var externalAgent = activeAgent is null
@@ -1606,9 +1621,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             systemPrompt = (systemPrompt ?? "") + "\n\n--- Active Agent: " + externalAgent.Name + " ---\n" + externalAgent.Content;
 
         var skillDirs = new List<string>();
-        // Lumi app skills are Lumi-owned: active skills are injected into the system prompt,
-        // and inactive ones are loaded lazily through fetch_skill. Canonical workspace
-        // .github/skills roots are handed to the SDK instead of being re-advertised by Lumi.
+        // Active skills are injected into the system prompt. Inactive Lumi skills are loaded lazily
+        // through fetch_skill, while canonical workspace .github/skills roots are handed to the SDK
+        // for native discovery and invocation.
         foreach (var nativeSkillDir in projectContextCatalog.SkillDirectories)
         {
             if (!skillDirs.Contains(nativeSkillDir, StringComparer.OrdinalIgnoreCase))
@@ -1938,6 +1953,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             // Clear pending state from any previous chat
             _pendingSkillInjections.Clear();
+            _pendingExternalSkillInjections.Clear();
             _activeExternalSkillNames.Clear();
 
             // Restore real runtime state for this session/chat
@@ -2001,11 +2017,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ActiveSkillChips.Clear();
             foreach (var skillId in chat.ActiveSkillIds)
                 ActiveSkillIds.Add(skillId);
-            if (chat.ActiveExternalSkillNames.Count > 0)
-            {
-                chat.ActiveExternalSkillNames = [];
-                _dataStore.MarkChatChanged(chat);
-            }
+            foreach (var skillName in chat.ActiveExternalSkillNames)
+                _activeExternalSkillNames.Add(skillName);
             RefreshActiveSkillChipsFromState();
 
             // Restore active MCP servers from chat (default to all enabled for older chats with no saved selection)
@@ -2236,6 +2249,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         PopulateDefaultMcps();
         _pendingProjectId = null;
         _pendingSkillInjections.Clear();
+        _pendingExternalSkillInjections.Clear();
         _activeExternalSkillNames.Clear();
         StatusText = "";
         ActiveAgent = null;
@@ -2263,10 +2277,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public void InvalidateMcpSession()
     {
         if (CurrentChat is not null)
-        {
             _pendingSkillInjections.Clear();
-            _activeExternalSkillNames.Clear();
-        }
     }
 
     /// <summary>
@@ -2342,6 +2353,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
         RefreshComposerCatalogs();
+        RefreshActiveSkillChipsFromState();
         QueueRefreshCodingProjectState();
     }
 
@@ -2489,7 +2501,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             Role = "user",
             Content = prompt,
             Author = author,
-            ActiveSkills = BuildSkillReferences(targetChat.ActiveSkillIds)
+            ActiveSkills = BuildSkillReferences(targetChat.ActiveSkillIds, targetChat.ActiveExternalSkillNames)
         };
 
         targetChat.Messages.Add(userMsg);
@@ -2511,6 +2523,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         CopilotSession? sendSession = null;
         var retainedContext = targetChat.Messages.Take(Math.Max(targetChat.Messages.Count - 1, 0)).ToList();
         var promptAdditions = BuildSendPromptAdditions(consumePendingSkillInjections: false);
+        var skillDirectives = string.Empty;
         var localUserMessageCount = 0;
         var localAssistantMessageCount = 0;
 
@@ -2540,6 +2553,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _ctsSources[chatId] = cts;
 
             var needsReplayPrompt = false;
+            var sessionLostSkillLoads = false;
             if (needsSessionSetup)
             {
                 var previousSessionId = targetChat.CopilotSessionId;
@@ -2552,6 +2566,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     previousSessionId,
                     targetChat.CopilotSessionId,
                     retainedContext.Count);
+
+                // A replacement session holds none of this chat's earlier skill loads, so the
+                // selection persisted on the chat has to be activated again for this turn.
+                sessionLostSkillLoads = !string.Equals(
+                    previousSessionId,
+                    targetChat.CopilotSessionId,
+                    StringComparison.Ordinal);
 
                 if (CurrentChat?.Id == chatId)
                     _ = PopulateFromSessionAsync();
@@ -2602,7 +2623,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var basePrompt = needsReplayPrompt
                 ? BuildSessionRecoveryReplayPrompt(retainedContext, prompt)
                 : prompt;
-            sendOptions = new MessageOptions { Prompt = basePrompt + promptAdditions };
+            // Background/orchestrated turns carry the skill selection persisted on the chat, not the
+            // live composer state — the target chat is usually not the displayed one.
+            skillDirectives = sessionLostSkillLoads
+                ? await ActivateExternalSkillsAsync(
+                    sendSession,
+                    targetChat,
+                    targetChat.ActiveExternalSkillNames,
+                    cts.Token)
+                : string.Empty;
+            sendOptions = new MessageOptions { Prompt = skillDirectives + basePrompt + promptAdditions };
             localUserMessageCount = targetChat.Messages.Count(static m => m.Role == "user");
             localAssistantMessageCount = CountCompletedAssistantMessages(targetChat);
 
@@ -2627,7 +2657,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     ? sessionForChat
                     : _activeSession!;
                 RestoreActiveSessionIfSwitched(targetChat);
-                sendOptions.Prompt = BuildSessionRecoveryReplayPrompt(retainedContext, prompt) + promptAdditions;
+                // The replacement session starts empty, so re-activate the chat's skill selection.
+                skillDirectives = await ActivateExternalSkillsAsync(
+                    sendSession,
+                    targetChat,
+                    targetChat.ActiveExternalSkillNames,
+                    cts.Token);
+                sendOptions.Prompt = skillDirectives + BuildSessionRecoveryReplayPrompt(retainedContext, prompt) + promptAdditions;
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                     sendSession,
                     localUserMessageCount,
@@ -2778,7 +2814,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             CurrentChat?.LastModelUsed,
             CurrentChat?.LastReasoningEffortUsed,
             CurrentChat?.LastContextWindowTierUsed,
-            _pendingSkillInjections.ToList());
+            _pendingSkillInjections.ToList(),
+            _pendingExternalSkillInjections.ToList());
 
     /// <summary>
     /// True when the composer's CURRENT selection (agent, MCP servers, or active skills) differs from
@@ -2804,9 +2841,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (!new HashSet<Guid>(snapshot.ActiveSkillIds).SetEquals(ActiveSkillIds))
             return true;
 
-        if (!new HashSet<string>(snapshot.ActiveExternalSkillNames, StringComparer.OrdinalIgnoreCase)
-                .SetEquals(_activeExternalSkillNames))
-            return true;
+        // File-based Copilot skills are deliberately not compared here: they are never baked into the
+        // session, they are activated per-turn on the resend, so changing them needs no recreate.
 
         // A skill selected before editing can already be active in the composer/chat while still
         // waiting for next-turn prompt injection because the live session predates it. Recreate so
@@ -2833,6 +2869,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // next send even though it's no longer active. Reset the queue to its pre-edit contents.
         _pendingSkillInjections.Clear();
         _pendingSkillInjections.AddRange(snapshot.PendingSkillInjections);
+        _pendingExternalSkillInjections.Clear();
+        _pendingExternalSkillInjections.AddRange(snapshot.PendingExternalSkillInjections);
 
         // ApplyModelSelection restores the composer UI with side effects suppressed, so it neither
         // rolls back the per-chat persisted model fields nor re-syncs the live session — both of which
@@ -2958,6 +2996,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var skillIds = new List<Guid>();
         var externalSkillNames = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        ProjectContextCatalogSnapshot? projectContextCatalog = null;
 
         foreach (var skillRef in skillReferences)
         {
@@ -2966,9 +3005,27 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             var skill = FindSkillByName(skillRef.Name);
             if (skill is not null)
+            {
                 skillIds.Add(skill.Id);
-            else
-                externalSkillNames.Add(skillRef.Name);
+                continue;
+            }
+
+            // A name is only a file-based skill if the catalog still resolves it *and* the session
+            // can actually load it. Lumi pins EnableConfigDiscovery off, so only workspace skill
+            // roots reach the session — a personal (~/.copilot) or packaged skill resolves here but
+            // would fail activation as an unknown slash command. Names matching neither store are
+            // dangling references (a Lumi-managed skill deleted after the message was sent, or a
+            // repo skill removed from disk); keeping those would put a stale chip in the composer
+            // and surface a misleading activation error. This mirrors the composer's own filter in
+            // DiscoverCopilotItems so a restored selection can never offer more than the menu does.
+            projectContextCatalog ??= GetProjectContextCatalog();
+            if (projectContextCatalog.FindSkill(skillRef.Name) is { } externalSkill
+                && CopilotConfigCatalog.IsSessionLoadableSkill(
+                    externalSkill,
+                    projectContextCatalog.SkillDirectories))
+            {
+                externalSkillNames.Add(externalSkill.Name);
+            }
         }
 
         return (skillIds, externalSkillNames);
@@ -3287,7 +3344,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 AgentId = ActiveAgent?.Id,
                 ProjectId = _pendingProjectId ?? ActiveProjectFilterId,
                 ActiveSkillIds = new List<Guid>(ActiveSkillIds),
-                ActiveExternalSkillNames = [],
+                ActiveExternalSkillNames = new List<string>(_activeExternalSkillNames),
                 ActiveMcpServerNames = new List<string>(ActiveMcpServerNames),
                 HasExplicitMcpServerSelection = true,
                 SdkAgentName = SelectedSdkAgentName,
@@ -3443,6 +3500,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             .TakeWhile(message => !ReferenceEquals(message, userMsg))
             .ToList();
         var promptAdditions = BuildSendPromptAdditions();
+        // Hoisted so the stale-session recovery path below re-applies the same skill directives:
+        // the directive text is session-independent, but the recreated session still needs it.
+        var skillDirectives = string.Empty;
         var localUserMessageCount = 0;
         var localAssistantMessageCount = 0;
         try
@@ -3477,6 +3537,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _ctsSources[chatId] = cts;
 
             var needsReplayPrompt = false;
+            var sessionLostSkillLoads = false;
             if (needsSessionSetup)
             {
                 var previousSessionId = targetChat.CopilotSessionId;
@@ -3500,6 +3561,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     targetChat.CopilotSessionId,
                     retainedContext.Count);
 
+                // Skills are one-shot per session: a replacement session carries none of the loads
+                // from earlier turns, so every still-selected skill has to be activated again rather
+                // than only the ones queued since the last send.
+                sessionLostSkillLoads = !string.Equals(
+                    previousSessionId,
+                    targetChat.CopilotSessionId,
+                    StringComparison.Ordinal);
+
                 // Agent is pre-selected via SessionConfig.Agent in EnsureSessionAsync.
                 // File-based Copilot agents are handled via system prompt injection.
 
@@ -3518,10 +3587,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 : _activeSession!;
             RestoreActiveSessionIfSwitched(targetChat);
 
+            skillDirectives = await ActivateTurnExternalSkillsAsync(
+                sendSession,
+                targetChat,
+                sessionLostSkillLoads,
+                cts.Token);
             var basePrompt = needsReplayPrompt
                 ? BuildSessionRecoveryReplayPrompt(retainedContext, prompt)
                 : prompt;
-            sendOptions = new MessageOptions { Prompt = basePrompt + promptAdditions };
+            sendOptions = new MessageOptions { Prompt = skillDirectives + basePrompt + promptAdditions };
             localUserMessageCount = targetChat.Messages.Count(m => m.Role == "user");
             localAssistantMessageCount = CountCompletedAssistantMessages(targetChat);
 
@@ -3542,6 +3616,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // for a steer being consumed (steers are only injected once the turn is already running).
             runtime.ExpectTurnStartUserEcho = true;
             await sendSession.SendAsync(sendOptions, cts.Token);
+            ClearPendingExternalSkillInjections();
         }
         catch (Exception ex) when (IsSessionNotFoundError(ex) && cts is not null && sendOptions is not null)
         {
@@ -3565,7 +3640,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     ? recoveredSessionForChat
                     : _activeSession!;
                 RestoreActiveSessionIfSwitched(targetChat);
-                sendOptions.Prompt = BuildSessionRecoveryReplayPrompt(retainedContext, prompt) + promptAdditions;
+                // The replacement session holds none of this chat's earlier skill loads, so
+                // re-activate every still-selected skill instead of reusing the directives that
+                // were built for the dead session.
+                skillDirectives = await ActivateTurnExternalSkillsAsync(
+                    sendSession,
+                    targetChat,
+                    sessionLostHistory: true,
+                    cts.Token);
+                sendOptions.Prompt = skillDirectives + BuildSessionRecoveryReplayPrompt(retainedContext, prompt) + promptAdditions;
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                     sendSession,
                     localUserMessageCount,
@@ -3579,6 +3662,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // `runtime` is scoped to the try above, so re-fetch the same cached per-chat state here.
                 GetOrCreateRuntimeState(targetChat.Id).ExpectTurnStartUserEcho = true;
                 await sendSession.SendAsync(sendOptions, cts.Token);
+                ClearPendingExternalSkillInjections();
             }
             catch (Exception retryEx)
             {
@@ -4143,6 +4227,107 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         return builder.ToString();
+    }
+
+    /// <summary>
+    /// Activates the file-based Copilot skills the user selected for this turn and returns the
+    /// directives to prepend to the outgoing prompt.
+    /// </summary>
+    /// <remarks>
+    /// Uses the SDK's own slash-command path (<c>session.commands.invoke</c>) rather than pasting
+    /// skill markdown into the prompt, so Lumi behaves exactly like the Copilot CLI: the returned
+    /// directive tells the agent to call the native <c>skill</c> tool, and the CLI streams the real
+    /// skill content back as a skill-invoked event. That keeps skills one-shot per turn and lets the
+    /// transcript render the load the same way an agent-initiated skill load is rendered.
+    /// </remarks>
+    private async Task<string> ActivateExternalSkillsAsync(
+        CopilotSession? session,
+        Chat chat,
+        IReadOnlyList<string> skillNames,
+        CancellationToken ct)
+    {
+        if (session is null || skillNames.Count == 0)
+            return string.Empty;
+
+        var builder = new StringBuilder();
+        foreach (var skillName in skillNames)
+        {
+            try
+            {
+                var result = await session.Rpc.Commands.InvokeAsync(skillName, string.Empty, ct);
+                if (result is GitHub.Copilot.Rpc.SlashCommandInvocationResultAgentPrompt { Prompt: { Length: > 0 } directive })
+                    builder.Append(directive).Append('\n');
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (IsSessionNotFoundError(ex) || IsCopilotTransportError(ex))
+            {
+                // The skill is fine — the session is stale or unreachable. Abandon activation
+                // silently and let the caller's own send recovery recreate the session; that path
+                // re-activates every still-selected skill against the replacement session.
+                Debug.WriteLine($"[Skills] Session unavailable while activating '{skillName}': {ex.Message}");
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                // The composer menu is populated from disk, so a skill can be listed but unknown to
+                // the CLI (renamed, deleted, or an unreadable SKILL.md). Report it instead of sending
+                // a turn that silently lacks the skill the user asked for.
+                Debug.WriteLine($"[Skills] Failed to activate '{skillName}': {ex.Message}");
+                AppendSkillActivationError(chat, skillName);
+            }
+        }
+
+        return builder.Length == 0 ? string.Empty : builder.ToString() + "\n";
+    }
+
+    /// <summary>
+    /// Resolves the external-skill directives for an outgoing turn.
+    /// </summary>
+    /// <param name="sessionLostHistory">
+    /// True when the turn runs on a session that does not contain the earlier skill loads (freshly
+    /// created, recreated, or rewound past them). Skills are one-shot per session, so such a session
+    /// needs every still-selected skill re-activated, not just the ones selected since the last send.
+    /// </param>
+    /// <remarks>
+    /// The pending queue is intentionally left intact; callers drain it with
+    /// <see cref="ClearPendingExternalSkillInjections"/> only once the send is accepted, so a failed
+    /// or cancelled turn does not silently lose the activation the composer still advertises.
+    /// </remarks>
+    private Task<string> ActivateTurnExternalSkillsAsync(
+        CopilotSession? session,
+        Chat chat,
+        bool sessionLostHistory,
+        CancellationToken ct)
+    {
+        var names = sessionLostHistory ? _activeExternalSkillNames : _pendingExternalSkillInjections;
+        if (names.Count == 0)
+            return Task.FromResult(string.Empty);
+
+        return ActivateExternalSkillsAsync(
+            session,
+            chat,
+            names.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            ct);
+    }
+
+    /// <summary>Drains the pending queue once a turn carrying its activations has been accepted.</summary>
+    private void ClearPendingExternalSkillInjections() => _pendingExternalSkillInjections.Clear();
+
+    private void AppendSkillActivationError(Chat chat, string skillName)
+    {
+        var errorMsg = new ChatMessage
+        {
+            Role = "error",
+            Author = Loc.Author_Lumi,
+            Content = string.Format(Loc.Status_SkillActivationFailed, skillName)
+        };
+        chat.Messages.Add(errorMsg);
+
+        if (CurrentChat?.Id == chat.Id)
+            Messages.Add(new ChatMessageViewModel(errorMsg));
     }
 
     private static bool ShouldReplayTranscriptAfterSessionReset(
@@ -5075,6 +5260,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         MessageOptions? resendOptions = null;
         var promptAdditions = BuildSendPromptAdditions(consumePendingSkillInjections: false);
+        // Editing/regenerating rewinds (or recreates) the session past the original turn, which drops
+        // that turn's skill load. Re-activate the selected file-based skills so the replacement turn
+        // runs with the same skill context. Hoisted so the recovery path below reuses the directives.
+        var skillDirectives = string.Empty;
         var localUserMessageCount = 0;
         var localAssistantMessageCount = 0;
         try
@@ -5194,7 +5383,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var runtime = GetOrCreateRuntimeState(CurrentChat.Id);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
             ApplyDisplayedRuntimeState(runtime);
-
             if (WorktreePath is { Length: > 0 } wtPath && attachments.Count > 0)
             {
                 var projDir = GetProjectWorkingDirectory();
@@ -5209,6 +5397,26 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             // After a successful rewind the edit is a normal fresh turn; only the fallback
             // path replays the retained transcript as text.
+            //
+            // Skills are one-shot per session. A rewind truncates the resent turn (and with it its
+            // skill load), and the fallback recreates the session outright — both need the turn's own
+            // skills activated again, resolved from the message being resent rather than from the live
+            // composer selection, which may have moved on. A plain regenerate keeps the session and its
+            // history intact, so the original load still applies and only newly queued skills are sent.
+            var sessionLostSkillLoads = historyRewound
+                || !string.Equals(previousSessionId, CurrentChat.CopilotSessionId, StringComparison.Ordinal);
+            skillDirectives = sessionLostSkillLoads
+                ? await ActivateExternalSkillsAsync(
+                    _activeSession,
+                    CurrentChat,
+                    ResolveSkillSelectionsFromReferences(newUserMsg.ActiveSkills).ExternalSkillNames,
+                    cts.Token)
+                : await ActivateTurnExternalSkillsAsync(
+                    _activeSession,
+                    CurrentChat,
+                    sessionLostHistory: false,
+                    cts.Token);
+
             var resendPrompt = BuildResendPrompt(
                 retainedContext,
                 prompt,
@@ -5216,7 +5424,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 shouldReplayPrompt,
                 promptAdditions);
 
-            resendOptions = new MessageOptions { Prompt = resendPrompt };
+            resendOptions = new MessageOptions { Prompt = skillDirectives + resendPrompt };
             if (attachments.Count > 0)
                 resendOptions.Attachments = attachments;
 
@@ -5232,6 +5440,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 expectedSessionUserMessageCount,
                 localAssistantMessageCount);
             await _activeSession!.SendAsync(resendOptions, cts.Token);
+            ClearPendingExternalSkillInjections();
         }
         catch (Exception ex) when (IsSessionNotFoundError(ex) && CurrentChat is not null)
         {
@@ -5258,7 +5467,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     wasEdited,
                     shouldReplayPrompt: !wasEdited,
                     promptAdditions);
-                resendOptions = new MessageOptions { Prompt = resendPrompt2 };
+                // Recreated session: none of this chat's earlier skill loads survived, so activate
+                // the resent turn's own skills against the replacement session.
+                skillDirectives = await ActivateExternalSkillsAsync(
+                    _activeSession,
+                    CurrentChat,
+                    ResolveSkillSelectionsFromReferences(userMessage.ActiveSkills).ExternalSkillNames,
+                    cts.Token);
+                resendOptions = new MessageOptions { Prompt = skillDirectives + resendPrompt2 };
                 if (attachments.Count > 0)
                     resendOptions.Attachments = attachments;
 
@@ -5272,6 +5488,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     expectedSessionUserMessageCount,
                     localAssistantMessageCount);
                 await _activeSession!.SendAsync(resendOptions, cts.Token);
+                ClearPendingExternalSkillInjections();
             }
             catch (Exception retryEx)
             {

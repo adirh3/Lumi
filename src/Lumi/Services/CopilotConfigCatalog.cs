@@ -69,6 +69,7 @@ public static class CopilotConfigCatalog
             static source => source.SkillDirectories,
             "SKILL.md",
             false,
+            true,
             LoadSkillDefinition,
             static skill => skill.Name);
         var agents = DiscoverDefinitions(
@@ -76,6 +77,7 @@ public static class CopilotConfigCatalog
             static source => source.AgentDirectories,
             "AGENT.md",
             true,
+            false,
             LoadAgentDefinition,
             static agent => agent.Name);
 
@@ -101,9 +103,32 @@ public static class CopilotConfigCatalog
         => Discover(workDir, copilotRootOverride).FindAgent(name);
 
     /// <summary>
+    /// True when <paramref name="skill"/> lives under one of the skill directories handed to the
+    /// session. Lumi pins <c>EnableConfigDiscovery</c> off, so a session can only resolve skills
+    /// from those roots; a skill discovered elsewhere on disk (the user's <c>~/.copilot</c> skills
+    /// or a packaged builtin set) is visible to Lumi but cannot be loaded into a turn.
+    /// </summary>
+    public static bool IsSessionLoadableSkill(
+        CopilotSkillDefinition skill,
+        IReadOnlyList<string> skillDirectories)
+    {
+        if (skillDirectories.Count == 0 || string.IsNullOrWhiteSpace(skill.FilePath))
+            return false;
+
+        foreach (var directory in skillDirectories)
+        {
+            if (InstalledAppWorkingDirectory.IsPathInsideRoot(skill.FilePath, directory))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Returns the workspace-level skill root directories (<c>&lt;workDir&gt;/.github/skills</c>)
-    /// that exist for the given working directories. These roots each contain
-    /// <c>&lt;name&gt;/SKILL.md</c> skill folders and are exactly what the native Copilot skill
+    /// that exist for the given working directories. These roots contain
+    /// <c>SKILL.md</c> skill folders, including folders nested under organizational categories,
+    /// and are exactly what the native Copilot skill
     /// discovery accepts as additional skill directories. The CLI's built-in discovery anchors
     /// skill lookup at the project/git root, so skills living under a subfolder <c>.github</c>
     /// (e.g. a monorepo app) are invisible to it; surfacing these roots through
@@ -135,6 +160,7 @@ public static class CopilotConfigCatalog
         Func<CopilotCatalogSource, IReadOnlyList<string>> selectDirectories,
         string nestedFileName,
         bool includeLooseMarkdownFiles,
+        bool searchNestedDirectoriesRecursively,
         Func<string, string, TDefinition?> loadDefinition,
         Func<TDefinition, string> getName)
         where TDefinition : class
@@ -143,7 +169,14 @@ public static class CopilotConfigCatalog
         foreach (var source in sources)
         {
             foreach (var directory in selectDirectories(source))
-                AddMarkdownDirectory(directory, nestedFileName, includeLooseMarkdownFiles, loadDefinition, getName, definitions);
+                AddMarkdownDirectory(
+                    directory,
+                    nestedFileName,
+                    includeLooseMarkdownFiles,
+                    searchNestedDirectoriesRecursively,
+                    loadDefinition,
+                    getName,
+                    definitions);
         }
 
         return definitions.Values
@@ -236,6 +269,7 @@ public static class CopilotConfigCatalog
         string? directory,
         string nestedFileName,
         bool includeLooseMarkdownFiles,
+        bool searchNestedDirectoriesRecursively,
         Func<string, string, TDefinition?> loadDefinition,
         Func<TDefinition, string> getName,
         Dictionary<string, TDefinition> definitions)
@@ -250,7 +284,11 @@ public static class CopilotConfigCatalog
                 AddMarkdownFile(file, Path.GetFileNameWithoutExtension(file), loadDefinition, getName, definitions);
         }
 
-        foreach (var nestedDirectory in Directory.GetDirectories(directory))
+        var searchOption = searchNestedDirectoriesRecursively
+            ? SearchOption.AllDirectories
+            : SearchOption.TopDirectoryOnly;
+        foreach (var nestedDirectory in Directory.GetDirectories(directory, "*", searchOption)
+                     .OrderBy(static path => path, NameComparer))
         {
             var nestedFile = FindFile(nestedDirectory, nestedFileName);
             if (nestedFile is not null)

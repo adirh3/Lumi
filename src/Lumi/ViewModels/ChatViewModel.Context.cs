@@ -85,6 +85,7 @@ public partial class ChatViewModel
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
         RefreshComposerCatalogs(); // Re-scan project-context and user Copilot agents/skills for the new project
+        RefreshActiveSkillChipsFromState();
         QueueRefreshCodingProjectState();
     }
 
@@ -104,8 +105,8 @@ public partial class ChatViewModel
                 return;
 
             _activeProjectFilterId = value;
-            SyncComposerProjectSelectionFromState();
-            RefreshProjectBadge();
+            RefreshComposerCatalogs();
+            RefreshActiveSkillChipsFromState();
             QueueRefreshCodingProjectState();
         }
     }
@@ -137,6 +138,7 @@ public partial class ChatViewModel
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
         RefreshComposerCatalogs(); // Re-scan to remove project-context and user Copilot agents/skills
+        RefreshActiveSkillChipsFromState();
         QueueRefreshCodingProjectState();
     }
 
@@ -167,10 +169,10 @@ public partial class ChatViewModel
         SyncActiveSkillsToChat();
     }
 
-    /// <summary>Legacy file-based Copilot skill names from older chat metadata. New selections are not added.</summary>
+    /// <summary>File-based Copilot skill names currently selected for this chat.</summary>
     private readonly List<string> _activeExternalSkillNames = new();
 
-    /// <summary>Registers a skill ID without adding a chip (composer already added it).</summary>
+    /// <summary>Registers a skill selection without adding a chip (composer already added it).</summary>
     public void RegisterSkillIdByName(string name)
     {
         var skill = _dataStore.Data.Skills.FirstOrDefault(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
@@ -182,7 +184,21 @@ public partial class ChatViewModel
             if (!IsEditingMessage && CurrentChat?.CopilotSessionId is not null)
                 _pendingSkillInjections.Add(skill.Id);
             SyncActiveSkillsToChat();
+            return;
         }
+
+        var externalSkill = GetProjectContextCatalog().FindSkill(name);
+        if (externalSkill is null
+            || _activeExternalSkillNames.Any(existing =>
+                existing.Equals(externalSkill.Name, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        _activeExternalSkillNames.Add(externalSkill.Name);
+        SyncActiveSkillsToChat();
+        // Unlike Lumi-managed skills there is no system-prompt path for file-based Copilot skills,
+        // so queue unconditionally: the next send activates them through the SDK slash command.
+        if (!IsEditingMessage)
+            _pendingExternalSkillInjections.Add(externalSkill.Name);
     }
 
     private void SyncActiveSkillsToChat()
@@ -190,7 +206,7 @@ public partial class ChatViewModel
         if (!IsEditingMessage && CurrentChat is not null)
         {
             CurrentChat.ActiveSkillIds = new List<Guid>(ActiveSkillIds);
-            CurrentChat.ActiveExternalSkillNames = [];
+            CurrentChat.ActiveExternalSkillNames = new List<string>(_activeExternalSkillNames);
             QueueSaveChat(CurrentChat, saveIndex: true);
         }
     }
@@ -199,11 +215,15 @@ public partial class ChatViewModel
     {
         var skill = _dataStore.Data.Skills.FirstOrDefault(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
         var changed = false;
+        var externalSkillChanged = false;
 
         if (skill is not null)
             changed = ActiveSkillIds.Remove(skill.Id);
         else if (_activeExternalSkillNames.RemoveAll(existing => existing.Equals(name, StringComparison.OrdinalIgnoreCase)) > 0)
+        {
             changed = true;
+            externalSkillChanged = true;
+        }
 
         if (!changed)
             return;
@@ -214,6 +234,8 @@ public partial class ChatViewModel
             ActiveSkillChips.Remove(chip);
 
         SyncActiveSkillsToChat();
+        if (externalSkillChanged)
+            _pendingExternalSkillInjections.RemoveAll(pending => pending.Equals(name, StringComparison.OrdinalIgnoreCase));
     }
 
     public void AddMcpServer(string name)
@@ -347,7 +369,7 @@ public partial class ChatViewModel
     /// <summary>Adds a skill by name (called from composer autocomplete).</summary>
     public void AddSkillByName(string name)
     {
-        var skillReference = FindSkillReferenceByName(name);
+        var skillReference = FindSkillReferenceByName(name, GetProjectContextCatalog());
         if (skillReference is null)
             return;
 
@@ -368,27 +390,25 @@ public partial class ChatViewModel
     }
 
     public SkillReference? FindSkillReferenceByName(string name)
-    {
-        var skill = FindSkillByName(name);
-        if (skill is null)
-            return null;
-
-        return new SkillReference
-        {
-            Name = skill.Name,
-            Glyph = skill.IconGlyph,
-            Description = skill.Description
-        };
-    }
+        => FindSkillReferenceByName(name, GetProjectContextCatalog());
 
     public SkillReference? FindSkillReferenceByName(string name, string? workDir)
-        => FindSkillReferenceByName(name);
+        => FindSkillReferenceByName(
+            name,
+            workDir is { Length: > 0 } ? GetProjectContextCatalog(workDir) : GetProjectContextCatalog());
 
     private SkillReference? FindSkillReferenceByName(string name, ProjectContextCatalogSnapshot projectContextCatalog)
     {
-        var skill = FindSkillReferenceByName(name);
+        var skill = FindSkillByName(name);
         if (skill is not null)
-            return skill;
+        {
+            return new SkillReference
+            {
+                Name = skill.Name,
+                Glyph = skill.IconGlyph,
+                Description = skill.Description
+            };
+        }
 
         var externalSkill = projectContextCatalog.FindSkill(name);
         if (externalSkill is null)

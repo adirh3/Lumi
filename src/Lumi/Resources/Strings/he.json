@@ -433,6 +433,7 @@
   "Status_Warning": "אזהרה: {0}",
   "Status_SessionExpired": "הפעלה פגה, מתחיל מחדש\u2026",
   "Status_OriginalSessionUnavailable": "הצ׳אט הזה לא יכול להתחבר מחדש לסשן Copilot המקורי שלו. צריך להתחיל צ׳אט חדש כדי להמשיך.",
+  "Status_SkillActivationFailed": "לא הצלחתי לטעון את המיומנות \u201c{0}\u201d. ייתכן ששמה שונה או שהיא הוסרה \u2014 כדאי לבחור אותה מחדש.",
   "Status_Resuming": "מחדש הפעלה\u2026",
   "Status_Reconnecting": "מתחבר מחדש\u2026",
   "Status_CopilotStoppedResponding": "GitHub Copilot הפסיק להגיב ו-Lumi לא הצליח לשחזר את התור הזה אוטומטית.",
