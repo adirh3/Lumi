@@ -27,6 +27,7 @@ public sealed class GitChangesTests
         File.WriteAllText(Path.Combine(submodulePath, "lib.txt"), "one\ntwo\nthree\n");
         File.WriteAllText(Path.Combine(submodulePath, "added.txt"), "new\n");
         File.WriteAllText(Path.Combine(parent, "app.txt"), "changed\n");
+        ConfigureAdverseSubmoduleStatusSettings(parent);
 
         var changes = await GitService.GetChangedFilesAsync(parent);
 
@@ -60,6 +61,7 @@ public sealed class GitChangesTests
         File.WriteAllText(Path.Combine(submodulePath, "lib.txt"), "moved\n");
         Git(submodulePath, "add -A");
         Git(submodulePath, "commit -q -m second");
+        ConfigureAdverseSubmoduleStatusSettings(parent);
 
         var changes = await GitService.GetChangedFilesAsync(parent);
 
@@ -269,11 +271,14 @@ public sealed class GitChangesTests
         InitRepo(parent);
 
         var originUrl = origin.Replace('\\', '/');
-        Git(parent, $"-c protocol.file.allow=always submodule add -q \"{originUrl}\" sub");
+        if (!TryGit(parent, $"-c protocol.file.allow=always submodule add -q \"{originUrl}\" sub", out _))
+            return (null, null);
+
         var submodule = Path.Combine(parent, "sub");
         if (!Directory.Exists(Path.Combine(submodule, ".git")) && !File.Exists(Path.Combine(submodule, ".git")))
             return (null, null);
 
+        ConfigureIdentity(submodule);
         Git(parent, "add -A");
         Git(parent, "commit -q -m add-submodule");
         return (parent, submodule);
@@ -282,13 +287,30 @@ public sealed class GitChangesTests
     private static void InitRepo(string dir)
     {
         Git(dir, "init -q");
-        Git(dir, "config user.email test@example.com");
-        Git(dir, "config user.name Test");
+        ConfigureIdentity(dir);
         Git(dir, "add -A");
         Git(dir, "commit -q -m initial");
     }
 
+    private static void ConfigureIdentity(string dir)
+    {
+        Git(dir, "config user.email test@example.com");
+        Git(dir, "config user.name Test");
+    }
+
+    private static void ConfigureAdverseSubmoduleStatusSettings(string parent)
+    {
+        Git(parent, "config submodule.recurse true");
+        Git(parent, "config submodule.sub.ignore all");
+    }
+
     private static void Git(string dir, string args)
+    {
+        if (!TryGit(dir, args, out var error))
+            throw new InvalidOperationException($"git {args} failed in {dir}: {error}");
+    }
+
+    private static bool TryGit(string dir, string args, out string error)
     {
         var psi = new ProcessStartInfo("git", args)
         {
@@ -298,8 +320,17 @@ public sealed class GitChangesTests
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        // The fixture must not depend on a developer or runner supplying identity or submodule settings.
+        psi.Environment["GIT_CONFIG_GLOBAL"] = Path.Combine(dir, ".lumi-test-global-gitconfig");
+        psi.Environment["GIT_CONFIG_NOSYSTEM"] = "1";
+
         using var p = Process.Start(psi)!;
+        var stdoutTask = p.StandardOutput.ReadToEndAsync();
+        var stderrTask = p.StandardError.ReadToEndAsync();
         p.WaitForExit();
+        Task.WaitAll(stdoutTask, stderrTask);
+        error = stderrTask.Result.Trim();
+        return p.ExitCode == 0;
     }
 
     private sealed class TempDir : IDisposable

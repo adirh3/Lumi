@@ -346,7 +346,9 @@ public static class GitService
 
     private static async Task<List<GitFileChange>> GetChangedFilesAsync(string dir, int depth)
     {
-        var output = await RunGitAsync(dir, "status --porcelain -uall").ConfigureAwait(false);
+        var output = await RunGitAsync(
+            dir,
+            "-c submodule.recurse=false status --porcelain -uall --ignore-submodules=none").ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(output)) return [];
 
         // Porcelain paths are always relative to the repository root, even when git runs from a
@@ -489,7 +491,9 @@ public static class GitService
         if (!File.Exists(Path.Combine(repoRoot, ".gitmodules")))
             return states;
 
-        var output = await RunGitAsync(repoRoot, "submodule status").ConfigureAwait(false);
+        var output = await RunGitAsync(
+            repoRoot,
+            "-c submodule.recurse=false submodule status").ConfigureAwait(false);
         foreach (var line in ParseLines(output))
         {
             // Format: "<flag><sha1> <path> (<describe>)" — flag is ' ', '+', '-' or 'U'.
