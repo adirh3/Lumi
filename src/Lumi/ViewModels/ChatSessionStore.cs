@@ -322,6 +322,7 @@ public sealed class ChatSessionStore : IDisposable
 
         if (CanCacheIdleSurface(surface))
         {
+            surface.ReleaseIdleCachedChatRuntime();
             AddToIdleCache(surface);
             TrimIdleCache();
             ShedDeepIdleRealizedControls();

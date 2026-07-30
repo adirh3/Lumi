@@ -1223,19 +1223,13 @@ public class CopilotService : IAsyncDisposable
     private static void ConfigureAuthentication(CopilotClientOptions options)
     {
         var token = TryGetGitHubTokenForMcp();
+        options.Environment = BuildCliEnvironment(token);
         if (!string.IsNullOrWhiteSpace(token))
         {
             options.GitHubToken = token;
-            options.Environment = BuildCliEnvironment(token);
             options.UseLoggedInUser = false;
             return;
         }
-
-        // On macOS/Linux, GUI-launched Lumi inherits a truncated PATH; inject an augmented environment
-        // so the CLI — and the MCP servers / shell tools it spawns — can find npx/node/uvx and other
-        // user tools. Windows keeps its prior behavior (its GUI processes already have the full PATH).
-        if (!OperatingSystem.IsWindows())
-            options.Environment = BuildCliEnvironment(token: null);
 
         options.UseLoggedInUser = true;
     }
@@ -1502,7 +1496,17 @@ public class CopilotService : IAsyncDisposable
         if (!OperatingSystem.IsWindows())
             env["PATH"] = UnixShellPath.Augment(env.TryGetValue("PATH", out var existingPath) ? existingPath : null);
 
+        ApplyAgentProcessEnvironment(env);
         return env;
+    }
+
+    private static void ApplyAgentProcessEnvironment(IDictionary<string, string> environment)
+    {
+        // Copilot tool shells are one-shot processes, so build servers cannot be reused by their
+        // original owner. Keeping them alive only strands a new MSBuild/Roslyn pool after each command.
+        environment["MSBUILDDISABLENODEREUSE"] = "1";
+        environment["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0";
+        environment["UseSharedCompilation"] = "false";
     }
 
     internal static string? TryReadStoredGitHubToken()

@@ -91,6 +91,98 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public async Task IdleCachedSurface_ReleasesCurrentCopilotSessionWithoutDisposingSurface()
+    {
+        var chat = new Chat { Title = "cached", CopilotSessionId = "sid-cached" };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "hello" });
+        var dataStore = new DataStore(new AppData
+        {
+            Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+            Chats = [chat]
+        });
+        using var registry = new ChatSurfaceRegistry();
+        using var sessionStore = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            },
+            maxIdleCachedSurfaces: 1);
+
+        var surface = await sessionStore.AcquireChatAsync(chat);
+        var session = CreateDetachedSession("sid-cached");
+        GetField<Dictionary<Guid, CopilotSession>>(surface, "_sessionCache")[chat.Id] = session;
+        SetPrivateField(surface, "_activeSession", session);
+
+        sessionStore.Release(surface);
+        await DrainSessionReleaseAsync(surface, chat.Id);
+
+        Assert.True(
+            SessionWasDisposed(session),
+            "Putting a surface in the idle cache must destroy its resumable Copilot runtime so MCP subprocesses exit.");
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(surface, "_sessionCache").ContainsKey(chat.Id));
+        Assert.Null(surface.GetType()
+            .GetField("_activeSession", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(surface));
+        Assert.Equal("sid-cached", chat.CopilotSessionId);
+        Assert.False((bool)surface.GetType()
+            .GetField("_isDisposed", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(surface)!);
+
+        var reacquired = await sessionStore.AcquireChatAsync(chat);
+        Assert.Same(surface, reacquired);
+        sessionStore.Release(reacquired);
+    }
+
+    [Fact]
+    public async Task QueuedDeferredSend_KeepsUnhostedSurfaceRuntimeAliveUntilQueueDrains()
+    {
+        var queuedMessage = new ChatMessage { Role = "user", Content = "follow up" };
+        var chat = new Chat { Title = "queued", CopilotSessionId = "sid-queued" };
+        chat.Messages.Add(queuedMessage);
+        var dataStore = new DataStore(new AppData
+        {
+            Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+            Chats = [chat]
+        });
+        using var registry = new ChatSurfaceRegistry();
+        using var sessionStore = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            },
+            maxIdleCachedSurfaces: 1);
+
+        var surface = await sessionStore.AcquireChatAsync(chat);
+        var session = CreateDetachedSession("sid-queued");
+        GetField<Dictionary<Guid, CopilotSession>>(surface, "_sessionCache")[chat.Id] = session;
+        SetPrivateField(surface, "_activeSession", session);
+        var queued = GetField<Dictionary<Guid, List<ChatMessage>>>(surface, "_queuedBusySendPrompts");
+        queued[chat.Id] = [queuedMessage];
+
+        sessionStore.Release(surface);
+
+        Assert.False(
+            SessionWasDisposed(session),
+            "A deferred send still needs the live session once session.idle schedules its queue drain.");
+        Assert.True(GetField<Dictionary<Guid, CopilotSession>>(surface, "_sessionCache").ContainsKey(chat.Id));
+
+        queued.Remove(chat.Id);
+        var reacquired = await sessionStore.AcquireChatAsync(chat);
+        sessionStore.Release(reacquired);
+        await DrainSessionReleaseAsync(surface, chat.Id);
+
+        Assert.True(SessionWasDisposed(session));
+    }
+
+    [Fact]
     public void ReleaseInactiveChatState_ReleasesDetachedRuntimeResourcesWithoutEvictingMessages()
     {
         var dataStore = CreateDataStore();

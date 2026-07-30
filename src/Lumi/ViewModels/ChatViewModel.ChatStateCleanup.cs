@@ -108,7 +108,8 @@ public partial class ChatViewModel
     {
         if (IsChatRuntimeActive(chatId)
             || _ctsSources.ContainsKey(chatId)
-            || _inProgressMessages.ContainsKey(chatId))
+            || _inProgressMessages.ContainsKey(chatId)
+            || (_queuedBusySendPrompts.TryGetValue(chatId, out var queued) && queued.Count > 0))
             return true;
 
         var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
@@ -129,6 +130,7 @@ public partial class ChatViewModel
         foreach (var chatId in _runtimeStates.Keys
                      .Concat(_ctsSources.Keys)
                      .Concat(_inProgressMessages.Keys)
+                     .Concat(_queuedBusySendPrompts.Keys)
                      .Distinct())
         {
             if (OwnsLiveChat(chatId))
@@ -640,11 +642,25 @@ public partial class ChatViewModel
         // back to the UI thread and drops the entry (guarded by the same ReferenceEquals check).
     }
 
+    internal void ReleaseIdleCachedChatRuntime()
+    {
+        if (CurrentChat is not { } chat || IsChatRuntimeActive(chat.Id))
+            return;
+
+        _activeSession = null;
+        ReleaseChatRuntimeState(chat, unloadMessages: false, expectedMessageCount: -1);
+    }
+
     private void ReleaseInactiveChatState(Chat chat, bool unloadMessages = false, int expectedMessageCount = -1)
     {
         if (CurrentChat?.Id == chat.Id || IsChatRuntimeActive(chat.Id))
             return;
 
+        ReleaseChatRuntimeState(chat, unloadMessages, expectedMessageCount);
+    }
+
+    private void ReleaseChatRuntimeState(Chat chat, bool unloadMessages, int expectedMessageCount)
+    {
         // CancelPendingQuestions can flip an unanswered ask_question tool message to "Failed" in
         // memory. That mutation happens AFTER the caller persisted this chat, so the on-disk
         // snapshot no longer matches memory. Unloading would then discard the Failed state and
