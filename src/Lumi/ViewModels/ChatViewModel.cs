@@ -2806,10 +2806,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             Messages.Add(new ChatMessageViewModel(userMsg));
             ScrollToEndRequested?.Invoke();
         }
-        else
-        {
+
+        // A background surface holds the target chat as its CurrentChat without being on screen, so
+        // unread state follows what the user can actually see, not what this surface has loaded.
+        if (!IsChatOnScreen(targetChat.Id))
             targetChat.HasUnreadMessages = true;
-        }
 
         QueueSaveChat(targetChat, saveIndex: true, touchIndex: true);
         ChatUpdated?.Invoke();

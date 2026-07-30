@@ -123,6 +123,45 @@ public partial class ChatViewModel
     [ObservableProperty] private IEnumerable<StrataComposerChip>? _availableFileSuggestions;
     public ObservableCollection<FileAttachmentItem> PendingAttachmentItems { get; } = [];
 
+    private int _displayHostCount;
+
+    /// <summary>
+    /// True while at least one visible window (a main window's chat page or a detached chat window) is
+    /// hosting this surface. Surfaces are per-chat and shared across windows, so <see cref="CurrentChat"/>
+    /// alone does not mean the user is looking at that chat — orchestrated sends and background jobs run
+    /// on their own hidden surfaces. Unread bookkeeping keys off this flag so a reply that lands on a
+    /// hidden surface still marks the chat unread in the sidebar.
+    /// </summary>
+    public bool IsDisplayedSurface => _displayHostCount > 0;
+
+    /// <summary>
+    /// Registers a window as showing this surface. Counted, because the same surface can be shown by more
+    /// than one window at a time (a second main window opening the same chat reuses it), so one window
+    /// navigating away must not declare the chat hidden while another still displays it.
+    /// Must be paired with <see cref="RemoveDisplayHost"/>.
+    /// </summary>
+    public void AddDisplayHost()
+    {
+        var wasDisplayed = IsDisplayedSurface;
+        _displayHostCount++;
+        if (CurrentChat is { } chat)
+            chat.HasUnreadMessages = false;
+        if (!wasDisplayed)
+            OnPropertyChanged(nameof(IsDisplayedSurface));
+    }
+
+    /// <summary>Unregisters a window that stopped showing this surface.</summary>
+    public void RemoveDisplayHost()
+    {
+        if (_displayHostCount == 0 || --_displayHostCount > 0)
+            return;
+
+        OnPropertyChanged(nameof(IsDisplayedSurface));
+    }
+
+    /// <summary>True when the user is actually looking at <paramref name="chatId"/> through this surface.</summary>
+    internal bool IsChatOnScreen(Guid chatId) => IsDisplayedSurface && CurrentChat?.Id == chatId;
+
     public bool IsWelcomeVisible => CurrentChat is null;
     public bool IsChatVisible => CurrentChat is not null;
     public bool HasPendingAttachments => PendingAttachmentItems.Count > 0;

@@ -704,6 +704,7 @@ public partial class App : Application
         chatVm.PropertyChanged += OnDetachedCurrentChatChanged;
 
         window = new ChatWindow(_dataStore, windowVm);
+        chatVm.AddDisplayHost();
         _openChatWindows.Add(window);
         if (trackedChatId is Guid trackedId)
             _chatWindows[trackedId] = window;
@@ -711,6 +712,7 @@ public partial class App : Application
         window.Closed += (_, _) =>
         {
             _openChatWindows.Remove(window);
+            chatVm.RemoveDisplayHost();
 
             if (trackedChatId is Guid closedChatId
                 && _chatWindows.TryGetValue(closedChatId, out var trackedWindow)

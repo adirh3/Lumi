@@ -1418,8 +1418,9 @@ public partial class ChatViewModel
                         if (shouldUpdateDisplayedChatUi)
                             CompleteAllBackgroundShellsAndStop();
 
-                        // Mark chat as unread if user is on a different chat
-                        if (CurrentChat?.Id != chat.Id)
+                        // Mark chat as unread when the user is not looking at it — either another chat
+                        // is displayed, or the reply landed on a hidden background/orchestration surface.
+                        if (!IsChatOnScreen(chat.Id))
                             chat.HasUnreadMessages = true;
 
                         if (_dataStore.Data.Settings.NotificationsEnabled)

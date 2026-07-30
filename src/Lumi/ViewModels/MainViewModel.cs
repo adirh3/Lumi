@@ -279,6 +279,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         OnboardingVM.ThemeChanged += isDark => IsDarkTheme = isDark;
 
         _chatVM = AcquireDraftChatSurface(SelectedProjectFilter);
+        _chatVM.AddDisplayHost();
         if (backgroundJobService is null)
         {
             _backgroundJobService = new BackgroundJobService(dataStore, _chatSurfaceRegistry, _chatSessionStore);
@@ -479,6 +480,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var previous = ChatVM;
         if (ReferenceEquals(previous, surface))
         {
+            // Already this window's surface, so it already holds this window's display host.
             _chatSessionStore.Release(surface);
             ActiveChatId = surface.CurrentChat?.Id;
             return;
@@ -487,6 +489,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         DetachChatViewModel(previous);
         ChatVM = surface;
         AttachChatViewModel(surface);
+        // Display hosts are counted, so hand this window's host over to the new surface — the old one may
+        // still be on screen in another window.
+        surface.AddDisplayHost();
+        previous.RemoveDisplayHost();
         ActiveChatId = surface.CurrentChat?.Id;
         // Cached surfaces are reused without re-running LoadChatAsync, so re-establish the browser panel
         // here (after ActiveChatId is set) to keep the toggle button working after switching chats.
@@ -652,6 +658,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_ownsBackgroundJobService)
             _backgroundJobService.Dispose();
         DetachChatViewModel(ChatVM);
+        ChatVM.RemoveDisplayHost();
         _chatSessionStore.Release(ChatVM);
         if (_ownsChatSessionStore)
             _chatSessionStore.Dispose();
