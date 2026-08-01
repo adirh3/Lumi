@@ -177,6 +177,7 @@ public partial class ChatView : UserControl
         AddHandler(StrataFileAttachment.OpenRequestedEvent, OnFileAttachmentOpenRequested);
         AddHandler(StrataChatMessage.CopyRequestedEvent, OnCopyMessageRequested);
         AddHandler(StrataChatMessage.CopyTurnRequestedEvent, OnCopyTurnRequested);
+        AddHandler(StrataChatMessage.ForkRequestedEvent, OnForkRequested);
         SizeChanged += OnChatViewSizeChanged;
 
         // ── Search bar controls ──
@@ -1428,6 +1429,28 @@ public partial class ChatView : UserControl
             return;
 
         await SetClipboardTextAsync(text, payload);
+    }
+
+    // ── Fork from here (context menu on any transcript message) ───
+
+    private void OnForkRequested(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        e.Handled = true;
+
+        if (e.Source is not StrataChatMessage message)
+            return;
+
+        // The message's DataContext is the transcript item, which carries the underlying
+        // ChatMessage id — the point the new branch is cut at.
+        var messageId = message.DataContext switch
+        {
+            UserMessageItem user => user.Message.Id,
+            AssistantMessageItem assistant => assistant.MessageId,
+            _ => (Guid?)null
+        };
+
+        if (messageId is Guid id && DataContext is ChatViewModel vm)
+            vm.RequestForkFromMessage(id);
     }
 
     // ── Copy turn (context menu on assistant messages) ───

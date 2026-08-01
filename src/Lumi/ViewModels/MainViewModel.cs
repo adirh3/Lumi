@@ -461,6 +461,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.PropertyChanged += OnChatViewModelPropertyChanged;
         chatVm.ComposerProjectFilterRequested += OnComposerProjectFilterRequested;
         chatVm.OpenChatRequested += OnChatOpenChatRequested;
+        chatVm.ForkChatRequested += OnChatForkRequested;
     }
 
     private void DetachChatViewModel(ChatViewModel chatVm)
@@ -471,9 +472,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.PropertyChanged -= OnChatViewModelPropertyChanged;
         chatVm.ComposerProjectFilterRequested -= OnComposerProjectFilterRequested;
         chatVm.OpenChatRequested -= OnChatOpenChatRequested;
+        chatVm.ForkChatRequested -= OnChatForkRequested;
     }
 
     private void OnChatOpenChatRequested(Guid chatId) => _ = OpenChatByIdAsync(chatId);
+
+    private void OnChatForkRequested(Chat chat, Guid throughMessageId)
+        => _ = ForkChatAsync(chat, throughMessageId);
 
     private void ShowChatSurface(ChatViewModel surface)
     {
@@ -1266,8 +1271,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void DeleteChat(Chat chat)
     {
-        // If the chat has a worktree, ask the user whether to clean it up
-        if (chat.WorktreePath is { Length: > 0 } wt && Directory.Exists(wt))
+        // If the chat has a worktree, ask the user whether to clean it up. Forks share their
+        // source's worktree, so only offer removal when no other chat still points at it —
+        // otherwise deleting one branch would pull the directory out from under its siblings.
+        if (chat.WorktreePath is { Length: > 0 } wt
+            && Directory.Exists(wt)
+            && !IsWorktreeSharedWithOtherChats(chat))
         {
             _pendingDeleteChat = chat;
             IsWorktreeDeleteDialogOpen = true;
@@ -1275,6 +1284,20 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
 
         PerformDeleteChat(chat, removeWorktree: false);
+    }
+
+    /// <summary>
+    /// True when another chat (e.g. a fork of this one, or the chat it was forked from) still
+    /// references the same worktree directory.
+    /// </summary>
+    internal bool IsWorktreeSharedWithOtherChats(Chat chat)
+    {
+        if (chat.WorktreePath is not { Length: > 0 } worktreePath)
+            return false;
+
+        return _dataStore.Data.Chats.Any(other =>
+            other.Id != chat.Id
+            && string.Equals(other.WorktreePath, worktreePath, StringComparison.OrdinalIgnoreCase));
     }
 
     // ── Worktree cleanup dialog ──
@@ -1366,6 +1389,231 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     [ObservableProperty] private Chat? _renamingChat;
     [ObservableProperty] private string _renamingTitle = "";
+
+    /// <summary>
+    /// Duplicates <paramref name="chat"/> into an independent chat and opens it.
+    /// </summary>
+    /// <param name="throughMessageId">
+    /// The message the fork was requested from. An assistant message is kept (the branch ends on
+    /// that answer); a user message is turned into a composer draft instead, so the branch never
+    /// ends on an unanswered question. Null forks the whole transcript.
+    /// </param>
+    /// <remarks>
+    /// The fork prefers a real server-side Copilot session fork, so it continues with the model's
+    /// actual working memory; when that is unavailable it carries no session, which makes the
+    /// copied transcript replay into its first send instead — see <see cref="ChatForkFactory"/>.
+    /// The source chat is never modified either way.
+    /// </remarks>
+    public async Task<Chat?> ForkChatAsync(Chat? chat, Guid? throughMessageId = null)
+    {
+        if (chat is null) return null;
+
+        // Every entry point funnels through here — sidebar menu, Ctrl+Shift+D, and the transcript's
+        // fork request — and only the menu bindings get AsyncRelayCommand's own re-entrancy guard.
+        // Without this, holding Ctrl+Shift+D would spawn a duplicate (and a server-side session
+        // fork) per key repeat, and whichever finished first would clear the shared busy indicator.
+        if (_isDuplicateInFlight) return null;
+        _isDuplicateInFlight = true;
+
+        // Duplicating does disk and (briefly) network work before it can navigate. It is normally
+        // fast enough to feel instant, so the busy state is deliberately delayed rather than shown
+        // up front — an indicator that flashes for 200ms reads as a glitch, while a silent
+        // multi-second wait reads as a freeze. The scope clears the state however this exits.
+        using var busy = BeginDuplicatingChat();
+
+        Chat? fork = null;
+        try
+        {
+            // Messages live in a per-chat side file and are unloaded while a chat is inactive, so a
+            // fork of a non-active chat would otherwise copy an empty transcript.
+            await _dataStore.LoadChatMessagesAsync(chat);
+
+            var plan = ChatForkFactory.CreateFork(chat, chat.Messages, throughMessageId);
+            fork = plan.Chat;
+
+            // Prefer a real server-side session fork: the copy then inherits the model's actual
+            // working memory, cut at the same point as the copied transcript. When that is not
+            // possible the fork keeps a null session id, which is exactly what makes its first send
+            // replay the copied transcript instead — see ChatForkFactory.
+            var forkedSessionId = await ForkSourceSessionAsync(chat, plan.RetainedUserTurns, fork.Title);
+            if (!string.IsNullOrWhiteSpace(forkedSessionId))
+            {
+                fork.CopilotSessionId = forkedSessionId;
+                // The forked session was created under the source's provider configuration, so it
+                // carries the same signature; without it the fork would look stale and be recreated.
+                fork.SessionProviderSignature = chat.SessionProviderSignature;
+            }
+
+            _dataStore.Data.Chats.Add(fork);
+            _dataStore.MarkChatChanged(fork);
+            await _dataStore.SaveChatAsync(fork);
+            await _dataStore.SaveAsync();
+
+            RefreshChatList();
+            ProjectsVM.RefreshSelectedProjectChats();
+
+            var opened = await LoadChatAndShowAsync(fork);
+            SelectedNavIndex = 0;
+
+            // Forking from a user turn means "ask this differently", so the prompt comes back as an
+            // editable draft. Set after navigation, and only if the fork is what actually opened —
+            // otherwise the draft would land in whichever chat is on screen.
+            if (opened && plan.ComposerPrefill is { Length: > 0 } draft)
+                ChatVM.SetComposerDraft(draft);
+
+            return fork;
+        }
+        catch (Exception ex)
+        {
+            // A half-created duplicate must not linger in the sidebar: it would look real until the
+            // next restart and then vanish. The source chat is never touched, so dropping the copy
+            // returns the app to exactly its pre-duplicate state.
+            if (fork is not null)
+                _dataStore.Data.Chats.Remove(fork);
+            RefreshChatList();
+            ProjectsVM.RefreshSelectedProjectChats();
+
+            System.Diagnostics.Debug.WriteLine($"[Lumi] Duplicating chat '{chat.Title}' failed: {ex}");
+            return null;
+        }
+        finally
+        {
+            _isDuplicateInFlight = false;
+        }
+    }
+
+    /// <summary>
+    /// Guards against overlapping duplicates from any entry point. Not a lock: every caller runs on
+    /// the UI thread, so a plain flag is enough and a second request is simply ignored.
+    /// </summary>
+    private bool _isDuplicateInFlight;
+
+    /// <summary>
+    /// Forks the source chat's Copilot session so the duplicate inherits the model's real working
+    /// memory. Returns null when that is not possible, which leaves the duplicate on the
+    /// transcript-replay path.
+    /// </summary>
+    /// <remarks>
+    /// Any surface that already holds the session lends its live handle: that skips a redundant
+    /// resume and, more importantly, keeps the "one holder per server session" invariant that
+    /// <see cref="CopilotService.ReleaseSessionAsync"/> depends on. Only when nobody holds it is a
+    /// short-lived bare handle resumed instead — which is what lets a chat be duplicated from the
+    /// sidebar, without opening it first, and still inherit memory. A session that is mid-recovery
+    /// is left strictly alone: resuming a second handle for it would destroy the session the
+    /// recovering surface is about to re-adopt, so the duplicate falls back to replay instead.
+    /// </remarks>
+    private async Task<string?> ForkSourceSessionAsync(Chat source, int retainedUserTurns, string? name)
+    {
+        if (source.CopilotSessionId is not { Length: > 0 } sessionId)
+            return null;
+
+        CopilotSession? live = null;
+        foreach (var surface in _chatSessionStore.SnapshotSurfaces())
+        {
+            // Not short-circuited on the first live handle: a "recovering" holder must win however
+            // the surfaces happen to be ordered, because borrowing while another surface is
+            // mid-recovery is the one outcome that destroys its session.
+            switch (surface.GetForkSessionHold(sessionId, out var held))
+            {
+                case ChatViewModel.ForkSessionHold.Recovering:
+                    return null;
+                case ChatViewModel.ForkSessionHold.Live:
+                    live ??= held;
+                    break;
+            }
+        }
+
+        return await ChatViewModel.ForkSessionAtTurnAsync(
+            _copilotService, sessionId, live, retainedUserTurns, name);
+    }
+
+    /// <summary>
+    /// True while a duplicate is being prepared AND it has taken long enough to be worth showing.
+    /// Drives the chat surface's "Duplicating chat…" indicator.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isDuplicatingChat;
+
+    /// <summary>
+    /// How long a duplicate may run before the UI admits it is working. Below this the operation
+    /// reads as instant, and an indicator that appears at all would only be a blink.
+    /// </summary>
+    private static readonly TimeSpan DuplicateBusyDelay = TimeSpan.FromMilliseconds(120);
+
+    /// <summary>
+    /// How long the indicator stays up once shown, even if the duplicate finishes sooner. Measured
+    /// duplicates land around 400-700ms, so without a floor the indicator would appear for a few
+    /// dozen milliseconds and read as a flicker rather than as progress.
+    /// </summary>
+    private static readonly TimeSpan DuplicateBusyMinVisible = TimeSpan.FromMilliseconds(450);
+
+    /// <summary>
+    /// Starts a duplicate operation's busy state. The indicator is armed on a timer rather than set
+    /// immediately, so fast duplicates never flash it; disposing clears it, honouring the minimum
+    /// visible time when it did appear.
+    /// </summary>
+    private IDisposable BeginDuplicatingChat() => new DuplicateBusyScope(this);
+
+    /// <summary>
+    /// Owns one duplicate operation's busy indicator: raises it only if the operation is still
+    /// running after <see cref="DuplicateBusyDelay"/>, keeps it up for at least
+    /// <see cref="DuplicateBusyMinVisible"/> once raised, and always clears it on disposal.
+    /// </summary>
+    /// <remarks>
+    /// Both timers hop back through <see cref="Dispatcher.UIThread"/> because the scope is disposed
+    /// from whatever context the duplicate finished on, while the flag drives bindings.
+    /// </remarks>
+    private sealed class DuplicateBusyScope : IDisposable
+    {
+        private readonly MainViewModel _owner;
+        private bool _finished;
+        private DateTime _shownAtUtc;
+
+        public DuplicateBusyScope(MainViewModel owner)
+        {
+            _owner = owner;
+            _ = ArmAsync();
+        }
+
+        private async Task ArmAsync()
+        {
+            await Task.Delay(DuplicateBusyDelay).ConfigureAwait(false);
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_finished) return;
+                _shownAtUtc = DateTime.UtcNow;
+                _owner.IsDuplicatingChat = true;
+            });
+        }
+
+        public void Dispose()
+        {
+            if (_finished) return;
+            _finished = true;
+
+            var remaining = _shownAtUtc == default
+                ? TimeSpan.Zero
+                : DuplicateBusyMinVisible - (DateTime.UtcNow - _shownAtUtc);
+
+            if (remaining <= TimeSpan.Zero)
+            {
+                _owner.IsDuplicatingChat = false;
+                return;
+            }
+
+            _ = Task.Delay(remaining).ContinueWith(
+                _ => Dispatcher.UIThread.Post(() => _owner.IsDuplicatingChat = false),
+                TaskScheduler.Default);
+        }
+    }
+
+    /// <summary>Duplicates a chat from the sidebar.</summary>
+    [RelayCommand]
+    private async Task DuplicateChat(Chat? chat) => await ForkChatAsync(chat);
+
+    /// <summary>Duplicates the chat currently shown in the main surface (Ctrl+Shift+D).</summary>
+    [RelayCommand]
+    private async Task DuplicateCurrentChat() => await ForkChatAsync(ChatVM.CurrentChat);
 
     [RelayCommand]
     private void StartRenameChat(Chat? chat)

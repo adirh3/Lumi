@@ -261,51 +261,7 @@ public class DataStore
 
         var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
         var messagesSnapshot = chat.Messages
-            .Select(static m => new ChatMessage
-            {
-                Id = m.Id,
-                Role = m.Role,
-                Content = m.Content,
-                Author = m.Author,
-                Timestamp = m.Timestamp,
-                ToolName = m.ToolName,
-                ToolCallId = m.ToolCallId,
-                ParentToolCallId = m.ParentToolCallId,
-                ToolStatus = m.ToolStatus,
-                ToolOutput = m.ToolOutput,
-                ToolStartedAt = m.ToolStartedAt,
-                ToolDurationMs = m.ToolDurationMs,
-                LinkedChatId = m.LinkedChatId,
-                LinkedChatTitle = m.LinkedChatTitle,
-                QuestionId = m.QuestionId,
-                QuestionText = m.QuestionText,
-                QuestionOptions = m.QuestionOptions,
-                QuestionAllowFreeText = m.QuestionAllowFreeText,
-                QuestionAllowMultiSelect = m.QuestionAllowMultiSelect,
-                IsStreaming = m.IsStreaming,
-                Model = m.Model,
-                ReasoningEffort = m.ReasoningEffort,
-                ContextWindowTier = m.ContextWindowTier,
-                AgentId = m.AgentId,
-                SdkAgentName = m.SdkAgentName,
-                HasAgentSelection = m.HasAgentSelection,
-                ActiveMcpServerNames = [..m.ActiveMcpServerNames],
-                HasMcpSelection = m.HasMcpSelection,
-                Attachments = [..m.Attachments],
-                ActiveSkills = [..m.ActiveSkills.Select(static s => new SkillReference
-                {
-                    Name = s.Name,
-                    Glyph = s.Glyph,
-                    Description = s.Description,
-                    Content = s.Content
-                })],
-                Sources = [..m.Sources.Select(static s => new SearchSource
-                {
-                    Title = s.Title,
-                    Snippet = s.Snippet,
-                    Url = s.Url
-                })]
-            })
+            .Select(static m => m.Clone())
             .ToList();
 
         // Keep the persisted message count in sync so has-content checks work even after

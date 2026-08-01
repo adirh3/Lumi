@@ -734,6 +734,15 @@ public partial class MainWindow : Window
             return;
         }
 
+        // ── Ctrl+Shift+D — Duplicate the active chat ──
+        if (ctrl && !alt && shift && e.Key == Key.D)
+        {
+            if (vm.ChatVM.CurrentChat is not null)
+                vm.DuplicateCurrentChatCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
         // ── Ctrl+L — Focus chat input ──
         if (ctrl && !alt && !shift && e.Key == Key.L)
         {

@@ -41,6 +41,24 @@ internal sealed class PendingTurnRecoveryAnalysis
     public int ActiveToolCount { get; init; }
 }
 
+/// <summary>
+/// Result of mapping a "fork from here" cut point onto the server event log.
+/// </summary>
+/// <param name="Resolved">
+/// False when the local and server turns could not be lined up. The caller must then fall back to
+/// transcript replay rather than forking more history than the visible transcript shows.
+/// </param>
+/// <param name="Event">
+/// The event to fork through, or null (when <paramref name="Resolved"/> is true) to fork the whole
+/// conversation because the cut is at or past the last turn.
+/// </param>
+internal readonly record struct ForkCutSelection(bool Resolved, SessionEvent? Event)
+{
+    public static ForkCutSelection Unresolved { get; } = new(false, null);
+
+    public static ForkCutSelection ForkEverything { get; } = new(true, null);
+}
+
 internal static class PendingTurnRecoveryAnalyzer
 {
     private const string CompactEventTypePrefix = "{\"type\":\"";
@@ -239,6 +257,61 @@ internal static class PendingTurnRecoveryAnalyzer
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Selects the server event a forked session should be cut at ("fork from here"), so the fork's
+    /// server-side history ends exactly where the copied transcript does.
+    /// </summary>
+    /// <param name="events">The ordered server event log of the chat being forked.</param>
+    /// <param name="retainedUserCount">The number of local user turns the fork keeps.</param>
+    /// <remarks>
+    /// The first turn the fork must NOT contain is the (<paramref name="retainedUserCount"/>)-th
+    /// genuine user turn, so the cut is the event immediately before it — that keeps the retained
+    /// turns and their answers while dropping everything after. Injected user messages are skipped
+    /// the same way <see cref="SelectEditTruncationTarget"/> skips them, so the ordinals line up.
+    ///
+    /// <para>Forking everything is only correct when the retained turns account for the WHOLE server
+    /// conversation. If the log holds fewer genuine user turns than the transcript does they cannot
+    /// be lined up at all — which happens permanently to any chat whose session was recovered, since
+    /// recovery replays the entire retained transcript as a single prompt. Forking everything there
+    /// would give the fork more history than the transcript shows, including the very answers the
+    /// user branched away from, so that case is unresolved and falls back to replay.</para>
+    /// </remarks>
+    public static ForkCutSelection SelectForkCutEvent(
+        IReadOnlyList<SessionEvent> events, int retainedUserCount)
+    {
+        if (events is null || retainedUserCount < 0)
+            return ForkCutSelection.Unresolved;
+
+        var excludedIndex = -1;
+        var genuineSeen = 0;
+        for (var i = 0; i < events.Count; i++)
+        {
+            if (events[i] is not UserMessageEvent userEvent
+                || !string.IsNullOrEmpty(userEvent.Data?.Source))
+                continue;
+
+            if (genuineSeen == retainedUserCount)
+            {
+                excludedIndex = i;
+                break;
+            }
+
+            genuineSeen++;
+        }
+
+        // No turn to exclude: the cut is the end of the conversation, but only if every genuine
+        // server turn is actually represented in the transcript. Fewer means they never lined up.
+        if (excludedIndex < 0)
+            return genuineSeen == retainedUserCount
+                ? ForkCutSelection.ForkEverything
+                : ForkCutSelection.Unresolved;
+
+        // Index 0 would leave the fork with no history at all, which is not a fork.
+        return excludedIndex == 0
+            ? ForkCutSelection.Unresolved
+            : new ForkCutSelection(true, events[excludedIndex - 1]);
     }
 
     public static int CountPersistedLogUserMessages(IEnumerable<string> lines)

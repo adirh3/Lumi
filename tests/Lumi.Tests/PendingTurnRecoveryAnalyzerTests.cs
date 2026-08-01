@@ -343,6 +343,80 @@ public sealed class PendingTurnRecoveryAnalyzerTests
         Assert.Null(PendingTurnRecoveryAnalyzer.SelectEditTruncationTarget(events, -1));
     }
 
+    // ── Fork cut selection ────────────────────────────────────────────────
+
+    [Fact]
+    public void SelectForkCutEvent_CutsImmediatelyBeforeTheFirstExcludedTurn()
+    {
+        var a1 = AssistantMessage("a1");
+        var a2 = AssistantMessage("a2");
+        var second = UserMessage("ping2");
+        var third = UserMessage("ping3");
+        var events = new SessionEvent[]
+        {
+            UserMessage("ping1"), a1,
+            second, a2,
+            third, AssistantMessage("a3")
+        };
+
+        // Keeping 1 user turn means turn 2 is the first excluded one, so the cut is the event
+        // right before it — turn 1's answer. Keeping 2 turns cuts before turn 3.
+        var keepOne = PendingTurnRecoveryAnalyzer.SelectForkCutEvent(events, 1);
+        Assert.True(keepOne.Resolved);
+        Assert.Same(a1, keepOne.Event);
+
+        var keepTwo = PendingTurnRecoveryAnalyzer.SelectForkCutEvent(events, 2);
+        Assert.True(keepTwo.Resolved);
+        Assert.Same(a2, keepTwo.Event);
+    }
+
+    [Fact]
+    public void SelectForkCutEvent_ForksEverything_WhenCutIsAtTheEnd()
+    {
+        var events = new SessionEvent[]
+        {
+            UserMessage("ping1"), AssistantMessage("a1"),
+            UserMessage("ping2"), AssistantMessage("a2")
+        };
+
+        // Both user turns are retained, so nothing is excluded: fork the whole conversation.
+        var selection = PendingTurnRecoveryAnalyzer.SelectForkCutEvent(events, 2);
+        Assert.True(selection.Resolved);
+        Assert.Null(selection.Event);
+    }
+
+    [Fact]
+    public void SelectForkCutEvent_SkipsInjectedUserMessages()
+    {
+        var a1 = AssistantMessage("a1");
+        var events = new SessionEvent[]
+        {
+            UserMessage("ping1"), InjectedUserMessage(), a1,
+            UserMessage("ping2"), AssistantMessage("a2")
+        };
+
+        // The injected message must not shift the ordinal, otherwise the fork would be cut a
+        // whole turn early and silently lose history the transcript still shows.
+        var selection = PendingTurnRecoveryAnalyzer.SelectForkCutEvent(events, 1);
+        Assert.True(selection.Resolved);
+        Assert.Same(a1, selection.Event);
+    }
+
+    [Fact]
+    public void SelectForkCutEvent_Unresolved_WhenForkWouldHaveNoHistory()
+    {
+        var first = UserMessage("ping1");
+        var events = new SessionEvent[] { first, AssistantMessage("a1") };
+
+        // Retaining zero turns would cut before the very first event, leaving nothing to fork —
+        // the caller must fall back to replay instead of creating an empty branch.
+        var selection = PendingTurnRecoveryAnalyzer.SelectForkCutEvent(events, 0);
+        Assert.False(selection.Resolved);
+        Assert.Null(selection.Event);
+
+        Assert.False(PendingTurnRecoveryAnalyzer.SelectForkCutEvent(events, -1).Resolved);
+    }
+
     [Fact]
     public void CountPersistedLogUserMessages_UsesSessionLocalHistory()
     {
@@ -426,6 +500,30 @@ public sealed class PendingTurnRecoveryAnalyzerTests
         var resolved = PendingTurnRecoveryAnalyzer.ResolveSessionLogPath(sessionId, currentConfigDir, legacyConfigDir);
 
         Assert.Equal(legacyLog, resolved);
+    }
+
+    // ── SelectForkCutEvent — recovery-replay and invalid input ─────────────────────────────
+
+    [Fact]
+    public void SelectForkCutEvent_FewerServerTurnsThanRetained_IsUnresolved()
+    {
+        // A recovered session replays its whole transcript as ONE prompt, so the log holds far
+        // fewer genuine user turns than the transcript shows. Forking everything here would hand
+        // the fork more history than it displays, including the answers the user branched away
+        // from — so it must fall back to replay instead.
+        var events = new List<SessionEvent> { UserMessage("replayed transcript"), AssistantMessage("a1") };
+
+        var selection = PendingTurnRecoveryAnalyzer.SelectForkCutEvent(events, retainedUserCount: 4);
+
+        Assert.False(selection.Resolved);
+    }
+
+    [Fact]
+    public void SelectForkCutEvent_InvalidInput_IsUnresolved()
+    {
+        Assert.False(PendingTurnRecoveryAnalyzer.SelectForkCutEvent(null!, 1).Resolved);
+        Assert.False(PendingTurnRecoveryAnalyzer
+            .SelectForkCutEvent(new List<SessionEvent> { UserMessage("one") }, -1).Resolved);
     }
 
     private static string CreateSessionLog(string configDir, string sessionId)

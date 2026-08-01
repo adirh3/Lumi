@@ -299,6 +299,9 @@ internal static class AppDataSnapshotFactory
             PlanContent = source.PlanContent,
             FollowUpSuggestions = [..source.FollowUpSuggestions],
             FollowUpSuggestionAssistantMessageId = source.FollowUpSuggestionAssistantMessageId,
+            ForkedFromChatId = source.ForkedFromChatId,
+            ForkedFromTitle = source.ForkedFromTitle,
+            ForkedFromMessage = source.ForkedFromMessage,
             IsPinned = source.IsPinned,
         };
     }

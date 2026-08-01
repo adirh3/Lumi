@@ -968,6 +968,13 @@
                                         <PathIcon Data="{StaticResource Icon.Rename}" Width="14" Height="14" />
                                       </MenuItem.Icon>
                                     </MenuItem>
+                                    <MenuItem Header="{loc:Str Menu_Fork}"
+                                              Command="{Binding $parent[Window].DataContext.DuplicateChatCommand}"
+                                              CommandParameter="{Binding}">
+                                      <MenuItem.Icon>
+                                        <PathIcon Data="{x:Static sc:StrataChatMessage.ForkIconGeometry}" Width="14" Height="14" />
+                                      </MenuItem.Icon>
+                                    </MenuItem>
                                     <MenuItem x:Name="OpenChatInNewWindowMenuItem"
                                               Header="{loc:Str Menu_OpenInNewWindow}"
                                               Command="{Binding $parent[Window].DataContext.OpenChatInNewWindowCommand}"
@@ -2279,6 +2286,25 @@
         </StackPanel>
       </sc:StrataDialog.DialogContent>
     </sc:StrataDialog>
+    <!-- ═══ Duplicating-chat status pill ═══
+         Duplicating is usually fast enough to feel instant, so MainViewModel only raises
+         IsDuplicatingChat after a short delay: below that threshold this never appears (a pill that
+         flashes for 200ms reads as a glitch), above it the app visibly says it is working instead of
+         looking frozen. Non-modal and hit-invisible — it reports progress, it does not block.
+         StrataTypingIndicator is already a labelled pill, so it is used directly rather than wrapped
+         in a second one; a shadow host floats it above the content it overlays. -->
+    <Border x:Name="DuplicatingChatPill"
+            IsVisible="{Binding IsDuplicatingChat}"
+            IsHitTestVisible="False"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Top"
+            Margin="0,52,0,0"
+            CornerRadius="999"
+            BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000">
+      <sc:StrataTypingIndicator IsActive="True"
+                                Margin="0"
+                                Label="{loc:Str Chat_Duplicating}" />
+    </Border>
   </Panel>
   </Border>
   </LayoutTransformControl>

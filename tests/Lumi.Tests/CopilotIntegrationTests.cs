@@ -1821,4 +1821,171 @@ public class CopilotIntegrationTests : IAsyncLifetime
         Assert.NotNull(config.McpServers);
         Assert.Equal(2, config.McpServers!.Count);
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 30. Session fork — sessions.fork gives a branch the model's real memory
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Lumi's "fork chat" relies on the server-level <c>sessions.fork</c> RPC to duplicate a live
+    /// session, so the branch continues with the model's actual conversation state instead of
+    /// having the transcript replayed to it as text. Verifies the copy inherits memory, that the
+    /// branches are isolated afterwards, and that the fork resumes under Lumi's normal resume
+    /// config (which requires CopilotService to relocate it into Lumi's config directory).
+    /// </summary>
+    [SkippableFact]
+    public async Task ForkSession_InheritsMemory_AndBranchesStayIsolated()
+    {
+        SkipIfDisabled();
+
+        var original = await _service.CreateSessionAsync(SimpleConfig("You are a terse test assistant."));
+        var magic = $"Zephyr{Random.Shared.Next(10000, 99999)}";
+
+        var (_, learnSub) = await SendAndWait(original, $"Remember this magic word: {magic}. Reply only: OK");
+        learnSub.Dispose();
+
+        var forkedId = await _service.ForkSessionAsync(original.SessionId, name: "integration fork");
+        Assert.False(string.IsNullOrWhiteSpace(forkedId));
+        Assert.NotEqual(original.SessionId, forkedId);
+
+        // Resume with Lumi's real resume config: this only succeeds because ForkSessionAsync moved
+        // the forked session out of the CLI's default base dir into Lumi's ConfigDirectory.
+        var fork = await _service.ResumeSessionAsync(forkedId!, ResumeConfigFor("You are a terse test assistant."));
+
+        var (recall, recallSub) = await SendAndWait(fork, "What is the magic word I told you? Reply with just the word.");
+        recallSub.Dispose();
+        Assert.Contains(magic, recall, StringComparison.OrdinalIgnoreCase);
+
+        // Teaching the branch something new must never leak back into the original.
+        var branchOnly = $"Quasar{Random.Shared.Next(10000, 99999)}";
+        var (_, teachSub) = await SendAndWait(fork, $"Remember a second word: {branchOnly}. Reply only: OK");
+        teachSub.Dispose();
+
+        var (isolation, isolationSub) = await SendAndWait(original,
+            $"Do you know the word {branchOnly}? Answer YES or NO only.");
+        isolationSub.Dispose();
+        Assert.DoesNotContain("YES", isolation, StringComparison.OrdinalIgnoreCase);
+
+        await fork.DisposeAsync();
+        await original.DisposeAsync();
+    }
+
+    /// <summary>
+    /// "Fork from here" passes a cut event id, and the forked session must not carry any turn after
+    /// that point — otherwise the model would remember more than the forked transcript shows.
+    /// </summary>
+    [SkippableFact]
+    public async Task ForkSession_WithCutEvent_DropsLaterTurns()
+    {
+        SkipIfDisabled();
+
+        var original = await _service.CreateSessionAsync(SimpleConfig("You are a terse test assistant."));
+
+        var first = $"Alpha{Random.Shared.Next(10000, 99999)}";
+        var second = $"Beta{Random.Shared.Next(10000, 99999)}";
+
+        var (_, s1) = await SendAndWait(original, $"Remember word ONE: {first}. Reply only: OK");
+        s1.Dispose();
+
+        // Everything up to here is what the fork should keep.
+        var cutEventId = (await original.GetEventsAsync())[^1].Id.ToString();
+
+        var (_, s2) = await SendAndWait(original, $"Remember word TWO: {second}. Reply only: OK");
+        s2.Dispose();
+
+        var forkedId = await _service.ForkSessionAsync(original.SessionId, cutEventId, "integration cut fork");
+        Assert.False(string.IsNullOrWhiteSpace(forkedId));
+
+        var fork = await _service.ResumeSessionAsync(forkedId!, ResumeConfigFor("You are a terse test assistant."));
+        var (known, sub) = await SendAndWait(fork,
+            "List every code word you know, comma separated. If none, say NONE.");
+        sub.Dispose();
+
+        Assert.Contains(first, known, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(second, known, StringComparison.OrdinalIgnoreCase);
+
+        await fork.DisposeAsync();
+        await original.DisposeAsync();
+    }
+
+    /// <summary>
+    /// End-to-end check of the seam Lumi actually ships: the cut event is chosen by
+    /// <see cref="PendingTurnRecoveryAnalyzer.SelectForkCutEvent"/> from a real server event log
+    /// (not a hand-picked index), then handed to <c>ForkSessionAsync</c>. This is what catches an
+    /// off-by-one between local turns and server events — the previous test only proves the SDK
+    /// honours a cut id, not that Lumi picks the right one.
+    /// </summary>
+    [SkippableFact]
+    public async Task ForkSession_CutEventChosenByAnalyzer_KeepsExactlyTheRetainedTurns()
+    {
+        SkipIfDisabled();
+
+        var original = await _service.CreateSessionAsync(SimpleConfig("You are a terse test assistant."));
+
+        var first = $"Alpha{Random.Shared.Next(10000, 99999)}";
+        var second = $"Beta{Random.Shared.Next(10000, 99999)}";
+
+        var (_, s1) = await SendAndWait(original, $"Remember word ONE: {first}. Reply only: OK");
+        s1.Dispose();
+        var (_, s2) = await SendAndWait(original, $"Remember word TWO: {second}. Reply only: OK");
+        s2.Dispose();
+
+        // Exactly what ChatViewModel does for "fork from here" on the first assistant reply:
+        // one local user turn is retained, so turn 2 is the first excluded one.
+        var events = await original.GetEventsAsync();
+        var selection = PendingTurnRecoveryAnalyzer.SelectForkCutEvent(events, 1);
+        Assert.True(selection.Resolved);
+        Assert.NotNull(selection.Event);
+
+        var forkedId = await _service.ForkSessionAsync(
+            original.SessionId, selection.Event!.Id.ToString(), "integration analyzer fork");
+        Assert.False(string.IsNullOrWhiteSpace(forkedId));
+
+        var fork = await _service.ResumeSessionAsync(forkedId!, ResumeConfigFor("You are a terse test assistant."));
+        var (known, sub) = await SendAndWait(fork,
+            "List every code word you know, comma separated. If none, say NONE.");
+        sub.Dispose();
+
+        Assert.Contains(first, known, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(second, known, StringComparison.OrdinalIgnoreCase);
+
+        await fork.DisposeAsync();
+        await original.DisposeAsync();
+    }
+
+    /// <summary>A released session has no in-memory events, so it cannot be forked — Lumi must fall
+    /// back to transcript replay rather than silently producing an empty branch.</summary>
+    [SkippableFact]
+    public async Task ForkSession_ReleasedSession_ReturnsNullSoCallerCanFallBack()
+    {
+        SkipIfDisabled();
+
+        var original = await _service.CreateSessionAsync(SimpleConfig("You are a terse test assistant."));
+        var sessionId = original.SessionId;
+
+        var (_, sub) = await SendAndWait(original, "Remember the word Orbit. Reply only: OK");
+        sub.Dispose();
+
+        await _service.ReleaseSessionAsync(original, deleteServerSession: false);
+
+        Assert.Null(await _service.ForkSessionAsync(sessionId));
+    }
+
+    [SkippableFact]
+    public async Task ForkSession_UnknownSessionId_ReturnsNull()
+    {
+        SkipIfDisabled();
+
+        Assert.Null(await _service.ForkSessionAsync("not-a-real-session-id-98765"));
+        Assert.Null(await _service.ForkSessionAsync(null));
+        Assert.Null(await _service.ForkSessionAsync("   "));
+    }
+
+    private static ResumeSessionConfig ResumeConfigFor(string systemPrompt) =>
+        SessionConfigBuilder.BuildForResume(
+            systemPrompt: systemPrompt,
+            model: null, workingDirectory: null, skillDirectories: null,
+            customAgents: null, tools: null, mcpServers: null,
+            reasoningEffort: null, userInputHandler: null,
+            onPermission: null, hooks: null);
 }

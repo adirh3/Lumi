@@ -184,6 +184,9 @@
   "Sidebar_All": "הכול",
 
   "Menu_Rename": "שינוי שם",
+  "Menu_Fork": "שכפול צ'אט",
+  "Menu_ForkFromHere": "פיצול מכאן",
+  "Menu_ForkAndEdit": "פיצול ועריכה…",
   "Menu_OpenInNewWindow": "פתיחה בחלון חדש",
   "Menu_MoveToProject": "העברה לפרויקט",
   "Menu_RemoveFromProject": "הסרה מפרויקט",
@@ -825,6 +828,9 @@
 
   "ShowDiff": "הצג שינויים",
   "OpenChat": "פתח צ׳אט",
+  "ForkedFrom": "פוצל מתוך {0}",
+  "DuplicatedFrom": "שוכפל מתוך {0}",
+  "Chat_Duplicating": "משכפל צ'אט…",
   "FileChanges_One": "קובץ אחד שונה",
   "FileChanges_N": "{0} קבצים שונו",
   "FileChange_Created": "נוצר",

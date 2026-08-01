@@ -72,6 +72,61 @@ public class ChatMessage
     [JsonIgnore]
     public MessageSteerState SteerDelivery { get; set; }
 
+    /// <summary>
+    /// Deep-copies this message, including its mutable collections, so the copy can be mutated or
+    /// serialized without touching the original. Callers that need a *distinct* message (rather
+    /// than a snapshot of this one) must overwrite <see cref="Id"/> afterwards.
+    /// </summary>
+    /// <remarks>
+    /// Kept as the single copy site for <see cref="ChatMessage"/>: persistence snapshots and chat
+    /// forking both use it, so a newly added field can't be silently dropped by one of them.
+    /// </remarks>
+    public ChatMessage Clone() => new()
+    {
+        Id = Id,
+        Role = Role,
+        Content = Content,
+        Author = Author,
+        Timestamp = Timestamp,
+        ToolName = ToolName,
+        ToolCallId = ToolCallId,
+        ParentToolCallId = ParentToolCallId,
+        ToolStatus = ToolStatus,
+        ToolOutput = ToolOutput,
+        ToolStartedAt = ToolStartedAt,
+        ToolDurationMs = ToolDurationMs,
+        LinkedChatId = LinkedChatId,
+        LinkedChatTitle = LinkedChatTitle,
+        QuestionId = QuestionId,
+        QuestionText = QuestionText,
+        QuestionOptions = QuestionOptions,
+        QuestionAllowFreeText = QuestionAllowFreeText,
+        QuestionAllowMultiSelect = QuestionAllowMultiSelect,
+        IsStreaming = IsStreaming,
+        Model = Model,
+        ReasoningEffort = ReasoningEffort,
+        ContextWindowTier = ContextWindowTier,
+        AgentId = AgentId,
+        SdkAgentName = SdkAgentName,
+        HasAgentSelection = HasAgentSelection,
+        ActiveMcpServerNames = [..ActiveMcpServerNames],
+        HasMcpSelection = HasMcpSelection,
+        Attachments = [..Attachments],
+        ActiveSkills = [..ActiveSkills.Select(static s => new SkillReference
+        {
+            Name = s.Name,
+            Glyph = s.Glyph,
+            Description = s.Description,
+            Content = s.Content
+        })],
+        Sources = [..Sources.Select(static s => new SearchSource
+        {
+            Title = s.Title,
+            Snippet = s.Snippet,
+            Url = s.Url
+        })]
+    };
+
     /// <summary>Stamps the tool call's start instant. Idempotent: a replayed or duplicated start
     /// event keeps the original stamp so the measured duration stays honest.</summary>
     public void MarkToolStarted(DateTimeOffset startedAt) => ToolStartedAt ??= startedAt;
@@ -441,6 +496,25 @@ public class Chat : INotifyPropertyChanged
 
     /// <summary>Assistant message ID that produced <see cref="FollowUpSuggestions"/>.</summary>
     public Guid? FollowUpSuggestionAssistantMessageId { get; set; }
+
+    /// <summary>
+    /// The chat this one was copied from, via "Duplicate chat" or a message-level fork. Drives the
+    /// breadcrumb chip at the top of the new chat's transcript.
+    /// </summary>
+    public Guid? ForkedFromChatId { get; set; }
+
+    /// <summary>
+    /// Title of <see cref="ForkedFromChatId"/> captured at fork time, so the breadcrumb still
+    /// reads sensibly after the parent chat is renamed or deleted.
+    /// </summary>
+    public string? ForkedFromTitle { get; set; }
+
+    /// <summary>
+    /// True when this chat branched from a specific message ("fork"), false when it is a whole-chat
+    /// copy ("duplicate"). Only the breadcrumb wording depends on it — the two are otherwise
+    /// identical — so chats saved before this existed simply read as duplicates.
+    /// </summary>
+    public bool ForkedFromMessage { get; set; }
 
     /// <summary>Whether this chat should stay at the top of its project chat list.</summary>
     public bool IsPinned

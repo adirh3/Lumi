@@ -658,6 +658,8 @@
                               EditCommand="{Binding BeginEditCommand}"
                               EditConfirmedCommand="{Binding ConfirmEditCommand}"
                               RegenerateCommand="{Binding ResendCommand}"
+                              CanFork="True"
+                              ForkMenuHeader="{loc:Str Menu_ForkAndEdit}"
                               Classes.editing-source="{Binding IsBeingEdited}"
                               Classes.steer-pending="{Binding Source.IsSteerInProgress}">
           <!-- Ghost → solidify transition when a steered message is applied. -->
@@ -740,6 +742,8 @@
                             MaxWidth="900"
                             Author="{Binding Author}"
                             Timestamp="{Binding TimestampText}"
+                            CanFork="True"
+                            ForkMenuHeader="{loc:Str Menu_ForkFromHere}"
                             IsStreaming="{Binding IsStreaming}">
         <sc:StrataChatMessage.Content>
           <StackPanel Spacing="6">

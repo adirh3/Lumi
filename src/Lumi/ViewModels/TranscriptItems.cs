@@ -200,6 +200,13 @@ public partial class LinkedChatChipItem
 }
 
 /// <summary>
+/// A duplicated or forked chat's link back to the chat it came from, rendered as the leading
+/// breadcrumb chip in the transcript. <paramref name="FromMessage"/> distinguishes a branch taken
+/// from one message ("forked from") from a whole-chat copy ("duplicated from").
+/// </summary>
+public readonly record struct ForkOrigin(Guid ChatId, string? Title, bool FromMessage);
+
+/// <summary>
 /// A turn-level item that renders a single linked-chat chip inline, at the point
 /// where Lumi orchestrated (created/messaged) another chat. Mirrors <see cref="SkillLoadedItem"/>.
 /// </summary>

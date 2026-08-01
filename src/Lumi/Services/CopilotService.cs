@@ -699,6 +699,87 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
+    /// Forks a live Copilot session server-side, producing an independent session that inherits the
+    /// original's complete conversation state — the model's real working memory — without replaying
+    /// the transcript as text. Returns the new session id, or <c>null</c> when the fork could not be
+    /// produced (callers fall back to transcript replay).
+    /// </summary>
+    /// <param name="sourceSessionId">The session to fork. Must be live: <c>sessions.fork</c> reads the
+    /// source's in-memory events, so a released session fails with "no persisted or in-memory events
+    /// found" even though its on-disk directory still exists.</param>
+    /// <param name="toEventId">Inclusive cut point. When set, the fork contains the source's history up
+    /// to and including that event; when null, the whole conversation is forked.</param>
+    /// <param name="name">Optional label stored on the forked session's metadata.</param>
+    /// <remarks>
+    /// <para><b>Why the fork is relocated.</b> <c>sessions.fork</c> is a <em>server</em>-level RPC, so it
+    /// writes the new session under the CLI's default base directory (<c>~/.copilot/session-state</c>)
+    /// rather than the source session's own <c>ConfigDirectory</c>. Lumi keeps its sessions under
+    /// <see cref="DataStore.CopilotConfigDir"/> and always resumes with that directory set, so an
+    /// un-relocated fork resumes as "Session not found". Moving the fork's own, self-consistent
+    /// directory into Lumi's config dir makes it resume like any other Lumi session. If the directory
+    /// is not where we expect, the fork id is still returned unmoved — the caller's resume attempt is
+    /// the real test, and it has a replay fallback.</para>
+    /// </remarks>
+    public async Task<string?> ForkSessionAsync(
+        string? sourceSessionId,
+        string? toEventId = null,
+        string? name = null,
+        CancellationToken ct = default)
+    {
+        if (_client is null || string.IsNullOrWhiteSpace(sourceSessionId))
+            return null;
+
+        try
+        {
+            var result = await _client.Rpc.Sessions
+                .ForkAsync(sourceSessionId, toEventId, name, ct)
+                .ConfigureAwait(false);
+
+            var forkedId = result?.SessionId;
+            if (string.IsNullOrWhiteSpace(forkedId))
+                return null;
+
+            RelocateForkedSessionIntoLumiConfigDir(forkedId);
+            return forkedId;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Lumi] Failed to fork Copilot session {sourceSessionId}: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Moves a freshly forked session's state directory from the CLI's default base directory into
+    /// Lumi's config directory, so Lumi's normal resume (which pins <c>ConfigDirectory</c>) can find
+    /// it. Best-effort: any failure leaves the fork where it is and the caller falls back to replay.
+    /// </summary>
+    private static void RelocateForkedSessionIntoLumiConfigDir(string forkedSessionId)
+    {
+        try
+        {
+            // Validated rather than concatenated: the id comes back from the server and is about to
+            // become a Directory.Move destination.
+            var target = GetLocalSessionStateDirectory(forkedSessionId);
+            if (Directory.Exists(target))
+                return;
+
+            var source = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".copilot", "session-state", forkedSessionId);
+            if (!Directory.Exists(source))
+                return;
+
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            Directory.Move(source, target);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Lumi] Failed to relocate forked session {forkedSessionId}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Runs a one-shot lightweight helper session and always deletes the session afterwards.
     /// The Copilot SDK does not expose a public transient-session API, so helper flows must
     /// explicitly create, use, dispose, and delete ordinary sessions to avoid polluting history.
@@ -735,6 +816,76 @@ public class CopilotService : IAsyncDisposable
                 return true;
             },
             ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Resumes an existing session with a deliberately bare configuration, runs a read-only
+    /// operation against it, then releases the handle again (keeping the session's data on disk).
+    /// </summary>
+    /// <remarks>
+    /// This exists because forking needs almost nothing from a session: the server only has to have
+    /// the event log loaded. A normal Lumi resume additionally builds the system prompt and starts
+    /// the chat's MCP servers, tools, skills and custom agents — measured at ~2s, versus ~160ms for
+    /// the bare resume below, none of which a fork would ever use.
+    ///
+    /// <para>Only use this for operations that do not send a turn. The resumed handle carries no
+    /// tools or MCP servers, so a message sent through it would run without the chat's real
+    /// capabilities.</para>
+    ///
+    /// <para>The caller must ensure no other surface currently holds this session: the handle is
+    /// released on the way out, which reaps the session's host process. Releasing never deletes the
+    /// session's persisted data, so the chat can always be resumed again normally afterwards.</para>
+    /// </remarks>
+    public async Task<TResult?> UseResumedSessionReadOnlyAsync<TResult>(
+        string sessionId,
+        Func<CopilotSession, CancellationToken, Task<TResult?>> operation,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        if (_client is null || string.IsNullOrWhiteSpace(sessionId) || !SessionStateExists(sessionId))
+            return default;
+
+        var config = SessionConfigBuilder.BuildForResume(
+            systemPrompt: null, model: null, workingDirectory: null, skillDirectories: null,
+            customAgents: null, tools: null, mcpServers: null, reasoningEffort: null,
+            userInputHandler: null, onPermission: null, hooks: null);
+
+        // Deliberately NOT ConfigureAwait(false): the release in the finally must run on the same
+        // (UI) thread as the resume, or it publishes into the pending-release registry off-thread
+        // and a concurrent same-id resume misses the destroy-before-resume gate. See the threading
+        // invariant on ResumeSessionAsync/ReleaseSessionAsync.
+        var session = await ResumeSessionAsync(sessionId, config, ct);
+        try
+        {
+            return await operation(session, ct);
+        }
+        finally
+        {
+            await ReleaseSessionAsync(session, deleteServerSession: false);
+        }
+    }
+
+    /// <summary>
+    /// True when <paramref name="sessionId"/> still has state on disk where Lumi's resume looks for
+    /// it. Lumi pins <c>ConfigDirectory</c>, so a session missing from there cannot be resumed;
+    /// checking first turns a doomed multi-second resume into an instant, graceful fallback.
+    /// </summary>
+    private static bool SessionStateExists(string sessionId)
+    {
+        try
+        {
+            return Directory.Exists(GetLocalSessionStateDirectory(sessionId));
+        }
+        catch (ArgumentException)
+        {
+            // Not a well-formed session id, so it can never name a local session directory.
+            return false;
+        }
+        catch
+        {
+            // An unreadable config dir is not evidence the session is gone — let the resume decide.
+            return true;
+        }
     }
 
     /// <summary>Resumes an existing Copilot session by ID.</summary>

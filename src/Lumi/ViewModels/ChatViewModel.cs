@@ -1118,6 +1118,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
      internal void RaiseFeatureManagementStateChangedForTest() => FeatureManagementStateChanged?.Invoke();
      public event Action<Guid, string>? ChatTitleChanged;
      public event Action? BrowserHideRequested;
+
     /// <summary>Raised when a file-edit tool wants to show a diff in the preview island.</summary>
     public event Action<FileChangeItem>? DiffShowRequested;
     /// <summary>Raised to hide the diff preview island.</summary>
@@ -1306,7 +1307,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _transcriptBuilder.SetKnownRunningBackgroundShells(EmptyRunningBackgroundShells);
         }
 
-        TranscriptTurns = _transcriptBuilder.Rebuild(Messages);
+        TranscriptTurns = _transcriptBuilder.Rebuild(Messages, GetCurrentForkOrigin());
         UpdateUserMessageEditState();
         _transcriptWindow.BindTranscript(TranscriptTurns, "rebuild");
         _transcriptWindow.ResetToLatest(TranscriptWindowController.DefaultInitialViewportHeight, "rebuild");

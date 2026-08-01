@@ -117,11 +117,22 @@ public class TranscriptBuilder
     }
 
     public ObservableCollection<TranscriptTurn> Rebuild(IEnumerable<ChatMessageViewModel> messages)
+        => Rebuild(messages, forkOrigin: null);
+
+    /// <summary>
+    /// Rebuilds the transcript, optionally leading with a "Forked from …" breadcrumb chip that
+    /// opens the chat this one was branched from.
+    /// </summary>
+    public ObservableCollection<TranscriptTurn> Rebuild(
+        IEnumerable<ChatMessageViewModel> messages,
+        ForkOrigin? forkOrigin)
     {
         IsRebuildingTranscript = true;
         var tempTurns = new List<TranscriptTurn>();
         _rebuildTarget = tempTurns;
         ResetState();
+
+        EmitForkOriginChip(forkOrigin);
 
         foreach (var msg in messages)
             ProcessMessageToTranscript(msg);
@@ -138,6 +149,24 @@ public class TranscriptBuilder
         _liveTarget = result;
         IsRebuildingTranscript = false;
         return result;
+    }
+
+    /// <summary>
+    /// Emits the breadcrumb at the very top of a duplicated or forked chat's transcript. Reuses the
+    /// linked-chat chip so branches are navigable back to their source with one click, and names the
+    /// action that created the chat so the wording matches the menu the user actually used.
+    /// </summary>
+    private void EmitForkOriginChip(ForkOrigin? forkOrigin)
+    {
+        if (forkOrigin is not { } origin)
+            return;
+
+        var label = Loc.Get(
+            origin.FromMessage ? "ForkedFrom" : "DuplicatedFrom",
+            string.IsNullOrWhiteSpace(origin.Title) ? Loc.OpenChat : origin.Title);
+
+        var chip = new LinkedChatChipItem(origin.ChatId, label, () => _openChatAction?.Invoke(origin.ChatId));
+        AppendToCurrentTurn(new LinkedChatItem(chip), TurnStableIdFor($"fork-origin:{origin.ChatId}"));
     }
 
     /// <summary>

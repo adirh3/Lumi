@@ -184,6 +184,9 @@
   "Sidebar_All": "All",
 
   "Menu_Rename": "Rename",
+  "Menu_Fork": "Duplicate Chat",
+  "Menu_ForkFromHere": "Fork From Here",
+  "Menu_ForkAndEdit": "Fork And Edit…",
   "Menu_OpenInNewWindow": "Open in New Window",
   "Menu_MoveToProject": "Move to Project",
   "Menu_RemoveFromProject": "Remove from Project",
@@ -825,6 +828,9 @@
 
   "ShowDiff": "Show diff",
   "OpenChat": "Open chat",
+  "ForkedFrom": "Forked from {0}",
+  "DuplicatedFrom": "Duplicated from {0}",
+  "Chat_Duplicating": "Duplicating chat…",
   "FileChanges_One": "1 file changed",
   "FileChanges_N": "{0} files changed",
   "FileChange_Created": "Created",
