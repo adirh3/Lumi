@@ -190,31 +190,52 @@ public partial class ChatViewModel
     /// Updates the model capabilities cache from SDK ModelInfo list.
     /// Called by MainViewModel after fetching models from the SDK.
     /// </summary>
+    /// <param name="merge">
+    /// True when <paramref name="models"/> only supplements the catalog (BYOK picker tokens, which the
+    /// SDK model list never returns) and must be layered on top of the capabilities already learned.
+    /// A replacing update here would erase reasoning efforts and long-context support for every Copilot
+    /// model, silently disabling the composer's effort/context sections and dropping the long-context
+    /// tier from new sessions.
+    /// </param>
     public void UpdateModelCapabilities(
         List<GitHub.Copilot.ModelInfo> models,
         IReadOnlySet<string>? longContextModelIds = null,
-        IReadOnlyDictionary<string, ModelContextWindowLimits>? contextWindowLimits = null)
+        IReadOnlyDictionary<string, ModelContextWindowLimits>? contextWindowLimits = null,
+        bool merge = false)
     {
         // Populate fresh instances and swap them in, rather than clearing and refilling the live
         // ones. A catalog refresh now lands while the user is interacting, so another surface may be
         // copying this catalog at the same time and must never observe a half-filled dictionary.
-        var reasoningEfforts = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        var defaultEfforts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var contextTokenLimits = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-        var longContextTokenLimits = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        var reasoningEfforts = merge
+            ? _modelReasoningEfforts.ToDictionary(
+                static kvp => kvp.Key,
+                static kvp => kvp.Value.ToList(),
+                StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var defaultEfforts = merge
+            ? new Dictionary<string, string>(_modelDefaultEfforts, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var contextTokenLimits = merge
+            ? new Dictionary<string, long>(_modelContextTokenLimits, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        var longContextTokenLimits = merge
+            ? new Dictionary<string, long>(_modelLongContextTokenLimits, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
 
         ModelSelectionHelper.ApplyModelCapabilities(
             models,
             reasoningEfforts,
             defaultEfforts,
-            contextTokenLimits);
+            contextTokenLimits,
+            replaceExisting: !merge);
         ApplyContextWindowLimits(contextWindowLimits, contextTokenLimits, longContextTokenLimits);
 
         _modelReasoningEfforts = reasoningEfforts;
         _modelDefaultEfforts = defaultEfforts;
         _modelContextTokenLimits = contextTokenLimits;
         _modelLongContextTokenLimits = longContextTokenLimits;
-        _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
+        if (longContextModelIds is not null || !merge)
+            _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
 
         UpdateQualityLevels(SelectedModel);
         UpdateContextWindowTiers(SelectedModel);
@@ -449,6 +470,15 @@ public partial class ChatViewModel
 
         return _modelReasoningEfforts.Count == 0 ? storedEffort : null;
     }
+
+    // Resolves a context-window tier against a specific model, mirroring ResolveReasoningEffortForModel.
+    // Unlike ResolveSelectedContextWindowTierForChat this never consults the live composer selection, so a
+    // caller that is acting on a model OTHER than the one currently displayed (a manage_chats per-send model
+    // override, where SelectedModel still holds the pre-override model) resolves against the model the SDK
+    // will actually use. Routing such a call through the composer would normalize the stored tier against the
+    // displayed model first, collapsing an explicit long-context selection to null and then to Default.
+    internal string? ResolveContextWindowTierForModel(string? storedTier, string? modelId)
+        => ModelSelectionHelper.NormalizeContextWindowTier(storedTier, modelId, _modelsWithLongContext);
 
     internal string? ResolveSelectedContextWindowTierForChat(Chat chat, string? modelId)
     {

@@ -57,15 +57,25 @@ internal static class ModelSelectionHelper
         return true;
     }
 
+    /// <param name="replaceExisting">
+    /// True (default) when <paramref name="models"/> is the authoritative catalog, so stale entries are
+    /// dropped. False when merging a supplementary catalog (e.g. BYOK picker tokens, which the SDK model
+    /// list never returns) into capabilities that were already learned — replacing there would strip
+    /// reasoning effort and long-context support from every Copilot model.
+    /// </param>
     public static void ApplyModelCapabilities(
         IEnumerable<ModelInfo> models,
         IDictionary<string, List<string>> reasoningEfforts,
         IDictionary<string, string> defaultEfforts,
-        IDictionary<string, long>? contextTokenLimits = null)
+        IDictionary<string, long>? contextTokenLimits = null,
+        bool replaceExisting = true)
     {
-        reasoningEfforts.Clear();
-        defaultEfforts.Clear();
-        contextTokenLimits?.Clear();
+        if (replaceExisting)
+        {
+            reasoningEfforts.Clear();
+            defaultEfforts.Clear();
+            contextTokenLimits?.Clear();
+        }
 
         foreach (var model in models)
         {
@@ -153,11 +163,18 @@ internal static class ModelSelectionHelper
             : supportedEfforts[supportedEfforts.Count / 2];
     }
 
+    /// <summary>Reasoning effort ids the SDK exposes today, in ascending order. Used to round-trip a
+    /// localized segment label back to the effort id the SDK expects.</summary>
+    private static readonly string[] KnownEfforts = ["minimal", "low", "medium", "high", "xhigh", "max"];
+
     public static string EffortToDisplay(string effort) => effort.ToLowerInvariant() switch
     {
+        "minimal" => Loc.Quality_Minimal,
         "low" => Loc.Quality_Low,
         "medium" => Loc.Quality_Medium,
         "high" => Loc.Quality_High,
+        "xhigh" => Loc.Quality_XHigh,
+        "max" => Loc.Quality_Max,
         _ => CultureInfo.CurrentCulture.TextInfo.ToTitleCase(effort)
     };
 
@@ -166,13 +183,17 @@ internal static class ModelSelectionHelper
         if (string.IsNullOrWhiteSpace(display))
             return null;
 
-        if (display == Loc.Quality_Low)
-            return "low";
-        if (display == Loc.Quality_Medium)
-            return "medium";
-        if (display == Loc.Quality_High)
-            return "high";
-        return display.ToLowerInvariant();
+        // Match against the rendered labels rather than lowercasing the display text: a localized or
+        // punctuated label ("X-High", Hebrew text) would otherwise turn into an effort id the SDK
+        // rejects, silently dropping the user's choice.
+        foreach (var effort in KnownEfforts)
+        {
+            if (string.Equals(display, EffortToDisplay(effort), StringComparison.Ordinal))
+                return effort;
+        }
+
+        // Unknown ids fall back to the title-cased id, so lowering recovers the original value.
+        return display.Trim().ToLowerInvariant();
     }
 
     public static string[]? GetContextWindowTiers(

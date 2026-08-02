@@ -555,9 +555,12 @@
   "FileSize_MB": "{0} MB",
   "FileSize_GB": "{0} GB",
 
+  "Quality_Minimal": "מינימלי",
   "Quality_Low": "נמוך",
   "Quality_Medium": "בינוני",
   "Quality_High": "גבוה",
+  "Quality_XHigh": "גבוה מאוד",
+  "Quality_Max": "מקסימלי",
   "ContextWindow_Default": "ברירת מחדל",
   "ContextWindow_Long": "ארוך",
 

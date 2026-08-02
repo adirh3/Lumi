@@ -917,9 +917,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return (requestedModelId, ResolveSelectedContextWindowTierForChat(chat, requestedModelId));
     }
 
-    private string? ResolveSessionContextWindowTier(string? modelId, object? sessionContextTier)
+    /// <param name="fallbackTier">
+    /// The tier to keep when the session event omits one. Session events (notably a mid-session
+    /// ModelChange) do not always echo the context tier back, and treating that silence as "Default"
+    /// would silently downgrade an explicit long-context selection — and persist the downgrade.
+    /// </param>
+    private string? ResolveSessionContextWindowTier(string? modelId, object? sessionContextTier, string? fallbackTier)
     {
         var tierValue = GetSessionContextTierValue(sessionContextTier);
+        if (string.IsNullOrWhiteSpace(tierValue))
+            tierValue = fallbackTier;
+
         if (!string.IsNullOrWhiteSpace(tierValue))
             return ModelSelectionHelper.NormalizeContextWindowTier(tierValue, modelId, _modelsWithLongContext);
 
@@ -968,7 +976,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (route.IsByok)
                 persistedModel = route.SelectionToken;
         }
-        var effectiveContextTier = ResolveSessionContextWindowTier(effectiveModel, sessionContextTier);
+        var effectiveContextTier = ResolveSessionContextWindowTier(
+            effectiveModel,
+            sessionContextTier,
+            chat.LastContextWindowTierUsed);
         var modelStateChanged = !string.Equals(runtime.ActiveModelId, effectiveModel, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(runtime.ActiveContextWindowTier, effectiveContextTier, StringComparison.OrdinalIgnoreCase);
 
@@ -999,12 +1010,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ? chat.LastReasoningEffortUsed
             : reasoningEffort;
 
-        chat.LastReasoningEffortUsed = ModelSelectionHelper.NormalizeEffort(
+        // These two fields are the chat's *preference*, not the live session state (that lives on
+        // runtime.Active*), so a null from a capability-less model must not erase them.
+        var normalizedEffort = ModelSelectionHelper.NormalizeEffort(
             effectiveEffort,
             effectiveModel,
             _modelReasoningEfforts,
             _modelDefaultEfforts);
-        chat.LastContextWindowTierUsed = effectiveContextTier;
+        ApplyResolvedModelSelectionToChat(chat, normalizedEffort, effectiveContextTier);
 
         if (updateDisplayed && !string.IsNullOrWhiteSpace(persistedModel))
             ApplyModelSelection(persistedModel, chat.LastReasoningEffortUsed, effectiveContextTier);
@@ -1800,8 +1813,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         var selectedModel = ResolveSelectedModelForChat(chat);
         var persistedEffort = ResolvePersistedReasoningEffortForChat(chat, selectedModel);
-        if (chat.LastReasoningEffortUsed != persistedEffort)
-            chat.LastReasoningEffortUsed = persistedEffort;
+        // Record only a real effort: ResolvePersistedReasoningEffortForChat validates against the model
+        // and returns null for one with no reasoning efforts, which would erase the chat's preference.
+        ApplyResolvedModelSelectionToChat(chat, persistedEffort, contextWindowTier: null);
 
         var effort = persistedEffort;
         var contextTier = ResolveSelectedContextWindowTierForChat(chat, selectedModel);
@@ -2905,6 +2919,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var overrideEffort = ResolveReasoningEffortForModel(
                     targetChat.LastReasoningEffortUsed,
                     targetChat.LastModelUsed);
+                // The persisted tier is a preference and may name a tier this model does not offer, so
+                // normalize it against the override model exactly like the effort above. Resolving via the
+                // composer would normalize against the still-displayed pre-override model and downgrade
+                // an explicit long-context selection to Default.
+                var overrideContextTier = ResolveContextWindowTierForModel(
+                    targetChat.LastContextWindowTierUsed,
+                    targetChat.LastModelUsed);
                 try
                 {
                     await sendSession.SetModelAsync(
@@ -2913,7 +2934,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         {
                             ReasoningEffort = string.IsNullOrWhiteSpace(overrideEffort) ? null : overrideEffort,
                             ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
-                            ContextTier = SessionConfigBuilder.CreateContextTier(targetChat.LastContextWindowTierUsed)
+                            ContextTier = SessionConfigBuilder.CreateContextTier(overrideContextTier)
                         });
                 }
                 catch
@@ -3494,6 +3515,25 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         message.ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames);
     }
 
+    /// <summary>
+    /// Records the model selection a send/session actually resolved to, without erasing the chat's
+    /// remembered preference. <see cref="Chat.LastReasoningEffortUsed"/> and
+    /// <see cref="Chat.LastContextWindowTierUsed"/> double as the per-chat preference the composer
+    /// restores from, and both resolve to null for a model that has no reasoning efforts or no
+    /// long-context tier (e.g. claude-sonnet-4.5). Writing that null through would destroy an explicit
+    /// "Max"/"Long" choice the moment the user detours through such a model, and switching back could
+    /// only fall back to the global default. Every consumer re-validates the stored value against the
+    /// model actually in use, so keeping it is safe.
+    /// </summary>
+    private static void ApplyResolvedModelSelectionToChat(Chat chat, string? reasoningEffort, string? contextWindowTier)
+    {
+        if (!string.IsNullOrWhiteSpace(reasoningEffort))
+            chat.LastReasoningEffortUsed = reasoningEffort;
+
+        if (!string.IsNullOrWhiteSpace(contextWindowTier))
+            chat.LastContextWindowTierUsed = contextWindowTier;
+    }
+
     private void ApplyCurrentComposerSelectionsToChat(Chat chat, string? selectedReasoningEffort)
     {
         chat.AgentId = ActiveAgent?.Id;
@@ -3502,8 +3542,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         chat.ActiveExternalSkillNames = new List<string>(_activeExternalSkillNames);
         chat.ActiveMcpServerNames = new List<string>(ActiveMcpServerNames);
         chat.LastModelUsed = SelectedModel;
-        chat.LastReasoningEffortUsed = selectedReasoningEffort;
-        chat.LastContextWindowTierUsed = GetSelectedContextWindowTier();
+        ApplyResolvedModelSelectionToChat(chat, selectedReasoningEffort, GetSelectedContextWindowTier());
         QueueSaveChat(chat, saveIndex: true);
     }
 
@@ -3524,9 +3563,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         if (!string.IsNullOrWhiteSpace(message.Model))
             chat.LastModelUsed = message.Model;
-        chat.LastReasoningEffortUsed = selectedReasoningEffort;
-        if (!string.IsNullOrWhiteSpace(message.ContextWindowTier))
-            chat.LastContextWindowTierUsed = message.ContextWindowTier;
+        ApplyResolvedModelSelectionToChat(chat, selectedReasoningEffort, message.ContextWindowTier);
         QueueSaveChat(chat, saveIndex: true);
     }
 
@@ -3692,8 +3729,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var targetChat = CurrentChat!;
         ClearPersistedSuggestions(targetChat);
         targetChat.LastModelUsed = SelectedModel;
-        targetChat.LastReasoningEffortUsed = selectedReasoningEffort;
-        targetChat.LastContextWindowTierUsed = selectedContextTier;
+        ApplyResolvedModelSelectionToChat(targetChat, selectedReasoningEffort, selectedContextTier);
 
         // Add user message immediately so it appears before async worktree creation
         var isSilentRetry = _silentRetryPrompt is not null && prompt == _silentRetryPrompt;

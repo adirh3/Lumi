@@ -554,9 +554,12 @@
   "FileSize_MB": "{0} MB",
   "FileSize_GB": "{0} GB",
 
+  "Quality_Minimal": "Minimal",
   "Quality_Low": "Low",
   "Quality_Medium": "Medium",
   "Quality_High": "High",
+  "Quality_XHigh": "X-High",
+  "Quality_Max": "Max",
   "ContextWindow_Default": "Default",
   "ContextWindow_Long": "Long",
 

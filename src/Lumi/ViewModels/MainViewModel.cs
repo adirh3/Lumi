@@ -824,13 +824,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     surface.AvailableModels.Add(t);
 
             // BYOK models are not in the SDK's GetModelsAsync() response, so UpdateModelCapabilities
-            // doesn't see them. Mark them with neutral-but-reasonable capabilities so the UI
+            // doesn't see them. Merge them into the existing capability catalog (never replace it, or
+            // every Copilot model would lose its reasoning efforts and long-context tier) so the UI
             // doesn't flag "no context window" / "no reasoning". If we later add per-model
             // capability overrides in ByokModel, they'll flow through here.
             surface.UpdateModelCapabilities(
                 tokens.Select(t => new ModelInfo { Id = t }).ToList(),
                 longContextModelIds: null,
-                contextWindowLimits: null);
+                contextWindowLimits: null,
+                merge: true);
 
             // Only fix stale/invalid selections — never overwrite a valid non-BYOK pick.
             // BYOK Only blocks at send time; the user keeps their current model visible.

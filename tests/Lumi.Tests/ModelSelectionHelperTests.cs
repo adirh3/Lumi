@@ -54,6 +54,53 @@ public class ModelSelectionHelperTests
     }
 
     [Fact]
+    public void ApplyModelCapabilities_MergeKeepsPreviouslyLearnedCapabilities()
+    {
+        var reasoningEfforts = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var defaultEfforts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var contextTokenLimits = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
+        ModelSelectionHelper.ApplyModelCapabilities(
+            [
+                new ModelInfo
+                {
+                    Id = "claude-opus-5",
+                    SupportedReasoningEfforts = ["low", "medium", "high", "xhigh", "max"],
+                    DefaultReasoningEffort = "high"
+                }
+            ],
+            reasoningEfforts,
+            defaultEfforts,
+            contextTokenLimits);
+
+        // A supplementary catalog (BYOK picker tokens) must layer on top, never replace.
+        ModelSelectionHelper.ApplyModelCapabilities(
+            [new ModelInfo { Id = "byok:endpoint:model" }],
+            reasoningEfforts,
+            defaultEfforts,
+            contextTokenLimits,
+            replaceExisting: false);
+
+        Assert.Equal(["low", "medium", "high", "xhigh", "max"], reasoningEfforts["claude-opus-5"]);
+        Assert.Equal("high", defaultEfforts["claude-opus-5"]);
+    }
+
+    [Theory]
+    [InlineData("minimal")]
+    [InlineData("low")]
+    [InlineData("medium")]
+    [InlineData("high")]
+    [InlineData("xhigh")]
+    [InlineData("max")]
+    [InlineData("turbo")]
+    public void DisplayToEffort_RoundTripsRenderedLabel(string effort)
+    {
+        var display = ModelSelectionHelper.EffortToDisplay(effort);
+
+        Assert.Equal(effort, ModelSelectionHelper.DisplayToEffort(display));
+    }
+
+    [Fact]
     public void GetContextWindowTiers_ReturnsChoicesForDetectedModelsOnly()
     {
         var longContextModelIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
