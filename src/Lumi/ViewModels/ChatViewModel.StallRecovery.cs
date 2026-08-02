@@ -15,7 +15,176 @@ public partial class ChatViewModel
 {
     private static readonly TimeSpan SilentTurnRecoveryTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan PostToolReconciliationDelay = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan PostToolActiveRecoveryDelay = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan PersistedRecoveryTailQuietPeriod = TimeSpan.FromMilliseconds(500);
     private const int PostToolReconciliationMaxAttempts = 3;
+
+    private enum PostToolRecoveryProbeResult
+    {
+        NoChange,
+        ActiveWorkObserved,
+        Applied
+    }
+
+    private async Task<IReadOnlyList<SessionEvent>?> TryGetSessionEventsAsync(
+        CopilotSession session,
+        CancellationToken ct)
+    {
+        try
+        {
+            return await session.GetEventsAsync(ct);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<PendingTurnRecoveryAnalysis> AnalyzePendingTurnRecoveryAsync(
+        CopilotSession session,
+        int expectedSessionUserMessageCount,
+        CancellationToken ct)
+    {
+        var persistedSnapshot = await PendingTurnRecoveryAnalyzer.TryAnalyzeSessionLogSnapshotAsync(
+            session.SessionId,
+            expectedSessionUserMessageCount,
+            ct);
+        var persistedAnalysis = persistedSnapshot?.Analysis;
+        // Prefer a decisive local snapshot over retransferring the entire session history, which can
+        // be hundreds of megabytes for long-running Sol chats. Active tools remain a polling signal;
+        // terminal/completed snapshots require a quiet tail so a temporary EOF cannot end a session.
+        if (persistedAnalysis is { UserMessageObserved: true, ActiveToolCount: > 0 })
+            return persistedAnalysis;
+
+        if (persistedAnalysis is { UserMessageObserved: true }
+            && (persistedAnalysis.TerminalState != PendingTurnTerminalState.None
+                || persistedAnalysis.AssistantTurnEnded))
+        {
+            if (persistedSnapshot is not null
+                && await PendingTurnRecoveryAnalyzer.IsLogSnapshotStableAsync(
+                    persistedSnapshot,
+                    PersistedRecoveryTailQuietPeriod,
+                    ct))
+            {
+                return persistedAnalysis;
+            }
+
+            // Never let an unstable persisted terminal override fresher live state in Merge.
+            persistedAnalysis = null;
+        }
+
+        PendingTurnRecoveryAnalysis? liveAnalysis = null;
+        var liveEvents = await TryGetSessionEventsAsync(session, ct);
+        if (liveEvents is not null)
+            liveAnalysis = PendingTurnRecoveryAnalyzer.Analyze(liveEvents, expectedSessionUserMessageCount);
+
+        return PendingTurnRecoveryAnalyzer.Merge(liveAnalysis, persistedAnalysis);
+    }
+
+    private void SyncRecoveredAssistantMessages(
+        Chat chat,
+        IReadOnlyList<RecoveredAssistantMessage> recoveredAssistantMessages)
+    {
+        if (recoveredAssistantMessages.Count == 0)
+            return;
+
+        var author = chat.AgentId.HasValue
+            ? _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == chat.AgentId.Value)?.Name ?? Loc.Author_Lumi
+            : Loc.Author_Lumi;
+        foreach (var assistantMessage in recoveredAssistantMessages)
+        {
+            var recoveredMessage = new ChatMessage
+            {
+                Role = "assistant",
+                Author = author,
+                Content = assistantMessage.Content,
+                IsStreaming = false,
+                Model = ResolveSelectedModelForChat(chat)
+            };
+            chat.Messages.Add(recoveredMessage);
+
+            if (CurrentChat?.Id == chat.Id)
+                Messages.Add(new ChatMessageViewModel(recoveredMessage));
+        }
+
+        if (CurrentChat?.Id == chat.Id)
+            ScrollToEndRequested?.Invoke();
+
+        QueueSaveChat(chat, saveIndex: true, touchIndex: true);
+    }
+
+    private async Task FinalizeRecoveredAssistantMessagesAsync(Chat chat)
+    {
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var runtime = GetOrCreateRuntimeState(chat.Id);
+            ReconcileInProgressSubagentTools(chat, "Completed");
+            MarkRuntimeTerminal(runtime);
+            if (CurrentChat?.Id == chat.Id)
+                ApplyDisplayedRuntimeState(runtime);
+        });
+    }
+
+    private async Task<bool> WaitForRecoveredTurnAsync(
+        CopilotSession session,
+        Chat chat,
+        int expectedSessionUserMessageCount,
+        int assistantCountBeforeRecovery,
+        CancellationToken ct)
+    {
+        var sawRecoveredTurnActivity = false;
+        var turnActivity = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var sub = session.On<SessionEvent>(evt =>
+        {
+            switch (evt)
+            {
+                case AssistantTurnStartEvent:
+                case AssistantReasoningEvent:
+                case AssistantReasoningDeltaEvent:
+                case AssistantMessageDeltaEvent:
+                case AssistantMessageEvent:
+                case ToolExecutionStartEvent:
+                case ToolExecutionPartialResultEvent:
+                case ToolExecutionProgressEvent:
+                case ToolExecutionCompleteEvent:
+                case AssistantTurnEndEvent:
+                    sawRecoveredTurnActivity = true;
+                    turnActivity.TrySetResult(true);
+                    break;
+                case SessionIdleEvent:
+                    turnActivity.TrySetResult(true);
+                    break;
+                case SessionErrorEvent err:
+                    turnActivity.TrySetException(new InvalidOperationException(err.Data.Message));
+                    break;
+            }
+        });
+
+        try
+        {
+            using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            waitCts.CancelAfter(TimeSpan.FromSeconds(8));
+            await turnActivity.Task.WaitAsync(waitCts.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+        }
+
+        var recoveredAnalysis = await AnalyzePendingTurnRecoveryAsync(
+            session,
+            expectedSessionUserMessageCount,
+            ct);
+        if (await ApplyRecoveredTurnStateAsync(chat, recoveredAnalysis))
+            return true;
+
+        if (recoveredAnalysis.ActiveToolCount > 0)
+        {
+            SchedulePostToolReconciliation(chat.Id, treatCompletedTurnAsIdle: true);
+            return true;
+        }
+
+        return sawRecoveredTurnActivity || CountCompletedAssistantMessages(chat) > assistantCountBeforeRecovery;
+    }
 
     private void PreparePendingTurnTracking(
         Chat chat,
@@ -201,9 +370,11 @@ public partial class ChatViewModel
     {
         try
         {
-            for (var attempt = 0; attempt < PostToolReconciliationMaxAttempts; attempt++)
+            var failedAttempts = 0;
+            var nextDelay = PostToolReconciliationDelay;
+            while (failedAttempts < PostToolReconciliationMaxAttempts)
             {
-                await Task.Delay(PostToolReconciliationDelay, reconciliationCts.Token);
+                await Task.Delay(nextDelay, reconciliationCts.Token);
 
                 if (!_runtimeStates.TryGetValue(chatId, out var runtime))
                     return;
@@ -215,14 +386,31 @@ public partial class ChatViewModel
                         return;
                 }
 
-                using var recoveryCts = CancellationTokenSource.CreateLinkedTokenSource(reconciliationCts.Token);
-                recoveryCts.CancelAfter(SilentTurnRecoveryTimeout);
-                if (await TryApplyCurrentTurnRecoveryAsync(
+                try
+                {
+                    using var recoveryCts = CancellationTokenSource.CreateLinkedTokenSource(reconciliationCts.Token);
+                    recoveryCts.CancelAfter(SilentTurnRecoveryTimeout);
+                    var result = await TryApplyCurrentTurnRecoveryAsync(
                         chatId,
                         sequence,
                         recoveryCts.Token,
-                        treatCompletedTurnAsIdle))
-                    return;
+                        treatCompletedTurnAsIdle);
+                    if (result == PostToolRecoveryProbeResult.Applied)
+                        return;
+
+                    if (result == PostToolRecoveryProbeResult.ActiveWorkObserved)
+                    {
+                        nextDelay = PostToolActiveRecoveryDelay;
+                        continue;
+                    }
+                }
+                catch (OperationCanceledException) when (!reconciliationCts.IsCancellationRequested)
+                {
+                    // A timed-out probe should not cancel the remaining reconciliation attempts.
+                }
+
+                failedAttempts++;
+                nextDelay = PostToolReconciliationDelay;
             }
         }
         catch (OperationCanceledException) when (reconciliationCts.IsCancellationRequested)
@@ -243,7 +431,7 @@ public partial class ChatViewModel
         }
     }
 
-    private async Task<bool> TryApplyCurrentTurnRecoveryAsync(
+    private async Task<PostToolRecoveryProbeResult> TryApplyCurrentTurnRecoveryAsync(
         Guid chatId,
         long sequence,
         CancellationToken ct,
@@ -251,30 +439,39 @@ public partial class ChatViewModel
     {
         var chat = _dataStore.Data.Chats.FirstOrDefault(c => c.Id == chatId);
         if (chat is null || !_runtimeStates.TryGetValue(chatId, out var runtime))
-            return false;
+            return PostToolRecoveryProbeResult.NoChange;
 
         int pendingSessionUserMessageCount;
         lock (runtime)
         {
             if (runtime.PendingSessionUserMessageCount <= 0 || runtime.PendingTurnSequence != sequence)
-                return false;
+                return PostToolRecoveryProbeResult.NoChange;
 
             pendingSessionUserMessageCount = runtime.PendingSessionUserMessageCount;
         }
 
         var currentSession = _sessionCache.GetValueOrDefault(chatId);
         if (currentSession is null)
-            return false;
+            return PostToolRecoveryProbeResult.NoChange;
 
         var analysis = await AnalyzePendingTurnRecoveryAsync(
             currentSession,
             pendingSessionUserMessageCount,
             ct);
 
-        return await ApplyRecoveredTurnStateAsync(
-            chat,
-            analysis,
-            treatCompletedTurnAsIdle);
+        lock (runtime)
+        {
+            var stillEligible = IsPostToolReconciliationEligible(runtime, treatCompletedTurnAsIdle);
+            if (runtime.PendingTurnSequence != sequence || !stillEligible)
+                return PostToolRecoveryProbeResult.NoChange;
+        }
+
+        if (await ApplyRecoveredTurnStateAsync(chat, analysis, treatCompletedTurnAsIdle))
+            return PostToolRecoveryProbeResult.Applied;
+
+        return analysis.UserMessageObserved && analysis.ActiveToolCount > 0
+            ? PostToolRecoveryProbeResult.ActiveWorkObserved
+            : PostToolRecoveryProbeResult.NoChange;
     }
 
     private async Task<bool> ApplyRecoveredTurnStateAsync(
@@ -286,7 +483,6 @@ public partial class ChatViewModel
             return false;
 
         await ApplyRecoveredToolStatusesAsync(chat, analysis);
-        SetPendingToolCount(chat.Id, analysis.ActiveToolCount);
         await SyncRecoveredTurnAssistantMessagesAsync(chat, analysis);
 
         switch (analysis.TerminalState)
@@ -309,7 +505,9 @@ public partial class ChatViewModel
         }
 
         if (analysis.ActiveToolCount > 0)
-            return true;
+            return false;
+
+        SetPendingToolCount(chat.Id, 0);
 
         if (treatCompletedTurnAsIdle && CanTreatCompletedTurnAsIdle(analysis))
         {
@@ -347,7 +545,9 @@ public partial class ChatViewModel
 
     private async Task ApplyRecoveredToolStatusesAsync(Chat chat, PendingTurnRecoveryAnalysis analysis)
     {
-        if (analysis.CompletedToolCallIds.Count == 0 && analysis.FailedToolCallIds.Count == 0)
+        if (analysis.CompletedToolCallIds.Count == 0
+            && analysis.FailedToolCallIds.Count == 0
+            && analysis.StoppedToolCallIds.Count == 0)
             return;
 
         // Recovery is the terminal event this tool will ever get, so freeze its duration here too —
@@ -358,36 +558,40 @@ public partial class ChatViewModel
 
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
-            foreach (var toolCallId in analysis.CompletedToolCallIds)
+            void ApplyStatus(IReadOnlyCollection<string> toolCallIds, string status)
             {
-                foreach (var message in chat.Messages.Where(m => m.ToolCallId == toolCallId))
-                {
-                    message.MarkToolFinished(recoveredAt);
-                    message.ToolStatus = "Completed";
-                }
+                ApplyRecoveredToolStatusToMessages(chat, toolCallIds, status, recoveredAt);
+                if (CurrentChat?.Id != chat.Id)
+                    return;
 
-                if (CurrentChat?.Id == chat.Id)
+                foreach (var vm in Messages.Where(m =>
+                             m.Message.ToolCallId is { } toolCallId
+                             && toolCallIds.Contains(toolCallId)))
                 {
-                    foreach (var vm in Messages.Where(m => m.Message.ToolCallId == toolCallId))
-                        vm.NotifyToolStatusChanged();
+                    vm.NotifyToolStatusChanged();
                 }
             }
 
-            foreach (var toolCallId in analysis.FailedToolCallIds)
-            {
-                foreach (var message in chat.Messages.Where(m => m.ToolCallId == toolCallId))
-                {
-                    message.MarkToolFinished(recoveredAt);
-                    message.ToolStatus = "Failed";
-                }
-
-                if (CurrentChat?.Id == chat.Id)
-                {
-                    foreach (var vm in Messages.Where(m => m.Message.ToolCallId == toolCallId))
-                        vm.NotifyToolStatusChanged();
-                }
-            }
+            ApplyStatus(analysis.StoppedToolCallIds, "Stopped");
+            ApplyStatus(analysis.CompletedToolCallIds, "Completed");
+            ApplyStatus(analysis.FailedToolCallIds, "Failed");
         });
+    }
+
+    private static void ApplyRecoveredToolStatusToMessages(
+        Chat chat,
+        IReadOnlyCollection<string> toolCallIds,
+        string status,
+        DateTimeOffset recoveredAt)
+    {
+        foreach (var toolCallId in toolCallIds)
+        {
+            foreach (var message in chat.Messages.Where(m => m.ToolCallId == toolCallId))
+            {
+                message.MarkToolFinished(recoveredAt);
+                message.ToolStatus = status;
+            }
+        }
     }
 
     private async Task SyncRecoveredTurnAssistantMessagesAsync(Chat chat, PendingTurnRecoveryAnalysis analysis)

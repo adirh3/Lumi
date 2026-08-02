@@ -107,6 +107,175 @@ public sealed class PendingTurnRecoveryAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzePersistedLog_TerminalStateStopsActiveTools()
+    {
+        var lines = new[]
+        {
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"continue\"}}",
+            "{\"type\":\"tool.execution_start\",\"data\":{\"toolCallId\":\"tool-1\",\"toolName\":\"powershell\"}}",
+            "{\"type\":\"session.shutdown\",\"data\":{\"shutdownType\":\"routine\"}}"
+        };
+
+        var analysis = PendingTurnRecoveryAnalyzer.AnalyzePersistedLog(lines, expectedSessionUserMessageCount: 1);
+
+        Assert.Equal(PendingTurnTerminalState.Shutdown, analysis.TerminalState);
+        Assert.Equal(0, analysis.ActiveToolCount);
+        Assert.Contains("tool-1", analysis.StoppedToolCallIds);
+    }
+
+    [Fact]
+    public void Analyze_ClearsStaleShutdownWhenTurnEndArrives()
+    {
+        var events = new SessionEvent[]
+        {
+            UserMessage("continue"),
+            SessionShutdown(),
+            AssistantTurnEnd()
+        };
+
+        var analysis = PendingTurnRecoveryAnalyzer.Analyze(events, expectedSessionUserMessageCount: 1);
+
+        Assert.Equal(PendingTurnTerminalState.None, analysis.TerminalState);
+        Assert.True(analysis.AssistantTurnEnded);
+    }
+
+    [Fact]
+    public void AnalyzePersistedLog_ClearsStaleShutdownWhenTurnEndArrives()
+    {
+        var lines = new[]
+        {
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"continue\"}}",
+            "{\"type\":\"session.shutdown\",\"data\":{\"shutdownType\":\"routine\"}}",
+            "{\"type\":\"assistant.turn_end\",\"data\":{\"turnId\":\"0\"}}"
+        };
+
+        var analysis = PendingTurnRecoveryAnalyzer.AnalyzePersistedLog(lines, expectedSessionUserMessageCount: 1);
+
+        Assert.Equal(PendingTurnTerminalState.None, analysis.TerminalState);
+        Assert.True(analysis.AssistantTurnEnded);
+    }
+
+    [Fact]
+    public void AnalyzePersistedLog_DoesNotRecoverTerminalFromSupersededUserTurn()
+    {
+        var lines = new[]
+        {
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"first\"}}",
+            "{\"type\":\"session.shutdown\",\"data\":{\"shutdownType\":\"routine\"}}",
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"second\"}}",
+            "{\"type\":\"assistant.message_start\",\"data\":{\"messageId\":\"message-2\"}}"
+        };
+
+        var analysis = PendingTurnRecoveryAnalyzer.AnalyzePersistedLog(lines, expectedSessionUserMessageCount: 1);
+
+        Assert.True(analysis.UserMessageObserved);
+        Assert.Equal(PendingTurnTerminalState.None, analysis.TerminalState);
+        Assert.False(analysis.AssistantTurnEnded);
+    }
+
+    [Fact]
+    public void Analyze_ClearsStaleShutdownWhenAssistantActivityResumes()
+    {
+        var events = new SessionEvent[]
+        {
+            UserMessage("continue"),
+            ToolStart("orphaned-tool", "powershell"),
+            SessionShutdown(),
+            AssistantMessage("Recovered answer"),
+            AssistantTurnEnd()
+        };
+
+        var analysis = PendingTurnRecoveryAnalyzer.Analyze(events, expectedSessionUserMessageCount: 1);
+
+        Assert.True(analysis.UserMessageObserved);
+        Assert.Equal(PendingTurnTerminalState.None, analysis.TerminalState);
+        Assert.True(analysis.AssistantTurnEnded);
+        Assert.Equal("Recovered answer", Assert.Single(analysis.AssistantMessages).Content);
+        Assert.Equal(0, analysis.ActiveToolCount);
+        Assert.Contains("orphaned-tool", analysis.StoppedToolCallIds);
+    }
+
+    [Fact]
+    public void AnalyzePersistedLog_ClearsStaleShutdownWhenAssistantActivityResumes()
+    {
+        var lines = new[]
+        {
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"continue\"}}",
+            "{\"type\":\"tool.execution_start\",\"data\":{\"toolCallId\":\"orphaned-tool\",\"toolName\":\"powershell\"}}",
+            "{\"type\":\"session.shutdown\",\"data\":{\"shutdownType\":\"routine\"}}",
+            "{\"type\":\"assistant.message\",\"data\":{\"content\":\"Recovered answer\"}}",
+            "{\"type\":\"assistant.turn_end\",\"data\":{\"turnId\":\"0\"}}"
+        };
+
+        var analysis = PendingTurnRecoveryAnalyzer.AnalyzePersistedLog(lines, expectedSessionUserMessageCount: 1);
+
+        Assert.True(analysis.UserMessageObserved);
+        Assert.Equal(PendingTurnTerminalState.None, analysis.TerminalState);
+        Assert.True(analysis.AssistantTurnEnded);
+        Assert.Equal("Recovered answer", Assert.Single(analysis.AssistantMessages).Content);
+        Assert.Equal(0, analysis.ActiveToolCount);
+        Assert.Contains("orphaned-tool", analysis.StoppedToolCallIds);
+    }
+
+    [Fact]
+    public void AnalyzePersistedLog_LaterToolCompletionOverridesOrphanedStatus()
+    {
+        var lines = new[]
+        {
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"continue\"}}",
+            "{\"type\":\"tool.execution_start\",\"data\":{\"toolCallId\":\"tool-1\",\"toolName\":\"powershell\"}}",
+            "{\"type\":\"session.shutdown\",\"data\":{\"shutdownType\":\"routine\"}}",
+            "{\"type\":\"assistant.message_start\",\"data\":{\"messageId\":\"message-1\"}}",
+            "{\"type\":\"tool.execution_complete\",\"data\":{\"toolCallId\":\"tool-1\",\"success\":true}}",
+            "{\"type\":\"assistant.turn_end\",\"data\":{\"turnId\":\"0\"}}"
+        };
+
+        var analysis = PendingTurnRecoveryAnalyzer.AnalyzePersistedLog(lines, expectedSessionUserMessageCount: 1);
+
+        Assert.Contains("tool-1", analysis.CompletedToolCallIds);
+        Assert.DoesNotContain("tool-1", analysis.StoppedToolCallIds);
+    }
+
+    [Fact]
+    public void AnalyzePersistedLog_ProgressReactivatesToolAfterStaleTerminal()
+    {
+        var lines = new[]
+        {
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"continue\"}}",
+            "{\"type\":\"tool.execution_start\",\"data\":{\"toolCallId\":\"tool-1\",\"toolName\":\"powershell\"}}",
+            "{\"type\":\"session.shutdown\",\"data\":{\"shutdownType\":\"routine\"}}",
+            "{\"type\":\"tool.execution_progress\",\"data\":{\"toolCallId\":\"tool-1\",\"progressMessage\":\"working\"}}"
+        };
+
+        var analysis = PendingTurnRecoveryAnalyzer.AnalyzePersistedLog(lines, expectedSessionUserMessageCount: 1);
+
+        Assert.Equal(PendingTurnTerminalState.None, analysis.TerminalState);
+        Assert.Equal(1, analysis.ActiveToolCount);
+        Assert.DoesNotContain("tool-1", analysis.StoppedToolCallIds);
+    }
+
+    [Fact]
+    public void AnalyzePersistedLog_SubagentFailureOverridesWrapperCompletion()
+    {
+        var lines = new[]
+        {
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"continue\"}}",
+            "{\"type\":\"tool.execution_start\",\"data\":{\"toolCallId\":\"agent-1\",\"toolName\":\"task\"}}",
+            "{\"type\":\"tool.execution_complete\",\"data\":{\"toolCallId\":\"agent-1\",\"success\":true}}",
+            "{\"type\":\"subagent.started\",\"data\":{\"toolCallId\":\"agent-1\"}}",
+            "{\"type\":\"subagent.failed\",\"data\":{\"toolCallId\":\"agent-1\",\"error\":\"failed\"}}",
+            "{\"type\":\"assistant.turn_end\",\"data\":{\"turnId\":\"0\"}}"
+        };
+
+        var analysis = PendingTurnRecoveryAnalyzer.AnalyzePersistedLog(lines, expectedSessionUserMessageCount: 1);
+
+        Assert.Contains("agent-1", analysis.FailedToolCallIds);
+        Assert.DoesNotContain("agent-1", analysis.CompletedToolCallIds);
+        Assert.DoesNotContain("agent-1", analysis.StoppedToolCallIds);
+        Assert.Equal(0, analysis.ActiveToolCount);
+    }
+
+    [Fact]
     public void Analyze_FlagsAssistantTurnEnded_WhenTurnEndsWithoutIdle()
     {
         var events = new SessionEvent[]
@@ -187,6 +356,8 @@ public sealed class PendingTurnRecoveryAnalyzerTests
     [InlineData("assistant.streaming_delta")]
     [InlineData("assistant.reasoning_delta")]
     [InlineData("assistant.reasoning")]
+    [InlineData("tool.execution_partial_result")]
+    [InlineData("tool.execution_progress")]
     [InlineData("session.background_tasks_changed")]
     [InlineData("subagent.selected")]
     [InlineData("subagent.deselected")]
@@ -526,6 +697,52 @@ public sealed class PendingTurnRecoveryAnalyzerTests
             .SelectForkCutEvent(new List<SessionEvent> { UserMessage("one") }, -1).Resolved);
     }
 
+    [Fact]
+    public async Task IsLogSnapshotStableAsync_ReturnsTrueWhenTailStaysUnchanged()
+    {
+        using var temp = new TemporaryDirectory();
+        var logPath = Path.Combine(temp.Path, "events.jsonl");
+        await File.WriteAllLinesAsync(logPath,
+        [
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"continue\"}}",
+            "{\"type\":\"assistant.turn_end\",\"data\":{\"turnId\":\"0\"}}"
+        ]);
+        var snapshot = await PendingTurnRecoveryAnalyzer.TryAnalyzeLogFileSnapshotAsync(
+            logPath,
+            expectedSessionUserMessageCount: 1);
+
+        Assert.NotNull(snapshot);
+        Assert.True(await PendingTurnRecoveryAnalyzer.IsLogSnapshotStableAsync(
+            snapshot,
+            TimeSpan.FromMilliseconds(25)));
+    }
+
+    [Fact]
+    public async Task IsLogSnapshotStableAsync_ReturnsFalseWhenTailGrowsDuringQuietPeriod()
+    {
+        using var temp = new TemporaryDirectory();
+        var logPath = Path.Combine(temp.Path, "events.jsonl");
+        await File.WriteAllLinesAsync(logPath,
+        [
+            "{\"type\":\"user.message\",\"data\":{\"content\":\"continue\"}}",
+            "{\"type\":\"session.shutdown\",\"data\":{\"shutdownType\":\"routine\"}}"
+        ]);
+        var snapshot = await PendingTurnRecoveryAnalyzer.TryAnalyzeLogFileSnapshotAsync(
+            logPath,
+            expectedSessionUserMessageCount: 1);
+
+        Assert.NotNull(snapshot);
+        var stabilityCheck = PendingTurnRecoveryAnalyzer.IsLogSnapshotStableAsync(
+            snapshot,
+            TimeSpan.FromMilliseconds(200));
+        await Task.Delay(25);
+        await File.AppendAllTextAsync(
+            logPath,
+            Environment.NewLine + "{\"type\":\"assistant.message_start\",\"data\":{\"messageId\":\"message-1\"}}");
+        Assert.False(await stabilityCheck);
+        Assert.False(await stabilityCheck);
+    }
+
     private static string CreateSessionLog(string configDir, string sessionId)
     {
         var sessionDir = Path.Combine(configDir, "session-state", sessionId);
@@ -637,6 +854,24 @@ public sealed class PendingTurnRecoveryAnalyzerTests
             {
                 ErrorType = "fatal",
                 Message = message
+            }
+        };
+
+    private static SessionShutdownEvent SessionShutdown()
+        => new()
+        {
+            Data = new SessionShutdownData
+            {
+                CodeChanges = new ShutdownCodeChanges
+                {
+                    FilesModified = [],
+                    LinesAdded = 0,
+                    LinesRemoved = 0
+                },
+                ModelMetrics = new Dictionary<string, ShutdownModelMetric>(),
+                SessionStartTime = 0,
+                ShutdownType = ShutdownType.Routine,
+                TotalApiDuration = TimeSpan.Zero
             }
         };
 

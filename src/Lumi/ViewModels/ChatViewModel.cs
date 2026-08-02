@@ -4161,7 +4161,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             using var reconnectCts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
             var runtime = GetOrCreateRuntimeState(chat.Id);
-            MarkRuntimeActive(runtime, Loc.Status_Reconnecting);
+            MarkRuntimeActive(runtime, Loc.Status_Reconnecting, isStreaming: false);
             if (CurrentChat?.Id == chat.Id)
                 ApplyDisplayedRuntimeState(runtime);
 
@@ -4225,8 +4225,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return (true, null);
         }
 
-        if (CountCompletedAssistantMessages(chat) > pendingAssistantCount)
+        if (recoveredAnalysis.ActiveToolCount > 0)
+        {
+            SchedulePostToolReconciliation(chat.Id, treatCompletedTurnAsIdle: true);
             return (true, null);
+        }
+
+        if (recoveredAnalysis.ActiveToolCount == 0
+            && CountCompletedAssistantMessages(chat) > pendingAssistantCount)
+        {
+            await FinalizeRecoveredAssistantMessagesAsync(chat);
+            return (true, null);
+        }
 
         var recoveredByWaiting = await WaitForRecoveredTurnAsync(
             recoveredSession,
@@ -4252,36 +4262,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private static int CountCompletedAssistantMessages(Chat chat)
         => chat.Messages.Count(static m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content));
-
-    private async Task<IReadOnlyList<SessionEvent>?> TryGetSessionEventsAsync(CopilotSession session, CancellationToken ct)
-    {
-        try
-        {
-            return await session.GetEventsAsync(ct);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private async Task<PendingTurnRecoveryAnalysis> AnalyzePendingTurnRecoveryAsync(
-        CopilotSession session,
-        int expectedSessionUserMessageCount,
-        CancellationToken ct)
-    {
-        PendingTurnRecoveryAnalysis? liveAnalysis = null;
-        var liveEvents = await TryGetSessionEventsAsync(session, ct);
-        if (liveEvents is not null)
-            liveAnalysis = PendingTurnRecoveryAnalyzer.Analyze(liveEvents, expectedSessionUserMessageCount);
-
-        var persistedAnalysis = await PendingTurnRecoveryAnalyzer.TryAnalyzeSessionLogAsync(
-            session.SessionId,
-            expectedSessionUserMessageCount,
-            ct);
-
-        return PendingTurnRecoveryAnalyzer.Merge(liveAnalysis, persistedAnalysis);
-    }
 
     private async Task<int> CaptureExpectedSessionUserMessageCountAsync(
         CopilotSession session,
@@ -4322,98 +4302,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return foundObservedCount
             ? observedSessionUserMessageCount + 1
             : Math.Max(1, fallbackExpectedSessionUserMessageCount);
-    }
-
-    private bool SyncRecoveredAssistantMessages(Chat chat, IReadOnlyList<RecoveredAssistantMessage> recoveredAssistantMessages)
-    {
-        if (recoveredAssistantMessages.Count == 0)
-            return false;
-
-        var author = chat.AgentId.HasValue
-            ? _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == chat.AgentId.Value)?.Name ?? Loc.Author_Lumi
-            : Loc.Author_Lumi;
-        foreach (var assistantMessage in recoveredAssistantMessages)
-        {
-            var recoveredMessage = new ChatMessage
-            {
-                Role = "assistant",
-                Author = author,
-                Content = assistantMessage.Content,
-                IsStreaming = false,
-                Model = ResolveSelectedModelForChat(chat)
-            };
-            chat.Messages.Add(recoveredMessage);
-
-            if (CurrentChat?.Id == chat.Id)
-                Messages.Add(new ChatMessageViewModel(recoveredMessage));
-        }
-
-        var runtime = GetOrCreateRuntimeState(chat.Id);
-        ReconcileInProgressSubagentTools(chat, "Completed");
-        MarkRuntimeTerminal(runtime);
-        if (CurrentChat?.Id == chat.Id)
-        {
-            ApplyDisplayedRuntimeState(runtime);
-            ScrollToEndRequested?.Invoke();
-        }
-
-        QueueSaveChat(chat, saveIndex: true, touchIndex: true);
-        return true;
-    }
-
-    private async Task<bool> WaitForRecoveredTurnAsync(
-        CopilotSession session,
-        Chat chat,
-        int expectedSessionUserMessageCount,
-        int assistantCountBeforeRecovery,
-        CancellationToken ct)
-    {
-        var sawRecoveredTurnActivity = false;
-        var turnActivity = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var sub = session.On<SessionEvent>(evt =>
-        {
-            switch (evt)
-            {
-                case AssistantTurnStartEvent:
-                case AssistantReasoningEvent:
-                case AssistantReasoningDeltaEvent:
-                case AssistantMessageDeltaEvent:
-                case AssistantMessageEvent:
-                case ToolExecutionStartEvent:
-                case ToolExecutionPartialResultEvent:
-                case ToolExecutionProgressEvent:
-                case ToolExecutionCompleteEvent:
-                case AssistantTurnEndEvent:
-                    sawRecoveredTurnActivity = true;
-                    turnActivity.TrySetResult(true);
-                    break;
-                case SessionIdleEvent:
-                    turnActivity.TrySetResult(true);
-                    break;
-                case SessionErrorEvent err:
-                    turnActivity.TrySetException(new InvalidOperationException(err.Data.Message));
-                    break;
-            }
-        });
-
-        try
-        {
-            using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            waitCts.CancelAfter(TimeSpan.FromSeconds(8));
-            await turnActivity.Task.WaitAsync(waitCts.Token);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-        }
-
-        var recoveredAnalysis = await AnalyzePendingTurnRecoveryAsync(
-            session,
-            expectedSessionUserMessageCount,
-            ct);
-        if (await ApplyRecoveredTurnStateAsync(chat, recoveredAnalysis))
-            return true;
-
-        return sawRecoveredTurnActivity || CountCompletedAssistantMessages(chat) > assistantCountBeforeRecovery;
     }
 
     private bool WasCancelledByUser(Guid? chatId)
