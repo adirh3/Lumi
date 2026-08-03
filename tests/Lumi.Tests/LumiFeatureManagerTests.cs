@@ -238,6 +238,7 @@ public sealed class LumiFeatureManagerTests
         var result = manager.ManageMcps("update", identifier: server.Name, name: "local-filesystem");
 
         Assert.True(result.DataChanged);
+        Assert.True(result.McpCatalogChanged);
         Assert.Equal("filesystem", result.RenamedMcpOldName);
         Assert.Equal("local-filesystem", result.RenamedMcpNewName);
         Assert.Equal("local-filesystem", server.Name);
@@ -279,6 +280,7 @@ public sealed class LumiFeatureManagerTests
         var result = manager.ManageMcps("delete", identifier: server.Name);
 
         Assert.True(result.DataChanged);
+        Assert.True(result.McpCatalogChanged);
         Assert.Equal("filesystem", result.DeletedMcpName);
         Assert.Empty(data.McpServers);
         Assert.Empty(agent.McpServerIds);

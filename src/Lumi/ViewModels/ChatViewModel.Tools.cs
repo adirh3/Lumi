@@ -1367,6 +1367,8 @@ public partial class ChatViewModel
                 PrunePendingSkillInjections();
             }
 
+            if (result.McpCatalogChanged)
+                McpConfigurationChanged?.Invoke();
             FeatureManagementStateChanged?.Invoke();
         });
 

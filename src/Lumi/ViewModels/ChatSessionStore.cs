@@ -12,6 +12,8 @@ namespace Lumi.ViewModels;
 public sealed class ChatSessionStore : IDisposable
 {
     private const int DefaultMaxIdleCachedSurfaces = 8;
+    // Every cached surface is a recently used parallel-work chat, so keep its Copilot session warm.
+    // The surface LRU is the hard process bound: the ninth idle chat evicts and destroys the oldest.
 
     // How many idle-cached surfaces keep their realized transcript controls. Beyond this many, cached
     // surfaces are kept as lightweight view-models only — their built Avalonia control subtrees are
@@ -31,6 +33,7 @@ public sealed class ChatSessionStore : IDisposable
     private readonly ByokRateLimiter _byokRateLimiter = new();
     private readonly Func<ChatViewModel, Chat, Task> _loadChatAsync;
     private readonly int _maxIdleCachedSurfaces;
+    private readonly int _maxWarmIdleSessions;
     private readonly Dictionary<Guid, ChatViewModel> _sessionsByChatId = [];
     private readonly Dictionary<ChatViewModel, int> _hostCounts = [];
     private readonly HashSet<ChatViewModel> _surfaces = [];
@@ -54,11 +57,15 @@ public sealed class ChatSessionStore : IDisposable
         ChatSurfaceRegistry registry,
         Func<ChatViewModel, Chat, Task> loadChatAsync,
         int maxIdleCachedSurfaces = DefaultMaxIdleCachedSurfaces,
+        int? maxWarmIdleSessions = null,
         GlobalSearchService? globalSearchService = null,
         Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null)
     {
         if (maxIdleCachedSurfaces < 0)
             throw new ArgumentOutOfRangeException(nameof(maxIdleCachedSurfaces));
+        var warmIdleSessionLimit = maxWarmIdleSessions ?? maxIdleCachedSurfaces;
+        if (warmIdleSessionLimit < 0 || warmIdleSessionLimit > maxIdleCachedSurfaces)
+            throw new ArgumentOutOfRangeException(nameof(maxWarmIdleSessions));
 
         _dataStore = dataStore;
         _copilotService = copilotService;
@@ -67,6 +74,7 @@ public sealed class ChatSessionStore : IDisposable
         _secureKeyStore = secureKeyStore;
         _loadChatAsync = loadChatAsync;
         _maxIdleCachedSurfaces = maxIdleCachedSurfaces;
+        _maxWarmIdleSessions = warmIdleSessionLimit;
         // Pass `this`: the service only stores the reference (it makes no store calls during construction).
         _orchestrationService = new ChatOrchestrationService(dataStore, registry, this);
         OrchestrationService = _orchestrationService;
@@ -191,6 +199,20 @@ public sealed class ChatSessionStore : IDisposable
             action(surface);
     }
 
+    public void ApplyMcpConfigurationChange()
+    {
+        McpProxyRuntime.Shared.RetireUserRegistrationsExcept(_dataStore.Data.McpServers
+            .Where(server => server.IsEnabled
+                             && !string.Equals(server.ServerType, "remote", StringComparison.OrdinalIgnoreCase))
+            .Select(server => server.Id));
+        ApplyToSurfaces(surface =>
+        {
+            surface.InvalidateMcpSession();
+            surface.PopulateDefaultMcps();
+            surface.RefreshComposerCatalogs();
+        });
+    }
+
     public void Dispose()
     {
         if (_isDisposed)
@@ -246,6 +268,7 @@ public sealed class ChatSessionStore : IDisposable
         _registry.Attach(surface);
         surface.PropertyChanged += OnSurfacePropertyChanged;
         surface.FeatureManagementStateChanged += OnSurfaceFeatureManagementStateChanged;
+        surface.McpConfigurationChanged += OnSurfaceMcpConfigurationChanged;
         if (surface.CurrentChat is { } chat)
             RegisterChatOwner(surface, chat.Id);
     }
@@ -257,6 +280,7 @@ public sealed class ChatSessionStore : IDisposable
 
         surface.PropertyChanged -= OnSurfacePropertyChanged;
         surface.FeatureManagementStateChanged -= OnSurfaceFeatureManagementStateChanged;
+        surface.McpConfigurationChanged -= OnSurfaceMcpConfigurationChanged;
         _registry.Detach(surface);
         _hostCounts.Remove(surface);
         RemoveFromIdleCache(surface);
@@ -267,6 +291,8 @@ public sealed class ChatSessionStore : IDisposable
     }
 
     private void OnSurfaceFeatureManagementStateChanged() => SurfaceFeatureManagementStateChanged?.Invoke();
+
+    private void OnSurfaceMcpConfigurationChanged() => ApplyMcpConfigurationChange();
 
     private void OnSurfacePropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
@@ -322,9 +348,9 @@ public sealed class ChatSessionStore : IDisposable
 
         if (CanCacheIdleSurface(surface))
         {
-            surface.ReleaseIdleCachedChatRuntime();
             AddToIdleCache(surface);
             TrimIdleCache();
+            TrimWarmIdleSessions();
             ShedDeepIdleRealizedControls();
             return;
         }
@@ -364,6 +390,25 @@ public sealed class ChatSessionStore : IDisposable
 
             UntrackSurface(surface, dispose: true);
         }
+    }
+
+    private void TrimWarmIdleSessions()
+    {
+        var warmSurfaces = _idleSurfacesLru
+            .Where(surface =>
+                _surfaces.Contains(surface)
+                && _hostCounts.GetValueOrDefault(surface) == 0
+                && !surface.OwnsAnyLiveChat()
+                && surface.HasLiveCopilotRuntimeForCurrentChat())
+            .ToList();
+        var excessWarmSessions = warmSurfaces.Count - _maxWarmIdleSessions;
+        if (excessWarmSessions <= 0)
+            return;
+
+        // The LRU enumeration is oldest-first. Cold surfaces do not consume the warm budget and
+        // therefore cannot displace the only live idle session.
+        foreach (var surface in warmSurfaces.Take(excessWarmSessions))
+            surface.ReleaseIdleCachedChatRuntime();
     }
 
     // Release the realized transcript controls of idle-cached surfaces deeper than the most-recently

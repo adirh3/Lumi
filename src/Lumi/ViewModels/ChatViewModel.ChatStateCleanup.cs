@@ -125,6 +125,17 @@ public partial class ChatViewModel
     // the browser is torn down rather than leaking until app shutdown.
     internal bool HasBrowserService(Guid chatId) => _chatBrowserServices.ContainsKey(chatId);
 
+    internal bool HasLiveCopilotRuntimeForCurrentChat()
+    {
+        if (CurrentChat is not { } chat)
+            return false;
+
+        return _sessionCache.ContainsKey(chat.Id)
+               || _sessionsPendingResume.ContainsKey(chat.Id)
+               || (_activeSession is not null
+                   && string.Equals(_activeSession.SessionId, chat.CopilotSessionId, StringComparison.Ordinal));
+    }
+
     internal bool OwnsAnyLiveChat()
     {
         foreach (var chatId in _runtimeStates.Keys
@@ -565,7 +576,14 @@ public partial class ChatViewModel
         DisposeSessionSubscription(chatId);
 
         if (_sessionCache.Remove(chatId, out var session))
+        {
+            if (ReferenceEquals(_activeSession, session)
+                || string.Equals(_activeSession?.SessionId, session.SessionId, StringComparison.Ordinal))
+            {
+                _activeSession = null;
+            }
             TrackSessionRelease(chatId, session, deleteServerSession);
+        }
 
         if (_sessionsPendingResume.Remove(chatId, out var pendingSession)
             && (session is null
@@ -575,6 +593,11 @@ public partial class ChatViewModel
                         session.SessionId,
                         StringComparison.Ordinal))))
         {
+            if (ReferenceEquals(_activeSession, pendingSession)
+                || string.Equals(_activeSession?.SessionId, pendingSession.SessionId, StringComparison.Ordinal))
+            {
+                _activeSession = null;
+            }
             TrackSessionRelease(chatId, pendingSession, deleteServerSession);
         }
 

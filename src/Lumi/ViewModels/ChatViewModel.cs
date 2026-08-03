@@ -1124,11 +1124,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
      public event Action? UserMessageSent;
      public event Action? ChatUpdated;
     public event Action? FeatureManagementStateChanged;
+     public event Action? McpConfigurationChanged;
 
      /// <summary>Test-only helper to raise ChatUpdated without sending a real message.</summary>
      internal void RaiseChatUpdatedForTest() => ChatUpdated?.Invoke();
      /// <summary>Test-only helper to raise feature-management UI refresh notifications.</summary>
      internal void RaiseFeatureManagementStateChangedForTest() => FeatureManagementStateChanged?.Invoke();
+     internal void RaiseMcpConfigurationChangedForTest() => McpConfigurationChanged?.Invoke();
      public event Action<Guid, string>? ChatTitleChanged;
      public event Action? BrowserHideRequested;
 
@@ -2552,8 +2554,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// </summary>
     public void InvalidateMcpSession()
     {
-        if (CurrentChat is not null)
-            _pendingSkillInjections.Clear();
+        if (CurrentChat is null)
+            return;
+
+        InvalidateSessionConfiguration();
+        _pendingSkillInjections.Clear();
     }
 
     /// <summary>

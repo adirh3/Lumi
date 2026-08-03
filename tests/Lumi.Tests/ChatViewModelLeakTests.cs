@@ -110,7 +110,8 @@ public sealed class ChatViewModelLeakTests
                 surface.CurrentChat = loadedChat;
                 return Task.CompletedTask;
             },
-            maxIdleCachedSurfaces: 1);
+            maxIdleCachedSurfaces: 1,
+            maxWarmIdleSessions: 0);
 
         var surface = await sessionStore.AcquireChatAsync(chat);
         var session = CreateDetachedSession("sid-cached");
@@ -138,6 +139,185 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public async Task IdleCachedSurface_KeepsNewestCopilotSessionWarm()
+    {
+        var chat = new Chat { Title = "warm", CopilotSessionId = "sid-warm" };
+        var dataStore = new DataStore(new AppData
+        {
+            Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+            Chats = [chat]
+        });
+        using var registry = new ChatSurfaceRegistry();
+        using var sessionStore = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            },
+            maxWarmIdleSessions: 1);
+
+        var surface = await sessionStore.AcquireChatAsync(chat);
+        var session = CreateDetachedSession("sid-warm");
+        GetField<Dictionary<Guid, CopilotSession>>(surface, "_sessionCache")[chat.Id] = session;
+        SetPrivateField(surface, "_activeSession", session);
+
+        sessionStore.Release(surface);
+
+        Assert.False(SessionWasDisposed(session));
+        Assert.Same(session, GetField<Dictionary<Guid, CopilotSession>>(surface, "_sessionCache")[chat.Id]);
+        Assert.Same(
+            session,
+            surface.GetType()
+                .GetField("_activeSession", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(surface));
+    }
+
+    [Fact]
+    public async Task IdleCachedSurface_ReleasesPreviousWarmSessionWhenSecondBecomesIdle()
+    {
+        var chatA = new Chat { Title = "warm-a", CopilotSessionId = "sid-warm-a" };
+        var chatB = new Chat { Title = "warm-b", CopilotSessionId = "sid-warm-b" };
+        var dataStore = new DataStore(new AppData
+        {
+            Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+            Chats = [chatA, chatB]
+        });
+        using var registry = new ChatSurfaceRegistry();
+        using var sessionStore = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            },
+            maxWarmIdleSessions: 1);
+
+        var surfaceA = await sessionStore.AcquireChatAsync(chatA);
+        var sessionA = CreateDetachedSession("sid-warm-a");
+        GetField<Dictionary<Guid, CopilotSession>>(surfaceA, "_sessionCache")[chatA.Id] = sessionA;
+        SetPrivateField(surfaceA, "_activeSession", sessionA);
+        sessionStore.Release(surfaceA);
+
+        var surfaceB = await sessionStore.AcquireChatAsync(chatB);
+        var sessionB = CreateDetachedSession("sid-warm-b");
+        GetField<Dictionary<Guid, CopilotSession>>(surfaceB, "_sessionCache")[chatB.Id] = sessionB;
+        SetPrivateField(surfaceB, "_activeSession", sessionB);
+        sessionStore.Release(surfaceB);
+        await DrainSessionReleaseAsync(surfaceA, chatA.Id);
+
+        Assert.True(SessionWasDisposed(sessionA));
+        Assert.False(SessionWasDisposed(sessionB));
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(surfaceA, "_sessionCache").ContainsKey(chatA.Id));
+        Assert.Same(sessionB, GetField<Dictionary<Guid, CopilotSession>>(surfaceB, "_sessionCache")[chatB.Id]);
+        Assert.False((bool)surfaceA.GetType()
+            .GetField("_isDisposed", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(surfaceA)!);
+        Assert.Same(surfaceA, await sessionStore.AcquireChatAsync(chatA));
+    }
+
+    [Fact]
+    public async Task IdleColdSurface_DoesNotDisplaceOnlyWarmSession()
+    {
+        var warmChat = new Chat { Title = "warm", CopilotSessionId = "sid-warm" };
+        var coldChat = new Chat { Title = "cold", CopilotSessionId = "sid-cold" };
+        var dataStore = new DataStore(new AppData
+        {
+            Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+            Chats = [warmChat, coldChat]
+        });
+        using var registry = new ChatSurfaceRegistry();
+        using var sessionStore = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            },
+            maxWarmIdleSessions: 1);
+
+        var warmSurface = await sessionStore.AcquireChatAsync(warmChat);
+        var warmSession = CreateDetachedSession("sid-warm");
+        GetField<Dictionary<Guid, CopilotSession>>(warmSurface, "_sessionCache")[warmChat.Id] = warmSession;
+        SetPrivateField(warmSurface, "_activeSession", warmSession);
+        sessionStore.Release(warmSurface);
+
+        var coldSurface = await sessionStore.AcquireChatAsync(coldChat);
+        sessionStore.Release(coldSurface);
+
+        Assert.False(SessionWasDisposed(warmSession));
+        Assert.Same(warmSession, GetField<Dictionary<Guid, CopilotSession>>(warmSurface, "_sessionCache")[warmChat.Id]);
+    }
+
+    [Fact]
+    public async Task DefaultIdleCache_KeepsEightSessionsWarmAndEvictsOldestOnNinth()
+    {
+        var chats = Enumerable.Range(0, 9)
+            .Select(index => new Chat
+            {
+                Title = $"warm-{index}",
+                CopilotSessionId = $"sid-warm-{index}"
+            })
+            .ToList();
+        var dataStore = new DataStore(new AppData
+        {
+            Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+            Chats = chats
+        });
+        using var registry = new ChatSurfaceRegistry();
+        using var sessionStore = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            });
+        var surfaces = new List<ChatViewModel>();
+        var sessions = new List<CopilotSession>();
+
+        foreach (var chat in chats)
+        {
+            var surface = await sessionStore.AcquireChatAsync(chat);
+            var session = CreateDetachedSession(chat.CopilotSessionId!);
+            GetField<Dictionary<Guid, CopilotSession>>(surface, "_sessionCache")[chat.Id] = session;
+            SetPrivateField(surface, "_activeSession", session);
+            surfaces.Add(surface);
+            sessions.Add(session);
+            sessionStore.Release(surface);
+        }
+        await DrainSessionReleaseAsync(surfaces[0], chats[0].Id);
+
+        Assert.True(SessionWasDisposed(sessions[0]));
+        Assert.All(sessions.Skip(1), session => Assert.False(SessionWasDisposed(session)));
+        Assert.True((bool)surfaces[0].GetType()
+            .GetField("_isDisposed", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(surfaces[0])!);
+    }
+
+    [Fact]
+    public void WarmIdleSessionBudget_CannotExceedSurfaceCacheBudget()
+    {
+        var dataStore = CreateDataStore();
+        using var registry = new ChatSurfaceRegistry();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (_, _) => Task.CompletedTask,
+            maxIdleCachedSurfaces: 1,
+            maxWarmIdleSessions: 2));
+    }
+
+    [Fact]
     public async Task QueuedDeferredSend_KeepsUnhostedSurfaceRuntimeAliveUntilQueueDrains()
     {
         var queuedMessage = new ChatMessage { Role = "user", Content = "follow up" };
@@ -158,7 +338,8 @@ public sealed class ChatViewModelLeakTests
                 surface.CurrentChat = loadedChat;
                 return Task.CompletedTask;
             },
-            maxIdleCachedSurfaces: 1);
+            maxIdleCachedSurfaces: 1,
+            maxWarmIdleSessions: 0);
 
         var surface = await sessionStore.AcquireChatAsync(chat);
         var session = CreateDetachedSession("sid-queued");
@@ -468,6 +649,116 @@ public sealed class ChatViewModelLeakTests
 
         Assert.True(SessionWasDisposed(pending));
         Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume").ContainsKey(chat.Id));
+    }
+
+    [Fact]
+    public async Task CleanupSession_ClearsActiveSessionAlias()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "deleted-active", CopilotSessionId = "sid-delete-active" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+        var session = CreateDetachedSession("sid-delete-active");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        SetPrivateField(vm, "_activeSession", session);
+
+        vm.CleanupSession(chat.Id);
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        Assert.True(SessionWasDisposed(session));
+        Assert.Null(vm.GetType()
+            .GetField("_activeSession", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(vm));
+        Assert.False(vm.HasLiveCopilotRuntimeForCurrentChat());
+    }
+
+    [Fact]
+    public async Task InvalidateMcpSession_IdleWarmSessionReleasesRuntimeForReconfiguration()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "idle-mcp", CopilotSessionId = "sid-idle-mcp" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+        var session = CreateDetachedSession("sid-idle-mcp");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        SetPrivateField(vm, "_activeSession", session);
+
+        vm.InvalidateMcpSession();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        Assert.True(SessionWasDisposed(session));
+        Assert.Equal("sid-idle-mcp", chat.CopilotSessionId);
+        Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache").ContainsKey(chat.Id));
+        Assert.Null(vm.GetType()
+            .GetField("_activeSession", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(vm));
+    }
+
+    [Fact]
+    public void InvalidateMcpSession_BusySessionDefersReconfiguration()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "busy-mcp", CopilotSessionId = "sid-busy-mcp" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+        var session = CreateDetachedSession("sid-busy-mcp");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        SetPrivateField(vm, "_activeSession", session);
+        var cancellationSources = GetField<Dictionary<Guid, CancellationTokenSource>>(vm, "_ctsSources");
+        using var turnCts = new CancellationTokenSource();
+        cancellationSources[chat.Id] = turnCts;
+
+        vm.InvalidateMcpSession();
+
+        Assert.False(SessionWasDisposed(session));
+        Assert.Contains(
+            chat.Id,
+            GetField<HashSet<Guid>>(vm, "_pendingSessionReconfigurations"));
+        Assert.Same(session, GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id]);
+    }
+
+    [Fact]
+    public async Task McpToolChange_ReconfiguresEveryWarmCachedSurface()
+    {
+        var chatA = new Chat { Title = "mcp-a", CopilotSessionId = "sid-mcp-a" };
+        var chatB = new Chat { Title = "mcp-b", CopilotSessionId = "sid-mcp-b" };
+        var dataStore = new DataStore(new AppData
+        {
+            Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+            Chats = [chatA, chatB]
+        });
+        using var registry = new ChatSurfaceRegistry();
+        using var sessionStore = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            });
+        var surfaceA = await sessionStore.AcquireChatAsync(chatA);
+        var surfaceB = await sessionStore.AcquireChatAsync(chatB);
+        var sessionA = CreateDetachedSession("sid-mcp-a");
+        var sessionB = CreateDetachedSession("sid-mcp-b");
+        GetField<Dictionary<Guid, CopilotSession>>(surfaceA, "_sessionCache")[chatA.Id] = sessionA;
+        GetField<Dictionary<Guid, CopilotSession>>(surfaceB, "_sessionCache")[chatB.Id] = sessionB;
+        SetPrivateField(surfaceA, "_activeSession", sessionA);
+        SetPrivateField(surfaceB, "_activeSession", sessionB);
+        sessionStore.Release(surfaceA);
+        sessionStore.Release(surfaceB);
+
+        surfaceA.RaiseMcpConfigurationChangedForTest();
+        await DrainSessionReleaseAsync(surfaceA, chatA.Id);
+        await DrainSessionReleaseAsync(surfaceB, chatB.Id);
+
+        Assert.True(SessionWasDisposed(sessionA));
+        Assert.True(SessionWasDisposed(sessionB));
+        Assert.Equal("sid-mcp-a", chatA.CopilotSessionId);
+        Assert.Equal("sid-mcp-b", chatB.CopilotSessionId);
     }
 
     [Fact]

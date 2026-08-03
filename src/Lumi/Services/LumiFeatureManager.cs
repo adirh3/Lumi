@@ -18,7 +18,8 @@ public sealed record FeatureChangeResult(
     string? RenamedMcpNewName = null,
     string? DeletedMcpName = null,
     int? SkillContentBytes = null,
-    string? SkillContentHash = null);
+    string? SkillContentHash = null,
+    bool McpCatalogChanged = false);
 
 public sealed class LumiFeatureManager
 {
@@ -1377,7 +1378,7 @@ public sealed class LumiFeatureManager
         };
 
         _dataStore.Data.McpServers.Add(server);
-        return Success($"MCP server created.\n{DescribeMcp(server)}");
+        return Success($"MCP server created.\n{DescribeMcp(server)}", mcpCatalogChanged: true);
     }
 
     private FeatureChangeResult UpdateMcp(
@@ -1499,7 +1500,8 @@ public sealed class LumiFeatureManager
         return Success(
             $"MCP server updated.\n{DescribeMcp(server)}",
             renamedMcpOldName: !string.Equals(previousName, server.Name, StringComparison.Ordinal) ? previousName : null,
-            renamedMcpNewName: !string.Equals(previousName, server.Name, StringComparison.Ordinal) ? server.Name : null);
+            renamedMcpNewName: !string.Equals(previousName, server.Name, StringComparison.Ordinal) ? server.Name : null,
+            mcpCatalogChanged: true);
     }
 
     private FeatureChangeResult DeleteMcp(string? identifier)
@@ -1526,7 +1528,8 @@ public sealed class LumiFeatureManager
 
         return Success(
             $"MCP server deleted: {server.Name}. Removed from {removedFromLumis} Lumi(s) and {removedFromChats} chat(s).",
-            deletedMcpName: server.Name);
+            deletedMcpName: server.Name,
+            mcpCatalogChanged: true);
     }
 
     private string ListMcps(string? query)
@@ -1793,10 +1796,12 @@ public sealed class LumiFeatureManager
         string? renamedMcpNewName = null,
         string? deletedMcpName = null,
         int? skillContentBytes = null,
-        string? skillContentHash = null)
+        string? skillContentHash = null,
+        bool mcpCatalogChanged = false)
         => new(message, DataChanged: true, SyncSkillFiles: syncSkillFiles,
             RenamedMcpOldName: renamedMcpOldName, RenamedMcpNewName: renamedMcpNewName, DeletedMcpName: deletedMcpName,
-            SkillContentBytes: skillContentBytes, SkillContentHash: skillContentHash);
+            SkillContentBytes: skillContentBytes, SkillContentHash: skillContentHash,
+            McpCatalogChanged: mcpCatalogChanged);
 
     private static LookupResult<T> ResolveByIdOrLabel<T>(
         IEnumerable<T> items,

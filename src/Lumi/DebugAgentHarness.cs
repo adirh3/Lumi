@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -12,6 +13,7 @@ using System.Threading.Tasks;
 using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.ViewModels;
 using Microsoft.Extensions.AI;
 using LumiChatMessage = Lumi.Models.ChatMessage;
 
@@ -1252,9 +1254,115 @@ public static class DebugAgentHarness
 
             var resumePassed = turnB1.toolOk && turnB2.toolOk && turnB2.contractOk && oldMcpReaped && newMcpSpawned;
 
-            if (reapPassed && resumePassed)
+            // ---------- Part C: one-session MRU cache keeps only the newest idle runtime warm ----------
+            Console.WriteLine("== Part C: idle session cache keeps one warm runtime and reaps the previous one ==");
+            var chatC1 = new Chat { Title = "Warm C1" };
+            var chatC2 = new Chat { Title = "Warm C2" };
+            var storeData = new DataStore(new AppData
             {
-                Console.WriteLine("PASS: session-reap + destroy-before-resume validation completed against real sessions and MCP subprocesses.");
+                Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+                Chats = [chatC1, chatC2]
+            });
+            using var registry = new ChatSurfaceRegistry();
+            using var sessionStore = new ChatSessionStore(
+                storeData,
+                copilotService,
+                registry,
+                static (surface, loadedChat) =>
+                {
+                    surface.CurrentChat = loadedChat;
+                    return Task.CompletedTask;
+                },
+                maxIdleCachedSurfaces: 8,
+                maxWarmIdleSessions: 1);
+
+            static void AttachSession(ChatViewModel surface, Chat chat, CopilotSession session)
+            {
+                var cache = (Dictionary<Guid, CopilotSession>)typeof(ChatViewModel)
+                    .GetField("_sessionCache", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .GetValue(surface)!;
+                cache[chat.Id] = session;
+                typeof(ChatViewModel)
+                    .GetField("_activeSession", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .SetValue(surface, session);
+            }
+
+            async Task<(ChatViewModel surface, CopilotSession session, int pid)> CreateWarmSessionAsync(Chat chat)
+            {
+                var before = AliveStartPids().ToHashSet();
+                var session = await copilotService.CreateSessionAsync(BuildCreateConfig(), ct).ConfigureAwait(false);
+                chat.CopilotSessionId = session.SessionId;
+                createdSessionIds.Add(session.SessionId);
+                using var settleCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                settleCts.CancelAfter(TimeSpan.FromSeconds(30));
+                while (true)
+                {
+                    var list = await session.Rpc.Mcp.ListAsync(settleCts.Token).ConfigureAwait(false);
+                    if (list.Servers.Any(reported => string.Equals(reported.Name, serverName, StringComparison.Ordinal)))
+                        break;
+                    await Task.Delay(100, settleCts.Token).ConfigureAwait(false);
+                }
+
+                var surface = await sessionStore.AcquireChatAsync(chat).ConfigureAwait(false);
+                AttachSession(surface, chat, session);
+                return (surface, session, AliveStartPids().FirstOrDefault(pid => !before.Contains(pid)));
+            }
+
+            async Task<bool> CanListMcpAsync(CopilotSession session)
+            {
+                try
+                {
+                    await session.Rpc.Mcp.ListAsync(ct).ConfigureAwait(false);
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
+            var c1 = await CreateWarmSessionAsync(chatC1).ConfigureAwait(false);
+            sessionStore.Release(c1.surface);
+            await Task.Delay(500, ct).ConfigureAwait(false);
+            var c1StayedWarm = c1.pid > 0
+                && IsProcessAlive(c1.pid)
+                && await CanListMcpAsync(c1.session).ConfigureAwait(false);
+
+            var c2 = await CreateWarmSessionAsync(chatC2).ConfigureAwait(false);
+            var c1StayedWarmWhileC2Hosted = c1.pid > 0
+                && IsProcessAlive(c1.pid)
+                && await CanListMcpAsync(c1.session).ConfigureAwait(false);
+            sessionStore.Release(c2.surface);
+            var c1ReapedWhenC2BecameWarm = c1.pid > 0 && WaitForProcessExit(c1.pid, TimeSpan.FromSeconds(20));
+            await Task.Delay(500, ct).ConfigureAwait(false);
+            var c2StayedWarm = c2.pid > 0
+                && IsProcessAlive(c2.pid)
+                && await CanListMcpAsync(c2.session).ConfigureAwait(false);
+            Console.WriteLine(
+                $"Part C C1 PID {c1.pid} initially warm: {c1StayedWarm}; "
+                + $"still warm while C2 hosted: {c1StayedWarmWhileC2Hosted}; "
+                + $"reaped after C2 release: {c1ReapedWhenC2BecameWarm}; "
+                + $"C2 PID {c2.pid} warm: {c2StayedWarm}");
+
+            sessionStore.Dispose();
+            var c2ReapedOnStoreDispose = c2.pid > 0 && WaitForProcessExit(c2.pid, TimeSpan.FromSeconds(20));
+            Console.WriteLine($"Part C C2 reaped when store disposed: {c2ReapedOnStoreDispose}");
+            foreach (var id in new[] { chatC1.CopilotSessionId, chatC2.CopilotSessionId }.OfType<string>())
+            {
+                try { await copilotService.DeleteSessionAsync(id, ct).ConfigureAwait(false); }
+                catch { }
+                createdSessionIds.Remove(id);
+            }
+
+            var warmCachePassed = c1StayedWarm
+                && c1StayedWarmWhileC2Hosted
+                && c1ReapedWhenC2BecameWarm
+                && c2StayedWarm
+                && c2ReapedOnStoreDispose;
+
+            if (reapPassed && resumePassed && warmCachePassed)
+            {
+                Console.WriteLine("PASS: session-reap, destroy-before-resume, and bounded warm-cache validation completed against real sessions and MCP subprocesses.");
                 return 0;
             }
 
@@ -1272,6 +1380,14 @@ public static class DebugAgentHarness
                 if (!turnB2.toolOk || !turnB2.contractOk) Console.Error.WriteLine("- Part B resumed session tool call did not succeed (possible over-destroy of the resumed session).");
                 if (!oldMcpReaped) Console.Error.WriteLine("- Part B original MCP subprocess was NOT reaped (leak).");
                 if (!newMcpSpawned) Console.Error.WriteLine("- Part B resumed session did not spawn a fresh MCP subprocess.");
+            }
+            if (!warmCachePassed)
+            {
+                if (!c1StayedWarm) Console.Error.WriteLine("- Part C first idle session did not remain warm.");
+                if (!c1StayedWarmWhileC2Hosted) Console.Error.WriteLine("- Part C first idle session was disrupted while the second chat remained hosted.");
+                if (!c1ReapedWhenC2BecameWarm) Console.Error.WriteLine("- Part C previous warm MCP was not reaped when the next idle session replaced it.");
+                if (!c2StayedWarm) Console.Error.WriteLine("- Part C newest idle session did not remain warm.");
+                if (!c2ReapedOnStoreDispose) Console.Error.WriteLine("- Part C newest warm MCP was not reaped when the store disposed.");
             }
             return 1;
         }

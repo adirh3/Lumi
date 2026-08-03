@@ -412,15 +412,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         McpServersVM.McpConfigChanged += () =>
         {
-            McpProxyRuntime.Shared.RetireUserRegistrationsExcept(_dataStore.Data.McpServers
-                .Where(server => server.IsEnabled && !string.Equals(server.ServerType, "remote", StringComparison.OrdinalIgnoreCase))
-                .Select(server => server.Id));
-            _chatSessionStore.ApplyToSurfaces(surface =>
-            {
-                surface.InvalidateMcpSession();
-                surface.PopulateDefaultMcps();
-                surface.RefreshComposerCatalogs();
-            });
+            _chatSessionStore.ApplyMcpConfigurationChange();
             RefreshFeatureManagementUi();
         };
         LoadProjects();
