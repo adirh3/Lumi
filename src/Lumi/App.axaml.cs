@@ -97,8 +97,6 @@ public partial class App : Application
             void DisposeUiState(bool hideWindows)
             {
                 var mainWindows = _windows.ToList();
-                if (_mainWindow is not null && !mainWindows.Contains(_mainWindow))
-                    mainWindows.Add(_mainWindow);
 
                 if (hideWindows)
                 {
@@ -113,7 +111,10 @@ public partial class App : Application
                 updateService.Dispose();
                 var viewModels = mainWindows
                     .Select(static window => window.DataContext)
-                    .OfType<MainViewModel>();
+                    .OfType<MainViewModel>()
+                    .ToList();
+                if (_mainViewModel is not null)
+                    viewModels.Add(_mainViewModel);
 
                 foreach (var windowVm in viewModels.Distinct())
                 {
@@ -181,6 +182,7 @@ public partial class App : Application
                 if (_isShuttingDown)
                     return;
 
+                PrepareForShutdown(isUpdateRestart);
                 _isShuttingDown = true;
                 if (isUpdateRestart)
                 {
@@ -197,6 +199,7 @@ public partial class App : Application
             // Task.Run avoids deadlocking the UI thread if _writeLock is held by
             // an in-flight fire-and-forget save that needs the dispatcher to complete.
             desktop.ShutdownRequested += (_, _) => CleanupForShutdown(isUpdateRestart: false);
+            desktop.Exit += (_, _) => PrepareForShutdown();
             updateService.RestartRequested += () => Dispatcher.UIThread.Post(() =>
             {
                 try
@@ -219,7 +222,8 @@ public partial class App : Application
             UiScaleService.Apply(dataStore.Data.Settings.UiScalePercent);
 
             var window = CreateWindow(vm, isPrimary: true);
-            _mainWindow = window;
+            SetMainWindow(window);
+            Program.SingleInstance?.SetActivationHandler(HandleActivationRequest);
 
 #if DEBUG
             _debugBridge = new LumiDebugBridge(dataStore, vm);
@@ -248,13 +252,7 @@ public partial class App : Application
                     if (minimizeToTray)
                         SetupTrayIcon(true);
 
-                    _hotkeyService ??= new GlobalHotkeyService();
-                    _hotkeyService.HotkeyPressed -= OnGlobalHotkeyPressed;
-                    _hotkeyService.HotkeyPressed += OnGlobalHotkeyPressed;
-                    _hotkeyService.Attach(window);
-
-                    if (!string.IsNullOrWhiteSpace(globalHotkey))
-                        _hotkeyService.Register(globalHotkey);
+                    AttachGlobalHotkey(window, globalHotkey);
 
                     // Start checking for updates in background
                     updateService.StartPeriodicChecks();
@@ -271,9 +269,6 @@ public partial class App : Application
                     AnimationLifecycleLeakRepro.Start(desktop);
 #endif
             };
-
-            desktop.MainWindow = window;
-
             // macOS has no runtime Dock icon unless the app is a bundle with an Info.plist icon; set
             // it explicitly so an unbundled/dev launch is still branded. No-op on other platforms.
             if (OperatingSystem.IsMacOS())
@@ -516,7 +511,11 @@ public partial class App : Application
                 if (!isPrimary)
                     windowVm.Dispose();
             }
+
+            if (ReferenceEquals(_mainWindow, window))
+                PromoteReplacementMainWindow();
         };
+        window.Closing += (_, _) => PrepareForWindowClosing(window);
 
         _windows.Add(window);
         return window;
@@ -544,6 +543,63 @@ public partial class App : Application
         Dispatcher.UIThread.Post(ToggleMainWindow);
     }
 
+    private void SetMainWindow(MainWindow? window)
+    {
+        _mainWindow = window;
+        if (window is not null)
+            window.IsPrimaryWindow = true;
+
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            desktop.MainWindow = window;
+    }
+
+    private void PromoteReplacementMainWindow()
+    {
+        if (_isShuttingDown)
+        {
+            SetMainWindow(null);
+            return;
+        }
+
+        var replacement = _windows.FirstOrDefault();
+
+        if (replacement is null)
+        {
+            SetMainWindow(null);
+            _hotkeyService?.Unregister();
+            return;
+        }
+
+        PromoteMainWindow(replacement);
+    }
+
+    private void PromoteMainWindow(MainWindow window)
+    {
+        SetMainWindow(window);
+
+        if (_dataStore is not null
+            && window.DataContext is MainViewModel vm
+            && vm.SettingsVM.MinimizeToTray != _dataStore.Data.Settings.MinimizeToTray)
+        {
+            vm.SettingsVM.MinimizeToTray = _dataStore.Data.Settings.MinimizeToTray;
+        }
+
+        AttachGlobalHotkey(window);
+    }
+
+    private void AttachGlobalHotkey(MainWindow window, string? hotkey = null)
+    {
+        _hotkeyService ??= new GlobalHotkeyService();
+        _hotkeyService.HotkeyPressed -= OnGlobalHotkeyPressed;
+        _hotkeyService.HotkeyPressed += OnGlobalHotkeyPressed;
+        _hotkeyService.Unregister();
+        _hotkeyService.Attach(window);
+
+        hotkey ??= _dataStore?.Data.Settings.GlobalHotkey;
+        if (!string.IsNullOrWhiteSpace(hotkey))
+            _hotkeyService.Register(hotkey);
+    }
+
     /// <summary>Create or remove the system tray icon.</summary>
     public void SetupTrayIcon(bool enable)
     {
@@ -562,7 +618,10 @@ public partial class App : Application
             exitItem.Click += (_, _) =>
             {
                 if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+                {
+                    PrepareForShutdown();
                     desktop.Shutdown();
+                }
             };
 
             var menu = new NativeMenu();
@@ -597,18 +656,50 @@ public partial class App : Application
 
     public void ShowMainWindow()
     {
-        if (_mainWindow is null) return;
-        _mainWindow.Show();
-        _mainWindow.ShowInTaskbar = true;
-        _mainWindow.WindowState = WindowState.Normal;
-        _mainWindow.Activate();
-
-        // Focus composer when showing via hotkey/tray and chat tab is active
-        if (_mainWindow.DataContext is ViewModels.MainViewModel vm && vm.SelectedNavIndex == 0)
+        if (!Dispatcher.UIThread.CheckAccess())
         {
-            var chatView = _mainWindow.FindControl<Views.ChatView>("PageChat");
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => chatView?.FocusComposer(),
-                Avalonia.Threading.DispatcherPriority.Input);
+            Dispatcher.UIThread.Post(ShowMainWindow);
+            return;
+        }
+
+        var window = GetOrCreateMainWindow();
+        if (window is not null)
+            FocusMainWindow(window);
+    }
+
+    private MainWindow? GetOrCreateMainWindow()
+    {
+        if (_mainWindow is not null && _windows.Contains(_mainWindow))
+            return _mainWindow;
+
+        if (_windows.FirstOrDefault() is { } existingWindow)
+        {
+            PromoteMainWindow(existingWindow);
+            return existingWindow;
+        }
+
+        if (_mainViewModel is null || _isShuttingDown)
+            return null;
+
+        var window = CreateWindow(_mainViewModel, isPrimary: true);
+        PromoteMainWindow(window);
+        window.Show();
+        return window;
+    }
+
+    private static void FocusMainWindow(MainWindow window)
+    {
+        window.Show();
+        window.ShowInTaskbar = true;
+        window.WindowState = WindowState.Normal;
+        window.Activate();
+
+        if (window.DataContext is MainViewModel vm && vm.SelectedNavIndex == 0)
+        {
+            var chatView = window.FindControl<ChatView>("PageChat");
+            Dispatcher.UIThread.Post(
+                () => chatView?.FocusComposer(),
+                DispatcherPriority.Input);
         }
     }
 
@@ -638,6 +729,15 @@ public partial class App : Application
 
     public void ShowMainWindow(Guid? chatId)
     {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => ShowMainWindow(chatId));
+            return;
+        }
+
+        if (chatId is Guid existingChatId && FocusExistingWindowForChat(existingChatId))
+            return;
+
         ShowMainWindow();
 
         if (chatId is not Guid targetChatId)
@@ -645,6 +745,33 @@ public partial class App : Application
 
         if (_mainWindow?.DataContext is MainViewModel vm)
             _ = vm.OpenChatByIdAsync(targetChatId);
+    }
+
+    private void HandleActivationRequest(AppActivationRequest request)
+        => Dispatcher.UIThread.Post(() => ShowMainWindow(request.ChatId));
+
+    private bool FocusExistingWindowForChat(Guid chatId)
+    {
+        if (_chatWindows.TryGetValue(chatId, out var chatWindow))
+        {
+            FocusChatWindow(chatWindow);
+            return true;
+        }
+
+        foreach (var window in _windows)
+        {
+            if (window.DataContext is not MainViewModel vm
+                || vm.ChatVM.CurrentChat?.Id != chatId)
+            {
+                continue;
+            }
+
+            vm.SelectedNavIndex = 0;
+            FocusMainWindow(window);
+            return true;
+        }
+
+        return false;
     }
 
     private void OpenChatWindow(DetachedChatWindowRequest request)
@@ -704,6 +831,7 @@ public partial class App : Application
         chatVm.PropertyChanged += OnDetachedCurrentChatChanged;
 
         window = new ChatWindow(_dataStore, windowVm);
+        window.Closing += (_, _) => PrepareForWindowClosing(window);
         chatVm.AddDisplayHost();
         _openChatWindows.Add(window);
         if (trackedChatId is Guid trackedId)
@@ -798,6 +926,25 @@ public partial class App : Application
     private void OnDetachedChatTitleChanged(Guid chatId, string title)
     {
         Dispatcher.UIThread.Post(() => _mainViewModel?.RefreshChatList());
+    }
+
+    internal void PrepareForShutdown(bool restartExpected = false)
+        => Program.SingleInstance?.StopAcceptingActivations(restartExpected);
+
+    private void PrepareForWindowClosing(Window window)
+    {
+        if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            return;
+
+        var willShutdown = desktop.ShutdownMode switch
+        {
+            ShutdownMode.OnLastWindowClose => desktop.Windows.Count <= 1,
+            ShutdownMode.OnMainWindowClose => ReferenceEquals(desktop.MainWindow, window),
+            _ => false
+        };
+
+        if (willShutdown)
+            PrepareForShutdown();
     }
 
     /// <summary>Toggle window visibility. Called by the global hotkey.</summary>

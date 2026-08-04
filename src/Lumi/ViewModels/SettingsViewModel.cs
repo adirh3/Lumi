@@ -1696,7 +1696,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void RestartApp()
     {
-        if (!LumiProcessLauncher.TryLaunch(out var error))
+        if (!LumiProcessLauncher.TryLaunch(
+                out var error,
+                [Program.RestartAfterCurrentInstanceExitArgument]))
         {
             Trace.TraceError($"[Settings] Failed to restart Lumi: {error}");
             return;
@@ -1705,6 +1707,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         if (Avalonia.Application.Current?.ApplicationLifetime
             is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
         {
+            if (Avalonia.Application.Current is App app)
+                app.PrepareForShutdown();
             desktop.Shutdown();
         }
     }

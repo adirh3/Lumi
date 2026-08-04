@@ -238,11 +238,13 @@ internal static class LumiProcessLauncher
         return startInfo;
     }
 
-    public static bool TryLaunch(out string error)
+    public static bool TryLaunch(
+        out string error,
+        IEnumerable<string>? arguments = null)
     {
         try
         {
-            _ = Process.Start(CreateStartInfo())
+            _ = Process.Start(CreateStartInfo(arguments))
                 ?? throw new InvalidOperationException("The new Lumi process did not start.");
             error = string.Empty;
             return true;

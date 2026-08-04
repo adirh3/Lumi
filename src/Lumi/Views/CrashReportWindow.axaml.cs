@@ -67,7 +67,9 @@ public partial class CrashReportWindow : Window
     private void OnRestartLumiClick(object? sender, RoutedEventArgs e)
     {
         SetBusy(true);
-        if (!LumiProcessLauncher.TryLaunch(out var error))
+        if (!LumiProcessLauncher.TryLaunch(
+                out var error,
+                [Program.RestartAfterCurrentInstanceExitArgument]))
         {
             ShowError(Loc.Get("Crash_ActionFailed", error));
             SetBusy(false);
@@ -93,7 +95,9 @@ public partial class CrashReportWindow : Window
         ShowProgress(Loc.Get("Crash_OpeningEmail"));
         await Task.Delay(EmailActivationGracePeriod);
 
-        if (!LumiProcessLauncher.TryLaunch(out var restartError))
+        if (!LumiProcessLauncher.TryLaunch(
+                out var restartError,
+                [Program.RestartAfterCurrentInstanceExitArgument]))
         {
             ShowError(Loc.Get("Crash_ActionFailed", restartError));
             SetBusy(false);

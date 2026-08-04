@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -15,11 +16,22 @@ namespace Lumi;
 
 class Program
 {
+    internal const string RestartAfterCurrentInstanceExitArgument =
+        "--restart-after-current-instance-exit";
     private static int _fatalExceptionStarted;
+
+    private enum PrimaryTransitionResult
+    {
+        BecamePrimary,
+        Redirected,
+        ExitForRestart,
+        TimedOut
+    }
 
     /// <summary>When true, the onboarding flow is shown even if the user is already onboarded (debug only).</summary>
     public static bool ForceOnboarding { get; private set; }
     internal static CrashReportData? PendingCrashReport { get; private set; }
+    internal static SingleInstanceCoordinator? SingleInstance { get; private set; }
 #if DEBUG
     /// <summary>When true, opens Lumi directly into the agent debug transcript fixture.</summary>
     public static bool OpenAgentDebugHarness { get; private set; }
@@ -57,6 +69,11 @@ class Program
         OpenAgentDebugHarness = args.Any(DebugAgentHarness.IsUiHarnessFlag);
         SkipOnboarding = args.Contains("--skip-onboarding", StringComparer.OrdinalIgnoreCase)
             || args.Contains("--no-onboarding", StringComparer.OrdinalIgnoreCase);
+        if (OpenAgentDebugHarness)
+        {
+            EnsureIsolatedHarnessAppDataDir("agent-debug");
+            SkipOnboarding = true;
+        }
 
         // The UI responsiveness harness boots the real headed app, so it integrates with normal
         // startup. It must run in an isolated app-data dir (set BEFORE any DataStore access) so the
@@ -124,6 +141,100 @@ class Program
         }
 #endif
 
+        var wasToastActivated = NotificationService.IsToastActivationLaunch(args);
+        var singleInstance = SingleInstanceCoordinator.Create();
+        AppActivationRequest? initialActivation = null;
+        var waitForCurrentInstanceExit = args.Contains(
+            RestartAfterCurrentInstanceExitArgument,
+            StringComparer.OrdinalIgnoreCase);
+
+        if (!singleInstance.IsPrimaryInstance)
+        {
+            if (waitForCurrentInstanceExit)
+            {
+                if (!singleInstance.TryBecomePrimary(TimeSpan.FromMinutes(1)))
+                {
+                    Trace.TraceError(
+                        "[SingleInstance] Timed out waiting for the current process to exit during restart.");
+                    singleInstance.Dispose();
+                    return;
+                }
+            }
+            else
+            {
+                Guid? chatId = null;
+                if (wasToastActivated)
+                {
+                    NotificationService.InitializeActivationHandling();
+                    try
+                    {
+                        chatId = NotificationService
+                            .WaitForActivationAsync(TimeSpan.FromSeconds(5))
+                            .GetAwaiter()
+                            .GetResult();
+                    }
+                    catch (TimeoutException)
+                    {
+                        Trace.TraceWarning(
+                            "[Notification] Toast activation arguments were not delivered before timeout.");
+                    }
+                }
+
+                var activation = new AppActivationRequest(chatId);
+                var redirectResult = singleInstance
+                    .RedirectActivationAsync(activation, TimeSpan.FromSeconds(5))
+                    .GetAwaiter()
+                    .GetResult();
+                if (redirectResult == ActivationRedirectResult.Accepted)
+                {
+                    singleInstance.Dispose();
+                    return;
+                }
+
+                if (redirectResult == ActivationRedirectResult.PrimaryRestarting)
+                {
+                    singleInstance.Dispose();
+                    return;
+                }
+
+                if (redirectResult == ActivationRedirectResult.PrimaryShuttingDown)
+                {
+                    var transition = WaitForPrimaryTransition(
+                        singleInstance,
+                        activation,
+                        TimeSpan.FromMinutes(1));
+                    if (transition is PrimaryTransitionResult.Redirected
+                        or PrimaryTransitionResult.ExitForRestart)
+                    {
+                        singleInstance.Dispose();
+                        return;
+                    }
+
+                    if (transition == PrimaryTransitionResult.TimedOut)
+                    {
+                        singleInstance.Dispose();
+                        return;
+                    }
+                }
+                else if (!singleInstance.TryBecomePrimary(TimeSpan.FromSeconds(3)))
+                {
+                    singleInstance.Dispose();
+                    return;
+                }
+
+                initialActivation = activation;
+            }
+        }
+
+        NotificationService.InitializeActivationHandling();
+        SingleInstance = singleInstance;
+        Action<Guid?> notificationActivationHandler =
+            chatId => singleInstance.PublishActivation(new AppActivationRequest(chatId));
+        NotificationService.SetActivationHandler(notificationActivationHandler);
+
+        if (initialActivation is AppActivationRequest activationRequest)
+            singleInstance.PublishActivation(activationRequest);
+
         AppDomain.CurrentDomain.UnhandledException += OnCurrentDomainUnhandledException;
         Dispatcher.UIThread.UnhandledException += OnDispatcherUnhandledException;
         try
@@ -138,9 +249,48 @@ class Program
         }
         finally
         {
+            NotificationService.ClearActivationHandler(notificationActivationHandler);
+            SingleInstance = null;
+            singleInstance.Dispose();
             Dispatcher.UIThread.UnhandledException -= OnDispatcherUnhandledException;
             AppDomain.CurrentDomain.UnhandledException -= OnCurrentDomainUnhandledException;
         }
+    }
+
+    private static PrimaryTransitionResult WaitForPrimaryTransition(
+        SingleInstanceCoordinator singleInstance,
+        AppActivationRequest activation,
+        TimeSpan timeout)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < timeout)
+        {
+            if (singleInstance.TryBecomePrimary(TimeSpan.FromMilliseconds(100)))
+                return PrimaryTransitionResult.BecamePrimary;
+
+            var remaining = timeout - stopwatch.Elapsed;
+            if (remaining <= TimeSpan.Zero)
+                break;
+
+            var redirectTimeout = remaining < TimeSpan.FromSeconds(1)
+                ? remaining
+                : TimeSpan.FromSeconds(1);
+            var redirectResult = singleInstance
+                .RedirectActivationAsync(activation, redirectTimeout)
+                .GetAwaiter()
+                .GetResult();
+
+            if (redirectResult == ActivationRedirectResult.Accepted)
+                return PrimaryTransitionResult.Redirected;
+
+            if (redirectResult == ActivationRedirectResult.PrimaryRestarting)
+                return PrimaryTransitionResult.ExitForRestart;
+
+            Thread.Sleep(100);
+        }
+
+        Trace.TraceError("[SingleInstance] Timed out waiting for the primary process transition.");
+        return PrimaryTransitionResult.TimedOut;
     }
 
     private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

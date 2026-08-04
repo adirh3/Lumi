@@ -13,8 +13,15 @@ namespace Lumi.Services;
 public static class NotificationService
 {
     private const string ChatActivationArgumentKey = "chatId";
+    private const string ToastActivatedLaunchArgument = "-ToastActivated";
+    private static readonly object ActivationSync = new();
+    private static readonly Queue<Guid?> PendingActivations = [];
+    private static Action<Guid?>? _activationHandler;
+    private static TaskCompletionSource<Guid?>? _activationWaiter;
 #if WINDOWS
-    private static bool _compatListenerRegistered;
+    private static readonly object WindowsCompatSync = new();
+    private static readonly ManualResetEventSlim WindowsCompatThreadLifetime = new();
+    private static Task<bool>? _windowsCompatInitialization;
 #endif
 
     /// <summary>Shows a native desktop notification if the main window is not active.</summary>
@@ -105,13 +112,112 @@ public static class NotificationService
         return null;
     }
 
-    private static void ActivateMainWindow(Guid? chatId = null)
+    internal static bool IsToastActivationLaunch(IEnumerable<string> arguments)
+        => arguments.Contains(
+            ToastActivatedLaunchArgument,
+            StringComparer.OrdinalIgnoreCase);
+
+    internal static void InitializeActivationHandling()
     {
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+#if WINDOWS
+        if (UsesIsolatedAppData())
+            return;
+
+        _ = EnsureWindowsCompat();
+#endif
+    }
+
+    internal static async Task<Guid?> WaitForActivationAsync(TimeSpan timeout)
+    {
+        TaskCompletionSource<Guid?> waiter;
+        lock (ActivationSync)
         {
-            if (Avalonia.Application.Current is App app)
-                app.ShowMainWindow(chatId);
-        });
+            if (_activationHandler is not null)
+                throw new InvalidOperationException("An activation handler is already registered.");
+
+            if (PendingActivations.Count > 0)
+                return PendingActivations.Dequeue();
+
+            if (_activationWaiter is not null)
+                throw new InvalidOperationException("An activation waiter is already registered.");
+
+            waiter = new TaskCompletionSource<Guid?>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _activationWaiter = waiter;
+        }
+
+        try
+        {
+            return await waiter.Task.WaitAsync(timeout);
+        }
+        catch (TimeoutException)
+        {
+            lock (ActivationSync)
+            {
+                if (ReferenceEquals(_activationWaiter, waiter))
+                {
+                    _activationWaiter = null;
+                    throw;
+                }
+            }
+
+            return await waiter.Task;
+        }
+    }
+
+    internal static void SetActivationHandler(Action<Guid?> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+
+        List<Guid?> pending;
+        lock (ActivationSync)
+        {
+            if (_activationWaiter is not null)
+                throw new InvalidOperationException("An activation waiter is still registered.");
+
+            _activationHandler = handler;
+            pending = new List<Guid?>(PendingActivations);
+            PendingActivations.Clear();
+        }
+
+        foreach (var chatId in pending)
+            handler(chatId);
+    }
+
+    internal static void ClearActivationHandler(Action<Guid?> handler)
+    {
+        lock (ActivationSync)
+        {
+            if (ReferenceEquals(_activationHandler, handler))
+                _activationHandler = null;
+        }
+    }
+
+    internal static void PublishActivation(Guid? chatId)
+    {
+        Action<Guid?>? handler;
+        TaskCompletionSource<Guid?>? waiter;
+        lock (ActivationSync)
+        {
+            handler = _activationHandler;
+            waiter = null;
+
+            if (handler is null && _activationWaiter is not null)
+            {
+                waiter = _activationWaiter;
+                _activationWaiter = null;
+            }
+            else if (handler is null)
+            {
+                PendingActivations.Enqueue(chatId);
+                return;
+            }
+        }
+
+        if (waiter is not null)
+            waiter.TrySetResult(chatId);
+        else
+            handler?.Invoke(chatId);
     }
 
     // ── Windows toast ──────────────────────────────────────────────
@@ -119,27 +225,60 @@ public static class NotificationService
 
     /// <summary>Ensures the CommunityToolkit compat layer is set up (AUMID + COM activation).
     /// Must be called before creating a notifier. Safe to call multiple times.</summary>
-    private static void EnsureWindowsCompat()
+    private static bool EnsureWindowsCompat()
     {
-        if (_compatListenerRegistered)
-            return;
+        Task<bool> initialization;
+        lock (WindowsCompatSync)
+        {
+            if (_windowsCompatInitialization is null)
+            {
+                var ready = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                _windowsCompatInitialization = ready.Task;
 
+                var thread = new Thread(() => InitializeWindowsCompat(ready))
+                {
+                    IsBackground = true,
+                    Name = "Lumi.NotificationActivation"
+                };
+                thread.SetApartmentState(ApartmentState.MTA);
+                thread.Start();
+            }
+
+            initialization = _windowsCompatInitialization;
+        }
+
+        if (!initialization.Wait(TimeSpan.FromSeconds(5)))
+        {
+            Trace.TraceWarning("[Notification] COM activation registration timed out.");
+            return false;
+        }
+
+        return initialization.GetAwaiter().GetResult();
+    }
+
+    private static void InitializeWindowsCompat(TaskCompletionSource<bool> ready)
+    {
         try
         {
             // The toolkit creates a Start Menu shortcut (e.g. Lumi.lnk) with the AUMID
             // derived from the executable path. If the build output path changes
-            // (e.g. net10→net11, Debug→Release), the stale shortcut causes AUMID mismatches
+            // (e.g. net10->net11, Debug->Release), the stale shortcut causes AUMID mismatches
             // that silently drop toast notifications. Delete it so the toolkit recreates it.
             CleanStaleShortcut();
             Microsoft.Toolkit.Uwp.Notifications.ToastNotificationManagerCompat.OnActivated += toastArgs =>
-                ActivateMainWindow(ParseChatIdFromActivationArguments(toastArgs.Argument));
+                PublishActivation(ParseChatIdFromActivationArguments(toastArgs.Argument));
+            ready.TrySetResult(true);
+
+            // Keep the registering MTA alive for the process lifetime so COM can dispatch
+            // notification activations even while the STA startup thread is blocked.
+            WindowsCompatThreadLifetime.Wait();
         }
         catch (Exception ex)
         {
             Trace.TraceWarning($"[Notification] COM activation registration failed: {ex.Message}");
+            ready.TrySetResult(false);
         }
-
-        _compatListenerRegistered = true;
     }
 
     /// <summary>Removes stale Start Menu shortcut if its target doesn't match the current executable.</summary>
@@ -195,7 +334,11 @@ public static class NotificationService
 
     private static void ShowWindows(string title, string body, Guid? chatId)
     {
-        EnsureWindowsCompat();
+        if (UsesIsolatedAppData())
+            return;
+
+        if (!EnsureWindowsCompat())
+            throw new InvalidOperationException("Windows notification activation is unavailable.");
 
         var notifier = Microsoft.Toolkit.Uwp.Notifications.ToastNotificationManagerCompat
             .CreateToastNotifier();
@@ -212,9 +355,13 @@ public static class NotificationService
             toastXml.DocumentElement?.SetAttribute("launch", activationArguments);
 
         var toast = new Windows.UI.Notifications.ToastNotification(toastXml);
-        toast.Activated += (_, _) => ActivateMainWindow(chatId);
+        toast.Activated += (_, _) => PublishActivation(chatId);
         notifier.Show(toast);
     }
+
+    private static bool UsesIsolatedAppData()
+        => !string.IsNullOrWhiteSpace(
+            Environment.GetEnvironmentVariable("LUMI_APPDATA_DIR"));
 
     // ── Taskbar flash ──────────────────────────────────────────────
 

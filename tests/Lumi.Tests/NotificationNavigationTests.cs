@@ -30,6 +30,25 @@ public sealed class NotificationNavigationArgumentTests
     }
 
     [Fact]
+    public void IsToastActivationLaunch_RecognizesToolkitArgument()
+    {
+        Assert.True(NotificationService.IsToastActivationLaunch(["-ToastActivated"]));
+        Assert.True(NotificationService.IsToastActivationLaunch(["-toastactivated"]));
+        Assert.False(NotificationService.IsToastActivationLaunch([]));
+    }
+
+    [Fact]
+    public async Task WaitForActivationAsync_ReturnsPublishedChatId()
+    {
+        var chatId = Guid.NewGuid();
+
+        var activation = NotificationService.WaitForActivationAsync(TimeSpan.FromSeconds(1));
+        NotificationService.PublishActivation(chatId);
+
+        Assert.Equal(chatId, await activation);
+    }
+
+    [Fact]
     public void QuestionNotificationBody_IncludesChatTitleAndQuestion()
     {
         var body = NotificationService.FormatQuestionNotificationBody("Trip planning", "Which hotel should I check?");
