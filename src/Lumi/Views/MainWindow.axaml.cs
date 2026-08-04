@@ -66,6 +66,10 @@ public partial class MainWindow : Window
     private TextBlock? _projectSwitchSubtitleText;
     private TextBlock? _projectSwitchCountText;
     private TextBlock? _projectFilterMoreText;
+    private Border? _unreadInboxRoot;
+    private Button? _unreadInboxToggle;
+    private Border? _unreadRevealHost;
+    private Border? _unreadPanel;
     private ScrollViewer? _chatListScroller;
     private readonly List<(Project Project, PropertyChangedEventHandler Handler)> _projectFilterHandlers = [];
     private ChatWorkspaceView? _chatWorkspace;
@@ -89,10 +93,12 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _sidebarAnimCts;
     private CancellationTokenSource? _navHoverIntentCts;
     private CancellationTokenSource? _projectSwitcherDrawerCts;
+    private CancellationTokenSource? _unreadDrawerCts;
     private bool _suppressSelectionSync;
     private bool _isProjectChatListRevealArmed;
     private bool _isProjectChatListRevealQueued;
     private bool _isProjectSwitcherOpen;
+    private bool _isUnreadPanelOpen;
     private int _chatListRevealVersion;
     private CancellationTokenSource? _shellAnimCts;
     private int _currentShellIndex = -1;
@@ -175,6 +181,7 @@ public partial class MainWindow : Window
         DisposeCancellationTokenSource(ref _titleAnimCts);
         DisposeCancellationTokenSource(ref _chatListRevealCts);
         DisposeCancellationTokenSource(ref _projectSwitcherDrawerCts);
+        DisposeCancellationTokenSource(ref _unreadDrawerCts);
         _chatWorkspace?.Dispose();
     }
 
@@ -294,6 +301,10 @@ public partial class MainWindow : Window
         _projectSwitchSubtitleText = this.FindControl<TextBlock>("ProjectSwitchSubtitleText");
         _projectSwitchCountText = this.FindControl<TextBlock>("ProjectSwitchCountText");
         _projectFilterMoreText = this.FindControl<TextBlock>("ProjectFilterMoreText");
+        _unreadInboxRoot = this.FindControl<Border>("UnreadInboxRoot");
+        _unreadInboxToggle = this.FindControl<Button>("UnreadInboxToggle");
+        _unreadRevealHost = this.FindControl<Border>("UnreadRevealHost");
+        _unreadPanel = this.FindControl<Border>("UnreadPanel");
 
         if (_projectSwitchButton is not null)
             _projectSwitchButton.Click += (_, _) => ToggleProjectSwitcher();
@@ -714,6 +725,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_isUnreadPanelOpen && e.Key == Key.Escape && noMods)
+        {
+            vm.CloseUnreadPanelCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
         // ── Ctrl+N — New chat ──
         if (ctrl && !alt && !shift && e.Key == Key.N)
         {
@@ -873,6 +891,13 @@ public partial class MainWindow : Window
             && !IsWithinProjectSwitcher(e.Source))
         {
             SetProjectSwitcherOpen(false);
+        }
+
+        if (_isUnreadPanelOpen
+            && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed
+            && !IsWithinUnreadInbox(e.Source))
+        {
+            vm.CloseUnreadPanelCommand.Execute(null);
         }
 
         var point = e.GetCurrentPoint(this);
@@ -1063,6 +1088,10 @@ public partial class MainWindow : Window
                         QueueProjectChatListReveal();
                     _isProjectChatListRevealQueued = false;
                 }
+                else if (args.PropertyName == nameof(MainViewModel.IsUnreadPanelOpen))
+                {
+                    SetUnreadPanelOpen(vm.IsUnreadPanelOpen);
+                }
                 else if (args.PropertyName == nameof(MainViewModel.IsSidebarCollapsed))
                 {
                     AnimateSidebarCollapse(vm.IsSidebarCollapsed);
@@ -1074,6 +1103,13 @@ public partial class MainWindow : Window
             vm.Projects.CollectionChanged += (_, _) =>
             {
                 Dispatcher.UIThread.Post(() => RefreshProjectSwitcher(vm), DispatcherPriority.Loaded);
+            };
+
+            // Per-project unread pills live in the switcher rows, so keep them live while it is open.
+            vm.UnreadStateChanged += () =>
+            {
+                if (_isProjectSwitcherOpen)
+                    RefreshProjectSwitcher(vm);
             };
 
             // When chat groups are rebuilt, re-attach ListBox handlers, sync selection, and set project labels
@@ -2362,6 +2398,10 @@ public partial class MainWindow : Window
         if (isOpen && DataContext is MainViewModel vm)
             RefreshProjectSwitcher(vm);
 
+        // Only one sidebar drawer at a time — see SetUnreadPanelOpen.
+        if (isOpen && _isUnreadPanelOpen && DataContext is MainViewModel unreadVm)
+            unreadVm.CloseUnreadPanelCommand.Execute(null);
+
         if (_isProjectSwitcherOpen == isOpen && _projectSwitchRevealHost.IsVisible == isOpen)
         {
             if (isOpen)
@@ -2397,8 +2437,26 @@ public partial class MainWindow : Window
         if (_projectSwitchRevealHost is null || _projectSwitchPanel is null)
             return;
 
-        var host = _projectSwitchRevealHost;
+        var completed = await AnimateRevealDrawerAsync(
+            _projectSwitchRevealHost,
+            isOpen,
+            GetProjectSwitcherTargetHeight,
+            ct);
 
+        if (completed && !isOpen)
+            OnProjectSwitcherClosed();
+    }
+
+    /// <summary>
+    /// Height-and-fade reveal shared by the sidebar's drawers (project switcher, unread inbox) so
+    /// they open with one motion language. Returns false when a newer toggle superseded this run.
+    /// </summary>
+    private static async Task<bool> AnimateRevealDrawerAsync(
+        Border host,
+        bool isOpen,
+        Func<double> measureTargetHeight,
+        CancellationToken ct)
+    {
         if (isOpen)
         {
             host.IsVisible = true;
@@ -2408,9 +2466,9 @@ public partial class MainWindow : Window
 
         var startHeight = Math.Max(0, double.IsNaN(host.Height) ? host.Bounds.Height : host.Height);
         if (!isOpen && startHeight <= 0)
-            startHeight = GetProjectSwitcherTargetHeight();
+            startHeight = measureTargetHeight();
 
-        var endHeight = isOpen ? GetProjectSwitcherTargetHeight() : 0;
+        var endHeight = isOpen ? measureTargetHeight() : 0;
         host.Height = startHeight;
 
         var animation = new Animation
@@ -2447,15 +2505,15 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException)
         {
-            return;
+            return false;
         }
         catch (ObjectDisposedException)
         {
-            return;
+            return false;
         }
 
         if (ct.IsCancellationRequested)
-            return;
+            return false;
 
         if (isOpen)
         {
@@ -2467,8 +2525,9 @@ public partial class MainWindow : Window
             host.Height = 0;
             host.Opacity = 0;
             host.IsVisible = false;
-            OnProjectSwitcherClosed();
         }
+
+        return true;
     }
 
     private double GetProjectSwitcherTargetHeight()
@@ -2502,6 +2561,79 @@ public partial class MainWindow : Window
 
         if (_projectFilterSearchBox is not null && !string.IsNullOrEmpty(_projectFilterSearchBox.Text))
             _projectFilterSearchBox.Text = "";
+    }
+
+    // ── Unread inbox drawer ──
+
+    private void SetUnreadPanelOpen(bool isOpen)
+    {
+        if (_unreadRevealHost is null || _unreadPanel is null)
+            return;
+
+        if (_isUnreadPanelOpen == isOpen && _unreadRevealHost.IsVisible == isOpen)
+            return;
+
+        _isUnreadPanelOpen = isOpen;
+
+        if (_unreadInboxToggle is not null)
+        {
+            if (isOpen && !_unreadInboxToggle.Classes.Contains("open"))
+                _unreadInboxToggle.Classes.Add("open");
+            else if (!isOpen)
+                _unreadInboxToggle.Classes.Remove("open");
+        }
+
+        // Opening the unread drawer while the project drawer is open would stack two panels over
+        // the chat list, so they behave as one exclusive group.
+        if (isOpen && _isProjectSwitcherOpen)
+            SetProjectSwitcherOpen(false);
+
+        var ct = ReplaceCancellationTokenSource(ref _unreadDrawerCts).Token;
+        _ = AnimateUnreadDrawerAsync(isOpen, ct);
+    }
+
+    private async Task AnimateUnreadDrawerAsync(bool isOpen, CancellationToken ct)
+    {
+        if (_unreadRevealHost is null || _unreadPanel is null)
+            return;
+
+        var completed = await AnimateRevealDrawerAsync(
+            _unreadRevealHost,
+            isOpen,
+            GetUnreadDrawerTargetHeight,
+            ct);
+
+        if (completed && !isOpen)
+            _unreadInboxToggle?.Classes.Remove("open");
+    }
+
+    private double GetUnreadDrawerTargetHeight()
+    {
+        if (_unreadPanel is null)
+            return 0;
+
+        var width = _unreadInboxToggle?.Bounds.Width
+            ?? _unreadInboxRoot?.Bounds.Width
+            ?? 255;
+        if (width <= 0 || double.IsNaN(width) || double.IsInfinity(width))
+            width = 255;
+
+        _unreadPanel.Measure(new Size(width, double.PositiveInfinity));
+        var height = _unreadPanel.DesiredSize.Height;
+        if (height <= 0 || double.IsNaN(height) || double.IsInfinity(height))
+            height = _unreadPanel.Bounds.Height;
+        if (height <= 0 || double.IsNaN(height) || double.IsInfinity(height))
+            height = 240;
+
+        return Math.Ceiling(Math.Clamp(height, 1, 340));
+    }
+
+    private bool IsWithinUnreadInbox(object? source)
+    {
+        if (_unreadInboxRoot is null || source is not Visual visual)
+            return false;
+
+        return IsVisualOrDescendantOf(visual, _unreadInboxRoot);
     }
 
     private void OnProjectFilterSearchKeyDown(object? sender, KeyEventArgs e)
@@ -2568,7 +2700,8 @@ public partial class MainWindow : Window
             subtitle: string.Format(Loc.ProjectSwitcher_AllSubtitle, vm.Projects.Count, totalChats),
             isSelected: isAll,
             isRunning: false,
-            countText: totalChats > 0 ? totalChats.ToString(Loc.Culture) : ""));
+            countText: totalChats > 0 ? totalChats.ToString(Loc.Culture) : "",
+            unreadCount: vm.UnreadChatCount));
 
         if (candidates.Count == 0)
         {
@@ -2594,7 +2727,8 @@ public partial class MainWindow : Window
                 FormatProjectFilterSubtitle(project, candidate.ChatCount, candidate.LastActivity),
                 isActive,
                 project.IsRunning,
-                candidate.ChatCount > 0 ? candidate.ChatCount.ToString(Loc.Culture) : "");
+                candidate.ChatCount > 0 ? candidate.ChatCount.ToString(Loc.Culture) : "",
+                vm.GetProjectUnreadCount(project.Id));
 
             _projectFilterResults.Children.Add(row);
 
@@ -2697,15 +2831,18 @@ public partial class MainWindow : Window
         string subtitle,
         bool isSelected,
         bool isRunning,
-        string countText)
+        string countText,
+        int unreadCount)
     {
         var button = new Button
         {
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
             HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
-            Content = CreateProjectFilterRowContent(project is null, title, subtitle, isSelected, isRunning, countText),
+            Content = CreateProjectFilterRowContent(project is null, title, subtitle, isSelected, isRunning, countText, unreadCount),
         };
-        ToolTip.SetTip(button, subtitle);
+        ToolTip.SetTip(button, unreadCount > 0
+            ? $"{subtitle}\n{string.Format(Loc.Culture, Loc.Unread_ProjectTooltip, unreadCount)}"
+            : subtitle);
         button.Classes.Add("project-switcher-row");
         if (isSelected)
             button.Classes.Add("selected");
@@ -2730,7 +2867,8 @@ public partial class MainWindow : Window
         string subtitle,
         bool isSelected,
         bool isRunning,
-        string countText)
+        string countText,
+        int unreadCount)
     {
         var dock = new DockPanel
         {
@@ -2738,7 +2876,15 @@ public partial class MainWindow : Window
             Margin = new Thickness(7, 4),
         };
 
-        if (!string.IsNullOrWhiteSpace(countText))
+        // An unread count replaces the neutral chat count: while a project has new replies, "where
+        // are they" matters more than "how big is this project".
+        if (unreadCount > 0)
+        {
+            var unreadPill = CreateProjectUnreadPill(unreadCount);
+            DockPanel.SetDock(unreadPill, Dock.Right);
+            dock.Children.Add(unreadPill);
+        }
+        else if (!string.IsNullOrWhiteSpace(countText))
         {
             var statePill = CreateProjectStatePill(countText);
             DockPanel.SetDock(statePill, Dock.Right);
@@ -2852,6 +2998,35 @@ public partial class MainWindow : Window
             Background = GetThemeBrush("Brush.ControlDefault", Brushes.Transparent),
             BorderBrush = GetThemeBrush("Brush.BorderSubtle", Brushes.Transparent),
             BorderThickness = new Thickness(1),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            Margin = new Thickness(7, 0, 0, 0),
+            Child = label,
+        };
+    }
+
+    /// <summary>
+    /// Accent count pill marking a project that has chats with new replies, so the switcher answers
+    /// "which project should I go back to" without opening each one.
+    /// </summary>
+    private Border CreateProjectUnreadPill(int unreadCount)
+    {
+        var label = new TextBlock
+        {
+            Text = unreadCount > 99 ? "99+" : unreadCount.ToString(Loc.Culture),
+            FontSize = 9.8,
+            FontWeight = FontWeight.Bold,
+            Foreground = GetThemeBrush("Brush.TextOnAccent", Brushes.White),
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        };
+
+        return new Border
+        {
+            MinWidth = 20,
+            Padding = new Thickness(5, 1),
+            CornerRadius = new CornerRadius(999),
+            Background = GetThemeBrush("Brush.AccentDefault", Brushes.DodgerBlue),
+            BorderThickness = new Thickness(0),
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
             Margin = new Thickness(7, 0, 0, 0),
             Child = label,

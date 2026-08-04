@@ -49,6 +49,7 @@
     <StreamGeometry x:Key="Icon.Filter">F1 M3.2 4.4h17.6l-7 8.3v6.4l-3.6 2v-8.4z</StreamGeometry>
     <StreamGeometry x:Key="Icon.ChevronLeft">M14.7 5.3a1 1 0 0 1 0 1.4L9.4 12l5.3 5.3a1 1 0 0 1-1.4 1.4l-6-6a1 1 0 0 1 0-1.4l6-6a1 1 0 0 1 1.4 0z</StreamGeometry>
     <StreamGeometry x:Key="Icon.ChevronRight">M9.3 5.3a1 1 0 0 1 1.4 0l6 6a1 1 0 0 1 0 1.4l-6 6a1 1 0 0 1-1.4-1.4l5.3-5.3-5.3-5.3a1 1 0 0 1 0-1.4z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.ChevronDown">M5.3 9.3a1 1 0 0 1 1.4 0l5.3 5.3 5.3-5.3a1 1 0 0 1 1.4 1.4l-6 6a1 1 0 0 1-1.4 0l-6-6a1 1 0 0 1 0-1.4z</StreamGeometry>
   </Window.Resources>
 
   <Window.Styles>
@@ -522,6 +523,98 @@
       <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
     </Style>
 
+    <!-- ── Unread inbox ──────────────────────────────────
+         Chats stream in several projects at once, so a reply can land in a project the sidebar is
+         filtered away from. This pill sits directly above the chat list as the one filter-independent
+         "you have new replies" surface, and opens into a drawer that jumps straight to any of them.
+         It borrows the project switcher's drawer skin so the two sidebar drawers read as one family. -->
+    <Style Selector="Button.unread-toggle">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="Padding" Value="8,4" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Height" Value="32" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.unread-toggle:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="BoxShadow" Value="0 4 14 0 #14000000" />
+    </Style>
+    <Style Selector="Button.unread-toggle:pointerover /template/ Border#PART_Aurora">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="RenderTransform" Value="translateX(0)" />
+    </Style>
+    <Style Selector="Button.unread-toggle PathIcon#UnreadChevron">
+      <Setter Property="RenderTransform" Value="rotate(0deg)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.unread-toggle.open PathIcon#UnreadChevron">
+      <Setter Property="RenderTransform" Value="rotate(180deg)" />
+    </Style>
+    <!-- The dot breathes so a reply arriving while the user is elsewhere draws the eye. -->
+    <Style Selector="Border.unread-dot">
+      <Setter Property="Width" Value="7" />
+      <Setter Property="Height" Value="7" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.32" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.5" />
+      <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+    <Style Selector="Border.unread-nav-badge">
+      <Setter Property="MinWidth" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="Padding" Value="4,0" />
+      <Setter Property="CornerRadius" Value="999" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+    </Style>
+    <Style Selector="Border.unread-nav-badge TextBlock">
+      <Setter Property="FontSize" Value="9" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.unread-row">
+      <Setter Property="Padding" Value="7,5" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.unread-row:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Button.unread-mark-all">
+      <Setter Property="Padding" Value="7,4" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+
     <Style Selector="ScrollViewer.hover-scroll ScrollBar">
       <Setter Property="Opacity" Value="0" />
       <Setter Property="Transitions">
@@ -703,8 +796,17 @@
                 <Button Classes="subtle nav-icon" x:Name="NavChat"
                         Command="{Binding SetNavCommand}" CommandParameter="0">
                   <StackPanel Orientation="Horizontal">
-                    <PathIcon Data="{StaticResource Icon.Chat}" Width="14" Height="14"
-                              VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <Panel>
+                      <PathIcon Data="{StaticResource Icon.Chat}" Width="14" Height="14"
+                                VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}" />
+                      <Border x:Name="NavChatUnreadBadge"
+                              Classes="unread-nav-badge"
+                              Margin="0,-4,-7,0"
+                              IsVisible="{Binding HasUnreadChats}"
+                              ToolTip.Tip="{loc:Str Unread_NavBadgeTooltip}">
+                        <TextBlock Text="{Binding UnreadBadgeText}" />
+                      </Border>
+                    </Panel>
                     <TextBlock Classes="nav-label" Text="{loc:Str NavLabel_Chats}" />
                   </StackPanel>
                  </Button>
@@ -933,6 +1035,119 @@
                   </Border>
                 </StackPanel>
               </Border>
+
+              <!-- ── Unread inbox: the one place unread replies stay visible regardless of the
+                       active project filter, and the fastest route back to them. ── -->
+              <Border x:Name="UnreadInboxRoot"
+                      DockPanel.Dock="Top"
+                      Margin="14,6,14,0"
+                      IsVisible="{Binding HasUnreadChats}">
+                <StackPanel>
+                  <Button x:Name="UnreadInboxToggle"
+                          Classes="unread-toggle"
+                          Command="{Binding ToggleUnreadPanelCommand}"
+                          ToolTip.Tip="{Binding UnreadTooltipText}"
+                          AutomationProperties.Name="{Binding UnreadSummaryText}">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
+                      <Border Grid.Column="0" Classes="unread-dot" />
+                      <TextBlock Grid.Column="1"
+                                 x:Name="UnreadSummaryLabel"
+                                 Text="{Binding UnreadSummaryText}"
+                                 FontSize="11.5"
+                                 FontWeight="SemiBold"
+                                 Foreground="{DynamicResource Brush.AccentDefault}"
+                                 VerticalAlignment="Center"
+                                 TextTrimming="CharacterEllipsis" />
+                      <PathIcon Grid.Column="2"
+                                x:Name="UnreadChevron"
+                                Data="{StaticResource Icon.ChevronDown}"
+                                Width="11" Height="11"
+                                VerticalAlignment="Center"
+                                Foreground="{DynamicResource Brush.AccentDefault}" />
+                    </Grid>
+                  </Button>
+
+                  <Border x:Name="UnreadRevealHost"
+                          Height="0"
+                          Opacity="0"
+                          IsVisible="False"
+                          ClipToBounds="True"
+                          Margin="0,4,0,0">
+                    <Border x:Name="UnreadPanel" Classes="project-switcher-panel" ClipToBounds="True">
+                      <StackPanel Spacing="3" Margin="6">
+                        <ScrollViewer MaxHeight="212"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      Classes="hover-scroll">
+                          <ItemsControl ItemsSource="{Binding UnreadChats}">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="vm:UnreadChatEntry">
+                                <Button Classes="unread-row"
+                                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenUnreadChatCommand}"
+                                        CommandParameter="{Binding}"
+                                        ToolTip.Tip="{Binding TooltipText}">
+                                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
+                                    <Border Grid.Column="0"
+                                            Width="6" Height="6" CornerRadius="3"
+                                            VerticalAlignment="Center"
+                                            Background="{DynamicResource Brush.AccentDefault}" />
+                                    <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                      <TextBlock Text="{Binding Title}"
+                                                 FontSize="11.5"
+                                                 FontWeight="Medium"
+                                                 Foreground="{DynamicResource Brush.TextPrimary}"
+                                                 TextTrimming="CharacterEllipsis" />
+                                      <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <PathIcon Data="{StaticResource Icon.Folder}"
+                                                  Width="9" Height="9"
+                                                  VerticalAlignment="Center"
+                                                  IsVisible="{Binding HasProject}"
+                                                  Foreground="{DynamicResource Brush.AccentDefault}" />
+                                        <TextBlock Text="{Binding ProjectName}"
+                                                   IsVisible="{Binding HasProject}"
+                                                   FontSize="10"
+                                                   MaxWidth="118"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource Brush.AccentDefault}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{loc:Str Unread_NoProject}"
+                                                   IsVisible="{Binding !HasProject}"
+                                                   FontSize="10"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource Brush.TextTertiary}" />
+                                      </StackPanel>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding TimeLabel}"
+                                               FontSize="9.8"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource Brush.TextTertiary}" />
+                                  </Grid>
+                                </Button>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </ScrollViewer>
+
+                        <TextBlock Text="{Binding UnreadOverflowText}"
+                                   IsVisible="{Binding HasUnreadOverflow}"
+                                   FontSize="10.5"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,1"
+                                   Foreground="{DynamicResource Brush.TextTertiary}" />
+
+                        <Border Height="1" Margin="2,2"
+                                Background="{DynamicResource Brush.BorderSubtle}" />
+
+                        <Button Classes="subtle unread-mark-all"
+                                Command="{Binding MarkAllChatsReadCommand}"
+                                Content="{loc:Str Unread_MarkAllRead}" />
+                      </StackPanel>
+                    </Border>
+                  </Border>
+                </StackPanel>
+              </Border>
+
               <ScrollViewer x:Name="ChatListScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                             Classes="hover-scroll" Margin="0,8,0,0">
                 <ItemsControl x:Name="ChatGroupsHost" ItemsSource="{Binding ChatGroups}" Margin="6,0,6,8">
@@ -2014,7 +2229,15 @@
       <Button Classes="subtle rail-nav-icon" x:Name="RailChat"
               Command="{Binding SetNavCommand}" CommandParameter="0"
               ToolTip.Tip="{loc:Str NavLabel_Chats}" ToolTip.Placement="Right">
-        <PathIcon Data="{StaticResource Icon.Chat}" Width="17" Height="17" />
+        <Panel>
+          <PathIcon Data="{StaticResource Icon.Chat}" Width="17" Height="17" />
+          <Border x:Name="RailChatUnreadBadge"
+                  Classes="unread-nav-badge"
+                  Margin="0,-4,-6,0"
+                  IsVisible="{Binding HasUnreadChats}">
+            <TextBlock Text="{Binding UnreadBadgeText}" />
+          </Border>
+        </Panel>
       </Button>
       <Button Classes="subtle rail-nav-icon" x:Name="RailJobs"
               Command="{Binding SetNavCommand}" CommandParameter="1"

@@ -983,6 +983,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         if (e.PropertyName == nameof(Chat.IsRunning))
             RefreshProjectRunningState();
+        else if (e.PropertyName == nameof(Chat.HasUnreadMessages))
+            RefreshUnreadState();
     }
 
     /// <summary>Recalculates IsRunning for all projects based on current chat states.</summary>
@@ -1008,6 +1010,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         _chatLoadLimit = ChatPageSize;
         RebuildChatGroups();
+        RefreshUnreadState();
     }
 
     public void LoadMoreChats()
@@ -1868,6 +1871,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         RefreshChatList();
         ChatVM.ActiveProjectFilterId = value;
+
+        // A reveal moves the filter *to* an already-chosen chat, so the auto-open below would
+        // race it and win. The caller opens the chat itself right after.
+        if (_isRevealingChat)
+            return;
 
         if (_chatNavigationHistory.IsRestoring)
         {
