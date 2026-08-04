@@ -15,7 +15,8 @@ namespace Lumi.Services;
 
 public sealed class BackgroundJobService : IDisposable
 {
-    private static readonly TimeSpan MaxSchedulerSleep = TimeSpan.FromHours(24);
+    private static readonly TimeSpan MaxWallClockWaitSlice = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan SchedulerRetryDelay = TimeSpan.FromSeconds(15);
     private static readonly Encoding ScriptEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
     private readonly DataStore _dataStore;
@@ -30,6 +31,8 @@ public sealed class BackgroundJobService : IDisposable
     private readonly object _rescheduleSync = new();
     private CancellationTokenSource _rescheduleCts = new();
     private Task? _runnerTask;
+    // Detect reschedules raised before the scheduler has attached its next wait token.
+    private long _rescheduleVersion;
     private int _started;
     private int _stopping;
 
@@ -144,8 +147,14 @@ public sealed class BackgroundJobService : IDisposable
     public async Task RunDueJobsNowAsync(CancellationToken cancellationToken = default)
     {
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_disposeCts.Token, cancellationToken);
-        await RunDueJobsAsync(linkedCts.Token);
-        Reschedule();
+        try
+        {
+            await RunDueJobsAsync(linkedCts.Token);
+        }
+        finally
+        {
+            Reschedule();
+        }
     }
 
     public void Reschedule()
@@ -160,6 +169,7 @@ public sealed class BackgroundJobService : IDisposable
 
             var previous = _rescheduleCts;
             _rescheduleCts = new CancellationTokenSource();
+            Interlocked.Increment(ref _rescheduleVersion);
             previous.Cancel();
             previous.Dispose();
         }
@@ -167,25 +177,34 @@ public sealed class BackgroundJobService : IDisposable
 
     private async Task RunAsync()
     {
-        try
+        while (!_disposeCts.IsCancellationRequested)
         {
-            while (!_disposeCts.IsCancellationRequested)
+            try
             {
+                var rescheduleVersion = Volatile.Read(ref _rescheduleVersion);
                 var nextRunAt = await RunDueJobsAsync(_disposeCts.Token);
-                var delay = GetSchedulerDelay(nextRunAt, DateTimeOffset.Now);
-
+                await WaitForNextScheduleAsync(nextRunAt, rescheduleVersion, _disposeCts.Token);
+            }
+            catch (OperationCanceledException) when (IsStopping)
+            {
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                // Jobs changed; loop immediately to recompute the next precise wake-up.
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError($"[BackgroundJobs] Scheduler scan failed: {FlattenException(ex)}");
                 try
                 {
-                    await WaitForNextScheduleAsync(delay, _disposeCts.Token);
+                    await Task.Delay(SchedulerRetryDelay, _disposeCts.Token);
                 }
-                catch (OperationCanceledException) when (!IsStopping)
+                catch (OperationCanceledException) when (IsStopping)
                 {
-                    // Jobs changed; loop immediately to recompute the next precise wake-up.
+                    return;
                 }
             }
-        }
-        catch (OperationCanceledException) when (IsStopping)
-        {
         }
     }
 
@@ -197,11 +216,11 @@ public sealed class BackgroundJobService : IDisposable
             var now = DateTimeOffset.Now;
             var changed = false;
             DateTimeOffset? nextRunAt = null;
-            var jobsToRun = new List<(BackgroundJob Job, DateTimeOffset StartedAt)>();
 
             foreach (var job in _dataStore.SnapshotBackgroundJobs())
             {
                 ct.ThrowIfCancellationRequested();
+                var shouldQueue = false;
                 lock (job.SyncRoot)
                 {
                     BackgroundJobSchedule.Normalize(job);
@@ -216,6 +235,9 @@ public sealed class BackgroundJobService : IDisposable
                         changed = true;
                         continue;
                     }
+
+                    if (TryRearmInterruptedRun(job, now))
+                        changed = true;
 
                     if (!job.IsEnabled || job.IsRunning)
                         continue;
@@ -235,16 +257,16 @@ public sealed class BackgroundJobService : IDisposable
                     }
 
                     StartJobRun(job, now);
-                    jobsToRun.Add((job, now));
+                    shouldQueue = true;
                     changed = true;
                 }
+
+                if (shouldQueue)
+                    QueueJobExecution(job, now);
             }
 
             if (changed)
                 await SaveAndNotifyAsync(ct);
-
-            foreach (var (job, startedAt) in jobsToRun)
-                QueueJobExecution(job, startedAt);
 
             return nextRunAt;
         }
@@ -263,16 +285,30 @@ public sealed class BackgroundJobService : IDisposable
             return TimeSpan.Zero;
 
         var delay = nextRunAt.Value - now;
-        return delay > MaxSchedulerSleep ? MaxSchedulerSleep : delay;
+        return delay > MaxWallClockWaitSlice ? MaxWallClockWaitSlice : delay;
     }
 
-    private async Task WaitForNextScheduleAsync(TimeSpan? delay, CancellationToken disposeToken)
+    private async Task WaitForNextScheduleAsync(
+        DateTimeOffset? nextRunAt,
+        long observedRescheduleVersion,
+        CancellationToken disposeToken)
     {
-        if (delay == TimeSpan.Zero)
-            return;
+        while (true)
+        {
+            if (Volatile.Read(ref _rescheduleVersion) != observedRescheduleVersion)
+                return;
 
-        using var waitCts = CreateSchedulerWaitToken(disposeToken);
-        await Task.Delay(delay ?? Timeout.InfiniteTimeSpan, waitCts.Token);
+            var delay = GetSchedulerDelay(nextRunAt, DateTimeOffset.Now);
+            if (delay == TimeSpan.Zero)
+                return;
+
+            // .NET timers measure awake time, so long delays pause while a laptop sleeps.
+            // Rechecking the wall clock in short slices catches overdue jobs promptly after resume.
+            using var waitCts = CreateSchedulerWaitToken(disposeToken);
+            if (Volatile.Read(ref _rescheduleVersion) != observedRescheduleVersion)
+                return;
+            await Task.Delay(delay ?? Timeout.InfiniteTimeSpan, waitCts.Token);
+        }
     }
 
     private CancellationTokenSource CreateSchedulerWaitToken(CancellationToken disposeToken)
@@ -288,6 +324,26 @@ public sealed class BackgroundJobService : IDisposable
 
     private bool JobHasValidChat(BackgroundJob job)
         => _dataStore.Data.Chats.Any(chat => chat.Id == job.ChatId);
+
+    internal static bool TryRearmInterruptedRun(BackgroundJob job, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+
+        // IsRunning is runtime-only, so an active persisted status means the prior process
+        // stopped before it could finish this run.
+        if (!job.IsEnabled
+            || job.IsRunning
+            || job.LastRunStatus is not (BackgroundJobRunStatuses.Running
+                or BackgroundJobRunStatuses.Watching
+                or BackgroundJobRunStatuses.Waiting))
+        {
+            return false;
+        }
+
+        job.NextRunAt = now;
+        job.UpdatedAt = now;
+        return true;
+    }
 
     private static void StartJobRun(BackgroundJob job, DateTimeOffset startedAt)
     {
@@ -317,6 +373,11 @@ public sealed class BackgroundJobService : IDisposable
             }
             catch (OperationCanceledException) when (IsStopping)
             {
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError(
+                    $"[BackgroundJobs] Unhandled execution failure for '{job.Name}' ({job.Id}): {FlattenException(ex)}");
             }
         }, CancellationToken.None);
     }
@@ -527,36 +588,33 @@ public sealed class BackgroundJobService : IDisposable
             using var process = Process.Start(psi)
                 ?? throw new InvalidOperationException($"Failed to start {language} background job script.");
 
-            lock (job.SyncRoot)
-            {
-                job.LastRunSummary = $"Watching script process {process.Id}. Lumi will wake this chat when it exits.";
-                job.UpdatedAt = DateTimeOffset.Now;
-            }
-
-            await SaveAndNotifyAsync(ct);
-
-            string stdout;
-            string stderr;
             Task<string>? stdoutTask = null;
             Task<string>? stderrTask = null;
             try
             {
                 stdoutTask = process.StandardOutput.ReadToEndAsync();
                 stderrTask = process.StandardError.ReadToEndAsync();
+
+                lock (job.SyncRoot)
+                {
+                    job.LastRunSummary = $"Watching script process {process.Id}. Lumi will wake this chat when it exits.";
+                    job.UpdatedAt = DateTimeOffset.Now;
+                }
+
+                await SaveAndNotifyAsync(ct);
                 await process.WaitForExitAsync(ct);
 
-                stdout = await stdoutTask;
-                stderr = await stderrTask;
+                var stdout = await stdoutTask;
+                var stderr = await stderrTask;
+                var completedAt = DateTimeOffset.Now;
+                return ParseScriptOutput(stdout, stderr, process.ExitCode, language, startedAt, completedAt);
             }
-            catch (OperationCanceledException)
+            catch
             {
                 KillProcess(process);
-                await DrainCancelledProcessAsync(process, stdoutTask, stderrTask);
+                await DrainTerminatedProcessAsync(process, stdoutTask, stderrTask);
                 throw;
             }
-
-            var completedAt = DateTimeOffset.Now;
-            return ParseScriptOutput(stdout, stderr, process.ExitCode, language, startedAt, completedAt);
         }
         finally
         {
@@ -643,7 +701,7 @@ public sealed class BackgroundJobService : IDisposable
         }
     }
 
-    private static async Task DrainCancelledProcessAsync(
+    private static async Task DrainTerminatedProcessAsync(
         Process process,
         Task<string>? stdoutTask,
         Task<string>? stderrTask)
@@ -792,9 +850,15 @@ public sealed class BackgroundJobService : IDisposable
     private async Task SaveAndNotifyAsync(CancellationToken ct)
     {
         _dataStore.MarkBackgroundJobsChanged();
-        await _dataStore.SaveAsync(ct);
-        JobsChanged?.Invoke();
-        Reschedule();
+        try
+        {
+            await _dataStore.SaveAsync(ct);
+        }
+        finally
+        {
+            Reschedule();
+            JobsChanged?.Invoke();
+        }
     }
 
     private static string? TryGetJsonString(JsonElement element, string propertyName)

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Lumi.Models;
 using Lumi.Services;
 using Xunit;
@@ -105,19 +106,83 @@ public sealed class BackgroundJobScheduleTests
     }
 
     [Fact]
-    public void GetSchedulerDelay_FutureRun_UsesExactDelay()
+    public void GetSchedulerDelay_NearFutureRun_UsesExactDelay()
     {
         var now = new DateTimeOffset(2026, 4, 26, 10, 0, 0, TimeSpan.FromHours(3));
 
-        Assert.Equal(TimeSpan.FromHours(6), BackgroundJobService.GetSchedulerDelay(now.AddHours(6), now));
+        Assert.Equal(TimeSpan.FromSeconds(30), BackgroundJobService.GetSchedulerDelay(now.AddSeconds(30), now));
     }
 
     [Fact]
-    public void GetSchedulerDelay_VeryFarRun_CapsSleepForClockChanges()
+    public void GetSchedulerDelay_FutureRun_CapsWaitForSuspendRecovery()
     {
         var now = new DateTimeOffset(2026, 4, 26, 10, 0, 0, TimeSpan.FromHours(3));
 
-        Assert.Equal(TimeSpan.FromHours(24), BackgroundJobService.GetSchedulerDelay(now.AddDays(7), now));
+        Assert.Equal(TimeSpan.FromMinutes(1), BackgroundJobService.GetSchedulerDelay(now.AddHours(6), now));
+    }
+
+    [Theory]
+    [InlineData(BackgroundJobRunStatuses.Running)]
+    [InlineData(BackgroundJobRunStatuses.Watching)]
+    [InlineData(BackgroundJobRunStatuses.Waiting)]
+    public void TryRearmInterruptedRun_EnabledJobRetriesImmediately(string status)
+    {
+        var now = new DateTimeOffset(2026, 4, 26, 10, 0, 0, TimeSpan.FromHours(3));
+        var job = new BackgroundJob
+        {
+            IsEnabled = true,
+            ScheduleType = BackgroundJobScheduleTypes.Daily,
+            DailyTime = "08:00",
+            LastRunStatus = status,
+            LastRunStartedAt = now.AddHours(-2),
+            NextRunAt = null
+        };
+
+        Assert.True(BackgroundJobService.TryRearmInterruptedRun(job, now));
+        Assert.Equal(now, job.NextRunAt);
+        Assert.Equal(now, job.UpdatedAt);
+    }
+
+    [Fact]
+    public void TryRearmInterruptedRun_PausedJobStaysPaused()
+    {
+        var now = new DateTimeOffset(2026, 4, 26, 10, 0, 0, TimeSpan.FromHours(3));
+        var job = new BackgroundJob
+        {
+            IsEnabled = false,
+            LastRunStatus = BackgroundJobRunStatuses.Running
+        };
+
+        Assert.False(BackgroundJobService.TryRearmInterruptedRun(job, now));
+        Assert.Null(job.NextRunAt);
+    }
+
+    [Fact]
+    public void TryRearmInterruptedRun_LiveJobIsNotDuplicated()
+    {
+        var now = new DateTimeOffset(2026, 4, 26, 10, 0, 0, TimeSpan.FromHours(3));
+        var job = new BackgroundJob
+        {
+            IsEnabled = true,
+            IsRunning = true,
+            LastRunStatus = BackgroundJobRunStatuses.Running
+        };
+
+        Assert.False(BackgroundJobService.TryRearmInterruptedRun(job, now));
+        Assert.Null(job.NextRunAt);
+    }
+
+    [Fact]
+    public void BackgroundJob_RuntimeRunningState_IsNotPersisted()
+    {
+        var job = new BackgroundJob { IsRunning = true };
+
+        var json = JsonSerializer.Serialize(job, AppDataJsonContext.Default.BackgroundJob);
+        var reloaded = JsonSerializer.Deserialize("""{"isRunning":true}""", AppDataJsonContext.Default.BackgroundJob);
+
+        Assert.DoesNotContain("isRunning", json, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(reloaded);
+        Assert.False(reloaded.IsRunning);
     }
 
     private static DateTimeOffset CreateLocalDateTimeOffset(
