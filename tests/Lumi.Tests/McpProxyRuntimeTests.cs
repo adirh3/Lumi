@@ -16,6 +16,17 @@ namespace Lumi.Tests;
 public sealed class McpProxyRuntimeTests
 {
     [Theory]
+    [InlineData(300_000, 45_000)]
+    [InlineData(45_000, 45_000)]
+    [InlineData(10_000, 10_000)]
+    public void InitializeTimeoutIsCappedWithoutShorteningSmallerConfiguredTimeouts(
+        int configuredTimeout,
+        int expected)
+    {
+        Assert.Equal(expected, McpStdioServerConnection.GetInitializeTimeoutMilliseconds(configuredTimeout));
+    }
+
+    [Theory]
     [InlineData(-32001, "Session not found", true)]
     [InlineData(-32001, " session NOT found ", true)]
     [InlineData(-32600, "Session terminated", true)]
@@ -1331,6 +1342,63 @@ public sealed class McpProxyRuntimeTests
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException or IOException)
             {
             }
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+        }
+    }
+
+    [SkippableFact]
+    public async Task Proxy_ReusesWarmRegistrationWhenOnlyWorkingDirectoryChanges()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "PowerShell fake MCP server is Windows-only.");
+
+        var root = Path.Combine(Path.GetTempPath(), "lumi-mcp-proxy-cwd-reuse-test-" + Guid.NewGuid().ToString("N"));
+        var alternateWorkingDirectory = Path.Combine(root, "another-chat");
+        Directory.CreateDirectory(alternateWorkingDirectory);
+        try
+        {
+            var scriptPath = Path.Combine(root, "fake-mcp.ps1");
+            var logPath = Path.Combine(root, "starts.log");
+            await File.WriteAllTextAsync(scriptPath, """
+                [System.IO.File]::AppendAllText($env:MCP_TEST_LOG, "$PID`n")
+                function Write-Json($obj) {
+                    [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 30))
+                    [Console]::Out.Flush()
+                }
+                while ($null -ne ($line = [Console]::In.ReadLine())) {
+                    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                    $msg = $line | ConvertFrom-Json
+                    if ($msg.method -eq "initialize") {
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ protocolVersion = "2025-06-18"; capabilities = @{ tools = @{ listChanged = $false } }; serverInfo = @{ name = "cwd-reuse-test"; version = "1" } } }
+                    } elseif ($msg.method -eq "tools/list") {
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ tools = @() } }
+                    }
+                }
+                """);
+
+            await using var runtime = new McpProxyRuntime();
+            var first = runtime.Register(CreateBasicDefinition(
+                "test:cwd-reuse", "cwd-reuse-test", scriptPath, root, logPath));
+
+            using var http = new HttpClient();
+            using var firstInitialize = await PostJsonAsync(http, first.Url, """
+                {"jsonrpc":"2.0","id":"first","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+                """);
+            Assert.True(firstInitialize.RootElement.TryGetProperty("result", out _));
+
+            var second = runtime.Register(CreateBasicDefinition(
+                "test:cwd-reuse", "cwd-reuse-test", scriptPath, alternateWorkingDirectory, logPath));
+            Assert.Equal(first.Url, second.Url);
+
+            using var secondInitialize = await PostJsonAsync(http, second.Url, """
+                {"jsonrpc":"2.0","id":"second","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+                """);
+            Assert.True(secondInitialize.RootElement.TryGetProperty("result", out _));
+
+            Assert.Single(await File.ReadAllLinesAsync(logPath));
         }
         finally
         {

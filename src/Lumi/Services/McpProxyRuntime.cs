@@ -339,7 +339,8 @@ public sealed class McpProxyRuntime : IAsyncDisposable
     {
         var builder = new StringBuilder();
         builder.AppendLine(config.Command);
-        builder.AppendLine(config.WorkingDirectory);
+        // A shared proxy process intentionally survives chat working-directory changes. Project-context
+        // servers still have distinct registration keys derived from their source path.
         builder.AppendLine(config.Timeout?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         foreach (var arg in config.Args ?? [])
             builder.Append("arg:").AppendLine(arg);
@@ -458,6 +459,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
 internal sealed class McpStdioServerConnection : IAsyncDisposable
 {
+    private const int InitializeTimeoutMilliseconds = 45_000;
     private const int DiagnosticLineLimit = 8;
     private const int DiagnosticLineMaxLength = 500;
     private const int DiagnosticTextMaxLength = 2_000;
@@ -504,6 +506,16 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
     {
         _definition = definition;
         _timeoutMilliseconds = definition.Config.Timeout is > 0 ? definition.Config.Timeout.Value : 60_000;
+    }
+
+    internal static int GetInitializeTimeoutMilliseconds(int requestTimeoutMilliseconds)
+        => Math.Min(requestTimeoutMilliseconds, InitializeTimeoutMilliseconds);
+
+    private CancellationTokenSource CreateInitializeTimeoutSource(CancellationToken cancellationToken)
+    {
+        var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(GetInitializeTimeoutMilliseconds(_timeoutMilliseconds));
+        return timeoutCts;
     }
 
     public async Task<string?> HandleClientMessageAsync(string body, CancellationToken cancellationToken)
@@ -627,10 +639,12 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         if (_initializeResult is { } existing && IsProcessRunning(_process))
             return existing;
 
-        await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var initializeCts = CreateInitializeTimeoutSource(cancellationToken);
+        var initializeCt = initializeCts.Token;
+        await _lifecycleLock.WaitAsync(initializeCt).ConfigureAwait(false);
         try
         {
-            return await EnsureInitializedUnderLockAsync(clientParams, cancellationToken).ConfigureAwait(false);
+            return await EnsureInitializedUnderLockAsync(clientParams, initializeCt).ConfigureAwait(false);
         }
         finally
         {
@@ -711,7 +725,9 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
 
     private async Task RecoverExpiredServerSessionAsync(int observedGeneration, CancellationToken cancellationToken)
     {
-        await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var initializeCts = CreateInitializeTimeoutSource(cancellationToken);
+        var initializeCt = initializeCts.Token;
+        await _lifecycleLock.WaitAsync(initializeCt).ConfigureAwait(false);
         try
         {
             ThrowIfDisposed();
@@ -738,8 +754,8 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
                 StartProcess();
 
                 var initParams = _initializeParams ?? JsonRpc.DefaultInitializeParams();
-                var initializedResult = await SendInitializeWithRetryAsync(initParams, cancellationToken).ConfigureAwait(false);
-                await SendNotificationAsync("notifications/initialized", null, cancellationToken).ConfigureAwait(false);
+                var initializedResult = await SendInitializeWithRetryAsync(initParams, initializeCt).ConfigureAwait(false);
+                await SendNotificationAsync("notifications/initialized", null, initializeCt).ConfigureAwait(false);
                 _initializeResult = initializedResult;
                 _sessionRecoveryOutcomes[observedGeneration] = null;
                 var successes = Interlocked.Increment(ref _sessionRecoverySuccesses);
@@ -1104,10 +1120,12 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         var processGeneration = 0;
         var pendingRegistered = false;
 
-        await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var initializeCts = CreateInitializeTimeoutSource(cancellationToken);
+        var initializeCt = initializeCts.Token;
+        await _lifecycleLock.WaitAsync(initializeCt).ConfigureAwait(false);
         try
         {
-            await EnsureInitializedUnderLockAsync(null, cancellationToken).ConfigureAwait(false);
+            await EnsureInitializedUnderLockAsync(null, initializeCt).ConfigureAwait(false);
             processGeneration = Volatile.Read(ref _processGeneration);
             lock (_pending)
                 _pending[key] = new PendingRequest(processGeneration, tcs);
@@ -1143,7 +1161,10 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         }
     }
 
-    private async Task<JsonElement> SendRequestAsync(string method, JsonElement? parameters, CancellationToken cancellationToken)
+    private async Task<JsonElement> SendRequestAsync(
+        string method,
+        JsonElement? parameters,
+        CancellationToken cancellationToken)
     {
         var internalId = Interlocked.Increment(ref _nextId);
         var request = JsonRpc.Request(internalId, method, parameters);
