@@ -29,7 +29,8 @@ public static class McpSessionPlanner
         Chat chat,
         IReadOnlyCollection<string>? currentActiveServerNames,
         LumiAgent? activeAgent,
-        McpProxyRuntime? proxyRuntime = null)
+        McpProxyRuntime? proxyRuntime = null,
+        IDictionary<string, string>? displayNamesByNamespace = null)
     {
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(projectContextCatalog);
@@ -74,9 +75,21 @@ public static class McpSessionPlanner
         // dictionary key is sent to the backend as the tool namespace and must match ^[a-zA-Z0-9_-]+$.
         var result = new Dictionary<string, McpServerConfig>(NameComparer);
         foreach (var rawName in order)
-            result[ToNamespace(rawName, result)] = selected[rawName];
+        {
+            var namespaceName = ToNamespace(rawName, result);
+            result[namespaceName] = selected[rawName];
+            displayNamesByNamespace?[namespaceName] = rawName;
+        }
 
         GitHubMcpWebSearchBootstrap.Ensure(result, CopilotService.TryGetGitHubTokenForMcp());
+        if (displayNamesByNamespace is not null)
+        {
+            foreach (var namespaceName in result.Keys)
+            {
+                if (!displayNamesByNamespace.ContainsKey(namespaceName))
+                    displayNamesByNamespace[namespaceName] = namespaceName;
+            }
+        }
         return result;
     }
 

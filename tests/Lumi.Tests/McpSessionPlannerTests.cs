@@ -274,6 +274,33 @@ public sealed class McpSessionPlannerTests
     }
 
     [Fact]
+    public void Build_MapsSanitizedNamespacesBackToDisplayNames()
+    {
+        var data = new AppData
+        {
+            McpServers =
+            [
+                new McpServer { Name = "Avalonia MCP", Command = "dotnet" },
+                new McpServer { Name = "Avalonia/MCP", Command = "dotnet" }
+            ]
+        };
+        var chat = new Chat { ActiveMcpServerNames = ["Avalonia MCP", "Avalonia/MCP"] };
+        var displayNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        McpSessionPlanner.Build(
+            data,
+            "C:\\repo",
+            EmptyCatalog(),
+            chat,
+            null,
+            null,
+            displayNamesByNamespace: displayNames);
+
+        Assert.Equal("Avalonia MCP", displayNames["Avalonia_MCP"]);
+        Assert.Equal("Avalonia/MCP", displayNames["Avalonia_MCP_2"]);
+    }
+
+    [Fact]
     public void Build_DeduplicatesNamespacesThatCollideAfterSanitizing()
     {
         var data = new AppData

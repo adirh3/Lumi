@@ -72,12 +72,22 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly ConcurrentDictionary<Guid, IReadOnlyDictionary<string, McpServerConfig>> _activeMcpConfigs = new();
 
     /// <summary>
+    /// Latest runtime status reported for each MCP server in each chat. The startup status RPC can
+    /// block until every server connects, so live events are the only reliable way to identify which
+    /// individual servers are still starting when the overall settle budget expires.
+    /// </summary>
+    private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, McpServerStatus>> _activeMcpStatuses = new();
+
+    /// <summary>Maps CAPI-safe runtime namespaces back to the user-visible MCP server names.</summary>
+    private readonly ConcurrentDictionary<Guid, IReadOnlyDictionary<string, string>> _activeMcpDisplayNames = new();
+
+    /// <summary>
     /// How long the first prompt waits for remote MCP servers to connect. Without it the first turn is
     /// dispatched while they are still <c>not_configured</c> and the model gets none of their tools.
-    /// Measured settle times are ~1.2s connected and ~4.2s with an OAuth exchange; the cap only bites
-    /// when a server is genuinely stuck, since failed and consent-pending servers exit immediately.
+    /// Warm proxy connections normally settle immediately, while a legitimate cold start (for example,
+    /// a project MCP launched through <c>dotnet run</c>) can take around 40 seconds.
     /// </summary>
-    private static readonly TimeSpan McpSettleBudget = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan McpSettleBudget = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan McpSettlePollInterval = TimeSpan.FromMilliseconds(200);
 
     /// <summary>
@@ -86,7 +96,22 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// go out with no remote tools.
     /// </summary>
     internal static bool IsMcpStatusSettling(McpServerStatus status)
-        => status == McpServerStatus.Pending || status == McpServerStatus.NotConfigured;
+        => status == McpServerStatus.Pending
+           || status == McpServerStatus.NotConfigured
+           || string.Equals(status.Value, "starting", StringComparison.OrdinalIgnoreCase);
+
+    internal static IReadOnlyList<string> GetUnsettledMcpServerNames(
+        IEnumerable<string> configuredServerNames,
+        IReadOnlyDictionary<string, McpServerStatus> observedStatuses)
+    {
+        ArgumentNullException.ThrowIfNull(configuredServerNames);
+        ArgumentNullException.ThrowIfNull(observedStatuses);
+
+        return configuredServerNames
+            .Where(serverName => !observedStatuses.TryGetValue(serverName, out var status)
+                                 || IsMcpStatusSettling(status))
+            .ToList();
+    }
 
     /// <summary>
     /// True when any configured server is remote. Only remote servers connect asynchronously over the
@@ -172,7 +197,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         IReadOnlyDictionary<string, McpServerConfig> configuredServers,
         CancellationToken ct)
     {
-        _activeMcpConfigs[chatId] = configuredServers;
+        var observedStatuses = _activeMcpStatuses.GetOrAdd(
+            chatId,
+            static _ => new ConcurrentDictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase));
         var handledStatuses = new Dictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase);
         var handedOff = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -191,6 +218,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // An empty list means the runtime hasn't registered the servers we configured yet —
                 // the same "not ready" state as not_configured, so keep waiting.
                 var servers = mcpList?.Servers is { Count: > 0 } reported ? reported : null;
+                if (servers is not null)
+                {
+                    foreach (var server in servers)
+                        observedStatuses[server.Name] = server.Status;
+                }
+
                 var evaluation = servers is not null
                     ? EvaluateMcpSettle(servers, handledStatuses, handedOff)
                     : new McpSettleEvaluation([], KeepWaiting: true);
@@ -215,7 +248,49 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 await Task.Delay(McpSettlePollInterval, settleCt).ConfigureAwait(false);
             }
         }
-        catch { /* best effort — don't let MCP status checks break the chat flow */ }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            var timedOutServers = GetUnsettledMcpServerNames(configuredServers.Keys, observedStatuses);
+            Debug.WriteLine(
+                $"[MCP] Startup settle timed out for chat {chatId}: {string.Join(", ", timedOutServers)}");
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!_sessionCache.TryGetValue(chatId, out var currentSession)
+                    || !ReferenceEquals(currentSession, session))
+                {
+                    return;
+                }
+
+                foreach (var serverName in timedOutServers)
+                {
+                    if (observedStatuses.TryGetValue(serverName, out var latestStatus)
+                        && !IsMcpStatusSettling(latestStatus))
+                    {
+                        continue;
+                    }
+
+                    var displayName = ResolveMcpDisplayName(chatId, serverName);
+                    SetMcpChipError(
+                        chatId,
+                        serverName,
+                        $"MCP server '{displayName}' did not finish connecting within 60 seconds. Its tools may appear after startup completes.");
+                }
+            });
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex) when (ex is IOException or HttpRequestException or TimeoutException)
+        {
+            Debug.WriteLine($"[MCP] Startup status check failed for chat {chatId}: {ex.Message}");
+        }
+        catch (Exception ex) when (string.Equals(
+                                      ex.GetType().FullName,
+                                      "GitHub.Copilot.RemoteRpcException",
+                                      StringComparison.Ordinal))
+        {
+            Debug.WriteLine($"[MCP] Startup status RPC failed for chat {chatId}: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -235,9 +310,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (string.IsNullOrWhiteSpace(serverName))
             return false;
 
+        var observedStatuses = _activeMcpStatuses.GetOrAdd(
+            chatId,
+            static _ => new ConcurrentDictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase));
+        observedStatuses[serverName] = status;
+
         McpServerConfig? config = null;
         if (_activeMcpConfigs.TryGetValue(chatId, out var configured))
             configured.TryGetValue(serverName, out config);
+        var displayName = ResolveMcpDisplayName(chatId, serverName);
 
         if (status == McpServerStatus.Connected)
         {
@@ -257,7 +338,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return false;
 
         var errorMessage = await BuildMcpStatusErrorMessageAsync(
-            serverName, status, error ?? "", config, ct).ConfigureAwait(false);
+            displayName, status, error ?? "", config, ct).ConfigureAwait(false);
 
         if (status == McpServerStatus.NeedsAuth)
         {
@@ -419,7 +500,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat?.Id != chatId)
             return;
 
-        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>().FirstOrDefault(c => c.Name == serverName);
+        var displayName = ResolveMcpDisplayName(chatId, serverName);
+        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>()
+            .FirstOrDefault(c => string.Equals(c.Name, displayName, StringComparison.OrdinalIgnoreCase));
         if (existingChip is null)
             return;
 
@@ -432,12 +515,20 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat?.Id != chatId)
             return;
 
-        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>().FirstOrDefault(c => c.Name == serverName);
+        var displayName = ResolveMcpDisplayName(chatId, serverName);
+        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>()
+            .FirstOrDefault(c => string.Equals(c.Name, displayName, StringComparison.OrdinalIgnoreCase));
         if (existingChip is null || !existingChip.HasError)
             return;
 
         ActiveMcpChips[ActiveMcpChips.IndexOf(existingChip)] = existingChip with { ErrorMessage = null };
     }
+
+    private string ResolveMcpDisplayName(Guid chatId, string serverName)
+        => _activeMcpDisplayNames.TryGetValue(chatId, out var displayNames)
+           && displayNames.TryGetValue(serverName, out var displayName)
+            ? displayName
+            : serverName;
 
     internal static async Task<string> BuildMcpStatusErrorMessageAsync(
         string serverName,
@@ -1796,7 +1887,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var externalAgent = activeAgent is null
             ? FindExternalAgentByName(projectContextCatalog, sdkAgentName)
             : null;
-        var mcpServers = BuildMcpServers(workDir, projectContextCatalog, chat, activeAgent);
+        var mcpServers = BuildMcpServers(
+            workDir,
+            projectContextCatalog,
+            chat,
+            activeAgent,
+            out var mcpDisplayNamesByNamespace);
 
         var customAgents = BuildCustomAgents(projectContextCatalog);
         var customTools = BuildCustomTools(chat.Id, activeAgent, projectContextCatalog);
@@ -1916,7 +2012,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         };
 
         if (mcpServers is { Count: > 0 })
+        {
             SetSessionSetupStatus(chat, Loc.Status_ConnectingMcp);
+        }
 
         // When MCP servers are configured, apply a timeout so a broken server
         // doesn't block the UI indefinitely.
@@ -1971,6 +2069,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             && !string.Equals(chat.SessionProviderSignature, currentByokSignature, StringComparison.Ordinal))
         {
             DetachPersistedSession(chat);
+        }
+
+        if (mcpServers is { Count: > 0 })
+        {
+            _activeMcpConfigs[chat.Id] = mcpServers;
+            _activeMcpStatuses[chat.Id] = new ConcurrentDictionary<string, McpServerStatus>(
+                StringComparer.OrdinalIgnoreCase);
+            _activeMcpDisplayNames[chat.Id] = mcpDisplayNamesByNamespace;
         }
 
         // Local helpers: capture the shared session-config arguments (system prompt, model,
