@@ -1477,9 +1477,9 @@ public partial class ChatViewModel
         if (result.DeletedMcpName is { } deletedName)
             activeNames.RemoveAll(name => string.Equals(name, deletedName, StringComparison.Ordinal));
 
-        var availableGlyphs = AvailableMcpChips
-            .OfType<StrataTheme.Controls.StrataComposerChip>()
-            .ToDictionary(chip => chip.Name, chip => chip.Glyph, StringComparer.OrdinalIgnoreCase);
+        var availableGlyphs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var chip in AvailableMcpChips.OfType<StrataTheme.Controls.StrataComposerChip>())
+            availableGlyphs.TryAdd(chip.Name, chip.Glyph);
 
         activeNames = activeNames
             .Distinct(StringComparer.OrdinalIgnoreCase)

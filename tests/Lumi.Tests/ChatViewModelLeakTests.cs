@@ -2265,6 +2265,36 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public void RefreshActiveMcpSelections_UsesFirstDuplicateCatalogEntry()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat
+        {
+            Title = "duplicate-mcp-chat",
+            ActiveMcpServerNames = ["GitHub"]
+        };
+
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+        vm.ActiveMcpServerNames.Add("GitHub");
+        vm.AvailableMcpChips.Add(new StrataTheme.Controls.StrataComposerChip("GitHub", "first"));
+        vm.AvailableMcpChips.Add(new StrataTheme.Controls.StrataComposerChip("github", "second"));
+
+        var changed = InvokePrivate<bool>(
+            vm,
+            "RefreshActiveMcpSelections",
+            new FeatureChangeResult("updated", DataChanged: true));
+
+        Assert.False(changed);
+        Assert.Equal(["GitHub"], vm.ActiveMcpServerNames);
+        var chip = Assert.Single(vm.ActiveMcpChips.OfType<StrataTheme.Controls.StrataComposerChip>());
+        Assert.Equal("GitHub", chip.Name);
+        Assert.Equal("first", chip.Glyph);
+        Assert.Equal(["GitHub"], chat.ActiveMcpServerNames);
+    }
+
+    [Fact]
     public void ConsumeManualStopRequested_ReturnsTrueOnlyOnce()
     {
         var dataStore = CreateDataStore();
