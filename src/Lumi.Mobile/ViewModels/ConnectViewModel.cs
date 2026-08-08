@@ -67,7 +67,7 @@ public sealed partial class ConnectViewModel : ObservableObject
 
     public bool IsBusy => Step == ConnectStep.Connecting;
 
-    public bool CanSubmitCode => PairingCode.Trim().Length >= 4;
+    public bool CanSubmitCode => PairingCode.Length == 6;
 
     private string _targetBaseUrl = "";
 
@@ -78,7 +78,20 @@ public sealed partial class ConnectViewModel : ObservableObject
         OnPropertyChanged(nameof(IsBusy));
     }
 
-    partial void OnPairingCodeChanged(string value) => OnPropertyChanged(nameof(CanSubmitCode));
+    partial void OnPairingCodeChanged(string value)
+    {
+        var digits = new string(value
+            .Where(static character => character is >= '0' and <= '9')
+            .Take(6)
+            .ToArray());
+        if (!string.Equals(digits, value, StringComparison.Ordinal))
+        {
+            PairingCode = digits;
+            return;
+        }
+
+        OnPropertyChanged(nameof(CanSubmitCode));
+    }
 
     partial void OnAllowInsecureLanDiscoveryChanged(bool value)
     {
@@ -229,7 +242,7 @@ public sealed partial class ConnectViewModel : ObservableObject
                 return;
             }
 
-            StatusText = $"On {TargetHostName}, open Settings → Lumi on your phone and tap “Pair a device”.";
+            StatusText = null;
             PairingCode = "";
             Step = ConnectStep.EnterCode;
         }

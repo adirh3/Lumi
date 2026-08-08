@@ -37,7 +37,8 @@
                                IsVisible="{Binding IsPaired}"
                                IsOpen="{Binding IsDrawerOpen, Mode=TwoWay}"
                                PanelWidth="{Binding DrawerWidth}"
-                               IsDragEnabled="{Binding !IsDrawerDocked}">
+                               IsDragEnabled="{Binding CanDragDrawer}"
+                               CanOpenFromAnywhere="True">
       <sc:StrataNavigationDrawer.Panel>
         <Border Background="{DynamicResource Brush.Surface1}"
                 BorderBrush="{DynamicResource Brush.BorderSubtle}"

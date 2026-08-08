@@ -3,6 +3,7 @@
              xmlns:vm="using:Lumi.Mobile.ViewModels"
              xmlns:views="using:Lumi.Mobile.Views"
              xmlns:sc="using:StrataTheme.Controls"
+             xmlns:textInput="using:Avalonia.Input.TextInput"
              x:Class="Lumi.Mobile.Views.ConnectView"
              x:DataType="vm:ConnectViewModel">
 
@@ -38,7 +39,7 @@
                         HorizontalAlignment="Stretch"
                         VerticalAlignment="Top"
                         Margin="{DynamicResource Mobile.Setup.ContentMargin}"
-                        Spacing="18">
+                        Spacing="14">
 
               <!-- Compact brand lockup: the product mark is real, immediate, and equally legible in
                    both theme variants. -->
@@ -68,37 +69,80 @@
               </Grid>
 
               <!-- ═══ Step 1: find the PC ═══ -->
-              <StackPanel x:Name="FindStep" Spacing="14" IsVisible="{Binding IsFindStep}">
+              <StackPanel x:Name="FindStep" Spacing="12" IsVisible="{Binding IsFindStep}">
                 <StackPanel Spacing="4">
                   <TextBlock x:Name="FindStepTitle"
                              Text="Connect to your PC"
                              FontSize="{DynamicResource Font.SizeTitle}"
                              FontWeight="SemiBold" />
-                  <TextBlock Text="Enter your PC's Tailscale IP for an encrypted connection. No extra confirmation is required."
+                  <TextBlock Text="Follow the three quick steps below. Tailscale keeps the connection encrypted."
                              Classes="muted"
                              TextWrapping="Wrap" />
                 </StackPanel>
 
-                <Button x:Name="SearchButton"
-                        Classes="touch accent"
-                        HorizontalAlignment="Stretch"
-                        HorizontalContentAlignment="Center"
-                        Command="{Binding SearchCommand}"
-                        IsEnabled="{Binding !IsSearching}">
-                  <StackPanel Orientation="Horizontal" Spacing="8">
-                    <sc:StrataPulse IsLive="{Binding IsSearching}"
-                                    Width="{DynamicResource Touch.IconSize}"
-                                    Height="{DynamicResource Touch.IconSize}"
-                                    VerticalAlignment="Center" />
-                    <TextBlock Text="Find on local network" VerticalAlignment="Center" />
+                <Border Classes="mobile-card">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="On your PC"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="Open Lumi → Settings → Phone, turn on phone access, then copy the Tailscale address."
+                               Classes="muted"
+                               TextWrapping="Wrap" />
                   </StackPanel>
-                </Button>
+                </Border>
 
-                <ToggleSwitch Content="Allow unencrypted local-network connections"
-                              IsChecked="{Binding AllowInsecureLanDiscovery}" />
-                <TextBlock Text="Not needed for Tailscale. Enable only to discover or enter an address on a trusted Wi-Fi or Ethernet LAN."
-                           Classes="muted"
-                           TextWrapping="Wrap" />
+                <Border x:Name="ManualAddressPath"
+                        Margin="0,2,0,0">
+                  <StackPanel Spacing="10">
+                    <StackPanel Spacing="2">
+                      <TextBlock Text="Tailscale address"
+                                 FontWeight="SemiBold" />
+                      <TextBlock Text="It usually starts with 100."
+                                 Classes="muted"
+                                 TextWrapping="Wrap" />
+                    </StackPanel>
+                    <TextBox x:Name="ManualAddressBox"
+                             Classes="mobile"
+                             textInput:TextInputOptions.ContentType="Url"
+                             textInput:TextInputOptions.ReturnKeyType="Go"
+                             textInput:TextInputOptions.AutoCapitalization="False"
+                             textInput:TextInputOptions.ShowSuggestions="False"
+                             PlaceholderText="100.64.x.x"
+                             Text="{Binding ManualAddress}"
+                             KeyDown="OnManualAddressKeyDown" />
+                    <Button x:Name="ManualConnectButton"
+                            Classes="touch accent"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            Content="Continue"
+                            IsDefault="True"
+                            Command="{Binding ConnectManuallyCommand}" />
+                  </StackPanel>
+                </Border>
+
+                <Border Margin="0,2,0,0"
+                        Padding="0,12,0,0"
+                        BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                        BorderThickness="0,1,0,0">
+                  <StackPanel Spacing="8">
+                    <ToggleSwitch Content="Use a trusted local network instead"
+                                  IsChecked="{Binding AllowInsecureLanDiscovery}" />
+                    <Button x:Name="SearchButton"
+                            Classes="touch subtle"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            Command="{Binding SearchCommand}"
+                            IsVisible="{Binding AllowInsecureLanDiscovery}"
+                            IsEnabled="{Binding !IsSearching}">
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <sc:StrataPulse IsLive="{Binding IsSearching}"
+                                        Width="{DynamicResource Touch.IconSize}"
+                                        Height="{DynamicResource Touch.IconSize}"
+                                        VerticalAlignment="Center" />
+                        <TextBlock Text="Find Lumi nearby" VerticalAlignment="Center" />
+                      </StackPanel>
+                    </Button>
+                  </StackPanel>
+                </Border>
 
                 <StackPanel x:Name="DiscoveredHosts"
                             Spacing="6"
@@ -145,41 +189,15 @@
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
                 </StackPanel>
-
-                <Border x:Name="ManualAddressPath"
-                        Margin="0,2,0,0"
-                        Padding="0,16,0,0"
-                        BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                        BorderThickness="0,1,0,0">
-                  <StackPanel Spacing="10">
-                    <StackPanel Spacing="2">
-                      <TextBlock Text="Use a network address"
-                                 FontWeight="SemiBold" />
-                      <TextBlock Text="Enter the Tailscale address shown in Lumi on your PC."
-                                 Classes="muted"
-                                 TextWrapping="Wrap" />
-                    </StackPanel>
-                    <TextBox x:Name="ManualAddressBox"
-                             Classes="mobile"
-                             PlaceholderText="100.64.x.x"
-                             Text="{Binding ManualAddress}" />
-                    <Button x:Name="ManualConnectButton"
-                            Classes="touch subtle"
-                            HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Center"
-                            Content="Use this address"
-                            Command="{Binding ConnectManuallyCommand}" />
-                  </StackPanel>
-                </Border>
               </StackPanel>
 
               <!-- ═══ Step 2: pairing code ═══ -->
               <StackPanel x:Name="PairingStep" Spacing="14" IsVisible="{Binding IsCodeStep}">
                 <StackPanel Spacing="4">
-                  <TextBlock Text="Pair this phone"
+                  <TextBlock Text="Enter the 6-digit code"
                              FontSize="{DynamicResource Font.SizeTitle}"
                              FontWeight="SemiBold" />
-                  <TextBlock Text="Enter the code from Lumi on your PC."
+                  <TextBlock Text="On your PC, tap “Pair a device” in Settings → Phone, then enter the code below."
                              Classes="muted"
                              TextWrapping="Wrap" />
                 </StackPanel>
@@ -204,15 +222,20 @@
                              Classes="mobile pairing-code"
                              PlaceholderText="000000"
                              Text="{Binding PairingCode}"
+                             textInput:TextInputOptions.ContentType="Number"
+                             textInput:TextInputOptions.ReturnKeyType="Done"
+                             textInput:TextInputOptions.IsSensitive="True"
+                             textInput:TextInputOptions.ShowSuggestions="False"
                              FontSize="{DynamicResource Font.SizeHeadline}"
                              LetterSpacing="6"
                              TextAlignment="Center"
-                             MaxLength="6" />
+                             MaxLength="6"
+                             KeyDown="OnPairingCodeKeyDown" />
                     <Button x:Name="PairButton"
                             Classes="touch accent"
                             HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Center"
-                            Content="Pair"
+                            Content="Connect phone"
                             Command="{Binding SubmitCodeCommand}"
                             IsEnabled="{Binding CanSubmitCode}" />
                   </StackPanel>
@@ -222,7 +245,7 @@
                         Classes="touch subtle"
                         HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Center"
-                        Content="Choose a different PC"
+                        Content="Use a different PC"
                         Command="{Binding BackCommand}" />
               </StackPanel>
 

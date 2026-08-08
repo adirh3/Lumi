@@ -3,6 +3,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Input.TextInput;
 using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Styling;
@@ -46,6 +48,8 @@ public sealed class MobileSpatialDisciplineTests
 
                 var connect = Required<ConnectView>(window, "ConnectPage");
                 var image = Required<Image>(connect, "ConnectOrb");
+                var manualAddressBox = Required<TextBox>(connect, "ManualAddressBox");
+                var manualConnectButton = Required<Button>(connect, "ManualConnectButton");
                 var hostRow = Required<ItemsControl>(connect, "HostList")
                     .GetVisualDescendants().OfType<Button>().Single();
                 var assetUri = new Uri("avares://Lumi.Mobile/Assets/lumi-icon.png");
@@ -62,13 +66,24 @@ public sealed class MobileSpatialDisciplineTests
                 {
                     Left(Required<Control>(connect, "SearchButton"), window),
                     Left(hostRow, window),
-                    Left(Required<Control>(connect, "ManualAddressBox"), window)
+                    Left(manualAddressBox, window)
                 };
                 AssertSharedAxis(findAxes, expected: 12, tolerance: 1);
 
                 var content = Required<Control>(connect, "ConnectContent");
                 AssertInsideViewport(content, window);
                 AssertInteractiveMinimum(connect, 48);
+                Assert.True(manualConnectButton.IsDefault);
+
+                shell.Connect.ManualAddress = "100.85.249.111:65534";
+                var goArgs = new KeyEventArgs
+                {
+                    RoutedEvent = InputElement.KeyDownEvent,
+                    Key = Key.Enter
+                };
+                manualAddressBox.RaiseEvent(goArgs);
+                Assert.True(goArgs.Handled);
+                Assert.Equal(ConnectStep.Connecting, shell.Connect.Step);
 
                 _output.WriteLine(
                     "{0} setup: brand StrataOrb 72x72 -> Image {1:0.#}x{2:0.#}; " +
@@ -84,7 +99,12 @@ public sealed class MobileSpatialDisciplineTests
                 shell.Connect.Step = ConnectStep.EnterCode;
                 Pump(window);
 
-                Assert.True(Required<Control>(connect, "PairingCodeBox").IsEffectivelyVisible);
+                var pairingCodeBox = Required<TextBox>(connect, "PairingCodeBox");
+                Assert.True(pairingCodeBox.IsEffectivelyVisible);
+                Assert.Equal(TextInputContentType.Number, TextInputOptions.GetContentType(pairingCodeBox));
+                Assert.Equal(TextInputReturnKeyType.Done, TextInputOptions.GetReturnKeyType(pairingCodeBox));
+                Assert.False(TextInputOptions.GetShowSuggestions(pairingCodeBox));
+                Assert.True(pairingCodeBox.IsFocused);
                 Assert.True(Required<Control>(connect, "PairButton").IsEffectivelyVisible);
                 Assert.True(Required<Control>(connect, "PairBackButton").IsEffectivelyVisible);
                 AssertInsideViewport(Required<Control>(connect, "ConnectContent"), window);

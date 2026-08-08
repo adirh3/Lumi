@@ -682,6 +682,9 @@ public sealed class MobileShellViewTests
             var width = drawer.PanelWidth;
             Assert.True(width > 0);
             Assert.False(drawer.IsOpen);
+            Assert.True(drawer.CanOpenFromAnywhere);
+            Assert.False(StrataTextSelection.GetIsTouchSelectionEnabled(
+                Assert.IsType<ChatDetailView>(Named(window, "ChatSurface"))));
 
             // Halfway through the drag the panel must be halfway out — not still closed.
             drawer.RaiseEvent(new EdgeDragEventArgs(
@@ -746,6 +749,42 @@ public sealed class MobileShellViewTests
             Layout(window, shell, 1100, 900);
             Assert.True(shell.IsDrawerDocked);
             Assert.False(Drawer(window).IsDragEnabled);
+        });
+    }
+
+    [Fact]
+    public async Task Drawer_DoesNotDragWhileAModalSheetOwnsTheSurface()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            Layout(window, shell, 412, 892);
+
+            var drawer = Drawer(window);
+            Assert.True(drawer.IsDragEnabled);
+
+            shell.Chat.IsPlanOpen = true;
+            Pump(window);
+            Assert.False(drawer.IsDragEnabled);
+
+            shell.Chat.IsPlanOpen = false;
+            shell.IsChatActionsOpen = true;
+            Pump(window);
+            Assert.False(drawer.IsDragEnabled);
+
+            shell.IsChatActionsOpen = false;
+            Pump(window);
+            Assert.True(drawer.IsDragEnabled);
+
+            shell.Page = MobilePage.Library;
+            shell.Library.IsEditing = true;
+            Pump(window);
+            Assert.False(drawer.IsDragEnabled);
+
+            shell.Page = MobilePage.Chat;
+            Pump(window);
+            Assert.True(drawer.IsDragEnabled);
         });
     }
 
@@ -1036,6 +1075,29 @@ public sealed class MobileShellViewTests
             Pump(window);
 
             Assert.Equal(54, shell.SafeAreaBottom.Bottom, 1);
+        });
+    }
+
+    [Fact]
+    public async Task AppDeactivationClearsAStaleKeyboardInset()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            Layout(window, shell, 412, 892);
+            var shellView = window.GetVisualDescendants().OfType<MobileShellView>().Single();
+
+            shellView.ApplyPlatformInsets(new Thickness(0, 48, 0, 24), keyboardInset: 320);
+            Pump(window);
+            Assert.True(shell.IsKeyboardOpen);
+            Assert.Equal(320, shell.SafeArea.Bottom, 1);
+
+            shellView.NotifyApplicationDeactivated();
+            Pump(window);
+
+            Assert.False(shell.IsKeyboardOpen);
+            Assert.Equal(24, shell.SafeArea.Bottom, 1);
         });
     }
 

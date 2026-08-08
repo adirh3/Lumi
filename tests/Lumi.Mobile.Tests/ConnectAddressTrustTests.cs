@@ -63,4 +63,22 @@ public sealed class ConnectAddressTrustTests
         Assert.True(viewModel.IsFindStep);
         Assert.Contains("unencrypted", viewModel.ErrorText);
     }
+
+    [Fact]
+    public async Task PairingCodeKeepsSixAsciiDigitsAndOnlyThenEnablesSubmit()
+    {
+        await using var client = new LumiRemoteClient("device", "Phone");
+        var viewModel = new ConnectViewModel(
+            client,
+            new LumiDiscoveryClient(),
+            (_, _) => Task.CompletedTask);
+
+        viewModel.PairingCode = "12a34-5678";
+
+        Assert.Equal("123456", viewModel.PairingCode);
+        Assert.True(viewModel.CanSubmitCode);
+
+        viewModel.PairingCode = "12345";
+        Assert.False(viewModel.CanSubmitCode);
+    }
 }

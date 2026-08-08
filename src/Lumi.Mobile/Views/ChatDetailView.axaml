@@ -5,6 +5,7 @@
              xmlns:sc="using:StrataTheme.Controls"
              x:Class="Lumi.Mobile.Views.ChatDetailView"
              x:DataType="vm:MobileShellViewModel"
+             sc:StrataTextSelection.IsTouchSelectionEnabled="False"
              Background="{DynamicResource Brush.Surface0}">
 
   <UserControl.Styles>

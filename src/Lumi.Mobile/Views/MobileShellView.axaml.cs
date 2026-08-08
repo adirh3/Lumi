@@ -1,5 +1,4 @@
 using Avalonia;
-using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Controls.Platform;
 using Avalonia.Input;
@@ -22,8 +21,6 @@ public partial class MobileShellView : UserControl
     private Thickness _safeArea;
     private double _keyboardInset;
     private double _keyboardTop = double.NaN;
-    private IEasing? _keyboardEasing;
-    private TimeSpan _keyboardDuration;
 
     /// <summary>Posture pushed in by the host (Android hinge info, or the desktop simulator).</summary>
     public static readonly StyledProperty<FoldPosture> PostureProperty =
@@ -159,6 +156,14 @@ public partial class MobileShellView : UserControl
         ApplyInsets();
     }
 
+    /// <summary>Clears transient IME geometry when the platform backgrounds the app.</summary>
+    public void NotifyApplicationDeactivated()
+    {
+        _keyboardInset = 0;
+        _keyboardTop = double.NaN;
+        ApplyInsets();
+    }
+
     private void OnScalingChanged(object? sender, EventArgs e)
     {
         if (_insets is not null)
@@ -183,10 +188,6 @@ public partial class MobileShellView : UserControl
             ? Math.Max(0, top.ClientSize.Height - rect.Top)
             : 0;
         _keyboardTop = _keyboardInset > 0 ? rect.Top : double.NaN;
-
-        // Ride the system's own keyboard animation rather than snapping to the end state.
-        _keyboardEasing = e.Easing;
-        _keyboardDuration = e.AnimationDuration;
 
         ApplyInsets();
     }

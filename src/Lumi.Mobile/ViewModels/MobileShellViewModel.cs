@@ -205,13 +205,19 @@ public sealed partial class MobileShellViewModel :
                 OnPropertyChanged(nameof(IsWelcomeVisible));
 
             if (e.PropertyName is nameof(MobileChatViewModel.HasOpenSheet))
+            {
                 OnPropertyChanged(nameof(CanGoBack));
+                OnPropertyChanged(nameof(CanDragDrawer));
+            }
         };
 
         Library.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName is nameof(LibraryViewModel.HasOpenSurface))
+            {
                 OnPropertyChanged(nameof(CanGoBack));
+                OnPropertyChanged(nameof(CanDragDrawer));
+            }
         };
 
         // Typing into the empty launch surface makes the desktop create a chat; adopt it so the
@@ -258,6 +264,7 @@ public sealed partial class MobileShellViewModel :
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanGoBack))]
+    [NotifyPropertyChangedFor(nameof(CanDragDrawer))]
     private bool _isChatActionsOpen;
 
     [ObservableProperty] private ChatListItemViewModel? _actionChat;
@@ -539,6 +546,17 @@ public sealed partial class MobileShellViewModel :
     /// <summary>The sliding drawer only exists when it is not docked.</summary>
     public bool IsDrawerOverlay => IsDrawerOpen && !IsDrawerDocked;
 
+    /// <summary>
+    /// Drawer gestures are suspended while another modal surface owns the pointer. This prevents a
+    /// horizontal drift inside a model list or action sheet from stacking the navigation drawer over
+    /// the active modal.
+    /// </summary>
+    public bool CanDragDrawer =>
+        !IsDrawerDocked &&
+        !IsChatActionsOpen &&
+        (Page != MobilePage.Chat || !Chat.HasOpenSheet) &&
+        (Page != MobilePage.Library || !Library.HasOpenSurface);
+
     /// <summary>Scrim is shown for the sliding drawer only; a docked drawer never dims the chat.</summary>
     public bool ShowScrim => IsDrawerOverlay;
 
@@ -596,6 +614,7 @@ public sealed partial class MobileShellViewModel :
         IsDrawerOpen = false;
 
         OnPropertyChanged(nameof(IsDrawerDocked));
+        OnPropertyChanged(nameof(CanDragDrawer));
         OnPropertyChanged(nameof(IsDrawerOverlay));
         OnPropertyChanged(nameof(IsDrawerVisible));
         OnPropertyChanged(nameof(ShowScrim));
@@ -659,6 +678,7 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(IsSearchPage));
         OnPropertyChanged(nameof(HasPageOverlay));
         OnPropertyChanged(nameof(CanGoBack));
+        OnPropertyChanged(nameof(CanDragDrawer));
     }
 
     partial void OnIsDrawerOpenChanged(bool value)
@@ -674,6 +694,7 @@ public sealed partial class MobileShellViewModel :
         IsDrawerOpen = false;
         OnPropertyChanged(nameof(CanDockDrawer));
         OnPropertyChanged(nameof(IsDrawerDocked));
+        OnPropertyChanged(nameof(CanDragDrawer));
         OnPropertyChanged(nameof(IsDrawerOverlay));
         OnPropertyChanged(nameof(IsDrawerVisible));
         OnPropertyChanged(nameof(ShowScrim));

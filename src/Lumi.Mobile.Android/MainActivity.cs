@@ -107,6 +107,19 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
         }
     }
 
+    protected override void OnPause()
+    {
+        if (Avalonia.Application.Current?.ApplicationLifetime is ISingleViewApplicationLifetime
+            {
+                MainView: MobileShellView shell
+            })
+        {
+            shell.NotifyApplicationDeactivated();
+        }
+
+        base.OnPause();
+    }
+
     public override void OnRequestPermissionsResult(
         int requestCode,
         string[] permissions,
