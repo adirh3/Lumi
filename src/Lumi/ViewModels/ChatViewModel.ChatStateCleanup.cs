@@ -73,6 +73,7 @@ public partial class ChatViewModel
         _gitRefreshThrottleCts?.Cancel();
         _gitRefreshThrottleCts?.Dispose();
         _gitRefreshThrottleCts = null;
+        CancelContextWindowOperations();
     }
 
     /// <summary>

@@ -883,6 +883,8 @@ public partial class ChatViewModel
 
     partial void OnCurrentChatChanged(Chat? value)
     {
+        ResetContextDetailsForChatChange(value);
+
         if (_currentChatTitleSource is not null)
             _currentChatTitleSource.PropertyChanged -= OnCurrentChatPropertyChanged;
 

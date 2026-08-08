@@ -1597,21 +1597,23 @@ public partial class ChatViewModel
                     });
                     break;
 
-                case SessionCompactionStartEvent:
+                case SessionCompactionStartEvent compactionStart:
                     Dispatcher.UIThread.Post(() =>
                     {
-                    MarkRuntimeActive(runtime, Loc.Status_Compacting, isStreaming: false);
-                    if (IsDisplayedSession())
-                        ApplyDisplayedRuntimeState(runtime);
+                        MarkRuntimeCompacting(runtime);
+                        var isDisplayed = IsDisplayedSession();
+                        HandleContextCompactionStarted(chat, runtime, compactionStart.Data, isDisplayed);
+                        if (isDisplayed)
+                            ApplyDisplayedRuntimeState(runtime);
                     });
                     break;
 
-                case SessionCompactionCompleteEvent:
+                case SessionCompactionCompleteEvent compactionComplete:
                     Dispatcher.UIThread.Post(() =>
                     {
-                    runtime.StatusText = "";
-                    if (IsDisplayedSession())
-                        StatusText = runtime.StatusText;
+                        var isDisplayed = IsDisplayedSession();
+                        HandleContextCompactionCompleted(chat, runtime, compactionComplete.Data, isDisplayed);
+                        CompleteContextCompactionLifecycle(chat, runtime, isDisplayed);
                     });
                     break;
 
@@ -2285,6 +2287,34 @@ public partial class ChatViewModel
         runtime.ActiveSubagentExecutionDepth = 0;
         runtime.ExpectTurnStartUserEcho = false;
         runtime.StatusText = statusText ?? string.Empty;
+    }
+
+    internal static void MarkRuntimeCompacting(ChatRuntimeState runtime)
+        => MarkRuntimeActive(runtime, Loc.Status_Compacting, isStreaming: false);
+
+    internal static bool FinalizeRuntimeAfterCompaction(ChatRuntimeState runtime)
+    {
+        var hadActiveWork = runtime.HasActiveWork;
+        if (!runtime.TurnInProgress && !ShouldKeepRuntimeBusyUntilSessionIdle(runtime))
+        {
+            MarkRuntimeTerminal(runtime);
+            return hadActiveWork;
+        }
+
+        runtime.StatusText = string.Empty;
+        return false;
+    }
+
+    private void CompleteContextCompactionLifecycle(
+        Chat chat,
+        ChatRuntimeState runtime,
+        bool updateDisplayed)
+    {
+        var becameIdle = FinalizeRuntimeAfterCompaction(runtime);
+        if (updateDisplayed)
+            ApplyDisplayedRuntimeState(runtime);
+        if (becameIdle)
+            ScheduleQueuedBusySendDrain(chat.Id);
     }
 
     private static void MarkRuntimeActive(

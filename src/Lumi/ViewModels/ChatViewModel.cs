@@ -810,7 +810,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [ObservableProperty] private long _contextCurrentTokens;
     [ObservableProperty] private long _contextTokenLimit;
 
-    public bool HasTokenUsage => TotalInputTokens > 0 || TotalOutputTokens > 0;
+    public bool HasTokenUsage => TotalInputTokens > 0 || TotalOutputTokens > 0 || HasContextUsage;
     public bool ShowInfoStrip => IsCodingProject || HasTokenUsage;
     public string TokenUsageSummary => HasContextUsage
         ? $"{ContextUsagePercent}%"
@@ -854,6 +854,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ContextTokenLimitSourceDisplay));
         OnPropertyChanged(nameof(ContextUsagePercent));
         OnPropertyChanged(nameof(ContextUsageDisplay));
+        NotifyContextUsageDerivedPropertiesChanged();
     }
 
     private static string FormatTokenCount(long tokens) => tokens switch
@@ -1267,6 +1268,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     partial void OnIsBusyChanged(bool value)
     {
         UpdateUserMessageEditState();
+        NotifyContextActionAvailabilityChanged();
         if (value)
             _transcriptBuilder.ShowTypingIndicator(StatusText);
         else
@@ -4780,6 +4782,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         var chat = CurrentChat;
         var chatId = chat.Id;
+        if (await TryStopManualContextCompactionAsync(chat))
+            return;
+
         SetManualStopRequested(chatId, true);
         ReleaseChatCancellation(chatId, cancel: true);
 
