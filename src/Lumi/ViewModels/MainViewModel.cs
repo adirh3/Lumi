@@ -225,6 +225,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         , bool openAgentDebugHarness = false,
         bool skipOnboarding = false
 #endif
+        , bool initializeCopilotOnStartup = true
         )
     {
         _dataStore = dataStore;
@@ -429,7 +430,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
 #endif
 
         _chatNavigationHistory.Record(ChatVM.CurrentChat?.Id, SelectedProjectFilter);
-        _ = InitializeAsync();
+        if (initializeCopilotOnStartup)
+            _ = InitializeAsync();
     }
 
     private void PrepareChatSurface(ChatViewModel surface)

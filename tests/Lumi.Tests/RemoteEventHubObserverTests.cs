@@ -25,8 +25,11 @@ public sealed class RemoteEventHubObserverTests
             try
             {
                 var dataStore = new DataStore(new AppData());
-                using var main = new MainViewModel(dataStore, TestCopilot.Shared, new UpdateService());
-                WaitForDesktopInitialization(main);
+                using var main = new MainViewModel(
+                    dataStore,
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    initializeCopilotOnStartup: false);
                 using var hub = new RemoteEventHub(dataStore, main, () => []);
                 Dispatcher.UIThread.RunJobs();
 
@@ -86,8 +89,11 @@ public sealed class RemoteEventHubObserverTests
                 var mainChat = Chat("Main");
                 var detachedChat = Chat("Detached");
                 var dataStore = new DataStore(new AppData { Chats = [mainChat, detachedChat] });
-                main = new MainViewModel(dataStore, TestCopilot.Shared, new UpdateService());
-                WaitForDesktopInitialization(main);
+                main = new MainViewModel(
+                    dataStore,
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    initializeCopilotOnStartup: false);
                 main.ChatVM.CurrentChat = mainChat;
                 main.OpenChatWindowRequested += detachedRequest => request = detachedRequest;
                 var detach = main.OpenChatInNewWindowCommand.ExecuteAsync(detachedChat);
@@ -171,18 +177,6 @@ public sealed class RemoteEventHubObserverTests
         chat.Messages.Add(new ChatMessage { Role = "user", Content = title });
         chat.MessageCount = 1;
         return chat;
-    }
-
-    private static void WaitForDesktopInitialization(MainViewModel main)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
-        while (main.IsConnecting && DateTime.UtcNow < deadline)
-        {
-            Dispatcher.UIThread.RunJobs();
-            Thread.Sleep(1);
-        }
-
-        Assert.False(main.IsConnecting, "The shared test Copilot service did not finish initializing.");
     }
 
     private static void Pump(Task task)

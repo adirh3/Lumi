@@ -25,8 +25,11 @@ public sealed class RemotePreviewThreadingTests
                 UpdatedAt = DateTimeOffset.Now
             };
             var dataStore = new DataStore(new AppData { Chats = [chat] });
-            using var main = new MainViewModel(dataStore, TestCopilot.Shared, new UpdateService());
-            WaitForDesktopInitialization(main);
+            using var main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
 
             var projected = RemoteProjector.BuildChatPage(
                     dataStore,
@@ -59,8 +62,11 @@ public sealed class RemotePreviewThreadingTests
                 })
                 .ToList();
             var dataStore = new DataStore(new AppData { Chats = chats });
-            using var main = new MainViewModel(dataStore, TestCopilot.Shared, new UpdateService());
-            WaitForDesktopInitialization(main);
+            using var main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
 
             var first = RemoteProjector.BuildChatPage(
                 dataStore,
@@ -97,8 +103,11 @@ public sealed class RemotePreviewThreadingTests
                 UpdatedAt = DateTimeOffset.Now
             };
             var dataStore = new DataStore(new AppData { Chats = [chat] });
-            using var main = new MainViewModel(dataStore, TestCopilot.Shared, new UpdateService());
-            WaitForDesktopInitialization(main);
+            using var main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
             var handler = typeof(MainViewModel).GetMethod(
                 "OnDataStoreChatContentChanged",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
@@ -115,15 +124,4 @@ public sealed class RemotePreviewThreadingTests
         }, CancellationToken.None);
     }
 
-    private static void WaitForDesktopInitialization(MainViewModel main)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
-        while (main.IsConnecting && DateTime.UtcNow < deadline)
-        {
-            Dispatcher.UIThread.RunJobs();
-            Thread.Sleep(1);
-        }
-
-        Assert.False(main.IsConnecting, "The shared test Copilot service did not finish initializing.");
-    }
 }

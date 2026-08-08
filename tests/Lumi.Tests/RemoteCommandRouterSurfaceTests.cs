@@ -335,8 +335,11 @@ public sealed class RemoteCommandRouterSurfaceTests
                 McpServers = [mcp]
             };
             var dataStore = new DataStore(data);
-            using var main = new MainViewModel(dataStore, TestCopilot.Shared, new UpdateService());
-            WaitForDesktopInitialization(main);
+            using var main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
             main.ChatVM.UpdateModelCapabilities(
             [
                 new ModelInfo
@@ -430,8 +433,11 @@ public sealed class RemoteCommandRouterSurfaceTests
             Settings = settings
         };
         var dataStore = new DataStore(data);
-        using var main = new MainViewModel(dataStore, TestCopilot.Shared, new UpdateService());
-        WaitForDesktopInitialization(main);
+        using var main = new MainViewModel(
+            dataStore,
+            TestCopilot.Shared,
+            new UpdateService(),
+            initializeCopilotOnStartup: false);
         var requestedModel = $"byok:{model.Id}";
         string? selectedAtStart = null;
         var router = new RemoteCommandRouter(
@@ -478,18 +484,6 @@ public sealed class RemoteCommandRouterSurfaceTests
     private static T GetPrivateField<T>(object target, string name) where T : class =>
         Assert.IsType<T>(
             target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(target));
-
-    private static void WaitForDesktopInitialization(MainViewModel main)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
-        while (main.IsConnecting && DateTime.UtcNow < deadline)
-        {
-            Dispatcher.UIThread.RunJobs();
-            Thread.Sleep(1);
-        }
-
-        Assert.False(main.IsConnecting, "The shared test Copilot service did not finish initializing.");
-    }
 
     private static async Task RunAsync(Func<Task> body)
     {
@@ -567,8 +561,11 @@ public sealed class RemoteCommandRouterSurfaceTests
             }
 
             var dataStore = new DataStore(data);
-            var main = new MainViewModel(dataStore, TestCopilot.Shared, new UpdateService());
-            WaitForDesktopInitialization(main);
+            var main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
             main.ChatVM.CurrentChat = mainChat;
             DetachedChatWindowRequest? request = null;
             main.OpenChatWindowRequested += requested => request = requested;

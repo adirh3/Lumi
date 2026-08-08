@@ -153,7 +153,11 @@ public sealed class RemoteEndToEndTests
         seed?.Invoke(data);
 
         var dataStore = new DataStore(data);
-        var main = new MainViewModel(dataStore, TestCopilot.Shared, new UpdateService());
+        var main = new MainViewModel(
+            dataStore,
+            TestCopilot.Shared,
+            new UpdateService(),
+            initializeCopilotOnStartup: false);
         var server = tailscaleAddressProvider is null
             ? new LumiRemoteServer(dataStore, main)
             : new LumiRemoteServer(dataStore, main, tailscaleAddressProvider);
@@ -1885,7 +1889,8 @@ public sealed class RemoteEndToEndTests
         using var secondary = new MainViewModel(
             rig.DataStore,
             TestCopilot.Shared,
-            new UpdateService());
+            new UpdateService(),
+            initializeCopilotOnStartup: false);
         secondary.SettingsVM.AttachRemoteServer(rig.Server);
 
         Assert.True(secondary.SettingsVM.RemoteAccessEnabled);
