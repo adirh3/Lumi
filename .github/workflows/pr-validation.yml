@@ -173,3 +173,22 @@ jobs:
           path: src/Lumi.Mobile.Android/bin/Debug/net11.0-android/**/*-Signed.apk
           if-no-files-found: error
           retention-days: 7
+
+  validate-required:
+    name: Validate
+    if: ${{ always() }}
+    needs: [validate, validate-strata, validate-android]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required validation jobs
+        env:
+          PLATFORM_RESULT: ${{ needs.validate.result }}
+          STRATA_RESULT: ${{ needs.validate-strata.result }}
+          ANDROID_RESULT: ${{ needs.validate-android.result }}
+        run: |
+          if [[ "$PLATFORM_RESULT" != "success" ||
+                "$STRATA_RESULT" != "success" ||
+                "$ANDROID_RESULT" != "success" ]]; then
+            echo "Validation failed: platform=$PLATFORM_RESULT strata=$STRATA_RESULT android=$ANDROID_RESULT"
+            exit 1
+          fi
