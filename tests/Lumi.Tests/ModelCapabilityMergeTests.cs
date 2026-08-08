@@ -49,7 +49,7 @@ public class ModelCapabilityMergeTests
         var levels = surface.GetQualityLevelsFor("claude-opus-5");
         Assert.NotNull(levels);
         Assert.Equal(
-            ["Low", "Medium", "High", "Xhigh", "Max"],
+            ["Low", "Medium", "High", "X-High", "Max"],
             levels);
     }
 
@@ -71,7 +71,7 @@ public class ModelCapabilityMergeTests
         Assert.NotNull(copilotLevels);
         Assert.Equal(["Low", "High"], byokLevels);
         Assert.Equal(
-            ["Low", "Medium", "High", "Xhigh", "Max"],
+            ["Low", "Medium", "High", "X-High", "Max"],
             copilotLevels);
     }
 
