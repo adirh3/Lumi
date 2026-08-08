@@ -11,6 +11,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Mobile.Layout;
+using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
 using Lumi.Mobile.Views;
 using Lumi.Remote.Protocol;
@@ -82,6 +83,7 @@ public sealed class MobileSpatialDisciplineTests
                     Key = Key.Enter
                 };
                 manualAddressBox.RaiseEvent(goArgs);
+                Pump(window);
                 Assert.True(goArgs.Handled);
                 Assert.Equal(ConnectStep.Connecting, shell.Connect.Step);
 
@@ -109,7 +111,11 @@ public sealed class MobileSpatialDisciplineTests
                 Assert.True(Required<Control>(connect, "PairBackButton").IsEffectivelyVisible);
                 AssertInsideViewport(Required<Control>(connect, "ConnectContent"), window);
                 AssertInteractiveMinimum(connect, 48);
-            });
+            },
+            store => new MobileShellViewModel(
+                client: new LumiRemoteClient("test-device", "Test phone", new BlockingHandler()),
+                store: store,
+                post: action => action()));
     }
 
     [Fact]
@@ -278,6 +284,7 @@ public sealed class MobileSpatialDisciplineTests
                     window);
                 Assert.NotNull(pointerPoint);
                 window.MouseMove(pointerPoint!.Value);
+                Thread.Sleep(200);
                 Pump(window);
                 Assert.True(composerRoot.IsPointerOver);
                 Assert.NotEqual(0, composerRoot.BoxShadow.Count);
@@ -285,6 +292,7 @@ public sealed class MobileSpatialDisciplineTests
                     Assert.IsAssignableFrom<ISolidColorBrush>(composerRoot.BorderBrush).Color;
 
                 Assert.True(input.Focus());
+                Thread.Sleep(200);
                 Pump(window);
                 Assert.True(input.IsFocused);
                 Assert.NotEqual(0, composerRoot.BoxShadow.Count);
@@ -412,7 +420,8 @@ public sealed class MobileSpatialDisciplineTests
         double width,
         double height,
         Action<MobileShellViewModel> arrange,
-        Action<MobileShellViewModel, Window, MobileShellView> assert)
+        Action<MobileShellViewModel, Window, MobileShellView> assert,
+        Func<MobileSettingsStore, MobileShellViewModel>? createShell = null)
     {
         using var session = HeadlessMobileSession.Start();
         ExceptionDispatchInfo? failure = null;
@@ -424,7 +433,9 @@ public sealed class MobileSpatialDisciplineTests
 
             try
             {
-                shell = new MobileShellViewModel(store: session.NewStore(), post: action => action());
+                var store = session.NewStore();
+                shell = createShell?.Invoke(store)
+                    ?? new MobileShellViewModel(store: store, post: action => action());
                 arrange(shell);
 
                 var shellView = new MobileShellView { DataContext = shell };
@@ -452,6 +463,17 @@ public sealed class MobileSpatialDisciplineTests
         }, CancellationToken.None);
 
         failure?.Throw();
+    }
+
+    private sealed class BlockingHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("The blocking test transport should only end through cancellation.");
+        }
     }
 
     private static void PairAndOpenChat(MobileShellViewModel shell)

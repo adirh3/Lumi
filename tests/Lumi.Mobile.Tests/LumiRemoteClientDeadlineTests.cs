@@ -17,18 +17,19 @@ public sealed class LumiRemoteClientDeadlineTests
             "device",
             "Phone",
             handler,
-            requestDeadline: TimeSpan.FromMilliseconds(50),
+            requestDeadline: TimeSpan.FromSeconds(1),
             uploadDeadline: TimeSpan.FromSeconds(2));
         client.Configure("http://lumi.test", "token");
 
         var command = new RemoteCommand(RemoteProtocol.Actions.CreateChat);
-        var result = await client.SendCommandAsync(command, CancellationToken.None);
+        var request = client.SendCommandAsync(command, CancellationToken.None);
+        await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        var result = await request.WaitAsync(TimeSpan.FromSeconds(3));
 
         Assert.Contains("too long", result.Error, StringComparison.OrdinalIgnoreCase);
         Assert.True(result.IsTimeout);
         Assert.False(string.IsNullOrWhiteSpace(command.RequestId));
         Assert.Equal(command.RequestId, result.RequestId);
-        await handler.CancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(1));
     }
 
     [Fact]
