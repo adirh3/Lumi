@@ -47,9 +47,22 @@ jobs:
       - name: Build
         run: dotnet build Lumi.slnx --configuration Release --no-restore
 
-      - name: Test (full Windows suite)
+      - name: Test (desktop Windows suite in fresh-host batches)
         if: ${{ runner.os == 'Windows' }}
-        run: dotnet test Lumi.slnx --configuration Release --no-build --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
+        shell: pwsh
+        run: >
+          ./tools/Test-LumiTestsInBatches.ps1
+          -Configuration Release
+          -ResultsDirectory TestResults
+
+      - name: Test (mobile Windows suite)
+        if: ${{ runner.os == 'Windows' }}
+        run: >
+          dotnet test tests/Lumi.Mobile.Tests/Lumi.Mobile.Tests.csproj
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=lumi-mobile.trx"
+          --results-directory TestResults
 
       - name: Test (cross-platform runtime behavior)
         if: ${{ runner.os != 'Windows' }}
@@ -79,3 +92,84 @@ jobs:
           name: test-results-${{ matrix.os }}
           path: TestResults
           if-no-files-found: ignore
+
+  validate-strata:
+    name: Validate Strata
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      - name: Test Strata (net8.0)
+        run: >
+          dotnet test Strata/tests/StrataTheme.Tests/StrataTheme.Tests.csproj
+          --configuration Release
+          --framework net8.0
+
+      - name: Test Strata (net11.0)
+        run: >
+          dotnet test Strata/tests/StrataTheme.Tests/StrataTheme.Tests.csproj
+          --configuration Release
+          --framework net11.0
+
+  validate-android:
+    name: Validate Android APK
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android workload
+        run: dotnet workload install android
+
+      - name: Install Android SDK dependencies
+        shell: pwsh
+        run: >
+          dotnet build src/Lumi.Mobile.Android/Lumi.Mobile.Android.csproj
+          -t:InstallAndroidDependencies
+          -f net11.0-android
+          -p:AndroidSdkDirectory="$env:ANDROID_HOME"
+          -p:JavaSdkDirectory="$env:JAVA_HOME"
+          -p:AcceptAndroidSDKLicenses=True
+
+      - name: Build Android Debug APK
+        shell: pwsh
+        run: >
+          dotnet build src/Lumi.Mobile.Android/Lumi.Mobile.Android.csproj
+          -c Debug
+          -f net11.0-android
+          -r android-arm64
+          -p:AndroidSdkDirectory="$env:ANDROID_HOME"
+          -p:JavaSdkDirectory="$env:JAVA_HOME"
+
+      - name: Upload Android validation APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-${{ github.sha }}
+          path: src/Lumi.Mobile.Android/bin/Debug/net11.0-android/**/*-Signed.apk
+          if-no-files-found: error
+          retention-days: 7

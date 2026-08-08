@@ -1,0 +1,122 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.Mobile.ViewModels"
+             xmlns:sc="using:StrataTheme.Controls"
+             x:Class="Lumi.Mobile.Views.MobileSettingsView"
+             x:DataType="vm:MobileShellViewModel"
+             Background="{DynamicResource Brush.Surface0}">
+
+  <Grid RowDefinitions="Auto,*">
+    <Border x:Name="SettingsTopInset" Grid.Row="0" Padding="{Binding SafeAreaTop}">
+      <Border x:Name="SettingsHeaderSideInset" Padding="{Binding SafeAreaSides}">
+        <Grid x:Name="SettingsHeaderLayout"
+              ColumnDefinitions="Auto,*"
+              ColumnSpacing="4"
+              MaxWidth="620"
+              HorizontalAlignment="Stretch"
+              Margin="{DynamicResource Mobile.Page.HeaderMargin}">
+          <Button x:Name="SettingsBackButton" Grid.Column="0" Classes="page-back"
+                  Command="{Binding GoBackCommand}">
+            <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
+                      Data="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+          </Button>
+          <TextBlock Grid.Column="1" Text="Settings" Classes="section-title"
+                     VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+    </Border>
+
+    <Border x:Name="SettingsBottomInset" Grid.Row="1" Padding="{Binding SafeAreaBottom}">
+      <Border x:Name="SettingsContentSideInset" Padding="{Binding SafeAreaSides}">
+        <ScrollViewer>
+          <StackPanel x:Name="SettingsContent"
+                      Spacing="16"
+                      MaxWidth="620"
+                      HorizontalAlignment="Stretch"
+                      Margin="{DynamicResource Mobile.Page.FormContentMargin}">
+
+            <!-- Live connection card: the one thing the user checks first on a remote app. -->
+            <Border x:Name="SettingsConnectionCard" Classes="mobile-card" Padding="14">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                <Border Grid.Column="0" Width="42" Height="42" CornerRadius="21"
+                        VerticalAlignment="Center"
+                        Background="{DynamicResource Brush.AccentSubtle}">
+                  <TextBlock Text="&#x1F5A5;" FontSize="{DynamicResource Font.SizeTitle}"
+                             HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+
+                <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                  <TextBlock Text="{Binding HostName}" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeSubtitle}"
+                             TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{Binding ConnectionMessage}" Classes="muted"
+                             TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <Border Grid.Column="2" Padding="10,5" CornerRadius="14" VerticalAlignment="Center"
+                        Background="{DynamicResource Brush.Surface2}">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <sc:StrataPulse Width="9" Height="9" VerticalAlignment="Center"
+                                    IsLive="{Binding IsLive}" />
+                    <TextBlock Text="Live" FontSize="{DynamicResource Font.SizeCaption}" FontWeight="SemiBold" VerticalAlignment="Center"
+                               IsVisible="{Binding IsLive}" />
+                    <TextBlock Text="Offline" FontSize="{DynamicResource Font.SizeCaption}" FontWeight="SemiBold" VerticalAlignment="Center"
+                               IsVisible="{Binding !IsLive}" />
+                  </StackPanel>
+                </Border>
+              </Grid>
+            </Border>
+
+            <sc:StrataSettingGroup Header="Connection">
+              <sc:StrataSetting Header="This device" Description="{Binding DeviceName}" />
+              <sc:StrataSetting Header="App version" Description="{Binding AppVersion}" />
+              <sc:StrataSetting Header="Refresh" Description="Pull the latest state from your PC.">
+                <Button x:Name="RefreshButton" Classes="touch subtle" Content="Refresh"
+                        Command="{Binding RefreshCommand}" />
+              </sc:StrataSetting>
+              <sc:StrataSetting Header="Revoke this phone" Description="Remove this phone's access on the PC, then return to setup.">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button x:Name="ForgetLocalButton" Classes="touch" Content="Remove locally"
+                          Command="{Binding ForgetPcLocallyCommand}" />
+                  <Button x:Name="ForgetButton" Classes="touch danger" Content="Revoke"
+                          Command="{Binding ForgetPcCommand}" />
+                </StackPanel>
+              </sc:StrataSetting>
+            </sc:StrataSettingGroup>
+
+            <sc:StrataSettingGroup Header="Appearance">
+              <!-- Three-way rather than a dark switch: "match my phone" is what most people want, and on
+                   Android the OS flips it on a schedule the app has no other way to follow. -->
+              <sc:StrataSetting Header="Theme" Classes="stacked"
+                                Description="System follows your phone's own light and dark schedule.">
+                <Grid x:Name="ThemeOptions" ColumnDefinitions="*,*,*" ColumnSpacing="8">
+                  <Button Grid.Column="0" x:Name="ThemeSystemButton" Classes="theme-option"
+                          Classes.selected="{Binding IsSystemTheme}"
+                          Command="{Binding SelectThemeCommand}" CommandParameter="System"
+                          Content="System" />
+                  <Button Grid.Column="1" x:Name="ThemeLightButton" Classes="theme-option"
+                          Classes.selected="{Binding IsLightTheme}"
+                          Command="{Binding SelectThemeCommand}" CommandParameter="Light"
+                          Content="Light" />
+                  <Button Grid.Column="2" x:Name="ThemeDarkButton" Classes="theme-option"
+                          Classes.selected="{Binding IsDarkTheme}"
+                          Command="{Binding SelectThemeCommand}" CommandParameter="Dark"
+                          Content="Dark" />
+                </Grid>
+              </sc:StrataSetting>
+            </sc:StrataSettingGroup>
+
+            <sc:StrataSettingGroup Header="Composer">
+              <sc:StrataSetting Header="Send with Enter"
+                                Description="Off means Enter adds a new line and the send button submits.">
+                <ToggleSwitch x:Name="SendWithEnterToggle" IsChecked="{Binding SendWithEnter}" />
+              </sc:StrataSetting>
+            </sc:StrataSettingGroup>
+
+            <TextBlock Text="{Binding UserName, StringFormat='Signed in as {0}'}" Classes="muted"
+                       IsVisible="{Binding UserName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+    </Border>
+  </Grid>
+</UserControl>

@@ -2742,13 +2742,52 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             /// active one and marking it unread otherwise. <paramref name="author"/> labels the injected user
             /// message so the transcript shows where it came from.
             /// </summary>
+            internal async Task<string?> StartExternalMessageAsync(
+                Chat targetChat,
+                string prompt,
+                string author,
+                CancellationToken cancellationToken = default,
+                string? modelOverride = null,
+                string? reasoningEffortOverride = null)
+            {
+            var accepted = new TaskCompletionSource<string?>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            _ = RunAsync();
+            return await accepted.Task.ConfigureAwait(true);
+
+            async Task RunAsync()
+            {
+                try
+                {
+                    await SendExternalMessageAsync(
+                        targetChat,
+                        prompt,
+                        author,
+                        cancellationToken,
+                        modelOverride,
+                        reasoningEffortOverride,
+                        onAccepted: () => accepted.TrySetResult(null)).ConfigureAwait(true);
+
+                    // A completed no-op path is still an accepted request.
+                    accepted.TrySetResult(null);
+                }
+                catch (Exception ex)
+                {
+                    if (!accepted.TrySetResult(ex.Message))
+                        Trace.TraceWarning($"[ExternalSend] Turn failed after acceptance: {ex.Message}");
+                }
+            }
+            }
+
             public async Task SendExternalMessageAsync(
             Chat targetChat,
             string prompt,
             string author,
             CancellationToken cancellationToken = default,
             string? modelOverride = null,
-            string? reasoningEffortOverride = null)
+            string? reasoningEffortOverride = null,
+            Action? onAccepted = null)
             {
             ArgumentNullException.ThrowIfNull(targetChat);
 
@@ -2829,6 +2868,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ScrollToEndRequested?.Invoke();
         }
 
+        TryPrepareFirstExternalMessageTitle(targetChat, prompt);
+
         // A background surface holds the target chat as its CurrentChat without being on screen, so
         // unread state follows what the user can actually see, not what this surface has loaded.
         if (!IsChatOnScreen(targetChat.Id))
@@ -2861,6 +2902,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
             if (CurrentChat?.Id == chatId)
                 ApplyDisplayedRuntimeState(runtime);
+            onAccepted?.Invoke();
 
             var needsSessionSetup = targetChat.CopilotSessionId is null
                                     || !_sessionCache.TryGetValue(chatId, out var cachedSession)
@@ -4767,7 +4809,21 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private Task StopGeneration() => StopGenerationInternal(resolvePendingSteersAsFailed: true);
+    private async Task StopGeneration()
+    {
+        var stoppedChatId = CurrentChat?.Id;
+        var error = await TryStopGenerationAsync(resolvePendingSteersAsFailed: true);
+        ApplyStopError(stoppedChatId, error);
+    }
+
+    internal void ApplyStopError(Guid? stoppedChatId, string? error)
+    {
+        if (error is not null && stoppedChatId is { } chatId && CurrentChat?.Id == chatId)
+            StatusText = error;
+    }
+
+    public Task<string?> TryStopGenerationAsync(bool resolvePendingSteersAsFailed = true) =>
+        StopGenerationInternal(resolvePendingSteersAsFailed);
 
     /// <summary>Core stop/abort path shared by the Stop button and the inline "Send now" steer action.</summary>
     /// <param name="resolvePendingSteersAsFailed">
@@ -4776,31 +4832,39 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// post-abort autopilot continuation can reprocess it and the turn-end/idle fallback resolves it to
     /// "Steered into response" instead of a false "Not delivered".
     /// </param>
-    private async Task StopGenerationInternal(bool resolvePendingSteersAsFailed)
+    private async Task<string?> StopGenerationInternal(bool resolvePendingSteersAsFailed)
     {
-        if (CurrentChat is null) return;
+        if (CurrentChat is null)
+            return "No active chat to stop.";
 
         var chat = CurrentChat;
         var chatId = chat.Id;
         if (await TryStopManualContextCompactionAsync(chat))
-            return;
+            return null;
 
+        // Record intent before cancellation or AbortAsync can synchronously emit Abort/Idle events.
+        // Those handlers consume this flag to distinguish a user stop from a broken session.
         SetManualStopRequested(chatId, true);
-        ReleaseChatCancellation(chatId, cancel: true);
 
-        // A user abort tears the turn down before the agent can consume any still-pending steer, so mark
-        // them "Not delivered" now — synchronously, before AbortAsync yields the UI thread. The abort's own
-        // session.idle would otherwise hit the unconditional ResolvePendingSteersAsDelivered fallback and
-        // flip these to a false "Steered into response"; clearing the registry here makes that a no-op.
-        // "Send now" opts out (resolvePendingSteersAsFailed: false) precisely so that fallback delivers it.
+        // A plain Stop fails pending steers before any abort event can resolve them as delivered.
+        // "Send now" opts out because its queued steer is intended for the SDK continuation.
         if (resolvePendingSteersAsFailed)
             ResolvePendingSteersAsFailed(chatId);
 
-        // Get the session for this specific chat (not _activeSession which may differ)
+        ReleaseChatCancellation(chatId, cancel: true);
+
+        string? abortError = null;
         if (_sessionCache.TryGetValue(chatId, out var session))
         {
-            try { await session.AbortAsync(); }
-            catch { /* Best-effort abort */ }
+            try
+            {
+                await session.AbortAsync();
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceWarning($"[Chat] Abort failed for {chatId}: {ex}");
+                abortError = $"Could not stop this turn cleanly: {ex.Message}";
+            }
         }
 
         var runtime = GetOrCreateRuntimeState(chatId);
@@ -4830,6 +4894,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // would keep StopGenerationCommand "running" (AsyncRelayCommand disallows concurrent executions),
         // leaving the Stop button dead exactly while the new turn starts.
         ScheduleQueuedBusySendDrain(chatId);
+        return abortError;
     }
 
     private async Task SaveCurrentChatAsync(bool saveIndex = true, bool touchIndex = false)
@@ -4856,6 +4921,35 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         _dataStore.MarkChatChanged(chat);
         _ = SaveIndexAsync();
+    }
+
+    private static readonly string ModelDefaultChatTitle = new Chat().Title;
+
+    internal bool TryPrepareFirstExternalMessageTitle(Chat chat, string firstUserMessage)
+    {
+        if (string.IsNullOrWhiteSpace(firstUserMessage)
+            || chat.Messages.Count(static message => message.Role == "user") != 1
+            || !IsDefaultChatTitle(chat.Title))
+        {
+            return false;
+        }
+
+        // Match the desktop's own first-send convention: give the chat a useful provisional title
+        // immediately, then replace it with the generated title if title generation is enabled.
+        var defaultTitle = chat.Title;
+        ApplyChatTitle(chat, BuildProvisionalChatTitle(firstUserMessage), defaultTitle);
+        QueueGeneratedChatTitle(chat, firstUserMessage);
+        return true;
+    }
+
+    private static bool IsDefaultChatTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return true;
+
+        var normalizedTitle = title.Trim();
+        return string.Equals(normalizedTitle, ModelDefaultChatTitle, StringComparison.Ordinal)
+               || string.Equals(normalizedTitle, Loc.Sidebar_NewChat, StringComparison.Ordinal);
     }
 
     private void QueueGeneratedChatTitle(Chat chat, string firstUserMessage)

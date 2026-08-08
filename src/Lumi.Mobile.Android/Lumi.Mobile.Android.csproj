@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Android head for the Lumi mobile app.
+
+    Deliberately NOT listed in Lumi.slnx: building it needs the `android` workload plus a JDK 17+,
+    and neither is installable without an elevated prompt. Keeping it out of the solution means the
+    normal `dotnet build Lumi.slnx` stays green on a machine that only has the desktop workload,
+    while `dotnet build src/Lumi.Mobile.Android/Lumi.Mobile.Android.csproj` builds the real APK once
+    `dotnet workload install android` has been run.
+
+    All UI, view models and networking live in the shared Lumi.Mobile library; this head only
+    supplies the platform entry point.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>preview</LangVersion>
+    <RootNamespace>Lumi.Mobile.Android</RootNamespace>
+    <AssemblyName>Lumi.Mobile.Android</AssemblyName>
+    <Version>1.1.4</Version>
+    <ApplicationId>com.lumi.mobile</ApplicationId>
+    <!-- Must increment for every build handed to a device: Android keys installs on versionCode, and
+         a reinstall that keeps the same code gives no way to confirm which build is actually on the
+         phone. -->
+    <ApplicationVersion>25</ApplicationVersion>
+    <ApplicationDisplayVersion>1.1.4</ApplicationDisplayVersion>
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <AndroidEnableProfiledAot>true</AndroidEnableProfiledAot>
+    <PublishTrimmed>true</PublishTrimmed>
+    <AndroidKeyStore>true</AndroidKeyStore>
+    <AndroidSigningKeyStore>$(LumiAndroidSigningKeyStore)</AndroidSigningKeyStore>
+    <AndroidSigningStorePass>$(LumiAndroidSigningStorePass)</AndroidSigningStorePass>
+    <AndroidSigningKeyAlias>$(LumiAndroidSigningKeyAlias)</AndroidSigningKeyAlias>
+    <AndroidSigningKeyPass>$(LumiAndroidSigningKeyPass)</AndroidSigningKeyPass>
+  </PropertyGroup>
+
+  <Target Name="ValidateProductionSigning"
+          BeforeTargets="_Sign"
+          Condition="'$(Configuration)' == 'Release'">
+    <Error Condition="'$(LumiAndroidSigningKeyStore)' == '' Or !Exists('$(LumiAndroidSigningKeyStore)')"
+           Text="Release Android builds require LumiAndroidSigningKeyStore." />
+    <Error Condition="'$(LumiAndroidSigningStorePass)' == '' Or '$(LumiAndroidSigningKeyAlias)' == '' Or '$(LumiAndroidSigningKeyPass)' == ''"
+           Text="Release Android builds require the production signing password and alias properties." />
+  </Target>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Android" Version="12.1.0" />
+    <PackageReference Include="Xamarin.AndroidX.Window.WindowJava" Version="1.5.1.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Lumi.Mobile\Lumi.Mobile.csproj" />
+  </ItemGroup>
+
+</Project>

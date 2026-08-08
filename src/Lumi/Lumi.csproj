@@ -76,6 +76,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Lumi.Generators\Lumi.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Lumi.Remote.Protocol\Lumi.Remote.Protocol.csproj" />
     <ProjectReference Include="..\..\Strata\src\StrataSearch\StrataSearch.csproj" />
     <ProjectReference Include="..\..\Strata\src\StrataTheme\StrataTheme.csproj" />
   </ItemGroup>

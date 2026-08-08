@@ -42,6 +42,16 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    public void QueueBusySendPrompt_PreservesRemoteAuthor()
+    {
+        using var host = DeferredSendHost.Create();
+
+        host.QueuePrompt("sent from the phone", authorOverride: "Lumi Mobile");
+
+        Assert.Equal("Lumi Mobile", Assert.Single(host.Chat.Messages).Author);
+    }
+
+    [Fact]
     public void QueueBusySendPrompt_KeepsEveryPrompt_InOrder()
     {
         using var host = DeferredSendHost.Create();
@@ -473,8 +483,8 @@ public sealed class DeferredSendQueueTests
             return new DeferredSendHost(viewModel, chat);
         }
 
-        public void QueuePrompt(string prompt, Guid? chatId = null)
-            => Invoke("QueueBusySendPrompt", chatId ?? Chat.Id, prompt, null);
+        public void QueuePrompt(string prompt, Guid? chatId = null, string? authorOverride = null)
+            => Invoke("QueueBusySendPrompt", chatId ?? Chat.Id, prompt, null, authorOverride);
 
         public Task DrainAsync(Guid? chatId = null)
             => (Task)Invoke("DrainQueuedBusySendAsync", chatId ?? Chat.Id)!;

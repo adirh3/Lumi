@@ -432,6 +432,8 @@ public class Chat : INotifyPropertyChanged
     /// has been unloaded from memory to reclaim RAM for inactive chats.
     /// </summary>
     public int MessageCount { get; set; }
+    /// <summary>Bounded last user/assistant text persisted for list surfaces without loading history.</summary>
+    public string? Preview { get; set; }
 
     [JsonIgnore]
     public List<ChatMessage> Messages { get; set; } = [];
@@ -1000,11 +1002,40 @@ public class UserSettings
     // ── Browser ──
     public bool HasImportedBrowserCookies { get; set; }
 
+    // ── Mobile companion (Lumi on your phone) ──
+    /// <summary>
+    /// When true Lumi listens on the local network so the Lumi mobile app can drive this
+    /// desktop. Off by default; every device must still complete a pairing handshake.
+    /// </summary>
+    public bool RemoteAccessEnabled { get; set; }
+
+    /// <summary>TCP port for the remote listener. 0 means "use the protocol default".</summary>
+    public int RemoteAccessPort { get; set; }
+
+    /// <summary>
+    /// Allows plaintext HTTP from ordinary RFC1918/link-local peers. Off by default: loopback and
+    /// Tailscale remain available through their authenticated encrypted tunnel.
+    /// </summary>
+    public bool RemoteAllowInsecureLan { get; set; }
+
+    /// <summary>Devices that completed pairing and hold a long-lived token.</summary>
+    public List<RemotePairedDevice> RemotePairedDevices { get; set; } = [];
+
     // ── Quota (cached, refreshed periodically) ──
     [JsonIgnore] public double? QuotaRemainingPercentage { get; set; }
     [JsonIgnore] public double? QuotaUsedRequests { get; set; }
     [JsonIgnore] public double? QuotaEntitlementRequests { get; set; }
     [JsonIgnore] public string? QuotaResetDate { get; set; }
+}
+
+/// <summary>A phone or tablet that has been authorized to control this Lumi desktop.</summary>
+public class RemotePairedDevice
+{
+    public string DeviceId { get; set; } = "";
+    public string DeviceName { get; set; } = "";
+    public string Token { get; set; } = "";
+    public DateTimeOffset PairedAt { get; set; } = DateTimeOffset.Now;
+    public DateTimeOffset? LastSeenAt { get; set; }
 }
 
 public class AppData

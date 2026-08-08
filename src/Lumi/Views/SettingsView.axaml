@@ -166,6 +166,69 @@
                     FontSize="{DynamicResource Font.SizeCaption}" />
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
+
+        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Phone}"
+                               IsEnabled="{Binding CanManageRemoteSecurity}">
+          <sc:StrataSetting Header="{loc:Str Setting_RemoteAccess}" Description="{loc:Str SettingDesc_RemoteAccess}">
+            <ToggleSwitch x:Name="RemoteAccessToggle"
+                          IsEnabled="{Binding CanManageRemoteSecurity}"
+                          IsChecked="{Binding RemoteAccessEnabled}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="{loc:Str Setting_RemoteInsecureLan}"
+                            Description="{loc:Str SettingDesc_RemoteInsecureLan}">
+            <ToggleSwitch x:Name="RemoteInsecureLanToggle"
+                          IsEnabled="{Binding RemoteAccessEnabled}"
+                          IsChecked="{Binding RemoteAllowInsecureLan}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="{loc:Str Setting_RemotePairing}" Description="{loc:Str SettingDesc_RemotePairing}">
+            <StackPanel Spacing="6" HorizontalAlignment="Right">
+              <Button x:Name="RemotePairButton" Classes="subtle motion-action" Padding="14,6" MinHeight="0"
+                      HorizontalAlignment="Right"
+                      IsEnabled="{Binding RemoteAccessEnabled}"
+                      Command="{Binding ToggleRemotePairingCommand}"
+                      FontSize="{DynamicResource Font.SizeCaption}">
+                <TextBlock Text="{Binding RemotePairActionText}" />
+              </Button>
+              <Border x:Name="RemotePairCodePanel" IsVisible="{Binding IsRemotePairing}"
+                      Background="{DynamicResource Brush.Surface2}"
+                      CornerRadius="{DynamicResource Radius.Interactive}" Padding="12,8">
+                <StackPanel Spacing="2">
+                  <TextBlock Text="{loc:Str Remote_PairCodeLabel}"
+                             FontSize="{DynamicResource Font.SizeCaption}"
+                             Foreground="{DynamicResource Brush.TextTertiary}" />
+                  <TextBlock x:Name="RemotePairCodeText" Text="{Binding RemotePairingCode}"
+                             FontSize="{DynamicResource Font.SizeHeadline}" FontWeight="SemiBold"
+                             LetterSpacing="4" HorizontalAlignment="Center" />
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </sc:StrataSetting>
+          <sc:StrataSetting Header="{Binding RemoteDevicesText}" Description="{Binding RemoteStatusText}">
+            <ItemsControl ItemsSource="{Binding RemoteDevices}"
+                          HorizontalAlignment="Stretch">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:RemotePairedDeviceItem">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Margin="0,4">
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding DeviceName}" FontWeight="SemiBold" />
+                      <TextBlock Text="{Binding LastSeenText}"
+                                 FontSize="{DynamicResource Font.SizeCaption}"
+                                 Foreground="{DynamicResource Brush.TextTertiary}" />
+                    </StackPanel>
+                    <Button Grid.Column="1"
+                            Classes="subtle motion-action"
+                            Padding="12,5"
+                            MinHeight="0"
+                            Content="{loc:Str Remote_RevokeDevice}"
+                            IsEnabled="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).CanManageRemoteSecurity}"
+                            Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).RevokeRemoteDeviceCommand}"
+                            CommandParameter="{Binding}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
       </StackPanel>
 
     <!-- ═══ Page 2: Appearance ═══ -->
