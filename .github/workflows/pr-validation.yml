@@ -47,9 +47,22 @@ jobs:
       - name: Build
         run: dotnet build Lumi.slnx --configuration Release --no-restore
 
-      - name: Test (full Windows suite)
+      - name: Test (desktop Windows suite in fresh-host batches)
         if: ${{ runner.os == 'Windows' }}
-        run: dotnet test Lumi.slnx --configuration Release --no-build --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
+        shell: pwsh
+        run: >
+          ./tools/Test-LumiTestsInBatches.ps1
+          -Configuration Release
+          -ResultsDirectory TestResults
+
+      - name: Test (mobile Windows suite)
+        if: ${{ runner.os == 'Windows' }}
+        run: >
+          dotnet test tests/Lumi.Mobile.Tests/Lumi.Mobile.Tests.csproj
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=lumi-mobile.trx"
+          --results-directory TestResults
 
       - name: Test (cross-platform runtime behavior)
         if: ${{ runner.os != 'Windows' }}
