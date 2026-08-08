@@ -54,23 +54,43 @@ function Invoke-TestBatch {
     )
 
     $filter = ($Classes | ForEach-Object { "FullyQualifiedName~$_." }) -join "|"
-    Write-Host "Running $Label ($($Classes.Count) classes)."
-    $testArguments = @(
-        "test",
-        $Project,
-        "--configuration", $Configuration,
-        "--no-build",
-        "--nologo",
-        "--filter", $filter,
-        "--blame-hang",
-        "--blame-hang-timeout", "3m",
-        "--blame-hang-dump-type", "none",
-        "--logger", "trx;LogFileName=$ResultFile",
-        "--results-directory", $ResultsDirectory
-    )
-    & dotnet @testArguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Label failed."
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
+        $attemptResultFile = if ($attempt -eq 1) {
+            $ResultFile
+        } else {
+            "$([IO.Path]::GetFileNameWithoutExtension($ResultFile))-retry.trx"
+        }
+        Write-Host "Running $Label ($($Classes.Count) classes), attempt $attempt/2."
+        $testArguments = @(
+            "test",
+            $Project,
+            "--configuration", $Configuration,
+            "--no-build",
+            "--nologo",
+            "--filter", $filter,
+            "--blame-hang",
+            "--blame-hang-timeout", "3m",
+            "--blame-hang-dump-type", "none",
+            "--logger", "trx;LogFileName=$attemptResultFile",
+            "--results-directory", $ResultsDirectory
+        )
+        $output = & dotnet @testArguments 2>&1
+        $exitCode = $LASTEXITCODE
+        $output | ForEach-Object { Write-Output $_ }
+        if ($exitCode -eq 0) {
+            Start-Sleep -Seconds 2
+            return
+        }
+
+        $sharedCopilotStartupFailed = ($output -join "`n").Contains(
+            "The shared test Copilot service did not finish initializing.",
+            [StringComparison]::Ordinal)
+        if (-not $sharedCopilotStartupFailed -or $attempt -eq 2) {
+            throw "$Label failed."
+        }
+
+        Write-Warning "$Label hit the shared Copilot startup transient; retrying in a fresh host."
+        Start-Sleep -Seconds 5
     }
 }
 
