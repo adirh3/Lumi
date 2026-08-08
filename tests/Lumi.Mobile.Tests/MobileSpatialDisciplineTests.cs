@@ -113,7 +113,13 @@ public sealed class MobileSpatialDisciplineTests
                 AssertInteractiveMinimum(connect, 48);
             },
             store => new MobileShellViewModel(
-                client: new LumiRemoteClient("test-device", "Test phone", new BlockingHandler()),
+                client: new LumiRemoteClient(
+                    "test-device",
+                    "Test phone",
+                    new BlockingHandler(),
+                    requestDeadline: TimeSpan.FromSeconds(10),
+                    uploadDeadline: TimeSpan.FromSeconds(10),
+                    routeVerifier: new TrustedRouteVerifier()),
                 store: store,
                 post: action => action()));
     }
@@ -474,6 +480,11 @@ public sealed class MobileSpatialDisciplineTests
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("The blocking test transport should only end through cancellation.");
         }
+    }
+
+    private sealed class TrustedRouteVerifier : IRemoteRouteVerifier
+    {
+        public bool IsTrustedTailscaleRoute(System.Net.IPAddress targetAddress) => true;
     }
 
     private static void PairAndOpenChat(MobileShellViewModel shell)
