@@ -10,6 +10,69 @@ namespace Lumi.Tests;
 public class AppDataSnapshotFactoryTests
 {
     [Fact]
+    public void RemoteSecuritySnapshotReplacesEveryOwnerControlledField()
+    {
+        var store = new DataStore(new AppData
+        {
+            Settings = new UserSettings
+            {
+                RemoteAccessEnabled = true,
+                RemoteAllowInsecureLan = true,
+                RemoteAccessPort = 47653,
+                RemotePairedDevices =
+                [
+                    new RemotePairedDevice { DeviceId = "stale", Token = "stale-token" }
+                ]
+            }
+        });
+        var persisted = new UserSettings
+        {
+            RemoteAccessEnabled = false,
+            RemoteAllowInsecureLan = false,
+            RemoteAccessPort = 49000,
+            RemotePairedDevices =
+            [
+                new RemotePairedDevice { DeviceId = "current", Token = "current-token" }
+            ]
+        };
+
+        store.ApplyRemoteSecuritySnapshot(persisted);
+
+        Assert.False(store.Data.Settings.RemoteAccessEnabled);
+        Assert.False(store.Data.Settings.RemoteAllowInsecureLan);
+        Assert.Equal(49000, store.Data.Settings.RemoteAccessPort);
+        Assert.Equal("current", Assert.Single(store.Data.Settings.RemotePairedDevices).DeviceId);
+    }
+
+    [Fact]
+    public async Task DataStoreSnapshotAndRemoteDeviceMutationShareOneSynchronizationBoundary()
+    {
+        var store = new DataStore(new AppData());
+        var mutate = Task.Run(() =>
+        {
+            for (var index = 0; index < 2_000; index++)
+            {
+                var id = $"device-{index % 25}";
+                store.UpsertRemotePairedDevice(new RemotePairedDevice
+                {
+                    DeviceId = id,
+                    DeviceName = id,
+                    Token = Guid.NewGuid().ToString("N")
+                });
+                if (index % 3 == 0)
+                    store.RemoveRemotePairedDevice(id);
+            }
+        });
+        var snapshot = Task.Run(() =>
+        {
+            for (var index = 0; index < 2_000; index++)
+                _ = store.CreateIndexSnapshot();
+        });
+
+        await Task.WhenAll(mutate, snapshot);
+    }
+
+    [Fact]
     public void CreateIndexSnapshot_PreservesSettingsReasoningEffort()
     {
         var source = new AppData
@@ -909,6 +972,137 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void CreateIndexSnapshot_PreservesPhoneCompanionSettings()
+    {
+        // Regression: this snapshot is a hand-written field-by-field copy, so a new UserSettings
+        // field that is not listed here is silently dropped on every save. Enabling phone access and
+        // pairing a phone both appeared to work until the next launch, when Lumi came back with the
+        // feature off and the device unpaired — and no error anywhere.
+        var source = new AppData
+        {
+            Settings = new UserSettings
+            {
+                RemoteAccessEnabled = true,
+                RemoteAccessPort = 47653,
+                RemotePairedDevices =
+                [
+                    new RemotePairedDevice
+                    {
+                        DeviceId = "device-1",
+                        DeviceName = "Pixel 8 Pro",
+                        Token = "abc123",
+                        PairedAt = new DateTimeOffset(2026, 8, 1, 20, 0, 0, TimeSpan.Zero),
+                        LastSeenAt = new DateTimeOffset(2026, 8, 1, 21, 0, 0, TimeSpan.Zero)
+                    }
+                ]
+            }
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+
+        Assert.True(snapshot.Settings.RemoteAccessEnabled);
+        Assert.Equal(47653, snapshot.Settings.RemoteAccessPort);
+
+        var device = Assert.Single(snapshot.Settings.RemotePairedDevices);
+        Assert.Equal("device-1", device.DeviceId);
+        Assert.Equal("Pixel 8 Pro", device.DeviceName);
+        Assert.Equal("abc123", device.Token);
+        Assert.Equal(source.Settings.RemotePairedDevices[0].PairedAt, device.PairedAt);
+        Assert.Equal(source.Settings.RemotePairedDevices[0].LastSeenAt, device.LastSeenAt);
+    }
+
+    [Fact]
+    public void CreateIndexSnapshot_DeepCopiesPairedDevices()
+    {
+        var source = new AppData
+        {
+            Settings = new UserSettings
+            {
+                RemotePairedDevices = [new RemotePairedDevice { DeviceId = "d1", DeviceName = "Phone" }]
+            }
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+
+        // Mutating the live settings after a save must not retroactively change the snapshot.
+        source.Settings.RemotePairedDevices[0].DeviceName = "Renamed";
+        source.Settings.RemotePairedDevices.Add(new RemotePairedDevice { DeviceId = "d2" });
+
+        Assert.Equal("Phone", Assert.Single(snapshot.Settings.RemotePairedDevices).DeviceName);
+    }
+
+    [Fact]
+    public void MergeChatIndexChanges_PreservesPersistedPairedDevices_WhenSecurityStateWasNotChangedLocally()
+    {
+        var current = new AppData
+        {
+            Settings = new UserSettings
+            {
+                RemoteAccessEnabled = true,
+                RemoteAccessPort = 50000,
+                RemoteAllowInsecureLan = true,
+                RemotePairedDevices = [new RemotePairedDevice { DeviceId = "stale", Token = "old" }]
+            }
+        };
+        var persisted = new AppData
+        {
+            Settings = new UserSettings
+            {
+                RemoteAccessEnabled = false,
+                RemoteAccessPort = 47653,
+                RemoteAllowInsecureLan = false,
+                RemotePairedDevices = [new RemotePairedDevice { DeviceId = "current", Token = "new" }]
+            }
+        };
+
+        var merged = InvokeMergeChatIndexChanges(
+            current,
+            persisted,
+            [],
+            [],
+            remotePairedDevicesDirty: false);
+
+        Assert.Equal("current", Assert.Single(merged.Settings.RemotePairedDevices).DeviceId);
+        Assert.False(merged.Settings.RemoteAccessEnabled);
+        Assert.Equal(47653, merged.Settings.RemoteAccessPort);
+        Assert.False(merged.Settings.RemoteAllowInsecureLan);
+    }
+
+    [Fact]
+    public void MergeChatIndexChanges_PersistsExplicitPairedDeviceMutation()
+    {
+        var current = new AppData
+        {
+            Settings = new UserSettings
+            {
+                RemoteAccessEnabled = true,
+                RemoteAccessPort = 50000,
+                RemoteAllowInsecureLan = true,
+                RemotePairedDevices = [new RemotePairedDevice { DeviceId = "new", Token = "new" }]
+            }
+        };
+        var persisted = new AppData
+        {
+            Settings = new UserSettings
+            {
+                RemotePairedDevices = [new RemotePairedDevice { DeviceId = "old", Token = "old" }]
+            }
+        };
+
+        var merged = InvokeMergeChatIndexChanges(
+            current,
+            persisted,
+            [],
+            [],
+            remotePairedDevicesDirty: true);
+
+        Assert.Equal("new", Assert.Single(merged.Settings.RemotePairedDevices).DeviceId);
+        Assert.True(merged.Settings.RemoteAccessEnabled);
+        Assert.Equal(50000, merged.Settings.RemoteAccessPort);
+        Assert.True(merged.Settings.RemoteAllowInsecureLan);
+    }
+
+    [Fact]
     public void CreateIndexSnapshot_DeepCopiesByokEndpointsAndModels()
     {
         var source = new AppData
@@ -1019,7 +1213,8 @@ public class AppDataSnapshotFactoryTests
         AppData persistedSnapshot,
         IReadOnlyCollection<Guid> dirtyChatIds,
         IReadOnlyCollection<Guid> deletedChatIds,
-        bool backgroundJobsDirty = false)
+        bool backgroundJobsDirty = false,
+        bool remotePairedDevicesDirty = false)
     {
         var factoryType = typeof(DataStore).Assembly.GetType("Lumi.Services.AppDataSnapshotFactory")
             ?? throw new InvalidOperationException("AppDataSnapshotFactory type was not found.");
@@ -1029,7 +1224,14 @@ public class AppDataSnapshotFactoryTests
             ?? throw new InvalidOperationException("MergeChatIndexChanges method was not found.");
         return (AppData)(mergeMethod.Invoke(
             null,
-            [currentSnapshot, persistedSnapshot, new HashSet<Guid>(dirtyChatIds), new HashSet<Guid>(deletedChatIds), backgroundJobsDirty])
+            [
+                currentSnapshot,
+                persistedSnapshot,
+                new HashSet<Guid>(dirtyChatIds),
+                new HashSet<Guid>(deletedChatIds),
+                backgroundJobsDirty,
+                remotePairedDevicesDirty
+            ])
             ?? throw new InvalidOperationException("MergeChatIndexChanges returned null."));
     }
 }

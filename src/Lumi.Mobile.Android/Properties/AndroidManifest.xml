@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!--
+    Application-level settings live on the [Application] attribute in MainApplication.cs; this file
+    only carries what has no attribute equivalent.
+
+    INTERNET is what the whole app is for: it talks to Lumi desktop over the LAN.
+    ACCESS_NETWORK_STATE / ACCESS_WIFI_STATE let the discovery client tell "no Wi-Fi" apart from
+    "Wi-Fi but no Lumi", and CHANGE_WIFI_MULTICAST_STATE is required for the UDP discovery beacon:
+    without it Android silently drops broadcast packets and "Find my PC" never finds anything.
+  -->
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+  <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+  <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+
+  <application
+      android:allowBackup="false"
+      android:fullBackupContent="@xml/backup_rules"
+      android:dataExtractionRules="@xml/data_extraction_rules" />
+
+  <!--
+    Foldables and tablets: declare that the app handles every screen size so Android never
+    letterboxes it. The shared layout state switches to the two-pane layout by itself.
+  -->
+  <supports-screens
+      android:smallScreens="true"
+      android:normalScreens="true"
+      android:largeScreens="true"
+      android:xlargeScreens="true"
+      android:resizeable="true" />
+</manifest>

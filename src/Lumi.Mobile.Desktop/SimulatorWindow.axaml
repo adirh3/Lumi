@@ -1,0 +1,39 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="using:Lumi.Mobile.Views"
+        x:Class="Lumi.Mobile.Desktop.SimulatorWindow"
+        Title="Lumi Mobile — device simulator"
+        Width="520" Height="1000"
+        Background="{DynamicResource Brush.Surface0}">
+
+  <Grid RowDefinitions="Auto,*">
+
+    <!-- Simulator chrome. Dev-only: the phone heads host MobileShellView directly. -->
+    <Border x:Name="SimulatorBar" Grid.Row="0"
+            Background="{DynamicResource Brush.Surface1}"
+            BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="0,0,0,1"
+            Padding="12,8">
+      <StackPanel Orientation="Horizontal" Spacing="10">
+        <TextBlock Text="Device" VerticalAlignment="Center" Classes="muted" />
+        <ComboBox x:Name="DevicePicker" MinWidth="230" SelectedIndex="2" />
+        <CheckBox x:Name="ShowBezel" Content="Bezel" IsChecked="True" VerticalAlignment="Center" />
+        <TextBlock x:Name="LayoutReadout" VerticalAlignment="Center" Classes="muted" />
+      </StackPanel>
+    </Border>
+
+    <!-- The device surface: exactly the emulated size, centred. -->
+    <Border Grid.Row="1" Padding="16">
+      <LayoutTransformControl x:Name="DeviceScaleHost"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Center">
+        <Border x:Name="DeviceFrame"
+                Background="#101014" CornerRadius="36" Padding="10"
+                BorderBrush="#2A2A32" BorderThickness="2">
+          <Border x:Name="DeviceScreen" ClipToBounds="True" CornerRadius="28">
+            <views:MobileShellView x:Name="Shell" />
+          </Border>
+        </Border>
+      </LayoutTransformControl>
+    </Border>
+  </Grid>
+</Window>

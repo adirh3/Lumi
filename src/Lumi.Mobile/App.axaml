@@ -1,0 +1,39 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Lumi.Mobile.App"
+             RequestedThemeVariant="Dark">
+
+  <Application.Styles>
+    <SimpleTheme />
+    <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Simple.xaml" />
+    <StyleInclude Source="avares://StrataTheme/StrataTheme.axaml" />
+    <StyleInclude Source="avares://Lumi.Mobile/Styles/MobileStyles.axaml" />
+  </Application.Styles>
+
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <!-- Metrics only. Layered after StrataTheme so touch sizing wins over the desktop density. -->
+        <ResourceInclude Source="avares://Lumi.Mobile/Styles/Density.Touch.axaml" />
+
+        <!--
+          Colours must be keyed BY VARIANT, not merged flat: a flat merge at application level
+          outranks the theme's own ThemeDictionaries and applies one palette to both variants —
+          which is exactly why light mode did nothing.
+
+          Nested inside MergedDictionaries, matching StrataTheme's own structure. Declaring
+          ThemeDictionaries directly on the outer dictionary alongside MergedDictionaries does not
+          resolve reliably: the dark set won in both variants, so the page background stayed black
+          while Strata-owned surfaces around it turned white.
+        -->
+        <ResourceDictionary>
+          <ResourceDictionary.ThemeDictionaries>
+            <ResourceInclude x:Key="Dark" Source="avares://Lumi.Mobile/Styles/Colors.Mobile.Dark.axaml" />
+            <ResourceInclude x:Key="Light" Source="avares://Lumi.Mobile/Styles/Colors.Mobile.Light.axaml" />
+          </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+
+</Application>

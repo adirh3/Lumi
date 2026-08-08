@@ -1,0 +1,125 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.Mobile.ViewModels"
+             xmlns:views="using:Lumi.Mobile.Views"
+             xmlns:sc="using:StrataTheme.Controls"
+             x:Class="Lumi.Mobile.Views.MobileShellView"
+             x:DataType="vm:MobileShellViewModel"
+             Background="{DynamicResource Brush.Surface0}">
+
+  <UserControl.Styles>
+    <!-- Strata owns the title in its template, outside Content. Reuse the otherwise-unconsumed
+         sheet Padding property to pass the cutout-aware title margin into that template part. -->
+    <Style Selector="sc|StrataBottomSheet.safe-area /template/ TextBlock#PART_Title">
+      <Setter Property="Margin"
+              Value="{Binding $parent[sc:StrataBottomSheet].Padding}" />
+    </Style>
+    <Style Selector="sc|StrataBottomSheet.safe-area /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Margin"
+              Value="{Binding $parent[sc:StrataBottomSheet].Tag}" />
+    </Style>
+  </UserControl.Styles>
+
+  <Panel x:Name="Root">
+
+    <!-- ═══ Onboarding: not paired with any PC yet ═══ -->
+    <ContentControl x:Name="ConnectHost" IsVisible="{Binding !IsPaired}">
+      <views:ConnectView x:Name="ConnectPage" DataContext="{Binding Connect}" />
+    </ContentControl>
+
+    <!-- ═══ Main shell ═══ -->
+    <!--
+      The drawer wraps the shell rather than floating over it, because the drag has to be recognised
+      above everything it can start on top of. Its gesture recognizer is disabled while docked: on a
+      wide screen the sidebar is pinned and a swipe there would fight the transcript.
+    -->
+    <sc:StrataNavigationDrawer x:Name="NavDrawer"
+                               IsVisible="{Binding IsPaired}"
+                               IsOpen="{Binding IsDrawerOpen, Mode=TwoWay}"
+                               PanelWidth="{Binding DrawerWidth}"
+                               IsDragEnabled="{Binding !IsDrawerDocked}">
+      <sc:StrataNavigationDrawer.Panel>
+        <Border Background="{DynamicResource Brush.Surface1}"
+                BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                BorderThickness="0,0,1,0"
+                BoxShadow="4 0 28 0 #40000000">
+          <views:MobileDrawerView x:Name="SlidingDrawerContent" />
+        </Border>
+      </sc:StrataNavigationDrawer.Panel>
+
+      <Grid x:Name="ShellRoot" ColumnDefinitions="Auto,Auto,*"
+            Height="{Binding UsableContentHeight}"
+            VerticalAlignment="Top">
+
+        <!--
+          Docked drawer, expanded widths only (>=840dp). ChatGPT just stretches its phone layout onto
+          tablets, which wastes the space; Material's list-detail guidance says pin the list instead.
+        -->
+        <Border x:Name="DockedDrawer" Grid.Column="0"
+                IsVisible="{Binding IsDrawerDocked}"
+                Width="{Binding DrawerWidth}"
+                BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                BorderThickness="0,0,1,0">
+          <views:MobileDrawerView x:Name="DockedDrawerContent" />
+        </Border>
+
+        <Border x:Name="CollapsedHingeLead" Grid.Column="0"
+                IsVisible="{Binding HasCollapsedHingeLead}"
+                Width="{Binding CollapsedHingeLeadWidth}"
+                Background="{DynamicResource Brush.Surface0}" />
+
+        <!-- Physical hinge gap on a book-posture foldable: never paint underneath it. -->
+        <Border x:Name="HingeGap" Grid.Column="1" IsVisible="{Binding HasHingeGap}"
+                Width="{Binding HingeGapWidth}"
+                Background="{DynamicResource Brush.Surface0}" />
+
+        <!-- ═══ The conversation. Always mounted: this app IS the chat. ═══ -->
+        <Panel Grid.Column="2">
+          <views:ChatDetailView x:Name="ChatSurface" />
+
+          <!-- Pages stack OVER the chat rather than replacing it, so coming back never costs a
+               transcript rebuild. -->
+          <Panel x:Name="LibraryHost" IsVisible="{Binding IsLibraryPage}"
+                 Background="{DynamicResource Brush.Surface0}">
+            <views:LibraryView x:Name="LibraryPage" DataContext="{Binding Library}" />
+          </Panel>
+
+          <views:MobileSettingsView x:Name="SettingsPage" IsVisible="{Binding IsSettingsPage}"
+                                    Background="{DynamicResource Brush.Surface0}" />
+
+          <views:MobileSearchView x:Name="SearchPage" IsVisible="{Binding IsSearchPage}" />
+        </Panel>
+      </Grid>
+    </sc:StrataNavigationDrawer>
+
+    <!-- ═══ Chat actions, opened by long-pressing a drawer row ═══ -->
+    <sc:StrataBottomSheet x:Name="ChatActionsSheet"
+                          Classes="safe-area"
+                          IsOpen="{Binding IsChatActionsOpen, Mode=TwoWay}"
+                          Title="{Binding ActionChatTitle}"
+                          Padding="{Binding SafeAreaSheetTitleMargin}"
+                          Tag="{Binding SafeAreaSheetPresenterMargin}">
+      <Border x:Name="ChatActionsSideInset" Padding="{Binding SafeAreaSides}">
+        <StackPanel>
+          <Button x:Name="SheetPinButton" Classes="sheet-item"
+                  Command="{Binding PinActionChatCommand}">
+            <StackPanel Orientation="Horizontal" Spacing="16">
+              <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}" VerticalAlignment="Center"
+                        Data="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
+              <TextBlock Text="{Binding PinActionLabel}" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+
+          <Button x:Name="SheetDeleteButton" Classes="sheet-item danger"
+                  Command="{Binding DeleteActionChatCommand}">
+            <StackPanel Orientation="Horizontal" Spacing="16">
+              <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}" VerticalAlignment="Center"
+                        Data="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+              <TextBlock Text="Delete" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+      </Border>
+    </sc:StrataBottomSheet>
+  </Panel>
+</UserControl>

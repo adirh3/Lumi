@@ -1,0 +1,111 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    ══ Lumi mobile design language ═══════════════════════════════════════════════════════════════
+
+    Strata's defaults are a desktop system: 14px body, 6px radii, #1E1E1E surfaces, targets sized
+    for a mouse. Rendered on a phone that reads as a desktop app someone shrunk — which is exactly
+    what it felt like. This layer restates the same semantic tokens at phone values, so every
+    Strata control and every Lumi view inherits the mobile language without per-control overrides.
+
+    Values follow Android's own conventions (Material 3 type scale, 48dp minimum target) checked
+    against the ChatGPT Android app on a Galaxy Fold.
+  -->
+
+  <!-- ── Type scale ────────────────────────────────────────────────────────────────────────────
+    THE most important change. Android's baseline body size is 16sp; Strata's desktop body is 14px,
+    and mobile views additionally hardcoded 9-13px in places. At phone viewing distance that is
+    genuinely hard to read and is the single biggest reason the app did not feel native.
+
+    Body is the anchor: message text, drawer rows, composer text and list items all sit at 16.
+  -->
+  <x:Double x:Key="Font.SizeCaption">13</x:Double>
+  <x:Double x:Key="Font.SizeBody">16</x:Double>
+  <x:Double x:Key="Font.SizeBodyStrong">16</x:Double>
+  <x:Double x:Key="Font.SizeSubtitle">18</x:Double>
+  <x:Double x:Key="Font.SizeTitle">22</x:Double>
+  <x:Double x:Key="Font.SizeHeadline">28</x:Double>
+  <x:Double x:Key="Font.SizeDisplay">34</x:Double>
+
+  <!-- Secondary rung for things that must be quieter than body but stay legible. Nothing on a
+       phone should render below this. -->
+  <x:Double x:Key="Font.SizeMeta">14</x:Double>
+
+  <!-- ── Surfaces ──────────────────────────────────────────────────────────────────────────────
+    Colours are NOT here. They are per-theme-variant and live in Colors.Mobile.Dark/Light.axaml,
+    merged into App.axaml's ThemeDictionaries. They used to be in this file, which is merged
+    variant-agnostically at application level — and application resources outrank a theme's
+    ThemeDictionaries, so the dark values applied in both variants and light mode did nothing.
+    This file is metrics only: type, geometry, sizing, spacing.
+  -->
+  <!-- ── Geometry ──────────────────────────────────────────────────────────────────────────────
+    Phone UI is markedly rounder than desktop. A 6px radius on a 56dp-tall composer looks like a
+    text field in a settings dialog; native chat composers are near-pill.
+  -->
+  <CornerRadius x:Key="Radius.Base">12</CornerRadius>
+  <CornerRadius x:Key="Radius.Interactive">16</CornerRadius>
+  <CornerRadius x:Key="Radius.Overlay">24</CornerRadius>
+
+  <!-- ── Sizing ────────────────────────────────────────────────────────────────────────────────
+    48dp is the documented minimum tappable target; anything a thumb aims for is at least that.
+  -->
+  <x:Double x:Key="Size.ControlHeightS">48</x:Double>
+  <x:Double x:Key="Size.ControlHeightM">52</x:Double>
+  <x:Double x:Key="Size.ControlHeightL">60</x:Double>
+
+  <!-- Named so views stop inventing their own row and icon-button metrics. -->
+  <x:Double x:Key="Touch.RowHeight">56</x:Double>
+  <x:Double x:Key="Touch.IconButtonSize">48</x:Double>
+  <x:Double x:Key="Touch.MinTarget">48</x:Double>
+  <x:Double x:Key="Touch.IconSize">22</x:Double>
+
+  <!-- Secondary indicators (chevrons, ticks) — smaller than a primary icon but never decorative-tiny. -->
+  <x:Double x:Key="Touch.IconSizeSmall">18</x:Double>
+
+  <!-- The composer chips' remove affordances are 16dp on desktop, which is under half a fingertip. -->
+  <x:Double x:Key="Size.IconButtonXS">28</x:Double>
+
+  <!-- The scroll-to-bottom button is a 36dp desktop FAB; a thumb needs the full target. -->
+  <x:Double x:Key="Size.FloatingAction">48</x:Double>
+
+  <x:Double x:Key="Space.XXS">4</x:Double>
+  <x:Double x:Key="Space.XS">8</x:Double>
+  <x:Double x:Key="Space.S">12</x:Double>
+  <x:Double x:Key="Space.M">16</x:Double>
+  <x:Double x:Key="Space.L">22</x:Double>
+  <x:Double x:Key="Space.XL">30</x:Double>
+  <x:Double x:Key="Space.XXL">40</x:Double>
+
+  <!-- ── Mobile layout rhythm ─────────────────────────────────────────────────────────────────
+    Safe-area padding is always applied outside these values. The 12dp page gutter is the shared
+    phone axis; the drawer uses a 4dp press-surface inset plus 10dp row padding so every icon/label
+    lands on one 14dp content axis without the old stacked 8 + 8 + row-padding indentation.
+  -->
+  <Thickness x:Key="Mobile.Page.HeaderMargin">12,8,12,8</Thickness>
+  <Thickness x:Key="Mobile.Page.ContentMargin">12,0,12,12</Thickness>
+  <Thickness x:Key="Mobile.Page.ControlMargin">12,0,12,8</Thickness>
+  <Thickness x:Key="Mobile.Page.FormContentMargin">12,0,12,16</Thickness>
+  <Thickness x:Key="Mobile.Setup.ContentMargin">12,16,12,20</Thickness>
+  <Thickness x:Key="Mobile.Drawer.RowMargin">4,0</Thickness>
+  <Thickness x:Key="Mobile.Drawer.RowPadding">10,14</Thickness>
+  <Thickness x:Key="Mobile.Drawer.ChatRowPadding">10,12</Thickness>
+  <Thickness x:Key="Mobile.Drawer.GroupLabelMargin">14,12,14,4</Thickness>
+
+  <!-- Mobile-only StrataChatShell overrides consume these named metrics after the desktop theme. -->
+  <Thickness x:Key="Mobile.Chat.ComposerHostPadding">8,6,8,8</Thickness>
+  <Thickness x:Key="Mobile.Chat.TranscriptPadding">12,10,12,10</Thickness>
+
+  <!-- The chat column is the full width of a phone; there is no room for a desktop reading column. -->
+  <x:Double x:Key="Chat.ReadingColumnWidth">760</x:Double>
+
+  <Thickness x:Key="Touch.TargetPadding">16,14</Thickness>
+  <Thickness x:Key="Touch.ListItemPadding">18,16</Thickness>
+
+  <!--
+    Strata's default stack starts with Segoe UI Variable / SF Pro, neither of which exists on
+    Android. Inter is embedded by every head, so the phone renders identically to the PC.
+  -->
+  <FontFamily x:Key="Font.Family">Inter, Segoe UI Variable, Segoe UI, SF Pro Display, -apple-system, Helvetica Neue, Roboto, Arial, sans-serif</FontFamily>
+  <FontFamily x:Key="Font.FamilyMono">Cascadia Code, JetBrains Mono, Consolas, Roboto Mono, Droid Sans Mono, monospace</FontFamily>
+</ResourceDictionary>

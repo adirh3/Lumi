@@ -1,0 +1,262 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.Mobile.ViewModels"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:sa="using:StrataTheme.Animation"
+             x:Class="Lumi.Mobile.Views.MobileDrawerView"
+             x:DataType="vm:MobileShellViewModel"
+             Background="{DynamicResource Brush.Surface1}">
+
+  <!--
+    Navigation drawer. Search opens a full-screen page rather than filtering in place, Projects are
+    selectable inline (ChatGPT keeps Projects in the sidebar for the same reason), and everything
+    editable is behind one Library row instead of a strip of chips.
+  -->
+  <Grid RowDefinitions="Auto,*,Auto">
+
+    <!--
+      Safe-area insets are applied here, not on the shell: the drawer's surface has to run edge to
+      edge (under the status bar and the gesture bar) the way every native drawer does, while its
+      rows stay clear of both.
+    -->
+
+    <!-- ═══ Search: a button, not a field. Tapping it takes over the screen. ═══ -->
+    <Border Grid.Row="0" Padding="{Binding SafeAreaTop}">
+      <Border x:Name="DrawerHeaderSideInset" Padding="{Binding SafeAreaSides}">
+        <Button x:Name="DrawerSearchButton" Classes="drawer-search-entry"
+                Margin="12,12,12,8"
+                Command="{Binding OpenSearchCommand}">
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}" VerticalAlignment="Center"
+                      Foreground="{DynamicResource Brush.TextTertiary}"
+                      Data="M15.5 14h-.79l-.28-.27a6.5 6.5 0 0 0 1.48-5.34c-.47-2.78-2.79-5-5.59-5.34a6.505 6.505 0 0 0-7.27 7.27c.34 2.8 2.56 5.12 5.34 5.59a6.5 6.5 0 0 0 5.34-1.48l.27.28v.79l4.25 4.25c.41.41 1.08.41 1.49 0 .41-.41.41-1.08 0-1.49L15.5 14zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+            <TextBlock Text="Search chats" VerticalAlignment="Center"
+                       Foreground="{DynamicResource Brush.TextTertiary}" />
+          </StackPanel>
+        </Button>
+      </Border>
+    </Border>
+
+    <!--
+      ═══ Everything else scrolls as ONE surface ═══
+
+      New chat, Library, Projects and the history used to be four fixed rows above a scroller that
+      owned only the chat list. On a phone — and especially with the keyboard up or on a short
+      viewport — that left the history a few rows tall while a long project list simply could not be
+      reached. A navigation drawer is one list; only the search entry and the account row are pinned.
+    -->
+    <Border x:Name="DrawerContentSideInset" Grid.Row="1" Padding="{Binding SafeAreaSides}">
+      <ScrollViewer Classes="mobile-scroll" Padding="0,0,0,8"
+                    HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="2">
+
+    <!-- ═══ New chat ═══ -->
+    <Button x:Name="DrawerNewChatButton" Classes="drawer-row"
+            Command="{Binding ChatList.NewChatCommand}">
+      <StackPanel Orientation="Horizontal" Spacing="14">
+        <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}" VerticalAlignment="Center"
+                  Foreground="{DynamicResource Brush.TextPrimary}"
+                  Data="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z" />
+        <TextBlock Text="New chat" FontWeight="SemiBold" VerticalAlignment="Center" />
+      </StackPanel>
+    </Button>
+
+    <!-- ═══ Library: everything editable behind one row ═══ -->
+    <Button x:Name="DrawerLibraryButton" Classes="drawer-row"
+            Command="{Binding ShowPageCommand}" CommandParameter="Library">
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+        <PathIcon Grid.Column="0" Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}" VerticalAlignment="Center"
+                  Foreground="{DynamicResource Brush.TextPrimary}"
+                  Data="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z" />
+        <TextBlock Grid.Column="1" Text="Library" FontWeight="SemiBold" VerticalAlignment="Center" />
+        <PathIcon Grid.Column="2" Width="{DynamicResource Touch.IconSizeSmall}" Height="{DynamicResource Touch.IconSizeSmall}" VerticalAlignment="Center"
+                  Foreground="{DynamicResource Brush.TextTertiary}"
+                  Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
+      </Grid>
+    </Button>
+
+    <!-- ═══ Projects: tap to filter the list to that project ═══ -->
+    <StackPanel IsVisible="{Binding HasProjects}" Margin="0,2,0,2">
+      <Grid ColumnDefinitions="*,Auto" Margin="0,0,4,0">
+        <TextBlock Grid.Column="0" Text="Projects" Classes="group-label drawer-group-label" />
+        <Button Grid.Column="1" Classes="clear-filter" VerticalAlignment="Center"
+                IsVisible="{Binding HasActiveProject}"
+                Command="{Binding ClearProjectCommand}">
+          <TextBlock Text="Show all" FontSize="{DynamicResource Font.SizeCaption}" />
+        </Button>
+      </Grid>
+      <ItemsControl x:Name="DrawerProjects" ItemsSource="{Binding Projects}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:ProjectPickViewModel">
+            <Button Classes="drawer-chat" Classes.selected="{Binding IsActive}"
+                    Command="{Binding $parent[UserControl].((vm:MobileShellViewModel)DataContext).SelectProjectCommand}"
+                    CommandParameter="{Binding}">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                <PathIcon Grid.Column="0" Width="16" Height="16" VerticalAlignment="Center"
+                          Foreground="{DynamicResource Brush.AccentDefault}"
+                          Data="M2 6a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z" />
+                <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" />
+                <PathIcon Grid.Column="2" Width="{DynamicResource Touch.IconSizeSmall}" Height="{DynamicResource Touch.IconSizeSmall}" VerticalAlignment="Center"
+                          IsVisible="{Binding IsActive}"
+                          Foreground="{DynamicResource Brush.AccentDefault}"
+                          Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+              </Grid>
+            </Button>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+
+    <!-- ═══ History ═══ -->
+    <StackPanel>
+        <TextBlock Text="Chats" Classes="group-label drawer-group-label"
+                   IsVisible="{Binding HasProjects}" />
+
+        <StackPanel x:Name="DrawerEmpty" IsVisible="{Binding ChatList.IsEmpty}"
+                    Spacing="6" Margin="14,24" HorizontalAlignment="Center">
+          <TextBlock Text="No chats here yet" FontWeight="SemiBold" HorizontalAlignment="Center"
+                     TextAlignment="Center" />
+          <TextBlock Text="Tap New chat to start one." Classes="muted"
+                     HorizontalAlignment="Center" TextAlignment="Center" />
+        </StackPanel>
+
+        <ItemsControl x:Name="DrawerChatGroups" ItemsSource="{Binding ChatList.Groups}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ChatGroupViewModel">
+              <StackPanel>
+                <TextBlock Text="{Binding Label}" Classes="group-label drawer-group-label" />
+                <ItemsControl ItemsSource="{Binding Chats}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ChatListItemViewModel">
+                      <!-- Long-press opens a bottom sheet. A ContextFlyout here would be a
+                           right-click menu, and a phone has no right click. -->
+                      <Button Classes="drawer-chat" Classes.selected="{Binding IsSelected}"
+                              Holding="OnChatRowHolding"
+                              Command="{Binding $parent[UserControl].((vm:MobileShellViewModel)DataContext).ChatList.OpenChatCommand}"
+                              CommandParameter="{Binding}">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="9">
+                          <TextBlock Grid.Column="0" Text="{Binding AgentGlyph}" FontSize="{DynamicResource Font.SizeBody}"
+                                     VerticalAlignment="Center" IsVisible="{Binding HasAgent}" />
+
+                          <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                              <TextBlock Text="&#x1F4CC;" FontSize="{DynamicResource Font.SizeCaption}"
+                                         VerticalAlignment="Center" IsVisible="{Binding IsPinned}" />
+                              <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"
+                                         VerticalAlignment="Center" />
+                            </StackPanel>
+
+                            <Border Classes="project-badge" IsVisible="{Binding HasProject}"
+                                    HorizontalAlignment="Left">
+                              <StackPanel Orientation="Horizontal" Spacing="5">
+                                <PathIcon Width="10" Height="10" VerticalAlignment="Center"
+                                          Foreground="{DynamicResource Brush.AccentDefault}"
+                                          Data="M2 6a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z" />
+                                <TextBlock Text="{Binding ProjectName}"
+                                           FontSize="{DynamicResource Font.SizeCaption}"
+                                           FontWeight="Medium"
+                                           Foreground="{DynamicResource Brush.AccentDefault}"
+                                           TextTrimming="CharacterEllipsis" MaxWidth="150" />
+                              </StackPanel>
+                            </Border>
+                          </StackPanel>
+
+                          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6"
+                                      VerticalAlignment="Center">
+                            <!-- Exact desktop chat-row activity mark: a 6dp accent dot breathing
+                                 between full and 30% opacity on a 1.2s alternate cycle. -->
+                            <Border x:Name="BusyIndicator"
+                                    Width="6" Height="6" CornerRadius="3"
+                                    Background="{DynamicResource Brush.AccentDefault}"
+                                    VerticalAlignment="Center"
+                                    IsVisible="{Binding IsRunning}"
+                                    sa:LifecycleOpacityPulse.FromOpacity="1"
+                                    sa:LifecycleOpacityPulse.ToOpacity="0.3"
+                                    sa:LifecycleOpacityPulse.Duration="0:0:1.2"
+                                    sa:LifecycleOpacityPulse.PlaybackDirection="Alternate"
+                                    sa:LifecycleOpacityPulse.IsActive="True" />
+                            <Ellipse Width="9" Height="9" VerticalAlignment="Center"
+                                     Fill="{DynamicResource Brush.AccentDefault}"
+                                     IsVisible="{Binding HasUnreadMessages}" />
+                          </StackPanel>
+                        </Grid>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <Button x:Name="DrawerLoadMoreButton" Classes="drawer-row"
+                Margin="4,8,4,10"
+                IsVisible="{Binding ChatList.HasMoreChats}"
+                Command="{Binding ChatList.LoadMoreChatsCommand}">
+          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+            <Border Grid.Column="0" Width="32" Height="32" CornerRadius="16"
+                    VerticalAlignment="Center"
+                    Background="{DynamicResource Brush.AccentSubtle}">
+              <PathIcon Width="18" Height="18"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Foreground="{DynamicResource Brush.AccentDefault}"
+                        Data="M7 10l5 5 5-5H7z" />
+            </Border>
+
+            <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+              <TextBlock Text="Load more chats" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding ChatList.VisibleChatCountLabel}"
+                         Classes="muted" FontSize="{DynamicResource Font.SizeCaption}" />
+            </StackPanel>
+
+            <PathIcon Grid.Column="2"
+                      Width="{DynamicResource Touch.IconSizeSmall}"
+                      Height="{DynamicResource Touch.IconSizeSmall}"
+                      VerticalAlignment="Center"
+                      Foreground="{DynamicResource Brush.TextTertiary}"
+                      Data="M7 10l5 5 5-5H7z" />
+          </Grid>
+        </Button>
+      </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+
+    <!-- ═══ Account: the settings entry point, where ChatGPT and Gemini both put it ═══ -->
+    <Border Grid.Row="2" Padding="{Binding SafeAreaBottom}"
+            BorderBrush="{DynamicResource Brush.BorderSubtle}"
+            BorderThickness="0,1,0,0">
+      <Border x:Name="DrawerAccountSideInset" Padding="{Binding SafeAreaSides}">
+        <Button x:Name="DrawerAccountButton" Classes="drawer-row"
+                Margin="4,6,4,8"
+                Command="{Binding ShowPageCommand}" CommandParameter="Settings">
+          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+            <Border Grid.Column="0" Width="30" Height="30" CornerRadius="15"
+                    VerticalAlignment="Center"
+                    Background="{DynamicResource Brush.AccentSubtle}">
+              <TextBlock Text="{Binding UserInitial}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold"
+                         Foreground="{DynamicResource Brush.AccentDefault}"
+                         HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+
+            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+              <TextBlock Text="{Binding AccountName}" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeBody}"
+                         TextTrimming="CharacterEllipsis" />
+              <StackPanel Orientation="Horizontal" Spacing="5">
+                <sc:StrataPulse Width="9" Height="9" VerticalAlignment="Center"
+                                IsLive="{Binding IsLive}" />
+                <TextBlock Text="{Binding HostName}" Classes="muted" FontSize="{DynamicResource Font.SizeCaption}"
+                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+              </StackPanel>
+            </StackPanel>
+
+            <PathIcon Grid.Column="2" Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}" VerticalAlignment="Center"
+                      Foreground="{DynamicResource Brush.TextTertiary}"
+                      Data="M12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7zm7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65A.488.488 0 0 0 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.65.07.97l-2.11 1.66c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1.01c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66z" />
+          </Grid>
+        </Button>
+      </Border>
+    </Border>
+  </Grid>
+</UserControl>

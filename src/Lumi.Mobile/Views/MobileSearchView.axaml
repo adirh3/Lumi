@@ -1,0 +1,127 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.Mobile.ViewModels"
+             xmlns:sc="using:StrataTheme.Controls"
+             x:Class="Lumi.Mobile.Views.MobileSearchView"
+             x:DataType="vm:MobileShellViewModel"
+             Background="{DynamicResource Brush.Surface0}">
+
+  <!--
+    Full-screen search. On a phone the keyboard already claims half the display, so a search that
+    filters a list *behind* it leaves the user reading three visible rows through a letterbox.
+    Taking the whole screen is what every mobile app does, and it is why the field can sit at the
+    top while the results own everything below.
+  -->
+  <Grid RowDefinitions="Auto,*">
+
+    <Border x:Name="SearchTopInset" Grid.Row="0" Padding="{Binding SafeAreaTop}">
+      <Border x:Name="SearchHeaderSideInset" Padding="{Binding SafeAreaSides}">
+        <Grid x:Name="SearchHeaderLayout"
+              ColumnDefinitions="Auto,*"
+              ColumnSpacing="2"
+              MaxWidth="720"
+              HorizontalAlignment="Stretch"
+              Margin="{DynamicResource Mobile.Page.HeaderMargin}">
+          <Button x:Name="SearchBackButton" Grid.Column="0" Classes="page-back"
+                  Command="{Binding GoBackCommand}">
+            <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
+                      Data="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+          </Button>
+
+          <TextBox x:Name="SearchField" Grid.Column="1" Classes="search-field no-focus-accent"
+                   PlaceholderText="Search chats"
+                   Text="{Binding ChatList.SearchText}" />
+        </Grid>
+      </Border>
+    </Border>
+
+    <Border x:Name="SearchBottomInset" Grid.Row="1" Padding="{Binding SafeAreaBottom}">
+      <Border x:Name="SearchResultsSideInset" Padding="{Binding SafeAreaSides}">
+        <ScrollViewer>
+          <StackPanel x:Name="SearchResultsContent"
+                      MaxWidth="720"
+                      HorizontalAlignment="Stretch"
+                      Margin="{DynamicResource Mobile.Page.ContentMargin}">
+
+            <StackPanel x:Name="SearchEmpty" IsVisible="{Binding ChatList.IsEmpty}"
+                        Spacing="8" Margin="12,40" HorizontalAlignment="Center">
+              <TextBlock Text="No matches" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeSubtitle}"
+                         HorizontalAlignment="Center" />
+              <TextBlock Text="Try a different word." Classes="muted" TextAlignment="Center" />
+            </StackPanel>
+
+            <ItemsControl x:Name="SearchResults" ItemsSource="{Binding ChatList.Groups}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ChatGroupViewModel">
+                  <StackPanel>
+                    <TextBlock Text="{Binding Label}" Classes="group-label" />
+                    <ItemsControl ItemsSource="{Binding Chats}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ChatListItemViewModel">
+                          <Button Classes="search-result"
+                                  Command="{Binding $parent[UserControl].((vm:MobileShellViewModel)DataContext).ChatList.OpenChatCommand}"
+                                  CommandParameter="{Binding}">
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                              <Border Grid.Column="0" Width="34" Height="34" CornerRadius="17"
+                                      VerticalAlignment="Center"
+                                      Background="{DynamicResource Brush.AccentSubtle}"
+                                      IsVisible="{Binding HasAgent}">
+                                <TextBlock Text="{Binding AgentGlyph}" FontSize="{DynamicResource Font.SizeSubtitle}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                              </Border>
+
+                              <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeBody}"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Preview}" Classes="muted" MaxLines="1"
+                                           TextTrimming="CharacterEllipsis"
+                                           IsVisible="{Binding Preview, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                              </StackPanel>
+
+                              <TextBlock Grid.Column="2" Text="{Binding RelativeTime}" Classes="muted"
+                                         FontSize="{DynamicResource Font.SizeCaption}" VerticalAlignment="Center" />
+                            </Grid>
+                          </Button>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Button x:Name="SearchLoadMoreButton" Classes="search-result"
+                    Margin="0,12,0,4"
+                    Background="{DynamicResource Brush.Surface1}"
+                    IsVisible="{Binding ChatList.HasMoreChats}"
+                    Command="{Binding ChatList.LoadMoreChatsCommand}">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                <Border Grid.Column="0" Width="34" Height="34" CornerRadius="17"
+                        VerticalAlignment="Center"
+                        Background="{DynamicResource Brush.AccentSubtle}">
+                  <PathIcon Width="18" Height="18"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                            Foreground="{DynamicResource Brush.AccentDefault}"
+                            Data="M7 10l5 5 5-5H7z" />
+                </Border>
+
+                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                  <TextBlock Text="Load more chats" FontWeight="SemiBold" />
+                  <TextBlock Text="{Binding ChatList.VisibleChatCountLabel}"
+                             Classes="muted" FontSize="{DynamicResource Font.SizeCaption}" />
+                </StackPanel>
+
+                <PathIcon Grid.Column="2"
+                          Width="{DynamicResource Touch.IconSizeSmall}"
+                          Height="{DynamicResource Touch.IconSizeSmall}"
+                          VerticalAlignment="Center"
+                          Foreground="{DynamicResource Brush.TextTertiary}"
+                          Data="M7 10l5 5 5-5H7z" />
+              </Grid>
+            </Button>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+    </Border>
+  </Grid>
+</UserControl>
