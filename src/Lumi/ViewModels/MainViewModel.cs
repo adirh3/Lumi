@@ -13,6 +13,7 @@ using CommunityToolkit.Mvvm.Input;
 using GitHub.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
+using Lumi.Remote.Protocol;
 using Lumi.Services;
 
 namespace Lumi.ViewModels;
@@ -224,6 +225,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         , bool openAgentDebugHarness = false,
         bool skipOnboarding = false
 #endif
+        , bool initializeCopilotOnStartup = true
         )
     {
         _dataStore = dataStore;
@@ -428,7 +430,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
 #endif
 
         _chatNavigationHistory.Record(ChatVM.CurrentChat?.Id, SelectedProjectFilter);
-        _ = InitializeAsync();
+        if (initializeCopilotOnStartup)
+            _ = InitializeAsync();
     }
 
     private void PrepareChatSurface(ChatViewModel surface)
@@ -541,6 +544,84 @@ public partial class MainViewModel : ObservableObject, IDisposable
         RefreshFeatureManagementUi(preserveJobsEditor: true);
     }
 
+    internal async Task ApplyFeatureChangeAsync(
+        FeatureChangeResult result,
+        string resource,
+        IReadOnlySet<Guid>? affectedProjectChatIds = null)
+    {
+        if (result.SyncSkillFiles)
+            _dataStore.SyncSkillFiles();
+
+        if (result.RenamedMcpOldName is { } oldName && result.RenamedMcpNewName is { } newName)
+        {
+            foreach (var chat in _dataStore.Data.Chats.Where(chat => chat.ActiveMcpServerNames.Contains(oldName)))
+            {
+                for (var index = 0; index < chat.ActiveMcpServerNames.Count; index++)
+                {
+                    if (string.Equals(chat.ActiveMcpServerNames[index], oldName, StringComparison.Ordinal))
+                        chat.ActiveMcpServerNames[index] = newName;
+                }
+                _dataStore.MarkChatChanged(chat);
+            }
+
+            _chatSessionStore.ApplyToSurfaces(surface =>
+            {
+                if (!surface.ActiveMcpServerNames.Contains(oldName, StringComparer.Ordinal))
+                    return;
+
+                surface.RemoveMcpByName(oldName);
+                surface.RegisterMcpByName(newName);
+            });
+        }
+
+        if (result.DeletedMcpName is { } deletedName)
+        {
+            foreach (var chat in _dataStore.Data.Chats.Where(chat => chat.ActiveMcpServerNames.Contains(deletedName)))
+            {
+                chat.ActiveMcpServerNames.RemoveAll(name =>
+                    string.Equals(name, deletedName, StringComparison.Ordinal));
+                _dataStore.MarkChatChanged(chat);
+            }
+
+            _chatSessionStore.ApplyToSurfaces(surface => surface.RemoveMcpByName(deletedName));
+        }
+
+        McpProxyRuntime.Shared.RetireUserRegistrationsExcept(_dataStore.Data.McpServers
+            .Where(server => server.IsEnabled
+                             && !string.Equals(server.ServerType, "remote", StringComparison.OrdinalIgnoreCase))
+            .Select(server => server.Id));
+
+        _chatSessionStore.ApplyToSurfaces(surface =>
+        {
+            switch (resource)
+            {
+                case RemoteProtocol.Resources.Projects:
+                    if (surface.CurrentChat is { } projectChat
+                        && affectedProjectChatIds?.Contains(projectChat.Id) == true)
+                    {
+                        surface.OnCurrentChatProjectChangedExternally();
+                    }
+                    break;
+                case RemoteProtocol.Resources.Lumis:
+                    surface.InvalidateAgentSession();
+                    break;
+                case RemoteProtocol.Resources.Mcps:
+                    surface.InvalidateMcpSession();
+                    break;
+                case RemoteProtocol.Resources.Skills:
+                case RemoteProtocol.Resources.Memories:
+                    surface.InvalidateSystemPromptSession();
+                    break;
+            }
+
+            surface.RefreshComposerCatalogs();
+        });
+
+        await _dataStore.SaveAsync();
+        _backgroundJobService.Reschedule();
+        RefreshFeatureManagementUi(preserveJobsEditor: true);
+    }
+
     private void OnComposerProjectFilterRequested(Guid? projectId)
     {
         if (projectId == SelectedProjectFilter)
@@ -569,8 +650,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void OnDataStoreChatContentChanged(Guid chatId)
     {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => OnDataStoreChatContentChanged(chatId));
+            return;
+        }
+
         _globalSearchService.InvalidateChatContent(chatId);
         LibraryVM.MarkDirty();
+        if (!_dataStore.Data.Chats.Any(chat => chat.Id == chatId))
+            RefreshChatList();
     }
 
     private void OnDataStoreChatsContentReset()
@@ -820,6 +909,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
             // every Copilot model would lose its reasoning efforts and long-context tier) so the UI
             // doesn't flag "no context window" / "no reasoning". If we later add per-model
             // capability overrides in ByokModel, they'll flow through here.
+            //
+            // MERGED, not replaced: this call describes only the BYOK tokens, so a wholesale swap
+            // erased every SDK-provided reasoning effort and context limit for the real catalog —
+            // and with no BYOK models configured it passed an empty list and wiped it outright,
+            // which is what left the composer with no reasoning-effort picker.
             surface.UpdateModelCapabilities(
                 tokens.Select(t => new ModelInfo { Id = t }).ToList(),
                 longContextModelIds: null,
@@ -1266,7 +1360,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private void DeleteChat(Chat chat)
+    private async Task DeleteChat(Chat chat)
     {
         // If the chat has a worktree, ask the user whether to clean it up. Forks share their
         // source's worktree, so only offer removal when no other chat still points at it —
@@ -1280,7 +1374,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        PerformDeleteChat(chat, removeWorktree: false);
+        await PerformDeleteChatAsync(chat);
     }
 
     /// <summary>
@@ -1310,7 +1404,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             var chat = _pendingDeleteChat;
             _pendingDeleteChat = null;
             IsWorktreeDeleteDialogOpen = false;
-            PerformDeleteChat(chat, removeWorktree: true);
+            await PerformDeleteChatAsync(chat);
 
             // Clean up worktree + branch in background
             if (chat.WorktreePath is { Length: > 0 } wt)
@@ -1323,14 +1417,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private void ConfirmDeleteWithoutWorktree()
+    private async Task ConfirmDeleteWithoutWorktree()
     {
         if (_pendingDeleteChat is not null)
         {
             var chat = _pendingDeleteChat;
             _pendingDeleteChat = null;
             IsWorktreeDeleteDialogOpen = false;
-            PerformDeleteChat(chat, removeWorktree: false);
+            await PerformDeleteChatAsync(chat);
         }
     }
 
@@ -1341,21 +1435,35 @@ public partial class MainViewModel : ObservableObject, IDisposable
         IsWorktreeDeleteDialogOpen = false;
     }
 
-    private void PerformDeleteChat(Chat chat, bool removeWorktree)
+    internal async Task<bool> DeleteChatKeepingWorktreeAsync(Chat chat)
+    {
+        if (!_dataStore.Data.Chats.Contains(chat))
+            return false;
+
+        await PerformDeleteChatAsync(chat);
+        return true;
+    }
+
+    private async Task PerformDeleteChatAsync(Chat chat)
     {
         var deletedActiveChat = ChatVM.CurrentChat?.Id == chat.Id;
 
-        if (deletedActiveChat)
-            ClearMainChatSurface();
+        _chatSessionStore.ApplyToSurfaces(surface =>
+        {
+            if (surface.CurrentChat?.Id == chat.Id)
+                surface.ClearChat();
+        });
 
         _chatSessionStore.CleanupChat(chat.Id);
+        if (deletedActiveChat)
+            ClearMainChatSurface();
         _dataStore.Data.Chats.Remove(chat);
         _dataStore.RemoveBackgroundJobsForChat(chat.Id);
         _backgroundJobService.Reschedule();
         _chatNavigationHistory.RemoveChat(chat.Id);
         _dataStore.MarkChatDeleted(chat.Id);
-        _dataStore.DeleteChatFile(chat.Id);
-        _ = _dataStore.SaveAsync();
+        await _dataStore.DeleteChatFileAsync(chat.Id);
+        await _dataStore.SaveAsync();
         RefreshChatList();
         ChatDeleted?.Invoke(chat.Id);
 

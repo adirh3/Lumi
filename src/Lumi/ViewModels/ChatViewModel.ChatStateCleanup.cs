@@ -169,12 +169,16 @@ public partial class ChatViewModel
     /// cannot overwrite the first. Pass <paramref name="existing"/> to re-defer an already-shown
     /// message; that is always the head a delivery path just dequeued, so it goes back to the front.
     /// </summary>
-    private void QueueBusySendPrompt(Guid chatId, string prompt, ChatMessage? existing = null)
+    private void QueueBusySendPrompt(
+        Guid chatId,
+        string prompt,
+        ChatMessage? existing = null,
+        string? authorOverride = null)
     {
         if (existing is null && string.IsNullOrWhiteSpace(prompt))
             return;
 
-        var message = existing ?? CreateQueuedBusySend(chatId, prompt);
+        var message = existing ?? CreateQueuedBusySend(chatId, prompt, authorOverride);
         if (message is null)
             return;
 
@@ -194,7 +198,7 @@ public partial class ChatViewModel
     /// Shows a deferred send in the transcript straight away with a "Queued…" pill, so sending while the
     /// chat is busy is never invisible even though delivery has to wait.
     /// </summary>
-    private ChatMessage? CreateQueuedBusySend(Guid chatId, string prompt)
+    private ChatMessage? CreateQueuedBusySend(Guid chatId, string prompt, string? authorOverride = null)
     {
         var chat = CurrentChat?.Id == chatId
             ? CurrentChat
@@ -206,7 +210,7 @@ public partial class ChatViewModel
         {
             Role = "user",
             Content = prompt,
-            Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
+            Author = authorOverride ?? _dataStore.Data.Settings.UserName ?? Loc.Author_You,
             Model = SelectedModel,
             AgentId = ActiveAgent?.Id,
             SdkAgentName = SelectedSdkAgentName,

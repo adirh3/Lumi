@@ -15,11 +15,13 @@ public partial class ChatViewModel
     // UI-thread only. Entries remain pending until the agent consumes the steer or the turn terminates.
     private readonly Dictionary<Guid, List<ChatMessageViewModel>> _pendingSteerConfirmations = new();
 
-    private async Task SteerActiveTurnAsync(
+    private async Task<bool> SteerActiveTurnAsync(
         Chat activeChat,
         string prompt,
         bool consumeComposerPrompt,
-        ChatMessage? queuedMessage = null)
+        ChatMessage? queuedMessage = null,
+        string? authorOverride = null,
+        IReadOnlyCollection<string>? explicitAttachmentPaths = null)
     {
         if (BlockSendForByokOnly(
                 activeChat,
@@ -27,7 +29,7 @@ public partial class ChatViewModel
                 prompt,
                 consumeComposerPrompt))
         {
-            return;
+            return false;
         }
 
         var chatId = activeChat.Id;
@@ -57,19 +59,21 @@ public partial class ChatViewModel
 
         if (hasQueuedSends || session is null || runtime is null || !CanSteerImmediately(runtime) || sessionProviderMismatch)
         {
-            QueueBusySendPrompt(chatId, prompt, queuedMessage);
+            QueueSteerPrompt(chatId, prompt, queuedMessage, authorOverride, explicitAttachmentPaths);
             if (consumeComposerPrompt)
             {
                 PromptText = "";
                 _chatDrafts.Remove(chatId);
             }
 
-            return;
+            return true;
         }
 
-        var attachments = queuedMessage is null
-            ? TakePendingAttachments()
-            : BuildUserMessageAttachments(queuedMessage.Attachments);
+        var attachments = queuedMessage is not null
+            ? BuildUserMessageAttachments(queuedMessage.Attachments)
+            : explicitAttachmentPaths is null
+                ? TakePendingAttachments()
+                : BuildUserMessageAttachments(explicitAttachmentPaths);
 
         // A deferred send is already rendered — promote that bubble instead of adding a second one. No
         // view model means the chat is off screen, so it stays queued for the drain path.
@@ -79,8 +83,8 @@ public partial class ChatViewModel
             queuedViewModel = ResolveQueuedViewModel(queuedMessage);
             if (queuedViewModel is null)
             {
-                QueueBusySendPrompt(chatId, prompt, queuedMessage);
-                return;
+                QueueSteerPrompt(chatId, prompt, queuedMessage, authorOverride, explicitAttachmentPaths);
+                return true;
             }
         }
 
@@ -88,7 +92,7 @@ public partial class ChatViewModel
         {
             Role = "user",
             Content = prompt,
-            Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
+            Author = authorOverride ?? _dataStore.Data.Settings.UserName ?? Loc.Author_You,
             ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames)
         };
 
@@ -168,11 +172,12 @@ public partial class ChatViewModel
             if (!IsCachedSessionProviderConsistentWithSelection(chatId, session!))
             {
                 RequeueMaterializedSteer(chatId, prompt, userMsg, messageViewModel);
-                return;
+                return true;
             }
 
             await session.SendAsync(sendOptions, token);
             ClearPendingExternalSkillInjections();
+            return true;
         }
         catch (Exception ex)
         {
@@ -181,7 +186,64 @@ public partial class ChatViewModel
                 messageViewModel.SteerState = MessageSteerState.Failed;
 
             Debug.WriteLine($"[Steer] Immediate send failed for chat {chatId}: {ex.Message}");
+            // The message is already persisted and visible with a Failed delivery state. Treat the
+            // command as accepted so the phone does not restore the same text into the composer and
+            // duplicate it on retry; the transcript-level status is the delivery result.
+            return true;
         }
+    }
+
+    private void QueueSteerPrompt(
+        Guid chatId,
+        string prompt,
+        ChatMessage? queuedMessage,
+        string? authorOverride,
+        IReadOnlyCollection<string>? explicitAttachmentPaths)
+    {
+        if (queuedMessage is not null || explicitAttachmentPaths is null)
+        {
+            QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride);
+            return;
+        }
+
+        // QueueBusySendPrompt intentionally snapshots the desktop composer. Present only the
+        // explicitly supplied steering attachments while it materializes the queued message, then
+        // restore the desktop draft synchronously. An explicit empty collection is how remote
+        // steering says "no attachments"; it must never consume files staged in the local composer.
+        var pendingAttachmentPaths = PendingAttachments.ToList();
+        try
+        {
+            ReplacePendingAttachments(explicitAttachmentPaths);
+            QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride);
+        }
+        finally
+        {
+            ReplacePendingAttachments(pendingAttachmentPaths);
+        }
+    }
+
+    /// <summary>
+    /// Injects a remotely-authored prompt into the currently running turn using the same immediate
+    /// steering path as the desktop composer.
+    ///
+    /// <para>The remote server previously implemented steering as Stop -> wait -> fresh send. Besides
+    /// being semantically wrong, that path could leave the original tool running to completion and
+    /// process the user's steering text only afterward. This method keeps all of the desktop path's
+    /// routing, provider-consistency, queue-ordering, attachment, and confirmation safeguards.</para>
+    /// </summary>
+    internal Task<bool> SteerExternalMessageAsync(Chat targetChat, string prompt, string author)
+    {
+        ArgumentNullException.ThrowIfNull(targetChat);
+        if (CurrentChat?.Id != targetChat.Id)
+            throw new InvalidOperationException("The target chat must be active before it can be steered.");
+
+        return SteerActiveTurnAsync(
+            targetChat,
+            prompt,
+            consumeComposerPrompt: false,
+            queuedMessage: null,
+            authorOverride: author,
+            explicitAttachmentPaths: []);
     }
 
     private void RequeueMaterializedSteer(

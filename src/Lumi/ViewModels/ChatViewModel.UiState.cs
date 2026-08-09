@@ -186,6 +186,8 @@ public partial class ChatViewModel
     private Dictionary<string, long> _modelLongContextTokenLimits = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _modelsWithLongContext = new(StringComparer.OrdinalIgnoreCase);
 
+    public int ModelCatalogVersion { get; private set; }
+
     /// <summary>
     /// Updates the model capabilities cache from SDK ModelInfo list.
     /// Called by MainViewModel after fetching models from the SDK.
@@ -230,12 +232,28 @@ public partial class ChatViewModel
             replaceExisting: !merge);
         ApplyContextWindowLimits(contextWindowLimits, contextTokenLimits, longContextTokenLimits);
 
+        if (merge)
+        {
+            // Existing entries win only where the incoming set says nothing: a caller describing a
+            // model is still authoritative for that model.
+            foreach (var (key, value) in _modelReasoningEfforts)
+                reasoningEfforts.TryAdd(key, value);
+            foreach (var (key, value) in _modelDefaultEfforts)
+                defaultEfforts.TryAdd(key, value);
+            foreach (var (key, value) in _modelContextTokenLimits)
+                contextTokenLimits.TryAdd(key, value);
+            foreach (var (key, value) in _modelLongContextTokenLimits)
+                longContextTokenLimits.TryAdd(key, value);
+        }
+
         _modelReasoningEfforts = reasoningEfforts;
         _modelDefaultEfforts = defaultEfforts;
         _modelContextTokenLimits = contextTokenLimits;
         _modelLongContextTokenLimits = longContextTokenLimits;
         if (longContextModelIds is not null || !merge)
             _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
+        ModelCatalogVersion++;
+        OnPropertyChanged(nameof(ModelCatalogVersion));
 
         UpdateQualityLevels(SelectedModel);
         UpdateContextWindowTiers(SelectedModel);
@@ -315,6 +333,33 @@ public partial class ChatViewModel
         QualityLevels = ModelSelectionHelper.GetQualityLevels(modelId, _modelReasoningEfforts);
         SyncSelectedQualityFromState(modelId);
     }
+
+    /// <summary>
+    /// The reasoning efforts a given model supports, independent of the open chat.
+    ///
+    /// <para>Exposed for the remote projector: the phone defers chat creation until the first
+    /// message, so it needs to know a model's efforts before any chat exists to read them from.</para>
+    /// </summary>
+    public string[]? GetQualityLevelsFor(string? modelId) =>
+        ModelSelectionHelper.GetQualityLevels(modelId, _modelReasoningEfforts);
+
+    public string[]? GetContextWindowTiersFor(string? modelId) =>
+        ModelSelectionHelper.GetContextWindowTiers(modelId, _modelsWithLongContext);
+
+    /// <summary>
+    /// Reconciles a reasoning effort against what a model actually supports, returning null when it
+    /// supports none. Exposed so callers that build a chat outside the normal open/send flow — the
+    /// remote command router, which creates chats for the phone — cannot hand the SDK an effort the
+    /// chosen model rejects. Copying <c>Settings.ReasoningEffort</c> verbatim onto a chat whose
+    /// model is "auto" made every first message from the phone fail with
+    /// "Reasoning effort is not supported when using the auto model".
+    /// </summary>
+    public string? NormalizeReasoningEffortFor(string? modelId, string? effort) =>
+        ModelSelectionHelper.NormalizeEffort(effort, modelId, _modelReasoningEfforts, _modelDefaultEfforts);
+
+    /// <summary>Context-window tier reconciled against what the model supports (null when unsupported).</summary>
+    public string? NormalizeContextWindowTierFor(string? modelId, string? tier) =>
+        ModelSelectionHelper.NormalizeContextWindowTier(tier, modelId, _modelsWithLongContext);
 
     private void UpdateContextWindowTiers(string? modelId)
     {
@@ -640,7 +685,8 @@ public partial class ChatViewModel
             .Select(a => new StrataComposerChip(
                 a.Name,
                 a.IconGlyph,
-                SecondaryText: BuildChipSearchText(a.Description, a.SystemPrompt)))
+                SecondaryText: BuildChipSearchText(a.Description, a.SystemPrompt),
+                Value: a.Id.ToString()))
             .ToList();
 
         // Start with Lumi skills
@@ -709,7 +755,8 @@ public partial class ChatViewModel
                 .Select(p => new StrataComposerChip(
                     p.Name,
                     "📁",
-                    SecondaryText: BuildProjectInlineCompletionSecondaryText(p))));
+                    SecondaryText: BuildProjectInlineCompletionSecondaryText(p),
+                    Value: p.Id.ToString())));
 
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();

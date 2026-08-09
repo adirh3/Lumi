@@ -1,0 +1,87 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    ══ Lumi mobile — LIGHT surfaces ══════════════════════════════════════════════════════════════
+
+    The mirror of the dark set, and the reason light mode was broken: these colours used to live in
+    the density file, which is merged variant-agnostically at the application level. Application
+    resources outrank a theme's ThemeDictionaries, so the dark values won in BOTH variants and
+    switching to light changed nothing at all.
+
+    ELEVATION inverts on light. Tinting a surface darker to raise it reads as a hole, not a lift, so
+    height comes from SHADOW first, with an almost-white surface and a hairline border. Levels 0 and
+    1 are close on purpose: a phone in daylight shows banding between large light greys much more
+    readily than between dark ones.
+  -->
+
+  <!-- Level 0 — the canvas. A hint off white so raised white surfaces have something to lift from. -->
+  <Color x:Key="Color.Background">#F7F7F9</Color>
+  <Color x:Key="Color.Surface0">#F7F7F9</Color>
+
+  <!-- Level 1 — drawer, cards. -->
+  <Color x:Key="Color.Surface1">#FCFCFE</Color>
+
+  <!-- Level 2 — composer, raised controls, chips. -->
+  <Color x:Key="Color.Surface2">#FFFFFF</Color>
+
+  <!-- Level 3 — sheets and popups. -->
+  <Color x:Key="Color.SurfaceOverlay">#FFFFFF</Color>
+
+  <Color x:Key="Color.ControlDefault">#FFFFFF</Color>
+  <Color x:Key="Color.ControlHover">#F2F2F5</Color>
+  <Color x:Key="Color.ControlPressed">#E7E7EC</Color>
+  <Color x:Key="Color.ControlDisabled">#F0F0F3</Color>
+
+  <Color x:Key="Color.BorderSubtle">#E9E9EE</Color>
+  <Color x:Key="Color.BorderDefault">#DCDCE3</Color>
+  <Color x:Key="Color.BorderStrong">#BFBFC9</Color>
+
+  <!-- Not pure black: full-contrast body text on white is harsh at phone reading distance. -->
+  <Color x:Key="Color.TextPrimary">#16161A</Color>
+  <Color x:Key="Color.TextSecondary">#5A5A66</Color>
+  <Color x:Key="Color.TextTertiary">#8A8A96</Color>
+
+  <Color x:Key="Color.SubtleHover">#0D000000</Color>
+  <Color x:Key="Color.SubtlePressed">#1A000000</Color>
+
+  <Color x:Key="Color.OverlayScrim">#59000000</Color>
+
+  <!-- Softer and wider than the dark set: on white, a shadow IS the elevation cue. -->
+  <BoxShadows x:Key="Shadow.Level1">0 1 3 0 #14000000</BoxShadows>
+  <BoxShadows x:Key="Shadow.Level2">0 2 12 0 #1F000000</BoxShadows>
+  <BoxShadows x:Key="Shadow.Level3">0 -2 28 0 #24000000</BoxShadows>
+
+  <!--
+    ══ Brushes, not just colours ═══════════════════════════════════════════════════════════════
+
+    Strata's brushes are declared once as `<SolidColorBrush Color="{DynamicResource Color.X}" />`.
+    Overriding only `Color.X` here left the switch HALF applied: cards picked up the new palette
+    while the page background and the group headers stayed on the old one, because the brush object
+    resolves its inner DynamicResource against the dictionary that declared it — not against this
+    one — and whether that lands before or after the variant swap is not something to rely on.
+
+    Declaring the brushes outright removes the indirection: `Brush.X` maps straight to a value in
+    the active variant, so every surface flips together.
+  -->
+  <SolidColorBrush x:Key="Brush.Background" Color="{StaticResource Color.Background}" />
+  <SolidColorBrush x:Key="Brush.Surface0" Color="{StaticResource Color.Surface0}" />
+  <SolidColorBrush x:Key="Brush.Surface1" Color="{StaticResource Color.Surface1}" />
+  <SolidColorBrush x:Key="Brush.Surface1Translucent" Color="{StaticResource Color.Surface1}" Opacity="0.78" />
+  <SolidColorBrush x:Key="Brush.Surface1Glass" Color="{StaticResource Color.Surface1}" Opacity="0.52" />
+  <SolidColorBrush x:Key="Brush.Surface2" Color="{StaticResource Color.Surface2}" />
+  <SolidColorBrush x:Key="Brush.SurfaceOverlay" Color="{StaticResource Color.SurfaceOverlay}" />
+  <SolidColorBrush x:Key="Brush.TextPrimary" Color="{StaticResource Color.TextPrimary}" />
+  <SolidColorBrush x:Key="Brush.TextSecondary" Color="{StaticResource Color.TextSecondary}" />
+  <SolidColorBrush x:Key="Brush.TextTertiary" Color="{StaticResource Color.TextTertiary}" />
+  <SolidColorBrush x:Key="Brush.BorderDefault" Color="{StaticResource Color.BorderDefault}" />
+  <SolidColorBrush x:Key="Brush.BorderSubtle" Color="{StaticResource Color.BorderSubtle}" />
+  <SolidColorBrush x:Key="Brush.BorderStrong" Color="{StaticResource Color.BorderStrong}" />
+  <SolidColorBrush x:Key="Brush.ControlDefault" Color="{StaticResource Color.ControlDefault}" />
+  <SolidColorBrush x:Key="Brush.ControlHover" Color="{StaticResource Color.ControlHover}" />
+  <SolidColorBrush x:Key="Brush.ControlPressed" Color="{StaticResource Color.ControlPressed}" />
+  <SolidColorBrush x:Key="Brush.ControlDisabled" Color="{StaticResource Color.ControlDisabled}" />
+  <SolidColorBrush x:Key="Brush.SubtleHover" Color="{StaticResource Color.SubtleHover}" />
+  <SolidColorBrush x:Key="Brush.SubtlePressed" Color="{StaticResource Color.SubtlePressed}" />
+  <SolidColorBrush x:Key="Brush.OverlayScrim" Color="{StaticResource Color.OverlayScrim}" />
+</ResourceDictionary>

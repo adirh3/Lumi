@@ -1,5 +1,5 @@
-# Release pipeline — builds, signs and publishes Velopack installers + auto-update
-# feeds for Windows, Linux and macOS from a single workflow_dispatch run.
+# Release pipeline — builds, signs and publishes desktop Velopack installers plus
+# a production-signed Android APK from a single workflow_dispatch run.
 #
 # Auto-update: Velopack's GithubSource uses the default win/linux channels on those
 # platforms, while Lumi's UpdateService explicitly selects osx-arm64 or osx-x64 on macOS.
@@ -11,15 +11,13 @@
 #   linux       Linux x64                      Lumi.AppImage
 #   osx-arm64   macOS Apple Silicon            Lumi.pkg + Lumi.app (Portable zip)
 #   osx-x64     macOS Intel                    Lumi.pkg + Lumi.app (Portable zip)
+#   android     Android arm64                  Lumi-<version>-android-arm64.apk
 #
-# Orchestration / "don't break Windows": the Windows job creates AND publishes the GitHub
-# release itself (unchanged from before, signed via Azure Trusted Signing). The Linux and
-# macOS jobs run AFTER it (needs: release-windows) and MERGE their assets onto that same
-# release with `vpk upload --merge`. This keeps the established, signed Windows release path
-# completely independent — a Linux/macOS runner outage can never block or alter what Windows
-# users receive — while still producing one multi-platform GitHub release. Sequencing via
-# `needs:` also avoids Velopack's concurrent create-release race: Windows creates the release,
-# every other platform only appends its own channel feed.
+# Orchestration: Android is built, signed and verified before Windows publishes anything, so a
+# broken/mis-signed APK can never leave a partial desktop-only production release. Windows then
+# creates the GitHub release via Velopack. Linux and macOS run after Windows and merge their
+# assets onto that release; publish-android attaches the already-verified workflow artifact.
+# Sequencing also avoids concurrent create-release races: only Windows creates the release.
 #
 # vpk CLI is pinned to 0.0.1298 to exactly match the Velopack library referenced by the app
 # (src/Lumi/Lumi.csproj). Velopack recommends matching CLI and library versions so the
@@ -40,6 +38,13 @@
 #   APPLE_ID                     Apple ID email used for notarization
 #   APPLE_APP_PASSWORD           app-specific password for that Apple ID
 #   APPLE_TEAM_ID                Apple Developer Team ID
+#
+# Android release signing is REQUIRED for non-dry runs:
+#   ANDROID_KEYSTORE_BASE64       base64 of the production .p12/.jks keystore
+#   ANDROID_SIGNING_STORE_PASS    keystore password
+#   ANDROID_SIGNING_KEY_ALIAS     signing alias
+#   ANDROID_SIGNING_KEY_PASS      key password
+#   ANDROID_SIGNING_CERT_SHA256   expected signer SHA-256, lowercase hex without colons
 
 name: Release
 
@@ -61,9 +66,44 @@ permissions:
   contents: write
 
 jobs:
+  validate_release_inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+      android_version_code: ${{ steps.validate.outputs.android_version_code }}
+    steps:
+      - name: Validate release inputs
+        id: validate
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$REQUESTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release version must be numeric major.minor.patch."
+            exit 1
+          fi
+          if [[ "$DRY_RUN" != "true" && "$RELEASE_REF" != "refs/heads/main" ]]; then
+            echo "::error::Production releases must be dispatched from main."
+            exit 1
+          fi
+          IFS='.' read -r major minor patch <<< "$REQUESTED_VERSION"
+          android_code=$((10#$major * 1000000 + 10#$minor * 1000 + 10#$patch))
+          if (( android_code > 2147483647 )); then
+            echo "::error::Derived Android versionCode exceeds Int32."
+            exit 1
+          fi
+          echo "version=$REQUESTED_VERSION" >> "$GITHUB_OUTPUT"
+          echo "android_version_code=$android_code" >> "$GITHUB_OUTPUT"
+
   # Windows is the authoritative job: it creates and publishes the GitHub release.
   release-windows:
+    needs: [validate_release_inputs, build-android]
     runs-on: windows-latest
+    env:
+      RELEASE_VERSION: ${{ needs.validate_release_inputs.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -90,7 +130,7 @@ jobs:
           -c Release
           -r win-x64
           -o publish
-          /p:Version=${{ inputs.version }}
+          /p:Version=$env:RELEASE_VERSION
 
       - name: Azure login
         if: ${{ inputs.dry_run == false }}
@@ -130,7 +170,7 @@ jobs:
         run: >
           vpk pack
           -u Lumi
-          -v ${{ inputs.version }}
+          -v $env:RELEASE_VERSION
           -p publish
           --mainExe Lumi.exe
           --icon src/Lumi/Assets/lumi-icon.ico
@@ -154,25 +194,235 @@ jobs:
           --repoUrl https://github.com/${{ github.repository }}
           --token ${{ secrets.GITHUB_TOKEN }}
           --publish
-          --releaseName "Lumi v${{ inputs.version }}"
-          --tag v${{ inputs.version }}
+          --releaseName "Lumi v$env:RELEASE_VERSION"
+          --tag "v$env:RELEASE_VERSION"
           --channel win
 
       - name: Upload dry-run Windows packages
         if: ${{ inputs.dry_run }}
         uses: actions/upload-artifact@v4
         with:
-          name: release-dry-run-win-${{ inputs.version }}
+          name: release-dry-run-win-${{ needs.validate_release_inputs.outputs.version }}
           path: Releases
           if-no-files-found: error
           retention-days: 3
+
+  # Android: production-signed arm64 APK, attached to the GitHub release created by Windows.
+  # Dry runs use a disposable keystore so the full packaging path stays testable without secrets.
+  build-android:
+    needs: validate_release_inputs
+    runs-on: windows-latest
+    timeout-minutes: 45
+    environment: ${{ inputs.dry_run && 'android-dry-run' || 'android-production' }}
+    env:
+      RELEASE_VERSION: ${{ needs.validate_release_inputs.outputs.version }}
+      ANDROID_VERSION_CODE: ${{ needs.validate_release_inputs.outputs.android_version_code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET 11
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android workload
+        run: dotnet workload install android
+
+      - name: Install Android SDK dependencies
+        shell: pwsh
+        run: >
+          dotnet build src/Lumi.Mobile.Android/Lumi.Mobile.Android.csproj
+          -t:InstallAndroidDependencies
+          -f net11.0-android
+          -p:AndroidSdkDirectory="$env:ANDROID_HOME"
+          -p:JavaSdkDirectory="$env:JAVA_HOME"
+          -p:AcceptAndroidSDKLicenses=True
+
+      - name: Publish Android APK with disposable dry-run key
+        if: ${{ inputs.dry_run }}
+        shell: pwsh
+        run: |
+          $keyStore = Join-Path $env:RUNNER_TEMP "lumi-android-dry-run.p12"
+          $password = "lumi-dry-run-only"
+          $alias = "lumi-dry-run"
+          & "$env:JAVA_HOME\bin\keytool.exe" -genkeypair -noprompt `
+            -keystore $keyStore -storetype PKCS12 -storepass $password `
+            -alias $alias -keypass $password -keyalg RSA -keysize 3072 `
+            -validity 2 -dname "CN=Lumi Dry Run"
+          dotnet publish src/Lumi.Mobile.Android/Lumi.Mobile.Android.csproj `
+            -c Release -f net11.0-android -r android-arm64 `
+            -p:Version="$env:RELEASE_VERSION" `
+            -p:ApplicationDisplayVersion="$env:RELEASE_VERSION" `
+            -p:ApplicationVersion="$env:ANDROID_VERSION_CODE" `
+            -p:AndroidSdkDirectory="$env:ANDROID_HOME" `
+            -p:JavaSdkDirectory="$env:JAVA_HOME" `
+            -p:LumiAndroidSigningKeyStore="$keyStore" `
+            -p:LumiAndroidSigningStorePass="$password" `
+            -p:LumiAndroidSigningKeyAlias="$alias" `
+            -p:LumiAndroidSigningKeyPass="$password"
+          Set-Content (Join-Path $env:RUNNER_TEMP "android-expected-fingerprint.txt") ""
+
+      - name: Publish Android APK with production key
+        if: ${{ inputs.dry_run == false }}
+        shell: pwsh
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_SIGNING_STORE_PASS: ${{ secrets.ANDROID_SIGNING_STORE_PASS }}
+          ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          ANDROID_SIGNING_KEY_PASS: ${{ secrets.ANDROID_SIGNING_KEY_PASS }}
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+        run: |
+          $required = @{
+            ANDROID_KEYSTORE_BASE64 = $env:ANDROID_KEYSTORE_BASE64
+            ANDROID_SIGNING_STORE_PASS = $env:ANDROID_SIGNING_STORE_PASS
+            ANDROID_SIGNING_KEY_ALIAS = $env:ANDROID_SIGNING_KEY_ALIAS
+            ANDROID_SIGNING_KEY_PASS = $env:ANDROID_SIGNING_KEY_PASS
+            ANDROID_SIGNING_CERT_SHA256 = $env:ANDROID_SIGNING_CERT_SHA256
+          }
+          $missing = @($required.GetEnumerator() |
+            Where-Object { [string]::IsNullOrWhiteSpace($_.Value) } |
+            ForEach-Object Key)
+          if ($missing.Count -gt 0) {
+            throw "Missing required Android release secrets: $($missing -join ', ')"
+          }
+
+          $keyStore = Join-Path $env:RUNNER_TEMP "lumi-android-release.p12"
+          [IO.File]::WriteAllBytes(
+            $keyStore,
+            [Convert]::FromBase64String($env:ANDROID_KEYSTORE_BASE64))
+          $expectedFingerprint = $env:ANDROID_SIGNING_CERT_SHA256.Replace(':', '').ToLowerInvariant()
+          Set-Content (Join-Path $env:RUNNER_TEMP "android-expected-fingerprint.txt") $expectedFingerprint
+
+          dotnet publish src/Lumi.Mobile.Android/Lumi.Mobile.Android.csproj `
+            -c Release -f net11.0-android -r android-arm64 `
+            -p:Version="$env:RELEASE_VERSION" `
+            -p:ApplicationDisplayVersion="$env:RELEASE_VERSION" `
+            -p:ApplicationVersion="$env:ANDROID_VERSION_CODE" `
+            -p:AndroidSdkDirectory="$env:ANDROID_HOME" `
+            -p:JavaSdkDirectory="$env:JAVA_HOME" `
+            -p:LumiAndroidSigningKeyStore="$keyStore" `
+            -p:LumiAndroidSigningStorePass="$env:ANDROID_SIGNING_STORE_PASS" `
+            -p:LumiAndroidSigningKeyAlias="$env:ANDROID_SIGNING_KEY_ALIAS" `
+            -p:LumiAndroidSigningKeyPass="$env:ANDROID_SIGNING_KEY_PASS"
+
+      - name: Verify and stage Android APK
+        shell: pwsh
+        run: |
+          $apk = Get-ChildItem src/Lumi.Mobile.Android/bin/Release -Recurse -Filter "*-Signed.apk" |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $apk) { throw "Signed Android APK was not produced." }
+
+          $buildTools = Get-ChildItem "$env:ANDROID_HOME\build-tools" -Directory |
+            Sort-Object { [version]$_.Name } -Descending |
+            Select-Object -First 1
+          $apksigner = Join-Path $buildTools.FullName "apksigner.bat"
+          $aapt = Join-Path $buildTools.FullName "aapt.exe"
+          $verification = & $apksigner verify --verbose --print-certs $apk.FullName
+          $verificationText = $verification -join "`n"
+          if ($LASTEXITCODE -ne 0 -or
+              $verificationText -notmatch 'Verified using v2 scheme .*: true' -or
+              $verificationText -notmatch 'Verified using v3 scheme .*: true') {
+            throw "Android APK signature verification failed."
+          }
+
+          $fingerprintLine = $verification | Select-String 'Signer #1 certificate SHA-256 digest:' | Select-Object -First 1
+          $fingerprint = ($fingerprintLine.Line -split ': ', 2)[1].Replace(':', '').Trim().ToLowerInvariant()
+          $expectedFingerprint = (Get-Content (Join-Path $env:RUNNER_TEMP "android-expected-fingerprint.txt") -Raw).Trim()
+          if ($expectedFingerprint -and $fingerprint -ne $expectedFingerprint) {
+            throw "Android signer mismatch. Expected $expectedFingerprint, got $fingerprint."
+          }
+
+          $badging = & $aapt dump badging $apk.FullName
+          $badgingText = $badging -join "`n"
+          if ($badgingText -notmatch "versionName='$env:RELEASE_VERSION'" -or
+              $badgingText -notmatch "versionCode='$env:ANDROID_VERSION_CODE'" -or
+              $badgingText -notmatch "native-code: 'arm64-v8a'") {
+            throw "Android APK metadata verification failed."
+          }
+
+          New-Item -ItemType Directory -Force Releases | Out-Null
+          $target = "Releases/Lumi-$env:RELEASE_VERSION-android-arm64.apk"
+          Copy-Item $apk.FullName $target -Force
+          @(
+            "SHA256=$((Get-FileHash $target -Algorithm SHA256).Hash)"
+            "SIGNER_SHA256=$fingerprint"
+            "VERSION=$env:RELEASE_VERSION"
+            "VERSION_CODE=$env:ANDROID_VERSION_CODE"
+            "ABI=arm64-v8a"
+          ) | Set-Content "Releases/Lumi-$env:RELEASE_VERSION-android-arm64.txt"
+
+      - name: Upload Android workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-android-${{ needs.validate_release_inputs.outputs.version }}
+          path: |
+            Releases/Lumi-${{ needs.validate_release_inputs.outputs.version }}-android-arm64.apk
+            Releases/Lumi-${{ needs.validate_release_inputs.outputs.version }}-android-arm64.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-android:
+    if: ${{ inputs.dry_run == false }}
+    needs: [validate_release_inputs, build-android, release-windows]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ needs.validate_release_inputs.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download verified Android artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-android-${{ needs.validate_release_inputs.outputs.version }}
+          path: Releases
+
+      - name: Attach Android APK to GitHub release
+        run: |
+          gh release upload "v$RELEASE_VERSION" \
+            "Releases/Lumi-$RELEASE_VERSION-android-arm64.apk" \
+            "Releases/Lumi-$RELEASE_VERSION-android-arm64.txt" \
+            --clobber
+
+      - name: Add Android installation note
+        shell: pwsh
+        run: |
+          $tag = "v$env:RELEASE_VERSION"
+          $body = gh release view $tag --json body --jq .body
+          $bodyText = $body -join "`n"
+          if ($bodyText -notmatch '## Android') {
+            $bodyText += @"
+
+          ## Android
+          Download `Lumi-$env:RELEASE_VERSION-android-arm64.apk`.
+
+          Preview builds signed with the legacy Android Debug certificate cannot update to the
+          production-signed APK in place. In the preview app, revoke the paired phone first, then
+          uninstall it, install this APK, and pair again. Future production-signed releases update normally.
+          "@
+            $notes = Join-Path $env:RUNNER_TEMP "release-notes.md"
+          Set-Content $notes $bodyText
+            gh release edit $tag --notes-file $notes
+          }
 
   # Linux: self-contained AppImage (channel "linux"), merged onto the Windows release.
   # A portable tarball is also published for systems without FUSE 2 (including stock
   # Ubuntu 24.04), while the AppImage remains the auto-updating package.
   release-linux:
-    needs: release-windows
+    needs: [validate_release_inputs, release-windows]
     runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ needs.validate_release_inputs.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -201,7 +451,7 @@ jobs:
           -c Release
           -r linux-x64
           -o publish-linux
-          /p:Version=${{ inputs.version }}
+          /p:Version=$RELEASE_VERSION
 
       - name: Download previous release (for delta generation)
         run: >
@@ -215,7 +465,7 @@ jobs:
         run: >
           vpk pack
           -u Lumi
-          -v ${{ inputs.version }}
+          -v $RELEASE_VERSION
           -p publish-linux
           -o Releases
           -e Lumi
@@ -225,7 +475,7 @@ jobs:
       - name: Create FUSE-independent portable archive
         run: >
           tar -C publish-linux
-          -czf "Releases/Lumi-${{ inputs.version }}-linux-x64-portable.tar.gz"
+          -czf "Releases/Lumi-$RELEASE_VERSION-linux-x64-portable.tar.gz"
           .
 
       - name: Merge onto GitHub release
@@ -234,7 +484,7 @@ jobs:
           vpk upload github
           --repoUrl https://github.com/${{ github.repository }}
           --token ${{ secrets.GITHUB_TOKEN }}
-          --tag v${{ inputs.version }}
+          --tag "v$RELEASE_VERSION"
           --channel linux
           --merge
 
@@ -243,15 +493,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >
-          gh release upload "v${{ inputs.version }}"
-          "Releases/Lumi-${{ inputs.version }}-linux-x64-portable.tar.gz"
+          gh release upload "v$RELEASE_VERSION"
+          "Releases/Lumi-$RELEASE_VERSION-linux-x64-portable.tar.gz"
           --clobber
 
       - name: Upload dry-run Linux packages
         if: ${{ inputs.dry_run }}
         uses: actions/upload-artifact@v4
         with:
-          name: release-dry-run-linux-${{ inputs.version }}
+          name: release-dry-run-linux-${{ needs.validate_release_inputs.outputs.version }}
           path: Releases
           if-no-files-found: error
           retention-days: 3
@@ -261,7 +511,7 @@ jobs:
   # channel. macOS packaging MUST run on macOS (codesign/xcrun/productbuild are required),
   # so each arch builds on its native runner.
   release-macos:
-    needs: release-windows
+    needs: [validate_release_inputs, release-windows]
     strategy:
       fail-fast: false
       matrix:
@@ -271,6 +521,8 @@ jobs:
           - rid: osx-x64
             runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
+    env:
+      RELEASE_VERSION: ${{ needs.validate_release_inputs.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -366,7 +618,7 @@ jobs:
           -c Release
           -r ${{ matrix.rid }}
           -o publish-${{ matrix.rid }}
-          /p:Version=${{ inputs.version }}
+          /p:Version=$RELEASE_VERSION
 
       - name: Download previous release (for delta generation)
         run: >
@@ -391,7 +643,7 @@ jobs:
           fi
           vpk pack \
             -u Lumi \
-            -v ${{ inputs.version }} \
+            -v "$RELEASE_VERSION" \
             -p "publish-${{ matrix.rid }}" \
             -o Releases \
             -e Lumi \
@@ -406,7 +658,7 @@ jobs:
           vpk upload github
           --repoUrl https://github.com/${{ github.repository }}
           --token ${{ secrets.GITHUB_TOKEN }}
-          --tag v${{ inputs.version }}
+          --tag "v$RELEASE_VERSION"
           --channel ${{ matrix.rid }}
           --merge
 
@@ -414,7 +666,7 @@ jobs:
         if: ${{ inputs.dry_run }}
         uses: actions/upload-artifact@v4
         with:
-          name: release-dry-run-${{ matrix.rid }}-${{ inputs.version }}
+          name: release-dry-run-${{ matrix.rid }}-${{ needs.validate_release_inputs.outputs.version }}
           path: Releases
           if-no-files-found: error
           retention-days: 3
