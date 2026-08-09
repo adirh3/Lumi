@@ -57,7 +57,7 @@ public partial class ChatViewModel
         }
 
         _runtimeStates.Clear();
-        _pendingQuestions.Clear();
+        ClearPendingQuestionTracking();
         _queuedBusySendPrompts.Clear();
         _inProgressMessages.Clear();
         _voiceService.Dispose();
@@ -102,8 +102,9 @@ public partial class ChatViewModel
     }
 
     private bool IsChatRuntimeActive(Guid chatId)
-        => _runtimeStates.TryGetValue(chatId, out var runtime)
-           && runtime.HasActiveWork;
+        => (_runtimeStates.TryGetValue(chatId, out var runtime)
+            && runtime.HasActiveWork)
+           || HasPendingQuestion(chatId);
 
     internal bool OwnsLiveChat(Guid chatId)
     {
@@ -113,12 +114,7 @@ public partial class ChatViewModel
             || (_queuedBusySendPrompts.TryGetValue(chatId, out var queued) && queued.Count > 0))
             return true;
 
-        var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
-        return chat?.Messages.Any(message =>
-            message.ToolName == "ask_question"
-            && message.ToolStatus == "InProgress"
-            && message.QuestionId is { Length: > 0 } questionId
-            && _pendingQuestions.ContainsKey(questionId)) == true;
+        return HasPendingQuestion(chatId);
     }
 
     // A browser session outlives its chat's runtime state (it persists across chat switches), so a
@@ -149,12 +145,7 @@ public partial class ChatViewModel
                 return true;
         }
 
-        return _dataStore.Data.Chats.Any(chat =>
-            chat.Messages.Any(message =>
-                message.ToolName == "ask_question"
-                && message.ToolStatus == "InProgress"
-                && message.QuestionId is { Length: > 0 } questionId
-                && _pendingQuestions.ContainsKey(questionId)));
+        return _dataStore.Data.Chats.Any(chat => HasPendingQuestion(chat.Id));
     }
 
     /// <summary>
@@ -491,20 +482,31 @@ public partial class ChatViewModel
     /// </summary>
     private bool CancelPendingQuestions(Chat chat)
     {
-        var pendingQuestionIds = chat.Messages
-            .Where(static m => !string.IsNullOrWhiteSpace(m.QuestionId))
-            .Select(static m => m.QuestionId!)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-
-        foreach (var questionId in pendingQuestionIds)
+        List<TaskCompletionSource<string>> pendingQuestions;
+        lock (_pendingQuestionsSync)
         {
-            if (_pendingQuestions.TryGetValue(questionId, out var tcs))
+            var pendingQuestionIds = chat.Messages
+                .Where(static message => !string.IsNullOrWhiteSpace(message.QuestionId))
+                .Select(static message => message.QuestionId!)
+                .Concat(_pendingQuestionChatIds
+                    .Where(pair => pair.Value == chat.Id)
+                    .Select(static pair => pair.Key))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            pendingQuestions = [];
+            foreach (var questionId in pendingQuestionIds)
             {
-                tcs.TrySetCanceled();
+                if (_pendingQuestions.TryGetValue(questionId, out var completion))
+                    pendingQuestions.Add(completion);
+
                 _pendingQuestions.Remove(questionId);
+                _pendingQuestionChatIds.Remove(questionId);
             }
         }
+
+        foreach (var pendingQuestion in pendingQuestions)
+            pendingQuestion.TrySetCanceled();
 
         // Mark unanswered ask_question tool messages as Failed so rebuild renders them as expired
         var markedExpired = false;

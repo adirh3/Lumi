@@ -570,74 +570,30 @@ public partial class ChatViewModel
                 var multiSelect = allowMultiSelect ?? false;
                 var questionId = Guid.NewGuid().ToString("N");
                 var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-                _pendingQuestions[questionId] = tcs;
+                TrackPendingQuestion(chatId, questionId, tcs);
                 IList<string> optionsList = options ?? Array.Empty<string>();
                 var optionsJson = System.Text.Json.JsonSerializer.Serialize(optionsList.ToList(), Lumi.Models.AppDataJsonContext.Default.ListString);
 
-                Dispatcher.UIThread.Post(() =>
-                {
-                    NotifyQuestionAsked(chatId, question);
-
-                    if (CurrentChat?.Id == chatId)
-                    {
-                        _transcriptBuilder.AddQuestionToTranscript(questionId, question, optionsList, freeText, multiSelect);
-                        QuestionAsked?.Invoke(questionId, question, optionsJson, freeText);
-                        ScrollToEndRequested?.Invoke();
-                    }
-                });
-
-                // Store questionId and question data on the tool message so it can be recovered during rebuild.
-                // If no matching tool message exists, create one to guarantee rebuild works.
-                Dispatcher.UIThread.Post(() =>
-                {
-                    var chat = _dataStore.Data.Chats.Find(c => c.Id == chatId);
-                    if (chat is not null)
-                    {
-                        var toolMsg = chat.Messages.LastOrDefault(m =>
-                            m.ToolName == "ask_question" && m.ToolStatus == "InProgress" && m.QuestionId is null);
-                        if (toolMsg is null)
-                        {
-                            toolMsg = new Models.ChatMessage
-                            {
-                                Role = "tool",
-                                ToolName = "ask_question",
-                                ToolStatus = "InProgress",
-                                Content = "",
-                            };
-                            toolMsg.MarkToolStarted(DateTimeOffset.UtcNow);
-                            chat.Messages.Add(toolMsg);
-                        }
-                        toolMsg.QuestionId = questionId;
-                        toolMsg.QuestionText = question;
-                        toolMsg.QuestionOptions = optionsJson;
-                        toolMsg.QuestionAllowFreeText = freeText;
-                        toolMsg.QuestionAllowMultiSelect = multiSelect;
-                    }
-                });
-
                 try
                 {
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                        PresentPendingQuestion(
+                            chatId,
+                            questionId,
+                            question,
+                            optionsList,
+                            optionsJson,
+                            freeText,
+                            multiSelect));
+
                     var answer = await tcs.Task;
-
-                    // Persist the answer on the tool message so it survives reload
-                    var resultText = $"User answered: {answer}";
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                        var chat = _dataStore.Data.Chats.Find(c => c.Id == chatId);
-                        if (chat is not null)
-                        {
-                            var toolMsg = chat.Messages.LastOrDefault(m =>
-                                m.ToolName == "ask_question" && m.QuestionId == questionId);
-                            if (toolMsg is not null)
-                                toolMsg.ToolOutput = resultText;
-                        }
-                    });
-
-                    return resultText;
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                        PersistQuestionAnswer(chatId, questionId, answer));
+                    return $"User answered: {answer}";
                 }
                 finally
                 {
-                    _pendingQuestions.Remove(questionId);
+                    RemovePendingQuestion(questionId);
                 }
             },
             "ask_question",
@@ -648,8 +604,70 @@ public partial class ChatViewModel
     /// <summary>Called by the View when the user selects an answer on a question card.</summary>
     public void SubmitQuestionAnswer(string questionId, string answer)
     {
-        if (_pendingQuestions.TryGetValue(questionId, out var tcs))
-            tcs.TrySetResult(answer);
+        TryCompletePendingQuestion(questionId, answer);
+    }
+
+    private void PresentPendingQuestion(
+        Guid chatId,
+        string questionId,
+        string question,
+        IList<string> optionsList,
+        string optionsJson,
+        bool allowFreeText,
+        bool allowMultiSelect)
+    {
+        if (!IsPendingQuestion(questionId))
+            return;
+
+        var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
+        if (chat is null)
+            return;
+
+        var toolMessage = chat.Messages.LastOrDefault(message =>
+            message.ToolName == "ask_question"
+            && message.ToolStatus == "InProgress"
+            && message.QuestionId is null);
+        if (toolMessage is null)
+        {
+            toolMessage = new Models.ChatMessage
+            {
+                Role = "tool",
+                ToolName = "ask_question",
+                ToolStatus = "InProgress",
+                Content = "",
+            };
+            toolMessage.MarkToolStarted(DateTimeOffset.UtcNow);
+            chat.Messages.Add(toolMessage);
+        }
+
+        toolMessage.QuestionId = questionId;
+        toolMessage.QuestionText = question;
+        toolMessage.QuestionOptions = optionsJson;
+        toolMessage.QuestionAllowFreeText = allowFreeText;
+        toolMessage.QuestionAllowMultiSelect = allowMultiSelect;
+
+        NotifyQuestionAsked(chatId, question);
+        if (CurrentChat?.Id != chatId)
+            return;
+
+        _transcriptBuilder.AddQuestionToTranscript(
+            questionId,
+            question,
+            optionsList,
+            allowFreeText,
+            allowMultiSelect);
+        QuestionAsked?.Invoke(questionId, question, optionsJson, allowFreeText);
+        ScrollToEndRequested?.Invoke();
+    }
+
+    private void PersistQuestionAnswer(Guid chatId, string questionId, string answer)
+    {
+        var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
+        var toolMessage = chat?.Messages.LastOrDefault(message =>
+            message.ToolName == "ask_question"
+            && message.QuestionId == questionId);
+        if (toolMessage is not null)
+            toolMessage.ToolOutput = $"User answered: {answer}";
     }
 
     private void NotifyQuestionAsked(Guid chatId, string question)

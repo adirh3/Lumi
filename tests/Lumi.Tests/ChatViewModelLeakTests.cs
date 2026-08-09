@@ -1082,6 +1082,81 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public async Task SweepInactiveChatStates_KeepsPendingQuestionAnswerableAfterChatSwitch()
+    {
+        var dataStore = CreateDataStore();
+        using var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var questionChat = new Chat { Title = "question-chat" };
+        var visibleChat = new Chat { Title = "visible-chat" };
+        questionChat.Messages.Add(new ChatMessage
+        {
+            Role = "tool",
+            ToolName = "ask_question",
+            ToolStatus = "InProgress",
+            QuestionId = "q-switch"
+        });
+        dataStore.Data.Chats.Add(questionChat);
+        dataStore.Data.Chats.Add(visibleChat);
+        vm.CurrentChat = visibleChat;
+
+        GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[questionChat.Id] =
+            new ChatRuntimeState { Chat = questionChat };
+        var pendingQuestion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        InvokePrivate(vm, "TrackPendingQuestion", questionChat.Id, "q-switch", pendingQuestion);
+
+        InvokePrivate(vm, "SweepInactiveChatStates");
+        var questionItem = new QuestionItem(
+            "q-switch",
+            "Keep going?",
+            ["Keep going"],
+            allowFreeText: false,
+            submitAction: vm.SubmitQuestionAnswer);
+        questionItem.SelectedAnswer = "Keep going";
+        questionItem.IsAnswered = true;
+
+        Assert.Equal("Keep going", await pendingQuestion.Task.WaitAsync(TimeSpan.FromSeconds(1)));
+        Assert.Equal("InProgress", questionChat.Messages[0].ToolStatus);
+        Assert.True(GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates").ContainsKey(questionChat.Id));
+    }
+
+    [Fact]
+    public void CancelPendingQuestions_CancelsQuestionBeforeTranscriptProjection()
+    {
+        var dataStore = CreateDataStore();
+        using var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "unprojected-question" };
+        dataStore.Data.Chats.Add(chat);
+        var pendingQuestion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        InvokePrivate(vm, "TrackPendingQuestion", chat.Id, "q-unprojected", pendingQuestion);
+
+        InvokePrivate(vm, "CancelPendingQuestions", chat);
+
+        Assert.True(pendingQuestion.Task.IsCanceled);
+        Assert.False(vm.IsChatBusy(chat.Id));
+    }
+
+    [Fact]
+    public void PersistQuestionAnswer_StoresAnswerForTranscriptRebuild()
+    {
+        var dataStore = CreateDataStore();
+        using var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "answered-question" };
+        var question = new ChatMessage
+        {
+            Role = "tool",
+            ToolName = "ask_question",
+            ToolStatus = "InProgress",
+            QuestionId = "q-answer"
+        };
+        chat.Messages.Add(question);
+        dataStore.Data.Chats.Add(chat);
+
+        InvokePrivate(vm, "PersistQuestionAnswer", chat.Id, "q-answer", "Continue");
+
+        Assert.Equal("User answered: Continue", question.ToolOutput);
+    }
+
+    [Fact]
     public void IsChatBusy_ReturnsTrueWhileTurnCleanupIsPending()
     {
         var dataStore = CreateDataStore();

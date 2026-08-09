@@ -1156,7 +1156,67 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public event Action<string, string, string, bool>? QuestionAsked;
 
     /// <summary>Pending question completions keyed by question ID.</summary>
-    private readonly Dictionary<string, TaskCompletionSource<string>> _pendingQuestions = new();
+    private readonly object _pendingQuestionsSync = new();
+    private readonly Dictionary<string, TaskCompletionSource<string>> _pendingQuestions = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Guid> _pendingQuestionChatIds = new(StringComparer.Ordinal);
+
+    private void TrackPendingQuestion(Guid chatId, string questionId, TaskCompletionSource<string> completion)
+    {
+        lock (_pendingQuestionsSync)
+        {
+            _pendingQuestions[questionId] = completion;
+            _pendingQuestionChatIds[questionId] = chatId;
+        }
+    }
+
+    private bool IsPendingQuestion(string questionId)
+    {
+        lock (_pendingQuestionsSync)
+            return _pendingQuestions.ContainsKey(questionId);
+    }
+
+    private bool HasPendingQuestion(Guid chatId)
+    {
+        lock (_pendingQuestionsSync)
+        {
+            if (_pendingQuestionChatIds.Values.Contains(chatId))
+                return true;
+
+            var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+            return chat?.Messages.Any(message =>
+                message.ToolName == "ask_question"
+                && message.ToolStatus == "InProgress"
+                && message.QuestionId is { Length: > 0 } questionId
+                && _pendingQuestions.ContainsKey(questionId)) == true;
+        }
+    }
+
+    private bool TryCompletePendingQuestion(string questionId, string answer)
+    {
+        TaskCompletionSource<string>? completion;
+        lock (_pendingQuestionsSync)
+            _pendingQuestions.TryGetValue(questionId, out completion);
+
+        return completion?.TrySetResult(answer) == true;
+    }
+
+    private void RemovePendingQuestion(string questionId)
+    {
+        lock (_pendingQuestionsSync)
+        {
+            _pendingQuestions.Remove(questionId);
+            _pendingQuestionChatIds.Remove(questionId);
+        }
+    }
+
+    private void ClearPendingQuestionTracking()
+    {
+        lock (_pendingQuestionsSync)
+        {
+            _pendingQuestions.Clear();
+            _pendingQuestionChatIds.Clear();
+        }
+    }
 
     /// <summary>Raised when the view should rebuild DataTemplates (e.g. settings changed).</summary>
     public event Action? TranscriptRebuilt;
@@ -1837,61 +1897,32 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             var questionId = Guid.NewGuid().ToString("N");
             var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _pendingQuestions[questionId] = tcs;
+            TrackPendingQuestion(inputHandlerChatId, questionId, tcs);
 
             var optionsList = request.Choices is { Count: > 0 } ? (IList<string>)request.Choices : Array.Empty<string>();
             var optionsJson = System.Text.Json.JsonSerializer.Serialize(optionsList.ToList(), Lumi.Models.AppDataJsonContext.Default.ListString);
             var freeText = request.AllowFreeform ?? true;
 
-            Dispatcher.UIThread.Post(() =>
-            {
-                NotifyQuestionAsked(inputHandlerChatId, request.Question);
-
-                if (CurrentChat?.Id == inputHandlerChatId)
-                {
-                    _transcriptBuilder.AddQuestionToTranscript(questionId, request.Question, optionsList, freeText);
-                    QuestionAsked?.Invoke(questionId, request.Question, optionsJson, freeText);
-                    ScrollToEndRequested?.Invoke();
-                }
-            });
-
-            // Persist question data on the tool message so rebuild can recreate the question card.
-            // If no matching tool message exists (SDK native user-input path), create one.
-            Dispatcher.UIThread.Post(() =>
-            {
-                var owningChat = _dataStore.Data.Chats.Find(c => c.Id == inputHandlerChatId);
-                if (owningChat is not null)
-                {
-                    var toolMsg = owningChat.Messages.LastOrDefault(m =>
-                        m.ToolName == "ask_question" && m.ToolStatus == "InProgress" && m.QuestionId is null);
-                    if (toolMsg is null)
-                    {
-                        toolMsg = new ChatMessage
-                        {
-                            Role = "tool",
-                            ToolName = "ask_question",
-                            ToolStatus = "InProgress",
-                            Content = "",
-                        };
-                        toolMsg.MarkToolStarted(DateTimeOffset.UtcNow);
-                        owningChat.Messages.Add(toolMsg);
-                    }
-                    toolMsg.QuestionId = questionId;
-                    toolMsg.QuestionText = request.Question;
-                    toolMsg.QuestionOptions = optionsJson;
-                    toolMsg.QuestionAllowFreeText = freeText;
-                    toolMsg.QuestionAllowMultiSelect = false;
-                }
-            });
-
             try
             {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                    PresentPendingQuestion(
+                        inputHandlerChatId,
+                        questionId,
+                        request.Question,
+                        optionsList,
+                        optionsJson,
+                        freeText,
+                        allowMultiSelect: false));
+
                 var answer = await tcs.Task;
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                    PersistQuestionAnswer(inputHandlerChatId, questionId, answer));
                 return new GitHub.Copilot.UserInputResponse { Answer = answer, WasFreeform = true };
             }
             finally
             {
-                _pendingQuestions.Remove(questionId);
+                RemovePendingQuestion(questionId);
             }
         };
 
