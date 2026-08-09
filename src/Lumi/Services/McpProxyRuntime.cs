@@ -86,12 +86,17 @@ public sealed class McpProxyRuntime : IAsyncDisposable
             };
     }
 
+    internal static string CreateUserRegistrationKey(Guid serverId, string workingDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
+        var normalizedWorkingDirectory = NormalizeWorkingDirectory(workingDirectory);
+        return $"lumi:{serverId}:{Hash(normalizedWorkingDirectory)[..16]}";
+    }
+
     public void RetireUserRegistrationsExcept(IEnumerable<Guid> activeLocalServerIds)
     {
         ArgumentNullException.ThrowIfNull(activeLocalServerIds);
-        var retainedKeys = activeLocalServerIds
-            .Select(id => "lumi:" + id)
-            .ToHashSet(StringComparer.Ordinal);
+        var retainedServerIds = activeLocalServerIds.ToHashSet();
         List<McpProxyRegistration> staleRegistrations = [];
 
         lock (_gate)
@@ -101,7 +106,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
             foreach (var (key, registration) in _registrationsByKey.ToArray())
             {
-                if (!key.StartsWith("lumi:", StringComparison.Ordinal) || retainedKeys.Contains(key))
+                if (!TryGetUserServerId(key, out var serverId) || retainedServerIds.Contains(serverId))
                     continue;
 
                 _registrationsByKey.Remove(key);
@@ -112,6 +117,21 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
         foreach (var registration in staleRegistrations)
             RetireRegistrationInBackground(registration);
+    }
+
+    private static bool TryGetUserServerId(string registrationKey, out Guid serverId)
+    {
+        serverId = default;
+        const string prefix = "lumi:";
+        if (!registrationKey.StartsWith(prefix, StringComparison.Ordinal))
+            return false;
+
+        var serverIdText = registrationKey.AsSpan(prefix.Length);
+        var separatorIndex = serverIdText.IndexOf(':');
+        if (separatorIndex >= 0)
+            serverIdText = serverIdText[..separatorIndex];
+
+        return Guid.TryParse(serverIdText, out serverId);
     }
 
     public async ValueTask DisposeAsync()
@@ -339,8 +359,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
     {
         var builder = new StringBuilder();
         builder.AppendLine(config.Command);
-        // A shared proxy process intentionally survives chat working-directory changes. Project-context
-        // servers still have distinct registration keys derived from their source path.
+        builder.AppendLine(NormalizeWorkingDirectory(config.WorkingDirectory));
         builder.AppendLine(config.Timeout?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         foreach (var arg in config.Args ?? [])
             builder.Append("arg:").AppendLine(arg);
@@ -349,6 +368,15 @@ public sealed class McpProxyRuntime : IAsyncDisposable
         foreach (var pair in (config.Env ?? new Dictionary<string, string>()).OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
             builder.Append("env:").Append(pair.Key).Append('=').AppendLine(pair.Value);
         return Hash(builder.ToString());
+    }
+
+    private static string NormalizeWorkingDirectory(string? workingDirectory)
+    {
+        var directory = string.IsNullOrWhiteSpace(workingDirectory)
+            ? Environment.CurrentDirectory
+            : workingDirectory;
+        return Path.GetFullPath(directory)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     private static string Hash(string value)

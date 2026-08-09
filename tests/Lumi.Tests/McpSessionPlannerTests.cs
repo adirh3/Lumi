@@ -97,6 +97,33 @@ public sealed class McpSessionPlannerTests
     }
 
     [Fact]
+    public async Task Build_WithProxyRuntime_ReusesPerDirectoryWithoutCrossingDirectories()
+    {
+        await using var proxyRuntime = new McpProxyRuntime();
+        var local = new McpServer
+        {
+            Name = "filesystem",
+            Command = "node",
+            Args = ["server.js"]
+        };
+        var data = new AppData { McpServers = [local] };
+        var chat = new Chat { ActiveMcpServerNames = ["filesystem"] };
+
+        var projectA = McpSessionPlanner.Build(
+            data, "C:\\repo-a", EmptyCatalog(), chat, null, null, proxyRuntime);
+        var projectB = McpSessionPlanner.Build(
+            data, "C:\\repo-b", EmptyCatalog(), chat, null, null, proxyRuntime);
+        var projectAAgain = McpSessionPlanner.Build(
+            data, "C:\\repo-a", EmptyCatalog(), chat, null, null, proxyRuntime);
+
+        var projectAUrl = Assert.IsType<McpHttpServerConfig>(projectA["filesystem"]).Url;
+        var projectBUrl = Assert.IsType<McpHttpServerConfig>(projectB["filesystem"]).Url;
+        var projectAAgainUrl = Assert.IsType<McpHttpServerConfig>(projectAAgain["filesystem"]).Url;
+        Assert.NotEqual(projectAUrl, projectBUrl);
+        Assert.Equal(projectAUrl, projectAAgainUrl);
+    }
+
+    [Fact]
     public void Build_UsesCurrentSessionSelectionInsteadOfPersistedChatSelection()
     {
         var data = new AppData

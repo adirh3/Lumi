@@ -150,7 +150,7 @@ public static class McpSessionPlanner
         if (proxyRuntime is not null)
         {
             return proxyRuntime.Register(new McpProxyServerDefinition(
-                $"lumi:{server.Id}",
+                McpProxyRuntime.CreateUserRegistrationKey(server.Id, workDir),
                 server.Name,
                 local));
         }

@@ -26,6 +26,17 @@ public sealed class McpProxyRuntimeTests
         Assert.Equal(expected, McpStdioServerConnection.GetInitializeTimeoutMilliseconds(configuredTimeout));
     }
 
+    [Fact]
+    public void UserRegistrationKeyPreservesCaseSensitiveDirectoryIdentity()
+    {
+        var serverId = Guid.NewGuid();
+
+        var upperCaseKey = McpProxyRuntime.CreateUserRegistrationKey(serverId, "C:\\repo\\ProjectA");
+        var lowerCaseKey = McpProxyRuntime.CreateUserRegistrationKey(serverId, "C:\\repo\\projecta");
+
+        Assert.NotEqual(upperCaseKey, lowerCaseKey);
+    }
+
     [Theory]
     [InlineData(-32001, "Session not found", true)]
     [InlineData(-32001, " session NOT found ", true)]
@@ -1248,7 +1259,12 @@ public sealed class McpProxyRuntimeTests
 
             var serverId = Guid.NewGuid();
             await using var runtime = new McpProxyRuntime();
-            var remote = runtime.Register(CreateBasicDefinition("lumi:" + serverId, "retire-test", scriptPath, root, logPath));
+            var remote = runtime.Register(CreateBasicDefinition(
+                McpProxyRuntime.CreateUserRegistrationKey(serverId, root),
+                "retire-test",
+                scriptPath,
+                root,
+                logPath));
 
             using var http = new HttpClient();
             using var initialize = await PostJsonAsync(http, remote.Url, """
@@ -1351,7 +1367,7 @@ public sealed class McpProxyRuntimeTests
     }
 
     [SkippableFact]
-    public async Task Proxy_ReusesWarmRegistrationWhenOnlyWorkingDirectoryChanges()
+    public async Task Proxy_KeepsSeparateWarmRegistrationsPerWorkingDirectory()
     {
         Skip.IfNot(OperatingSystem.IsWindows(), "PowerShell fake MCP server is Windows-only.");
 
@@ -1363,7 +1379,7 @@ public sealed class McpProxyRuntimeTests
             var scriptPath = Path.Combine(root, "fake-mcp.ps1");
             var logPath = Path.Combine(root, "starts.log");
             await File.WriteAllTextAsync(scriptPath, """
-                [System.IO.File]::AppendAllText($env:MCP_TEST_LOG, "$PID`n")
+                [System.IO.File]::AppendAllText($env:MCP_TEST_LOG, "$($PWD.Path)|$PID`n")
                 function Write-Json($obj) {
                     [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 30))
                     [Console]::Out.Flush()
@@ -1380,8 +1396,13 @@ public sealed class McpProxyRuntimeTests
                 """);
 
             await using var runtime = new McpProxyRuntime();
+            var serverId = Guid.NewGuid();
             var first = runtime.Register(CreateBasicDefinition(
-                "test:cwd-reuse", "cwd-reuse-test", scriptPath, root, logPath));
+                McpProxyRuntime.CreateUserRegistrationKey(serverId, root),
+                "cwd-reuse-test",
+                scriptPath,
+                root,
+                logPath));
 
             using var http = new HttpClient();
             using var firstInitialize = await PostJsonAsync(http, first.Url, """
@@ -1390,15 +1411,34 @@ public sealed class McpProxyRuntimeTests
             Assert.True(firstInitialize.RootElement.TryGetProperty("result", out _));
 
             var second = runtime.Register(CreateBasicDefinition(
-                "test:cwd-reuse", "cwd-reuse-test", scriptPath, alternateWorkingDirectory, logPath));
-            Assert.Equal(first.Url, second.Url);
+                McpProxyRuntime.CreateUserRegistrationKey(serverId, alternateWorkingDirectory),
+                "cwd-reuse-test",
+                scriptPath,
+                alternateWorkingDirectory,
+                logPath));
+            Assert.NotEqual(first.Url, second.Url);
 
             using var secondInitialize = await PostJsonAsync(http, second.Url, """
                 {"jsonrpc":"2.0","id":"second","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
                 """);
             Assert.True(secondInitialize.RootElement.TryGetProperty("result", out _));
 
-            Assert.Single(await File.ReadAllLinesAsync(logPath));
+            var firstAgain = runtime.Register(CreateBasicDefinition(
+                McpProxyRuntime.CreateUserRegistrationKey(serverId, root),
+                "cwd-reuse-test",
+                scriptPath,
+                root,
+                logPath));
+            Assert.Equal(first.Url, firstAgain.Url);
+            using var firstAgainInitialize = await PostJsonAsync(http, firstAgain.Url, """
+                {"jsonrpc":"2.0","id":"first-again","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+                """);
+            Assert.True(firstAgainInitialize.RootElement.TryGetProperty("result", out _));
+
+            var starts = await File.ReadAllLinesAsync(logPath);
+            Assert.Equal(2, starts.Length);
+            Assert.Contains(starts, line => line.StartsWith(root + "|", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(starts, line => line.StartsWith(alternateWorkingDirectory + "|", StringComparison.OrdinalIgnoreCase));
         }
         finally
         {

@@ -387,6 +387,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat?.Id != chatId || _activeSession != session)
             return true;
 
+        var displayName = ResolveMcpDisplayName(chatId, serverName);
         var key = McpOAuthKey(session, serverName);
         lock (_mcpOAuthLoginLock)
         {
@@ -409,9 +410,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // An empty URL means a cached token is being reused; a later Connected event clears the chip.
             if (!string.IsNullOrWhiteSpace(authorizationUrl))
             {
-                var openedMessage =
-                    $"Lumi opened your browser to sign in to MCP server '{serverName}'. " +
-                    "Finish signing in and it reconnects automatically.";
+                var openedMessage = BuildMcpOAuthOpenedMessage(displayName);
                 ResolveMcpOAuthChip(chatId, serverName, key, openedMessage);
                 return true;
             }
@@ -432,9 +431,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // Sign-in couldn't be started — e.g. the server's identity provider doesn't support
             // dynamic client registration. Report it honestly and keep the attempt recorded so we
             // don't hammer a failing endpoint on every status event; a later session retries cleanly.
-            var failedMessage =
-                $"Lumi couldn't start sign-in for MCP server '{serverName}' automatically " +
-                $"({DescribeMcpOAuthLoginFailure(ex)}). Open it from the MCP servers page to sign in.";
+            var failedMessage = BuildMcpOAuthFailureMessage(
+                displayName,
+                DescribeMcpOAuthLoginFailure(ex));
             ResolveMcpOAuthChip(chatId, serverName, key, failedMessage);
             return true;
         }
@@ -442,6 +441,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // Empty URL: a cached token is being reused and the server reconnects shortly on its own.
         return false;
     }
+
+    internal static string BuildMcpOAuthOpenedMessage(string displayName)
+        => $"Lumi opened your browser to sign in to MCP server '{displayName}'. " +
+           "Finish signing in and it reconnects automatically.";
+
+    internal static string BuildMcpOAuthFailureMessage(string displayName, string failure)
+        => $"Lumi couldn't start sign-in for MCP server '{displayName}' automatically " +
+           $"({failure}). Open it from the MCP servers page to sign in.";
 
     /// <summary>
     /// Records the final OAuth chip message for a session+server and shows it, so later repeated
