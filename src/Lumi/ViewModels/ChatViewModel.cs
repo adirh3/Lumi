@@ -1568,7 +1568,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         double extentHeight,
         bool isFollowingTail,
         bool isPinnedToBottom,
-        double distanceFromBottom)
+        double distanceFromBottom,
+        TranscriptPagingDirection pagingDirection = TranscriptPagingDirection.None)
     {
         var mutation = _transcriptWindow.UpdateViewport(
             new TranscriptViewportState(
@@ -1576,7 +1577,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 viewportHeight,
                 extentHeight,
                 isPinnedToBottom,
-                distanceFromBottom),
+                distanceFromBottom,
+                pagingDirection),
             isFollowingTail,
             "scroll");
         if (ShowTranscriptDiagnostics)
@@ -1595,6 +1597,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             distanceFromBottom,
             "scroll-state");
     }
+
+    internal bool HasUnmountedTranscriptTail => _transcriptWindow.HasNewerPages;
 
     internal bool EnsureLatestTranscriptMounted()
     {

@@ -23,9 +23,11 @@ internal sealed class TranscriptPagingOptions
     public int MaxMountedPages { get; init; } = 6;
     public int TrimToMountedPages { get; init; } = 4;
     public int PrependBatchPageCount { get; init; } = 3;
+    public int AppendBatchPageCount { get; init; } = 3;
     public double InitialViewportFillMultiplier { get; init; } = 1.6d;
     public double MountedViewportFillMultiplier { get; init; } = 2.1d;
     public double PrependTriggerPixels { get; init; } = 220d;
+    public double AppendTriggerPixels { get; init; } = 220d;
     public double RetainAboveViewportPixels { get; init; } = 320d;
     public double EstimatedPixelsPerWeightUnit { get; init; } = 56d;
     public bool EnableDiagnostics { get; init; }
@@ -147,8 +149,16 @@ internal enum TranscriptWindowMutationKind
     Reset,
     EnsureCoverage,
     Prepend,
+    Append,
     TrimHead,
     TailRestore,
+}
+
+internal enum TranscriptPagingDirection
+{
+    None,
+    TowardOlder,
+    TowardNewer,
 }
 
 internal readonly record struct TranscriptViewportState(
@@ -156,7 +166,8 @@ internal readonly record struct TranscriptViewportState(
     double ViewportHeight,
     double ExtentHeight,
     bool IsPinnedToBottom,
-    double DistanceFromBottom);
+    double DistanceFromBottom,
+    TranscriptPagingDirection PagingDirection = TranscriptPagingDirection.None);
 
 internal readonly record struct TranscriptWindowMutation(
     TranscriptWindowMutationKind Kind,
@@ -243,6 +254,12 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
     }
 
     public bool IsFollowingTail => _isFollowingTail;
+
+    public bool HasOlderPages => _firstMountedPageIndex > 0;
+
+    public bool HasNewerPages =>
+        _lastMountedPageIndex >= 0
+        && _lastMountedPageIndex < _pages.Count - 1;
 
     public double DistanceFromBottom
     {
@@ -406,7 +423,12 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         if (_pages.Count == 0 || MountedPageCount == 0)
             return TranscriptWindowMutation.None;
 
-        if (state.OffsetY <= _options.PrependTriggerPixels && _firstMountedPageIndex > 0)
+        var isPagingTowardOlder = state.PagingDirection == TranscriptPagingDirection.TowardOlder;
+        var isPagingTowardNewer = state.PagingDirection == TranscriptPagingDirection.TowardNewer;
+
+        if (state.OffsetY <= _options.PrependTriggerPixels
+            && _firstMountedPageIndex > 0
+            && !isPagingTowardNewer)
         {
             // Load a small chunk of older pages per near-top scroll. This gives the reader more
             // history above the anchor and avoids a render/layout cycle for every single page.
@@ -433,6 +455,46 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
             ReconcileMountedTurns(BuildDesiredMountedTurns());
             UpdateDiagnostics("prepend", reason);
             return new TranscriptWindowMutation(TranscriptWindowMutationKind.Prepend, reason, addedPages, removedTailPages, estimatedDelta, true);
+        }
+
+        var isApproachingLocalBottom =
+            state.DistanceFromBottom <= _options.AppendTriggerPixels
+            && !isPagingTowardOlder
+            && (isPagingTowardNewer
+                || state.IsPinnedToBottom
+                || state.OffsetY > _options.PrependTriggerPixels);
+        if (isApproachingLocalBottom && HasNewerPages)
+        {
+            // Move the bounded reader window forward again when the user reaches its local bottom.
+            // Keep at least one previously-mounted page so ChatView can restore a stable visible anchor
+            // while older head pages are evicted.
+            var maxBatch = Math.Min(
+                Math.Max(1, _options.AppendBatchPageCount),
+                Math.Max(1, MountedPageCount - 1));
+            var addedPages = 0;
+            var estimatedDelta = 0d;
+            while (_lastMountedPageIndex < _pages.Count - 1 && addedPages < maxBatch)
+            {
+                _lastMountedPageIndex++;
+                var page = _pages[_lastMountedPageIndex];
+                estimatedDelta += GetEffectivePageHeight(page) + TranscriptLayoutMetrics.TurnSpacing;
+                addedPages++;
+            }
+
+            if (addedPages == 0)
+                return TranscriptWindowMutation.None;
+
+            _pageLoadCount += addedPages;
+            var removedHeadPages = TrimMountedHeadOverflow();
+            ReconcileMountedTurns(BuildDesiredMountedTurns());
+            UpdateDiagnostics("append", reason);
+            return new TranscriptWindowMutation(
+                TranscriptWindowMutationKind.Append,
+                reason,
+                addedPages,
+                removedHeadPages,
+                estimatedDelta,
+                removedHeadPages > 0);
         }
 
         if (MountedPageCount > _options.MaxMountedPages)
@@ -481,6 +543,14 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         double distanceFromBottom,
         string reason)
     {
+        if (HasNewerPages)
+        {
+            // The ScrollViewer only knows about the mounted window. Its local bottom is not the
+            // conversation tail while newer pages are unmounted, so it must not re-enable follow mode.
+            isFollowingTail = false;
+            isPinnedToBottom = false;
+        }
+
         var changed = _isFollowingTail != isFollowingTail || IsPinnedToBottom != isPinnedToBottom;
         _isFollowingTail = isFollowingTail;
         IsPinnedToBottom = isPinnedToBottom;

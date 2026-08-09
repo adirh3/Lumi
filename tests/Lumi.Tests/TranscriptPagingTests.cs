@@ -156,6 +156,180 @@ public sealed class TranscriptPagingTests
     }
 
     [Fact]
+    public void ReturningToLocalBottom_AfterTailWasTrimmed_RemountsNewerPages()
+    {
+        var controller = new TranscriptWindowController(new TranscriptPagingOptions
+        {
+            MaxPageWeight = 4,
+            MaxTurnsPerPage = 2,
+            MinInitialPages = 1,
+            MaxMountedPages = 3,
+            PrependBatchPageCount = 1,
+            PrependTriggerPixels = 160,
+        });
+        var source = CreateTurns(20, measuredHeightFactory: _ => 120);
+
+        controller.BindTranscript(source, "round-trip");
+        controller.ResetToLatest(200, "round-trip");
+
+        for (var i = 0; i < 4 && ReferenceEquals(controller.MountedTurns[^1], source[^1]); i++)
+        {
+            controller.UpdateViewport(
+                new TranscriptViewportState(0, 200, 1200, false, 800),
+                isFollowingTail: false,
+                $"round-trip-prepend-{i}");
+        }
+
+        Assert.NotSame(source[^1], controller.MountedTurns[^1]);
+
+        var sawAppend = false;
+        for (var i = 0; i < 12 && !ReferenceEquals(controller.MountedTurns[^1], source[^1]); i++)
+        {
+            var mutation = controller.UpdateViewport(
+                new TranscriptViewportState(1000, 200, 1200, true, 0),
+                isFollowingTail: false,
+                $"round-trip-append-{i}");
+            sawAppend |= mutation.Kind == TranscriptWindowMutationKind.Append;
+        }
+
+        Assert.True(sawAppend);
+        Assert.Same(source[^1], controller.MountedTurns[^1]);
+        Assert.True(controller.CaptureSnapshot().MountedPageCount <= 3);
+    }
+
+    [Fact]
+    public void LocalBottom_WithUnmountedNewerPages_DoesNotReenterFollowMode()
+    {
+        var controller = new TranscriptWindowController(new TranscriptPagingOptions
+        {
+            MaxPageWeight = 4,
+            MaxTurnsPerPage = 2,
+            MinInitialPages = 1,
+            MaxMountedPages = 3,
+            PrependBatchPageCount = 1,
+            PrependTriggerPixels = 160,
+        });
+        var source = CreateTurns(20, measuredHeightFactory: _ => 120);
+
+        controller.BindTranscript(source, "local-bottom");
+        controller.ResetToLatest(200, "local-bottom");
+
+        for (var i = 0; i < 4 && ReferenceEquals(controller.MountedTurns[^1], source[^1]); i++)
+        {
+            controller.UpdateViewport(
+                new TranscriptViewportState(0, 200, 1200, false, 800),
+                isFollowingTail: false,
+                $"local-bottom-prepend-{i}");
+        }
+
+        Assert.NotSame(source[^1], controller.MountedTurns[^1]);
+
+        controller.UpdateViewport(
+            new TranscriptViewportState(1000, 200, 1200, true, 0),
+            isFollowingTail: true,
+            "local-bottom");
+
+        Assert.False(controller.IsFollowingTail);
+    }
+
+    [Fact]
+    public void NearTopWindow_DoesNotAppendOnlyBecauseBottomThresholdAlsoMatches()
+    {
+        var controller = new TranscriptWindowController(new TranscriptPagingOptions
+        {
+            MaxPageWeight = 4,
+            MaxTurnsPerPage = 2,
+            MinInitialPages = 1,
+            MaxMountedPages = 3,
+            PrependBatchPageCount = 1,
+            AppendBatchPageCount = 1,
+            PrependTriggerPixels = 160,
+            AppendTriggerPixels = 160,
+        });
+        var source = CreateTurns(20, measuredHeightFactory: _ => 120);
+
+        controller.BindTranscript(source, "overlapping-thresholds");
+        controller.ResetToLatest(200, "overlapping-thresholds");
+
+        TranscriptWindowMutation mutation;
+        do
+        {
+            mutation = controller.UpdateViewport(
+                new TranscriptViewportState(0, 200, 300, false, 0),
+                isFollowingTail: false,
+                "overlapping-thresholds-prepend");
+        }
+        while (mutation.Kind == TranscriptWindowMutationKind.Prepend);
+
+        Assert.NotSame(source[^1], controller.MountedTurns[^1]);
+
+        mutation = controller.UpdateViewport(
+            new TranscriptViewportState(0, 200, 300, false, 0),
+            isFollowingTail: false,
+            "overlapping-thresholds-stable");
+
+        Assert.Equal(TranscriptWindowMutationKind.None, mutation.Kind);
+    }
+
+    [Fact]
+    public void CompactWindow_ExplicitNewerDirection_AppendsInsteadOfRemainingStranded()
+    {
+        var controller = new TranscriptWindowController(new TranscriptPagingOptions
+        {
+            MaxPageWeight = 4,
+            MaxTurnsPerPage = 2,
+            MinInitialPages = 1,
+            MaxMountedPages = 3,
+            PrependBatchPageCount = 1,
+            AppendBatchPageCount = 1,
+            PrependTriggerPixels = 220,
+            AppendTriggerPixels = 220,
+        });
+        var source = CreateTurns(20, measuredHeightFactory: _ => 72);
+
+        controller.BindTranscript(source, "compact-direction");
+        controller.ResetToLatest(200, "compact-direction");
+
+        TranscriptWindowMutation mutation;
+        do
+        {
+            mutation = controller.UpdateViewport(
+                new TranscriptViewportState(0, 200, 300, false, 0),
+                isFollowingTail: false,
+                "compact-direction-prepend");
+        }
+        while (mutation.Kind == TranscriptWindowMutationKind.Prepend);
+
+        Assert.NotSame(source[^1], controller.MountedTurns[^1]);
+
+        mutation = controller.UpdateViewport(
+            new TranscriptViewportState(
+                0,
+                200,
+                300,
+                false,
+                0,
+                TranscriptPagingDirection.TowardOlder),
+            isFollowingTail: false,
+            "compact-direction-stay-older");
+
+        Assert.Equal(TranscriptWindowMutationKind.None, mutation.Kind);
+
+        mutation = controller.UpdateViewport(
+            new TranscriptViewportState(
+                0,
+                200,
+                300,
+                false,
+                0,
+                TranscriptPagingDirection.TowardNewer),
+            isFollowingTail: false,
+            "compact-direction-append");
+
+        Assert.Equal(TranscriptWindowMutationKind.Append, mutation.Kind);
+    }
+
+    [Fact]
     public void PinnedStateLogic_TracksTransitions()
     {
         var controller = new TranscriptWindowController();

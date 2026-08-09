@@ -136,6 +136,95 @@ public sealed class TranscriptPagingHeadlessTests
     }
 
     [Fact]
+    public async Task AppendingNewerPage_RestoresVisibleAnchorWhileTrimmingHead()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            var controller = new TranscriptWindowController(new TranscriptPagingOptions
+            {
+                MaxPageWeight = 4,
+                MaxTurnsPerPage = 2,
+                MinInitialPages = 1,
+                MaxMountedPages = 3,
+                PrependBatchPageCount = 1,
+                AppendBatchPageCount = 1,
+                PrependTriggerPixels = 120,
+                AppendTriggerPixels = 120,
+            });
+            var source = CreateVisualTurns(24);
+            controller.BindTranscript(source, "ui-append");
+            controller.ResetToLatest(220, "ui-append");
+
+            var (window, shell, scrollViewer) = await CreateHostAsync(controller);
+            try
+            {
+                shell.JumpToLatest();
+                await PumpAsync();
+                shell.PreserveViewport();
+
+                for (var i = 0; i < 3 && ReferenceEquals(controller.MountedTurns[^1], source[^1]); i++)
+                {
+                    shell.ScrollToVerticalOffset(0);
+                    await PumpAsync();
+
+                    var prependAnchor = CaptureAnchor(window, scrollViewer);
+                    Assert.NotNull(prependAnchor);
+
+                    var prepend = controller.UpdateViewport(
+                        new TranscriptViewportState(
+                            shell.VerticalOffset,
+                            shell.ViewportHeight,
+                            shell.ExtentHeight,
+                            false,
+                            shell.CurrentDistanceFromBottom),
+                        isFollowingTail: false,
+                        $"ui-append-prepend-{i}");
+
+                    Assert.Equal(TranscriptWindowMutationKind.Prepend, prepend.Kind);
+                    await PumpAsync();
+                    RestoreAnchor(window, shell, scrollViewer, prependAnchor!.Value);
+                    await PumpAsync();
+                }
+
+                Assert.NotSame(source[^1], controller.MountedTurns[^1]);
+
+                shell.ScrollToVerticalOffset(Math.Max(0, shell.ExtentHeight - shell.ViewportHeight));
+                await PumpAsync();
+
+                var anchor = CaptureAnchor(window, scrollViewer);
+                Assert.NotNull(anchor);
+
+                var append = controller.UpdateViewport(
+                    new TranscriptViewportState(
+                        shell.VerticalOffset,
+                        shell.ViewportHeight,
+                        shell.ExtentHeight,
+                        true,
+                        0),
+                    isFollowingTail: false,
+                    "ui-append");
+
+                Assert.Equal(TranscriptWindowMutationKind.Append, append.Kind);
+                Assert.True(append.RequiresAnchorRestore);
+                await PumpAsync();
+                RestoreAnchor(window, shell, scrollViewer, anchor!.Value);
+                await PumpAsync();
+
+                var restored = CaptureAnchor(window, scrollViewer);
+                Assert.NotNull(restored);
+                Assert.Equal(anchor.Value.StableId, restored!.Value.StableId);
+                Assert.InRange(Math.Abs(restored.Value.ViewportY - anchor.Value.ViewportY), 0, 1.5);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task DetachedTurnControl_DoesNotProcessChangesUntilReattached()
     {
         using var session = HeadlessTestSession.Start();
