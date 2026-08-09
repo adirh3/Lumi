@@ -178,6 +178,7 @@ public partial class ChatView : UserControl
         AddHandler(StrataChatMessage.CopyRequestedEvent, OnCopyMessageRequested);
         AddHandler(StrataChatMessage.CopyTurnRequestedEvent, OnCopyTurnRequested);
         AddHandler(StrataChatMessage.ForkRequestedEvent, OnForkRequested);
+        AddHandler(KeyDownEvent, OnLinkedChatKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         SizeChanged += OnChatViewSizeChanged;
 
         // ── Search bar controls ──
@@ -1682,6 +1683,38 @@ public partial class ChatView : UserControl
     }
 
     // ── Ctrl+F in-chat search ────────────────────────────
+
+    private void OnLinkedChatKeyDown(object? sender, KeyEventArgs e)
+    {
+        var source = e.Source as Control;
+        var chip = source?.DataContext as LinkedChatChipItem
+            ?? source?.GetVisualAncestors()
+                .OfType<Control>()
+                .Select(control => control.DataContext)
+                .OfType<LinkedChatChipItem>()
+                .FirstOrDefault();
+        if (chip is null ||
+            !IsOpenLinkedChatInNewWindowShortcut(e.Key, e.KeyModifiers, OperatingSystem.IsMacOS()))
+            return;
+
+        e.Handled = true;
+        if (Application.Current is App app)
+        {
+            var owner = TopLevel.GetTopLevel(this)?.DataContext as MainViewModel;
+            app.OpenChatInNewWindow(chip.ChatId, owner);
+        }
+    }
+
+    internal static bool IsOpenLinkedChatInNewWindowShortcut(
+        Key key,
+        KeyModifiers modifiers,
+        bool isMac)
+    {
+        var primaryCommand = isMac ? KeyModifiers.Meta : KeyModifiers.Control;
+        return key == Key.Enter
+            && (modifiers & primaryCommand) != 0
+            && (modifiers & (KeyModifiers.Alt | KeyModifiers.Shift)) == 0;
+    }
 
     protected override void OnKeyDown(KeyEventArgs e)
     {

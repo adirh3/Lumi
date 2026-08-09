@@ -760,6 +760,15 @@ public partial class App : Application
             _ = vm.OpenChatByIdAsync(targetChatId);
     }
 
+    internal void OpenChatInNewWindow(Guid chatId, MainViewModel? owner = null)
+    {
+        var viewModel = owner ?? _mainViewModel;
+        if (viewModel?.DataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId) is not { } chat)
+            return;
+
+        viewModel.OpenChatInNewWindowCommand.Execute(chat);
+    }
+
     public void ShowMainWindow(Guid? chatId)
     {
         if (!Dispatcher.UIThread.CheckAccess())

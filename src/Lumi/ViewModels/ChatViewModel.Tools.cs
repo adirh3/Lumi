@@ -234,7 +234,7 @@ public partial class ChatViewModel
     /// <summary>Raised when a browser tool requests the browser panel to be visible. Carries the chat ID.</summary>
     public event Action<Guid>? BrowserShowRequested;
 
-    /// <summary>Raised when a manage_chats tool card requests opening its linked chat.</summary>
+    /// <summary>Raised when a transcript chip requests opening its linked chat.</summary>
     public event Action<Guid>? OpenChatRequested;
 
     /// <summary>True if browser tools have been used in the current session.</summary>
@@ -844,7 +844,24 @@ public partial class ChatViewModel
                     [Description("Include the assistant's internal reasoning text. Default false.")] bool includeReasoning = false,
                     [Description("Include a short summary of tool calls made in the chat. Default true.")] bool includeToolCalls = true) =>
                 {
-                    return await ChatHistory.ReadChatAsync(chat, maxMessages, includeReasoning, includeToolCalls, GetCurrentCancellationToken());
+                    Guid? linkedId = null;
+                    string? linkedTitle = null;
+                    var result = await ChatHistory.ReadChatAsync(
+                        chat,
+                        maxMessages,
+                        includeReasoning,
+                        includeToolCalls,
+                        onChatResolved: (id, title) =>
+                        {
+                            linkedId = id;
+                            linkedTitle = title;
+                        },
+                        cancellationToken: GetCurrentCancellationToken());
+
+                    if (linkedId is Guid id)
+                        StampLinkedChat(chatId, "read_chat", id, linkedTitle);
+
+                    return result;
                 },
                 "read_chat",
                 "Read the full transcript of one of the user's past chats so you can recall exactly what was discussed. Accepts a chat id (preferred — get it from search_chats), an exact title, or a descriptive phrase (it will search and either open the clear match or return candidates to pick from). Returns a clean, role-labelled transcript windowed to the most recent messages. The header also reports the chat's workspace (git worktree path or project folder), additional context directories, any saved plan, active skills/MCP servers, and model/token usage — use the workspace path when the user wants you to act on that chat's files or uncommitted code (e.g. 'implement it like the uncommitted code in that chat'). Use after search_chats, or directly when the user names a specific chat."),
@@ -1264,6 +1281,28 @@ public partial class ChatViewModel
         return await Dispatcher.UIThread.InvokeAsync(action);
     }
 
+    private void StampLinkedChat(Guid sourceChatId, string toolName, Guid linkedChatId, string? linkedChatTitle)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == sourceChatId);
+            // Tool calls within a turn complete sequentially, so the newest still-unlinked card is
+            // the call that just returned. If the runtime becomes concurrent, correlate by call id.
+            var toolMsg = chat?.Messages.LastOrDefault(message =>
+                message.ToolName == toolName && message.LinkedChatId is null);
+            if (toolMsg is null)
+                return;
+
+            toolMsg.LinkedChatId = linkedChatId;
+            toolMsg.LinkedChatTitle = linkedChatTitle;
+            if (CurrentChat?.Id == sourceChatId)
+            {
+                var msgVm = Messages.LastOrDefault(candidate => ReferenceEquals(candidate.Message, toolMsg));
+                msgVm?.NotifyLinkedChatChanged();
+            }
+        });
+    }
+
     private AIFunction BuildManageChatsTool(Guid chatId)
     {
         return AIFunctionFactory.Create(
@@ -1311,27 +1350,7 @@ public partial class ChatViewModel
                     cancellationToken: GetCurrentCancellationToken());
 
                 if (linkedId is Guid lid)
-                {
-                    var capturedTitle = linkedTitle;
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                        var chat = _dataStore.Data.Chats.Find(c => c.Id == chatId);
-                        // Correlate this completed call to its own tool card by taking the newest still-unlinked
-                        // manage_chats message. This is exact because tool calls within a turn are executed and
-                        // completed sequentially: each card is created and stamped before the next manage_chats
-                        // card exists, so at most one unlinked card is present here. If the runtime is ever changed
-                        // to invoke tool calls concurrently, this must instead key off the SDK tool-call id.
-                        var toolMsg = chat?.Messages.LastOrDefault(m => m.ToolName == "manage_chats" && m.LinkedChatId is null);
-                        if (toolMsg is null) return;
-                        toolMsg.LinkedChatId = lid;
-                        toolMsg.LinkedChatTitle = capturedTitle;
-                        if (CurrentChat?.Id == chatId)
-                        {
-                            var msgVm = Messages.LastOrDefault(mv => ReferenceEquals(mv.Message, toolMsg));
-                            msgVm?.NotifyLinkedChatChanged();
-                        }
-                    });
-                }
+                    StampLinkedChat(chatId, "manage_chats", lid, linkedTitle);
 
                 return result;
             },

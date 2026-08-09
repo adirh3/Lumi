@@ -899,6 +899,30 @@ public sealed class TranscriptBuilderToolGroupTests
     }
 
     [Fact]
+    public void ProcessMessageToTranscript_ReadChatLinkedChat_ShowsChipEvenWhenToolCallsHidden()
+    {
+        Guid? opened = null;
+        var builder = CreateBuilder(showToolCalls: false, openChatAction: id => opened = id);
+        var liveTurns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(liveTurns);
+
+        var readChat = CreateToolVm("tool-1", "read_chat", "InProgress", "{\"chat\":\"Resolved chat\"}");
+        builder.ProcessMessageToTranscript(readChat);
+
+        var linkedChatId = Guid.NewGuid();
+        readChat.Message.LinkedChatId = linkedChatId;
+        readChat.Message.LinkedChatTitle = "Resolved chat";
+        readChat.NotifyLinkedChatChanged();
+
+        var chip = liveTurns.SelectMany(t => t.Items).OfType<LinkedChatItem>().Single();
+        Assert.Equal(linkedChatId, chip.Chip.ChatId);
+        Assert.Empty(liveTurns.SelectMany(t => t.Items).OfType<ToolGroupItem>());
+
+        chip.Chip.OpenCommand.Execute(null);
+        Assert.Equal(linkedChatId, opened);
+    }
+
+    [Fact]
     public void Rebuild_ManageChatsLinkedChat_ShowsChipEvenWhenToolCallsHidden()
     {
         var builder = CreateBuilder(showToolCalls: false);

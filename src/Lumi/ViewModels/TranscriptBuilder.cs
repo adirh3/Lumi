@@ -474,9 +474,11 @@ public class TranscriptBuilder
             // Tool cards are hidden, but the open-chat chip is a first-class transcript affordance
             // (like a loaded-skill chip), so it must still surface. Emit any link already known at
             // process time (a rebuild replaying history, or a stamp that landed before the card) and
-            // subscribe for one that arrives asynchronously after the manage_chats call completes.
+            // subscribe for one that arrives asynchronously after the chat tool completes.
             TryEmitLinkedChatChip(msgVm);
-            if (!IsRebuildingTranscript && msgVm.Message.LinkedChatId is null && toolName == "manage_chats")
+            if (!IsRebuildingTranscript
+                && msgVm.Message.LinkedChatId is null
+                && toolName is "manage_chats" or "read_chat")
                 SubscribeLinkedChatChip(msgVm);
             if (shouldFlushLateFileEdit && diffs.Count > 0)
                 FlushPendingFileEdits();
@@ -648,7 +650,7 @@ public class TranscriptBuilder
     }
 
     /// <summary>
-    /// Surfaces a chat that Lumi created or messaged via <c>manage_chats</c> as a first-class
+    /// Surfaces a chat that Lumi created, messaged, or read via a chat tool as a first-class
     /// transcript chip (like a loaded-skill chip), placed after the current tool group so the
     /// "open chat" affordance is always visible instead of buried inside a collapsed tool card.
     /// De-duplicated per tool call so it renders exactly once across the async live stamp and any

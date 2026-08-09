@@ -107,6 +107,7 @@ public sealed class ChatHistoryService
         int? maxMessages = null,
         bool includeReasoning = false,
         bool includeToolCalls = true,
+        Action<Guid, string>? onChatResolved = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(chatIdentifier))
@@ -119,6 +120,7 @@ public sealed class ChatHistoryService
 
         var chat = resolution.Chat;
         var messages = await _dataStore.ReadChatMessagesAsync(chat, cancellationToken).ConfigureAwait(false);
+        onChatResolved?.Invoke(chat.Id, chat.Title);
         var window = Math.Clamp(maxMessages ?? DefaultReadMessages, 1, MaxReadMessages);
 
         return FormatTranscript(snapshot, chat, messages, window, includeReasoning, includeToolCalls);
