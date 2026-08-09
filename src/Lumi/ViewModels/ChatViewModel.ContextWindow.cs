@@ -33,6 +33,7 @@ public partial class ChatViewModel
     private static readonly TimeSpan ContextCompactionAbortTimeout = TimeSpan.FromSeconds(15);
 
     private CancellationTokenSource? _contextDetailsCts;
+    private long _contextDetailsGeneration;
     private CancellationTokenSource? _contextCompactionCts;
     private TaskCompletionSource<bool>? _contextCompactionCompletion;
     private DateTimeOffset? _contextDetailsUpdatedAt;
@@ -172,7 +173,9 @@ public partial class ChatViewModel
     }
 
     public bool CanRefreshContextDetails
-        => CurrentChat is not null
+        => CurrentChat is { } chat
+           && !string.IsNullOrWhiteSpace(chat.CopilotSessionId)
+           && !_pendingSessionInvalidations.Contains(CurrentChat.Id)
            && !IsBusy
            && !IsContextDetailsLoading
            && !IsContextOperationRunning
@@ -433,6 +436,10 @@ public partial class ChatViewModel
             return;
 
         SeedContextIdentity(chat);
+        if (string.IsNullOrWhiteSpace(chat.CopilotSessionId))
+            return;
+        if (_pendingSessionInvalidations.Contains(chat.Id))
+            return;
 
         if (_usesSyntheticContextDetails)
         {
@@ -463,6 +470,7 @@ public partial class ChatViewModel
         _contextDetailsCts = new CancellationTokenSource(ContextDetailsTimeout);
         var refreshCts = _contextDetailsCts;
         var chatId = chat.Id;
+        var detailsGeneration = _contextDetailsGeneration;
 
         IsContextDetailsLoading = true;
         ContextDetailsError = null;
@@ -474,9 +482,16 @@ public partial class ChatViewModel
             if (session is null)
                 throw new InvalidOperationException(Loc.Get("Chat_ContextWindow_SessionUnavailable"));
 
-            await LoadContextDetailsFromSessionAsync(chat, session, refreshCts.Token, preserveActionStatus: false);
+            await LoadContextDetailsFromSessionAsync(
+                chat,
+                session,
+                refreshCts.Token,
+                preserveActionStatus: false,
+                detailsGeneration);
         }
-        catch (OperationCanceledException) when (ReferenceEquals(_contextDetailsCts, refreshCts))
+        catch (OperationCanceledException) when (
+            ReferenceEquals(_contextDetailsCts, refreshCts)
+            && detailsGeneration == _contextDetailsGeneration)
         {
             if (CurrentChat?.Id == chatId)
             {
@@ -546,12 +561,22 @@ public partial class ChatViewModel
         Chat chat,
         CopilotSession session,
         CancellationToken cancellationToken,
-        bool preserveActionStatus)
+        bool preserveActionStatus,
+        long detailsGeneration = -1)
     {
         var runtime = GetOrCreateRuntimeState(chat.Id);
         var modelId = runtime.ActiveModelId;
         if (string.IsNullOrWhiteSpace(modelId))
             modelId = ResolveSelectedModelForChat(chat);
+        var contextTier = runtime.ActiveContextWindowTier
+            ?? ResolveSelectedContextWindowTierForChat(chat, modelId);
+        if (detailsGeneration < 0)
+            detailsGeneration = _contextDetailsGeneration;
+        var requestedPromptTokenLimit = ResolveKnownContextTokenLimitForIdentity(
+            runtime,
+            modelId,
+            contextTier,
+            reportedTokenLimit: 0);
 
 #pragma warning disable GHCP001
         MetadataRecomputeContextTokensResult? recomputed = null;
@@ -559,18 +584,33 @@ public partial class ChatViewModel
             recomputed = await session.Rpc.Metadata.RecomputeContextTokensAsync(modelId, cancellationToken);
 
         var contextInfoResult = await session.Rpc.Metadata.ContextInfoAsync(
-            promptTokenLimit: 0,
+            promptTokenLimit: requestedPromptTokenLimit,
             outputTokenLimit: 0,
             selectedModel: modelId,
             cancellationToken: cancellationToken);
 #pragma warning restore GHCP001
 
-        if (CurrentChat?.Id != chat.Id)
+        var currentModelId = runtime.ActiveModelId;
+        if (string.IsNullOrWhiteSpace(currentModelId))
+            currentModelId = ResolveSelectedModelForChat(chat);
+        var currentContextTier = runtime.ActiveContextWindowTier
+            ?? ResolveSelectedContextWindowTierForChat(chat, currentModelId);
+        if (CurrentChat?.Id != chat.Id
+            || detailsGeneration != _contextDetailsGeneration
+            || !string.Equals(modelId, currentModelId, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(contextTier, currentContextTier, StringComparison.OrdinalIgnoreCase))
             return;
 
         var info = contextInfoResult.ContextInfo
             ?? throw new InvalidOperationException(Loc.Get("Chat_ContextWindow_DetailsUnavailable"));
-        ApplyContextDetails(chat, runtime, info, recomputed);
+        ApplyContextDetails(
+            chat,
+            runtime,
+            info,
+            recomputed,
+            requestedPromptTokenLimit,
+            modelId,
+            contextTier);
 
         _contextDetailsUpdatedAt = DateTimeOffset.UtcNow;
         ContextLastUpdatedDisplay = Loc.Get("Chat_ContextWindow_UpdatedNow");
@@ -583,7 +623,10 @@ public partial class ChatViewModel
         Chat chat,
         ChatRuntimeState runtime,
         MetadataContextInfoResultContextInfo info,
-        MetadataRecomputeContextTokensResult? recomputed)
+        MetadataRecomputeContextTokensResult? recomputed,
+        long requestedPromptTokenLimit,
+        string? modelId,
+        string? contextTier)
     {
         var systemTokens = info.SystemTokens > 0
             ? info.SystemTokens
@@ -594,9 +637,9 @@ public partial class ChatViewModel
         var totalTokens = info.TotalTokens > 0
             ? info.TotalTokens
             : recomputed?.TotalTokens ?? systemTokens + conversationTokens + info.ToolDefinitionsTokens;
-        var promptTokenLimit = info.PromptTokenLimit > 0
-            ? info.PromptTokenLimit
-            : ContextTokenLimit;
+        var promptTokenLimit = ResolveContextInfoPromptTokenLimit(
+            requestedPromptTokenLimit,
+            info.PromptTokenLimit);
 
         ApplyContextUsage(
             chat,
@@ -604,7 +647,10 @@ public partial class ChatViewModel
             totalTokens > 0 ? totalTokens : null,
             promptTokenLimit > 0 ? promptTokenLimit : null,
             ContextTokenLimitSource.Session,
-            updateDisplayed: true);
+            updateDisplayed: true,
+            currentTokensAreExact: true,
+            tokenLimitModelId: modelId,
+            tokenLimitTier: contextTier);
 
         ContextDetailsModelId = string.IsNullOrWhiteSpace(info.ModelName)
             ? runtime.ActiveModelId ?? ResolveSelectedModelForChat(chat)
@@ -615,7 +661,6 @@ public partial class ChatViewModel
         ReplaceItems(
             ContextBreakdownItems,
             CreateContextBreakdownItems(
-                totalTokens,
                 systemTokens,
                 conversationTokens,
                 info.ToolDefinitionsTokens > 0 ? info.ToolDefinitionsTokens : info.McpToolsTokens));
@@ -629,18 +674,31 @@ public partial class ChatViewModel
         if (result.ContextWindow is { } contextWindow)
         {
             var runtime = GetOrCreateRuntimeState(chat.Id);
+            var tokenLimit = ResolveKnownContextTokenLimitForIdentity(
+                runtime,
+                runtime.ActiveModelId ?? ResolveSelectedModelForChat(chat),
+                runtime.ActiveContextWindowTier
+                    ?? ResolveSelectedContextWindowTierForChat(
+                        chat,
+                        runtime.ActiveModelId ?? ResolveSelectedModelForChat(chat)),
+                contextWindow.TokenLimit);
             ApplyContextUsage(
                 chat,
                 runtime,
                 contextWindow.CurrentTokens > 0 ? contextWindow.CurrentTokens : null,
-                contextWindow.TokenLimit > 0 ? contextWindow.TokenLimit : null,
+                tokenLimit > 0 ? tokenLimit : null,
                 ContextTokenLimitSource.Session,
-                updateDisplayed: true);
+                updateDisplayed: true,
+                currentTokensAreExact: true,
+                tokenLimitModelId: runtime.ActiveModelId ?? ResolveSelectedModelForChat(chat),
+                tokenLimitTier: runtime.ActiveContextWindowTier
+                    ?? ResolveSelectedContextWindowTierForChat(
+                        chat,
+                        runtime.ActiveModelId ?? ResolveSelectedModelForChat(chat)));
 
             ReplaceItems(
                 ContextBreakdownItems,
                 CreateContextBreakdownItems(
-                    contextWindow.CurrentTokens,
                     contextWindow.SystemTokens ?? 0,
                     contextWindow.ConversationTokens ?? 0,
                     contextWindow.ToolDefinitionsTokens ?? 0));
@@ -664,14 +722,24 @@ public partial class ChatViewModel
         bool updateDisplayed)
     {
         var currentTokens = (long)(data.CurrentTokens ?? 0);
-        var tokenLimit = (long)(data.TokenLimit ?? 0);
+        var modelId = runtime.ActiveModelId ?? ResolveSelectedModelForChat(chat);
+        var contextTier = runtime.ActiveContextWindowTier
+            ?? ResolveSelectedContextWindowTierForChat(chat, modelId);
+        var tokenLimit = ResolveKnownContextTokenLimitForIdentity(
+            runtime,
+            modelId,
+            contextTier,
+            (long)(data.TokenLimit ?? 0));
         ApplyContextUsage(
             chat,
             runtime,
             currentTokens > 0 ? currentTokens : null,
             tokenLimit > 0 ? tokenLimit : null,
             ContextTokenLimitSource.Session,
-            updateDisplayed);
+            updateDisplayed,
+            currentTokensAreExact: true,
+            tokenLimitModelId: modelId,
+            tokenLimitTier: contextTier);
 
         if (!updateDisplayed)
             return;
@@ -685,7 +753,6 @@ public partial class ChatViewModel
         ReplaceItems(
             ContextBreakdownItems,
             CreateContextBreakdownItems(
-                currentTokens,
                 (long)(data.SystemTokens ?? 0),
                 (long)(data.ConversationTokens ?? 0),
                 (long)(data.ToolDefinitionsTokens ?? 0)));
@@ -707,14 +774,24 @@ public partial class ChatViewModel
                 + (long)(data.ToolDefinitionsTokens ?? 0);
         }
 
-        var tokenLimit = (long)(data.TokenLimit ?? 0);
+        var modelId = runtime.ActiveModelId ?? ResolveSelectedModelForChat(chat);
+        var contextTier = runtime.ActiveContextWindowTier
+            ?? ResolveSelectedContextWindowTierForChat(chat, modelId);
+        var tokenLimit = ResolveKnownContextTokenLimitForIdentity(
+            runtime,
+            modelId,
+            contextTier,
+            (long)(data.TokenLimit ?? 0));
         ApplyContextUsage(
             chat,
             runtime,
             currentTokens > 0 ? currentTokens : null,
             tokenLimit > 0 ? tokenLimit : null,
             ContextTokenLimitSource.Session,
-            updateDisplayed);
+            updateDisplayed,
+            currentTokensAreExact: true,
+            tokenLimitModelId: modelId,
+            tokenLimitTier: contextTier);
         QueueSaveChat(chat, saveIndex: false, releaseIfInactive: CurrentChat?.Id != chat.Id);
 
         if (_contextCompactionChatId == chat.Id)
@@ -736,7 +813,6 @@ public partial class ChatViewModel
         ReplaceItems(
             ContextBreakdownItems,
             CreateContextBreakdownItems(
-                currentTokens,
                 (long)(data.SystemTokens ?? 0),
                 (long)(data.ConversationTokens ?? 0),
                 (long)(data.ToolDefinitionsTokens ?? 0)));
@@ -748,10 +824,8 @@ public partial class ChatViewModel
         long tokenLimit,
         long compactionThreshold)
     {
-        var usagePercent = tokenLimit > 0
-            ? (int)Math.Round(100.0 * Math.Max(currentTokens, 0) / tokenLimit)
-            : 0;
-        var progressPercent = Math.Clamp(usagePercent, 0, 100);
+        var usagePercent = CalculateBoundedContextUsagePercent(currentTokens, tokenLimit);
+        var progressPercent = usagePercent;
         var remainingTokens = tokenLimit > 0
             ? Math.Max(tokenLimit - Math.Max(currentTokens, 0), 0)
             : 0;
@@ -773,37 +847,99 @@ public partial class ChatViewModel
     internal static long NormalizeRemovedContextTokens(long? tokensRemoved)
         => Math.Max(tokensRemoved ?? 0, 0);
 
-    internal static int CalculateContextSharePercent(long tokens, long totalTokens)
-        => totalTokens > 0
-            ? Math.Clamp((int)Math.Round(100.0 * Math.Max(tokens, 0) / totalTokens), 0, 100)
-            : 0;
+    internal static long ResolveContextInfoPromptTokenLimit(long knownTokenLimit, long reportedTokenLimit)
+        => knownTokenLimit > 0 ? knownTokenLimit : Math.Max(reportedTokenLimit, 0);
+
+    private long ResolveKnownContextTokenLimitForIdentity(
+        ChatRuntimeState runtime,
+        string? modelId,
+        string? contextTier,
+        long reportedTokenLimit)
+    {
+        if (runtime.ContextTokenLimit > 0
+            && string.Equals(runtime.ContextTokenLimitModelId, modelId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(runtime.ContextTokenLimitTier, contextTier, StringComparison.OrdinalIgnoreCase))
+        {
+            return runtime.ContextTokenLimit;
+        }
+
+        var catalogTokenLimit = ResolveKnownContextTokenLimit(modelId, contextTier);
+        return catalogTokenLimit > 0 ? catalogTokenLimit : Math.Max(reportedTokenLimit, 0);
+    }
+
+    private void ApplySelectedContextTokenLimit(
+        Chat chat,
+        ChatRuntimeState runtime,
+        string? modelId,
+        string? contextTier,
+        bool updateDisplayed)
+    {
+        var tokenLimit = ResolveKnownContextTokenLimit(modelId, contextTier);
+        ApplyContextUsage(
+            chat,
+            runtime,
+            currentTokens: null,
+            tokenLimit: tokenLimit > 0 ? tokenLimit : null,
+            tokenLimitSource: ContextTokenLimitSource.Catalog,
+            updateDisplayed: updateDisplayed,
+            tokenLimitModelId: modelId,
+            tokenLimitTier: contextTier);
+    }
+
+    internal static int[] CalculateContextSharePercents(params long[] tokenCounts)
+    {
+        var normalized = tokenCounts.Select(tokens => Math.Max(tokens, 0)).ToArray();
+        var total = normalized.Sum();
+        if (total <= 0)
+            return new int[normalized.Length];
+
+        var exactShares = normalized.Select(tokens => 100.0 * tokens / total).ToArray();
+        var shares = exactShares.Select(share => (int)Math.Floor(share)).ToArray();
+        var remaining = 100 - shares.Sum();
+
+        foreach (var index in exactShares
+                     .Select((share, index) => new { index, remainder = share - Math.Floor(share), tokens = normalized[index] })
+                     .OrderByDescending(item => item.remainder)
+                     .ThenByDescending(item => item.tokens)
+                     .ThenBy(item => item.index)
+                     .Take(remaining)
+                     .Select(item => item.index))
+        {
+            shares[index]++;
+        }
+
+        return shares;
+    }
 
     private static IReadOnlyList<ContextTokenBreakdownItem> CreateContextBreakdownItems(
-        long totalTokens,
         long systemTokens,
         long conversationTokens,
         long toolDefinitionTokens)
     {
         var items = new List<ContextTokenBreakdownItem>();
+        var shares = CalculateContextSharePercents(
+            conversationTokens,
+            systemTokens,
+            toolDefinitionTokens);
 
         AddContextBreakdownItem(
             items,
             "conversation",
             Loc.Get("Chat_ContextWindow_Conversation"),
             conversationTokens,
-            totalTokens);
+            shares[0]);
         AddContextBreakdownItem(
             items,
             "instructions",
             Loc.Get("Chat_ContextWindow_System"),
             systemTokens,
-            totalTokens);
+            shares[1]);
         AddContextBreakdownItem(
             items,
             "tools",
             Loc.Get("Chat_ContextWindow_Tools"),
             toolDefinitionTokens,
-            totalTokens);
+            shares[2]);
 
         return items;
     }
@@ -813,10 +949,9 @@ public partial class ChatViewModel
         string key,
         string label,
         long tokens,
-        long totalTokens)
+        int sharePercent)
     {
         var normalizedTokens = Math.Max(tokens, 0);
-        var sharePercent = CalculateContextSharePercent(normalizedTokens, totalTokens);
 
         items.Add(new ContextTokenBreakdownItem(
             key,
@@ -886,8 +1021,112 @@ public partial class ChatViewModel
         ContextDetailsTierDisplay = FormatContextTier(runtime.ActiveContextWindowTier ?? chat.LastContextWindowTierUsed);
     }
 
+    private void InvalidateContextForSelectionChange(
+        Chat chat,
+        string? modelId,
+        string? contextTier)
+    {
+        _contextDetailsGeneration++;
+        _contextDetailsCts?.Cancel();
+        _contextDetailsUpdatedAt = null;
+        _usesSyntheticContextDetails = false;
+
+        var runtime = GetOrCreateRuntimeState(chat.Id);
+        runtime.ContextCurrentTokens = 0;
+        runtime.HasExactContextUsage = false;
+        runtime.ContextTokenLimit = 0;
+        runtime.ContextTokenLimitSource = ContextTokenLimitSource.Unknown;
+        runtime.ContextTokenLimitModelId = null;
+        runtime.ContextTokenLimitTier = null;
+        chat.ContextCurrentTokens = 0;
+        chat.HasExactContextUsage = false;
+        chat.ContextTokenLimit = 0;
+        _dataStore.MarkChatChanged(chat);
+
+        if (CurrentChat?.Id == chat.Id)
+        {
+            ContextCurrentTokens = 0;
+            ContextTokenLimit = 0;
+            ContextDetailsModelId = modelId;
+            ContextDetailsTierDisplay = FormatContextTier(contextTier);
+            ContextCompactionThreshold = 0;
+            ContextDetailsError = null;
+            ContextActionStatus = null;
+            ContextLastUpdatedDisplay = null;
+            ContextBreakdownItems.Clear();
+            OnPropertyChanged(nameof(HasContextBreakdown));
+        }
+    }
+
+    private void InvalidateContextDetailsForSessionModelChange(
+        Chat chat,
+        string? modelId,
+        string? contextTier)
+    {
+        if (CurrentChat?.Id != chat.Id)
+            return;
+
+        _contextDetailsGeneration++;
+        _contextDetailsCts?.Cancel();
+        _contextDetailsUpdatedAt = null;
+        _usesSyntheticContextDetails = false;
+
+        ContextDetailsModelId = modelId;
+        ContextDetailsTierDisplay = FormatContextTier(contextTier);
+        ContextCompactionThreshold = 0;
+        ContextDetailsError = null;
+        ContextActionStatus = null;
+        ContextLastUpdatedDisplay = null;
+        ContextBreakdownItems.Clear();
+        OnPropertyChanged(nameof(HasContextBreakdown));
+    }
+
+    private void ResetContextForSessionInvalidation(Chat chat)
+    {
+        if (_runtimeStates.TryGetValue(chat.Id, out var runtime))
+        {
+            runtime.ContextCurrentTokens = 0;
+            runtime.HasExactContextUsage = false;
+            runtime.ContextTokenLimit = 0;
+            runtime.ContextTokenLimitSource = ContextTokenLimitSource.Unknown;
+            runtime.ContextTokenLimitModelId = null;
+            runtime.ContextTokenLimitTier = null;
+        }
+
+        chat.ContextCurrentTokens = 0;
+        chat.HasExactContextUsage = false;
+        chat.ContextTokenLimit = 0;
+
+        if (CurrentChat?.Id != chat.Id)
+            return;
+
+        _contextDetailsGeneration++;
+        _contextDetailsCts?.Cancel();
+        _contextDetailsUpdatedAt = null;
+        _usesSyntheticContextDetails = false;
+        ContextCurrentTokens = 0;
+        ContextTokenLimit = 0;
+        ContextCompactionThreshold = 0;
+        ContextDetailsError = null;
+        ContextActionStatus = null;
+        ContextLastUpdatedDisplay = null;
+        ContextLastCompactionDisplay = null;
+        ContextBreakdownItems.Clear();
+        OnPropertyChanged(nameof(HasContextBreakdown));
+
+        var selectedModel = ResolveSelectedModelForChat(chat);
+        var selectedTier = ResolveSelectedContextWindowTierForChat(chat, selectedModel);
+        ContextDetailsModelId = selectedModel;
+        ContextDetailsTierDisplay = FormatContextTier(selectedTier);
+        if (runtime is not null)
+            ApplySelectedContextTokenLimit(chat, runtime, selectedModel, selectedTier, updateDisplayed: true);
+        NotifyTokenPropertiesChanged();
+        NotifyContextActionAvailabilityChanged();
+    }
+
     private void ResetContextDetailsForChatChange(Chat? chat)
     {
+        _contextDetailsGeneration++;
         _contextDetailsCts?.Cancel();
         _contextDetailsUpdatedAt = null;
         _usesSyntheticContextDetails = false;
@@ -959,7 +1198,6 @@ public partial class ChatViewModel
         ReplaceItems(
             ContextBreakdownItems,
             CreateContextBreakdownItems(
-                ContextCurrentTokens,
                 systemTokens: 3_200,
                 conversationTokens: 10_500,
                 toolDefinitionTokens: 5_434));

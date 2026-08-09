@@ -335,6 +335,7 @@ internal static class AppDataSnapshotFactory
             TotalInputTokens = source.TotalInputTokens,
             TotalOutputTokens = source.TotalOutputTokens,
             ContextCurrentTokens = source.ContextCurrentTokens,
+            HasExactContextUsage = source.HasExactContextUsage,
             ContextTokenLimit = source.ContextTokenLimit,
             PlanContent = source.PlanContent,
             FollowUpSuggestions = [..source.FollowUpSuggestions],

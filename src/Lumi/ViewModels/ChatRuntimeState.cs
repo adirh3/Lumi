@@ -49,13 +49,19 @@ internal sealed class ChatRuntimeState
 
     public long TotalOutputTokens { get; set; }
 
-    /// <summary>Latest turn's input tokens — best proxy for current context window usage.</summary>
+    /// <summary>Latest authoritative session context token count.</summary>
     public long ContextCurrentTokens { get; set; }
+
+    public bool HasExactContextUsage { get; set; }
 
     /// <summary>Context window token limit from the active session, or catalog fallback before a session reports usage.</summary>
     public long ContextTokenLimit { get; set; }
 
     public ContextTokenLimitSource ContextTokenLimitSource { get; set; }
+
+    public string? ContextTokenLimitModelId { get; set; }
+
+    public string? ContextTokenLimitTier { get; set; }
 
     public string? ActiveModelId { get; set; }
 

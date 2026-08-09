@@ -216,6 +216,7 @@
   "Chat_EditSubmit": "עדכן ושלח מחדש",
   "Chat_EditSourceMarker": "הודעה זו בעריכה",
   "Chat_ContextWindow_Title": "חלון הקשר",
+  "Chat_ContextWindow_ChipLabel": "הקשר",
   "Chat_ContextWindow_Subtitle": "פירוט מדויק של הקשר הסשן ב-GitHub Copilot, עם חישוב מחדש לפי דרישה.",
   "Chat_ContextWindow_Refresh": "רענון",
   "Chat_ContextWindow_RemainingFormat": "{0} זמינים",

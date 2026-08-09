@@ -216,6 +216,7 @@
   "Chat_EditSubmit": "Update & resend",
   "Chat_EditSourceMarker": "Editing this message",
   "Chat_ContextWindow_Title": "Context window",
+  "Chat_ContextWindow_ChipLabel": "Context",
   "Chat_ContextWindow_Subtitle": "Exact GitHub Copilot session context, recomputed on demand.",
   "Chat_ContextWindow_Refresh": "Refresh",
   "Chat_ContextWindow_RemainingFormat": "{0} available",

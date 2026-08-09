@@ -810,12 +810,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [ObservableProperty] private long _contextCurrentTokens;
     [ObservableProperty] private long _contextTokenLimit;
 
-    public bool HasTokenUsage => TotalInputTokens > 0 || TotalOutputTokens > 0 || HasContextUsage;
+    public bool HasTokenUsage => HasContextUsage || CurrentChat is { Messages.Count: > 0 };
     public bool ShowInfoStrip => IsCodingProject || HasTokenUsage;
     public string TokenUsageSummary => HasContextUsage
         ? $"{ContextUsagePercent}%"
-        : FormatTokenCount(TotalInputTokens + TotalOutputTokens);
-    public string TokenUsageSuffixText => HasContextUsage ? "context" : "tokens";
+        : HasTokenUsage ? Loc.Get("Chat_ContextWindow_ChipLabel") : "";
+    public string TokenUsageSuffixText => HasContextUsage ? "context" : "";
     public string TokenInputDisplay => $"{TotalInputTokens:N0}";
     public string TokenOutputDisplay => $"{TotalOutputTokens:N0}";
     public string TokenTotalDisplay => $"{TotalInputTokens + TotalOutputTokens:N0}";
@@ -829,9 +829,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public string ContextTokenLimitSourceDisplay => CurrentChat is not null && _runtimeStates.TryGetValue(CurrentChat.Id, out var runtime)
         ? runtime.ContextTokenLimitSource.ToString()
         : ContextTokenLimitSource.Unknown.ToString();
-    public int ContextUsagePercent => ContextTokenLimit > 0
-        ? (int)Math.Round(100.0 * ContextCurrentTokens / ContextTokenLimit)
-        : 0;
+    public int ContextUsagePercent
+        => CalculateBoundedContextUsagePercent(ContextCurrentTokens, ContextTokenLimit);
     public string ContextUsageDisplay => HasContextUsage
         ? $"{FormatTokenCount(ContextCurrentTokens)} / {FormatTokenCount(ContextTokenLimit)}"
         : "";
@@ -876,8 +875,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         long sessionTokenLimit,
         long catalogTokenLimit)
     {
-        if (sessionTokenLimit > 0)
+        if (sessionTokenLimit > 0
+            && (catalogTokenLimit <= 0 || sessionTokenLimit == catalogTokenLimit))
+        {
             return (sessionTokenLimit, ContextTokenLimitSource.Session);
+        }
 
         return catalogTokenLimit > 0
             ? (catalogTokenLimit, ContextTokenLimitSource.Catalog)
@@ -984,10 +986,30 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var modelStateChanged = !string.Equals(runtime.ActiveModelId, effectiveModel, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(runtime.ActiveContextWindowTier, effectiveContextTier, StringComparison.OrdinalIgnoreCase);
 
+        if (modelStateChanged)
+        {
+            if (CurrentChat?.Id == chat.Id
+                && (!string.IsNullOrWhiteSpace(runtime.ActiveModelId)
+                    || HasContextBreakdown
+                    || _contextDetailsUpdatedAt is not null))
+            {
+                InvalidateContextDetailsForSessionModelChange(chat, effectiveModel, effectiveContextTier);
+            }
+
+            runtime.ContextCurrentTokens = 0;
+            runtime.HasExactContextUsage = false;
+            chat.ContextCurrentTokens = 0;
+            chat.HasExactContextUsage = false;
+            if (updateDisplayed)
+                ContextCurrentTokens = 0;
+        }
+
         if (modelStateChanged && runtime.ContextTokenLimitSource == ContextTokenLimitSource.Session)
         {
             runtime.ContextTokenLimit = 0;
             runtime.ContextTokenLimitSource = ContextTokenLimitSource.Unknown;
+            runtime.ContextTokenLimitModelId = null;
+            runtime.ContextTokenLimitTier = null;
             chat.ContextTokenLimit = 0;
             if (updateDisplayed)
                 ContextTokenLimit = 0;
@@ -1043,7 +1065,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var currentTokens = runtime.ContextCurrentTokens <= 0 && chat.ContextCurrentTokens > 0
             ? chat.ContextCurrentTokens
             : (long?)null;
-        ApplyContextUsage(chat, runtime, currentTokens, tokenLimit, ContextTokenLimitSource.Catalog, updateDisplayed);
+        ApplyContextUsage(
+            chat,
+            runtime,
+            currentTokens,
+            tokenLimit,
+            ContextTokenLimitSource.Catalog,
+            updateDisplayed,
+            currentTokensAreExact: runtime.HasExactContextUsage,
+            tokenLimitModelId: fallbackModelId,
+            tokenLimitTier: contextTier);
     }
 
     private void ApplyContextUsage(
@@ -1052,14 +1083,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         long? currentTokens,
         long? tokenLimit,
         ContextTokenLimitSource tokenLimitSource,
-        bool updateDisplayed)
+        bool updateDisplayed,
+        bool currentTokensAreExact = false,
+        string? tokenLimitModelId = null,
+        string? tokenLimitTier = null)
     {
-        if (currentTokens is > 0 and var currentTokenValue)
-        {
-            runtime.ContextCurrentTokens = currentTokenValue;
-            chat.ContextCurrentTokens = currentTokenValue;
-        }
-
+        var acceptedTokenLimit = runtime.ContextTokenLimit;
+        var tokenLimitApplied = false;
         if (tokenLimit is > 0 and var tokenLimitValue)
         {
             var canApplyTokenLimit = tokenLimitSource != ContextTokenLimitSource.Catalog
@@ -1068,9 +1098,29 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 runtime.ContextTokenLimit = tokenLimitValue;
                 runtime.ContextTokenLimitSource = tokenLimitSource;
+                runtime.ContextTokenLimitModelId = tokenLimitModelId;
+                runtime.ContextTokenLimitTier = tokenLimitTier;
                 chat.ContextTokenLimit = tokenLimitValue;
+                acceptedTokenLimit = tokenLimitValue;
+                tokenLimitApplied = true;
                 OnPropertyChanged(nameof(ContextTokenLimitSourceDisplay));
             }
+        }
+
+        if (currentTokensAreExact && currentTokens is > 0 and var currentTokenValue)
+        {
+            var normalizedCurrentTokens = NormalizeExactContextCurrentTokens(currentTokenValue, acceptedTokenLimit);
+            runtime.ContextCurrentTokens = normalizedCurrentTokens;
+            runtime.HasExactContextUsage = true;
+            chat.ContextCurrentTokens = normalizedCurrentTokens;
+            chat.HasExactContextUsage = true;
+        }
+        else if (tokenLimitApplied
+                 && runtime.HasExactContextUsage
+                 && runtime.ContextCurrentTokens > acceptedTokenLimit)
+        {
+            runtime.ContextCurrentTokens = acceptedTokenLimit;
+            chat.ContextCurrentTokens = acceptedTokenLimit;
         }
 
         if (updateDisplayed)
@@ -1078,6 +1128,21 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ContextCurrentTokens = runtime.ContextCurrentTokens;
             ContextTokenLimit = runtime.ContextTokenLimit;
         }
+    }
+
+    internal static long NormalizeExactContextCurrentTokens(long currentTokens, long tokenLimit)
+    {
+        var normalized = Math.Max(currentTokens, 0);
+        return tokenLimit > 0 ? Math.Min(normalized, tokenLimit) : normalized;
+    }
+
+    internal static int CalculateBoundedContextUsagePercent(long currentTokens, long tokenLimit)
+    {
+        if (tokenLimit <= 0)
+            return 0;
+
+        var percent = Math.Round(100.0 * Math.Max(currentTokens, 0) / tokenLimit);
+        return (int)Math.Clamp(percent, 0, 100);
     }
 
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = [];
@@ -2687,6 +2752,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         RemoveSuggestionTracking(chatId);
         CurrentChat.CopilotSessionId = null;
         CurrentChat.SessionProviderSignature = null;
+        ResetContextForSessionInvalidation(CurrentChat);
         _dataStore.MarkChatChanged(CurrentChat);
         _activeSession = null;
     }
@@ -2706,6 +2772,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 ReleaseSessionResources(chat.Id, cancelActiveRequest: true, deleteServerSession: true);
                 RemoveSuggestionTracking(chat.Id);
                 chat.CopilotSessionId = null;
+                chat.SessionProviderSignature = null;
+                ResetContextForSessionInvalidation(chat);
                 _dataStore.MarkChatChanged(chat);
             }
 
@@ -3262,6 +3330,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return true;
 
         return false;
+    }
+
+    private void ClearPendingSessionInvalidation(Guid chatId)
+    {
+        _pendingSessionInvalidations.Remove(chatId);
+        _pendingSessionReconfigurations.Remove(chatId);
     }
 
     private void RestoreComposerEditSnapshot(ComposerEditSnapshot snapshot)
@@ -4591,6 +4665,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         chat.CopilotSessionId = null;
         chat.SessionProviderSignature = null;
+        ResetContextForSessionInvalidation(chat);
         _dataStore.MarkChatChanged(chat);
     }
 
@@ -5839,6 +5914,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     selectedContextWindowTier);
                 if (!reconciled)
                 {
+                    ClearPendingSessionInvalidation(chatId);
                     InvalidateCurrentSession();
                     historyRewound = false;
                     shouldReplayPrompt = true;

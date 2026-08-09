@@ -314,7 +314,24 @@ public partial class ChatViewModel
         if (CurrentChat is { } activeChat)
         {
             var runtime = GetOrCreateRuntimeState(activeChat.Id);
-            ApplyKnownContextTokenLimit(activeChat, runtime, value, updateDisplayed: true);
+            var isUserSelection = !_suppressModelSelectionSideEffects
+                && !IsEditingMessage
+                && !string.IsNullOrWhiteSpace(value);
+            if (isUserSelection)
+            {
+                var selectedContextTier = GetSelectedContextWindowTier();
+                InvalidateContextForSelectionChange(activeChat, value, selectedContextTier);
+                ApplySelectedContextTokenLimit(
+                    activeChat,
+                    runtime,
+                    value,
+                    selectedContextTier,
+                    updateDisplayed: true);
+            }
+            else
+            {
+                ApplyKnownContextTokenLimit(activeChat, runtime, value, updateDisplayed: true);
+            }
         }
 
         if (IsModelBlockedByByokOnlyFlag(value))
@@ -452,7 +469,9 @@ public partial class ChatViewModel
         {
             // Fallback: SDK may not support mid-session switch for all models. Callers that need the
             // switch to take effect this turn (e.g. an edited-message resend) recreate the session on
-            // a false result; the debounced mid-session sync just relies on the next send.
+            // a false result. The debounced sync must also mark the existing session stale so context
+            // refresh/steering cannot mix the requested identity with the still-active old session.
+            InvalidateCurrentSessionForModelSwitch();
             return false;
         }
     }

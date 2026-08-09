@@ -640,6 +640,18 @@ public partial class ChatViewModel
         if (contextTier is null)
             return;
 
+        if (CurrentChat is { } activeChat)
+        {
+            var runtime = GetOrCreateRuntimeState(activeChat.Id);
+            InvalidateContextForSelectionChange(activeChat, SelectedModel, contextTier);
+            ApplySelectedContextTokenLimit(
+                activeChat,
+                runtime,
+                ResolveSelectedModelForChat(activeChat),
+                contextTier,
+                updateDisplayed: true);
+        }
+
         if (CurrentChat is null || CurrentChat.Messages.Count == 0)
         {
             if (_dataStore.Data.Settings.ContextWindowTier != contextTier)
@@ -942,6 +954,7 @@ public partial class ChatViewModel
         OnPropertyChanged(nameof(IsWelcomeVisible));
         OnPropertyChanged(nameof(IsChatVisible));
         OnPropertyChanged(nameof(IsWorktreeLocked));
+        NotifyTokenPropertiesChanged();
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
 

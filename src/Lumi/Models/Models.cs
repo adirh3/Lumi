@@ -483,6 +483,9 @@ public class Chat : INotifyPropertyChanged
     /// <summary>Latest known context window usage for this chat.</summary>
     public long ContextCurrentTokens { get; set; }
 
+    /// <summary>Whether <see cref="ContextCurrentTokens"/> came from an authoritative session context snapshot.</summary>
+    public bool HasExactContextUsage { get; set; }
+
     /// <summary>Latest known context window token limit for this chat.</summary>
     public long ContextTokenLimit { get; set; }
 

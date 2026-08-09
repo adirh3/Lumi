@@ -687,6 +687,7 @@ public class AppDataSnapshotFactoryTests
                     totalInputTokens: 100,
                     totalOutputTokens: 200,
                     contextCurrentTokens: 90,
+                    hasExactContextUsage: true,
                     contextTokenLimit: 1_000,
                     planContent: "updated plan",
                     followUpSuggestions: ["Run code review", "Push changes"],
@@ -726,6 +727,7 @@ public class AppDataSnapshotFactoryTests
         Assert.Equal(100, chat.TotalInputTokens);
         Assert.Equal(200, chat.TotalOutputTokens);
         Assert.Equal(90, chat.ContextCurrentTokens);
+        Assert.True(chat.HasExactContextUsage);
         Assert.Equal(1_000, chat.ContextTokenLimit);
         Assert.Equal("updated plan", chat.PlanContent);
         Assert.Equal(["Run code review", "Push changes"], chat.FollowUpSuggestions);
@@ -914,6 +916,7 @@ public class AppDataSnapshotFactoryTests
         long totalInputTokens = 0,
         long totalOutputTokens = 0,
         long contextCurrentTokens = 0,
+        bool hasExactContextUsage = false,
         long contextTokenLimit = 0,
         string? planContent = null,
         List<string>? followUpSuggestions = null,
@@ -934,6 +937,7 @@ public class AppDataSnapshotFactoryTests
             TotalInputTokens = totalInputTokens,
             TotalOutputTokens = totalOutputTokens,
             ContextCurrentTokens = contextCurrentTokens,
+            HasExactContextUsage = hasExactContextUsage,
             ContextTokenLimit = contextTokenLimit,
             PlanContent = planContent,
             FollowUpSuggestions = followUpSuggestions ?? [],

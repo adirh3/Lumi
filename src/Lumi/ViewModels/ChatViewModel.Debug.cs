@@ -34,6 +34,7 @@ public partial class ChatViewModel
         TotalInputTokens = fixture.TotalInputTokens;
         TotalOutputTokens = fixture.TotalOutputTokens;
         fixture.ContextCurrentTokens = fixture.TotalInputTokens + fixture.TotalOutputTokens;
+        fixture.HasExactContextUsage = true;
         fixture.ContextTokenLimit = 128000;
         ContextCurrentTokens = fixture.ContextCurrentTokens;
         ContextTokenLimit = fixture.ContextTokenLimit;
