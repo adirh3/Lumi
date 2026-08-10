@@ -119,7 +119,15 @@ public sealed class MobileStateCorrectnessTests
         var chat = new MobileChatViewModel(sink);
         var projectId = Guid.NewGuid();
         var agentId = Guid.NewGuid();
-        chat.Reset(Guid.NewGuid(), "Chat");
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Chat");
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 1,
+            TotalRawMessageCount = 1,
+            Status = new RemoteChatStatus { ChatId = chatId }
+        });
         chat.ApplyLibraryCatalogs(new RemoteLibrary
         {
             Projects =
@@ -498,6 +506,211 @@ public sealed class MobileStateCorrectnessTests
     }
 
     [Fact]
+    public async Task UnchangedAmbiguousTransportRetry_ReusesTheRequestId()
+    {
+        var sink = new SequencedCommandSink(commandCount: 2);
+        var chat = new MobileChatViewModel(sink);
+        chat.Reset(Guid.NewGuid(), "Existing chat");
+        chat.PromptText = "retry exactly";
+
+        var firstSend = chat.SendCommand.ExecuteAsync(null);
+        var first = await sink.WaitForCommandAsync(0);
+        sink.Complete(
+            0,
+            new RemoteCommandResult
+            {
+                Ok = false,
+                Error = "connection reset",
+                IsOutcomeUnknown = true,
+                RequestId = first.RequestId
+            });
+        await firstSend;
+
+        var retry = chat.SendCommand.ExecuteAsync(null);
+        var second = await sink.WaitForCommandAsync(1);
+        sink.Complete(1, new RemoteCommandResult { Ok = true });
+        await retry;
+
+        Assert.Equal(first.RequestId, second.RequestId);
+    }
+
+    [Fact]
+    public async Task AuthoritativeTranscriptClearsAnAmbiguousRetryThatWasAccepted()
+    {
+        var sink = new ScriptedCommandSink(new RemoteCommandResult
+        {
+            Ok = false,
+            Error = "connection reset",
+            IsOutcomeUnknown = true
+        });
+        var chatId = Guid.NewGuid();
+        var chat = new MobileChatViewModel(sink);
+        chat.Reset(chatId, "Existing chat");
+        chat.PromptText = "accepted remotely";
+
+        await chat.SendCommand.ExecuteAsync(null);
+        Assert.Equal("accepted remotely", chat.PromptText);
+        Assert.NotNull(chat.ErrorText);
+
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            RevisionEpoch = "server-a",
+            Revision = 2,
+            TotalRawMessageCount = 1,
+            Turns =
+            [
+                new RemoteTranscriptTurn
+                {
+                    Id = "turn-1",
+                    Items =
+                    [
+                        new RemoteTranscriptItem
+                        {
+                            Id = "user-1",
+                            Kind = RemoteProtocol.ItemKinds.User,
+                            Text = "accepted remotely",
+                            RequestId = Assert.Single(sink.Commands).RequestId
+                        }
+                    ]
+                }
+            ],
+            Status = new RemoteChatStatus { ChatId = chatId }
+        });
+
+        Assert.Equal("", chat.PromptText);
+        Assert.Null(chat.ErrorText);
+        Assert.Single(sink.Commands);
+    }
+
+    [Fact]
+    public async Task IdenticalHistoricalPromptDoesNotClearAnAmbiguousRetry()
+    {
+        var sink = new ScriptedCommandSink(new RemoteCommandResult
+        {
+            Ok = false,
+            Error = "connection reset",
+            IsOutcomeUnknown = true
+        });
+        var chatId = Guid.NewGuid();
+        var chat = new MobileChatViewModel(sink);
+        chat.Reset(chatId, "Existing chat");
+        chat.PromptText = "continue";
+        await chat.SendCommand.ExecuteAsync(null);
+
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 2,
+            TotalRawMessageCount = 1,
+            Turns =
+            [
+                new RemoteTranscriptTurn
+                {
+                    Id = "old-turn",
+                    Items =
+                    [
+                        new RemoteTranscriptItem
+                        {
+                            Id = "old-user",
+                            Kind = RemoteProtocol.ItemKinds.User,
+                            Text = "continue",
+                            RequestId = "different-request"
+                        }
+                    ]
+                }
+            ],
+            Status = new RemoteChatStatus { ChatId = chatId }
+        });
+
+        Assert.Equal("continue", chat.PromptText);
+        Assert.NotNull(chat.ErrorText);
+    }
+
+    [Fact]
+    public async Task ServerEpochChangeBlocksAnUnsafeAmbiguousReplay()
+    {
+        var sink = new ScriptedCommandSink(new RemoteCommandResult
+        {
+            Ok = false,
+            Error = "connection reset",
+            IsOutcomeUnknown = true
+        });
+        var chatId = Guid.NewGuid();
+        var chat = new MobileChatViewModel(sink);
+        chat.Reset(chatId, "Existing chat");
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            RevisionEpoch = "server-a",
+            Revision = 1,
+            Status = new RemoteChatStatus { ChatId = chatId }
+        });
+        chat.PromptText = "unknown outcome";
+        await chat.SendCommand.ExecuteAsync(null);
+
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            RevisionEpoch = "server-b",
+            Revision = 1,
+            Status = new RemoteChatStatus { ChatId = chatId }
+        });
+        await chat.SendCommand.ExecuteAsync(null);
+
+        Assert.Single(sink.Commands);
+        Assert.Contains("safely replay", chat.ErrorText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExpiredAmbiguousRetryIsNotReplayedWithAnEvictedRequestId()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var sink = new ScriptedCommandSink(new RemoteCommandResult
+        {
+            Ok = false,
+            Error = "The request timed out.",
+            IsTimeout = true
+        });
+        var chat = new MobileChatViewModel(sink, () => now);
+        chat.Reset(Guid.NewGuid(), "Existing chat");
+        chat.PromptText = "unknown outcome";
+        await chat.SendCommand.ExecuteAsync(null);
+
+        now += TimeSpan.FromMinutes(10);
+        await chat.SendCommand.ExecuteAsync(null);
+
+        Assert.Single(sink.Commands);
+        Assert.Contains("safely replay", chat.ErrorText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void IncompatibleDesktopHidesAtomicWorktreeSelection()
+    {
+        var chat = new MobileChatViewModel(new RecordingSink());
+        var projectId = Guid.NewGuid();
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject { Id = projectId, Name = "Code", IsCodingProject = true }
+        ]);
+        chat.Reset(Guid.NewGuid(), "Empty");
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chat.ChatId,
+            Revision = 1,
+            Status = new RemoteChatStatus { ChatId = chat.ChatId }
+        });
+        chat.ProjectValue = projectId.ToString();
+        chat.ProjectName = "Code";
+        Assert.True(chat.CanChooseWorktree);
+
+        chat.ApplyRemoteProtocolVersion(3);
+
+        Assert.False(chat.CanChooseWorktree);
+        Assert.False(chat.UseWorktree);
+    }
+
+    [Fact]
     public async Task EditedTimeoutDraft_UsesANewRequestId()
     {
         var sink = new ScriptedCommandSink(
@@ -752,6 +965,835 @@ public sealed class MobileStateCorrectnessTests
         Assert.False(chat.IsBusy);
         Assert.NotNull(chat.ErrorText);
         Assert.Empty(chat.Turns);
+    }
+
+    [Fact]
+    public async Task BlankCodingChatSendsTheSelectedWorktreeIntentAtomically()
+    {
+        var sink = new RecordingSink();
+        var chat = new MobileChatViewModel(sink);
+        var projectId = Guid.NewGuid();
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject
+            {
+                Id = projectId,
+                Name = "Lumi",
+                IsCodingProject = true,
+                DefaultNewChatsUseWorktree = false
+            }
+        ]);
+        chat.Reset(Guid.Empty, "New chat");
+        chat.ProjectValue = projectId.ToString();
+        chat.ProjectName = "Lumi";
+        chat.SelectNewWorktreeCommand.Execute(null);
+        chat.PromptText = "fix the build";
+
+        await chat.SendCommand.ExecuteAsync(null);
+
+        Assert.Equal(RemoteProtocol.Actions.SendMessage, sink.LastCommand?.Action);
+        Assert.Equal("true", sink.LastCommand?.Get("newChat"));
+        Assert.Equal(projectId.ToString(), sink.LastCommand?.Get("projectId"));
+        Assert.Equal("true", sink.LastCommand?.Get("worktree"));
+    }
+
+    [Fact]
+    public async Task StopDoesNotUnlockBlankProjectMutationWhileCreationIsUnresolved()
+    {
+        var sink = new ControllableSink();
+        var chat = new MobileChatViewModel(sink);
+        var projectId = Guid.NewGuid();
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject
+            {
+                Id = projectId,
+                Name = "Lumi",
+                IsCodingProject = true,
+                DefaultNewChatsUseWorktree = true
+            }
+        ]);
+        chat.Reset(Guid.Empty, "New chat");
+        chat.ProjectValue = projectId.ToString();
+        chat.ProjectName = "Lumi";
+        chat.PromptText = "create it";
+
+        var send = chat.SendCommand.ExecuteAsync(null);
+        await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await chat.StopCommand.ExecuteAsync(null);
+        await chat.RemoveProjectCommand.ExecuteAsync(null);
+
+        Assert.False(chat.CanChangeProjectSelection);
+        Assert.Equal(projectId.ToString(), chat.ProjectValue);
+        Assert.Equal("Lumi", chat.ProjectName);
+
+        var createdChatId = Guid.NewGuid();
+        sink.CommandResult.SetResult(new RemoteCommandResult
+        {
+            Ok = true,
+            ChatId = createdChatId
+        });
+        await send;
+
+        Assert.True(chat.TryAdoptCreatedChat(createdChatId, blankGeneration: 1));
+        Assert.True(chat.CanChangeProjectSelection);
+    }
+
+    [Fact]
+    public async Task AmbiguousStopReusesItsRequestId()
+    {
+        var sink = new SequencedCommandSink(commandCount: 2);
+        var chat = new MobileChatViewModel(sink);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Running");
+        chat.IsBusy = true;
+
+        var firstStop = chat.StopCommand.ExecuteAsync(null);
+        var first = await sink.WaitForCommandAsync(0);
+        sink.Complete(
+            0,
+            new RemoteCommandResult
+            {
+                Ok = false,
+                Error = "connection reset",
+                IsOutcomeUnknown = true,
+                RequestId = first.RequestId
+            });
+        await firstStop;
+
+        Assert.True(chat.IsBusy);
+        Assert.Equal("Stopping…", chat.StatusText);
+
+        var retry = chat.StopCommand.ExecuteAsync(null);
+        var second = await sink.WaitForCommandAsync(1);
+        sink.Complete(1, new RemoteCommandResult { Ok = true });
+        await retry;
+
+        Assert.Equal(first.RequestId, second.RequestId);
+        Assert.False(chat.IsBusy);
+        Assert.False(chat.IsStreaming);
+    }
+
+    [Fact]
+    public async Task NewSendInvalidatesAnAmbiguousStopRequestId()
+    {
+        var sink = new SequencedCommandSink(commandCount: 3);
+        var chat = new MobileChatViewModel(sink);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Running");
+        chat.IsBusy = true;
+
+        var firstStop = chat.StopCommand.ExecuteAsync(null);
+        var firstStopCommand = await sink.WaitForCommandAsync(0);
+        sink.Complete(
+            0,
+            new RemoteCommandResult
+            {
+                Ok = false,
+                Error = "connection reset",
+                IsOutcomeUnknown = true,
+                RequestId = firstStopCommand.RequestId
+            });
+        await firstStop;
+
+        chat.PromptText = "start another turn";
+        var send = chat.SendCommand.ExecuteAsync(null);
+        await sink.WaitForCommandAsync(1);
+        sink.Complete(1, new RemoteCommandResult { Ok = true, ChatId = chatId });
+        await send;
+
+        chat.IsBusy = true;
+        var secondStop = chat.StopCommand.ExecuteAsync(null);
+        var secondStopCommand = await sink.WaitForCommandAsync(2);
+        sink.Complete(2, new RemoteCommandResult { Ok = true });
+        await secondStop;
+
+        Assert.NotEqual(firstStopCommand.RequestId, secondStopCommand.RequestId);
+    }
+
+    [Fact]
+    public async Task LateSuccessfulStopDoesNotClearANewerTurn()
+    {
+        var sink = new SequencedCommandSink(commandCount: 2);
+        var chat = new MobileChatViewModel(sink);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Running");
+        chat.IsBusy = true;
+
+        var stop = chat.StopCommand.ExecuteAsync(null);
+        await sink.WaitForCommandAsync(0);
+
+        chat.PromptText = "new turn";
+        var send = chat.SendCommand.ExecuteAsync(null);
+        await sink.WaitForCommandAsync(1);
+        sink.Complete(1, new RemoteCommandResult { Ok = true, ChatId = chatId });
+        await send;
+        Assert.True(chat.IsBusy);
+
+        sink.Complete(0, new RemoteCommandResult { Ok = true, ChatId = chatId });
+        await stop;
+
+        Assert.True(chat.IsBusy);
+    }
+
+    [Fact]
+    public async Task IdleStatusCompletesAnAmbiguousStop()
+    {
+        var sink = new SequencedCommandSink(commandCount: 1);
+        var chat = new MobileChatViewModel(sink);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Running");
+        chat.IsBusy = true;
+
+        var stop = chat.StopCommand.ExecuteAsync(null);
+        var command = await sink.WaitForCommandAsync(0);
+        sink.Complete(
+            0,
+            new RemoteCommandResult
+            {
+                Ok = false,
+                Error = "connection reset",
+                IsOutcomeUnknown = true,
+                RequestId = command.RequestId
+            });
+        await stop;
+
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId });
+
+        Assert.False(chat.IsBusy);
+        Assert.False(chat.IsStreaming);
+        Assert.Null(chat.StatusText);
+    }
+
+    [Fact]
+    public async Task IdleStatusBeforeAnAmbiguousStopResponseDoesNotRearmStopping()
+    {
+        var sink = new ControllableSink();
+        var chat = new MobileChatViewModel(sink);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Running");
+        chat.IsBusy = true;
+
+        var stop = chat.StopCommand.ExecuteAsync(null);
+        var command = await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId });
+        sink.CommandResult.SetResult(new RemoteCommandResult
+        {
+            Ok = false,
+            Error = "connection reset",
+            IsOutcomeUnknown = true,
+            RequestId = command.RequestId
+        });
+        await stop;
+
+        Assert.False(chat.IsBusy);
+        Assert.False(chat.IsStreaming);
+        Assert.Null(chat.StatusText);
+    }
+
+    [Fact]
+    public async Task StartedWorktreeChatCannotRemoveItsProject()
+    {
+        var sink = new RecordingSink();
+        var chat = new MobileChatViewModel(sink);
+        var projectId = Guid.NewGuid();
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject
+            {
+                Id = projectId,
+                Name = "Lumi",
+                IsCodingProject = true
+            }
+        ]);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Started");
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 1,
+            TotalRawMessageCount = 1,
+            Status = new RemoteChatStatus
+            {
+                ChatId = chatId,
+                ProjectId = projectId,
+                ProjectName = "Lumi",
+                UsesWorktree = true
+            }
+        });
+
+        await chat.RemoveProjectCommand.ExecuteAsync(null);
+
+        Assert.False(chat.CanChangeProjectSelection);
+        Assert.Equal(projectId.ToString(), chat.ProjectValue);
+        Assert.Equal("Lumi", chat.ProjectName);
+        Assert.Null(sink.LastCommand);
+    }
+
+    [Fact]
+    public void StartedWorktreeChatRejectsDirectProjectPropertyChanges()
+    {
+        var sink = new RecordingSink();
+        var chat = new MobileChatViewModel(sink);
+        var originalProjectId = Guid.NewGuid();
+        var otherProjectId = Guid.NewGuid();
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject
+            {
+                Id = originalProjectId,
+                Name = "Original",
+                IsCodingProject = true
+            },
+            new RemoteProject
+            {
+                Id = otherProjectId,
+                Name = "Other",
+                IsCodingProject = true
+            }
+        ]);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Started");
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 1,
+            TotalRawMessageCount = 1,
+            Status = new RemoteChatStatus
+            {
+                ChatId = chatId,
+                ProjectId = originalProjectId,
+                ProjectName = "Original",
+                UsesWorktree = true
+            }
+        });
+
+        chat.ProjectValue = otherProjectId.ToString();
+        chat.ProjectName = "Other";
+
+        Assert.Equal(originalProjectId.ToString(), chat.ProjectValue);
+        Assert.Equal("Original", chat.ProjectName);
+        Assert.Null(sink.LastCommand);
+    }
+
+    [Fact]
+    public void StartedWorktreeTranscriptDiscardsStagedProjectIntent()
+    {
+        var sink = new RecordingSink();
+        var chat = new MobileChatViewModel(sink);
+        var originalProjectId = Guid.NewGuid();
+        var stagedProjectId = Guid.NewGuid();
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject
+            {
+                Id = originalProjectId,
+                Name = "Original",
+                IsCodingProject = true
+            },
+            new RemoteProject
+            {
+                Id = stagedProjectId,
+                Name = "Staged",
+                IsCodingProject = true
+            }
+        ]);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Empty");
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 1,
+            TotalRawMessageCount = 0,
+            Status = new RemoteChatStatus
+            {
+                ChatId = chatId,
+                ProjectId = originalProjectId,
+                ProjectName = "Original",
+                UsesWorktree = true
+            }
+        });
+        chat.ProjectValue = stagedProjectId.ToString();
+        chat.ProjectName = "Staged";
+
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 2,
+            TotalRawMessageCount = 1,
+            Status = new RemoteChatStatus
+            {
+                ChatId = chatId,
+                ProjectId = originalProjectId,
+                ProjectName = "Original",
+                UsesWorktree = true
+            }
+        });
+
+        Assert.Equal(originalProjectId.ToString(), chat.ProjectValue);
+        Assert.Equal("Original", chat.ProjectName);
+    }
+
+    [Fact]
+    public async Task SwitchingBlankProjectsRecomputesTheWorkspaceDefault()
+    {
+        var sink = new RecordingSink();
+        var chat = new MobileChatViewModel(sink);
+        var localProjectId = Guid.NewGuid();
+        var worktreeProjectId = Guid.NewGuid();
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject
+            {
+                Id = localProjectId,
+                Name = "Local",
+                IsCodingProject = true,
+                DefaultNewChatsUseWorktree = false
+            },
+            new RemoteProject
+            {
+                Id = worktreeProjectId,
+                Name = "Worktree",
+                IsCodingProject = true,
+                DefaultNewChatsUseWorktree = true
+            }
+        ]);
+        chat.Reset(Guid.Empty, "New chat");
+
+        chat.ProjectValue = localProjectId.ToString();
+        chat.ProjectName = "Local";
+        Assert.False(chat.UseWorktree);
+
+        chat.ProjectValue = worktreeProjectId.ToString();
+        chat.ProjectName = "Worktree";
+        Assert.True(chat.UseWorktree);
+
+        chat.ProjectValue = null;
+        chat.ProjectName = null;
+        chat.PromptText = "hello";
+        await chat.SendCommand.ExecuteAsync(null);
+
+        Assert.False(chat.UseWorktree);
+        Assert.Null(sink.LastCommand?.Get("projectId"));
+        Assert.Null(sink.LastCommand?.Get("worktree"));
+    }
+
+    [Fact]
+    public async Task RemovingTheSelectedProjectClearsPendingWorktreeIntent()
+    {
+        var sink = new RecordingSink();
+        var chat = new MobileChatViewModel(sink);
+        var projectId = Guid.NewGuid();
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject
+            {
+                Id = projectId,
+                Name = "Lumi",
+                IsCodingProject = true
+            }
+        ]);
+        chat.Reset(Guid.Empty, "New chat");
+        chat.ProjectValue = projectId.ToString();
+        chat.ProjectName = "Lumi";
+        chat.SelectNewWorktreeCommand.Execute(null);
+
+        await chat.RemoveProjectCommand.ExecuteAsync(null);
+        chat.PromptText = "hello";
+        await chat.SendCommand.ExecuteAsync(null);
+
+        Assert.False(chat.UseWorktree);
+        Assert.Null(sink.LastCommand?.Get("projectId"));
+        Assert.Null(sink.LastCommand?.Get("worktree"));
+    }
+
+    [Fact]
+    public async Task FailedWorktreeCreationKeepsTheIntentForTheAdoptedChatRetry()
+    {
+        var createdChatId = Guid.NewGuid();
+        var sink = new WorktreeRetrySink(createdChatId);
+        var chat = new MobileChatViewModel(sink);
+        var projectId = Guid.NewGuid();
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject
+            {
+                Id = projectId,
+                Name = "Lumi",
+                IsCodingProject = true
+            }
+        ]);
+        chat.Reset(Guid.Empty, "New chat");
+        chat.ProjectValue = projectId.ToString();
+        chat.ProjectName = "Lumi";
+        chat.SelectNewWorktreeCommand.Execute(null);
+        chat.ChatCreated += (chatId, generation) =>
+            Assert.True(chat.TryAdoptCreatedChat(chatId, generation));
+        chat.PromptText = "fix the build";
+
+        await chat.SendCommand.ExecuteAsync(null);
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = createdChatId,
+            Revision = 1,
+            TotalRawMessageCount = 0,
+            Status = new RemoteChatStatus
+            {
+                ChatId = createdChatId,
+                ProjectId = projectId,
+                ProjectName = "Lumi",
+                UsesWorktree = false
+            }
+        });
+        await chat.FlushPendingConfigurationAsync();
+
+        Assert.Equal(createdChatId, chat.ChatId);
+        Assert.True(chat.UseWorktree);
+        Assert.True(chat.CanChooseWorktree);
+        Assert.Equal("fix the build", chat.PromptText);
+        Assert.DoesNotContain(
+            sink.Commands,
+            command => command.Action == RemoteProtocol.Actions.ConfigureChat);
+
+        await chat.SendCommand.ExecuteAsync(null);
+
+        var sends = sink.Commands
+            .Where(command => command.Action == RemoteProtocol.Actions.SendMessage)
+            .ToArray();
+        Assert.Equal(2, sends.Length);
+        Assert.Equal(createdChatId.ToString(), sends[1].Get("chatId"));
+        Assert.Equal("true", sends[1].Get("worktree"));
+    }
+
+    [Fact]
+    public void EmptyExistingChatReflectsItsPersistedWorktreeState()
+    {
+        var chat = new MobileChatViewModel(new RecordingSink());
+        var projectId = Guid.NewGuid();
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject
+            {
+                Id = projectId,
+                Name = "Lumi",
+                IsCodingProject = true
+            }
+        ]);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Empty");
+
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 1,
+            TotalRawMessageCount = 0,
+            Status = new RemoteChatStatus
+            {
+                ChatId = chatId,
+                ProjectId = projectId,
+                ProjectName = "Lumi",
+                UsesWorktree = true
+            }
+        });
+
+        Assert.True(chat.CanChooseWorktree);
+        Assert.True(chat.UseWorktree);
+        Assert.Equal("New worktree", chat.WorkspaceSummary);
+    }
+
+    [Fact]
+    public void CatalogRefreshDoesNotOverrideAnExistingChatsLocalWorkspace()
+    {
+        var projectId = Guid.NewGuid();
+        var chatId = Guid.NewGuid();
+        var project = new RemoteProject
+        {
+            Id = projectId,
+            Name = "Lumi",
+            IsCodingProject = true,
+            DefaultNewChatsUseWorktree = true
+        };
+        var chat = new MobileChatViewModel(new RecordingSink());
+        chat.ApplyProjectCatalog([project]);
+        chat.Reset(chatId, "Empty");
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 1,
+            TotalRawMessageCount = 0,
+            Status = new RemoteChatStatus
+            {
+                ChatId = chatId,
+                ProjectId = projectId,
+                ProjectName = "Lumi",
+                UsesWorktree = false
+            }
+        });
+
+        chat.ApplyProjectCatalog([project]);
+
+        Assert.False(chat.UseWorktree);
+        Assert.True(chat.IsLocalWorkspaceSelected);
+    }
+
+    [Fact]
+    public async Task LocalSelectionStagesDetachEvenWhenMissingWorktreeProjectsAsLocal()
+    {
+        var sink = new RecordingSink();
+        var projectId = Guid.NewGuid();
+        var chatId = Guid.NewGuid();
+        var chat = new MobileChatViewModel(sink);
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject { Id = projectId, Name = "Lumi", IsCodingProject = true }
+        ]);
+        chat.Reset(chatId, "Empty");
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 1,
+            TotalRawMessageCount = 0,
+            Status = new RemoteChatStatus
+            {
+                ChatId = chatId,
+                ProjectId = projectId,
+                ProjectName = "Lumi",
+                UsesWorktree = false
+            }
+        });
+
+        chat.SelectLocalWorkspaceCommand.Execute(null);
+        chat.PromptText = "run locally";
+        await chat.SendCommand.ExecuteAsync(null);
+
+        var send = Assert.Single(
+            sink.Commands,
+            command => command.Action == RemoteProtocol.Actions.SendMessage);
+        Assert.Equal("false", send.Get("worktree"));
+    }
+
+    [Fact]
+    public async Task AuthoritativeFirstTurnClearsStaleDeferredWorktreeIntent()
+    {
+        var sink = new RecordingSink();
+        var projectId = Guid.NewGuid();
+        var chatId = Guid.NewGuid();
+        var chat = new MobileChatViewModel(sink);
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject { Id = projectId, Name = "Lumi", IsCodingProject = true }
+        ]);
+        chat.Reset(chatId, "Empty");
+        chat.ProjectValue = projectId.ToString();
+        chat.ProjectName = "Lumi";
+        chat.SelectNewWorktreeCommand.Execute(null);
+
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 1,
+            TotalRawMessageCount = 1,
+            Status = new RemoteChatStatus
+            {
+                ChatId = chatId,
+                ProjectId = projectId,
+                ProjectName = "Lumi",
+                UsesWorktree = false
+            }
+        });
+        chat.PromptText = "follow up";
+        await chat.SendCommand.ExecuteAsync(null);
+
+        var send = Assert.Single(
+            sink.Commands,
+            command => command.Action == RemoteProtocol.Actions.SendMessage);
+        Assert.Null(send.Get("worktree"));
+    }
+
+    [Fact]
+    public async Task TranscriptInvalidationRevokesEmptyHistoryAuthorityAndWorkspaceIntent()
+    {
+        var sink = new RecordingSink();
+        var projectId = Guid.NewGuid();
+        var chatId = Guid.NewGuid();
+        var chat = new MobileChatViewModel(sink);
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject { Id = projectId, Name = "Lumi", IsCodingProject = true }
+        ]);
+        chat.Reset(chatId, "Empty");
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 1,
+            TotalRawMessageCount = 0,
+            Status = new RemoteChatStatus
+            {
+                ChatId = chatId,
+                ProjectId = projectId,
+                ProjectName = "Lumi",
+                UsesWorktree = false
+            }
+        });
+        chat.SelectNewWorktreeCommand.Execute(null);
+        Assert.True(chat.CanChooseWorktree);
+
+        chat.InvalidateTranscriptAuthority();
+        chat.PromptText = "send safely";
+        await chat.SendCommand.ExecuteAsync(null);
+
+        Assert.False(chat.CanChooseWorktree);
+        var send = Assert.Single(
+            sink.Commands,
+            command => command.Action == RemoteProtocol.Actions.SendMessage);
+        Assert.Null(send.Get("worktree"));
+    }
+
+    [Fact]
+    public async Task EmptyChatStagesProjectAndWorkspaceTogetherUntilSend()
+    {
+        var sink = new RecordingSink();
+        var oldProjectId = Guid.NewGuid();
+        var newProjectId = Guid.NewGuid();
+        var chatId = Guid.NewGuid();
+        var chat = new MobileChatViewModel(sink);
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject { Id = oldProjectId, Name = "Old", IsCodingProject = true },
+            new RemoteProject { Id = newProjectId, Name = "New", IsCodingProject = true }
+        ]);
+        chat.Reset(chatId, "Empty");
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 1,
+            TotalRawMessageCount = 0,
+            Status = new RemoteChatStatus
+            {
+                ChatId = chatId,
+                ProjectId = oldProjectId,
+                ProjectName = "Old",
+                UsesWorktree = true
+            }
+        });
+
+        chat.ProjectValue = newProjectId.ToString();
+        chat.ProjectName = "New";
+        chat.SelectNewWorktreeCommand.Execute(null);
+        await Task.Delay(50);
+
+        Assert.DoesNotContain(
+            sink.Commands,
+            command => command.Action == RemoteProtocol.Actions.ConfigureChat
+                       && command.Get("projectId") == newProjectId.ToString());
+
+        chat.PromptText = "switch";
+        await chat.SendCommand.ExecuteAsync(null);
+
+        var send = Assert.Single(
+            sink.Commands,
+            command => command.Action == RemoteProtocol.Actions.SendMessage);
+        Assert.Equal(newProjectId.ToString(), send.Get("projectId"));
+        Assert.Equal("true", send.Get("worktree"));
+    }
+
+    [Fact]
+    public async Task ReopeningStagedProjectSwitchDoesNotFlushProjectBeforeWorkspace()
+    {
+        var sink = new RecordingSink();
+        var oldProjectId = Guid.NewGuid();
+        var newProjectId = Guid.NewGuid();
+        var chatId = Guid.NewGuid();
+        var chat = new MobileChatViewModel(sink);
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject { Id = oldProjectId, Name = "Old", IsCodingProject = true },
+            new RemoteProject { Id = newProjectId, Name = "New", IsCodingProject = true }
+        ]);
+        chat.Reset(chatId, "Empty");
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 1,
+            TotalRawMessageCount = 0,
+            Status = new RemoteChatStatus
+            {
+                ChatId = chatId,
+                ProjectId = oldProjectId,
+                ProjectName = "Old",
+                UsesWorktree = true
+            }
+        });
+        chat.ProjectValue = newProjectId.ToString();
+        chat.ProjectName = "New";
+        chat.SelectNewWorktreeCommand.Execute(null);
+
+        chat.Reset(Guid.NewGuid(), "Other");
+        sink.Commands.Clear();
+        chat.Reset(chatId, "Empty");
+        await Task.Delay(50);
+
+        Assert.DoesNotContain(
+            sink.Commands,
+            command => command.Action == RemoteProtocol.Actions.ConfigureChat
+                       && command.Get("projectId") == newProjectId.ToString());
+
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 2,
+            TotalRawMessageCount = 0,
+            Status = new RemoteChatStatus
+            {
+                ChatId = chatId,
+                ProjectId = oldProjectId,
+                ProjectName = "Old",
+                UsesWorktree = true
+            }
+        });
+        chat.PromptText = "switch";
+        await chat.SendCommand.ExecuteAsync(null);
+
+        var send = Assert.Single(
+            sink.Commands,
+            command => command.Action == RemoteProtocol.Actions.SendMessage);
+        Assert.Equal(newProjectId.ToString(), send.Get("projectId"));
+        Assert.Equal("true", send.Get("worktree"));
+    }
+
+    [Fact]
+    public async Task AmbiguousRetryLocksWorkspaceChoiceUntilItIsResolved()
+    {
+        var projectId = Guid.NewGuid();
+        var chatId = Guid.NewGuid();
+        var chat = new MobileChatViewModel(new TimeoutCommandSink());
+        chat.ApplyProjectCatalog(
+        [
+            new RemoteProject { Id = projectId, Name = "Lumi", IsCodingProject = true }
+        ]);
+        chat.Reset(chatId, "Empty");
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 1,
+            TotalRawMessageCount = 0,
+            Status = new RemoteChatStatus
+            {
+                ChatId = chatId,
+                ProjectId = projectId,
+                ProjectName = "Lumi",
+                UsesWorktree = true
+            }
+        });
+        Assert.True(chat.UseWorktree);
+        chat.PromptText = "retry";
+
+        await chat.SendCommand.ExecuteAsync(null);
+        Assert.True(chat.UseWorktree);
+        chat.SelectLocalWorkspaceCommand.Execute(null);
+
+        Assert.False(chat.CanChooseWorktree);
+        Assert.True(chat.UseWorktree);
     }
 
     [Theory]
@@ -1240,11 +2282,13 @@ public sealed class MobileStateCorrectnessTests
     private sealed class RecordingSink : IRemoteCommandSink, IRemoteLibraryDetailSink
     {
         public RemoteCommand? LastCommand { get; private set; }
+        public List<RemoteCommand> Commands { get; } = [];
         public RemoteLibraryItem? LibraryItem { get; set; }
 
         public Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command)
         {
             LastCommand = command;
+            Commands.Add(command);
             return Task.FromResult(new RemoteCommandResult { Ok = true });
         }
 
@@ -1253,6 +2297,53 @@ public sealed class MobileStateCorrectnessTests
 
         public Task<RemoteLibraryItem?> GetLibraryItemAsync(string resource, string identifier) =>
             Task.FromResult(LibraryItem);
+    }
+
+    private sealed class WorktreeRetrySink(Guid createdChatId) : IRemoteCommandSink
+    {
+        private int _sendCount;
+
+        public List<RemoteCommand> Commands { get; } = [];
+
+        public Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command)
+        {
+            Commands.Add(command);
+            if (command.Action == RemoteProtocol.Actions.SendMessage && ++_sendCount == 1)
+            {
+                return Task.FromResult(new RemoteCommandResult
+                {
+                    Error = "Lumi could not create the worktree.",
+                    ChatId = createdChatId
+                });
+            }
+
+            return Task.FromResult(new RemoteCommandResult
+            {
+                Ok = true,
+                ChatId = createdChatId
+            });
+        }
+
+        public Task<RemoteUploadResponse> UploadAsync(
+            string fileName,
+            ReadOnlyMemory<byte> content) =>
+            Task.FromResult(new RemoteUploadResponse { Ok = true });
+    }
+
+    private sealed class TimeoutCommandSink : IRemoteCommandSink
+    {
+        public Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command) =>
+            Task.FromResult(new RemoteCommandResult
+            {
+                Error = "Lumi took too long to answer.",
+                RequestId = command.RequestId,
+                IsTimeout = true
+            });
+
+        public Task<RemoteUploadResponse> UploadAsync(
+            string fileName,
+            ReadOnlyMemory<byte> content) =>
+            Task.FromResult(new RemoteUploadResponse { Ok = true });
     }
 
     private static async Task WaitForCommandAsync(RecordingSink sink, string argument)

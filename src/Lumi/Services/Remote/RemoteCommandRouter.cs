@@ -29,7 +29,7 @@ internal sealed class RemoteCommandRouter
         CancellationToken,
         string?,
         string?,
-        Task<string?>> _startExternalMessageAsync;
+        Task<string?>>? _startExternalMessageAsync;
 
     /// <summary>
     /// Raised after a phone edit changes projects/skills/lumis/memories/MCPs/jobs, so the event hub
@@ -50,15 +50,7 @@ internal sealed class RemoteCommandRouter
     {
         _dataStore = dataStore;
         _main = main;
-        _startExternalMessageAsync = startExternalMessageAsync
-            ?? (static (chatVm, chat, message, cancellationToken, model, effort) =>
-                chatVm.StartExternalMessageAsync(
-                    chat,
-                    message,
-                    "Lumi Mobile",
-                    cancellationToken,
-                    model,
-                    effort));
+        _startExternalMessageAsync = startExternalMessageAsync;
     }
 
     public async Task<RemoteCommandResult> ExecuteAsync(RemoteCommand command, CancellationToken cancellationToken)
@@ -67,7 +59,7 @@ internal sealed class RemoteCommandRouter
         return action switch
         {
             RemoteProtocol.Actions.CreateChat => await CreateChatAsync(command),
-            RemoteProtocol.Actions.OpenChat => ValidateChat(command),
+            RemoteProtocol.Actions.OpenChat => await MarkChatReadAsync(command),
             RemoteProtocol.Actions.DeleteChat => await DeleteChatAsync(command),
             RemoteProtocol.Actions.RenameChat => await RenameChatAsync(command),
             RemoteProtocol.Actions.PinChat => await PinChatAsync(command),
@@ -186,12 +178,25 @@ internal sealed class RemoteCommandRouter
         }
     }
 
-    private RemoteCommandResult ValidateChat(RemoteCommand command)
+    private async Task<RemoteCommandResult> MarkChatReadAsync(RemoteCommand command)
     {
         if (ResolveChat(command) is not { } chat)
             return Fail("Chat not found.");
 
-        return Success("Chat available.", chat.Id);
+        if (!chat.HasUnreadMessages)
+            return Success("Chat available.", chat.Id);
+
+        if (command.GetInt("readThroughMessageCount") is { } readThroughMessageCount &&
+            RemoteProjector.GetEffectiveMessageCount(chat) > readThroughMessageCount)
+        {
+            return Success("Newer activity remains unread.", chat.Id);
+        }
+
+        chat.HasUnreadMessages = false;
+        _dataStore.MarkChatChanged(chat);
+        await _dataStore.SaveAsync().ConfigureAwait(true);
+        _main.RefreshChatList();
+        return Success("Chat marked read.", chat.Id);
     }
 
     private async Task<RemoteCommandResult> DeleteChatAsync(RemoteCommand command)
@@ -200,10 +205,12 @@ internal sealed class RemoteCommandRouter
             return Fail("chatId is required.");
         if (ResolveExplicitChat(command) is not { } chat)
             return Fail("Chat not found.");
+        if (_main.IsChatFirstTurnReserved(chat.Id))
+            return Fail("That chat is starting its first turn and cannot be deleted yet.", chat.Id);
 
         return await _main.DeleteChatKeepingWorktreeAsync(chat).ConfigureAwait(true)
             ? Success("Chat deleted.", chat.Id)
-            : Fail("Chat not found.");
+            : Fail("Chat could not be deleted.", chat.Id);
     }
 
     private async Task<RemoteCommandResult> RenameChatAsync(RemoteCommand command)
@@ -241,6 +248,19 @@ internal sealed class RemoteCommandRouter
     {
         if (command.Get("message") is not { Length: > 0 } message)
             return Fail("message is required.");
+
+        if (command is
+            {
+                AuthenticatedDeviceId: { Length: > 0 } deviceId,
+                RequestId: { Length: > 0 } requestId
+            })
+        {
+            var acceptedChat = _dataStore.Data.Chats.FirstOrDefault(candidate =>
+                string.Equals(candidate.LastRemoteDeviceId, deviceId, StringComparison.Ordinal)
+                && string.Equals(candidate.LastRemoteRequestId, requestId, StringComparison.Ordinal));
+            if (acceptedChat is not null)
+                return Success("Message already accepted.", acceptedChat.Id);
+        }
 
         // A phone that defers chat creation has no id to send. Falling through to ResolveChat there
         // would resolve to "whichever chat the desktop currently has open" and post into an unrelated
@@ -281,9 +301,8 @@ internal sealed class RemoteCommandRouter
             if (owner.CurrentChat?.Id != chat.Id)
                 return Fail("Lumi could not activate that chat's surface.", chat.Id);
 
-            // A deferred phone chat is created by this send. Apply every staged run-setting before
-            // StartExternalMessageAsync snapshots model/provider/effort/context/agent/skill/MCP state.
-            ApplyChatConfiguration(owner, command, projectSelection, agentSelection);
+            if (owner.IsExternalSendReserved(chat.Id))
+                return Fail("That chat is already starting a turn.", chat.Id);
 
             if (owner.IsChatBusy(chat.Id))
             {
@@ -300,21 +319,192 @@ internal sealed class RemoteCommandRouter
                     : Fail("Lumi could not steer that message.", chat.Id);
             }
 
+            var initiallyEmpty = chat.MessageCount == 0 && chat.Messages.Count == 0;
+            using var firstTurnReservation = initiallyEmpty
+                ? owner.TryReserveExternalSend(chat.Id)
+                : null;
+            if (initiallyEmpty && firstTurnReservation is null)
+                return Fail("That chat is already starting a turn.", chat.Id);
+            if (!initiallyEmpty && owner.IsExternalSendReserved(chat.Id))
+                return Fail("That chat is already starting a turn.", chat.Id);
+
+            var previousProjectId = chat.ProjectId;
+            var previousWorktreePath = chat.WorktreePath;
+            if (firstTurnReservation?.IsCancellationRequested == true)
+                return Fail("The pending turn start was canceled.", chat.Id);
+
+            var projectChangeError = await PrepareProjectChangeAsync(
+                    owner,
+                    chat,
+                    projectSelection)
+                .ConfigureAwait(true);
+            if (projectChangeError is not null)
+                return Fail(projectChangeError, chat.Id);
+            if (firstTurnReservation?.IsCancellationRequested == true)
+            {
+                if (previousWorktreePath is { Length: > 0 }
+                    && chat.ProjectId == previousProjectId
+                    && string.IsNullOrWhiteSpace(chat.WorktreePath))
+                {
+                    var restoreError = await owner
+                        .RestoreWorktreeForExternalChatAsync(chat, previousWorktreePath)
+                        .ConfigureAwait(true);
+                    if (restoreError is not null)
+                        return Fail(restoreError, chat.Id);
+                }
+
+                return Fail("The pending turn start was canceled.", chat.Id);
+            }
+
+            var explicitWorktree = command.GetBool("worktree");
+            var chatHasStarted = chat.MessageCount > 0 || chat.Messages.Count > 0;
+            if (explicitWorktree == false &&
+                chatHasStarted &&
+                !string.IsNullOrWhiteSpace(chat.WorktreePath))
+            {
+                return Fail(
+                    "A worktree can only be detached before the first message.",
+                    chat.Id);
+            }
+
+            // A deferred phone chat is created by this send. Apply every staged run-setting before
+            // StartExternalMessageAsync snapshots model/provider/effort/context/agent/skill/MCP state.
+            ApplyChatConfiguration(owner, command, projectSelection, agentSelection);
+
+            var project = chat.ProjectId is { } projectId
+                ? _dataStore.Data.Projects.FirstOrDefault(candidate => candidate.Id == projectId)
+                : null;
+            var useWorktree = explicitWorktree
+                              ?? (createdChat
+                                  && project?.DefaultNewChatsUseWorktree == true
+                                  && GitService.IsGitRepo(project.WorkingDirectory ?? ""));
+            var projectChanged = previousProjectId != chat.ProjectId;
+            var reservedProjectId = firstTurnReservation is null ? null : chat.ProjectId;
+            var reservedProjectDirectory = firstTurnReservation is null
+                ? null
+                : project?.WorkingDirectory;
+            var hadWorktreeReference = previousWorktreePath is { Length: > 0 };
+            var hadReusableWorktree = hadWorktreeReference
+                                      && Directory.Exists(previousWorktreePath);
+            var emptyChat = chat.MessageCount == 0 && chat.Messages.Count == 0;
+            ChatViewModel.ExternalWorktreeCreationResult worktreeCreation = default;
+
+            if (hadWorktreeReference && emptyChat && (explicitWorktree == false || projectChanged))
+            {
+                var clearError = await owner
+                    .ClearWorktreeForExternalChatAsync(chat)
+                    .ConfigureAwait(true);
+                if (clearError is not null)
+                    return Fail(clearError, chat.Id);
+                hadReusableWorktree = false;
+            }
+
+            if (useWorktree == true)
+            {
+                var canCreateWorktree = createdChat
+                                        || emptyChat;
+                if (!hadReusableWorktree && !canCreateWorktree)
+                    return Fail("A worktree can only be created before the first message.", chat.Id);
+
+                if (!hadReusableWorktree)
+                {
+                    var worktreeResult = await owner
+                        .CreateWorktreeForExternalChatAsync(chat)
+                        .ConfigureAwait(true);
+                    if (worktreeResult.Error is not null)
+                        return Fail(worktreeResult.Error, chat.Id);
+                    if (worktreeResult.CreatedByThisCall)
+                        worktreeCreation = worktreeResult;
+                }
+            }
+
+            if (firstTurnReservation?.IsCancellationRequested == true)
+            {
+                var cleanupError = await CleanupCanceledWorktreeAsync(
+                        owner,
+                        chat,
+                        worktreeCreation)
+                    .ConfigureAwait(true);
+                if (cleanupError is not null)
+                    return Fail(cleanupError, chat.Id);
+
+                return Fail("The pending turn start was canceled.", chat.Id);
+            }
+
             // Acknowledge only after the message has been persisted and the runtime marked active.
             // A newly-created chat already carries these settings on its owner, so do not apply a
             // second per-send override after the configuration snapshot.
-            var error = await _startExternalMessageAsync(
-                owner,
-                chat,
-                message,
-                cancellationToken,
-                createdChat ? null : command.Get("model"),
-                createdChat ? null : command.Get("reasoningEffort") ?? command.Get("quality"))
-                .ConfigureAwait(true);
-            if (!string.IsNullOrWhiteSpace(error))
-                return Fail(error, chat.Id);
+            var model = createdChat ? null : command.Get("model");
+            var effort = createdChat ? null : command.Get("reasoningEffort") ?? command.Get("quality");
+            var startResult = _startExternalMessageAsync is null
+                ? await owner.StartExternalMessageAsync(
+                        chat,
+                        message,
+                        "Lumi Mobile",
+                        cancellationToken,
+                        model,
+                        effort,
+                        firstTurnReservation?.Token,
+                        reservedProjectId,
+                        reservedProjectDirectory,
+                        command.AuthenticatedDeviceId,
+                        command.RequestId)
+                    .ConfigureAwait(true)
+                : await StartInjectedMessageAsync().ConfigureAwait(true);
 
-            return Success("Message sent.", chat.Id);
+            // Once the user message is persisted and the runtime is active, success is irrevocable.
+            // A later project edit or Stop is a new action; reporting this accepted request as failed
+            // would invite a duplicate retry and could remove the worktree from under the live turn.
+            if (startResult.Accepted)
+                return Success("Message sent.", chat.Id);
+
+            if (firstTurnReservation is not null &&
+                !owner.IsExternalProjectContextCurrent(
+                    chat,
+                    reservedProjectId,
+                    reservedProjectDirectory))
+            {
+                var cleanupError = await CleanupCanceledWorktreeAsync(
+                        owner,
+                        chat,
+                        worktreeCreation)
+                    .ConfigureAwait(true);
+                if (cleanupError is not null)
+                    return Fail(cleanupError, chat.Id);
+
+                return Fail("The chat project changed while its turn was starting.", chat.Id);
+            }
+            if (firstTurnReservation?.IsCancellationRequested == true)
+            {
+                var cleanupError = await CleanupCanceledWorktreeAsync(
+                        owner,
+                        chat,
+                        worktreeCreation)
+                    .ConfigureAwait(true);
+                if (cleanupError is not null)
+                    return Fail(cleanupError, chat.Id);
+
+                return Fail("The pending turn start was canceled.", chat.Id);
+            }
+            if (!string.IsNullOrWhiteSpace(startResult.Error))
+                return Fail(startResult.Error, chat.Id);
+
+            return Fail("Lumi could not start that message.", chat.Id);
+
+            async Task<ChatViewModel.ExternalMessageStartResult> StartInjectedMessageAsync()
+            {
+                var error = await _startExternalMessageAsync!(
+                        owner,
+                        chat,
+                        message,
+                        cancellationToken,
+                        model,
+                        effort)
+                    .ConfigureAwait(true);
+                return string.IsNullOrWhiteSpace(error)
+                    ? ChatViewModel.ExternalMessageStartResult.Success
+                    : ChatViewModel.ExternalMessageStartResult.Rejected(error);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -328,6 +518,26 @@ internal sealed class RemoteCommandRouter
         }
     }
 
+    private static async Task<string?> CleanupCanceledWorktreeAsync(
+        ChatViewModel owner,
+        Chat chat,
+        ChatViewModel.ExternalWorktreeCreationResult worktreeCreation)
+    {
+        if (!worktreeCreation.CreatedByThisCall ||
+            worktreeCreation.WorktreePath is not { Length: > 0 } createdWorktreePath ||
+            worktreeCreation.ProjectDirectory is not { Length: > 0 } projectDirectory)
+        {
+            return null;
+        }
+
+        return await owner
+            .RemoveCreatedWorktreeForExternalChatAsync(
+                chat,
+                createdWorktreePath,
+                projectDirectory)
+            .ConfigureAwait(true);
+    }
+
     private async Task<RemoteCommandResult> StopGenerationAsync(RemoteCommand command)
     {
         if (ResolveChat(command) is not { } chat)
@@ -337,8 +547,11 @@ internal sealed class RemoteCommandRouter
         if (owner is null || owner.CurrentChat?.Id != chat.Id)
             return Fail("Lumi could not activate that chat's live surface.", chat.Id);
 
+        if (owner.CancelExternalSendReservation(chat.Id))
+            return Success("Pending turn start canceled.", chat.Id);
+
         if (!owner.IsChatBusy(chat.Id))
-            return Fail("That chat is not currently running.", chat.Id);
+            return Success("That chat is already stopped.", chat.Id);
 
         var error = await owner.TryStopGenerationAsync().ConfigureAwait(true);
         return error is null
@@ -390,6 +603,17 @@ internal sealed class RemoteCommandRouter
         var chatVm = await ResolveChatOwnerAsync(chat).ConfigureAwait(true);
         if (chatVm is null || chatVm.CurrentChat?.Id != chat.Id)
             return Fail("Lumi could not activate that chat's surface.", chat.Id);
+
+        if (projectSelection.IsSpecified && chatVm.IsExternalSendReserved(chat.Id))
+            return Fail("That chat is already starting a turn.", chat.Id);
+
+        var projectChangeError = await PrepareProjectChangeAsync(
+                chatVm,
+                chat,
+                projectSelection)
+            .ConfigureAwait(true);
+        if (projectChangeError is not null)
+            return Fail(projectChangeError, chat.Id);
 
         var applied = ApplyChatConfiguration(chatVm, command, projectSelection, agentSelection);
         if (applied.Count == 0)
@@ -475,6 +699,28 @@ internal sealed class RemoteCommandRouter
         }
 
         return applied;
+    }
+
+    private async Task<string?> PrepareProjectChangeAsync(
+        ChatViewModel chatVm,
+        Chat chat,
+        ProjectSelection projectSelection)
+    {
+        if (!projectSelection.IsSpecified ||
+            projectSelection.ProjectId == chat.ProjectId ||
+            string.IsNullOrWhiteSpace(chat.WorktreePath))
+        {
+            return null;
+        }
+
+        if (chat.MessageCount > 0 || chat.Messages.Count > 0)
+        {
+            return "A chat with messages cannot change projects while it is attached to a worktree.";
+        }
+
+        return await chatVm
+            .ClearWorktreeForExternalChatAsync(chat)
+            .ConfigureAwait(true);
     }
 
     private bool TryResolveProjectSelection(

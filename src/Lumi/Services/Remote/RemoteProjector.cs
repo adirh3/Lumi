@@ -42,24 +42,34 @@ internal static class RemoteProjector
         "bash", "shell", "powershell", "run_command", "execute_command", "terminal"
     };
 
-    public static RemoteSnapshot BuildSnapshot(DataStore dataStore, MainViewModel main, IReadOnlyList<string> models)
+    public static RemoteSnapshot BuildSnapshot(
+        DataStore dataStore,
+        MainViewModel main,
+        IReadOnlyList<string> models,
+        bool includeChatList = true,
+        bool includeLibrary = true,
+        bool isPartial = false)
     {
         var activeChat = main.ChatVM.CurrentChat;
         return new RemoteSnapshot
         {
+            Capabilities = [.. RemoteProtocol.Capabilities.Server],
+            IsPartial = isPartial,
             HostName = Environment.MachineName,
             IsConnected = main.IsConnected,
             ConnectionStatus = main.ConnectionStatus,
             ActiveChatId = activeChat?.Id,
             ActiveChat = activeChat is null ? null : BuildChat(dataStore, activeChat, main),
-            Chats = BuildChatPage(
-                dataStore,
-                main,
-                offset: 0,
-                limit: RemoteProtocol.ChatPageSize,
-                query: null,
-                projectId: null),
-            Library = BuildLibrary(dataStore),
+            Chats = includeChatList
+                ? BuildChatPage(
+                    dataStore,
+                    main,
+                    offset: 0,
+                    limit: RemoteProtocol.ChatPageSize,
+                    query: null,
+                    projectId: null)
+                : new RemoteChatPage(),
+            Library = includeLibrary ? BuildLibrary(dataStore) : new RemoteLibrary(),
             Settings = BuildSettings(dataStore, models, main.ChatVM)
         };
     }
@@ -152,7 +162,7 @@ internal static class RemoteProjector
             AgentId = chat.AgentId,
             AgentName = agent?.Name,
             AgentGlyph = agent?.IconGlyph,
-            MessageCount = chat.MessageCount,
+            MessageCount = GetEffectiveMessageCount(chat),
             UpdatedAt = chat.UpdatedAt,
             IsPinned = chat.IsPinned,
             IsRunning = owner?.IsChatBusy(chat.Id) ?? chat.IsRunning,
@@ -161,6 +171,9 @@ internal static class RemoteProjector
             Preview = GetChatPreview(chat, owner)
         };
     }
+
+    internal static int GetEffectiveMessageCount(Chat chat) =>
+        Math.Max(chat.MessageCount, chat.Messages.Count);
 
     private sealed record ChatProjectionContext(
         Dictionary<Guid, Project> Projects,
@@ -267,6 +280,8 @@ internal static class RemoteProjector
                 : agent?.IconGlyph ?? (chat.SdkAgentName is null ? null : ExternalAgentGlyph),
             ProjectName = isActive ? chatVm.SelectedProjectName : project?.Name,
             ProjectId = chat.ProjectId,
+            UsesWorktree = chat.WorktreePath is { Length: > 0 } worktreePath
+                           && Directory.Exists(worktreePath),
             SkillNames = isActive
                 ? ChipNames(chatVm.ActiveSkillChips)
                 :
@@ -337,7 +352,9 @@ internal static class RemoteProjector
                 Id = project.Id,
                 Name = BoundRequired(project.Name, RemoteProtocol.MobileMetadataTextLimit),
                 Instructions = BoundOptional(project.Instructions, RemoteProtocol.MobileLibraryPreviewLimit),
-                ChatCount = data.Chats.Count(chat => chat.ProjectId == project.Id)
+                ChatCount = data.Chats.Count(chat => chat.ProjectId == project.Id),
+                IsCodingProject = GitService.IsGitRepo(project.WorkingDirectory ?? ""),
+                DefaultNewChatsUseWorktree = project.DefaultNewChatsUseWorktree
             }).ToList(),
             Skills = data.Skills.Select(skill => new RemoteSkill
             {
@@ -812,6 +829,7 @@ internal static class RemoteProjector
             message.Content,
             RemoteProtocol.MobileUserTextLimit),
         Author = message.Author,
+        RequestId = message.RemoteRequestId,
         Timestamp = message.Timestamp,
         SteerState = message.SteerDelivery == MessageSteerState.None
             ? null
@@ -920,7 +938,8 @@ internal static class RemoteProjector
             IsBusy = transcript.Status.IsBusy,
             IsStreaming = transcript.Status.IsStreaming,
             ContextCurrentTokens = transcript.Status.ContextCurrentTokens,
-            ContextTokenLimit = transcript.Status.ContextTokenLimit
+            ContextTokenLimit = transcript.Status.ContextTokenLimit,
+            UsesWorktree = transcript.Status.UsesWorktree
         };
         transcript.Turns =
         [
@@ -1130,6 +1149,7 @@ internal static class RemoteProjector
             AgentGlyph = BoundOptional(status.AgentGlyph, RemoteProtocol.MobileStatusValueLimit),
             ProjectName = BoundOptional(status.ProjectName, RemoteProtocol.MobileMetadataTextLimit),
             ProjectId = status.ProjectId,
+            UsesWorktree = status.UsesWorktree,
             SkillNames = BoundStrings(
                 status.SkillNames,
                 RemoteProtocol.MobileMetadataTextLimit),

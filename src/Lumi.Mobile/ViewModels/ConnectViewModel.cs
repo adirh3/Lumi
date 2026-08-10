@@ -225,7 +225,8 @@ public sealed partial class ConnectViewModel : ObservableObject
                 return;
             }
 
-            if (hello.ProtocolVersion != RemoteProtocol.Version)
+            if (!RemoteProtocol.IsCompatibleVersion(hello.ProtocolVersion)
+                || !RemoteProtocol.HasRequiredCapabilities(hello.Capabilities))
             {
                 ErrorText = "That Lumi is a different version. Update both apps and try again.";
                 Step = ConnectStep.FindPc;

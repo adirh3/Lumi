@@ -423,10 +423,57 @@ public sealed class RemoteEndToEndTests
     },
     seed: data =>
     {
-        data.Chats.Add(new Chat { Id = Guid.NewGuid(), Title = "Configurable", UpdatedAt = DateTimeOffset.Now });
+        data.Chats.Add(new Chat
+        {
+            Id = Guid.NewGuid(),
+            Title = "Configurable",
+            UpdatedAt = DateTimeOffset.Now,
+            MessageCount = 1,
+            Messages =
+            [
+                new ChatMessage
+                {
+                    Id = Guid.NewGuid(),
+                    Role = "assistant",
+                    Content = "Existing conversation",
+                    Timestamp = DateTime.UtcNow
+                }
+            ]
+        });
+
         data.Projects.Add(new Project { Id = Guid.NewGuid(), Name = "Apollo" });
         data.Skills.Add(new Skill { Id = Guid.NewGuid(), Name = "Deploy", IconGlyph = "🚀" });
         data.Agents.Add(new LumiAgent { Id = Guid.NewGuid(), Name = "Scout", IconGlyph = "🛰" });
+    });
+
+    [Fact]
+    public Task OpeningAChatOnThePhoneClearsItsUnreadStateOnTheDesktop() => RunAsync(async rig =>
+    {
+        await PairAsync(rig);
+        await WaitAsync(() => rig.Shell.IsConnected, "the event stream to attach");
+        await WaitAsync(
+            () => rig.Shell.ChatList.Groups.SelectMany(group => group.Chats)
+                .Any(chat => chat.Title == "Unread on phone"),
+            "the unread chat to reach the phone");
+
+        var item = rig.Shell.ChatList.Groups
+            .SelectMany(group => group.Chats)
+            .First(chat => chat.Title == "Unread on phone");
+        rig.Shell.ChatList.OpenChatCommand.Execute(item);
+
+        await WaitAsync(
+            () => !rig.DataStore.Data.Chats.Single(chat => chat.Title == "Unread on phone").HasUnreadMessages,
+            "opening the chat on the phone to mark it read");
+    },
+    seed: data =>
+    {
+        data.Chats.Add(new Chat
+        {
+            Id = Guid.NewGuid(),
+            Title = "Unread on phone",
+            UpdatedAt = DateTimeOffset.Now,
+            HasUnreadMessages = true
+        });
     });
 
     /// <summary>
@@ -1246,6 +1293,7 @@ public sealed class RemoteEndToEndTests
         var code = rig.Server.BeginPairing();
         var paired = await rig.Client.PairAsync(rig.BaseUrl, code, CancellationToken.None);
         Assert.True(paired.Ok, paired.Error);
+        Assert.NotNull(await rig.Client.GetSnapshotAsync(CancellationToken.None));
 
         var bytes = new byte[9 * 1024 * 1024];
         bytes[0] = 0x2A;
@@ -1280,6 +1328,7 @@ public sealed class RemoteEndToEndTests
         var code = rig.Server.BeginPairing();
         var paired = await rig.Client.PairAsync(rig.BaseUrl, code, CancellationToken.None);
         Assert.True(paired.Ok, paired.Error);
+        Assert.NotNull(await rig.Client.GetSnapshotAsync(CancellationToken.None));
 
         var firstBytes = Encoding.UTF8.GetBytes("first upload");
         var secondBytes = Encoding.UTF8.GetBytes("second upload");
@@ -1379,6 +1428,7 @@ public sealed class RemoteEndToEndTests
         var code = rig.Server.BeginPairing();
         var paired = await rig.Client.PairAsync(rig.BaseUrl, code, CancellationToken.None);
         Assert.True(paired.Ok, paired.Error);
+        Assert.NotNull(await rig.Client.GetSnapshotAsync(CancellationToken.None));
 
         var chat = Assert.Single(rig.DataStore.Data.Chats);
         rig.Main.ChatVM.CurrentChat = chat;
@@ -1425,6 +1475,7 @@ public sealed class RemoteEndToEndTests
             var code = rig.Server.BeginPairing();
             var paired = await rig.Client.PairAsync(rig.BaseUrl, code, CancellationToken.None);
             Assert.True(paired.Ok, paired.Error);
+            Assert.NotNull(await rig.Client.GetSnapshotAsync(CancellationToken.None));
             var command = new RemoteCommand(RemoteProtocol.Actions.SendMessage)
             {
                 RequestId = Guid.NewGuid().ToString("N")
@@ -1667,6 +1718,10 @@ public sealed class RemoteEndToEndTests
     {
         await PairAsync(rig);
         await WaitAsync(() => rig.Shell.IsConnected, "the event stream to attach");
+        rig.Shell.Page = MobilePage.Library;
+        await WaitAsync(
+            () => rig.Server.EventHub?.HasLibrarySubscriber() == true,
+            "the Library view subscription to reach the desktop");
 
         // Record the dedicated frame. Asserting only on Library.Entries is not enough: a separate
         // catalog snapshot or reconnect can also carry the library and make a broken push look live.
@@ -1710,6 +1765,10 @@ public sealed class RemoteEndToEndTests
     {
         await PairAsync(rig);
         await WaitAsync(() => rig.Shell.IsConnected, "the event stream to attach");
+        rig.Shell.Page = MobilePage.Library;
+        await WaitAsync(
+            () => rig.Server.EventHub?.HasLibrarySubscriber() == true,
+            "the Library view subscription to reach the desktop");
 
         var libraryFrames = 0;
         rig.Client.FrameReceived += frame =>
@@ -1741,8 +1800,12 @@ public sealed class RemoteEndToEndTests
     {
         await PairAsync(rig);
         await WaitAsync(() => rig.Shell.IsConnected, "the event stream to attach");
+        rig.Shell.IsDrawerOpen = true;
+        await WaitAsync(
+            () => rig.Server.EventHub?.HasChatListSubscriber() == true,
+            "the visible chat-list subscription to reach the desktop");
 
-        // A chat created on the PC must appear on the phone with no polling.
+        // A chat created on the PC appears live while the chat list is actually visible.
         var chat = new Chat { Id = Guid.NewGuid(), Title = "Typed on the PC", UpdatedAt = DateTimeOffset.Now };
         rig.DataStore.Data.Chats.Add(chat);
         rig.DataStore.MarkChatChanged(chat);
@@ -1751,6 +1814,49 @@ public sealed class RemoteEndToEndTests
         await WaitAsync(
             () => rig.Shell.ChatList.Groups.SelectMany(g => g.Chats).Any(c => c.Title == "Typed on the PC"),
             "the desktop's new chat to reach the phone");
+    });
+
+    [Fact]
+    public Task VisibleChatListTracksRunningStartAndCompletion() => RunAsync(async rig =>
+    {
+        var chat = rig.DataStore.Data.Chats.Single(candidate => candidate.Title == "Running row");
+        await PairAsync(rig);
+        await WaitAsync(() => rig.Shell.IsConnected, "the event stream to attach");
+        rig.Shell.IsDrawerOpen = true;
+        await WaitAsync(
+            () => rig.Server.EventHub?.HasChatListSubscriber() == true,
+            "the visible chat-list subscription to reach the desktop");
+        await WaitAsync(
+            () => rig.Shell.ChatList.Groups.SelectMany(group => group.Chats)
+                .Any(item => item.Id == chat.Id),
+            "the running-row chat to reach the phone");
+        await rig.Main.OpenChatByIdAsync(chat.Id);
+
+        var runtimeStates = (Dictionary<Guid, ChatRuntimeState>)typeof(ChatViewModel)
+            .GetField("_runtimeStates", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(rig.Main.ChatVM)!;
+        var runtime = new ChatRuntimeState { Chat = chat };
+        runtime.IsBusy = true;
+        runtimeStates[chat.Id] = runtime;
+        rig.Main.ChatVM.IsBusy = true;
+        await WaitAsync(
+            () => rig.Shell.ChatList.Groups.SelectMany(group => group.Chats)
+                .Single(item => item.Id == chat.Id).IsRunning,
+            "the row to show running");
+
+        runtime.IsBusy = false;
+        rig.Main.ChatVM.IsBusy = false;
+        await WaitAsync(
+            () => !rig.Shell.ChatList.Groups.SelectMany(group => group.Chats)
+                .Single(item => item.Id == chat.Id).IsRunning,
+            "the row to clear running");
+    }, data =>
+    {
+        data.Chats.Add(new Chat
+        {
+            Title = "Running row",
+            UpdatedAt = DateTimeOffset.Now
+        });
     });
 
     [Fact]
@@ -1939,6 +2045,7 @@ public sealed class RemoteEndToEndTests
     {
         Assert.NotNull(rig.Client.Token);
         Assert.NotNull(command.RequestId);
+        command.ProtocolVersion = RemoteProtocol.Version;
         using var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
         using var request = new HttpRequestMessage(
             HttpMethod.Post,

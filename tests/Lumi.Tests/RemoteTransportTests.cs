@@ -44,6 +44,20 @@ public sealed class RemoteTransportTests
     }
 
     [Fact]
+    public void CommandProtocolMustMatchTheCurrentWireVersion()
+    {
+        Assert.True(LumiRemoteServer.IsCompatibleCommand(new RemoteCommand
+        {
+            ProtocolVersion = RemoteProtocol.Version
+        }));
+        Assert.False(LumiRemoteServer.IsCompatibleCommand(new RemoteCommand
+        {
+            ProtocolVersion = RemoteProtocol.Version - 1
+        }));
+        Assert.False(LumiRemoteServer.IsCompatibleCommand(new RemoteCommand()));
+    }
+
+    [Fact]
     public void UploadQuotaBoundsEachDeviceAndTheSharedTemporaryStore()
     {
         Assert.True(LumiRemoteServer.CanAcceptUpload(0, 0, RemoteProtocol.MaxUploadBytes));
@@ -188,6 +202,37 @@ public sealed class RemoteTransportTests
 
         Assert.True(client.QueuedBytes <= RemoteEventClient.MaxQueuedBytes);
         Assert.True(client.QueuedFrames <= RemoteEventClient.MaxQueuedFrames);
+    }
+
+    [Fact]
+    public void EventSubscriptionIgnoresOutOfOrderNavigationUpdates()
+    {
+        var firstChat = Guid.NewGuid();
+        var staleChat = Guid.NewGuid();
+        using var client = new RemoteEventClient(
+            Stream.Null,
+            "device",
+            new RemoteEventSubscription
+            {
+                Generation = 2,
+                ChatId = firstChat,
+                IsForeground = true
+            });
+
+        Assert.False(client.TryUpdateSubscription(
+            new RemoteEventSubscription
+            {
+                Generation = 1,
+                ChatId = staleChat,
+                IncludeChatList = true,
+                IsForeground = true
+            },
+            out _,
+            out _));
+
+        Assert.True(client.WantsChat(firstChat));
+        Assert.False(client.WantsChat(staleChat));
+        Assert.False(client.WantsChatList);
     }
 
     [Fact]

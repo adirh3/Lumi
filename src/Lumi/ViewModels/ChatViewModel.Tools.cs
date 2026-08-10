@@ -983,6 +983,8 @@ public partial class ChatViewModel
                 return validation.Error;
 
             normalizedWorktreeRoot = validation.WorktreeRoot;
+            if (_dataStore.IsWorktreeCleanupReserved(normalizedWorktreeRoot))
+                return "That worktree is being cleaned up and cannot be selected right now.";
         }
 
         if (normalizedTitle is null && normalizedWorktreeRoot is null && !clearWorkspace)
@@ -1123,7 +1125,15 @@ public partial class ChatViewModel
             var desiredWorktreeRoot = clearWorkspace ? null : normalizedWorktreeRoot;
             if (!PathsEqual(chat.WorktreePath, desiredWorktreeRoot))
             {
-                chat.WorktreePath = desiredWorktreeRoot;
+                if (!_dataStore.TrySetChatWorktreePath(chat, desiredWorktreeRoot))
+                    return new ManagedCurrentChatMutation(
+                        previousTitle,
+                        chat.Title,
+                        previousWorktreePath,
+                        chat.WorktreePath,
+                        changes,
+                        titleChanged,
+                        WorkspaceChanged: false);
                 workspaceChanged = true;
                 changes.Add(desiredWorktreeRoot is null
                     ? "workspace: local/project directory"
@@ -1166,7 +1176,7 @@ public partial class ChatViewModel
             ChatUpdated?.Invoke();
     }
 
-    private static void RollBackManagedCurrentChatModelUpdate(
+    private void RollBackManagedCurrentChatModelUpdate(
         Chat chat,
         ManagedCurrentChatMutation mutation)
     {
@@ -1179,7 +1189,7 @@ public partial class ChatViewModel
         if (mutation.WorkspaceChanged
             && PathsEqual(chat.WorktreePath, mutation.NewWorktreePath))
         {
-            chat.WorktreePath = mutation.PreviousWorktreePath;
+            _dataStore.TrySetChatWorktreePath(chat, mutation.PreviousWorktreePath);
         }
     }
 

@@ -33,7 +33,7 @@ internal sealed class RemoteEventHub : IDisposable
     /// <summary>Matches the desktop's own streaming UI throttle so phones feel the same cadence.</summary>
     private static readonly TimeSpan CoalesceInterval = TimeSpan.FromMilliseconds(100);
 
-    private static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan KeepAliveInterval = TimeSpan.FromMinutes(1);
 
     private readonly ConcurrentDictionary<Guid, RemoteEventClient> _clients = new();
     private readonly DataStore _dataStore;
@@ -72,7 +72,8 @@ internal sealed class RemoteEventHub : IDisposable
 
         _keepAliveTimer = new Timer(_ => Broadcast(
                 new RemoteEventFrame(RemoteProtocol.Events.Ping, "{}"),
-                RemoteProtocol.Events.Ping),
+                RemoteProtocol.Events.Ping,
+                static client => client.IsForeground),
             null, KeepAliveInterval, KeepAliveInterval);
 
         Dispatcher.UIThread.Post(Attach);
@@ -88,15 +89,22 @@ internal sealed class RemoteEventHub : IDisposable
     public RemoteEventClient AddClient(
         Stream stream,
         string deviceId,
-        RemoteEventFrame? initialFrame = null)
+        RemoteEventFrame? initialFrame = null,
+        RemoteEventSubscription? subscription = null)
     {
-        var client = new RemoteEventClient(stream, deviceId);
-        if (initialFrame is { } frame && !client.Enqueue(frame, RemoteProtocol.Events.Snapshot))
+        var client = new RemoteEventClient(
+            stream,
+            deviceId,
+            subscription ?? new RemoteEventSubscription());
+        // Bootstrap is never coalesced with later partial catalog snapshots. The first frame defines
+        // the client's complete cache and must be delivered exactly once.
+        if (initialFrame is { } frame && !client.Enqueue(frame))
         {
             client.Dispose();
             throw new InvalidDataException("The initial remote snapshot exceeds the event queue limit.");
         }
         _clients[client.Id] = client;
+        Dispatcher.UIThread.Post(ReconcileMessageObservers);
         return client;
     }
 
@@ -104,15 +112,74 @@ internal sealed class RemoteEventHub : IDisposable
     {
         _clients.TryRemove(client.Id, out _);
         client.Dispose();
+        Dispatcher.UIThread.Post(ReconcileMessageObservers);
     }
 
-    public void Broadcast(RemoteEventFrame frame, string? coalesceKey = null)
+    public async Task UpdateSubscriptionAsync(
+        string deviceId,
+        RemoteEventSubscription subscription)
+    {
+        var changes = new List<SubscriptionChange>();
+        foreach (var client in _clients.Values)
+        {
+            if (string.Equals(client.DeviceId, deviceId, StringComparison.Ordinal)
+                && client.TryUpdateSubscription(subscription, out var previous, out var current))
+            {
+                changes.Add(new SubscriptionChange(client, previous, current));
+            }
+        }
+
+        if (changes.Count == 0)
+            return;
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (changes.Any(static change =>
+                    ObservedChatId(change.Previous) != ObservedChatId(change.Current)))
+            {
+                ReconcileMessageObservers();
+            }
+
+            foreach (var change in changes)
+                PrimeNewChatScope(change);
+        });
+    }
+
+    private void PrimeNewChatScope(SubscriptionChange change)
+    {
+        var previousChatId = ObservedChatId(change.Previous);
+        var currentChatId = ObservedChatId(change.Current);
+        if (currentChatId is not { } chatId || currentChatId == previousChatId)
+            return;
+
+        if (_dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == chatId) is { } chat)
+        {
+            var owner = RemoteProjector.ResolveChatOwner(_main, chatId);
+            change.Client.Enqueue(
+                new RemoteEventFrame(
+                    RemoteProtocol.Events.ChatStatus,
+                    JsonSerializer.Serialize(
+                        RemoteProjector.BuildStatus(_dataStore, owner ?? _main.ChatVM, chat),
+                        RemoteJsonContext.Default.RemoteChatStatus)),
+                $"status:{chatId:N}");
+        }
+    }
+
+    private static Guid? ObservedChatId(RemoteEventSubscription subscription) =>
+        subscription.IsForeground ? subscription.ChatId : null;
+
+    public void Broadcast(
+        RemoteEventFrame frame,
+        string? coalesceKey = null,
+        Func<RemoteEventClient, bool>? predicate = null)
     {
         if (_clients.IsEmpty)
             return;
 
         foreach (var client in _clients.Values)
         {
+            if (predicate is not null && !predicate(client))
+                continue;
             if (!client.Enqueue(frame, coalesceKey))
                 RemoveClient(client);
         }
@@ -122,15 +189,26 @@ internal sealed class RemoteEventHub : IDisposable
         string eventName,
         T payload,
         System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo,
-        string? coalesceKey = null)
+        string? coalesceKey = null,
+        Func<RemoteEventClient, bool>? predicate = null)
     {
         if (_clients.IsEmpty)
             return;
 
         Broadcast(
             new RemoteEventFrame(eventName, JsonSerializer.Serialize(payload, typeInfo)),
-            coalesceKey);
+            coalesceKey,
+            predicate);
     }
+
+    internal bool HasChatSubscriber(Guid chatId) =>
+        _clients.Values.Any(client => client.WantsChat(chatId));
+
+    internal bool HasChatListSubscriber() =>
+        _clients.Values.Any(static client => client.WantsChatList);
+
+    internal bool HasLibrarySubscriber() =>
+        _clients.Values.Any(static client => client.WantsLibrary);
 
     // ── Desktop state subscriptions ─────────────────────────────────────────────────────────
 
@@ -239,8 +317,19 @@ internal sealed class RemoteEventHub : IDisposable
         }
     }
 
-    private static void SynchronizeObservedMessages(SurfaceObserver observer)
+    private void SynchronizeObservedMessages(SurfaceObserver observer)
     {
+        if (observer.CurrentChatId is not { } chatId || !HasChatSubscriber(chatId))
+        {
+            foreach (var message in observer.Messages.ToArray())
+            {
+                message.PropertyChanged -= observer.MessagePropertyChanged;
+                observer.Messages.Remove(message);
+                observer.StreamedText.Remove(message.Message.Id);
+            }
+            return;
+        }
+
         var activeMessages = new HashSet<ChatMessageViewModel>(
             observer.Surface.Messages,
             ReferenceEqualityComparer.Instance);
@@ -255,6 +344,15 @@ internal sealed class RemoteEventHub : IDisposable
             ObserveMessage(observer, message);
     }
 
+    private void ReconcileMessageObservers()
+    {
+        if (_disposed)
+            return;
+
+        foreach (var observer in _surfaceObservers.Values)
+            SynchronizeObservedMessages(observer);
+    }
+
     private void OnMainPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         switch (e.PropertyName)
@@ -264,23 +362,26 @@ internal sealed class RemoteEventHub : IDisposable
                 BroadcastConnection();
                 break;
             case nameof(MainViewModel.ActiveChatId):
-                _chatsDirty = true;
+                MarkChatsDirty();
                 break;
             case nameof(MainViewModel.ChatVM):
                 ReconcileSurfaces();
-                _chatsDirty = true;
+                MarkChatsDirty();
                 MarkStatusDirty(_main.ChatVM.CurrentChat?.Id);
                 MarkTranscriptDirty(_main.ChatVM.CurrentChat?.Id);
                 break;
         }
     }
 
-    private void OnChatGroupsChanged(object? sender, NotifyCollectionChangedEventArgs e) => _chatsDirty = true;
+    private void OnChatGroupsChanged(object? sender, NotifyCollectionChangedEventArgs e) => MarkChatsDirty();
 
     private void OnChatDeleted(Guid chatId)
     {
+        if (!HasChatListSubscriber())
+            return;
+
         _deletedChatIds.Add(chatId);
-        _chatsDirty = true;
+        MarkChatsDirty();
     }
 
     /// <summary>Active skills / MCP servers are collections, so they never raise PropertyChanged.</summary>
@@ -292,7 +393,7 @@ internal sealed class RemoteEventHub : IDisposable
         switch (e.PropertyName)
         {
             case nameof(ChatViewModel.IsBusy):
-                _chatsDirty = true;
+                MarkChatsDirty();
                 MarkStatusDirty(observer.Surface.CurrentChat?.Id);
                 break;
             case nameof(ChatViewModel.IsStreaming):
@@ -324,7 +425,7 @@ internal sealed class RemoteEventHub : IDisposable
             {
                 var previousChatId = observer.CurrentChatId;
                 observer.CurrentChatId = observer.Surface.CurrentChat?.Id;
-                _chatsDirty = true;
+                MarkChatsDirty();
                 MarkStatusDirty(previousChatId);
                 MarkStatusDirty(observer.CurrentChatId);
                 MarkTranscriptDirty(previousChatId);
@@ -350,11 +451,13 @@ internal sealed class RemoteEventHub : IDisposable
             return;
 
         var chatId = observer.Surface.CurrentChat?.Id ?? observer.CurrentChatId;
+        var hasChatSubscriber = chatId is { } observedChatId && HasChatSubscriber(observedChatId);
 
         // Streaming assistant/reasoning text goes out on the hot path as a self-contained delta so
         // the phone repaints without pulling the whole transcript on every token batch.
         if (e.PropertyName == nameof(ChatMessageViewModel.Content)
             && message.IsStreaming
+            && hasChatSubscriber
             && chatId is { } streamingChatId)
         {
             var isReasoning = message.Message.Role == "reasoning";
@@ -388,7 +491,8 @@ internal sealed class RemoteEventHub : IDisposable
                 Offset = offset,
                 Text = chunk,
                 IsReasoning = isReasoning
-            }, RemoteJsonContext.Default.RemoteStreamDelta, $"stream:{streamingChatId:N}:{messageId:N}");
+            }, RemoteJsonContext.Default.RemoteStreamDelta, $"stream:{streamingChatId:N}:{messageId:N}",
+                client => client.WantsChat(streamingChatId));
             return;
         }
 
@@ -437,6 +541,9 @@ internal sealed class RemoteEventHub : IDisposable
 
     private void MarkChatListDirtyIfChanged(Guid? chatId)
     {
+        if (!HasChatListSubscriber())
+            return;
+
         if (chatId is not { } id)
             return;
 
@@ -444,37 +551,42 @@ internal sealed class RemoteEventHub : IDisposable
         if (chat is null)
         {
             _chatRowStates.Remove(id);
-            _chatsDirty = true;
+            MarkChatsDirty();
             return;
         }
 
-        var state = new ChatRowState(
-            chat.Title,
-            chat.ProjectId,
-            chat.AgentId,
-            chat.UpdatedAt,
-            chat.IsPinned,
-            chat.IsRunning,
-            chat.HasUnreadMessages,
-            chat.LastModelUsed,
-            chat.Preview);
+        var state = BuildChatRowState(chat);
         if (!_chatRowStates.TryGetValue(id, out var previous) || previous != state)
         {
             _chatRowStates[id] = state;
-            _chatsDirty = true;
+            MarkChatsDirty();
         }
     }
 
+    private void MarkChatsDirty()
+    {
+        if (HasChatListSubscriber())
+            _chatsDirty = true;
+    }
+
+    private static ChatRowState BuildChatRowState(Chat chat) => new(
+        chat.Title,
+        chat.ProjectId,
+        chat.AgentId,
+        chat.IsPinned,
+        chat.HasUnreadMessages,
+        chat.LastModelUsed);
+
     private void MarkStatusDirty(Guid? chatId)
     {
-        if (chatId is { } id)
+        if (chatId is { } id && HasChatSubscriber(id))
             _statusDirtyChatIds.Add(id);
     }
 
     private void MarkTranscriptDirty(Guid? chatId)
     {
         Interlocked.Increment(ref _revision);
-        if (chatId is { } id)
+        if (chatId is { } id && HasChatSubscriber(id))
             _transcriptDirtyChatIds.Add(id);
     }
 
@@ -496,20 +608,26 @@ internal sealed class RemoteEventHub : IDisposable
         if (_chatsDirty)
         {
             _chatsDirty = false;
-            var page = RemoteProjector.BuildChatPage(
-                _dataStore,
-                _main,
-                offset: 0,
-                limit: RemoteProtocol.ChatPageSize,
-                query: null,
-                projectId: null);
-            page.RemovedChatIds = [.. _deletedChatIds];
+            if (HasChatListSubscriber())
+            {
+                var page = RemoteProjector.BuildChatPage(
+                    _dataStore,
+                    _main,
+                    offset: 0,
+                    limit: RemoteProtocol.ChatPageSize,
+                    query: null,
+                    projectId: null);
+                foreach (var chat in _dataStore.Data.Chats)
+                    _chatRowStates[chat.Id] = BuildChatRowState(chat);
+                page.RemovedChatIds = [.. _deletedChatIds];
+                BroadcastJson(
+                    RemoteProtocol.Events.Chats,
+                    page,
+                    RemoteJsonContext.Default.RemoteChatPage,
+                    RemoteProtocol.Events.Chats,
+                    static client => client.WantsChatList);
+            }
             _deletedChatIds.Clear();
-            BroadcastJson(
-                RemoteProtocol.Events.Chats,
-                page,
-                RemoteJsonContext.Default.RemoteChatPage,
-                RemoteProtocol.Events.Chats);
         }
 
         if (_snapshotDirty)
@@ -517,9 +635,16 @@ internal sealed class RemoteEventHub : IDisposable
             _snapshotDirty = false;
             BroadcastJson(
                 RemoteProtocol.Events.Snapshot,
-                RemoteProjector.BuildSnapshot(_dataStore, _main, _modelsProvider()),
+                RemoteProjector.BuildSnapshot(
+                    _dataStore,
+                    _main,
+                    _modelsProvider(),
+                    includeChatList: false,
+                    includeLibrary: false,
+                    isPartial: true),
                 RemoteJsonContext.Default.RemoteSnapshot,
-                RemoteProtocol.Events.Snapshot);
+                RemoteProtocol.Events.Snapshot,
+                static client => client.IsForeground);
         }
 
         if (_statusDirtyChatIds.Count > 0)
@@ -528,6 +653,9 @@ internal sealed class RemoteEventHub : IDisposable
             _statusDirtyChatIds.Clear();
             foreach (var chatId in dirtyChatIds)
             {
+                if (!HasChatSubscriber(chatId))
+                    continue;
+
                 var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
                 if (chat is null)
                     continue;
@@ -537,7 +665,8 @@ internal sealed class RemoteEventHub : IDisposable
                     RemoteProtocol.Events.ChatStatus,
                     RemoteProjector.BuildStatus(_dataStore, owner ?? _main.ChatVM, chat),
                     RemoteJsonContext.Default.RemoteChatStatus,
-                    $"status:{chatId:N}");
+                    $"status:{chatId:N}",
+                    client => client.WantsChat(chatId));
             }
         }
 
@@ -547,6 +676,9 @@ internal sealed class RemoteEventHub : IDisposable
             _transcriptDirtyChatIds.Clear();
             foreach (var chatId in dirtyChatIds)
             {
+                if (!HasChatSubscriber(chatId))
+                    continue;
+
                 BroadcastJson(
                     RemoteProtocol.Events.TranscriptInvalidated,
                     new RemoteTranscriptInvalidated
@@ -556,13 +688,20 @@ internal sealed class RemoteEventHub : IDisposable
                         Revision = Revision
                     },
                     RemoteJsonContext.Default.RemoteTranscriptInvalidated,
-                    $"transcript:{chatId:N}");
+                    $"transcript:{chatId:N}",
+                    client => client.WantsChat(chatId));
             }
         }
 
         if (_libraryDirty)
         {
             _libraryDirty = false;
+            if (!HasLibrarySubscriber())
+            {
+                _lastLibraryJson = null;
+                return;
+            }
+
             var libraryJson = JsonSerializer.Serialize(
                 RemoteProjector.BuildLibrary(_dataStore),
                 RemoteJsonContext.Default.RemoteLibrary);
@@ -571,7 +710,8 @@ internal sealed class RemoteEventHub : IDisposable
                 _lastLibraryJson = libraryJson;
                 Broadcast(
                     new RemoteEventFrame(RemoteProtocol.Events.Library, libraryJson),
-                    RemoteProtocol.Events.Library);
+                    RemoteProtocol.Events.Library,
+                    static client => client.WantsLibrary);
             }
         }
     }
@@ -586,7 +726,8 @@ internal sealed class RemoteEventHub : IDisposable
                 Status = _main.ConnectionStatus
             },
             RemoteJsonContext.Default.RemoteConnectionStatus,
-            RemoteProtocol.Events.Connection);
+            RemoteProtocol.Events.Connection,
+            static client => client.IsForeground);
     }
 
     private sealed class SurfaceObserver
@@ -623,12 +764,9 @@ internal sealed class RemoteEventHub : IDisposable
         string Title,
         Guid? ProjectId,
         Guid? AgentId,
-        DateTimeOffset UpdatedAt,
         bool IsPinned,
-        bool IsRunning,
         bool HasUnreadMessages,
-        string? LastModelUsed,
-        string? Preview);
+        string? LastModelUsed);
 
     public void Dispose()
     {
@@ -647,6 +785,11 @@ internal sealed class RemoteEventHub : IDisposable
             client.Dispose();
         _clients.Clear();
     }
+
+    private readonly record struct SubscriptionChange(
+        RemoteEventClient Client,
+        RemoteEventSubscription Previous,
+        RemoteEventSubscription Current);
 }
 
 /// <summary>
@@ -665,19 +808,79 @@ internal sealed class RemoteEventClient : IDisposable
     private readonly Dictionary<string, LinkedListNode<QueuedFrame>> _coalesced = [];
     private readonly SemaphoreSlim _signal = new(0);
     private int _queuedBytes;
+    private RemoteEventSubscription _subscription;
     private bool _overflowed;
     private bool _disposed;
 
-    public RemoteEventClient(Stream stream, string deviceId)
+    public RemoteEventClient(
+        Stream stream,
+        string deviceId,
+        RemoteEventSubscription? subscription = null)
     {
         _stream = stream;
         DeviceId = deviceId;
+        _subscription = CopySubscription(subscription ?? new RemoteEventSubscription());
     }
 
     public Guid Id { get; } = Guid.NewGuid();
     public string DeviceId { get; }
     internal int QueuedBytes { get { lock (_queueGate) return _queuedBytes; } }
     internal int QueuedFrames { get { lock (_queueGate) return _queue.Count; } }
+    internal bool IsForeground => Volatile.Read(ref _subscription).IsForeground;
+    internal bool WantsChatList
+    {
+        get
+        {
+            var subscription = Volatile.Read(ref _subscription);
+            return subscription.IsForeground && subscription.IncludeChatList;
+        }
+    }
+    internal bool WantsLibrary
+    {
+        get
+        {
+            var subscription = Volatile.Read(ref _subscription);
+            return subscription.IsForeground && subscription.IncludeLibrary;
+        }
+    }
+
+    internal bool WantsChat(Guid chatId)
+    {
+        var subscription = Volatile.Read(ref _subscription);
+        return subscription.IsForeground
+               && subscription.ChatId == chatId;
+    }
+
+    internal bool TryUpdateSubscription(
+        RemoteEventSubscription subscription,
+        out RemoteEventSubscription previous,
+        out RemoteEventSubscription current)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        while (true)
+        {
+            var observed = Volatile.Read(ref _subscription);
+            if (subscription.Generation < observed.Generation)
+            {
+                previous = CopySubscription(observed);
+                current = previous;
+                return false;
+            }
+
+            var replacement = CopySubscription(subscription);
+            if (ReferenceEquals(
+                    Interlocked.CompareExchange(ref _subscription, replacement, observed),
+                    observed))
+            {
+                previous = CopySubscription(observed);
+                current = CopySubscription(replacement);
+                return true;
+            }
+        }
+    }
+
+    internal RemoteEventSubscription SnapshotSubscription() =>
+        CopySubscription(Volatile.Read(ref _subscription));
 
     public bool Enqueue(RemoteEventFrame frame, string? coalesceKey = null)
     {
@@ -775,6 +978,15 @@ internal sealed class RemoteEventClient : IDisposable
             return true;
         }
     }
+
+    private static RemoteEventSubscription CopySubscription(RemoteEventSubscription subscription) => new()
+    {
+        Generation = subscription.Generation,
+        ChatId = subscription.ChatId,
+        IncludeChatList = subscription.IncludeChatList,
+        IncludeLibrary = subscription.IncludeLibrary,
+        IsForeground = subscription.IsForeground
+    };
 
     private sealed record QueuedFrame(byte[] Bytes, string? CoalesceKey);
 }

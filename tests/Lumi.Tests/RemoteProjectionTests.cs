@@ -102,6 +102,60 @@ public sealed class RemoteProjectionTests
     }
 
     [Fact]
+    public void LibrarySnapshotIdentifiesCodingProjectsWithoutLeakingTheirPath()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"lumi-project-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(directory, ".git"));
+        try
+        {
+            var project = new Project
+            {
+                Name = "Code",
+                WorkingDirectory = directory,
+                DefaultNewChatsUseWorktree = true
+            };
+            var library = RemoteProjector.BuildLibrary(new DataStore(new AppData
+            {
+                Projects = [project]
+            }));
+
+            var remote = Assert.Single(library.Projects);
+            Assert.True(remote.IsCodingProject);
+            Assert.True(remote.DefaultNewChatsUseWorktree);
+            Assert.Null(remote.WorkingDirectory);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ChatStatusCarriesExistingWorktreeStateWithoutLeakingItsPath()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"lumi-worktree-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var chat = new Chat { WorktreePath = directory };
+            var dataStore = new DataStore(new AppData { Chats = [chat] });
+            using var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared);
+
+            var status = RemoteProjector.BuildStatus(dataStore, viewModel, chat);
+            var json = JsonSerializer.Serialize(
+                status,
+                RemoteJsonContext.Default.RemoteChatStatus);
+
+            Assert.True(status.UsesWorktree);
+            Assert.DoesNotContain(directory, json, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void InactiveChatStatus_UsesPersistedModelInsteadOfNull()
     {
         var chat = new Chat
@@ -161,6 +215,18 @@ public sealed class RemoteProjectionTests
         Assert.All(transcript.Turns, turn => Assert.Equal(2, turn.Items.Count));
         Assert.Equal(RemoteProtocol.ItemKinds.User, transcript.Turns[0].Items[0].Kind);
         Assert.Equal(RemoteProtocol.ItemKinds.Assistant, transcript.Turns[0].Items[1].Kind);
+    }
+
+    [Fact]
+    public void TranscriptCarriesTheAcceptedRemoteRequestIdentity()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Receipt" };
+        var message = Message("user", "continue");
+        message.RemoteRequestId = "request-123";
+
+        var transcript = Build(chat, [message]);
+
+        Assert.Equal("request-123", Assert.Single(transcript.Turns).Items[0].RequestId);
     }
 
     [Fact]

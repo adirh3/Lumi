@@ -327,6 +327,8 @@ internal static class AppDataSnapshotFactory
             SessionMode = source.SessionMode,
             SdkAgentName = source.SdkAgentName,
             WorktreePath = source.WorktreePath,
+            LastRemoteDeviceId = source.LastRemoteDeviceId,
+            LastRemoteRequestId = source.LastRemoteRequestId,
             MessageCount = source.MessageCount,
             Preview = source.Preview,
             LastModelUsed = source.LastModelUsed,

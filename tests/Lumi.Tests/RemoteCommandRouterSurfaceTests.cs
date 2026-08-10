@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.ExceptionServices;
+using System.Diagnostics;
 using Avalonia.Threading;
 using GitHub.Copilot;
 using Lumi.Localization;
@@ -15,6 +16,1240 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class RemoteCommandRouterSurfaceTests
 {
+    [Fact]
+    public Task PersistedRemoteReceiptShortCircuitsARetryAfterRestart() => RunAsync(async () =>
+    {
+        var chat = new Chat
+        {
+            Title = "Accepted",
+            LastRemoteDeviceId = "phone-1",
+            LastRemoteRequestId = "request-1"
+        };
+        var dataStore = new DataStore(new AppData
+        {
+            Settings = TestSettings(),
+            Chats = [chat]
+        });
+        using var main = new MainViewModel(
+            dataStore,
+            TestCopilot.Shared,
+            new UpdateService(),
+            initializeCopilotOnStartup: false);
+        var started = false;
+        var router = new RemoteCommandRouter(
+            dataStore,
+            main,
+            (_, _, _, _, _, _) =>
+            {
+                started = true;
+                return Task.FromResult<string?>(null);
+            });
+        var command = new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+        {
+            AuthenticatedDeviceId = "phone-1",
+            RequestId = "request-1"
+        }.With("message", "continue").With("newChat", "true");
+
+        var result = await router.ExecuteAsync(command, CancellationToken.None);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal(chat.Id, result.ChatId);
+        Assert.False(started);
+        Assert.Single(dataStore.Data.Chats);
+    });
+
+    [Fact]
+    public Task AcceptedRemoteReceiptMarksTheChatIndexDirtyBeforeAcknowledgement() => RunAsync(async () =>
+    {
+        var chat = new Chat { Title = "Existing", LastModelUsed = "auto", MessageCount = 1 };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "previous" });
+        var dataStore = new DataStore(new AppData
+        {
+            Settings = TestSettings(),
+            Chats = [chat]
+        });
+        using var main = new MainViewModel(
+            dataStore,
+            TestCopilot.Shared,
+            new UpdateService(),
+            initializeCopilotOnStartup: false);
+        await main.OpenChatByIdAsync(chat.Id);
+        var dirtyBefore = DirtyChatVersion(dataStore, chat.Id);
+        var dirtyAtAcceptance = dirtyBefore;
+        using var cancellation = new CancellationTokenSource();
+
+        try
+        {
+            await main.ChatVM.SendExternalMessageAsync(
+                chat,
+                "continue",
+                "Lumi Mobile",
+                cancellation.Token,
+                onAccepted: () =>
+                {
+                    dirtyAtAcceptance = DirtyChatVersion(dataStore, chat.Id);
+                    cancellation.Cancel();
+                },
+                remoteDeviceId: "phone-1",
+                remoteRequestId: "request-2");
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation is triggered at the exact acceptance boundary so no model request starts.
+        }
+
+        Assert.Equal("phone-1", chat.LastRemoteDeviceId);
+        Assert.Equal("request-2", chat.LastRemoteRequestId);
+        Assert.True(
+            dirtyAtAcceptance > dirtyBefore,
+            $"expected acceptance to mark the index dirty; before={dirtyBefore}, accepted={dirtyAtAcceptance}");
+    });
+
+    [Fact]
+    public Task OpeningAChatMarksItReadWithoutChangingTheDesktopSurface() => RunAsync(async () =>
+    {
+        MainViewModel? main = null;
+        try
+        {
+            var current = new Chat { Title = "Current" };
+            var target = new Chat { Title = "Unread", HasUnreadMessages = true };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Chats = [current, target]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(current.Id);
+            var dirtyBefore = DirtyChatVersion(dataStore, target.Id);
+            var router = new RemoteCommandRouter(dataStore, main);
+
+            var result = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.OpenChat)
+                    .With("chatId", target.Id.ToString()),
+                CancellationToken.None);
+
+            Assert.True(result.Ok, result.Error);
+            Assert.False(target.HasUnreadMessages);
+            Assert.True(DirtyChatVersion(dataStore, target.Id) > dirtyBefore);
+            Assert.Equal(current.Id, main.ChatVM.CurrentChat?.Id);
+        }
+        finally
+        {
+            main?.Dispose();
+        }
+    });
+
+    [Fact]
+    public Task DelayedReadAcknowledgementDoesNotClearNewerUnreadActivity() => RunAsync(async () =>
+    {
+        MainViewModel? main = null;
+        try
+        {
+            var chat = new Chat
+            {
+                Title = "Unread",
+                HasUnreadMessages = true,
+                MessageCount = 2
+            };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            var router = new RemoteCommandRouter(dataStore, main);
+
+            var result = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.OpenChat)
+                    .With("chatId", chat.Id.ToString())
+                    .With("readThroughMessageCount", "1"),
+                CancellationToken.None);
+
+            Assert.True(result.Ok, result.Error);
+            Assert.True(chat.HasUnreadMessages);
+        }
+        finally
+        {
+            main?.Dispose();
+        }
+    });
+
+    [Fact]
+    public Task StartedWorktreeChatRejectsRemoteProjectChanges() => RunAsync(async () =>
+    {
+        MainViewModel? main = null;
+        try
+        {
+            var originalProject = new Project { Name = "Original" };
+            var otherProject = new Project { Name = "Other" };
+            var chat = new Chat
+            {
+                Title = "Started worktree",
+                ProjectId = originalProject.Id,
+                WorktreePath = @"C:\worktrees\started",
+                MessageCount = 1
+            };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [originalProject, otherProject],
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            var router = new RemoteCommandRouter(dataStore, main);
+
+            var result = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.ConfigureChat)
+                    .With("chatId", chat.Id.ToString())
+                    .With("projectId", otherProject.Id.ToString()),
+                CancellationToken.None);
+
+            Assert.False(result.Ok);
+            Assert.Equal(originalProject.Id, chat.ProjectId);
+            Assert.Equal(@"C:\worktrees\started", chat.WorktreePath);
+        }
+        finally
+        {
+            main?.Dispose();
+        }
+    });
+
+    [Fact]
+    public Task StartedWorktreeSendRejectsProjectChangesBeforeStartingTheTurn() => RunAsync(async () =>
+    {
+        MainViewModel? main = null;
+        try
+        {
+            var originalProject = new Project { Name = "Original" };
+            var otherProject = new Project { Name = "Other" };
+            var chat = new Chat
+            {
+                Title = "Started worktree",
+                ProjectId = originalProject.Id,
+                WorktreePath = @"C:\worktrees\started",
+                MessageCount = 1
+            };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [originalProject, otherProject],
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            var started = false;
+            var router = new RemoteCommandRouter(
+                dataStore,
+                main,
+                (_, _, _, _, _, _) =>
+                {
+                    started = true;
+                    return Task.FromResult<string?>(null);
+                });
+
+            var result = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    .With("chatId", chat.Id.ToString())
+                    .With("message", "continue")
+                    .With("projectId", otherProject.Id.ToString()),
+                CancellationToken.None);
+
+            Assert.False(result.Ok);
+            Assert.False(started);
+            Assert.Equal(originalProject.Id, chat.ProjectId);
+            Assert.Equal(@"C:\worktrees\started", chat.WorktreePath);
+        }
+        finally
+        {
+            main?.Dispose();
+        }
+    });
+
+    [Fact]
+    public Task StartedWorktreeSendRejectsStaleLocalIntent() => RunAsync(async () =>
+    {
+        MainViewModel? main = null;
+        try
+        {
+            var project = new Project { Name = "Code" };
+            var chat = new Chat
+            {
+                Title = "Started worktree",
+                ProjectId = project.Id,
+                WorktreePath = @"C:\worktrees\started",
+                MessageCount = 1
+            };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [project],
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            var started = false;
+            var router = new RemoteCommandRouter(
+                dataStore,
+                main,
+                (_, _, _, _, _, _) =>
+                {
+                    started = true;
+                    return Task.FromResult<string?>(null);
+                });
+
+            var result = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    .With("chatId", chat.Id.ToString())
+                    .With("message", "continue")
+                    .With("worktree", "false"),
+                CancellationToken.None);
+
+            Assert.False(result.Ok);
+            Assert.False(started);
+            Assert.Equal(@"C:\worktrees\started", chat.WorktreePath);
+        }
+        finally
+        {
+            main?.Dispose();
+        }
+    });
+
+    [Fact]
+    public Task FirstTurnReservationBlocksACompetingDesktopSend() => RunAsync(async () =>
+    {
+        MainViewModel? main = null;
+        try
+        {
+            var chat = new Chat { Title = "Empty" };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            var startEntered = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseStart = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var router = new RemoteCommandRouter(
+                dataStore,
+                main,
+                async (_, _, _, _, _, _) =>
+                {
+                    startEntered.TrySetResult();
+                    await releaseStart.Task;
+                    return null;
+                });
+
+            var remoteSend = router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    .With("chatId", chat.Id.ToString())
+                    .With("message", "phone send"),
+                CancellationToken.None);
+            await startEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.True(main.ChatVM.IsChatBusy(chat.Id));
+
+            main.ChatVM.PromptText = "desktop send";
+            await main.ChatVM.SendMessageCommand.ExecuteAsync(null);
+
+            Assert.Empty(chat.Messages);
+            Assert.Equal("desktop send", main.ChatVM.PromptText);
+
+            releaseStart.TrySetResult();
+            var result = await remoteSend;
+            Assert.True(result.Ok, result.Error);
+        }
+        finally
+        {
+            main?.Dispose();
+        }
+    });
+
+    [Fact]
+    public Task FirstTurnReservationBlocksDesktopProjectChanges() => RunAsync(async () =>
+    {
+        MainViewModel? main = null;
+        ChatViewModel.ExternalSendReservation? reservation = null;
+        try
+        {
+            var originalProject = new Project { Name = "Original" };
+            var otherProject = new Project { Name = "Other" };
+            var chat = new Chat { Title = "Empty", ProjectId = originalProject.Id };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [originalProject, otherProject],
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            reservation = main.ChatVM.TryReserveExternalSend(chat.Id);
+            Assert.NotNull(reservation);
+            Assert.True(main.ChatVM.OwnsAnyLiveChat());
+
+            main.ChatVM.SetProjectId(otherProject.Id);
+            main.ChatVM.ClearProjectId();
+
+            Assert.Equal(originalProject.Id, chat.ProjectId);
+        }
+        finally
+        {
+            reservation?.Dispose();
+            main?.Dispose();
+        }
+    });
+
+    [Fact]
+    public Task StopCancelsAReservedFirstTurnBeforeItStarts() => RunAsync(async () =>
+    {
+        MainViewModel? main = null;
+        ChatViewModel.ExternalSendReservation? reservation = null;
+        try
+        {
+            var chat = new Chat { Title = "Empty" };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            reservation = main.ChatVM.TryReserveExternalSend(chat.Id);
+            Assert.NotNull(reservation);
+            var router = new RemoteCommandRouter(dataStore, main);
+
+            var result = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.StopGeneration)
+                    .With("chatId", chat.Id.ToString()),
+                CancellationToken.None);
+
+            Assert.True(result.Ok, result.Error);
+            Assert.True(reservation.IsCancellationRequested);
+            Assert.Empty(chat.Messages);
+        }
+        finally
+        {
+            reservation?.Dispose();
+            main?.Dispose();
+        }
+    });
+
+    [Fact]
+    public Task CanceledPreflightRemovesTheWorktreeItCreated() => RunAsync(async () =>
+    {
+        var repo = CreateTempGitRepo();
+        MainViewModel? main = null;
+        string? createdPath = null;
+        try
+        {
+            var project = new Project { Name = "Code", WorkingDirectory = repo };
+            var chat = new Chat { Title = "Empty", ProjectId = project.Id };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [project],
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            var startEntered = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseStart = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var router = new RemoteCommandRouter(
+                dataStore,
+                main,
+                async (_, targetChat, _, _, _, _) =>
+                {
+                    createdPath = targetChat.WorktreePath;
+                    startEntered.TrySetResult();
+                    await releaseStart.Task;
+                    return "The pending turn start was canceled.";
+                });
+
+            var send = router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    .With("chatId", chat.Id.ToString())
+                    .With("message", "phone send")
+                    .With("worktree", "true"),
+                CancellationToken.None);
+            await startEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.NotNull(createdPath);
+            Assert.True(Directory.Exists(createdPath));
+
+            var stop = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.StopGeneration)
+                    .With("chatId", chat.Id.ToString()),
+                CancellationToken.None);
+            Assert.True(stop.Ok, stop.Error);
+            releaseStart.TrySetResult();
+
+            var sendResult = await send;
+            Assert.False(sendResult.Ok);
+            Assert.Null(chat.WorktreePath);
+            Assert.False(Directory.Exists(createdPath));
+        }
+        finally
+        {
+            main?.Dispose();
+            if (createdPath is not null && Directory.Exists(createdPath))
+                await GitService.RemoveWorktreeAsync(repo, createdPath);
+            TryDeleteDirectory(repo);
+        }
+    });
+
+    [Fact]
+    public Task CanceledPreflightDoesNotRemoveAPreexistingDeterministicWorktree() => RunAsync(async () =>
+    {
+        var repo = CreateTempGitRepo();
+        MainViewModel? main = null;
+        string? existingPath = null;
+        try
+        {
+            var project = new Project { Name = "Code", WorkingDirectory = repo };
+            var chat = new Chat { Title = "Empty", ProjectId = project.Id };
+            var branchName = $"lumi/{chat.Id:N}"[..13];
+            existingPath = await GitService.CreateWorktreeAsync(repo, branchName);
+            Assert.NotNull(existingPath);
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [project],
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            var startEntered = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseStart = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var router = new RemoteCommandRouter(
+                dataStore,
+                main,
+                async (_, _, _, _, _, _) =>
+                {
+                    startEntered.TrySetResult();
+                    await releaseStart.Task;
+                    return "The pending turn start was canceled.";
+                });
+
+            var send = router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    .With("chatId", chat.Id.ToString())
+                    .With("message", "phone send")
+                    .With("worktree", "true"),
+                CancellationToken.None);
+            await startEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            var stop = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.StopGeneration)
+                    .With("chatId", chat.Id.ToString()),
+                CancellationToken.None);
+            Assert.True(stop.Ok, stop.Error);
+            releaseStart.TrySetResult();
+            var sendResult = await send;
+
+            Assert.False(sendResult.Ok);
+            Assert.True(Directory.Exists(existingPath));
+        }
+        finally
+        {
+            main?.Dispose();
+            if (existingPath is not null && Directory.Exists(existingPath))
+                await GitService.RemoveWorktreeAsync(repo, existingPath);
+            TryDeleteDirectory(repo);
+        }
+    });
+
+    [Fact]
+    public Task AcceptedTurnIsNotRejectedWhenProjectChangesAfterAcceptance() => RunAsync(async () =>
+    {
+        var repo = CreateTempGitRepo();
+        MainViewModel? main = null;
+        string? createdPath = null;
+        try
+        {
+            var originalProject = new Project { Name = "Original", WorkingDirectory = repo };
+            var otherProject = new Project { Name = "Other", WorkingDirectory = repo };
+            var chat = new Chat { Title = "Empty", ProjectId = originalProject.Id };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [originalProject, otherProject],
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            var router = new RemoteCommandRouter(
+                dataStore,
+                main,
+                (_, targetChat, _, _, _, _) =>
+                {
+                    createdPath = targetChat.WorktreePath;
+                    targetChat.ProjectId = otherProject.Id;
+                    return Task.FromResult<string?>(null);
+                });
+
+            var result = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    .With("chatId", chat.Id.ToString())
+                    .With("message", "phone send")
+                    .With("worktree", "true"),
+                CancellationToken.None);
+
+            Assert.True(result.Ok, result.Error);
+            Assert.NotNull(createdPath);
+            Assert.True(Directory.Exists(createdPath));
+            Assert.Equal(createdPath, chat.WorktreePath);
+        }
+        finally
+        {
+            main?.Dispose();
+            if (createdPath is not null && Directory.Exists(createdPath))
+                await GitService.RemoveWorktreeAsync(repo, createdPath);
+            TryDeleteDirectory(repo);
+        }
+    });
+
+    [Fact]
+    public Task RejectedProjectDirectoryChangeBeforeAcceptanceRemovesOwnedWorktree() => RunAsync(async () =>
+    {
+        var originalRepo = CreateTempGitRepo();
+        var otherRepo = CreateTempGitRepo();
+        MainViewModel? main = null;
+        string? createdPath = null;
+        try
+        {
+            var project = new Project { Name = "Code", WorkingDirectory = originalRepo };
+            var chat = new Chat { Title = "Empty", ProjectId = project.Id };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [project],
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            var router = new RemoteCommandRouter(
+                dataStore,
+                main,
+                (_, targetChat, _, _, _, _) =>
+                {
+                    createdPath = targetChat.WorktreePath;
+                    project.WorkingDirectory = otherRepo;
+                    return Task.FromResult<string?>("The chat project changed while its turn was starting.");
+                });
+
+            var result = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    .With("chatId", chat.Id.ToString())
+                    .With("message", "phone send")
+                    .With("worktree", "true"),
+                CancellationToken.None);
+
+            Assert.False(result.Ok);
+            Assert.NotNull(createdPath);
+            Assert.False(Directory.Exists(createdPath));
+            Assert.Null(chat.WorktreePath);
+        }
+        finally
+        {
+            main?.Dispose();
+            if (createdPath is not null && Directory.Exists(createdPath))
+                await GitService.RemoveWorktreeAsync(originalRepo, createdPath);
+            TryDeleteDirectory(originalRepo);
+            TryDeleteDirectory(otherRepo);
+        }
+    });
+
+    [Fact]
+    public Task CanceledPreflightKeepsAWorktreeThatBecameDirty() => RunAsync(async () =>
+    {
+        var repo = CreateTempGitRepo();
+        MainViewModel? main = null;
+        string? createdPath = null;
+        try
+        {
+            var project = new Project { Name = "Code", WorkingDirectory = repo };
+            var chat = new Chat { Title = "Empty", ProjectId = project.Id };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [project],
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            var startEntered = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseStart = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var router = new RemoteCommandRouter(
+                dataStore,
+                main,
+                async (_, targetChat, _, _, _, _) =>
+                {
+                    createdPath = targetChat.WorktreePath;
+                    startEntered.TrySetResult();
+                    await releaseStart.Task;
+                    return "The pending turn start was canceled.";
+                });
+
+            var send = router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    .With("chatId", chat.Id.ToString())
+                    .With("message", "phone send")
+                    .With("worktree", "true"),
+                CancellationToken.None);
+            await startEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.NotNull(createdPath);
+            await File.WriteAllTextAsync(Path.Combine(createdPath, "keep.txt"), "user change");
+
+            var stop = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.StopGeneration)
+                    .With("chatId", chat.Id.ToString()),
+                CancellationToken.None);
+            Assert.True(stop.Ok, stop.Error);
+            releaseStart.TrySetResult();
+
+            var sendResult = await send;
+            Assert.False(sendResult.Ok);
+            Assert.Contains("kept", sendResult.Error, StringComparison.OrdinalIgnoreCase);
+            Assert.True(Directory.Exists(createdPath));
+            Assert.Equal(createdPath, chat.WorktreePath);
+        }
+        finally
+        {
+            main?.Dispose();
+            if (createdPath is not null && Directory.Exists(createdPath))
+                await GitService.RemoveWorktreeAsync(repo, createdPath);
+            TryDeleteDirectory(repo);
+        }
+    });
+
+    [Fact]
+    public Task CanceledPreflightKeepsAWorktreeReferencedByAnotherChat() => RunAsync(async () =>
+    {
+        var repo = CreateTempGitRepo();
+        MainViewModel? main = null;
+        string? createdPath = null;
+        try
+        {
+            var project = new Project { Name = "Code", WorkingDirectory = repo };
+            var chat = new Chat { Title = "Empty", ProjectId = project.Id };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [project],
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            var startEntered = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseStart = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var router = new RemoteCommandRouter(
+                dataStore,
+                main,
+                async (_, targetChat, _, _, _, _) =>
+                {
+                    createdPath = targetChat.WorktreePath;
+                    startEntered.TrySetResult();
+                    await releaseStart.Task;
+                    return "The pending turn start was canceled.";
+                });
+
+            var send = router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    .With("chatId", chat.Id.ToString())
+                    .With("message", "phone send")
+                    .With("worktree", "true"),
+                CancellationToken.None);
+            await startEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.NotNull(createdPath);
+            dataStore.Data.Chats.Add(new Chat
+            {
+                Title = "Shared",
+                ProjectId = project.Id,
+                WorktreePath = createdPath
+            });
+
+            var stop = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.StopGeneration)
+                    .With("chatId", chat.Id.ToString()),
+                CancellationToken.None);
+            Assert.True(stop.Ok, stop.Error);
+            releaseStart.TrySetResult();
+
+            var sendResult = await send;
+            Assert.False(sendResult.Ok);
+            Assert.Contains("another chat", sendResult.Error, StringComparison.OrdinalIgnoreCase);
+            Assert.True(Directory.Exists(createdPath));
+            Assert.Equal(createdPath, chat.WorktreePath);
+        }
+        finally
+        {
+            main?.Dispose();
+            if (createdPath is not null && Directory.Exists(createdPath))
+                await GitService.RemoveWorktreeAsync(repo, createdPath);
+            TryDeleteDirectory(repo);
+        }
+    });
+
+    [Fact]
+    public Task CleanupReservationBlocksNewAssociationsAndCanRestoreItsOwner() => RunAsync(() =>
+    {
+        var worktreePath = Path.Combine(Path.GetTempPath(), $"lumi-cleanup-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(worktreePath);
+        try
+        {
+            var owner = new Chat { Title = "Owner", WorktreePath = worktreePath };
+            var other = new Chat { Title = "Other" };
+            var dataStore = new DataStore(new AppData { Chats = [owner, other] });
+
+            using var reservation = dataStore.TryReserveWorktreeCleanup(
+                owner,
+                worktreePath,
+                out var isShared);
+
+            Assert.NotNull(reservation);
+            Assert.False(isShared);
+            Assert.Null(owner.WorktreePath);
+            Assert.True(dataStore.IsWorktreeCleanupReserved(worktreePath));
+            Assert.False(dataStore.TrySetChatWorktreePath(other, worktreePath));
+            Assert.True(reservation.RestoreOwnerAssociation());
+            Assert.Equal(Path.GetFullPath(worktreePath), Path.GetFullPath(owner.WorktreePath!));
+        }
+        finally
+        {
+            TryDeleteDirectory(worktreePath);
+        }
+
+        return Task.CompletedTask;
+    });
+
+    [Fact]
+    public Task ReservedFirstTurnBlocksDesktopAndRemoteDeletion() => RunAsync(async () =>
+    {
+        MainViewModel? main = null;
+        ChatViewModel.ExternalSendReservation? reservation = null;
+        try
+        {
+            var chat = new Chat { Title = "Empty" };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            reservation = main.ChatVM.TryReserveExternalSend(chat.Id);
+            Assert.NotNull(reservation);
+
+            main.DeleteChatCommand.Execute(chat);
+            Assert.Contains(chat, dataStore.Data.Chats);
+
+            var router = new RemoteCommandRouter(dataStore, main);
+            var result = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.DeleteChat)
+                    .With("chatId", chat.Id.ToString()),
+                CancellationToken.None);
+
+            Assert.False(result.Ok);
+            Assert.Contains("first turn", result.Error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(chat, dataStore.Data.Chats);
+        }
+        finally
+        {
+            reservation?.Dispose();
+            main?.Dispose();
+        }
+    });
+
+    [Fact]
+    public Task CreatingSendCanCreateAWorktreeBeforeTheTurnStarts() => RunAsync(async () =>
+    {
+        var repo = CreateTempGitRepo();
+        MainViewModel? main = null;
+        string? worktreePath = null;
+        try
+        {
+            var project = new Project { Name = "Code", WorkingDirectory = repo };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [project]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            var router = new RemoteCommandRouter(
+                dataStore,
+                main,
+                (_, chat, _, _, _, _) =>
+                {
+                    worktreePath = chat.WorktreePath;
+                    return Task.FromResult<string?>(null);
+                });
+
+            var result = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    .With("newChat", "true")
+                    .With("message", "fix the build")
+                    .With("projectId", project.Id.ToString())
+                    .With("worktree", "true"),
+                CancellationToken.None);
+
+            Assert.True(result.Ok, result.Error);
+            Assert.NotNull(worktreePath);
+            Assert.True(Directory.Exists(worktreePath));
+            Assert.Equal(worktreePath, Assert.Single(dataStore.Data.Chats).WorktreePath);
+        }
+        finally
+        {
+            if (main is not null)
+                main.Dispose();
+            if (worktreePath is not null)
+                await GitService.RemoveWorktreeAsync(repo, worktreePath);
+            TryDeleteDirectory(repo);
+        }
+    });
+
+    [Fact]
+    public Task RetryingAnEmptyCreatedChatCanStillCreateItsRequestedWorktree() => RunAsync(async () =>
+    {
+        var repo = CreateTempGitRepo();
+        MainViewModel? main = null;
+        string? worktreePath = null;
+        try
+        {
+            var project = new Project { Name = "Code", WorkingDirectory = repo };
+            var chat = new Chat { Title = "Retry", ProjectId = project.Id };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [project],
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            var router = new RemoteCommandRouter(
+                dataStore,
+                main,
+                (_, targetChat, _, _, _, _) =>
+                {
+                    worktreePath = targetChat.WorktreePath;
+                    return Task.FromResult<string?>(null);
+                });
+
+            var result = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    .With("chatId", chat.Id.ToString())
+                    .With("message", "retry")
+                    .With("worktree", "true"),
+                CancellationToken.None);
+
+            Assert.True(result.Ok, result.Error);
+            Assert.NotNull(worktreePath);
+            Assert.True(Directory.Exists(worktreePath));
+            Assert.Equal(worktreePath, chat.WorktreePath);
+        }
+        finally
+        {
+            if (main is not null)
+                main.Dispose();
+            if (worktreePath is not null)
+                await GitService.RemoveWorktreeAsync(repo, worktreePath);
+            TryDeleteDirectory(repo);
+        }
+    });
+
+    [Fact]
+    public Task SelectingLocalForAnEmptyChatRemovesItsExistingWorktree() => RunAsync(async () =>
+    {
+        var repo = CreateTempGitRepo();
+        MainViewModel? main = null;
+        string? worktreePath = null;
+        try
+        {
+            worktreePath = await GitService.CreateWorktreeAsync(repo, "lumi/test-local");
+            Assert.NotNull(worktreePath);
+            var project = new Project { Name = "Code", WorkingDirectory = repo };
+            var chat = new Chat
+            {
+                Title = "Empty",
+                ProjectId = project.Id,
+                WorktreePath = worktreePath
+            };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [project],
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            var router = new RemoteCommandRouter(
+                dataStore,
+                main,
+                (_, _, _, _, _, _) => Task.FromResult<string?>(null));
+
+            var result = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    .With("chatId", chat.Id.ToString())
+                    .With("message", "run locally")
+                    .With("worktree", "false"),
+                CancellationToken.None);
+
+            Assert.True(result.Ok, result.Error);
+            Assert.Null(chat.WorktreePath);
+            Assert.True(Directory.Exists(worktreePath));
+        }
+        finally
+        {
+            if (main is not null)
+                main.Dispose();
+            if (worktreePath is not null)
+                await GitService.RemoveWorktreeAsync(repo, worktreePath);
+            TryDeleteDirectory(repo);
+        }
+    });
+
+    [Fact]
+    public Task SelectingLocalClearsAMissingPersistedWorktreeReference() => RunAsync(async () =>
+    {
+        MainViewModel? main = null;
+        var repo = CreateTempGitRepo();
+        try
+        {
+            var project = new Project { Name = "Code", WorkingDirectory = repo };
+            var chat = new Chat
+            {
+                Title = "Empty",
+                ProjectId = project.Id,
+                WorktreePath = Path.Combine(repo, "missing-worktree")
+            };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [project],
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            var router = new RemoteCommandRouter(
+                dataStore,
+                main,
+                (_, _, _, _, _, _) => Task.FromResult<string?>(null));
+
+            var result = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    .With("chatId", chat.Id.ToString())
+                    .With("message", "run locally")
+                    .With("worktree", "false"),
+                CancellationToken.None);
+
+            Assert.True(result.Ok, result.Error);
+            Assert.Null(chat.WorktreePath);
+        }
+        finally
+        {
+            main?.Dispose();
+            TryDeleteDirectory(repo);
+        }
+    });
+
+    [Fact]
+    public Task ChangingProjectAndKeepingWorktreeCreatesItInTheNewRepository() => RunAsync(async () =>
+    {
+        var oldRepo = CreateTempGitRepo();
+        var newRepo = CreateTempGitRepo();
+        MainViewModel? main = null;
+        string? oldWorktree = null;
+        string? newWorktree = null;
+        try
+        {
+            oldWorktree = await GitService.CreateWorktreeAsync(oldRepo, "lumi/old-project");
+            Assert.NotNull(oldWorktree);
+            var oldProject = new Project { Name = "Old", WorkingDirectory = oldRepo };
+            var newProject = new Project { Name = "New", WorkingDirectory = newRepo };
+            var chat = new Chat
+            {
+                Title = "Empty",
+                ProjectId = oldProject.Id,
+                WorktreePath = oldWorktree
+            };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [oldProject, newProject],
+                Chats = [chat]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            await main.OpenChatByIdAsync(chat.Id);
+            var router = new RemoteCommandRouter(
+                dataStore,
+                main,
+                (_, targetChat, _, _, _, _) =>
+                {
+                    newWorktree = targetChat.WorktreePath;
+                    return Task.FromResult<string?>(null);
+                });
+
+            var result = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    .With("chatId", chat.Id.ToString())
+                    .With("message", "switch project")
+                    .With("projectId", newProject.Id.ToString())
+                    .With("worktree", "true"),
+                CancellationToken.None);
+
+            Assert.True(result.Ok, result.Error);
+            Assert.Equal(newProject.Id, chat.ProjectId);
+            Assert.NotNull(newWorktree);
+            Assert.NotEqual(oldWorktree, newWorktree);
+            Assert.True(Directory.Exists(oldWorktree));
+            Assert.True(Directory.Exists(newWorktree));
+        }
+        finally
+        {
+            main?.Dispose();
+            if (oldWorktree is not null)
+                await GitService.RemoveWorktreeAsync(oldRepo, oldWorktree);
+            if (newWorktree is not null)
+                await GitService.RemoveWorktreeAsync(newRepo, newWorktree);
+            TryDeleteDirectory(oldRepo);
+            TryDeleteDirectory(newRepo);
+        }
+    });
+
+    [Fact]
+    public Task InvalidProjectDefaultDoesNotBreakTheFirstSend() => RunAsync(async () =>
+    {
+        MainViewModel? main = null;
+        var directory = Path.Combine(Path.GetTempPath(), $"lumi-not-git-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var project = new Project
+            {
+                Name = "Not Git",
+                WorkingDirectory = directory,
+                DefaultNewChatsUseWorktree = true
+            };
+            var dataStore = new DataStore(new AppData
+            {
+                Settings = TestSettings(),
+                Projects = [project]
+            });
+            main = new MainViewModel(
+                dataStore,
+                TestCopilot.Shared,
+                new UpdateService(),
+                initializeCopilotOnStartup: false);
+            var router = new RemoteCommandRouter(
+                dataStore,
+                main,
+                (_, _, _, _, _, _) => Task.FromResult<string?>(null));
+
+            var result = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    .With("newChat", "true")
+                    .With("message", "hello")
+                    .With("projectId", project.Id.ToString()),
+                CancellationToken.None);
+
+            Assert.True(result.Ok, result.Error);
+            Assert.Null(Assert.Single(dataStore.Data.Chats).WorktreePath);
+        }
+        finally
+        {
+            main?.Dispose();
+            TryDeleteDirectory(directory);
+        }
+    });
+
     [Fact]
     public Task SendUsesTheDetachedChatOwnerWithoutChangingTheMainSurface() => RunAsync(async () =>
     {
@@ -481,9 +1716,63 @@ public sealed class RemoteCommandRouterSurfaceTests
         EnableMemoryAutoSave = false
     };
 
+    private static string CreateTempGitRepo()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"lumi-remote-worktree-{Guid.NewGuid():N}"[..31]);
+        Directory.CreateDirectory(directory);
+        RunGit(directory, "init -b main");
+        RunGit(directory, "config user.email test@lumi.local");
+        RunGit(directory, "config user.name \"Lumi Test\"");
+        File.WriteAllText(Path.Combine(directory, "README.md"), "seed");
+        RunGit(directory, "add -A");
+        RunGit(directory, "commit -m seed");
+        return directory;
+    }
+
+    private static void RunGit(string workingDirectory, string arguments)
+    {
+        var startInfo = new ProcessStartInfo("git", arguments)
+        {
+            WorkingDirectory = workingDirectory,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        using var process = Process.Start(startInfo)!;
+        process.WaitForExit(30_000);
+        Assert.Equal(0, process.ExitCode);
+    }
+
+    private static void TryDeleteDirectory(string directory)
+    {
+        try
+        {
+            if (!Directory.Exists(directory))
+                return;
+            foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+                File.SetAttributes(file, FileAttributes.Normal);
+            Directory.Delete(directory, recursive: true);
+        }
+        catch
+        {
+        }
+    }
+
     private static T GetPrivateField<T>(object target, string name) where T : class =>
         Assert.IsType<T>(
             target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(target));
+
+    private static long DirtyChatVersion(DataStore store, Guid chatId)
+    {
+        var field = typeof(DataStore).GetField(
+            "_dirtyChatVersions",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var versions = (System.Collections.IDictionary)field.GetValue(store)!;
+        return versions.Contains(chatId) ? Convert.ToInt64(versions[chatId]) : 0L;
+    }
 
     private static async Task RunAsync(Func<Task> body)
     {

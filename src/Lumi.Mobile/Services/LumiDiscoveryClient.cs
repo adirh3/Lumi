@@ -74,7 +74,7 @@ public sealed class LumiDiscoveryClient
                     continue;
                 }
 
-                if (beacon is null || beacon.ProtocolVersion != RemoteProtocol.Version)
+                if (beacon is null || !RemoteProtocol.IsCompatibleVersion(beacon.ProtocolVersion))
                     continue;
 
                 // Trust the responder's socket address over whatever it claims, when it claims nothing useful.

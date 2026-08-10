@@ -541,12 +541,18 @@ public static class GitService
         return await RunGitAsync(dir, "diff --stat --stat-width=60").ConfigureAwait(false);
     }
 
+    public readonly record struct WorktreeCreationResult(
+        string? Path,
+        bool CreatedByThisCall);
+
     /// <summary>Creates a git worktree as a sibling directory to the repository root. Returns the
-    /// worktree root path. When <paramref name="repoDir"/> is a subfolder of the repo, the worktree
+    /// worktree root path and whether this invocation created it. When <paramref name="repoDir"/> is a subfolder of the repo, the worktree
     /// is still anchored to the repository root so it lands beside the main checkout (never nested
     /// inside it). Callers map the project subpath into the worktree via
     /// <see cref="ResolveWorktreeWorkingDirectory"/>.</summary>
-    public static async Task<string?> CreateWorktreeAsync(string repoDir, string branchName)
+    public static async Task<WorktreeCreationResult> CreateWorktreeWithOwnershipAsync(
+        string repoDir,
+        string branchName)
     {
         // Anchor to the repository root so the worktree is a sibling of the main checkout even when
         // the project working directory is a subfolder (e.g. a monorepo app). Without this the
@@ -557,29 +563,32 @@ public static class GitService
         var repoName = Path.GetFileName(trimmedRoot);
         var safeBranch = branchName.Replace('/', '-').Replace('\\', '-');
         var parentDir = Path.GetDirectoryName(trimmedRoot);
-        if (parentDir is null) return null;
+        if (parentDir is null) return default;
 
         var worktreePath = Path.Combine(parentDir, $"{repoName}-wt-{safeBranch}");
         if (Directory.Exists(worktreePath))
-            return worktreePath; // Already exists
+            return new WorktreeCreationResult(worktreePath, CreatedByThisCall: false);
 
         // Try creating with a new branch first. Run from the repo root so paths stay predictable.
         var result = await RunGitAsync(gitRoot, $"worktree add \"{worktreePath}\" -b \"{branchName}\"", WorktreeGitCommandTimeout).ConfigureAwait(false);
         if (result is not null && Directory.Exists(worktreePath))
-            return worktreePath;
+            return new WorktreeCreationResult(worktreePath, CreatedByThisCall: true);
 
         // Branch may already exist — try attaching to it
         result = await RunGitAsync(gitRoot, $"worktree add \"{worktreePath}\" \"{branchName}\"", WorktreeGitCommandTimeout).ConfigureAwait(false);
         if (result is not null && Directory.Exists(worktreePath))
-            return worktreePath;
+            return new WorktreeCreationResult(worktreePath, CreatedByThisCall: true);
 
         // Last resort — create with detached HEAD
         result = await RunGitAsync(gitRoot, $"worktree add --detach \"{worktreePath}\"", WorktreeGitCommandTimeout).ConfigureAwait(false);
         if (result is not null && Directory.Exists(worktreePath))
-            return worktreePath;
+            return new WorktreeCreationResult(worktreePath, CreatedByThisCall: true);
 
-        return null;
+        return default;
     }
+
+    public static async Task<string?> CreateWorktreeAsync(string repoDir, string branchName) =>
+        (await CreateWorktreeWithOwnershipAsync(repoDir, branchName).ConfigureAwait(false)).Path;
 
     /// <summary>Removes a git worktree and its associated branch.</summary>
     public static async Task<bool> RemoveWorktreeAsync(string dir, string worktreePath)
@@ -596,6 +605,56 @@ public static class GitService
         // Delete the orphaned branch if it was a lumi/ branch
         if (branch is { Length: > 0 } && branch.StartsWith("lumi/"))
             await RunGitAsync(dir, $"branch -D \"{branch}\"").ConfigureAwait(false);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Removes a worktree only when Git confirms it is clean. Unlike <see cref="RemoveWorktreeAsync"/>,
+    /// this never forces removal and never force-deletes its branch, so cancellation cleanup cannot
+    /// discard edits or commits created while the worktree was being prepared.
+    /// </summary>
+    public static async Task<bool> RemoveWorktreeIfCleanAsync(string dir, string worktreePath)
+    {
+        if (!Directory.Exists(worktreePath))
+            return true;
+
+        var status = await RunGitAsync(
+                worktreePath,
+                "-c submodule.recurse=false status --porcelain -uall --ignore-submodules=none",
+                WorktreeGitCommandTimeout)
+            .ConfigureAwait(false);
+        if (status is null || !string.IsNullOrWhiteSpace(status))
+            return false;
+
+        var branch = (await RunGitAsync(
+                worktreePath,
+                "rev-parse --abbrev-ref HEAD",
+                WorktreeGitCommandTimeout)
+            .ConfigureAwait(false))?.Trim();
+        // A detached worktree can gain a clean commit between any reachability check and removal.
+        // Preserve it unconditionally; automatic cleanup is only safe for branch-backed worktrees,
+        // where `branch -d` keeps unmerged commits reachable.
+        if (string.Equals(branch, "HEAD", StringComparison.Ordinal))
+            return false;
+
+        var removed = await RunGitAsync(
+                dir,
+                $"worktree remove {QuoteGitArgument(worktreePath)}",
+                WorktreeGitCommandTimeout)
+            .ConfigureAwait(false);
+        if (removed is null)
+            return false;
+
+        if (branch is { Length: > 0 } && branch.StartsWith("lumi/", StringComparison.Ordinal))
+        {
+            // Safe deletion only: preserve any branch containing commits Git considers unmerged.
+            await RunGitAsync(
+                    dir,
+                    $"branch -d {QuoteGitArgument(branch)}",
+                    WorktreeGitCommandTimeout)
+                .ConfigureAwait(false);
+        }
 
         return true;
     }

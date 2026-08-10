@@ -162,6 +162,14 @@ public partial class MobileShellView : UserControl
         _keyboardInset = 0;
         _keyboardTop = double.NaN;
         ApplyInsets();
+        if (DataContext is MobileShellViewModel shell)
+            _ = shell.NotifyApplicationDeactivatedAsync();
+    }
+
+    public void NotifyApplicationActivated()
+    {
+        if (DataContext is MobileShellViewModel shell)
+            _ = shell.NotifyApplicationActivatedAsync();
     }
 
     private void OnScalingChanged(object? sender, EventArgs e)

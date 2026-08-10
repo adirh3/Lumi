@@ -164,6 +164,7 @@ public sealed class FakeLumiDesktop : IAsyncDisposable
                 await WriteJsonAsync(context, JsonSerializer.Serialize(
                     new RemoteHello
                     {
+                        Capabilities = [RemoteProtocol.Capabilities.ScopedEventsV1],
                         InstanceId = "fake",
                         HostName = HostName,
                         UserName = UserName,
@@ -210,6 +211,7 @@ public sealed class FakeLumiDesktop : IAsyncDisposable
         {
             case RemoteProtocol.Routes.Snapshot:
                 Interlocked.Increment(ref _snapshotRequestCount);
+                Snapshot.Capabilities = [RemoteProtocol.Capabilities.ScopedEventsV1];
                 await WriteJsonAsync(context,
                     JsonSerializer.Serialize(Snapshot, RemoteJsonContext.Default.RemoteSnapshot));
                 return;
@@ -305,6 +307,7 @@ public sealed class FakeLumiDesktop : IAsyncDisposable
 
                 var result = CommandResultFactory?.Invoke(command)
                     ?? new RemoteCommandResult { Ok = true, Message = "ok" };
+                result.RequestId ??= command?.RequestId;
                 if (result.Ok && command?.Action == RemoteProtocol.Actions.CreateChat)
                     result.ChatId = Guid.NewGuid();
 
@@ -328,6 +331,10 @@ public sealed class FakeLumiDesktop : IAsyncDisposable
                 return;
             }
 
+            case RemoteProtocol.Routes.Subscription:
+                await WriteJsonAsync(context, "{}");
+                return;
+
             case RemoteProtocol.Routes.Events:
                 Interlocked.Increment(ref _eventRequestCount);
                 await ServeEventsAsync(context);
@@ -348,6 +355,7 @@ public sealed class FakeLumiDesktop : IAsyncDisposable
 
         var writer = new StreamWriter(context.Response.OutputStream, new UTF8Encoding(false)) { AutoFlush = false };
 
+        Snapshot.Capabilities = [RemoteProtocol.Capabilities.ScopedEventsV1];
         await writer.WriteAsync(new RemoteEventFrame(
             RemoteProtocol.Events.Snapshot,
             JsonSerializer.Serialize(Snapshot, RemoteJsonContext.Default.RemoteSnapshot)).ToWire());

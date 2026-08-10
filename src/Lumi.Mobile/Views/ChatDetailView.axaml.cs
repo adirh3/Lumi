@@ -13,6 +13,7 @@ using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
 using Lumi.Remote.Protocol;
 using StrataTheme.Controls;
@@ -604,6 +605,14 @@ public partial class ChatDetailView : UserControl
                 return;
             }
 
+            if (await MobilePlatformServices.ProducedFileOpener.TryOpenAsync(
+                    downloadedPath,
+                    fileName,
+                    CancellationToken.None))
+            {
+                return;
+            }
+
             var destination = await topLevel.StorageProvider.SaveFilePickerAsync(
                 new FilePickerSaveOptions
                 {
@@ -613,12 +622,11 @@ public partial class ChatDetailView : UserControl
             if (destination is null)
                 return;
 
-            await using (var source = File.OpenRead(downloadedPath))
-            await using (var output = await destination.OpenWriteAsync())
-            {
-                output.SetLength(0);
-                await source.CopyToAsync(output);
-            }
+            await ProducedFileExport.CopyAndVerifyAsync(
+                downloadedPath,
+                destination.OpenWriteAsync,
+                destination.OpenReadAsync,
+                CancellationToken.None);
 
             if (!await topLevel.Launcher.LaunchFileAsync(destination))
                 shell.Chat.ErrorText = "The file was downloaded, but this phone could not open it.";

@@ -15,15 +15,19 @@ namespace Lumi.Mobile.ViewModels;
 /// </summary>
 public sealed partial class MobileChatViewModel : ObservableObject
 {
+    private static readonly TimeSpan PendingRetryReplayWindow = TimeSpan.FromMinutes(9);
     private readonly IRemoteCommandSink _sink;
+    private readonly Func<DateTimeOffset> _now;
     private readonly SemaphoreSlim _configurationGate = new(1, 1);
     private string? _preferredModel;
     private long _revision = -1;
     private string? _revisionEpoch;
     private long _hostGeneration;
     private long _blankSurfaceGeneration;
+    private long? _blankSendInFlightGeneration;
     private long _surfaceActivationGeneration;
     private long _statusVersion;
+    private readonly Dictionary<Guid, string> _pendingStopRequestIds = [];
     private readonly Dictionary<ChatSurfaceIdentity, DraftState> _drafts = [];
     private readonly Dictionary<ChatSurfaceIdentity, ChatSurfaceIdentity> _surfaceMappings = [];
     private bool _restoringDraftState;
@@ -89,6 +93,51 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [ObservableProperty] private string _agentGlyph = "◉";
     [ObservableProperty] private string? _projectName;
     [ObservableProperty] private string? _projectValue;
+    [ObservableProperty] private bool _useWorktree;
+
+    private readonly Dictionary<Guid, RemoteProject> _projectCatalog = [];
+    private bool _worktreeChoiceExplicit;
+    private bool _hasAuthoritativeTranscript;
+    private bool _supportsAtomicWorktreeSelection = true;
+
+    public bool CanChooseWorktree =>
+        _supportsAtomicWorktreeSelection &&
+        HasConfirmedEmptyHistory &&
+        CanChangeProjectSelection &&
+        _pendingRetry is null &&
+        TryGetSelectedProject(out var project) &&
+        project.IsCodingProject;
+
+    public bool CanChangeProjectSelection =>
+        _pendingRetry is null &&
+        !IsCurrentBlankSendInFlight &&
+        (ChatId != Guid.Empty || (!IsBusy && !IsStreaming)) &&
+        !(ChatId != Guid.Empty &&
+          UseWorktree &&
+          _hasAuthoritativeTranscript &&
+          TotalRawMessageCount > 0);
+
+    public bool IsLocalWorkspaceSelected => !UseWorktree;
+
+    public string WorkspaceSummary => UseWorktree ? "New worktree" : "Local checkout";
+
+    public void ApplyRemoteProtocolVersion(int protocolVersion)
+    {
+        var supportsWorktrees = RemoteProtocol.IsCompatibleVersion(protocolVersion);
+        if (_supportsAtomicWorktreeSelection == supportsWorktrees)
+            return;
+
+        _supportsAtomicWorktreeSelection = supportsWorktrees;
+        if (!supportsWorktrees)
+        {
+            _pendingConfiguration.RemoveScalar("worktree");
+            _worktreeChoiceExplicit = false;
+            UseWorktree = false;
+        }
+
+        OnPropertyChanged(nameof(CanChooseWorktree));
+        OnPropertyChanged(nameof(RunSettingsSummary));
+    }
 
     /// <summary>
     /// Files the user attached but has not sent yet, as absolute paths ON THE PC.
@@ -174,8 +223,16 @@ public sealed partial class MobileChatViewModel : ObservableObject
     }
 
     public MobileChatViewModel(IRemoteCommandSink sink)
+        : this(sink, static () => DateTimeOffset.UtcNow)
+    {
+    }
+
+    internal MobileChatViewModel(
+        IRemoteCommandSink sink,
+        Func<DateTimeOffset> now)
     {
         _sink = sink;
+        _now = now;
 
         // The composer adds a picked skill / MCP straight into these collections, so watching them
         // is the only way to learn about a "+" menu selection. Adds made by ApplyStatus are ignored
@@ -316,6 +373,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
             {
                 parts.Add(ContextWindowLabel);
             }
+            if (CanChooseWorktree)
+                parts.Add(WorkspaceSummary);
 
             return string.Join(" · ", parts);
         }
@@ -342,6 +401,29 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     [RelayCommand]
     private void OpenRunSettingsSheet() => IsRunSettingsSheetOpen = true;
+
+    [RelayCommand]
+    private void SelectLocalWorkspace()
+    {
+        if (!CanChooseWorktree)
+            return;
+
+        _worktreeChoiceExplicit = true;
+        if (UseWorktree)
+            UseWorktree = false;
+        else
+            _pendingConfiguration.SetScalar("worktree", "false");
+    }
+
+    [RelayCommand]
+    private void SelectNewWorktree()
+    {
+        if (!CanChooseWorktree)
+            return;
+
+        _worktreeChoiceExplicit = true;
+        UseWorktree = true;
+    }
 
     [RelayCommand]
     private void OpenModelFromRunSettings()
@@ -584,6 +666,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
     partial void OnChatIdChanged(Guid value)
     {
         OnPropertyChanged(nameof(HasChat));
+        OnPropertyChanged(nameof(CanChooseWorktree));
+        OnPropertyChanged(nameof(RunSettingsSummary));
         _revision = -1;
         _revisionEpoch = null;
     }
@@ -597,6 +681,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     partial void OnIsLoadingChanged(bool value)
     {
         OnPropertyChanged(nameof(IsEmpty));
+        OnPropertyChanged(nameof(CanChooseWorktree));
         OnPropertyChanged(nameof(CanNavigateTranscript));
     }
 
@@ -680,14 +765,140 @@ public sealed partial class MobileChatViewModel : ObservableObject
     partial void OnAgentValueChanged(string? value) =>
         PushIdentityConfiguration("agentId", value ?? "", "agent");
 
-    partial void OnProjectNameChanged(string? value)
+    partial void OnProjectNameChanged(string? oldValue, string? newValue)
     {
+        if (ShouldRejectProjectSelectionChange())
+        {
+            RestoreRejectedProjectSelection(ProjectValue, oldValue);
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(ProjectValue))
-            PushIdentityConfiguration("project", value ?? "", "projectId");
+            ResetWorktreeChoiceForProjectChange();
+        RefreshWorktreeChoice();
+        if (string.IsNullOrWhiteSpace(ProjectValue))
+            PushIdentityConfiguration("project", newValue ?? "", "projectId");
     }
 
-    partial void OnProjectValueChanged(string? value) =>
-        PushIdentityConfiguration("projectId", value ?? "", "project");
+    partial void OnProjectValueChanged(string? oldValue, string? newValue)
+    {
+        if (ShouldRejectProjectSelectionChange())
+        {
+            RestoreRejectedProjectSelection(oldValue, ProjectName);
+            return;
+        }
+
+        ResetWorktreeChoiceForProjectChange();
+        RefreshWorktreeChoice();
+        PushIdentityConfiguration("projectId", newValue ?? "", "project");
+    }
+
+    partial void OnUseWorktreeChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsLocalWorkspaceSelected));
+        OnPropertyChanged(nameof(WorkspaceSummary));
+        OnPropertyChanged(nameof(RunSettingsSummary));
+
+        if (_applyingServerState || _restoringDraftState || !CanChooseWorktree)
+            return;
+
+        _pendingConfiguration.SetScalar("worktree", value ? "true" : "false");
+    }
+
+    private void RefreshWorktreeChoice()
+    {
+        OnPropertyChanged(nameof(CanChooseWorktree));
+        if (!HasConfirmedEmptyHistory)
+            return;
+
+        if (_pendingConfiguration.TryGetScalar("worktree", out var pendingWorktree)
+            && bool.TryParse(pendingWorktree, out var usePendingWorktree))
+        {
+            _worktreeChoiceExplicit = true;
+            UseWorktree = usePendingWorktree;
+            return;
+        }
+
+        if (!TryGetSelectedProject(out var project))
+        {
+            ClearWorktreeChoice();
+            return;
+        }
+
+        if (!project.IsCodingProject)
+        {
+            ClearWorktreeChoice();
+            return;
+        }
+
+        if (!_worktreeChoiceExplicit)
+        {
+            UseWorktree = project.DefaultNewChatsUseWorktree;
+            if (!_applyingServerState)
+                _pendingConfiguration.SetScalar("worktree", UseWorktree ? "true" : "false");
+        }
+    }
+
+    private void ResetWorktreeChoiceForProjectChange()
+    {
+        if (_applyingServerState || _restoringDraftState || !HasConfirmedEmptyHistory)
+            return;
+
+        _pendingConfiguration.RemoveScalar("worktree");
+        _worktreeChoiceExplicit = false;
+    }
+
+    private bool ShouldRejectProjectSelectionChange() =>
+        !_applyingServerState &&
+        !_restoringDraftState &&
+        !CanChangeProjectSelection;
+
+    private void RestoreRejectedProjectSelection(string? projectValue, string? projectName)
+    {
+        _restoringDraftState = true;
+        try
+        {
+            ProjectValue = projectValue;
+            ProjectName = projectName;
+        }
+        finally
+        {
+            _restoringDraftState = false;
+        }
+    }
+
+    private void ClearWorktreeChoice()
+    {
+        var shouldDetachExistingWorktree =
+            ChatId != Guid.Empty
+            && HasConfirmedEmptyHistory
+            && UseWorktree
+            && !_applyingServerState;
+        _worktreeChoiceExplicit = false;
+        UseWorktree = false;
+        if (shouldDetachExistingWorktree)
+            _pendingConfiguration.SetScalar("worktree", "false");
+        else
+            _pendingConfiguration.RemoveScalar("worktree");
+    }
+
+    private bool TryGetSelectedProject(out RemoteProject project)
+    {
+        if (Guid.TryParse(ProjectValue, out var projectId)
+            && _projectCatalog.TryGetValue(projectId, out project!))
+        {
+            return true;
+        }
+
+        project = _projectCatalog.Values.FirstOrDefault(candidate =>
+            string.Equals(candidate.Name, ProjectName, StringComparison.Ordinal))!;
+        return project is not null;
+    }
+
+    private bool HasConfirmedEmptyHistory =>
+        ChatId == Guid.Empty
+            ? IsEmpty
+            : _hasAuthoritativeTranscript && TotalRawMessageCount == 0 && IsEmpty;
 
     private void PushIdentityConfiguration(string key, string value, string supersededKey)
     {
@@ -729,6 +940,31 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     private ChatSurfaceIdentity CurrentSurface =>
         new(ChatId, ChatId == Guid.Empty ? _blankSurfaceGeneration : 0);
+
+    private bool IsCurrentBlankSendInFlight =>
+        ChatId == Guid.Empty &&
+        _blankSendInFlightGeneration == _blankSurfaceGeneration;
+
+    private void LockBlankProjectSelection(ChatSurfaceIdentity surface)
+    {
+        if (!surface.IsBlank)
+            return;
+
+        _blankSendInFlightGeneration = surface.BlankGeneration;
+        OnPropertyChanged(nameof(CanChooseWorktree));
+    }
+
+    private void ReleaseBlankProjectSelection(ChatSurfaceIdentity surface)
+    {
+        if (!surface.IsBlank ||
+            _blankSendInFlightGeneration != surface.BlankGeneration)
+        {
+            return;
+        }
+
+        _blankSendInFlightGeneration = null;
+        OnPropertyChanged(nameof(CanChooseWorktree));
+    }
 
     private bool IsCurrentActivation(long activation) =>
         activation == _surfaceActivationGeneration;
@@ -881,6 +1117,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
             ProjectName = project;
         if (_pendingConfiguration.TryGetScalar("projectId", out var projectId))
             ProjectValue = projectId;
+        if (_pendingConfiguration.TryGetScalar("worktree", out var worktree)
+            && bool.TryParse(worktree, out var useWorktree))
+        {
+            _worktreeChoiceExplicit = true;
+            UseWorktree = useWorktree;
+        }
 
         foreach (var skill in _pendingConfiguration.AddSkills)
             AddPendingChip(SkillChips, AvailableSkills, skill, "✦");
@@ -960,6 +1202,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             !pending.Payload.Matches(PromptText, Attachments))
         {
             _pendingRetry = null;
+            OnPropertyChanged(nameof(CanChooseWorktree));
         }
     }
 
@@ -979,6 +1222,20 @@ public sealed partial class MobileChatViewModel : ObservableObject
             var activation = _surfaceActivationGeneration;
             var hostGeneration = Volatile.Read(ref _hostGeneration);
             var pending = _pendingConfiguration.Clone();
+            // Worktree selection is consumed only by the first send. Configure-chat has no
+            // worktree operation, so flushing other staged settings must leave this intent armed.
+            pending.RemoveScalar("worktree");
+            if (!_hasAuthoritativeTranscript || HasConfirmedEmptyHistory)
+            {
+                // Project and workspace jointly decide where the first coding turn runs. Applying
+                // one before the other can strand an old worktree under a new project. Keep them
+                // coupled while history is unknown and while the chat is authoritatively empty.
+                pending.RemoveScalar("project");
+                pending.RemoveScalar("projectId");
+            }
+            if (pending.IsEmpty)
+                return;
+
             var command = new RemoteCommand(RemoteProtocol.Actions.ConfigureChat)
                 .With("chatId", ChatId.ToString());
             pending.ApplyTo(command, includeCreationAliases: false);
@@ -1052,12 +1309,15 @@ public sealed partial class MobileChatViewModel : ObservableObject
             AgentName = null;
             ProjectValue = null;
             ProjectName = null;
+            UseWorktree = false;
+            _worktreeChoiceExplicit = false;
             IsBusy = false;
             IsStreaming = false;
             IsLoading = false;
             IsUploading = false;
             _revision = -1;
             _pendingEchoBaselineRevision = null;
+            _hasAuthoritativeTranscript = chatId == Guid.Empty;
             WindowStartMessageIndex = 0;
             WindowEndMessageIndex = 0;
             TotalRawMessageCount = 0;
@@ -1074,6 +1334,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(IsEmpty));
+        OnPropertyChanged(nameof(CanChooseWorktree));
         OnPropertyChanged(nameof(ShowThinking));
         OnPropertyChanged(nameof(HasQualityLevels));
         OnPropertyChanged(nameof(HasContextWindowTiers));
@@ -1087,6 +1348,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public void ResetHostState()
     {
         Interlocked.Increment(ref _hostGeneration);
+        _pendingStopRequestIds.Clear();
         _drafts.Clear();
         _surfaceMappings.Clear();
         Reset(Guid.Empty, "New chat");
@@ -1170,18 +1432,100 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (pendingEcho is not null)
             Turns.Add(pendingEcho);
 
+        _hasAuthoritativeTranscript = true;
+        ReconcilePendingRetry(transcript, epochChanged);
         if (!retainPendingEcho && HasNewVisibleResponseActivity(transcript))
             MarkVisibleResponseActivity();
+
+        if (transcript.TotalRawMessageCount > 0)
+        {
+            // Another surface may have completed the first turn while this phone still had a
+            // pre-chat workspace choice staged. Once authoritative history exists, creating or
+            // detaching a worktree is no longer a valid deferred operation.
+            _pendingConfiguration.RemoveScalar("worktree");
+            if (transcript.Status.UsesWorktree)
+            {
+                _pendingConfiguration.RemoveScalar("project");
+                _pendingConfiguration.RemoveScalar("projectId");
+            }
+        }
 
         if (statusVersionAtRequest is null || statusVersionAtRequest == StatusVersion)
             ApplyStatus(transcript.Status, trackVersion: false);
         OnPropertyChanged(nameof(IsEmpty));
+        OnPropertyChanged(nameof(CanChooseWorktree));
+        RefreshWorktreeChoice();
+        if (transcript.TotalRawMessageCount > 0 && HasPendingConfiguration)
+            _ = FlushPendingConfigurationAsync();
+    }
+
+    private void ReconcilePendingRetry(RemoteTranscript transcript, bool epochChanged)
+    {
+        if (_pendingRetry is not { } pending)
+            return;
+
+        var wasAccepted = transcript.Turns
+            .SelectMany(static turn => turn.Items)
+            .Any(item =>
+                item.Kind == RemoteProtocol.ItemKinds.User &&
+                string.Equals(item.RequestId, pending.RequestId, StringComparison.Ordinal));
+        if (wasAccepted)
+        {
+            var draft = CaptureCurrentDraft();
+            var remainingConfiguration = draft.Configuration.Clone();
+            remainingConfiguration.RemoveApplied(pending.Configuration);
+            var remainingAttachments = draft.Attachments
+                .Where(attachment => !pending.Payload.Attachments.Contains(attachment))
+                .ToArray();
+            var completed = draft with
+            {
+                PromptText = string.Equals(
+                    draft.PromptText,
+                    pending.Payload.PromptText,
+                    StringComparison.Ordinal)
+                    ? ""
+                    : draft.PromptText,
+                Attachments = remainingAttachments,
+                ErrorText = null,
+                Configuration = remainingConfiguration,
+                PendingRetry = null
+            };
+
+            StoreDraft(CurrentSurface, completed);
+            ApplyDraft(completed, restoreSelections: true);
+            return;
+        }
+
+        if (!epochChanged)
+            return;
+
+        var unsafeRetry = pending with { ReplayAllowed = false };
+        var unresolved = CaptureCurrentDraft() with
+        {
+            ErrorText =
+                "Lumi restarted before confirming this send. Refresh the transcript before retrying, or edit the message to send it as a new request.",
+            PendingRetry = unsafeRetry
+        };
+        StoreDraft(CurrentSurface, unresolved);
+        ApplyDraft(unresolved, restoreSelections: true);
     }
 
     public void MarkNewerActivityAvailable()
     {
         if (ChatId != Guid.Empty)
             HasNewerActivity = true;
+    }
+
+    public void InvalidateTranscriptAuthority()
+    {
+        if (ChatId == Guid.Empty)
+            return;
+
+        _hasAuthoritativeTranscript = false;
+        // The invalidation may represent another surface completing the first turn. Do not keep a
+        // first-turn-only workspace operation armed while history is unknown.
+        _pendingConfiguration.RemoveScalar("worktree");
+        OnPropertyChanged(nameof(CanChooseWorktree));
     }
 
     public void ApplyStatus(RemoteChatStatus status) => ApplyStatus(status, trackVersion: true);
@@ -1202,8 +1546,21 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (reportsWorking && !wasWorking && !_hasVisibleResponseActivity)
             BeginAwaitingVisibleActivity();
 
-        var holdingProgress = _awaitingVisibleActivity && !reportsWorking && wasWorking;
-        if (!holdingProgress)
+        var statusChatId = status.ChatId == Guid.Empty ? ChatId : status.ChatId;
+        var pendingStopCompleted = !reportsWorking &&
+                                   statusChatId != Guid.Empty &&
+                                   _pendingStopRequestIds.Remove(statusChatId);
+        var holdingProgress = !pendingStopCompleted &&
+                              _awaitingVisibleActivity &&
+                              !reportsWorking &&
+                              wasWorking;
+        if (pendingStopCompleted)
+        {
+            ResetVisibleActivityProgress();
+            IsBusy = false;
+            IsStreaming = false;
+        }
+        else if (!holdingProgress)
         {
             IsBusy = status.IsBusy;
             IsStreaming = status.IsStreaming;
@@ -1228,6 +1585,14 @@ public sealed partial class MobileChatViewModel : ObservableObject
             AgentGlyph = string.IsNullOrWhiteSpace(status.AgentGlyph) ? "◉" : status.AgentGlyph!;
             ProjectValue = status.ProjectId?.ToString();
             ProjectName = status.ProjectName;
+            if (!_pendingConfiguration.TryGetScalar("worktree", out _))
+            {
+                // For an existing chat, both "local" and "worktree" are authoritative persisted
+                // states. Project defaults apply only to a genuinely new surface or after the user
+                // deliberately changes projects.
+                _worktreeChoiceExplicit = ChatId != Guid.Empty;
+                UseWorktree = status.UsesWorktree;
+            }
 
             Sync(QualityLevels, status.QualityLevels);
             Sync(ContextWindowTiers, status.ContextWindowTiers);
@@ -1246,6 +1611,19 @@ public sealed partial class MobileChatViewModel : ObservableObject
             _applyingServerState = false;
         }
 
+        if (!_pendingConfiguration.IsEmpty)
+        {
+            _restoringDraftState = true;
+            try
+            {
+                RestorePendingWorkspaceSelections();
+            }
+            finally
+            {
+                _restoringDraftState = false;
+            }
+        }
+
         OnPropertyChanged(nameof(HasQualityLevels));
         OnPropertyChanged(nameof(HasContextWindowTiers));
         RefreshEffortLevels();
@@ -1262,6 +1640,20 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         Sync(Suggestions, status.Suggestions);
         OnPropertyChanged(nameof(Starters));
+    }
+
+    private void RestorePendingWorkspaceSelections()
+    {
+        if (_pendingConfiguration.TryGetScalar("project", out var project))
+            ProjectName = project;
+        if (_pendingConfiguration.TryGetScalar("projectId", out var projectId))
+            ProjectValue = projectId;
+        if (_pendingConfiguration.TryGetScalar("worktree", out var worktree)
+            && bool.TryParse(worktree, out var useWorktree))
+        {
+            _worktreeChoiceExplicit = true;
+            UseWorktree = useWorktree;
+        }
     }
 
     /// <summary>
@@ -1356,6 +1748,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
         IReadOnlyList<RemoteProject> projects,
         bool reconcileSelection = true)
     {
+        _projectCatalog.Clear();
+        foreach (var project in projects)
+            _projectCatalog[project.Id] = project;
+
         SyncCatalog(
             AvailableProjects,
             projects.Select(item => new RemoteChip
@@ -1388,6 +1784,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             _pendingConfiguration.RemoveScalar("projectId");
         }
 
+        RefreshWorktreeChoice();
         RefreshPickerOptions();
     }
 
@@ -1634,6 +2031,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
         var hostGeneration = Volatile.Read(ref _hostGeneration);
         var surface = CurrentSurface;
         var activation = _surfaceActivationGeneration;
+        if (surface.ChatId != Guid.Empty)
+            _pendingStopRequestIds.Remove(surface.ChatId);
+        LockBlankProjectSelection(surface);
         var draftText = PromptText;
         var text = draftText.Trim();
 
@@ -1647,6 +2047,14 @@ public sealed partial class MobileChatViewModel : ObservableObject
                             pendingRetry.Payload.Matches(draftText, attached)
             ? pendingRetry
             : null;
+        if (matchingRetry is not null &&
+            (!matchingRetry.ReplayAllowed ||
+             _now() - matchingRetry.CreatedAtUtc >= PendingRetryReplayWindow))
+        {
+            ErrorText =
+                "Lumi can no longer safely replay that send. Refresh the chat to confirm its outcome, or edit the message before sending again.";
+            return;
+        }
         if (surface.IsBlank && matchingRetry is null)
             _pendingStopBlankGeneration = null;
         var requestId = matchingRetry?.RequestId ?? Guid.NewGuid().ToString("N");
@@ -1661,17 +2069,11 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         // Lumi reads files by path, so an attachment reaches it as a line naming where the file is.
         // Uploading put the bytes on the PC; this is what tells Lumi to go and look.
-        var prompt = attached.Length == 0
-            ? text
-            : string.Join(
-                "\n",
-                new[] { text }
-                    .Where(part => part.Length > 0)
-                    .Concat(["Attached files:"])
-                    .Concat(attached.Select(file => file.Path)));
+        var prompt = BuildSendPrompt(payload);
 
         Attachments.Clear();
         OnPropertyChanged(nameof(HasAttachments));
+        OnPropertyChanged(nameof(CanChooseWorktree));
         SendCommand.NotifyCanExecuteChanged();
 
         // Optimistically flip to busy so the composer switches to Stop and the thinking row appears
@@ -1746,7 +2148,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
         else if (surface.IsBlank
                  && !result.Ok
-                 && !IsTypedTimeout(result)
+                 && !IsAmbiguousFailure(result)
                  && _pendingStopBlankGeneration == surface.BlankGeneration)
         {
             _pendingStopBlankGeneration = null;
@@ -1764,7 +2166,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 payload,
                 pendingConfiguration,
                 result.RequestId ?? requestId,
-                IsTypedTimeout(result),
+                IsAmbiguousFailure(result),
                 effectiveSteer,
                 result.Error ?? "Lumi could not send that message.",
                 echo);
@@ -1783,6 +2185,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         if (surface.IsBlank && result.ChatId is { } created && created != Guid.Empty)
             ChatCreated?.Invoke(created, surface.BlankGeneration);
+        else if (surface.IsBlank)
+            ReleaseBlankProjectSelection(surface);
     }
 
     private void RestoreFailedSendForSurface(
@@ -1791,7 +2195,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         SendPayload sentPayload,
         PendingChatConfiguration sentConfiguration,
         string requestId,
-        bool isTimeout,
+        bool preserveRequestIdentity,
         bool steer,
         string error,
         TranscriptTurnViewModel? echo)
@@ -1816,8 +2220,14 @@ public sealed partial class MobileChatViewModel : ObservableObject
             sentConfiguration,
             overwriteScalars: false,
             overwriteCollectionValues: false);
-        var retry = isTimeout && sentPayload.Matches(promptText, attachments)
-            ? new PendingRetry(requestId, sentPayload, sentConfiguration.Clone(), steer)
+        var retry = preserveRequestIdentity && sentPayload.Matches(promptText, attachments)
+            ? new PendingRetry(
+                requestId,
+                sentPayload,
+                sentConfiguration.Clone(),
+                steer,
+                _now(),
+                ReplayAllowed: true)
             : null;
         var restored = new DraftState(
             promptText,
@@ -1825,6 +2235,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
             error,
             configuration,
             retry);
+
+        if (!preserveRequestIdentity)
+            ReleaseBlankProjectSelection(originSurface);
 
         StoreDraft(surface, restored);
         if (!shouldApplyToCurrent)
@@ -1862,12 +2275,14 @@ public sealed partial class MobileChatViewModel : ObservableObject
             ErrorText = null;
             _pendingConfiguration.RemoveApplied(sentConfiguration);
             _pendingRetry = null;
+            OnPropertyChanged(nameof(CanChooseWorktree));
             if (ChatId != Guid.Empty && HasPendingConfiguration)
                 _ = FlushPendingConfigurationAsync();
         }
     }
 
-    private static bool IsTypedTimeout(RemoteCommandResult result) => result.IsTimeout;
+    private static bool IsAmbiguousFailure(RemoteCommandResult result) =>
+        result.IsTimeout || result.IsOutcomeUnknown;
 
     private bool _awaitingVisibleActivity;
     private bool _hasVisibleResponseActivity;
@@ -1993,6 +2408,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         Turns.Add(turn);
         OnPropertyChanged(nameof(IsEmpty));
+        OnPropertyChanged(nameof(CanChooseWorktree));
         return turn;
     }
 
@@ -2004,7 +2420,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
         var removed = Turns.Remove(turn);
         _pendingEchoBaselineRevision = null;
         if (removed)
+        {
             OnPropertyChanged(nameof(IsEmpty));
+            OnPropertyChanged(nameof(CanChooseWorktree));
+        }
     }
 
     /// <summary>
@@ -2025,7 +2444,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         _pendingEchoBaselineRevision = null;
         if (removed)
+        {
             OnPropertyChanged(nameof(IsEmpty));
+            OnPropertyChanged(nameof(CanChooseWorktree));
+        }
     }
 
     /// <summary>
@@ -2050,6 +2472,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         var blankSurface = new ChatSurfaceIdentity(Guid.Empty, blankGeneration);
         MapSurfaceToChat(blankSurface, chatId);
+        ReleaseBlankProjectSelection(blankSurface);
         ChatId = chatId;
 
         return true;
@@ -2071,26 +2494,54 @@ public sealed partial class MobileChatViewModel : ObservableObject
         var activation = _surfaceActivationGeneration;
         var chatId = ChatId;
         var previousStatus = StatusText;
+        var requestId = _pendingStopRequestIds.TryGetValue(chatId, out var pendingRequestId)
+            ? pendingRequestId
+            : Guid.NewGuid().ToString("N");
+        _pendingStopRequestIds[chatId] = requestId;
         StatusText = "Stopping…";
+        var command = new RemoteCommand(RemoteProtocol.Actions.StopGeneration)
+        {
+            RequestId = requestId
+        }.With("chatId", chatId.ToString());
         RemoteCommandResult result;
         try
         {
-            result = await _sink.SendCommandAsync(
-                new RemoteCommand(RemoteProtocol.Actions.StopGeneration)
-                    .With("chatId", chatId.ToString()));
+            result = await _sink.SendCommandAsync(command);
         }
         catch (Exception ex)
         {
             if (!IsCurrentSurfaceActivation(surface, activation))
                 return;
+            if (!_pendingStopRequestIds.TryGetValue(chatId, out var currentRequestId) ||
+                !string.Equals(currentRequestId, requestId, StringComparison.Ordinal))
+            {
+                return;
+            }
             ErrorText = $"Could not stop this turn: {ex.Message}";
-            StatusText = previousStatus;
+            StatusText = "Stopping…";
             return;
         }
 
         if (!IsCurrentSurfaceActivation(surface, activation))
             return;
+        if (!_pendingStopRequestIds.TryGetValue(chatId, out var activeRequestId) ||
+            !string.Equals(activeRequestId, requestId, StringComparison.Ordinal))
+        {
+            return;
+        }
 
+        if (IsAmbiguousFailure(result))
+        {
+            ErrorText = result.Error;
+            StatusText = "Stopping…";
+            return;
+        }
+
+        if (_pendingStopRequestIds.TryGetValue(chatId, out var completedRequestId) &&
+            string.Equals(completedRequestId, requestId, StringComparison.Ordinal))
+        {
+            _pendingStopRequestIds.Remove(chatId);
+        }
         if (!result.Ok)
         {
             ErrorText = result.Error ?? "Lumi could not stop this turn.";
@@ -2150,12 +2601,16 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [RelayCommand]
     private Task RemoveProject()
     {
+        if (!CanChangeProjectSelection)
+            return Task.CompletedTask;
+
         if (string.IsNullOrEmpty(ProjectName) && string.IsNullOrEmpty(ProjectValue))
             PushConfiguration("project", "");
         else
         {
             ProjectValue = null;
             ProjectName = null;
+            ClearWorktreeChoice();
         }
 
         return Task.CompletedTask;
@@ -2256,11 +2711,26 @@ public sealed partial class MobileChatViewModel : ObservableObject
             this with { Attachments = [.. Attachments] };
     }
 
+    private static string BuildSendPrompt(SendPayload payload)
+    {
+        var text = payload.PromptText.Trim();
+        return payload.Attachments.Length == 0
+            ? text
+            : string.Join(
+                "\n",
+                new[] { text }
+                    .Where(part => part.Length > 0)
+                    .Concat(["Attached files:"])
+                    .Concat(payload.Attachments.Select(file => file.Path)));
+    }
+
     private sealed record PendingRetry(
         string RequestId,
         SendPayload Payload,
         PendingChatConfiguration Configuration,
-        bool Steer)
+        bool Steer,
+        DateTimeOffset CreatedAtUtc,
+        bool ReplayAllowed)
     {
         public PendingRetry Copy() =>
             this with

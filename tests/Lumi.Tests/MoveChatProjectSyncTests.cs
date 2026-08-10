@@ -172,6 +172,30 @@ public sealed class MoveChatProjectSyncTests
         }, CancellationToken.None);
     }
 
+    [Fact]
+    public async Task SidebarProjectCommands_DoNotMutateAReservedFirstTurn()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            Loc.Load("en");
+            var original = new Project { Name = "Original" };
+            var other = new Project { Name = "Other" };
+            var chat = new Chat { Title = "Empty", ProjectId = original.Id };
+            var viewModel = CreateViewModel([original, other], chat);
+            viewModel.ChatVM.CurrentChat = chat;
+            using var reservation = viewModel.ChatVM.TryReserveExternalSend(chat.Id);
+            Assert.NotNull(reservation);
+
+            viewModel.AssignChatToProjectCommand.Execute(new object[] { chat, other });
+            viewModel.RemoveChatFromProjectCommand.Execute(chat);
+
+            Assert.Equal(original.Id, chat.ProjectId);
+            viewModel.Dispose();
+        }, CancellationToken.None);
+    }
+
     private static MainViewModel CreateViewModel(Project[] projects, params Chat[] chats)
     {
         var data = new AppData

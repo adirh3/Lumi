@@ -9,7 +9,23 @@ using System.Net.Sockets;
 public static class RemoteProtocol
 {
     /// <summary>Bumped whenever the wire shape changes incompatibly.</summary>
-    public const int Version = 3;
+    public const int Version = 5;
+
+    /// <summary>
+    /// This pre-release protocol has one compatibility baseline. Additive features use capabilities;
+    /// this number changes only for a genuinely incompatible wire contract.
+    /// </summary>
+    public const int MinimumMobileCompatibleVersion = Version;
+
+    public static bool IsCompatibleVersion(int version) => version == Version;
+
+    public static bool HasRequiredCapabilities(IEnumerable<string>? capabilities)
+    {
+        if (capabilities is null)
+            return false;
+        var offered = new HashSet<string>(capabilities, StringComparer.Ordinal);
+        return Capabilities.Required.All(offered.Contains);
+    }
 
     /// <summary>Default TCP port the desktop listener binds for LAN clients.</summary>
     public const int DefaultPort = 47653;
@@ -156,6 +172,8 @@ public static class RemoteProtocol
 
         /// <summary>Authenticated Server-Sent Events stream of live updates.</summary>
         public const string Events = "/lumi/events";
+        /// <summary>Updates which live entities the current device wants pushed over SSE.</summary>
+        public const string Subscription = "/lumi/subscription";
 
         /// <summary>Authenticated chat list.</summary>
         public const string Chats = "/lumi/chats";
@@ -182,6 +200,18 @@ public static class RemoteProtocol
         /// otherwise kill a phone near the upload ceiling.</para>
         /// </summary>
         public const string Upload = "/lumi/upload";
+    }
+
+    /// <summary>
+    /// Additive protocol features. Clients enable behavior by capability rather than assuming every
+    /// future server version has an identical feature set.
+    /// </summary>
+    public static class Capabilities
+    {
+        public const string ScopedEventsV1 = "scoped-events-v1";
+
+        public static IReadOnlyList<string> Required { get; } = [ScopedEventsV1];
+        public static IReadOnlyList<string> Server { get; } = [ScopedEventsV1];
     }
 
     /// <summary>Largest upload the desktop will accept, so a phone cannot exhaust its disk.</summary>

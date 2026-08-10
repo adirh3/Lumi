@@ -372,7 +372,7 @@
                                MaxWidth="{DynamicResource Chat.ReadingColumnWidth}"
                                PromptText="{Binding Chat.PromptText, Mode=TwoWay}"
                                IsBusy="{Binding Chat.IsBusy}"
-                               SendWithEnter="{Binding SendWithEnter}"
+                               SendWithEnter="False"
                                SteerWhileBusy="True"
                                CanAttach="True"
                                AttachCommand="{Binding Chat.PickAttachmentCommand}"
@@ -572,6 +572,38 @@
                       Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
           </Grid>
         </Button>
+
+        <Border x:Name="RunSettingsWorkspace"
+                IsVisible="{Binding Chat.CanChooseWorktree}"
+                Margin="12,8,12,0"
+                Padding="16,14"
+                Background="{DynamicResource Brush.Surface1}"
+                BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                BorderThickness="1"
+                CornerRadius="16">
+          <StackPanel Spacing="12">
+            <StackPanel Spacing="3">
+              <TextBlock Text="Workspace" FontWeight="SemiBold" />
+              <TextBlock Text="Choose where the first coding turn runs."
+                         Classes="muted"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+              <Button x:Name="LocalWorkspaceButton"
+                      Grid.Column="0"
+                      Classes="theme-option"
+                      Classes.selected="{Binding Chat.IsLocalWorkspaceSelected}"
+                      Command="{Binding Chat.SelectLocalWorkspaceCommand}"
+                      Content="Local checkout" />
+              <Button x:Name="WorktreeWorkspaceButton"
+                      Grid.Column="1"
+                      Classes="theme-option"
+                      Classes.selected="{Binding Chat.UseWorktree}"
+                      Command="{Binding Chat.SelectNewWorktreeCommand}"
+                      Content="New worktree" />
+            </Grid>
+          </StackPanel>
+        </Border>
         </StackPanel>
       </Border>
     </sc:StrataBottomSheet>

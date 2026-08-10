@@ -1362,6 +1362,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task DeleteChat(Chat chat)
     {
+        if (IsChatFirstTurnReserved(chat.Id))
+            return;
+
         // If the chat has a worktree, ask the user whether to clean it up. Forks share their
         // source's worktree, so only offer removal when no other chat still points at it —
         // otherwise deleting one branch would pull the directory out from under its siblings.
@@ -1402,9 +1405,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_pendingDeleteChat is not null)
         {
             var chat = _pendingDeleteChat;
+            if (IsChatFirstTurnReserved(chat.Id))
+                return;
+
             _pendingDeleteChat = null;
             IsWorktreeDeleteDialogOpen = false;
-            await PerformDeleteChatAsync(chat);
+            if (!await PerformDeleteChatAsync(chat))
+                return;
 
             // Clean up worktree + branch in background
             if (chat.WorktreePath is { Length: > 0 } wt)
@@ -1422,6 +1429,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_pendingDeleteChat is not null)
         {
             var chat = _pendingDeleteChat;
+            if (IsChatFirstTurnReserved(chat.Id))
+                return;
+
             _pendingDeleteChat = null;
             IsWorktreeDeleteDialogOpen = false;
             await PerformDeleteChatAsync(chat);
@@ -1437,15 +1447,22 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     internal async Task<bool> DeleteChatKeepingWorktreeAsync(Chat chat)
     {
-        if (!_dataStore.Data.Chats.Contains(chat))
+        if (!_dataStore.Data.Chats.Contains(chat) || IsChatFirstTurnReserved(chat.Id))
             return false;
 
-        await PerformDeleteChatAsync(chat);
-        return true;
+        return await PerformDeleteChatAsync(chat);
     }
 
-    private async Task PerformDeleteChatAsync(Chat chat)
+    internal bool IsChatFirstTurnReserved(Guid chatId) =>
+        _chatSessionStore
+            .SnapshotSurfaces()
+            .Any(surface => surface.IsExternalSendReserved(chatId));
+
+    private async Task<bool> PerformDeleteChatAsync(Chat chat)
     {
+        if (IsChatFirstTurnReserved(chat.Id) || !_dataStore.Data.Chats.Contains(chat))
+            return false;
+
         var deletedActiveChat = ChatVM.CurrentChat?.Id == chat.Id;
 
         _chatSessionStore.ApplyToSurfaces(surface =>
@@ -1467,6 +1484,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         RefreshChatList();
         ChatDeleted?.Invoke(chat.Id);
 
+        return true;
     }
 
     private string? GetProjectDirForChat(Chat chat)
@@ -1797,6 +1815,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             if (chat.ProjectId == project.Id)
                 return;
+            if (IsChatProjectMutationReserved(chat.Id))
+                return;
 
             chat.ProjectId = project.Id;
             _dataStore.MarkChatChanged(chat);
@@ -1812,12 +1832,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private void RemoveChatFromProject(Chat? chat)
     {
         if (chat is null || chat.ProjectId is null) return;
+        if (IsChatProjectMutationReserved(chat.Id)) return;
         chat.ProjectId = null;
         _dataStore.MarkChatChanged(chat);
         NotifyProjectChangedForOpenSurfaces(chat);
         _ = _dataStore.SaveAsync();
         RefreshChatList();
     }
+
+    private bool IsChatProjectMutationReserved(Guid chatId) =>
+        IsChatFirstTurnReserved(chatId);
 
     /// <summary>
     /// When a chat is moved between projects from the sidebar, any chat surface currently showing

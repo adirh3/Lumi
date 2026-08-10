@@ -55,6 +55,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// </summary>
     private readonly HashSet<string> _mcpOAuthLoginAttempts = new(StringComparer.Ordinal);
     private readonly object _mcpOAuthLoginLock = new();
+    private readonly object _externalSendReservationLock = new();
+    private readonly Dictionary<Guid, ExternalSendReservationState> _externalSendReservations = [];
 
     /// <summary>
     /// The resolved OAuth chip message per <c>sessionId|serverName</c> once a login attempt has produced
@@ -2806,7 +2808,114 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     public bool IsChatBusy(Guid chatId)
     {
-        return OwnsLiveChat(chatId);
+        return OwnsLiveChat(chatId) || IsExternalSendReserved(chatId);
+    }
+
+    internal sealed class ExternalSendReservation : IDisposable
+    {
+        private ChatViewModel? _owner;
+        private readonly Guid _chatId;
+        private readonly CancellationTokenSource _cancellation;
+
+        internal ExternalSendReservation(
+            ChatViewModel owner,
+            Guid chatId,
+            Guid token,
+            CancellationTokenSource cancellation)
+        {
+            _owner = owner;
+            _chatId = chatId;
+            _cancellation = cancellation;
+            Token = token;
+        }
+
+        public Guid Token { get; }
+        public bool IsCancellationRequested => _cancellation.IsCancellationRequested;
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _owner, null)
+                ?.ReleaseExternalSendReservation(_chatId, Token);
+        }
+    }
+
+    internal ExternalSendReservation? TryReserveExternalSend(Guid chatId)
+    {
+        lock (_externalSendReservationLock)
+        {
+            if (OwnsLiveChat(chatId) || _externalSendReservations.ContainsKey(chatId))
+                return null;
+
+            var token = Guid.NewGuid();
+            var cancellation = new CancellationTokenSource();
+            _externalSendReservations[chatId] = new ExternalSendReservationState(
+                token,
+                cancellation);
+            return new ExternalSendReservation(this, chatId, token, cancellation);
+        }
+    }
+
+    internal bool IsExternalSendReserved(Guid chatId)
+    {
+        lock (_externalSendReservationLock)
+            return _externalSendReservations.ContainsKey(chatId);
+    }
+
+    private bool IsExternalSendReservedByAnother(Guid chatId, Guid? token)
+    {
+        lock (_externalSendReservationLock)
+        {
+            return _externalSendReservations.TryGetValue(chatId, out var reservation)
+                   && reservation.Token != token;
+        }
+    }
+
+    private bool IsExternalSendReservationCanceled(Guid chatId, Guid token)
+    {
+        lock (_externalSendReservationLock)
+        {
+            return !_externalSendReservations.TryGetValue(chatId, out var reservation)
+                   || reservation.Token != token
+                   || reservation.Cancellation.IsCancellationRequested;
+        }
+    }
+
+    internal bool CancelExternalSendReservation(Guid chatId)
+    {
+        lock (_externalSendReservationLock)
+        {
+            if (!_externalSendReservations.TryGetValue(chatId, out var reservation))
+                return false;
+
+            reservation.Cancellation.Cancel();
+            return true;
+        }
+    }
+
+    private void ReleaseExternalSendReservation(Guid chatId, Guid token)
+    {
+        lock (_externalSendReservationLock)
+        {
+            if (_externalSendReservations.TryGetValue(chatId, out var reservation)
+                && reservation.Token == token)
+            {
+                _externalSendReservations.Remove(chatId);
+                reservation.Cancellation.Dispose();
+            }
+        }
+    }
+
+    private sealed record ExternalSendReservationState(
+        Guid Token,
+        CancellationTokenSource Cancellation);
+
+    internal readonly record struct ExternalMessageStartResult(
+        bool Accepted,
+        string? Error)
+    {
+        public static ExternalMessageStartResult Success { get; } = new(true, null);
+
+        public static ExternalMessageStartResult Rejected(string error) => new(false, error);
     }
 
     public Task SendBackgroundJobMessageAsync(
@@ -2845,15 +2954,20 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             /// active one and marking it unread otherwise. <paramref name="author"/> labels the injected user
             /// message so the transcript shows where it came from.
             /// </summary>
-            internal async Task<string?> StartExternalMessageAsync(
+            internal async Task<ExternalMessageStartResult> StartExternalMessageAsync(
                 Chat targetChat,
                 string prompt,
                 string author,
                 CancellationToken cancellationToken = default,
                 string? modelOverride = null,
-                string? reasoningEffortOverride = null)
+                string? reasoningEffortOverride = null,
+                Guid? reservationToken = null,
+                Guid? reservedProjectId = null,
+                string? reservedProjectDirectory = null,
+                string? remoteDeviceId = null,
+                string? remoteRequestId = null)
             {
-            var accepted = new TaskCompletionSource<string?>(
+            var accepted = new TaskCompletionSource<ExternalMessageStartResult>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
 
             _ = RunAsync();
@@ -2870,14 +2984,19 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         cancellationToken,
                         modelOverride,
                         reasoningEffortOverride,
-                        onAccepted: () => accepted.TrySetResult(null)).ConfigureAwait(true);
+                        onAccepted: () => accepted.TrySetResult(ExternalMessageStartResult.Success),
+                        reservationToken: reservationToken,
+                        reservedProjectId: reservedProjectId,
+                        reservedProjectDirectory: reservedProjectDirectory,
+                        remoteDeviceId: remoteDeviceId,
+                        remoteRequestId: remoteRequestId).ConfigureAwait(true);
 
                     // A completed no-op path is still an accepted request.
-                    accepted.TrySetResult(null);
+                    accepted.TrySetResult(ExternalMessageStartResult.Success);
                 }
                 catch (Exception ex)
                 {
-                    if (!accepted.TrySetResult(ex.Message))
+                    if (!accepted.TrySetResult(ExternalMessageStartResult.Rejected(ex.Message)))
                         Trace.TraceWarning($"[ExternalSend] Turn failed after acceptance: {ex.Message}");
                 }
             }
@@ -2890,12 +3009,29 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             CancellationToken cancellationToken = default,
             string? modelOverride = null,
             string? reasoningEffortOverride = null,
-            Action? onAccepted = null)
+            Action? onAccepted = null,
+            Guid? reservationToken = null,
+            Guid? reservedProjectId = null,
+            string? reservedProjectDirectory = null,
+            string? remoteDeviceId = null,
+            string? remoteRequestId = null)
             {
             ArgumentNullException.ThrowIfNull(targetChat);
 
-        if (IsChatBusy(targetChat.Id))
+        if (OwnsLiveChat(targetChat.Id)
+            || IsExternalSendReservedByAnother(targetChat.Id, reservationToken))
             throw new InvalidOperationException($"Chat \"{targetChat.Title}\" is already running.");
+        if (reservationToken is { } initialReservationToken
+            && IsExternalSendReservationCanceled(targetChat.Id, initialReservationToken))
+        {
+            throw new OperationCanceledException("The pending turn start was canceled.");
+        }
+        if (reservationToken is not null &&
+            !IsExternalProjectContextCurrent(
+                targetChat,
+                reservedProjectId,
+                reservedProjectDirectory))
+            throw new InvalidOperationException("The chat project changed while its turn was starting.");
 
         await _dataStore.LoadChatMessagesAsync(targetChat, cancellationToken);
 
@@ -2956,11 +3092,24 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 targetChat.LastContextWindowTierUsed = targetTier;
         }
 
+        if (reservationToken is { } activeReservationToken
+            && IsExternalSendReservationCanceled(targetChat.Id, activeReservationToken))
+        {
+            throw new OperationCanceledException("The pending turn start was canceled.");
+        }
+        if (reservationToken is not null &&
+            !IsExternalProjectContextCurrent(
+                targetChat,
+                reservedProjectId,
+                reservedProjectDirectory))
+            throw new InvalidOperationException("The chat project changed while its turn was starting.");
+
         var userMsg = new ChatMessage
         {
             Role = "user",
             Content = prompt,
             Author = author,
+            RemoteRequestId = remoteRequestId,
             ActiveSkills = BuildSkillReferences(targetChat.ActiveSkillIds, targetChat.ActiveExternalSkillNames)
         };
 
@@ -2978,7 +3127,36 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (!IsChatOnScreen(targetChat.Id))
             targetChat.HasUnreadMessages = true;
 
-        QueueSaveChat(targetChat, saveIndex: true, touchIndex: true);
+        if (remoteDeviceId is { Length: > 0 } && remoteRequestId is { Length: > 0 })
+        {
+            var previousDeviceId = targetChat.LastRemoteDeviceId;
+            var previousRequestId = targetChat.LastRemoteRequestId;
+            targetChat.LastRemoteDeviceId = remoteDeviceId;
+            targetChat.LastRemoteRequestId = remoteRequestId;
+            try
+            {
+                _dataStore.MarkChatChanged(targetChat);
+                await _dataStore.SaveChatAsync(targetChat, cancellationToken).ConfigureAwait(true);
+                await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(true);
+            }
+            catch
+            {
+                targetChat.LastRemoteDeviceId = previousDeviceId;
+                targetChat.LastRemoteRequestId = previousRequestId;
+                targetChat.Messages.Remove(userMsg);
+                if (CurrentChat?.Id == targetChat.Id)
+                {
+                    var visible = Messages.FirstOrDefault(item => ReferenceEquals(item.Message, userMsg));
+                    if (visible is not null)
+                        Messages.Remove(visible);
+                }
+                throw;
+            }
+        }
+        else
+        {
+            QueueSaveChat(targetChat, saveIndex: true, touchIndex: true);
+        }
         ChatUpdated?.Invoke();
 
         CancellationTokenSource? cts = null;
@@ -3003,6 +3181,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             var runtime = GetOrCreateRuntimeState(chatId);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
+            if (reservationToken is { } token)
+            {
+                ReleaseExternalSendReservation(chatId, token);
+                reservationToken = null;
+            }
             if (CurrentChat?.Id == chatId)
                 ApplyDisplayedRuntimeState(runtime);
             onAccepted?.Invoke();
@@ -3814,6 +3997,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (CurrentChat is { } reservedChat && IsExternalSendReserved(reservedChat.Id))
+        {
+            StatusText = Loc.Status_Thinking;
+            return;
+        }
+
         if (!_copilotService.IsConnected)
         {
             StatusText = Loc.Status_NotConnected;
@@ -3861,6 +4050,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var needsWorktreeCreation = false;
         if (CurrentChat is null)
         {
+            var selectedWorktreePath = IsWorktreeMode ? WorktreePath : null;
+            if (selectedWorktreePath is not null
+                && (!Directory.Exists(selectedWorktreePath)
+                    || _dataStore.IsWorktreeCleanupReserved(selectedWorktreePath)))
+            {
+                if (consumeComposerPrompt)
+                    PromptText = prompt;
+                StatusText = "That worktree is no longer available. Choose a workspace and try again.";
+                return;
+            }
+
             var chat = new Chat
             {
                 Title = BuildProvisionalChatTitle(prompt),
@@ -3871,11 +4071,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 ActiveMcpServerNames = new List<string>(ActiveMcpServerNames),
                 HasExplicitMcpServerSelection = true,
                 SdkAgentName = SelectedSdkAgentName,
-                WorktreePath = IsWorktreeMode ? WorktreePath : null,
                 LastModelUsed = SelectedModel,
                 LastReasoningEffortUsed = selectedReasoningEffort,
                 LastContextWindowTierUsed = selectedContextTier
             };
+            if (!_dataStore.TrySetChatWorktreePath(chat, selectedWorktreePath))
+            {
+                if (consumeComposerPrompt)
+                    PromptText = prompt;
+                StatusText = "That worktree is being cleaned up. Choose a workspace and try again.";
+                return;
+            }
             _pendingProjectId = null;
             _dataStore.Data.Chats.Add(chat);
             CurrentChat = chat;
@@ -3950,50 +4156,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // then transitions naturally to "Thinking…" when IsBusy is set.
         if (needsWorktreeCreation)
         {
-            var projectDir = GetProjectWorkingDirectory();
-            if (GitService.IsGitRepo(projectDir))
-            {
-                var runtime = GetOrCreateRuntimeState(targetChat.Id);
-                MarkRuntimeActive(runtime, Loc.Status_CreatingWorktree);
-                if (CurrentChat?.Id == targetChat.Id)
-                    ApplyDisplayedRuntimeState(runtime);
-                try
-                {
-                    var chatId = Guid.NewGuid().ToString("N")[..8];
-                    var branchName = $"lumi/{chatId}";
-                    var path = await GitService.CreateWorktreeAsync(projectDir, branchName);
-
-                    if (path is not null)
-                    {
-                        WorktreePath = path;
-                        targetChat.WorktreePath = path;
-
-                        // Rebase attachment paths before persisting so the saved chat has the
-                        // corrected worktree paths from the start. Rebase onto the mapped project
-                        // subfolder inside the worktree (not the worktree root) so paths stay valid
-                        // when the project working directory is a subfolder of the git root.
-                        if (attachments is { Count: > 0 } && userMsg is not null)
-                        {
-                            var effectiveWorktreeDir = GitService.ResolveWorktreeWorkingDirectory(path, projectDir);
-                            RebaseAttachmentPaths(attachments, userMsg, projectDir, effectiveWorktreeDir);
-                        }
-
-                        QueueSaveChat(targetChat, saveIndex: false);
-                    }
-                    else
-                    {
-                        IsWorktreeMode = false;
-                    }
-                }
-                catch
-                {
-                    IsWorktreeMode = false;
-                }
-            }
-            else
-            {
+            var worktreeResult = await CreateWorktreeForChatAsync(
+                targetChat,
+                attachments,
+                userMsg,
+                announceProgress: true);
+            var worktreeError = worktreeResult.Error;
+            if (worktreeError is not null)
                 IsWorktreeMode = false;
-            }
         }
 
         // Rebase attachment paths for existing worktrees (e.g. files dragged from the

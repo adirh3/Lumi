@@ -7,6 +7,8 @@ public sealed class RemoteProject
     public string? Instructions { get; set; }
     public string? WorkingDirectory { get; set; }
     public int ChatCount { get; set; }
+    public bool IsCodingProject { get; set; }
+    public bool DefaultNewChatsUseWorktree { get; set; }
 }
 
 public sealed class RemoteSkill
@@ -121,6 +123,9 @@ public sealed class RemoteLibraryItem
 public sealed class RemoteSnapshot
 {
     public int ProtocolVersion { get; set; } = RemoteProtocol.Version;
+    public List<string> Capabilities { get; set; } = [];
+    /// <summary>True when omitted collections must preserve the client's current cached values.</summary>
+    public bool IsPartial { get; set; }
     public string HostName { get; set; } = "";
     public bool IsConnected { get; set; }
     public string? ConnectionStatus { get; set; }

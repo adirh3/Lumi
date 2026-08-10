@@ -24,7 +24,8 @@ public sealed class RemoteEventHubObserverTests
         {
             try
             {
-                var dataStore = new DataStore(new AppData());
+                var chat = Chat("Observed");
+                var dataStore = new DataStore(new AppData { Chats = [chat] });
                 using var main = new MainViewModel(
                     dataStore,
                     TestCopilot.Shared,
@@ -34,6 +35,16 @@ public sealed class RemoteEventHubObserverTests
                 Dispatcher.UIThread.RunJobs();
 
                 var viewModel = main.ChatVM;
+                viewModel.CurrentChat = chat;
+                using var client = hub.AddClient(
+                    Stream.Null,
+                    "test-device",
+                    subscription: new RemoteEventSubscription
+                    {
+                        ChatId = chat.Id,
+                        IsForeground = true
+                    });
+                Dispatcher.UIThread.RunJobs();
 
                 var removed = Message("removed");
                 viewModel.Messages.Add(removed);
@@ -109,7 +120,14 @@ public sealed class RemoteEventHubObserverTests
                 Dispatcher.UIThread.RunJobs();
 
                 var stream = new RecordingStream();
-                var client = hub.AddClient(stream, "test-device");
+                var client = hub.AddClient(
+                    stream,
+                    "test-device",
+                    subscription: new RemoteEventSubscription
+                    {
+                        ChatId = detachedChat.Id,
+                        IsForeground = true
+                    });
                 streamCancellation = new CancellationTokenSource();
                 streamTask = client.RunAsync(streamCancellation.Token);
 
@@ -162,6 +180,261 @@ public sealed class RemoteEventHubObserverTests
 
         failure?.Throw();
     }
+
+    [Fact]
+    public async Task ScopedClientsReceiveOnlyTheirVisibleChatAndVisibleCollections()
+    {
+        using var session = HeadlessTestSession.Start();
+        ExceptionDispatchInfo? failure = null;
+
+        await session.Dispatch(() =>
+        {
+            DetachedChatWindowRequest? request = null;
+            MainViewModel? main = null;
+            CancellationTokenSource? cancellation = null;
+            Task? mainWriter = null;
+            Task? detachedWriter = null;
+            try
+            {
+                var mainChat = Chat("Main");
+                var detachedChat = Chat("Detached");
+                var dataStore = new DataStore(new AppData { Chats = [mainChat, detachedChat] });
+                main = new MainViewModel(
+                    dataStore,
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    initializeCopilotOnStartup: false);
+                main.ChatVM.CurrentChat = mainChat;
+                main.OpenChatWindowRequested += detachedRequest => request = detachedRequest;
+                Pump(main.OpenChatInNewWindowCommand.ExecuteAsync(detachedChat));
+                Assert.NotNull(request);
+                var detached = request.WindowVM.ChatVM;
+
+                using var hub = new RemoteEventHub(dataStore, main, () => []);
+                Dispatcher.UIThread.RunJobs();
+                var mainStream = new RecordingStream();
+                var detachedStream = new RecordingStream();
+                var mainClient = hub.AddClient(
+                    mainStream,
+                    "main-device",
+                    subscription: new RemoteEventSubscription
+                    {
+                        Generation = 1,
+                        ChatId = mainChat.Id,
+                        IsForeground = true
+                    });
+                var detachedClient = hub.AddClient(
+                    detachedStream,
+                    "detached-device",
+                    subscription: new RemoteEventSubscription
+                    {
+                        Generation = 1,
+                        ChatId = detachedChat.Id,
+                        IsForeground = true
+                    });
+                cancellation = new CancellationTokenSource();
+                mainWriter = mainClient.RunAsync(cancellation.Token);
+                detachedWriter = detachedClient.RunAsync(cancellation.Token);
+
+                detached.IsBusy = true;
+                detached.IsStreaming = true;
+                var streaming = Message("starting");
+                streaming.IsStreaming = true;
+                detached.Messages.Add(streaming);
+                streaming.Content = "only detached sees this";
+                Flush(hub);
+
+                Assert.True(
+                    SpinWait.SpinUntil(
+                        () => detachedStream.Text.Contains(
+                            RemoteProtocol.Events.StreamDelta,
+                            StringComparison.Ordinal),
+                        TimeSpan.FromSeconds(2)),
+                    detachedStream.Text);
+                Assert.DoesNotContain(
+                    RemoteProtocol.Events.StreamDelta,
+                    mainStream.Text,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    RemoteProtocol.Events.TranscriptInvalidated,
+                    mainStream.Text,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    $"event: {RemoteProtocol.Events.Chats}",
+                    detachedStream.Text,
+                    StringComparison.Ordinal);
+
+                var transcriptFramesBeforeDrawer = CountEvent(
+                    mainStream.Text,
+                    RemoteProtocol.Events.TranscriptInvalidated);
+                Pump(hub.UpdateSubscriptionAsync(
+                    "main-device",
+                    new RemoteEventSubscription
+                    {
+                        Generation = 2,
+                        ChatId = mainChat.Id,
+                        IncludeChatList = true,
+                        IsForeground = true
+                    }));
+                WriteBarrierAndWait(hub, mainStream);
+                Assert.Equal(
+                    transcriptFramesBeforeDrawer,
+                    CountEvent(mainStream.Text, RemoteProtocol.Events.TranscriptInvalidated));
+                Assert.Equal(0, CountEvent(mainStream.Text, RemoteProtocol.Events.Chats));
+
+                main.ChatVM.IsBusy = true;
+                Flush(hub);
+
+                WriteBarrierAndWait(hub, mainStream);
+                Assert.Equal(1, CountEvent(mainStream.Text, RemoteProtocol.Events.Chats));
+                Assert.DoesNotContain(
+                    $"event: {RemoteProtocol.Events.Chats}",
+                    detachedStream.Text,
+                    StringComparison.Ordinal);
+
+                var chatFramesBeforeHiddenContent = CountEvent(
+                    mainStream.Text,
+                    RemoteProtocol.Events.Chats);
+                detachedChat.UpdatedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+                detachedChat.Preview = "streamed item changed";
+                typeof(RemoteEventHub)
+                    .GetMethod("OnChatContentChanged", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(hub, [detachedChat.Id]);
+                Flush(hub);
+                WriteBarrierAndWait(hub, mainStream);
+                Assert.Equal(
+                    chatFramesBeforeHiddenContent,
+                    CountEvent(mainStream.Text, RemoteProtocol.Events.Chats));
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                cancellation?.Cancel();
+                if (mainWriter is not null)
+                    Pump(mainWriter);
+                if (detachedWriter is not null)
+                    Pump(detachedWriter);
+                cancellation?.Dispose();
+                request?.WindowVM.Dispose();
+                request?.ReleaseSurface();
+                main?.Dispose();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
+    [Fact]
+    public async Task LibraryDedupResetsWhenChangesOccurWithoutSubscribers()
+    {
+        using var session = HeadlessTestSession.Start();
+        ExceptionDispatchInfo? failure = null;
+
+        await session.Dispatch(() =>
+        {
+            CancellationTokenSource? cancellation = null;
+            Task? writer = null;
+            MainViewModel? main = null;
+            try
+            {
+                var project = new Project { Name = "Initial" };
+                var dataStore = new DataStore(new AppData { Projects = [project] });
+                main = new MainViewModel(
+                    dataStore,
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    initializeCopilotOnStartup: false);
+                using var hub = new RemoteEventHub(dataStore, main, () => []);
+                Dispatcher.UIThread.RunJobs();
+
+                var stream = new RecordingStream();
+                var client = hub.AddClient(
+                    stream,
+                    "test-device",
+                    subscription: new RemoteEventSubscription
+                    {
+                        Generation = 1,
+                        IncludeLibrary = true,
+                        IsForeground = true
+                    });
+                cancellation = new CancellationTokenSource();
+                writer = client.RunAsync(cancellation.Token);
+
+                project.Name = "Broadcast state";
+                MarkLibraryDirtyAndFlush(hub);
+                WriteBarrierAndWait(hub, stream);
+                Assert.Equal(1, CountEvent(stream.Text, RemoteProtocol.Events.Library));
+
+                Pump(hub.UpdateSubscriptionAsync(
+                    "test-device",
+                    new RemoteEventSubscription
+                    {
+                        Generation = 2,
+                        IsForeground = true
+                    }));
+                project.Name = "Fetched while hidden";
+                MarkLibraryDirtyAndFlush(hub);
+
+                Pump(hub.UpdateSubscriptionAsync(
+                    "test-device",
+                    new RemoteEventSubscription
+                    {
+                        Generation = 3,
+                        IncludeLibrary = true,
+                        IsForeground = true
+                    }));
+                project.Name = "Broadcast state";
+                MarkLibraryDirtyAndFlush(hub);
+                WriteBarrierAndWait(hub, stream);
+
+                Assert.Equal(2, CountEvent(stream.Text, RemoteProtocol.Events.Library));
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                cancellation?.Cancel();
+                if (writer is not null)
+                    Pump(writer);
+                cancellation?.Dispose();
+                main?.Dispose();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
+    private static void Flush(RemoteEventHub hub) =>
+        typeof(RemoteEventHub)
+            .GetMethod("FlushPending", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(hub, null);
+
+    private static void MarkLibraryDirtyAndFlush(RemoteEventHub hub)
+    {
+        typeof(RemoteEventHub)
+            .GetField("_libraryDirty", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(hub, true);
+        Flush(hub);
+    }
+
+    private static void WriteBarrierAndWait(RemoteEventHub hub, RecordingStream stream)
+    {
+        var eventName = $"test-barrier-{Guid.NewGuid():N}";
+        hub.Broadcast(new RemoteEventFrame(eventName, "{}"));
+        Assert.True(
+            SpinWait.SpinUntil(
+                () => stream.Text.Contains($"event: {eventName}", StringComparison.Ordinal),
+                TimeSpan.FromSeconds(2)),
+            stream.Text);
+    }
+
+    private static int CountEvent(string wire, string eventName) =>
+        wire.Split($"event: {eventName}", StringSplitOptions.None).Length - 1;
 
     private static ChatMessageViewModel Message(string content) =>
         new(new ChatMessage

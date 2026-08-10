@@ -37,9 +37,11 @@ namespace Lumi.Services.Remote;
 public sealed class LumiRemoteServer : IAsyncDisposable
 {
     internal const int PairingFailedAttemptLimit = 5;
-    internal const int MaxTrackedCommandRequests = 512;
+    internal const int MaxTrackedCommandRequestsPerDevice = 512;
+    internal const int MaxTrackedCommandRequestsTotal = 4096;
     internal static readonly TimeSpan MobileUploadRetention = TimeSpan.FromDays(7);
     internal static readonly TimeSpan CommandResultRetention = TimeSpan.FromMinutes(10);
+    internal static readonly TimeSpan IncompleteCommandRetention = TimeSpan.FromMinutes(30);
     internal static readonly TimeSpan TailscaleRefreshInterval = TimeSpan.FromSeconds(30);
 
     private readonly DataStore _dataStore;
@@ -100,6 +102,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     }
 
     public int Port { get; private set; }
+    internal RemoteEventHub? EventHub => _hub;
 
     public bool IsRunning { get; private set; }
 
@@ -486,6 +489,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 case RemoteProtocol.Routes.Upload:
                     await HandleUploadAsync(context, device, cancellationToken).ConfigureAwait(false);
                     return;
+                case RemoteProtocol.Routes.Subscription:
+                    await HandleSubscriptionAsync(context, device, cancellationToken).ConfigureAwait(false);
+                    return;
                 case RemoteProtocol.Routes.Events:
                     await HandleEventsAsync(context, device, cancellationToken).ConfigureAwait(false);
                     return;
@@ -517,6 +523,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     {
         var hello = new RemoteHello
         {
+            Capabilities = [.. RemoteProtocol.Capabilities.Server],
             InstanceId = _instanceId,
             HostName = Environment.MachineName,
             UserName = _dataStore.Data.Settings.UserName ?? "",
@@ -909,6 +916,21 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             await WriteErrorAsync(context, 400, "action is required.", cancellationToken).ConfigureAwait(false);
             return;
         }
+        command.AuthenticatedDeviceId = device.DeviceId;
+        if (!IsCompatibleCommand(command))
+        {
+            var mismatch = new RemoteCommandResult
+            {
+                Error = $"Remote protocol {RemoteProtocol.Version} is required.",
+                RequestId = command.RequestId
+            };
+            await context.WriteJsonAsync(
+                    JsonSerializer.Serialize(mismatch, RemoteJsonContext.Default.RemoteCommandResult),
+                    cancellationToken,
+                    409)
+                .ConfigureAwait(false);
+            return;
+        }
 
         var result = command.Action == RemoteProtocol.Actions.RevokeDevice
             ? await RevokeRequestingDeviceAsync(device, cancellationToken).ConfigureAwait(false)
@@ -919,6 +941,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             cancellationToken,
             result.Ok ? 200 : 400).ConfigureAwait(false);
     }
+
+    internal static bool IsCompatibleCommand(RemoteCommand command) =>
+        command.ProtocolVersion == RemoteProtocol.Version;
 
     private async Task<RemoteCommandResult> RevokeRequestingDeviceAsync(
         RemotePairedDevice device,
@@ -1002,7 +1027,10 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 return entry.Task;
             }
 
-            if (_commandRequests.Count >= MaxTrackedCommandRequests)
+            var deviceRequestCount = _commandRequests.Keys.Count(candidate =>
+                string.Equals(candidate.DeviceId, device.DeviceId, StringComparison.Ordinal));
+            if (deviceRequestCount >= MaxTrackedCommandRequestsPerDevice
+                || _commandRequests.Count >= MaxTrackedCommandRequestsTotal)
             {
                 return Task.FromResult(new RemoteCommandResult
                 {
@@ -1013,7 +1041,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
             completion = new TaskCompletionSource<RemoteCommandResult>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-            entry = new CommandDedupEntry(signature, completion.Task);
+            entry = new CommandDedupEntry(signature, completion.Task, DateTimeOffset.UtcNow);
             _commandRequests.Add(key, entry);
         }
 
@@ -1070,23 +1098,24 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             _commandRequests.Remove(key);
         }
 
-        while (_commandRequests.Count >= MaxTrackedCommandRequests)
+        foreach (var key in _commandRequests
+                     .Where(pair => pair.Value.CompletedAt is null
+                                    && now - pair.Value.CreatedAt >= IncompleteCommandRetention)
+                     .Select(static pair => pair.Key)
+                     .ToList())
         {
-            var oldestCompleted = _commandRequests
-                .Where(static pair => pair.Value.CompletedAt is not null)
-                .OrderBy(static pair => pair.Value.CompletedAt)
-                .Select(static pair => (CommandDedupKey?)pair.Key)
-                .FirstOrDefault();
-            if (oldestCompleted is not { } key)
-                break;
-
             _commandRequests.Remove(key);
         }
+
+        // Never evict a completed result before the documented retention window. When the table is
+        // full, new commands receive backpressure above instead of turning an outcome-unknown retry
+        // into a duplicate send.
     }
 
     private static string BuildCommandSignature(RemoteCommand command)
     {
         var canonical = new StringBuilder();
+        Append(command.ProtocolVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Append(command.Action);
         foreach (var (key, value) in command.Arguments.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
         {
@@ -1308,11 +1337,13 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             return;
         }
 
+        var subscription = ReadEventSubscription(context.Request);
         var snapshot = await Dispatcher.UIThread.InvokeAsync(() =>
             RemoteProjector.BuildSnapshot(
                 _dataStore,
                 _main,
-                _main.ChatVM.AvailableModels.ToList()));
+                _main.ChatVM.AvailableModels.ToList(),
+                includeChatList: true));
         var snapshotJson = JsonSerializer.Serialize(snapshot, RemoteJsonContext.Default.RemoteSnapshot);
         if (Encoding.UTF8.GetByteCount(snapshotJson) > RemoteProtocol.MaxSnapshotJsonBytes)
         {
@@ -1333,7 +1364,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                     new RemoteEventFrame(RemoteProtocol.Events.Snapshot, snapshotJson),
                     context.RemoteEndPoint,
                     context.LocalEndPoint,
-                    cancellationToken)
+                    cancellationToken,
+                    subscription)
                 .ConfigureAwait(false);
             if (client is null)
             {
@@ -1354,6 +1386,55 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
             await context.CompleteEventStreamAsync(stream).ConfigureAwait(false);
         }
+    }
+
+    private async Task HandleSubscriptionAsync(
+        RemoteHttpContext context,
+        RemotePairedDevice device,
+        CancellationToken cancellationToken)
+    {
+        if (_hub is not { } hub)
+        {
+            await WriteErrorAsync(context, 500, "Remote server is not running.", cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var subscription = Deserialize(
+            context.Request.Body,
+            RemoteJsonContext.Default.RemoteEventSubscription);
+        if (subscription is null || subscription.Generation < 0)
+        {
+            await WriteErrorAsync(context, 400, "A valid subscription is required.", cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await hub.UpdateSubscriptionAsync(device.DeviceId, subscription).ConfigureAwait(false);
+        await context.WriteJsonAsync("{}", cancellationToken).ConfigureAwait(false);
+    }
+
+    private static RemoteEventSubscription ReadEventSubscription(RemoteHttpRequest request)
+    {
+        var subscription = new RemoteEventSubscription
+        {
+            IsForeground = !bool.TryParse(request.QueryValue("foreground"), out var foreground)
+                           || foreground,
+            IncludeChatList = bool.TryParse(request.QueryValue("chats"), out var chats) && chats,
+            IncludeLibrary = bool.TryParse(request.QueryValue("library"), out var library) && library
+        };
+        if (long.TryParse(
+                request.QueryValue("generation"),
+                System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var generation)
+            && generation >= 0)
+        {
+            subscription.Generation = generation;
+        }
+        if (Guid.TryParse(request.QueryValue("chatId"), out var chatId))
+            subscription.ChatId = chatId;
+        return subscription;
     }
 
     private static int ParseBoundedInt(string? raw, int fallback, int minimum, int maximum) =>
@@ -1508,10 +1589,14 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
     private readonly record struct CommandDedupKey(string DeviceId, string RequestId);
 
-    private sealed class CommandDedupEntry(string signature, Task<RemoteCommandResult> task)
+    private sealed class CommandDedupEntry(
+        string signature,
+        Task<RemoteCommandResult> task,
+        DateTimeOffset createdAt)
     {
         public string Signature { get; } = signature;
         public Task<RemoteCommandResult> Task { get; } = task;
+        public DateTimeOffset CreatedAt { get; } = createdAt;
         public DateTimeOffset? CompletedAt { get; set; }
     }
 
@@ -1559,7 +1644,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         RemotePairedDevice device,
         RemoteEventFrame initialFrame,
         [NotNullWhen(true)]
-        out RemoteEventClient? client)
+        out RemoteEventClient? client,
+        RemoteEventSubscription? subscription = null)
     {
         lock (_deviceAuthorizationGate)
         {
@@ -1569,7 +1655,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 return false;
             }
 
-            client = hub.AddClient(stream, device.DeviceId, initialFrame);
+            client = hub.AddClient(stream, device.DeviceId, initialFrame, subscription);
             _streams[client.Id] = client;
             return true;
         }
@@ -1582,7 +1668,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         RemoteEventFrame initialFrame,
         EndPoint? remoteEndPoint,
         EndPoint? localEndPoint,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        RemoteEventSubscription? subscription = null)
     {
         await _networkPolicyGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -1596,7 +1683,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 return null;
             }
 
-            return TryRegisterEventClient(hub, stream, device, initialFrame, out var client)
+            return TryRegisterEventClient(hub, stream, device, initialFrame, out var client, subscription)
                 ? client
                 : null;
         }

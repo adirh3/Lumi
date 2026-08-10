@@ -10,6 +10,80 @@ namespace Lumi.Mobile.Tests;
 public sealed class LumiRemoteClientDeadlineTests
 {
     [Fact]
+    public async Task CommandIsBlockedUntilACompatibleBootstrapCompletes()
+    {
+        var handler = new RecordingCommandHandler();
+        await using var client = new LumiRemoteClient(
+            "device",
+            "Phone",
+            handler,
+            requestDeadline: TimeSpan.FromSeconds(1),
+            uploadDeadline: TimeSpan.FromSeconds(1));
+        client.Configure("http://lumi.test", "token");
+
+        var result = await client.SendCommandAsync(
+            new RemoteCommand(RemoteProtocol.Actions.CreateChat),
+            CancellationToken.None);
+
+        Assert.False(result.Ok);
+        Assert.Contains("compatible", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(handler.Command);
+    }
+
+    [Fact]
+    public async Task IncompatibleProtocolCannotBootstrapOrReceiveCommands()
+    {
+        var handler = new Protocol3Handler();
+        await using var client = new LumiRemoteClient(
+            "device",
+            "Phone",
+            handler,
+            requestDeadline: TimeSpan.FromSeconds(1),
+            uploadDeadline: TimeSpan.FromSeconds(1));
+
+        var hello = await client.HelloAsync("http://lumi.test", CancellationToken.None);
+        client.Configure("http://lumi.test", "token");
+        var snapshot = await client.GetSnapshotAsync(CancellationToken.None);
+        var result = await client.SendCommandAsync(
+            new RemoteCommand(RemoteProtocol.Actions.CreateChat),
+            CancellationToken.None);
+
+        Assert.Equal(3, hello?.ProtocolVersion);
+        Assert.Null(snapshot);
+        Assert.False(result.Ok);
+        Assert.Null(handler.Command);
+        Assert.Contains("compatible", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task IncompatibleHelloClearsCapabilitiesFromTheSameHost()
+    {
+        var handler = new CompatibleThenIncompatibleHelloHandler();
+        await using var client = new LumiRemoteClient(
+            "device",
+            "Phone",
+            handler,
+            requestDeadline: TimeSpan.FromSeconds(1),
+            uploadDeadline: TimeSpan.FromSeconds(1));
+
+        var compatible = await client.HelloAsync("http://lumi.test", CancellationToken.None);
+        client.Configure("http://lumi.test", "token");
+        Assert.NotNull(compatible);
+        Assert.True(client.SupportsScopedEvents);
+
+        var incompatible = await client.HelloAsync("http://lumi.test", CancellationToken.None);
+        var command = await client.SendCommandAsync(
+            new RemoteCommand(RemoteProtocol.Actions.CreateChat),
+            CancellationToken.None);
+
+        Assert.NotNull(incompatible);
+        Assert.False(client.SupportsScopedEvents);
+        Assert.Equal(0, client.ConnectedProtocolVersion);
+        Assert.False(command.Ok);
+        Assert.Null(handler.Command);
+    }
+
+    [Fact]
     public async Task FiniteRequestTimeoutReturnsTheExistingTimeoutMessage()
     {
         var handler = new BlockingHandler();
@@ -20,6 +94,7 @@ public sealed class LumiRemoteClientDeadlineTests
             requestDeadline: TimeSpan.FromSeconds(1),
             uploadDeadline: TimeSpan.FromSeconds(2));
         client.Configure("http://lumi.test", "token");
+        client.MarkProtocolCompatibleForTests();
 
         var command = new RemoteCommand(RemoteProtocol.Actions.CreateChat);
         var request = client.SendCommandAsync(command, CancellationToken.None);
@@ -29,6 +104,121 @@ public sealed class LumiRemoteClientDeadlineTests
         Assert.Contains("too long", result.Error, StringComparison.OrdinalIgnoreCase);
         Assert.True(result.IsTimeout);
         Assert.False(string.IsNullOrWhiteSpace(command.RequestId));
+        Assert.Equal(command.RequestId, result.RequestId);
+    }
+
+    [Fact]
+    public async Task TimedOutCommandConfirmsWithTheSameRequestIdInsteadOfReportingFailure()
+    {
+        var handler = new TimeoutThenSuccessHandler();
+        await using var client = new LumiRemoteClient(
+            "device",
+            "Phone",
+            handler,
+            requestDeadline: TimeSpan.FromMilliseconds(50),
+            uploadDeadline: TimeSpan.FromSeconds(1),
+            commandConfirmationDeadline: TimeSpan.FromSeconds(1));
+        client.Configure("http://lumi.test", "token");
+        client.MarkProtocolCompatibleForTests();
+        var command = new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+            .With("message", "hello");
+
+        var result = await client.SendCommandAsync(command, CancellationToken.None);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal(2, handler.RequestIds.Count);
+        Assert.False(string.IsNullOrWhiteSpace(command.RequestId));
+        Assert.All(handler.RequestIds, id => Assert.Equal(command.RequestId, id));
+    }
+
+    [Fact]
+    public async Task TransportFailureConfirmsWithTheSameRequestIdInsteadOfDuplicatingTheCommand()
+    {
+        var handler = new TransportFailureThenSuccessHandler();
+        await using var client = new LumiRemoteClient(
+            "device",
+            "Phone",
+            handler,
+            requestDeadline: TimeSpan.FromSeconds(1),
+            uploadDeadline: TimeSpan.FromSeconds(1),
+            commandConfirmationDeadline: TimeSpan.FromSeconds(1));
+        client.Configure("http://lumi.test", "token");
+        client.MarkProtocolCompatibleForTests();
+        var command = new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+            .With("message", "hello");
+
+        var result = await client.SendCommandAsync(command, CancellationToken.None);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal(2, handler.RequestIds.Count);
+        Assert.All(handler.RequestIds, id => Assert.Equal(command.RequestId, id));
+    }
+
+    [Fact]
+    public async Task TimedOutRevocationIsNotRetriedBecauseTheTokenMayAlreadyBeInvalid()
+    {
+        var handler = new BlockingHandler();
+        await using var client = new LumiRemoteClient(
+            "device",
+            "Phone",
+            handler,
+            requestDeadline: TimeSpan.FromMilliseconds(50),
+            uploadDeadline: TimeSpan.FromSeconds(1),
+            commandConfirmationDeadline: TimeSpan.FromSeconds(1));
+        client.Configure("http://lumi.test", "token");
+        client.MarkProtocolCompatibleForTests();
+
+        var result = await client.SendCommandAsync(
+            new RemoteCommand(RemoteProtocol.Actions.RevokeDevice),
+            CancellationToken.None);
+
+        Assert.True(result.IsTimeout);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task FailedConfirmationKeepsTheOriginalTimeoutAndRequestId()
+    {
+        var handler = new TimeoutThenTransportFailureHandler();
+        await using var client = new LumiRemoteClient(
+            "device",
+            "Phone",
+            handler,
+            requestDeadline: TimeSpan.FromMilliseconds(50),
+            uploadDeadline: TimeSpan.FromSeconds(1),
+            commandConfirmationDeadline: TimeSpan.FromSeconds(1));
+        client.Configure("http://lumi.test", "token");
+        client.MarkProtocolCompatibleForTests();
+        var command = new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+            .With("message", "hello");
+
+        var result = await client.SendCommandAsync(command, CancellationToken.None);
+
+        Assert.True(result.IsTimeout);
+        Assert.Equal(command.RequestId, result.RequestId);
+        Assert.Equal(2, handler.RequestIds.Count);
+        Assert.All(handler.RequestIds, id => Assert.Equal(command.RequestId, id));
+    }
+
+    [Fact]
+    public async Task ConfirmationWithoutAnEchoedRequestIdRemainsAmbiguous()
+    {
+        var handler = new TimeoutThenGenericErrorHandler();
+        await using var client = new LumiRemoteClient(
+            "device",
+            "Phone",
+            handler,
+            requestDeadline: TimeSpan.FromMilliseconds(50),
+            uploadDeadline: TimeSpan.FromSeconds(1),
+            commandConfirmationDeadline: TimeSpan.FromSeconds(1));
+        client.Configure("http://lumi.test", "token");
+        client.MarkProtocolCompatibleForTests();
+        var command = new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+            .With("message", "hello");
+
+        var result = await client.SendCommandAsync(command, CancellationToken.None);
+
+        Assert.True(result.IsTimeout);
         Assert.Equal(command.RequestId, result.RequestId);
     }
 
@@ -43,6 +233,7 @@ public sealed class LumiRemoteClientDeadlineTests
             requestDeadline: TimeSpan.FromSeconds(1),
             uploadDeadline: TimeSpan.FromSeconds(1));
         client.Configure("http://lumi.test", "token");
+        client.MarkProtocolCompatibleForTests();
         var command = new RemoteCommand(RemoteProtocol.Actions.CreateChat)
         {
             RequestId = "retry-this-id"
@@ -55,6 +246,42 @@ public sealed class LumiRemoteClientDeadlineTests
         Assert.Equal("retry-this-id", handler.Command?.RequestId);
         Assert.Equal("retry-this-id", result.RequestId);
         Assert.False(result.IsTimeout);
+    }
+
+    [Fact]
+    public async Task SseReconnectDoesNotInvalidateAnAlreadyCompatibleCommandChannel()
+    {
+        var handler = new DroppingEventHandler();
+        await using var client = new LumiRemoteClient(
+            "device",
+            "Phone",
+            handler,
+            requestDeadline: TimeSpan.FromSeconds(1),
+            uploadDeadline: TimeSpan.FromSeconds(1));
+        client.Configure("http://lumi.test", "token");
+        client.MarkProtocolCompatibleForTests(scopedEvents: true);
+        var bootstrapped = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        client.FrameReceived += frame =>
+        {
+            if (frame.Event == RemoteProtocol.Events.Snapshot)
+                bootstrapped.TrySetResult();
+        };
+
+        await client.StartEventStreamAsync(new RemoteEventSubscription
+        {
+            Generation = 1,
+            IsForeground = true
+        });
+        await bootstrapped.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await Task.Delay(50);
+        var result = await client.SendCommandAsync(
+            new RemoteCommand(RemoteProtocol.Actions.CreateChat),
+            CancellationToken.None);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.NotNull(handler.Command);
+        await client.StopEventStreamAsync();
     }
 
     [Fact]
@@ -88,6 +315,7 @@ public sealed class LumiRemoteClientDeadlineTests
             requestDeadline: TimeSpan.FromMilliseconds(40),
             uploadDeadline: TimeSpan.FromSeconds(1));
         client.Configure("http://lumi.test", "token");
+        client.MarkProtocolCompatibleForTests();
 
         var command = await client.SendCommandAsync(
             new RemoteCommand(RemoteProtocol.Actions.CreateChat),
@@ -183,8 +411,106 @@ public sealed class LumiRemoteClientDeadlineTests
         await client.StopEventStreamAsync();
     }
 
+    private sealed class Protocol3Handler : HttpMessageHandler
+    {
+        public RemoteCommand? Command { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri?.AbsolutePath == RemoteProtocol.Routes.Hello)
+            {
+                return JsonResponse(
+                    new RemoteHello { ProtocolVersion = 3, HostName = "Release Lumi" },
+                    RemoteJsonContext.Default.RemoteHello);
+            }
+
+            if (request.RequestUri?.AbsolutePath == RemoteProtocol.Routes.Snapshot)
+            {
+                return JsonResponse(
+                    new RemoteSnapshot { ProtocolVersion = 3, HostName = "Release Lumi" },
+                    RemoteJsonContext.Default.RemoteSnapshot);
+            }
+
+            if (request.RequestUri?.AbsolutePath == RemoteProtocol.Routes.Command)
+            {
+                Command = JsonSerializer.Deserialize(
+                    await request.Content!.ReadAsStringAsync(cancellationToken),
+                    RemoteJsonContext.Default.RemoteCommand);
+                return JsonResponse(
+                    new RemoteCommandResult { Ok = true, RequestId = Command?.RequestId },
+                    RemoteJsonContext.Default.RemoteCommandResult);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }
+
+        private static HttpResponseMessage JsonResponse<T>(
+            T value,
+            System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo) =>
+            new(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    JsonSerializer.Serialize(value, typeInfo),
+                    Encoding.UTF8,
+                    "application/json")
+            };
+    }
+
+    private sealed class CompatibleThenIncompatibleHelloHandler : HttpMessageHandler
+    {
+        private int _helloCount;
+
+        public RemoteCommand? Command { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri?.AbsolutePath == RemoteProtocol.Routes.Hello)
+            {
+                var isFirst = Interlocked.Increment(ref _helloCount) == 1;
+                return JsonResponse(
+                    new RemoteHello
+                    {
+                        ProtocolVersion = isFirst ? RemoteProtocol.Version : RemoteProtocol.Version - 1,
+                        Capabilities = isFirst
+                            ? [RemoteProtocol.Capabilities.ScopedEventsV1]
+                            : []
+                    },
+                    RemoteJsonContext.Default.RemoteHello);
+            }
+
+            if (request.RequestUri?.AbsolutePath == RemoteProtocol.Routes.Command)
+            {
+                Command = JsonSerializer.Deserialize(
+                    await request.Content!.ReadAsStringAsync(cancellationToken),
+                    RemoteJsonContext.Default.RemoteCommand);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}")
+            };
+        }
+
+        private static HttpResponseMessage JsonResponse<T>(
+            T value,
+            System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo) =>
+            new(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    JsonSerializer.Serialize(value, typeInfo),
+                    Encoding.UTF8,
+                    "application/json")
+            };
+    }
+
     private sealed class BlockingHandler : HttpMessageHandler
     {
+        public int RequestCount { get; private set; }
+
         public TaskCompletionSource Started { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -195,6 +521,7 @@ public sealed class LumiRemoteClientDeadlineTests
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            RequestCount++;
             Started.TrySetResult();
             using var registration = cancellationToken.Register(() =>
             {
@@ -202,6 +529,129 @@ public sealed class LumiRemoteClientDeadlineTests
             });
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("The blocking handler completed without cancellation.");
+        }
+
+    }
+
+    private sealed class DroppingEventHandler : HttpMessageHandler
+    {
+        public RemoteCommand? Command { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri?.AbsolutePath == RemoteProtocol.Routes.Events)
+            {
+                var snapshot = new RemoteSnapshot
+                {
+                    Capabilities = [RemoteProtocol.Capabilities.ScopedEventsV1]
+                };
+                var frame = new RemoteEventFrame(
+                    RemoteProtocol.Events.Snapshot,
+                    JsonSerializer.Serialize(snapshot, RemoteJsonContext.Default.RemoteSnapshot));
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(frame.ToWire(), Encoding.UTF8, "text/event-stream")
+                };
+            }
+
+            if (request.RequestUri?.AbsolutePath == RemoteProtocol.Routes.Command)
+            {
+                Command = JsonSerializer.Deserialize(
+                    await request.Content!.ReadAsStringAsync(cancellationToken),
+                    RemoteJsonContext.Default.RemoteCommand);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        JsonSerializer.Serialize(
+                            new RemoteCommandResult { Ok = true, RequestId = Command?.RequestId },
+                            RemoteJsonContext.Default.RemoteCommandResult),
+                        Encoding.UTF8,
+                        "application/json")
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}")
+            };
+        }
+    }
+
+    private sealed class TimeoutThenSuccessHandler : HttpMessageHandler
+    {
+        public List<string?> RequestIds { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            var command = JsonSerializer.Deserialize(body, RemoteJsonContext.Default.RemoteCommand);
+            RequestIds.Add(command?.RequestId);
+            if (RequestIds.Count == 1)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("The first request should time out.");
+            }
+
+            var response = JsonSerializer.Serialize(
+                new RemoteCommandResult
+                {
+                    Ok = true,
+                    RequestId = command?.RequestId
+                },
+                RemoteJsonContext.Default.RemoteCommandResult);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(response, Encoding.UTF8, "application/json")
+            };
+        }
+    }
+
+    private sealed class TimeoutThenTransportFailureHandler : HttpMessageHandler
+    {
+        public List<string?> RequestIds { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            var command = JsonSerializer.Deserialize(body, RemoteJsonContext.Default.RemoteCommand);
+            RequestIds.Add(command?.RequestId);
+            if (RequestIds.Count == 1)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("The first request should time out.");
+            }
+
+            throw new HttpRequestException("connection reset");
+        }
+    }
+
+    private sealed class TimeoutThenGenericErrorHandler : HttpMessageHandler
+    {
+        private int _requests;
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (++_requests == 1)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("The first request should time out.");
+            }
+
+            var response = JsonSerializer.Serialize(
+                new RemoteCommandResult { Error = "Server unavailable." },
+                RemoteJsonContext.Default.RemoteCommandResult);
+            return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+            {
+                Content = new StringContent(response, Encoding.UTF8, "application/json")
+            };
         }
     }
 
@@ -242,14 +692,45 @@ public sealed class LumiRemoteClientDeadlineTests
             var body = await request.Content!.ReadAsStringAsync(cancellationToken);
             Command = JsonSerializer.Deserialize(body, RemoteJsonContext.Default.RemoteCommand);
             var response = JsonSerializer.Serialize(
-                new RemoteCommandResult { Ok = true },
+                new RemoteCommandResult
+                {
+                    Ok = true,
+                    RequestId = Command?.RequestId
+                },
                 RemoteJsonContext.Default.RemoteCommandResult);
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(response, Encoding.UTF8, "application/json")
             };
         }
+    }
 
+    private sealed class TransportFailureThenSuccessHandler : HttpMessageHandler
+    {
+        public List<string?> RequestIds { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            var command = JsonSerializer.Deserialize(body, RemoteJsonContext.Default.RemoteCommand);
+            RequestIds.Add(command?.RequestId);
+            if (RequestIds.Count == 1)
+                throw new HttpRequestException("connection reset after write");
+
+            var response = JsonSerializer.Serialize(
+                new RemoteCommandResult
+                {
+                    Ok = true,
+                    RequestId = command?.RequestId
+                },
+                RemoteJsonContext.Default.RemoteCommandResult);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(response, Encoding.UTF8, "application/json")
+            };
+        }
     }
 
     private sealed class OversizedHandler : HttpMessageHandler

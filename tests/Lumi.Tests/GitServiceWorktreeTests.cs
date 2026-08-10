@@ -128,6 +128,38 @@ public sealed class GitServiceWorktreeTests
     }
 
     [Fact]
+    public async Task RemoveWorktreeIfCleanAsync_PreservesDetachedUnreferencedCommits()
+    {
+        using var temp = new TempDir();
+        var repo = Path.Combine(temp.Path, "repo");
+        var worktree = Path.Combine(temp.Path, "repo-detached");
+        Directory.CreateDirectory(repo);
+        File.WriteAllText(Path.Combine(repo, "README.md"), "# root");
+        Git(repo, "init -q");
+        Git(repo, "config user.email test@example.com");
+        Git(repo, "config user.name Test");
+        Git(repo, "add -A");
+        Git(repo, "commit -q -m initial");
+        Git(repo, $"worktree add --detach \"{worktree}\"");
+        try
+        {
+            File.WriteAllText(Path.Combine(worktree, "keep.txt"), "committed work");
+            Git(worktree, "add -A");
+            Git(worktree, "commit -q -m keep");
+
+            var removed = await GitService.RemoveWorktreeIfCleanAsync(repo, worktree);
+
+            Assert.False(removed);
+            Assert.True(Directory.Exists(worktree));
+        }
+        finally
+        {
+            if (Directory.Exists(worktree))
+                await GitService.RemoveWorktreeAsync(repo, worktree);
+        }
+    }
+
+    [Fact]
     public async Task RunGit_DoesNotDeadlock_UnderConcurrentInvocations()
     {
         using var temp = new TempDir();

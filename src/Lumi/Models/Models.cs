@@ -28,6 +28,8 @@ public class ChatMessage
     public string Role { get; set; } = "user"; // user, assistant, system, tool, reasoning, error
     public string Content { get; set; } = "";
     public string? Author { get; set; }
+    /// <summary>Authenticated mobile request that created this user message, when applicable.</summary>
+    public string? RemoteRequestId { get; set; }
     public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.Now;
     public string? ToolName { get; set; }
     public string? ToolCallId { get; set; }
@@ -87,6 +89,7 @@ public class ChatMessage
         Role = Role,
         Content = Content,
         Author = Author,
+        RemoteRequestId = RemoteRequestId,
         Timestamp = Timestamp,
         ToolName = ToolName,
         ToolCallId = ToolCallId,
@@ -454,6 +457,9 @@ public class Chat : INotifyPropertyChanged
 
     /// <summary>Git worktree path when this chat operates in worktree mode. Null means local mode.</summary>
     public string? WorktreePath { get; set; }
+    /// <summary>Last accepted mobile send receipt, persisted for idempotency across desktop restarts.</summary>
+    public string? LastRemoteDeviceId { get; set; }
+    public string? LastRemoteRequestId { get; set; }
 
     /// <summary>Last model used in this chat. Restored as the selected model when the chat is reopened.</summary>
     public string? LastModelUsed { get; set; }

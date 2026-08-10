@@ -56,6 +56,11 @@ public class DataStore
     private readonly object _chatChangeSync = new();
     private readonly object _backgroundJobsSync = new();
     private readonly object _remoteSecuritySync = new();
+    private readonly object _worktreeAssociationSync = new();
+    private readonly HashSet<string> _worktreeCleanupReservations = new(
+        OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal);
     private readonly Dictionary<Guid, long> _dirtyChatVersions = [];
     private readonly Dictionary<Guid, long> _deletedChatVersions = [];
     private readonly bool _usesPersistentStorage = true;
@@ -107,6 +112,153 @@ public class DataStore
 
     public AppData Data => _data;
     internal bool UsesPersistentStorage => _usesPersistentStorage;
+
+    internal bool IsWorktreeCleanupReserved(string? path)
+    {
+        if (!TryNormalizeWorktreePath(path, out var normalized))
+            return false;
+
+        lock (_worktreeAssociationSync)
+            return _worktreeCleanupReservations.Contains(normalized);
+    }
+
+    internal bool TrySetChatWorktreePath(Chat chat, string? path)
+    {
+        ArgumentNullException.ThrowIfNull(chat);
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            lock (_worktreeAssociationSync)
+            {
+                chat.WorktreePath = null;
+                return true;
+            }
+        }
+
+        if (!TryNormalizeWorktreePath(path, out var normalized))
+            return false;
+
+        lock (_worktreeAssociationSync)
+        {
+            if (_worktreeCleanupReservations.Contains(normalized))
+                return false;
+
+            chat.WorktreePath = normalized;
+            return true;
+        }
+    }
+
+    internal WorktreeCleanupReservation? TryReserveWorktreeCleanup(
+        Chat ownerChat,
+        string path,
+        out bool isShared)
+    {
+        ArgumentNullException.ThrowIfNull(ownerChat);
+        isShared = false;
+        if (!TryNormalizeWorktreePath(path, out var normalized))
+            return null;
+
+        lock (_worktreeAssociationSync)
+        {
+            if (_worktreeCleanupReservations.Contains(normalized))
+                return null;
+
+            isShared = _data.Chats.Any(chat =>
+                chat.Id != ownerChat.Id &&
+                WorktreePathsEqual(chat.WorktreePath, normalized));
+            if (isShared)
+                return null;
+
+            _worktreeCleanupReservations.Add(normalized);
+            var detachedOwnerPath = WorktreePathsEqual(ownerChat.WorktreePath, normalized)
+                ? ownerChat.WorktreePath
+                : null;
+            if (detachedOwnerPath is not null)
+                ownerChat.WorktreePath = null;
+
+            return new WorktreeCleanupReservation(
+                this,
+                normalized,
+                ownerChat,
+                detachedOwnerPath);
+        }
+    }
+
+    internal sealed class WorktreeCleanupReservation : IDisposable
+    {
+        private DataStore? _owner;
+        private readonly string _normalizedPath;
+        private readonly Chat _ownerChat;
+        private readonly string? _detachedOwnerPath;
+
+        internal WorktreeCleanupReservation(
+            DataStore owner,
+            string normalizedPath,
+            Chat ownerChat,
+            string? detachedOwnerPath)
+        {
+            _owner = owner;
+            _normalizedPath = normalizedPath;
+            _ownerChat = ownerChat;
+            _detachedOwnerPath = detachedOwnerPath;
+        }
+
+        public bool RestoreOwnerAssociation()
+        {
+            var owner = _owner;
+            if (owner is null || _detachedOwnerPath is null)
+                return false;
+
+            lock (owner._worktreeAssociationSync)
+            {
+                if (_ownerChat.WorktreePath is not null)
+                    return false;
+
+                _ownerChat.WorktreePath = _detachedOwnerPath;
+                return true;
+            }
+        }
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref _owner, null);
+            if (owner is null)
+                return;
+
+            lock (owner._worktreeAssociationSync)
+                owner._worktreeCleanupReservations.Remove(_normalizedPath);
+        }
+    }
+
+    private static bool TryNormalizeWorktreePath(string? path, out string normalized)
+    {
+        normalized = "";
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        try
+        {
+            normalized = Path.GetFullPath(path)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return normalized.Length > 0;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+    }
+
+    private static bool WorktreePathsEqual(string? left, string? right)
+    {
+        return TryNormalizeWorktreePath(left, out var normalizedLeft)
+               && TryNormalizeWorktreePath(right, out var normalizedRight)
+               && string.Equals(
+                   normalizedLeft,
+                   normalizedRight,
+                   OperatingSystem.IsWindows()
+                       ? StringComparison.OrdinalIgnoreCase
+                       : StringComparison.Ordinal);
+    }
 
     internal async Task RefreshRemoteSecurityFromDiskAsync(CancellationToken cancellationToken = default)
     {

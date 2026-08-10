@@ -105,13 +105,6 @@
               </sc:StrataSetting>
             </sc:StrataSettingGroup>
 
-            <sc:StrataSettingGroup Header="Composer">
-              <sc:StrataSetting Header="Send with Enter"
-                                Description="Off means Enter adds a new line and the send button submits.">
-                <ToggleSwitch x:Name="SendWithEnterToggle" IsChecked="{Binding SendWithEnter}" />
-              </sc:StrataSetting>
-            </sc:StrataSettingGroup>
-
             <TextBlock Text="{Binding UserName, StringFormat='Signed in as {0}'}" Classes="muted"
                        IsVisible="{Binding UserName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
           </StackPanel>

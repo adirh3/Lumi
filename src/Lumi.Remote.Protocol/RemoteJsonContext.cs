@@ -15,6 +15,7 @@ namespace Lumi.Remote.Protocol;
 [JsonSerializable(typeof(RemoteBeacon))]
 [JsonSerializable(typeof(RemotePairRequest))]
 [JsonSerializable(typeof(RemotePairResponse))]
+[JsonSerializable(typeof(RemoteEventSubscription))]
 [JsonSerializable(typeof(RemoteCommand))]
 [JsonSerializable(typeof(RemoteCommandResult))]
 [JsonSerializable(typeof(RemoteUploadResponse))]

@@ -19,8 +19,6 @@ public sealed class MobileConnectionSettings
     /// </summary>
     public string Theme { get; set; } = "System";
 
-    public bool SendWithEnter { get; set; }
-
     /// <summary>Docked sidebar collapsed on a tablet or unfolded foldable.</summary>
     public bool IsSidebarCollapsed { get; set; }
 }

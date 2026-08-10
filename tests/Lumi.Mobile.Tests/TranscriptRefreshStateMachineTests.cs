@@ -1104,7 +1104,7 @@ public sealed class TranscriptRefreshStateMachineTests
         var json = value switch
         {
             RemoteSnapshot snapshot =>
-                JsonSerializer.Serialize(snapshot, RemoteJsonContext.Default.RemoteSnapshot),
+                JsonSerializer.Serialize(WithScopedEvents(snapshot), RemoteJsonContext.Default.RemoteSnapshot),
             RemoteChatStatus status =>
                 JsonSerializer.Serialize(status, RemoteJsonContext.Default.RemoteChatStatus),
             RemoteStreamDelta delta =>
@@ -1117,6 +1117,13 @@ public sealed class TranscriptRefreshStateMachineTests
         };
 
         return new RemoteEventFrame(eventName, json).ToWire();
+    }
+
+    private static RemoteSnapshot WithScopedEvents(RemoteSnapshot snapshot)
+    {
+        if (snapshot.Capabilities.Count == 0)
+            snapshot.Capabilities.Add(RemoteProtocol.Capabilities.ScopedEventsV1);
+        return snapshot;
     }
 
     private static async Task WaitForPropertyAsync(
@@ -1215,6 +1222,7 @@ public sealed class TranscriptRefreshStateMachineTests
                         JsonSerializer.Serialize(
                             new RemoteHello
                             {
+                                Capabilities = [RemoteProtocol.Capabilities.ScopedEventsV1],
                                 HostName = "TEST-PC",
                                 UserName = "Tester",
                                 IsPaired = false
@@ -1237,7 +1245,9 @@ public sealed class TranscriptRefreshStateMachineTests
                 {
                     Interlocked.Increment(ref _snapshotRequestCount);
                     return JsonResponse(
-                        JsonSerializer.Serialize(Snapshot, RemoteJsonContext.Default.RemoteSnapshot));
+                        JsonSerializer.Serialize(
+                            WithScopedEvents(Snapshot),
+                            RemoteJsonContext.Default.RemoteSnapshot));
                 }
 
                 case RemoteProtocol.Routes.Transcript:
@@ -1259,6 +1269,9 @@ public sealed class TranscriptRefreshStateMachineTests
                             new RemoteCommandResult { Ok = true },
                             RemoteJsonContext.Default.RemoteCommandResult));
                 }
+
+                case RemoteProtocol.Routes.Subscription:
+                    return JsonResponse("{}");
 
                 case RemoteProtocol.Routes.Events:
                 {

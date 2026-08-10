@@ -29,18 +29,26 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 {
     internal static readonly TimeSpan DefaultRequestDeadline = TimeSpan.FromSeconds(20);
     internal static readonly TimeSpan DefaultUploadDeadline = TimeSpan.FromMinutes(5);
-    internal static readonly TimeSpan EventSilenceDeadline = TimeSpan.FromSeconds(50);
+    internal static readonly TimeSpan EventSilenceDeadline = TimeSpan.FromSeconds(90);
     private const string RequestTimeoutMessage = "Lumi took too long to answer.";
 
     private readonly HttpClient _http;
     private readonly SemaphoreSlim _streamGate = new(1, 1);
     private readonly SemaphoreSlim _transcriptGate = new(1, 1);
     private readonly TimeSpan _requestDeadline;
+    private readonly TimeSpan _commandConfirmationDeadline;
     private readonly TimeSpan _uploadDeadline;
     private readonly IRemoteRouteVerifier _routeVerifier;
 
     private CancellationTokenSource? _streamCts;
     private Task? _streamTask;
+    private string? _compatibleBaseUrl;
+    private int _compatibleProtocolVersion;
+    private HashSet<string> _capabilities = new(StringComparer.Ordinal);
+    private RemoteEventSubscription _eventSubscription = new();
+    private bool _streamDesired;
+    private long _streamGeneration;
+    private volatile bool _hasCompatibleBootstrap;
     private bool _disposed;
 
     public LumiRemoteClient(string deviceId, string deviceName, HttpMessageHandler? handler = null)
@@ -54,7 +62,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         HttpMessageHandler? handler,
         TimeSpan requestDeadline,
         TimeSpan uploadDeadline,
-        IRemoteRouteVerifier? routeVerifier = null)
+        IRemoteRouteVerifier? routeVerifier = null,
+        TimeSpan? commandConfirmationDeadline = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(requestDeadline, TimeSpan.Zero);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(uploadDeadline, TimeSpan.Zero);
@@ -62,6 +71,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         DeviceId = deviceId;
         DeviceName = deviceName;
         _requestDeadline = requestDeadline;
+        _commandConfirmationDeadline = commandConfirmationDeadline ?? requestDeadline;
         _uploadDeadline = uploadDeadline;
         _routeVerifier = routeVerifier ?? RemotePlatformServices.RouteVerifier;
 
@@ -95,6 +105,10 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 
     public string? StateMessage { get; private set; }
 
+    public int ConnectedProtocolVersion => _compatibleProtocolVersion;
+    public bool SupportsScopedEvents =>
+        _capabilities.Contains(RemoteProtocol.Capabilities.ScopedEventsV1);
+
     /// <summary>Raised for every SSE frame. Handlers are invoked off the UI thread.</summary>
     public event Action<RemoteEventFrame>? FrameReceived;
 
@@ -111,6 +125,11 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     {
         BaseUrl = NormalizeBaseUrl(baseUrl);
         Token = token;
+        _hasCompatibleBootstrap = string.Equals(
+            BaseUrl,
+            _compatibleBaseUrl,
+            StringComparison.OrdinalIgnoreCase)
+            && IsSupportedProtocol(_compatibleProtocolVersion);
     }
 
     public static string NormalizeBaseUrl(string value)
@@ -131,9 +150,33 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 
     public async Task<RemoteHello?> HelloAsync(string baseUrl, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, NormalizeBaseUrl(baseUrl) + RemoteProtocol.Routes.Hello);
+        var normalizedBaseUrl = NormalizeBaseUrl(baseUrl);
+        using var request = new HttpRequestMessage(HttpMethod.Get, normalizedBaseUrl + RemoteProtocol.Routes.Hello);
         ApplyAuth(request);
-        return await SendJsonAsync(request, RemoteJsonContext.Default.RemoteHello, cancellationToken).ConfigureAwait(false);
+        var hello = await SendJsonAsync(
+                request,
+                RemoteJsonContext.Default.RemoteHello,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (hello is not null
+            && IsSupportedProtocol(hello.ProtocolVersion)
+            && RemoteProtocol.HasRequiredCapabilities(hello.Capabilities))
+        {
+            _compatibleBaseUrl = normalizedBaseUrl;
+            _compatibleProtocolVersion = hello.ProtocolVersion;
+            ApplyCapabilities(hello.Capabilities);
+            if (string.Equals(BaseUrl, normalizedBaseUrl, StringComparison.OrdinalIgnoreCase))
+                _hasCompatibleBootstrap = true;
+        }
+        else if (hello is not null)
+        {
+            InvalidateCompatibility(normalizedBaseUrl);
+            SetState(
+                RemoteLinkState.Error,
+                $"This phone requires Lumi remote protocol {RemoteProtocol.Version} with scoped events.");
+        }
+
+        return hello;
     }
 
     public async Task<RemotePairResponse> PairAsync(string baseUrl, string code, CancellationToken cancellationToken)
@@ -175,8 +218,32 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         }
     }
 
-    public Task<RemoteSnapshot?> GetSnapshotAsync(CancellationToken cancellationToken) =>
-        GetAsync(RemoteProtocol.Routes.Snapshot, RemoteJsonContext.Default.RemoteSnapshot, cancellationToken);
+    public async Task<RemoteSnapshot?> GetSnapshotAsync(CancellationToken cancellationToken)
+    {
+        var snapshot = await GetAsync(
+                RemoteProtocol.Routes.Snapshot,
+                RemoteJsonContext.Default.RemoteSnapshot,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (snapshot is null)
+            return null;
+        if (!IsSupportedProtocol(snapshot.ProtocolVersion)
+            || !RemoteProtocol.HasRequiredCapabilities(snapshot.Capabilities))
+        {
+            _hasCompatibleBootstrap = false;
+            SetState(
+                RemoteLinkState.Error,
+                $"This phone requires Lumi remote protocol {RemoteProtocol.Version} with scoped events.");
+            return null;
+        }
+
+        _compatibleBaseUrl = BaseUrl;
+        _compatibleProtocolVersion = snapshot.ProtocolVersion;
+        ApplyCapabilities(snapshot.Capabilities);
+        _hasCompatibleBootstrap = true;
+        SetState(RemoteLinkState.Connected, null);
+        return snapshot;
+    }
 
     public Task<RemoteChatPage?> GetChatsAsync(
         int offset,
@@ -252,6 +319,9 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 
     public async Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command, CancellationToken cancellationToken)
     {
+        command.ProtocolVersion = IsSupportedProtocol(_compatibleProtocolVersion)
+            ? _compatibleProtocolVersion
+            : RemoteProtocol.Version;
         if (string.IsNullOrWhiteSpace(command.RequestId))
             command.RequestId = Guid.NewGuid().ToString("N");
         var requestId = command.RequestId;
@@ -264,14 +334,65 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 RequestId = requestId
             };
         }
+        if (!_hasCompatibleBootstrap)
+        {
+            return new RemoteCommandResult
+            {
+                Error = "Waiting for a compatible Lumi desktop connection.",
+                RequestId = requestId
+            };
+        }
 
+        var firstAttempt = await SendCommandAttemptAsync(
+                command,
+                requestId,
+                _requestDeadline,
+                cancellationToken)
+            .ConfigureAwait(false);
+        var result = firstAttempt.Result;
+        if (firstAttempt.IsAuthoritative
+            || cancellationToken.IsCancellationRequested
+            || command.Action == RemoteProtocol.Actions.RevokeDevice)
+            return result;
+
+        // The desktop owns remote commands after accepting their request ID. A phone can time out
+        // while the original command is still opening a large chat or reconnecting Copilot; retrying
+        // the same ID does not send twice — it joins the server's existing task and retrieves the
+        // authoritative result instead of showing a false "not sent" error.
+        var confirmation = await SendCommandAttemptAsync(
+                command,
+                requestId,
+                _commandConfirmationDeadline,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (confirmation.IsAuthoritative)
+            return confirmation.Result;
+
+        // The server may still own and complete the original request. Keep the typed timeout and
+        // request ID so the ViewModel can retry the same idempotent command instead of sending a
+        // second logical message after a transient confirmation failure.
+        return new RemoteCommandResult
+        {
+            Error = confirmation.Result.Error ?? result.Error ?? RequestTimeoutMessage,
+            RequestId = requestId,
+            IsTimeout = result.IsTimeout,
+            IsOutcomeUnknown = true
+        };
+    }
+
+    private async Task<CommandAttempt> SendCommandAttemptAsync(
+        RemoteCommand command,
+        string requestId,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
         using var request = new HttpRequestMessage(HttpMethod.Post, BaseUrl + RemoteProtocol.Routes.Command)
         {
             Content = JsonContent(command, RemoteJsonContext.Default.RemoteCommand)
         };
         ApplyAuth(request);
 
-        using var deadline = CreateDeadline(cancellationToken, _requestDeadline);
+        using var deadline = CreateDeadline(cancellationToken, timeout);
         try
         {
             using var response = await _http
@@ -286,34 +407,137 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
                 SetState(RemoteLinkState.Unauthorized, "This device is no longer paired with Lumi.");
-                return new RemoteCommandResult
+                return new CommandAttempt(new RemoteCommandResult
                 {
                     Error = "This device is no longer paired with Lumi.",
                     RequestId = requestId
-                };
+                }, IsAuthoritative: true);
             }
 
-            var result = JsonSerializer.Deserialize(body, RemoteJsonContext.Default.RemoteCommandResult)
-                         ?? new RemoteCommandResult { Error = "Lumi returned an unreadable response." };
+            var result = JsonSerializer.Deserialize(body, RemoteJsonContext.Default.RemoteCommandResult);
+            if (result is null)
+            {
+                return new CommandAttempt(new RemoteCommandResult
+                {
+                    Error = "Lumi returned an unreadable response.",
+                    RequestId = requestId
+                }, IsAuthoritative: false);
+            }
+
+            var echoedRequestId = result.RequestId;
             result.RequestId ??= requestId;
-            return result;
+            return new CommandAttempt(
+                result,
+                IsAuthoritative: string.Equals(
+                    echoedRequestId,
+                    requestId,
+                    StringComparison.Ordinal));
         }
         catch (OperationCanceledException) when (IsDeadlineCancellation(cancellationToken, deadline))
         {
-            return new RemoteCommandResult
+            return new CommandAttempt(new RemoteCommandResult
             {
                 Error = RequestTimeoutMessage,
                 RequestId = requestId,
                 IsTimeout = true
-            };
+            }, IsAuthoritative: false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new RemoteCommandResult
+            return new CommandAttempt(new RemoteCommandResult
             {
                 Error = Describe(ex),
                 RequestId = requestId
-            };
+            }, IsAuthoritative: false);
+        }
+    }
+
+    private readonly record struct CommandAttempt(
+        RemoteCommandResult Result,
+        bool IsAuthoritative);
+
+    internal void MarkProtocolCompatibleForTests(
+        int protocolVersion = RemoteProtocol.Version,
+        bool scopedEvents = true)
+    {
+        _compatibleBaseUrl = BaseUrl;
+        _compatibleProtocolVersion = protocolVersion;
+        _capabilities = scopedEvents
+            ? new HashSet<string>([RemoteProtocol.Capabilities.ScopedEventsV1], StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal);
+        _hasCompatibleBootstrap = true;
+    }
+
+    private static bool IsSupportedProtocol(int protocolVersion) =>
+        RemoteProtocol.IsCompatibleVersion(protocolVersion);
+
+    private void ApplyCapabilities(IEnumerable<string>? capabilities)
+    {
+        _capabilities = capabilities is null
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : new HashSet<string>(
+                capabilities.Where(static capability => !string.IsNullOrWhiteSpace(capability)),
+                StringComparer.Ordinal);
+    }
+
+    private void InvalidateCompatibility(string baseUrl)
+    {
+        var matchesConfiguredHost = string.Equals(
+            BaseUrl,
+            baseUrl,
+            StringComparison.OrdinalIgnoreCase);
+        var matchesCompatibleHost = string.Equals(
+            _compatibleBaseUrl,
+            baseUrl,
+            StringComparison.OrdinalIgnoreCase);
+        if (!matchesConfiguredHost && !matchesCompatibleHost)
+            return;
+
+        _compatibleBaseUrl = null;
+        _compatibleProtocolVersion = 0;
+        ApplyCapabilities(null);
+        _hasCompatibleBootstrap = false;
+    }
+
+    private string BuildEventsRoute()
+    {
+        var subscription = Volatile.Read(ref _eventSubscription);
+        var query = new List<string>
+        {
+            $"generation={subscription.Generation}",
+            $"foreground={subscription.IsForeground.ToString().ToLowerInvariant()}",
+            $"chats={subscription.IncludeChatList.ToString().ToLowerInvariant()}",
+            $"library={subscription.IncludeLibrary.ToString().ToLowerInvariant()}"
+        };
+        if (subscription.ChatId is { } chatId && chatId != Guid.Empty)
+            query.Add($"chatId={chatId}");
+        return $"{RemoteProtocol.Routes.Events}?{string.Join('&', query)}";
+    }
+
+    private static RemoteEventSubscription CopySubscription(RemoteEventSubscription subscription) => new()
+    {
+        Generation = subscription.Generation,
+        ChatId = subscription.ChatId,
+        IncludeChatList = subscription.IncludeChatList,
+        IncludeLibrary = subscription.IncludeLibrary,
+        IsForeground = subscription.IsForeground
+    };
+
+    private bool TryStoreEventSubscription(RemoteEventSubscription subscription)
+    {
+        while (true)
+        {
+            var current = Volatile.Read(ref _eventSubscription);
+            if (subscription.Generation < current.Generation)
+                return false;
+
+            var replacement = CopySubscription(subscription);
+            if (ReferenceEquals(
+                    Interlocked.CompareExchange(ref _eventSubscription, replacement, current),
+                    current))
+            {
+                return true;
+            }
         }
     }
 
@@ -474,7 +698,12 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     }
 
     /// <summary>Starts (or restarts) the push subscription. Safe to call repeatedly.</summary>
-    public async Task StartEventStreamAsync()
+    public Task StartEventStreamAsync(RemoteEventSubscription? subscription = null) =>
+        StartEventStreamCoreAsync(subscription, expectedGeneration: null);
+
+    private async Task StartEventStreamCoreAsync(
+        RemoteEventSubscription? subscription,
+        long? expectedGeneration)
     {
         await _streamGate.WaitAsync().ConfigureAwait(false);
         try
@@ -482,11 +711,23 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             if (_disposed)
                 return;
 
+            if (expectedGeneration is { } expected)
+            {
+                if (!_streamDesired || expected != _streamGeneration)
+                    return;
+            }
+            else
+            {
+                _streamDesired = true;
+                _streamGeneration++;
+            }
             await StopEventStreamCoreAsync().ConfigureAwait(false);
 
             if (BaseUrl is not { Length: > 0 } || Token is not { Length: > 0 })
                 return;
 
+            if (subscription is not null)
+                TryStoreEventSubscription(subscription);
             _streamCts = new CancellationTokenSource();
 
             // Capture the token before handing it to the pump: the lambda must not read the field,
@@ -500,6 +741,73 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         }
     }
 
+    public async Task UpdateEventSubscriptionAsync(
+        RemoteEventSubscription subscription,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        if (!TryStoreEventSubscription(subscription))
+            return;
+        var streamGeneration = Volatile.Read(ref _streamGeneration);
+        if (!SupportsScopedEvents
+            || BaseUrl is not { Length: > 0 }
+            || Token is not { Length: > 0 })
+        {
+            return;
+        }
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            BaseUrl + RemoteProtocol.Routes.Subscription)
+        {
+            Content = JsonContent(subscription, RemoteJsonContext.Default.RemoteEventSubscription)
+        };
+        ApplyAuth(request);
+        using var deadline = CreateDeadline(cancellationToken, _requestDeadline);
+        var restartStream = false;
+        try
+        {
+            using var response = await _http
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token)
+                .ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                SetState(RemoteLinkState.Unauthorized, "This device is no longer paired with Lumi.");
+                return;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                Trace.TraceWarning($"[Mobile] Subscription update failed: {(int)response.StatusCode}");
+                restartStream = true;
+            }
+        }
+        catch (OperationCanceledException) when (IsDeadlineCancellation(cancellationToken, deadline))
+        {
+            Trace.TraceWarning("[Mobile] Subscription update timed out.");
+            restartStream = true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Trace.TraceWarning($"[Mobile] Subscription update failed: {ex.Message}");
+            restartStream = true;
+        }
+
+        if (restartStream && !cancellationToken.IsCancellationRequested && !_disposed && _streamDesired)
+        {
+            var latest = Volatile.Read(ref _eventSubscription);
+            if (latest.Generation == subscription.Generation)
+            {
+                await StartEventStreamCoreAsync(latest, streamGeneration)
+                    .ConfigureAwait(false);
+            }
+        }
+    }
+
     public async Task StopEventStreamAsync()
     {
         await _streamGate.WaitAsync().ConfigureAwait(false);
@@ -508,6 +816,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             if (_disposed)
                 return;
 
+            _streamDesired = false;
+            _streamGeneration++;
             await StopEventStreamCoreAsync().ConfigureAwait(false);
             SetState(RemoteLinkState.Disconnected, null);
         }
@@ -599,7 +909,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 
     private async Task PumpEventsAsync(CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + RemoteProtocol.Routes.Events);
+        using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + BuildEventsRoute());
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
         ApplyAuth(request);
 
@@ -627,12 +937,19 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                     if (frame.Event != RemoteProtocol.Events.Snapshot
                         || JsonSerializer.Deserialize(
                                frame.Data,
-                               RemoteJsonContext.Default.RemoteSnapshot) is not
-                           { ProtocolVersion: RemoteProtocol.Version })
+                               RemoteJsonContext.Default.RemoteSnapshot) is not { } snapshot
+                        || !IsSupportedProtocol(snapshot.ProtocolVersion)
+                        || !RemoteProtocol.HasRequiredCapabilities(snapshot.Capabilities)
+                        || snapshot.IsPartial)
                     {
+                        _hasCompatibleBootstrap = false;
                         throw new InvalidDataException("Lumi did not send a valid bootstrap snapshot.");
                     }
 
+                    _compatibleBaseUrl = BaseUrl;
+                    _compatibleProtocolVersion = snapshot.ProtocolVersion;
+                    ApplyCapabilities(snapshot.Capabilities);
+                    _hasCompatibleBootstrap = true;
                     awaitingBootstrapSnapshot = false;
                     SetState(RemoteLinkState.Connected, null);
                     StreamFrameReceived?.Invoke(frame, true);

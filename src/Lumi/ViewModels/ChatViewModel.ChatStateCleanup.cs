@@ -135,6 +135,12 @@ public partial class ChatViewModel
 
     internal bool OwnsAnyLiveChat()
     {
+        lock (_externalSendReservationLock)
+        {
+            if (_externalSendReservations.Count > 0)
+                return true;
+        }
+
         foreach (var chatId in _runtimeStates.Keys
                      .Concat(_ctsSources.Keys)
                      .Concat(_inProgressMessages.Keys)

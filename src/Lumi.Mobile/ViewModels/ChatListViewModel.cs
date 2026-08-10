@@ -138,7 +138,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     public bool IsEmpty => MatchingChatCount == 0;
 
     /// <summary>Raised when the user picks a chat, so the shell can navigate to the detail pane.</summary>
-    public event Action<Guid, string, string?>? ChatActivated;
+    public event Action<Guid, string, string?, int>? ChatActivated;
 
     public event Action<Guid>? ChatRemoved;
 
@@ -183,6 +183,70 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
             OnPropertyChanged(nameof(TotalChats));
         }
         Rebuild();
+    }
+
+    /// <summary>
+    /// Applies a live first-page patch without collapsing rows loaded with "Load more" or reordering
+    /// the list beneath the user's finger. A normal view refresh performs authoritative sorting.
+    /// </summary>
+    public void ApplyLive(RemoteChatPage page)
+    {
+        var removedIds = page.RemovedChatIds.ToHashSet();
+        foreach (var group in _source)
+            group.Chats.RemoveAll(chat => removedIds.Contains(chat.Id));
+        _source.RemoveAll(group => group.Chats.Count == 0);
+
+        foreach (var incomingGroup in page.Groups)
+        {
+            foreach (var incoming in incomingGroup.Chats)
+            {
+                RemoteChatGroup? existingGroup = null;
+                var existingIndex = -1;
+                foreach (var group in _source)
+                {
+                    existingIndex = group.Chats.FindIndex(chat => chat.Id == incoming.Id);
+                    if (existingIndex >= 0)
+                    {
+                        existingGroup = group;
+                        break;
+                    }
+                }
+
+                if (existingGroup is not null)
+                {
+                    existingGroup.Chats[existingIndex] = incoming;
+                    continue;
+                }
+
+                var target = _source.FirstOrDefault(group =>
+                    string.Equals(group.Label, incomingGroup.Label, StringComparison.Ordinal));
+                if (target is null)
+                {
+                    target = new RemoteChatGroup { Label = incomingGroup.Label };
+                    _source.Insert(0, target);
+                }
+                target.Chats.Insert(0, incoming);
+            }
+        }
+
+        _serverPaged = true;
+        _serverHasMore = page.HasMore;
+        _loadedChatCount = _source.Sum(group => group.Chats.Count);
+        _visibleLimit = Math.Max(_visibleLimit, _loadedChatCount);
+        if (_totalChatCount != page.TotalCount)
+        {
+            _totalChatCount = page.TotalCount;
+            OnPropertyChanged(nameof(TotalChats));
+        }
+        Rebuild();
+    }
+
+    public void SetRunning(Guid chatId, bool isRunning)
+    {
+        foreach (var chat in _source.SelectMany(group => group.Chats).Where(chat => chat.Id == chatId))
+            chat.IsRunning = isRunning;
+        if (_realizedChats.TryGetValue(chatId, out var realized))
+            realized.IsRunning = isRunning;
     }
 
     partial void OnSearchTextChanged(string value) => QueueServerReload(debounce: true);
@@ -443,7 +507,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
 
         SelectedChatId = chat.Id;
         chat.HasUnreadMessages = false;
-        ChatActivated?.Invoke(chat.Id, chat.Title, chat.LastModelUsed);
+        ChatActivated?.Invoke(chat.Id, chat.Title, chat.LastModelUsed, chat.MessageCount);
     }
 
     /// <summary>
@@ -460,7 +524,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     private void NewChat()
     {
         SelectedChatId = Guid.Empty;
-        ChatActivated?.Invoke(Guid.Empty, "New chat", null);
+        ChatActivated?.Invoke(Guid.Empty, "New chat", null, 0);
     }
 
     [RelayCommand]

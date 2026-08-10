@@ -148,7 +148,12 @@ public sealed class RemoteRouteSecurityTests
             CancellationToken cancellationToken)
         {
             RequestCount++;
-            var json = JsonSerializer.Serialize(new RemoteSnapshot(), RemoteJsonContext.Default.RemoteSnapshot);
+            var json = JsonSerializer.Serialize(
+                new RemoteSnapshot
+                {
+                    Capabilities = [RemoteProtocol.Capabilities.ScopedEventsV1]
+                },
+                RemoteJsonContext.Default.RemoteSnapshot);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json")

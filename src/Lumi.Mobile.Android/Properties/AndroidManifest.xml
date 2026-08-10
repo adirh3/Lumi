@@ -15,10 +15,29 @@
   <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
   <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 
+  <!-- Android 11+ filters ResolveActivity unless the app declares the intent shape it queries. -->
+  <queries>
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <category android:name="android.intent.category.DEFAULT" />
+      <data android:mimeType="*/*" />
+    </intent>
+  </queries>
+
   <application
       android:allowBackup="false"
       android:fullBackupContent="@xml/backup_rules"
-      android:dataExtractionRules="@xml/data_extraction_rules" />
+      android:dataExtractionRules="@xml/data_extraction_rules">
+    <provider
+        android:name="androidx.core.content.FileProvider"
+        android:authorities="${applicationId}.files"
+        android:exported="false"
+        android:grantUriPermissions="true">
+      <meta-data
+          android:name="android.support.FILE_PROVIDER_PATHS"
+          android:resource="@xml/file_paths" />
+    </provider>
+  </application>
 
   <!--
     Foldables and tablets: declare that the app handles every screen size so Android never

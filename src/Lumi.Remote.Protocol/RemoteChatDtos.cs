@@ -71,6 +71,7 @@ public sealed class RemoteChatStatus
     public string? AgentGlyph { get; set; }
     public string? ProjectName { get; set; }
     public Guid? ProjectId { get; set; }
+    public bool UsesWorktree { get; set; }
 
     /// <summary>Skills currently attached to the chat, by name.</summary>
     public List<string> SkillNames { get; set; } = [];
@@ -152,6 +153,7 @@ public sealed class RemoteTranscriptItem
     public string Kind { get; set; } = RemoteProtocol.ItemKinds.Assistant;
     public string? Text { get; set; }
     public string? Author { get; set; }
+    public string? RequestId { get; set; }
     public DateTimeOffset? Timestamp { get; set; }
     /// <summary>None | Queued | Steering | Steered | Failed for a mid-turn user message.</summary>
     public string? SteerState { get; set; }

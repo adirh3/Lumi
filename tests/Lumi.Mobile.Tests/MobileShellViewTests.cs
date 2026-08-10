@@ -12,6 +12,7 @@ using Avalonia.Headless;
 using Avalonia.Media;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Input.TextInput;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Mobile.Layout;
@@ -656,6 +657,38 @@ public sealed class MobileShellViewTests
             var typing = Assert.IsType<StrataTypingIndicator>(Named(window, "ChatTyping"));
             Assert.True(typing.IsVisible);
             Assert.Equal("Running powershell", typing.Label);
+        });
+    }
+
+    [Fact]
+    public async Task Composer_EnterIsReservedForNewlinesOnMobile()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            Layout(window, shell, 412, 892);
+
+            var composer = window.GetVisualDescendants().OfType<StrataChatComposer>().Single();
+            var input = composer.GetVisualDescendants()
+                .OfType<TextBox>()
+                .Single(control => control.Name == "PART_Input");
+            var args = new KeyEventArgs
+            {
+                RoutedEvent = InputElement.KeyDownEvent,
+                Key = Key.Enter
+            };
+
+            typeof(StrataChatComposer)
+                .GetMethod(
+                    "OnInputKeyDown",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .Invoke(composer, [composer, args]);
+
+            Assert.False(composer.SendWithEnter);
+            Assert.True(input.AcceptsReturn);
+            Assert.Equal(TextInputReturnKeyType.Return, TextInputOptions.GetReturnKeyType(input));
+            Assert.False(args.Handled);
         });
     }
 
@@ -1358,6 +1391,97 @@ public sealed class MobileShellViewTests
             Assert.Equal("Auto", shell.Chat.RunSettingsSummary);
             Assert.False(Named(window, "RunSettingsEffortButton").IsEnabled);
             Assert.False(Named(window, "RunSettingsContextButton").IsEnabled);
+        });
+    }
+
+    [Fact]
+    public async Task BlankCodingChatOffersLocalOrNewWorktree()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            Layout(window, shell, 412, 892);
+            var projectId = Guid.NewGuid();
+            shell.Chat.ApplyProjectCatalog(
+            [
+                new RemoteProject
+                {
+                    Id = projectId,
+                    Name = "Lumi",
+                    IsCodingProject = true,
+                    DefaultNewChatsUseWorktree = true
+                }
+            ]);
+            var project = new ProjectPickViewModel
+            {
+                Id = projectId,
+                Name = "Lumi"
+            };
+            shell.Projects.Add(project);
+            shell.Chat.Reset(Guid.Empty, "New chat");
+            shell.SelectProjectCommand.Execute(project);
+            shell.Chat.OpenRunSettingsSheetCommand.Execute(null);
+            Pump(window);
+
+            Assert.Equal(projectId.ToString(), shell.Chat.ProjectValue);
+            Assert.Equal("Lumi", shell.Chat.ProjectName);
+            Assert.True(shell.Chat.CanChooseWorktree);
+            Assert.True(shell.Chat.UseWorktree);
+            Assert.Contains("New worktree", shell.Chat.RunSettingsSummary);
+            Assert.True(Named(window, "RunSettingsWorkspace").IsEffectivelyVisible);
+
+            shell.Chat.SelectLocalWorkspaceCommand.Execute(null);
+            Assert.False(shell.Chat.UseWorktree);
+            Assert.True(shell.Chat.IsLocalWorkspaceSelected);
+        });
+    }
+
+    [Fact]
+    public async Task BlankProjectSelectionIsFrozenWhileTheFirstSendIsPending()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            Layout(window, shell, 412, 892);
+            var firstProjectId = Guid.NewGuid();
+            var secondProjectId = Guid.NewGuid();
+            shell.Chat.ApplyProjectCatalog(
+            [
+                new RemoteProject
+                {
+                    Id = firstProjectId,
+                    Name = "First",
+                    IsCodingProject = true
+                },
+                new RemoteProject
+                {
+                    Id = secondProjectId,
+                    Name = "Second",
+                    IsCodingProject = true
+                }
+            ]);
+            var firstProject = new ProjectPickViewModel
+            {
+                Id = firstProjectId,
+                Name = "First"
+            };
+            var secondProject = new ProjectPickViewModel
+            {
+                Id = secondProjectId,
+                Name = "Second"
+            };
+            shell.Projects.Add(firstProject);
+            shell.Projects.Add(secondProject);
+            shell.Chat.Reset(Guid.Empty, "New chat");
+            shell.SelectProjectCommand.Execute(firstProject);
+            shell.Chat.IsBusy = true;
+
+            shell.SelectProjectCommand.Execute(secondProject);
+            shell.ClearProjectCommand.Execute(null);
+
+            Assert.Equal(firstProjectId, shell.ActiveProjectId);
+            Assert.Equal(firstProjectId.ToString(), shell.Chat.ProjectValue);
+            Assert.Equal("First", shell.Chat.ProjectName);
         });
     }
 
