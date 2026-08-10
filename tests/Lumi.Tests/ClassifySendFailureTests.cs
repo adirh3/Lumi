@@ -75,6 +75,7 @@ public sealed class ClassifySendFailureTests
     [InlineData(500, "query", "internal server error")]
     [InlineData(404, "query", "Session not found")]
     [InlineData(null, null, "The JSON-RPC connection with the remote party was lost")]
+    [InlineData(null, "query", "The request is too large to send through CAPI Responses. (5.5 MB request; 5.0 MB limit)")]
     public void GenericRecoverable_IsRecoverableButNotImage(int? status, string? type, string? message)
     {
         var result = CopilotService.ClassifySendFailure(status, type, message, hasTerminalOverride: false);

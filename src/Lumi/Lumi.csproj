@@ -21,8 +21,6 @@
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
     <Features>$(Features);runtime-async=on</Features>
     <NoWarn>$(NoWarn);GHCP001</NoWarn>
-    <!-- Pin the bundled Copilot CLI version so new models and reliability fixes are available. -->
-    <CopilotCliVersion>1.0.73</CopilotCliVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -51,6 +49,7 @@
     <PackageReference Include="Avalonia.Themes.Simple" Version="12.1.0" />
     <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.1.0" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <!-- Let the SDK select its protocol-compatible CLI so transport fixes are not held back by a stale override. -->
     <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.9" />
     <PackageReference Include="StreamJsonRpc" Version="2.25.29" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.5" />
