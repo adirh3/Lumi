@@ -29,6 +29,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
     private readonly object _gate = new();
     private readonly Dictionary<string, McpProxyRegistration> _registrationsByKey = new(StringComparer.Ordinal);
     private readonly Dictionary<string, McpProxyRegistration> _registrationsByRoute = new(StringComparer.Ordinal);
+    private readonly Dictionary<McpProxyRegistration, Task> _retiringRegistrations = [];
     private readonly string _routeToken = Guid.NewGuid().ToString("N");
 
     private HttpListener? _listener;
@@ -43,7 +44,6 @@ public sealed class McpProxyRuntime : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(definition.Key))
             throw new ArgumentException("MCP proxy definition key cannot be empty.", nameof(definition));
 
-        McpProxyRegistration? staleRegistration = null;
         McpProxyRegistration activeRegistration;
         int port;
         lock (_gate)
@@ -60,7 +60,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
                 if (currentRegistration is not null)
                 {
                     _registrationsByRoute.Remove(currentRegistration.RouteId);
-                    staleRegistration = currentRegistration;
+                    BeginRetirementLocked(currentRegistration);
                 }
 
                 currentRegistration = new McpProxyRegistration(
@@ -74,9 +74,6 @@ public sealed class McpProxyRuntime : IAsyncDisposable
             activeRegistration = currentRegistration;
             port = _port;
         }
-
-        if (staleRegistration is not null)
-            RetireRegistrationInBackground(staleRegistration);
 
         return new McpHttpServerConfig
             {
@@ -97,7 +94,6 @@ public sealed class McpProxyRuntime : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(activeLocalServerIds);
         var retainedServerIds = activeLocalServerIds.ToHashSet();
-        List<McpProxyRegistration> staleRegistrations = [];
 
         lock (_gate)
         {
@@ -111,12 +107,40 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
                 _registrationsByKey.Remove(key);
                 _registrationsByRoute.Remove(registration.RouteId);
-                staleRegistrations.Add(registration);
+                BeginRetirementLocked(registration);
+            }
+        }
+    }
+
+    public async Task RetireRegistrationsForWorkingDirectoryAsync(string workingDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
+        var root = NormalizeWorkingDirectory(workingDirectory);
+        HashSet<Task> retirementTasks = [];
+
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+
+            foreach (var (key, registration) in _registrationsByKey.ToArray())
+            {
+                if (!IsWorkingDirectoryWithinRoot(registration.WorkingDirectory, root))
+                    continue;
+
+                _registrationsByKey.Remove(key);
+                _registrationsByRoute.Remove(registration.RouteId);
+                retirementTasks.Add(BeginRetirementLocked(registration));
+            }
+
+            foreach (var (registration, task) in _retiringRegistrations)
+            {
+                if (IsWorkingDirectoryWithinRoot(registration.WorkingDirectory, root))
+                    retirementTasks.Add(task);
             }
         }
 
-        foreach (var registration in staleRegistrations)
-            RetireRegistrationInBackground(registration);
+        await Task.WhenAll(retirementTasks).ConfigureAwait(false);
     }
 
     private static bool TryGetUserServerId(string registrationKey, out Guid serverId)
@@ -140,6 +164,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
         CancellationTokenSource? cts;
         Task? listenerTask;
         List<McpProxyRegistration> registrations;
+        List<Task> retiringTasks;
 
         lock (_gate)
         {
@@ -148,8 +173,10 @@ public sealed class McpProxyRuntime : IAsyncDisposable
             cts = _listenerCts;
             listenerTask = _listenerTask;
             registrations = _registrationsByKey.Values.ToList();
+            retiringTasks = _retiringRegistrations.Values.ToList();
             _registrationsByKey.Clear();
             _registrationsByRoute.Clear();
+            _retiringRegistrations.Clear();
             _listener = null;
             _listenerCts = null;
             _listenerTask = null;
@@ -172,6 +199,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
         foreach (var registration in registrations)
             await registration.DisposeAsync().ConfigureAwait(false);
+        await Task.WhenAll(retiringTasks).ConfigureAwait(false);
 
         cts?.Dispose();
     }
@@ -319,15 +347,28 @@ public sealed class McpProxyRuntime : IAsyncDisposable
         return Task.CompletedTask;
     }
 
-    private static void RetireRegistrationInBackground(McpProxyRegistration registration)
+    private Task BeginRetirementLocked(McpProxyRegistration registration)
     {
+        if (_retiringRegistrations.TryGetValue(registration, out var existing))
+            return existing;
+
         var task = registration.RetireAsync().AsTask();
         if (task.IsCompletedSuccessfully)
-            return;
+            return task;
 
+        _retiringRegistrations[registration] = task;
         _ = task.ContinueWith(
-            static t => Trace.TraceWarning("MCP proxy registration cleanup failed: {0}", t.Exception),
-            TaskContinuationOptions.OnlyOnFaulted);
+            t =>
+            {
+                lock (_gate)
+                    _retiringRegistrations.Remove(registration);
+                if (t.IsFaulted)
+                    Trace.TraceWarning("MCP proxy registration cleanup failed: {0}", t.Exception);
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return task;
     }
 
     private static async Task WriteJsonAsync(HttpListenerResponse response, string json, CancellationToken cancellationToken)
@@ -375,8 +416,21 @@ public sealed class McpProxyRuntime : IAsyncDisposable
         var directory = string.IsNullOrWhiteSpace(workingDirectory)
             ? Environment.CurrentDirectory
             : workingDirectory;
-        return Path.GetFullPath(directory)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+    }
+
+    private static bool IsWorkingDirectoryWithinRoot(string workingDirectory, string root)
+    {
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        if (string.Equals(workingDirectory, root, comparison))
+            return true;
+
+        var rootPrefix = Path.EndsInDirectorySeparator(root)
+            ? root
+            : root + Path.DirectorySeparatorChar;
+        return workingDirectory.StartsWith(rootPrefix, comparison);
     }
 
     private static string Hash(string value)
@@ -393,6 +447,8 @@ public sealed class McpProxyRuntime : IAsyncDisposable
         public string RouteId { get; } = RouteId;
 
         public string Fingerprint { get; } = Fingerprint;
+
+        public string WorkingDirectory { get; } = NormalizeWorkingDirectory(definition.Config.WorkingDirectory);
 
         public McpStdioServerConnection Connection { get; } = new(definition);
 

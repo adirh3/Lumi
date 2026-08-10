@@ -1291,6 +1291,119 @@ public sealed class McpProxyRuntimeTests
     }
 
     [SkippableFact]
+    public async Task RetiringWorktreeRegistrationsAllowsGitToRemoveWorktree()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows process cwd locking is required for this regression.");
+
+        var root = Path.Combine(Path.GetTempPath(), "lumi-mcp-proxy-worktree-retire-test-" + Guid.NewGuid().ToString("N"));
+        var repo = Path.Combine(root, "repo");
+        var scriptPath = Path.Combine(root, "fake-mcp.ps1");
+        var callStartedPath = Path.Combine(root, "call-started.flag");
+        var startsPath = Path.Combine(root, "starts.log");
+        Directory.CreateDirectory(repo);
+        string? worktreePath = null;
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(repo, "README.md"), "# test");
+            RunGit(repo, "init -q");
+            RunGit(repo, "config user.email test@example.com");
+            RunGit(repo, "config user.name Test");
+            RunGit(repo, "add -A");
+            RunGit(repo, "commit -q -m initial");
+
+            worktreePath = await GitService.CreateWorktreeAsync(repo, "lumi/mcp-retire-test");
+            Assert.NotNull(worktreePath);
+            var nestedWorkingDirectory = Path.Combine(worktreePath!, "nested");
+            Directory.CreateDirectory(nestedWorkingDirectory);
+
+            await File.WriteAllTextAsync(scriptPath, """
+                [System.IO.File]::AppendAllText($env:MCP_STARTS, "$PID`n")
+                function Write-Json($obj) {
+                    [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 30))
+                    [Console]::Out.Flush()
+                }
+                while ($null -ne ($line = [Console]::In.ReadLine())) {
+                    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                    $msg = $line | ConvertFrom-Json
+                    if ($msg.method -eq "initialize") {
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ protocolVersion = "2025-06-18"; capabilities = @{ tools = @{ listChanged = $false } }; serverInfo = @{ name = "worktree-retire-test"; version = "1" } } }
+                    } elseif ($msg.method -eq "tools/call") {
+                        [System.IO.File]::WriteAllText($env:MCP_CALL_STARTED, "started")
+                        Start-Sleep -Milliseconds 800
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ content = @(@{ type = "text"; text = "done" }) } }
+                    }
+                }
+                """);
+
+            await using var runtime = new McpProxyRuntime();
+            var serverId = Guid.NewGuid();
+            var registrationKey = McpProxyRuntime.CreateUserRegistrationKey(serverId, nestedWorkingDirectory);
+            var first = runtime.Register(new McpProxyServerDefinition(
+                registrationKey,
+                "worktree-retire-test",
+                new McpStdioServerConfig
+                {
+                    Command = GetPowerShellPath(),
+                    Args = ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
+                    WorkingDirectory = nestedWorkingDirectory,
+                    Env = new Dictionary<string, string>
+                    {
+                        ["MCP_CALL_STARTED"] = callStartedPath,
+                        ["MCP_STARTS"] = startsPath,
+                        ["MCP_MARKER"] = "first"
+                    },
+                    Tools = ["*"]
+                }));
+
+            using var http = new HttpClient();
+            using var initialize = await PostJsonAsync(http, first.Url, """
+                {"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+                """);
+            Assert.True(initialize.RootElement.TryGetProperty("result", out _));
+
+            var inFlightCall = PostJsonAsync(http, first.Url, """
+                {"jsonrpc":"2.0","id":"call","method":"tools/call","params":{"name":"slow","arguments":{}}}
+                """);
+            await WaitForFileAsync(callStartedPath);
+
+            var replacement = runtime.Register(new McpProxyServerDefinition(
+                registrationKey,
+                "worktree-retire-test",
+                new McpStdioServerConfig
+                {
+                    Command = GetPowerShellPath(),
+                    Args = ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
+                    WorkingDirectory = nestedWorkingDirectory,
+                    Env = new Dictionary<string, string>
+                    {
+                        ["MCP_CALL_STARTED"] = callStartedPath,
+                        ["MCP_STARTS"] = startsPath,
+                        ["MCP_MARKER"] = "replacement"
+                    },
+                    Tools = ["*"]
+                }));
+            using var replacementInitialize = await PostJsonAsync(http, replacement.Url, """
+                {"jsonrpc":"2.0","id":"replacement-init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+                """);
+            Assert.True(replacementInitialize.RootElement.TryGetProperty("result", out _));
+
+            await runtime.RetireRegistrationsForWorkingDirectoryAsync(worktreePath!.ToUpperInvariant());
+            using var completedCall = await inFlightCall;
+            Assert.Equal(2, (await File.ReadAllLinesAsync(startsPath)).Length);
+            Assert.True(await GitService.RemoveWorktreeAsync(repo, worktreePath!));
+            Assert.False(Directory.Exists(worktreePath));
+            worktreePath = null;
+        }
+        finally
+        {
+            if (worktreePath is not null)
+                await GitService.RemoveWorktreeAsync(repo, worktreePath);
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+        }
+    }
+
+    [SkippableFact]
     public async Task Proxy_DisposeCancelsInFlightRequestAndStopsProcess()
     {
         Skip.IfNot(OperatingSystem.IsWindows(), "PowerShell fake MCP server is Windows-only.");
@@ -1603,6 +1716,21 @@ public sealed class McpProxyRuntimeTests
         }
 
         Assert.Fail($"Timed out waiting for {path}.");
+    }
+
+    private static void RunGit(string directory, string arguments)
+    {
+        var startInfo = new System.Diagnostics.ProcessStartInfo("git", arguments)
+        {
+            WorkingDirectory = directory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        using var process = System.Diagnostics.Process.Start(startInfo)!;
+        process.WaitForExit();
+        Assert.Equal(0, process.ExitCode);
     }
 
     private static async Task WaitForProcessExitAsync(int processId)

@@ -2387,7 +2387,7 @@
     </Panel>
 
     <!-- ═══ Worktree Delete Confirmation Dialog ═══ -->
-    <Panel IsVisible="{Binding IsWorktreeDeleteDialogOpen}">
+    <Panel x:Name="WorktreeDeleteDialog" IsVisible="{Binding IsWorktreeDeleteDialogOpen}">
       <Border Background="#40000000" />
       <Border HorizontalAlignment="Center" VerticalAlignment="Center"
               Classes="strata-dialog" Padding="24,20" MinWidth="320" MaxWidth="420">
@@ -2395,6 +2395,17 @@
           <TextBlock Text="{loc:Str Dialog_DeleteWorktreeTitle}" FontSize="{DynamicResource Font.SizeBody}" FontWeight="SemiBold" />
           <TextBlock Text="{loc:Str Dialog_DeleteWorktreeMessage}" TextWrapping="Wrap"
                      Foreground="{DynamicResource Brush.TextSecondary}" FontSize="{DynamicResource Font.SizeCaption}" />
+          <Border x:Name="WorktreeDeleteError"
+                  IsVisible="{Binding HasWorktreeDeleteError}"
+                  Background="{DynamicResource Brush.DangerSubtle}"
+                  CornerRadius="{DynamicResource Radius.Medium}"
+                  Padding="10,8">
+            <TextBlock x:Name="WorktreeDeleteErrorText"
+                       Text="{Binding WorktreeDeleteErrorMessage}"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource Brush.DangerDefault}"
+                       FontSize="{DynamicResource Font.SizeCaption}" />
+          </Border>
           <StackPanel Spacing="8">
             <Button Classes="accent motion-action" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                     Content="{loc:Str Dialog_DeleteWithWorktree}" Padding="14,8" MinHeight="0"

@@ -1276,11 +1276,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
             && !IsWorktreeSharedWithOtherChats(chat))
         {
             _pendingDeleteChat = chat;
+            WorktreeDeleteErrorMessage = "";
             IsWorktreeDeleteDialogOpen = true;
             return;
         }
 
-        PerformDeleteChat(chat, removeWorktree: false);
+        PerformDeleteChat(chat, sessionAlreadyCleaned: false);
     }
 
     /// <summary>
@@ -1301,6 +1302,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private Chat? _pendingDeleteChat;
     [ObservableProperty] private bool _isWorktreeDeleteDialogOpen;
+    [ObservableProperty] private string _worktreeDeleteErrorMessage = "";
+    public bool HasWorktreeDeleteError => !string.IsNullOrWhiteSpace(WorktreeDeleteErrorMessage);
+    partial void OnWorktreeDeleteErrorMessageChanged(string value)
+        => OnPropertyChanged(nameof(HasWorktreeDeleteError));
 
     [RelayCommand]
     private async Task ConfirmDeleteWithWorktree()
@@ -1308,18 +1313,44 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_pendingDeleteChat is not null)
         {
             var chat = _pendingDeleteChat;
+            var worktreePath = chat.WorktreePath;
+            var projectDir = GetProjectDirForChat(chat);
             _pendingDeleteChat = null;
             IsWorktreeDeleteDialogOpen = false;
-            PerformDeleteChat(chat, removeWorktree: true);
+            WorktreeDeleteErrorMessage = "";
 
-            // Clean up worktree + branch in background
-            if (chat.WorktreePath is { Length: > 0 } wt)
+            if (worktreePath is not { Length: > 0 } wt || projectDir is null)
             {
-                var projectDir = GetProjectDirForChat(chat);
-                if (projectDir is not null)
-                    await GitService.RemoveWorktreeAsync(projectDir, wt);
+                ShowWorktreeDeleteFailure(chat);
+                return;
             }
+
+            await _chatSessionStore.CleanupChatAsync(chat.Id);
+            try
+            {
+                await McpProxyRuntime.Shared.RetireRegistrationsForWorkingDirectoryAsync(wt);
+                if (!await GitService.RemoveWorktreeAsync(projectDir, wt))
+                {
+                    ShowWorktreeDeleteFailure(chat);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Lumi] Failed to remove worktree '{wt}': {ex.Message}");
+                ShowWorktreeDeleteFailure(chat);
+                return;
+            }
+
+            PerformDeleteChat(chat, sessionAlreadyCleaned: true);
         }
+    }
+
+    private void ShowWorktreeDeleteFailure(Chat chat)
+    {
+        _pendingDeleteChat = chat;
+        WorktreeDeleteErrorMessage = Loc.Status_WorktreeRemoveFailed;
+        IsWorktreeDeleteDialogOpen = true;
     }
 
     [RelayCommand]
@@ -1330,7 +1361,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             var chat = _pendingDeleteChat;
             _pendingDeleteChat = null;
             IsWorktreeDeleteDialogOpen = false;
-            PerformDeleteChat(chat, removeWorktree: false);
+            WorktreeDeleteErrorMessage = "";
+            PerformDeleteChat(chat, sessionAlreadyCleaned: false);
         }
     }
 
@@ -1338,17 +1370,19 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private void CancelDeleteWorktreeDialog()
     {
         _pendingDeleteChat = null;
+        WorktreeDeleteErrorMessage = "";
         IsWorktreeDeleteDialogOpen = false;
     }
 
-    private void PerformDeleteChat(Chat chat, bool removeWorktree)
+    private void PerformDeleteChat(Chat chat, bool sessionAlreadyCleaned)
     {
         var deletedActiveChat = ChatVM.CurrentChat?.Id == chat.Id;
 
         if (deletedActiveChat)
             ClearMainChatSurface();
 
-        _chatSessionStore.CleanupChat(chat.Id);
+        if (!sessionAlreadyCleaned)
+            _chatSessionStore.CleanupChat(chat.Id);
         _dataStore.Data.Chats.Remove(chat);
         _dataStore.RemoveBackgroundJobsForChat(chat.Id);
         _backgroundJobService.Reschedule();

@@ -20,6 +20,21 @@ namespace Lumi.Tests;
 public sealed class ChatViewModelLeakTests
 {
     [Fact]
+    public async Task CombinePendingSessionReleases_WaitsForEveryOutstandingRelease()
+    {
+        var first = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var second = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var combined = ChatViewModel.CombinePendingSessionReleases(first.Task, second.Task);
+        second.SetResult();
+        Assert.False(combined.IsCompleted);
+
+        first.SetResult();
+        await combined;
+        Assert.True(combined.IsCompletedSuccessfully);
+    }
+
+    [Fact]
     public void Dispose_UnsubscribesFromChatModel_SoDisposedSurfaceIsNotPinned()
     {
         var dataStore = CreateDataStore();
