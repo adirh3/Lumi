@@ -393,6 +393,10 @@ public sealed class PresenceController : IDisposable
                 break;
             }
 
+            case nameof(ChatViewModel.AnimatePresenceWhileWorking):
+                UpdatePresence();
+                break;
+
             case nameof(ChatViewModel.IsWorkspacePanelOpen):
             case nameof(ChatViewModel.IsBrowserOpen):
             case nameof(ChatViewModel.IsDiffOpen):
@@ -600,6 +604,7 @@ public sealed class PresenceController : IDisposable
         // A soft luminance haloes the Lumi mark on the welcome screen ("new chat"); it clears the
         // instant a real canvas takes over.
         _presence.Halo = vm.CurrentChat is null;
+        _presence.AnimateWhileWorking = vm.AnimatePresenceWhileWorking;
         UpdateFocusTarget();
 
         // Follow the live message while working; keep a brief settle window afterward so the glow

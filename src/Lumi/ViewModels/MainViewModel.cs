@@ -381,6 +381,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _copilotService.ModelCatalogChanged += OnModelCatalogChanged;
 
         SettingsVM.AmbientPresenceChanged += ApplyAmbientPresenceSetting;
+        SettingsVM.PresenceAnimationChanged += ApplyPresenceAnimationSetting;
         SettingsVM.SettingsChanged += () =>
         {
             RefreshChatList();
@@ -448,6 +449,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     internal void ApplyAmbientPresenceSetting(bool enabled)
         => _chatSessionStore.ApplyToSurfaces(surface => surface.ShowAmbientPresence = enabled);
+
+    internal void ApplyPresenceAnimationSetting(bool enabled)
+        => _chatSessionStore.ApplyToSurfaces(surface => surface.AnimatePresenceWhileWorking = enabled);
 
     private Task<ChatViewModel> AcquireChatSurfaceAsync(Chat chat)
         => _chatSessionStore.AcquireChatAsync(chat, PrepareChatSurface);

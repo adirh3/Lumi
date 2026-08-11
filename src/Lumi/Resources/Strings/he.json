@@ -829,6 +829,8 @@
   "SettingDesc_FontSize": "הגדל או הקטן את הטקסט, הפקדים והניווט בכל Lumi",
   "Setting_AmbientPresence": "נוכחות סביבתית",
   "SettingDesc_AmbientPresence": "הצגת הזוהר הסביבתי של Lumi מאחורי הצ'אט",
+  "Setting_AnimatePresenceWhileWorking": "הנפשת הנוכחות בזמן עבודה",
+  "SettingDesc_AnimatePresenceWhileWorking": "הנפשה רציפה של הזוהר הסביבתי בזמן ש-Lumi חושב או מזרים תשובה. צורך יותר משאבי GPU וסוללה",
   "Setting_ShowAnimations": "הצגת אנימציות",
   "SettingDesc_ShowAnimations": "הפעלת מעברים חלקים ואנימציות (דורש הפעלה מחדש)",
   "Setting_SendWithEnter": "שליחה עם Enter",

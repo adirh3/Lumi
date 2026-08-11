@@ -98,15 +98,21 @@ public class AppDataSnapshotFactoryTests
             AppDataJsonContext.Default.UserSettings);
         Assert.NotNull(deserialized);
         Assert.True(deserialized.ShowAmbientPresence);
+        Assert.False(deserialized.AnimatePresenceWhileWorking);
 
         var source = new AppData
         {
-            Settings = new UserSettings { ShowAmbientPresence = false }
+            Settings = new UserSettings
+            {
+                ShowAmbientPresence = false,
+                AnimatePresenceWhileWorking = true
+            }
         };
 
         var snapshot = InvokeCreateIndexSnapshot(source);
 
         Assert.False(snapshot.Settings.ShowAmbientPresence);
+        Assert.True(snapshot.Settings.AnimatePresenceWhileWorking);
     }
 
     [Fact]

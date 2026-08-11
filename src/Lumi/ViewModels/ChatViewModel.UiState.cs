@@ -38,6 +38,7 @@ public partial class ChatViewModel
 
     [ObservableProperty] private bool _sendWithEnter = true;
     [ObservableProperty] private bool _showAmbientPresence = true;
+    [ObservableProperty] private bool _animatePresenceWhileWorking;
     [ObservableProperty] private bool _isRecording;
     [ObservableProperty] private string? _selectedAgentName;
     [ObservableProperty] private string _selectedAgentGlyph = "◉";
@@ -697,6 +698,7 @@ public partial class ChatViewModel
     {
         SendWithEnter = _dataStore.Data.Settings.SendWithEnter;
         ShowAmbientPresence = _dataStore.Data.Settings.ShowAmbientPresence;
+        AnimatePresenceWhileWorking = _dataStore.Data.Settings.AnimatePresenceWhileWorking;
 
         ActiveSkillChips.CollectionChanged += OnActiveSkillChipsCollectionChanged;
         ActiveMcpChips.CollectionChanged += OnActiveMcpChipsCollectionChanged;

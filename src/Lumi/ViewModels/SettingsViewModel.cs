@@ -84,8 +84,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(UiScalePreviewPercent))]
     private int _uiScalePreviewLevelIndex;
     [ObservableProperty] private bool _showAmbientPresence;
+    [ObservableProperty] private bool _animatePresenceWhileWorking;
     [ObservableProperty] private bool _showAnimations;
     private bool _isSynchronizingUiScaleFromApplication;
+    private bool _isSynchronizingPresenceSettings;
 
     public int UiScalePreviewPercent
         => UiScaleService.GetScalePercentAtLevelIndex(UiScalePreviewLevelIndex);
@@ -433,6 +435,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     /// <summary>Raised before persistence work when ambient presence must be applied to live chat surfaces.</summary>
     public event Action<bool>? AmbientPresenceChanged;
+    public event Action<bool>? PresenceAnimationChanged;
 
     /// <summary>Raised when a setting that affects other ViewModels changes.</summary>
     public event Action? SettingsChanged;
@@ -489,6 +492,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         s.UiScalePercent = _uiScalePercent;
         s.LegacyFontSize = 0;
         _showAmbientPresence = s.ShowAmbientPresence;
+        _animatePresenceWhileWorking = s.AnimatePresenceWhileWorking;
         _showAnimations = s.ShowAnimations;
 
         // Chat
@@ -567,13 +571,43 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
         // Wire update status changes
         _updateService.StatusChanged += OnUpdateStatusChanged;
+        _dataStore.PresenceSettingsChanged += OnPresenceSettingsChanged;
         ApplyUpdateStatus(_updateService.CurrentStatus);
     }
 
     public void Dispose()
     {
         _updateService.StatusChanged -= OnUpdateStatusChanged;
+        _dataStore.PresenceSettingsChanged -= OnPresenceSettingsChanged;
         DisposeRemoteState();
+    }
+
+    private void OnPresenceSettingsChanged(
+        object? source,
+        bool showAmbientPresence,
+        bool animatePresenceWhileWorking)
+    {
+        if (ReferenceEquals(source, this))
+            return;
+
+        if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                OnPresenceSettingsChanged(source, showAmbientPresence, animatePresenceWhileWorking));
+            return;
+        }
+
+        _isSynchronizingPresenceSettings = true;
+        try
+        {
+            ShowAmbientPresence = showAmbientPresence;
+            AnimatePresenceWhileWorking = animatePresenceWhileWorking;
+        }
+        finally
+        {
+            _isSynchronizingPresenceSettings = false;
+        }
+        NotifyModified();
     }
 
     private void OnUpdateStatusChanged(UpdateStatus status)
@@ -800,8 +834,24 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnShowAmbientPresenceChanged(bool value)
     {
+        if (_isSynchronizingPresenceSettings)
+            return;
+
         AmbientPresenceChanged?.Invoke(value);
         _dataStore.Data.Settings.ShowAmbientPresence = value;
+        _dataStore.NotifyPresenceSettingsChanged(this);
+        Save();
+        SettingsChanged?.Invoke();
+        NotifyModified();
+    }
+    partial void OnAnimatePresenceWhileWorkingChanged(bool value)
+    {
+        if (_isSynchronizingPresenceSettings)
+            return;
+
+        PresenceAnimationChanged?.Invoke(value);
+        _dataStore.Data.Settings.AnimatePresenceWhileWorking = value;
+        _dataStore.NotifyPresenceSettingsChanged(this);
         Save();
         SettingsChanged?.Invoke();
         NotifyModified();
@@ -1612,6 +1662,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsCompactDensityModified => IsCompactDensity != _defaults.IsCompactDensity;
     public bool IsUiScaleModified => UiScalePercent != _defaults.UiScalePercent;
     public bool IsShowAmbientPresenceModified => ShowAmbientPresence != _defaults.ShowAmbientPresence;
+    public bool IsAnimatePresenceWhileWorkingModified => AnimatePresenceWhileWorking != _defaults.AnimatePresenceWhileWorking;
     public bool IsShowAnimationsModified => ShowAnimations != _defaults.ShowAnimations;
     public bool IsSendWithEnterModified => SendWithEnter != _defaults.SendWithEnter;
     public bool IsShowTimestampsModified => ShowTimestamps != _defaults.ShowTimestamps;
@@ -1642,6 +1693,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsCompactDensityModified));
         OnPropertyChanged(nameof(IsUiScaleModified));
         OnPropertyChanged(nameof(IsShowAmbientPresenceModified));
+        OnPropertyChanged(nameof(IsAnimatePresenceWhileWorkingModified));
         OnPropertyChanged(nameof(IsShowAnimationsModified));
         OnPropertyChanged(nameof(IsSendWithEnterModified));
         OnPropertyChanged(nameof(IsShowTimestampsModified));
@@ -1687,6 +1739,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand] private void RevertIsCompactDensity() => IsCompactDensity = _defaults.IsCompactDensity;
     [RelayCommand] private void RevertUiScale() => UiScalePercent = _defaults.UiScalePercent;
     [RelayCommand] private void RevertShowAmbientPresence() => ShowAmbientPresence = _defaults.ShowAmbientPresence;
+    [RelayCommand] private void RevertAnimatePresenceWhileWorking() => AnimatePresenceWhileWorking = _defaults.AnimatePresenceWhileWorking;
     [RelayCommand] private void RevertShowAnimations() => ShowAnimations = _defaults.ShowAnimations;
     [RelayCommand] private void RevertSendWithEnter() => SendWithEnter = _defaults.SendWithEnter;
     [RelayCommand] private void RevertShowTimestamps() => ShowTimestamps = _defaults.ShowTimestamps;
@@ -1828,6 +1881,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         IsCompactDensity = defaults.IsCompactDensity;
         UiScalePercent = defaults.UiScalePercent;
         ShowAmbientPresence = defaults.ShowAmbientPresence;
+        AnimatePresenceWhileWorking = defaults.AnimatePresenceWhileWorking;
         ShowAnimations = defaults.ShowAnimations;
         SendWithEnter = defaults.SendWithEnter;
         ShowTimestamps = defaults.ShowTimestamps;

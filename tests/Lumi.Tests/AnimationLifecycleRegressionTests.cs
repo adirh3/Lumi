@@ -203,7 +203,7 @@ public sealed class AnimationLifecycleRegressionTests
     }
 
     [Fact]
-    public async Task RestingPresence_SuspendsContinuousAnimation_AndActiveStateResumesIt()
+    public async Task PresenceStates_DoNotRunContinuousAnimation()
     {
         var session = HeadlessUnitTestSession.StartNew(
             typeof(SkiaHeadlessTestApp),
@@ -233,7 +233,24 @@ public sealed class AnimationLifecycleRegressionTests
                 using var streamingFrame = window.CaptureRenderedFrame();
                 Assert.NotNull(streamingFrame);
 
+                Assert.False(presence.HasContinuousAnimationForTest);
+
+                presence.State = PresenceState.Thinking;
+                presence.AnimateWhileWorking = true;
+                Dispatcher.UIThread.RunJobs();
                 Assert.True(presence.HasContinuousAnimationForTest);
+
+                presence.AnimateWhileWorking = false;
+                Dispatcher.UIThread.RunJobs();
+                Assert.False(presence.HasContinuousAnimationForTest);
+
+                presence.AnimateWhileWorking = true;
+                presence.State = PresenceState.Attention;
+                Dispatcher.UIThread.RunJobs();
+                using var attentionFrame = window.CaptureRenderedFrame();
+                Assert.NotNull(attentionFrame);
+
+                Assert.False(presence.HasContinuousAnimationForTest);
 
                 presence.State = PresenceState.Idle;
                 Dispatcher.UIThread.RunJobs();
@@ -248,6 +265,42 @@ public sealed class AnimationLifecycleRegressionTests
                 Assert.NotNull(companionFrame);
 
                 Assert.False(presence.HasContinuousAnimationForTest);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            session.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task OptInWorkingAnimationBeforeAttach_StartsBeaconScaleLoop()
+    {
+        var session = HeadlessUnitTestSession.StartNew(
+            typeof(SkiaHeadlessTestApp),
+            AvaloniaTestIsolationLevel.PerTest);
+        try
+        {
+            await session.Dispatch(() =>
+            {
+                var presence = new StrataPresence
+                {
+                    State = PresenceState.Streaming,
+                    AnimateWhileWorking = true,
+                };
+                var window = new Window { Width = 900, Height = 700, Content = presence };
+                try
+                {
+                    window.Show();
+                    Dispatcher.UIThread.RunJobs();
+                    using var frame = window.CaptureRenderedFrame();
+                    Assert.NotNull(frame);
+                    Assert.True(presence.IsBeaconScaleLoopActiveForTest);
                 }
                 finally
                 {

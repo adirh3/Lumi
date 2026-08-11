@@ -94,6 +94,7 @@ public sealed class GlobalSearchService
         new("Compact Density", "Appearance", 2),
         new("Font Size", "Appearance", 2),
         new("Ambient Presence", "Appearance", 2),
+        new("Animate Presence While Working", "Appearance", 2),
         new("Show Animations", "Appearance", 2),
         new("Send with Enter", "Chat", 3),
         new("Show Timestamps", "Chat", 3),

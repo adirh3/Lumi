@@ -45,6 +45,10 @@ public class DataStore
     /// </summary>
     public event Action? IndexSaved;
 
+    /// <summary>Synchronizes the two ambient-presence preferences across every Settings window that
+    /// shares this store. Raised on the caller's thread; UI callers raise it on the UI thread.</summary>
+    public event Action<object?, bool, bool>? PresenceSettingsChanged;
+
     private AppData _data;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly SemaphoreSlim _skillSyncLock = new(1, 1);
@@ -121,6 +125,12 @@ public class DataStore
         lock (_worktreeAssociationSync)
             return _worktreeCleanupReservations.Contains(normalized);
     }
+
+    public void NotifyPresenceSettingsChanged(object? source = null)
+        => PresenceSettingsChanged?.Invoke(
+            source,
+            Data.Settings.ShowAmbientPresence,
+            Data.Settings.AnimatePresenceWhileWorking);
 
     internal bool TrySetChatWorktreePath(Chat chat, string? path)
     {
