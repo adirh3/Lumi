@@ -1281,7 +1281,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        PerformDeleteChat(chat, sessionAlreadyCleaned: false);
+        PerformDeleteChat(chat);
     }
 
     /// <summary>
@@ -1342,7 +1342,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            PerformDeleteChat(chat, sessionAlreadyCleaned: true);
+            PerformDeleteChat(chat);
         }
     }
 
@@ -1362,7 +1362,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             _pendingDeleteChat = null;
             IsWorktreeDeleteDialogOpen = false;
             WorktreeDeleteErrorMessage = "";
-            PerformDeleteChat(chat, sessionAlreadyCleaned: false);
+            PerformDeleteChat(chat);
         }
     }
 
@@ -1374,15 +1374,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
         IsWorktreeDeleteDialogOpen = false;
     }
 
-    private void PerformDeleteChat(Chat chat, bool sessionAlreadyCleaned)
+    private void PerformDeleteChat(Chat chat)
     {
         var deletedActiveChat = ChatVM.CurrentChat?.Id == chat.Id;
 
         if (deletedActiveChat)
             ClearMainChatSurface();
 
-        if (!sessionAlreadyCleaned)
-            _chatSessionStore.CleanupChat(chat.Id);
+        // CleanupChatAsync may already have stopped and awaited the session before worktree removal,
+        // but the active surface was still hosted then. ClearMainChatSurface releases that host and can
+        // place the still-attached surface in the idle cache, so always run the idempotent final cleanup.
+        _chatSessionStore.CleanupChat(chat.Id);
         _dataStore.Data.Chats.Remove(chat);
         _dataStore.RemoveBackgroundJobsForChat(chat.Id);
         _backgroundJobService.Reschedule();

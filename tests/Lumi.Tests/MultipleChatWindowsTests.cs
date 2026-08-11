@@ -711,6 +711,39 @@ public sealed class MultipleChatWindowsTests
     }
 
     [Fact]
+    public async Task ChatSessionStore_FinalCleanupRemovesPrecleanedSurfaceAfterHostRelease()
+    {
+        var chat = new Chat { Title = "Deleted worktree chat" };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "large transcript" });
+        using var registry = new ChatSurfaceRegistry();
+        using var store = new ChatSessionStore(
+            CreateDataStore(chat),
+            TestCopilot.Shared,
+            registry,
+            static (surface, targetChat) =>
+            {
+                surface.CurrentChat = targetChat;
+                return Task.CompletedTask;
+            });
+
+        var surface = await store.AcquireChatAsync(chat);
+        await store.CleanupChatAsync(chat.Id);
+
+        // Pre-cleanup cannot untrack a surface while the main chat view still hosts it.
+        Assert.Contains(surface, store.SnapshotSurfaces());
+
+        // Clearing the active chat releases the host while CurrentChat still points at the deleted chat,
+        // so Release temporarily returns the surface to the idle cache.
+        store.Release(surface);
+        Assert.Contains(surface, store.SnapshotSurfaces());
+
+        // PerformDeleteChat's final, idempotent cleanup must remove the released surface and mapping.
+        store.CleanupChat(chat.Id);
+        Assert.DoesNotContain(surface, store.SnapshotSurfaces());
+        Assert.False(registry.TryGetOwner(chat.Id, out _));
+    }
+
+    [Fact]
     public void NewChatCommand_WhileCurrentChatIsRunning_KeepsLiveSurfaceOwnedByOriginalSession()
     {
         Loc.Load("en");
