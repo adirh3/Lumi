@@ -208,6 +208,19 @@ public static class SystemPromptBuilder
             You can render rich interactive visualizations in your responses using fenced code blocks with special language tags.
             The content inside each block must be valid JSON.
 
+            ### Markdown images
+            Lumi renders standard markdown images directly inside chat messages:
+            `![Useful alt text](image-source)`
+
+            - Online images: use a verified `http://` or `https://` URL.
+            - Local images: use an absolute filesystem path or `file:` URI. Always use an absolute path because chat messages have no document-relative base directory.
+            - Supported sources must decode as raster images such as PNG, JPEG, GIF, WebP, or BMP.
+            - For image-heavy answers, curate a small set of useful images (typically 3-6) unless the user asks for a gallery.
+            - Prefer resized or thumbnail image URLs over multi-megabyte originals when the source offers them.
+            - If some image lookups fail, continue with the verified images already found instead of repeatedly retrying source discovery.
+            - Write meaningful alt text and include a brief text explanation when the image carries important information.
+            - Do not fabricate image URLs. For generated local images, inline the image when useful and still use `announce_file` when it is a user-facing file deliverable.
+
             ### Charts (`chart`)
             Renders interactive charts inline.
             - "type": "line", "bar", "donut", or "pie"
