@@ -9,11 +9,14 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Lumi.Services;
 using Lumi.UiPerf;
 using Lumi.ViewModels;
 using Lumi.Views;
+using StrataTheme.Controls;
 
 namespace Lumi.MemoryDiagnostics;
 
@@ -225,6 +228,14 @@ internal sealed class MemoryStressHarness
             Note: "Old transcript turns, items, and realized hosts must collect after a rebuild."));
 
         scenarios.Add(new MemoryScenario(
+            "stable-transcript-scroll",
+            "1,000-turn stable transcript scroll churn",
+            AllowedRetainedCount: 0,
+            RunCycleAsync: RunStableTranscriptScrollCycleAsync,
+            PrepareAsync: () => OpenChatAsync(workloads.MegaChatId),
+            Note: "Repeated long-distance scrolls must keep realized hosts bounded and post-GC memory flat."));
+
+        scenarios.Add(new MemoryScenario(
             "detached-chat-window",
             "Detached chat window open/close churn",
             AllowedRetainedCount: 8,
@@ -359,6 +370,57 @@ internal sealed class MemoryStressHarness
         }
 
         return references;
+    }
+
+    private async Task<IReadOnlyList<TrackedReference>> RunStableTranscriptScrollCycleAsync(int cycle)
+    {
+        var scrollViewer = await OnUiAsync(FindTranscriptScrollViewer)
+            ?? throw new InvalidOperationException("The active chat transcript ScrollViewer was not found.");
+        // Replay the same viewport sequence each cycle. Varying the seed would keep discovering new
+        // markdown/code regions and measure renderer high-water growth rather than repeated-work leaks.
+        var random = new Random(9100);
+        var beforeDiagnostics = TranscriptTurnControl.CaptureDiagnostics();
+
+        for (var action = 0; action < _options.ActionsPerCycle; action++)
+        {
+            await OnUiAsync(() =>
+            {
+                var maxOffset = Math.Max(0d, scrollViewer.Extent.Height - scrollViewer.Viewport.Height);
+                scrollViewer.Offset = scrollViewer.Offset.WithY(maxOffset * random.NextDouble());
+            });
+            await DrainAsync(DispatcherPriority.Render);
+
+            if (action % 4 == 3)
+                await SettleStoppedTranscriptViewportAsync();
+        }
+
+        await SettleStoppedTranscriptViewportAsync();
+        var diagnostics = TranscriptTurnControl.CaptureDiagnostics();
+        var createdControls = diagnostics.ControlCreateCount - beforeDiagnostics.ControlCreateCount;
+        var createdItemHosts = diagnostics.ItemHostCreateCount - beforeDiagnostics.ItemHostCreateCount;
+        Console.WriteLine(
+            $"[memory][transcript] cycle={cycle} controls+={createdControls} " +
+            $"itemHosts+={createdItemHosts} " +
+            $"activeHosts={diagnostics.ActiveRealizedHostCount} peakHosts={diagnostics.PeakActiveRealizedHostCount}");
+        if (cycle > 0 && createdControls != 0)
+        {
+            throw new InvalidOperationException(
+                $"Stable transcript created {createdControls} turn controls during measured cycle {cycle}; expected zero.");
+        }
+
+        if (cycle > 0 && createdItemHosts != 0)
+        {
+            throw new InvalidOperationException(
+                $"Stable transcript created {createdItemHosts} item hosts during repeated measured cycle {cycle}; expected zero.");
+        }
+
+        if (diagnostics.ActiveRealizedHostCount > 160)
+        {
+            throw new InvalidOperationException(
+                $"Stable transcript retained {diagnostics.ActiveRealizedHostCount} realized hosts; expected at most 160.");
+        }
+
+        return Array.Empty<TrackedReference>();
     }
 
     private async Task<IReadOnlyList<TrackedReference>> RunDetachedWindowChurnCycleAsync(
@@ -592,6 +654,34 @@ internal sealed class MemoryStressHarness
 
     private Task OpenChatAsync(Guid chatId)
         => OnUiAsync(async () => await _mainVm.OpenChatByIdAsync(chatId));
+
+    private static ScrollViewer? FindTranscriptScrollViewer()
+    {
+        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            return null;
+
+        return desktop.Windows
+            .Where(static window => window.IsVisible)
+            .SelectMany(static window => window.GetVisualDescendants())
+            .OfType<StrataChatShell>()
+            .FirstOrDefault(static shell => shell.IsVisible)
+            ?.TranscriptScrollViewer;
+    }
+
+    private static async Task SettleStoppedTranscriptViewportAsync()
+    {
+        await Task.Delay(TranscriptItemsControl.ScrollIdleRealizationDelay + TimeSpan.FromMilliseconds(30));
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            await DrainAsync(DispatcherPriority.Background);
+            if (!TranscriptRealizationScheduler.Instance.HasPendingWork)
+                break;
+        }
+
+        await DrainAsync(DispatcherPriority.Render);
+        await DrainAsync(DispatcherPriority.Loaded);
+        await DrainAsync(DispatcherPriority.Background);
+    }
 
     private async Task<MemoryCycleSample> CaptureAfterGcAsync(
         int cycle,

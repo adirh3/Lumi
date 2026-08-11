@@ -11,10 +11,9 @@ public readonly record struct TranscriptRealizationDiagnosticsSnapshot(
     int MaxBatchSize);
 
 /// <summary>
-/// Spreads the cost of materialising mounted transcript turns across several UI frames instead of
-/// one giant synchronous layout pass. When the user switches to a large chat, every mounted
-/// <see cref="TranscriptTurnControl"/> re-enters the visual tree at once; measuring all of their
-/// (retained, already-parsed) subtrees in a single pass freezes the UI thread for hundreds of ms.
+/// Spreads the cost of materialising viewport-active transcript turns across several UI frames instead
+/// of one giant synchronous layout pass. Stable offscreen turns remain lightweight height placeholders;
+/// only the stopped viewport and its small cache request their heavy retained subtrees.
 ///
 /// Each control reserves its known height and asks the scheduler to realize it. The scheduler
 /// drains the queue newest-first (controls attach top→bottom, so the tail is the bottom / most
@@ -42,7 +41,7 @@ internal sealed class TranscriptRealizationScheduler
     public double FrameBudgetMs { get; set; } = 12d;
 
     /// <summary>
-    /// True while one or more mounted turns are still queued for deferred realization. The chat
+    /// True while one or more viewport-active turns are still queued for deferred realization. The chat
     /// surface uses this to keep its loading overlay up (and absorbing clicks) until the freshly
     /// opened transcript has actually been measured, instead of revealing a blank / still-settling
     /// transcript the instant the placeholders are mounted. UI-thread affine.

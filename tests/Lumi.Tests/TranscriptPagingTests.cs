@@ -55,6 +55,201 @@ public sealed class TranscriptPagingTests
     }
 
     [Fact]
+    public void StableMembership_MountsEveryTurnAndNeverMutatesAtViewportBoundaries()
+    {
+        var controller = new TranscriptWindowController(new TranscriptPagingOptions
+        {
+            MaintainStableMembership = true,
+            MaxPageWeight = 4,
+            MaxTurnsPerPage = 2,
+            MinInitialPages = 1,
+            MaxMountedPages = 3,
+        });
+        var source = CreateTurns(20, measuredHeightFactory: _ => 120);
+
+        controller.BindTranscript(source, "stable");
+        controller.ResetToLatest(200, "stable");
+        var mountedBefore = controller.MountedTurns.ToArray();
+
+        var olderBoundary = controller.UpdateViewport(
+            new TranscriptViewportState(
+                0,
+                200,
+                2400,
+                false,
+                2200,
+                TranscriptPagingDirection.TowardOlder),
+            isFollowingTail: false,
+            "stable-older");
+        var newerBoundary = controller.UpdateViewport(
+            new TranscriptViewportState(
+                2200,
+                200,
+                2400,
+                true,
+                0,
+                TranscriptPagingDirection.TowardNewer),
+            isFollowingTail: false,
+            "stable-newer");
+
+        Assert.Equal(TranscriptWindowMutationKind.None, olderBoundary.Kind);
+        Assert.Equal(TranscriptWindowMutationKind.None, newerBoundary.Kind);
+        Assert.Equal(source, controller.MountedTurns);
+        Assert.Equal(mountedBefore, controller.MountedTurns);
+        Assert.False(controller.HasOlderPages);
+        Assert.False(controller.HasNewerPages);
+    }
+
+    [Fact]
+    public void StableMembership_SourceChangesStayIdentitySynchronized()
+    {
+        var controller = new TranscriptWindowController(new TranscriptPagingOptions
+        {
+            MaintainStableMembership = true,
+        });
+        var source = CreateTurns(6);
+
+        controller.BindTranscript(source, "stable-source");
+        controller.ResetToLatest(200, "stable-source");
+
+        var inserted = CreateTurn(99);
+        source.Insert(2, inserted);
+        Assert.Equal(source, controller.MountedTurns);
+        Assert.Same(inserted, controller.MountedTurns[2]);
+
+        source.Remove(inserted);
+        Assert.Equal(source, controller.MountedTurns);
+    }
+
+    [Fact]
+    public void StableMembership_ThousandTurns_RandomViewportUpdatesNeverMutateMembership()
+    {
+        var controller = new TranscriptWindowController(new TranscriptPagingOptions
+        {
+            MaintainStableMembership = true,
+            MaxPageWeight = 34,
+            MaxTurnsPerPage = 8,
+            MaxMountedPages = 6,
+        });
+        var source = CreateTurns(
+            1000,
+            measuredHeightFactory: index => 72 + ((index * 37) % 420));
+
+        controller.BindTranscript(source, "stable-scale");
+        controller.ResetToLatest(720, "stable-scale");
+        var mountedBefore = controller.MountedTurns.ToArray();
+        var extent = source.Sum(static turn => turn.MeasuredHeight)
+            + (source.Count - 1) * TranscriptLayoutMetrics.TurnSpacing;
+        var random = new Random(7301);
+
+        for (var step = 0; step < 1000; step++)
+        {
+            var maxOffset = Math.Max(0d, extent - 720d);
+            var offset = maxOffset * random.NextDouble();
+            var mutation = controller.UpdateViewport(
+                new TranscriptViewportState(
+                    offset,
+                    720,
+                    extent,
+                    false,
+                    maxOffset - offset),
+                isFollowingTail: false,
+                "stable-scale-scroll");
+
+            Assert.Equal(TranscriptWindowMutationKind.None, mutation.Kind);
+            Assert.Equal(mountedBefore, controller.MountedTurns);
+            Assert.Equal(source, controller.MountedTurns);
+            Assert.Equal(0, controller.TopSpacerHeight);
+            Assert.Equal(0, controller.BottomSpacerHeight);
+        }
+    }
+
+    [Fact]
+    public void StableGeometry_ThousandTurns_RandomViewportWindowsPreserveFullExtent()
+    {
+        var controller = new TranscriptWindowController(new TranscriptPagingOptions
+        {
+            MaintainStableGeometry = true,
+            MaxPageWeight = 34,
+            MaxTurnsPerPage = 8,
+            MinInitialPages = 2,
+            MaxMountedPages = 6,
+        });
+        var source = CreateTurns(
+            1000,
+            measuredHeightFactory: index => 72 + ((index * 37) % 420));
+
+        controller.BindTranscript(source, "geometry-scale");
+        controller.ResetToLatest(720, "geometry-scale");
+        var expectedExtent = GetStableGeometryExtent(controller);
+        var random = new Random(7301);
+
+        for (var step = 0; step < 1000; step++)
+        {
+            var maxOffset = Math.Max(0d, expectedExtent - 720d);
+            var offset = maxOffset * random.NextDouble();
+            var mutation = controller.UpdateViewport(
+                new TranscriptViewportState(
+                    offset,
+                    720,
+                    expectedExtent,
+                    false,
+                    maxOffset - offset),
+                isFollowingTail: false,
+                "geometry-scale-scroll");
+
+            Assert.True(mutation.Kind is TranscriptWindowMutationKind.None or TranscriptWindowMutationKind.Rewindow);
+            Assert.InRange(controller.CaptureSnapshot().MountedPageCount, 1, 6);
+            Assert.InRange(Math.Abs(GetStableGeometryExtent(controller) - expectedExtent), 0, 0.001);
+
+            var mountedHeight = controller.MountedTurns.Sum(static turn => turn.MeasuredHeight)
+                + Math.Max(0, controller.MountedTurns.Count - 1) * TranscriptLayoutMetrics.TurnSpacing;
+            Assert.True(offset < controller.TopSpacerHeight + mountedHeight);
+            Assert.True(offset + 720 > controller.TopSpacerHeight);
+
+            var sourceIndices = controller.MountedTurns
+                .Select(turn => source.IndexOf(turn))
+                .ToArray();
+            Assert.Equal(
+                Enumerable.Range(sourceIndices[0], sourceIndices.Length),
+                sourceIndices);
+        }
+    }
+
+    [Fact]
+    public void StableGeometry_RewindowKeepsExtentWhenMeasuredTurnsAreShorterThanEstimates()
+    {
+        var controller = new TranscriptWindowController(new TranscriptPagingOptions
+        {
+            MaintainStableGeometry = true,
+            MaxPageWeight = 4,
+            MaxTurnsPerPage = 2,
+            MinInitialPages = 1,
+            MaxMountedPages = 2,
+        });
+        var source = CreateTurns(12, measuredHeightFactory: _ => 48);
+
+        controller.BindTranscript(source, "geometry-short");
+        controller.ResetToLatest(200, "geometry-short");
+        var expectedExtent = GetStableGeometryExtent(controller);
+
+        for (var offset = 0d; offset < expectedExtent; offset += 120d)
+        {
+            controller.UpdateViewport(
+                new TranscriptViewportState(
+                    offset,
+                    200,
+                    expectedExtent,
+                    false,
+                    Math.Max(0d, expectedExtent - 200d - offset)),
+                isFollowingTail: false,
+                "geometry-short-scroll");
+
+            Assert.InRange(Math.Abs(GetStableGeometryExtent(controller) - expectedExtent), 0, 0.001);
+        }
+    }
+
+    [Fact]
     public void NearTopScroll_PrependsOlderPageInOrder()
     {
         var controller = new TranscriptWindowController(new TranscriptPagingOptions
@@ -854,6 +1049,13 @@ public sealed class TranscriptPagingTests
             Enumerable.Range(0, count)
                 .Select(index => CreateTurn(index, itemCount, measuredHeightFactory?.Invoke(index) ?? 0))
                 .ToArray());
+    }
+
+    private static double GetStableGeometryExtent(TranscriptWindowController controller)
+    {
+        var mountedHeight = controller.MountedTurns.Sum(static turn => turn.MeasuredHeight)
+            + Math.Max(0, controller.MountedTurns.Count - 1) * TranscriptLayoutMetrics.TurnSpacing;
+        return controller.TopSpacerHeight + mountedHeight + controller.BottomSpacerHeight;
     }
 
     private static TranscriptTurn CreateTurn(int index, int itemCount = 1, double measuredHeight = 0)

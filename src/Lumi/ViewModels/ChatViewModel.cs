@@ -639,6 +639,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly TranscriptBuilder _transcriptBuilder;
     private readonly TranscriptWindowController _transcriptWindow = new(new TranscriptPagingOptions
     {
+        MaintainStableMembership = true,
         EnableDiagnostics = TranscriptDiagnosticsEnabled,
     });
 
@@ -1150,7 +1151,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = [];
     /// <summary>Full transcript turn store retained in memory for the active chat.</summary>
     [ObservableProperty] private ObservableCollection<TranscriptTurn> _transcriptTurns = [];
+    /// <summary>
+    /// Identity-stable visual transcript membership. Production keeps every turn here and virtualizes
+    /// only heavy per-turn content, so scrolling never inserts or evicts collection ranges.
+    /// </summary>
     public ObservableCollection<TranscriptTurn> MountedTranscriptTurns => _transcriptWindow.MountedTurns;
+    public double TranscriptTopSpacerHeight => _transcriptWindow.TopSpacerHeight;
+    public double TranscriptBottomSpacerHeight => _transcriptWindow.BottomSpacerHeight;
     public string TranscriptDiagnosticsText => ShowTranscriptDiagnostics ? _transcriptWindow.DiagnosticsText : string.Empty;
     public bool IsTranscriptPinnedToBottom => _transcriptWindow.IsPinnedToBottom;
     public bool ShowTranscriptDiagnostics { get; } = TranscriptDiagnosticsEnabled;
@@ -1374,6 +1381,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         if (e.PropertyName == nameof(TranscriptWindowController.IsPinnedToBottom))
             OnPropertyChanged(nameof(IsTranscriptPinnedToBottom));
+
+        if (e.PropertyName == nameof(TranscriptWindowController.TopSpacerHeight))
+            OnPropertyChanged(nameof(TranscriptTopSpacerHeight));
+
+        if (e.PropertyName == nameof(TranscriptWindowController.BottomSpacerHeight))
+            OnPropertyChanged(nameof(TranscriptBottomSpacerHeight));
     }
 
     private void SetSelectedModelValue(string? modelId)
@@ -1666,6 +1679,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     internal bool HasUnmountedTranscriptTail => _transcriptWindow.HasNewerPages;
+    internal bool MaintainsStableTranscriptMembership => _transcriptWindow.MaintainsStableMembership;
+    internal bool MaintainsStableTranscriptGeometry => _transcriptWindow.MaintainsStableGeometry;
 
     internal bool EnsureLatestTranscriptMounted()
     {

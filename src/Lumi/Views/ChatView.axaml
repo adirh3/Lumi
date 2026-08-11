@@ -1512,21 +1512,28 @@
 
 
         <sc:StrataChatShell.Transcript>
-          <vm:TranscriptItemsControl x:Name="Transcript"
-                        HorizontalAlignment="Stretch"
-                        MaxWidth="{DynamicResource Chat.ReadingColumnWidth}"
-                        ItemsSource="{Binding MountedTranscriptTurns}">
-            <vm:TranscriptItemsControl.ItemTemplate>
-              <DataTemplate DataType="vm:TranscriptTurn">
-                <vm:TranscriptTurnControl Turn="{Binding}" />
-              </DataTemplate>
-            </vm:TranscriptItemsControl.ItemTemplate>
-            <vm:TranscriptItemsControl.ItemsPanel>
-              <ItemsPanelTemplate>
-                <StackPanel Spacing="8" />
-              </ItemsPanelTemplate>
-            </vm:TranscriptItemsControl.ItemsPanel>
-          </vm:TranscriptItemsControl>
+          <StackPanel HorizontalAlignment="Stretch"
+                      MaxWidth="{DynamicResource Chat.ReadingColumnWidth}">
+            <Border Height="{Binding TranscriptTopSpacerHeight}"
+                    IsHitTestVisible="False" />
+            <vm:TranscriptItemsControl x:Name="Transcript"
+                          HorizontalAlignment="Stretch"
+                          ItemsSource="{Binding MountedTranscriptTurns}">
+              <vm:TranscriptItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:TranscriptTurn">
+                  <vm:TranscriptTurnControl Turn="{Binding}"
+                                            IsViewportManaged="True" />
+                </DataTemplate>
+              </vm:TranscriptItemsControl.ItemTemplate>
+              <vm:TranscriptItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Spacing="8" />
+                </ItemsPanelTemplate>
+              </vm:TranscriptItemsControl.ItemsPanel>
+            </vm:TranscriptItemsControl>
+            <Border Height="{Binding TranscriptBottomSpacerHeight}"
+                    IsHitTestVisible="False" />
+          </StackPanel>
         </sc:StrataChatShell.Transcript>
 
         <sc:StrataChatShell.Composer>

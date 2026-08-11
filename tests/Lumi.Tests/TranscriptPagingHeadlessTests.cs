@@ -282,6 +282,49 @@ public sealed class TranscriptPagingHeadlessTests
     }
 
     [Fact]
+    public async Task ActiveMarkdownRemovalAndTerminalRelease_DetachBeforeCleanup()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await DispatchAsync(session, async () =>
+        {
+            var turn = new TranscriptTurn("turn:markdown-release");
+            turn.Items.Add(new VisualTranscriptItem("item:0000", 72, "**first**"));
+            turn.Items.Add(new VisualTranscriptItem("item:0001", 72, "**second**"));
+
+            var control = new TranscriptTurnControl { Turn = turn };
+            var window = new Window
+            {
+                Width = 480,
+                Height = 320,
+                Content = control,
+            };
+            window.DataTemplates.Add(new FuncDataTemplate<VisualTranscriptItem>((item, _) => new StrataMarkdown
+            {
+                RetainContentOnDetach = true,
+                StreamingRebuildThrottleMs = 0,
+                Markdown = item.Text,
+            }));
+
+            window.Show();
+            control.RealizePendingHost();
+            await PumpAsync();
+            Assert.Equal(2, control.GetVisualDescendants().OfType<StrataMarkdown>().Count());
+
+            turn.Items.RemoveAt(0);
+            await PumpAsync();
+            Assert.Single(control.GetVisualDescendants().OfType<StrataMarkdown>());
+
+            turn.ReleaseRealizedHost();
+            await PumpAsync();
+            Assert.Null(control.Content);
+            Assert.Null(turn.RealizedItemsHost);
+
+            window.Close();
+        });
+    }
+
+    [Fact]
     public async Task SameTurnShownInTwoWindows_DoesNotReparentRealizedHostAcrossLayoutRoots()
     {
         using var session = HeadlessTestSession.Start();
@@ -297,7 +340,11 @@ public sealed class TranscriptPagingHeadlessTests
                 {
                     Width = 480,
                     Height = 320,
-                    Content = new TranscriptTurnControl { Turn = turn },
+                    Content = new TranscriptTurnControl
+                    {
+                        Turn = turn,
+                        IsViewportManaged = true,
+                    },
                 };
                 window.DataTemplates.Add(new FuncDataTemplate<VisualTranscriptItem>((item, _) => new Border
                 {
@@ -310,6 +357,7 @@ public sealed class TranscriptPagingHeadlessTests
             var firstWindow = CreateWindow(turn);
             firstWindow.Show();
             var firstControl = Assert.IsType<TranscriptTurnControl>(firstWindow.Content);
+            firstControl.SetViewportActive(true);
             firstControl.RealizePendingHost();
             await PumpAsync();
 
@@ -320,6 +368,7 @@ public sealed class TranscriptPagingHeadlessTests
             var secondWindow = CreateWindow(turn);
             secondWindow.Show();
             var secondControl = Assert.IsType<TranscriptTurnControl>(secondWindow.Content);
+            secondControl.SetViewportActive(true);
             secondControl.RealizePendingHost();
             await PumpAsync();
 
@@ -333,6 +382,13 @@ public sealed class TranscriptPagingHeadlessTests
 
             turn.Items.Add(new VisualTranscriptItem("item:0001", 72, "Two"));
             Assert.Equal(2, GetHostedItemCount(firstControl));
+            Assert.Equal(2, GetHostedItemCount(secondControl));
+
+            firstControl.SetViewportActive(false);
+            Assert.Null(firstControl.Content);
+            Assert.Empty(firstHost.Children);
+            Assert.Same(secondHost, secondControl.Content);
+            Assert.Same(secondHost, turn.RealizedItemsHost);
             Assert.Equal(2, GetHostedItemCount(secondControl));
 
             secondWindow.Close();

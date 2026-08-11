@@ -425,6 +425,9 @@ public partial class ChatView : UserControl
             return;
         }
 
+        if (_subscribedVm.MaintainsStableTranscriptMembership)
+            return;
+
         if (_isApplyingTranscriptMutation)
         {
             _viewportEvaluationRequested = true;
@@ -472,7 +475,8 @@ public partial class ChatView : UserControl
         if (_subscribedVm is { IsBusy: true }
             || (_chatShell.IsFollowingTail && !_subscribedVm.HasUnmountedTranscriptTail))
         {
-            QueueTranscriptViewportEvaluation();
+            if (!_subscribedVm.MaintainsStableTranscriptMembership)
+                QueueTranscriptViewportEvaluation();
             _chatShell.NotifyTranscriptLayoutChanged();
             return;
         }
@@ -480,6 +484,9 @@ public partial class ChatView : UserControl
         var control = FindRealizedTurnControl(turn.StableId);
         var point = control?.TranslatePoint(default, _transcriptScrollViewer);
         if (control is null || point is null)
+            return;
+
+        if (control.IsViewportManaged && _transcriptScrollViewer.CurrentAnchor is not null)
             return;
 
         // Only compensate for turns fully above the viewport.
@@ -522,6 +529,7 @@ public partial class ChatView : UserControl
             return;
 
         ClearTranscriptScrollbarDrag();
+        TryRestoreFollowTailAtActualBottom(_pendingTranscriptPagingDirection);
         QueueTranscriptViewportEvaluation();
     }
 
@@ -622,8 +630,24 @@ public partial class ChatView : UserControl
             return;
 
         _pendingTranscriptPagingDirection = direction;
+        TryRestoreFollowTailAtActualBottom(direction);
         if (!_isTranscriptScrollbarDragging)
             QueueTranscriptViewportEvaluation();
+    }
+
+    private void TryRestoreFollowTailAtActualBottom(TranscriptPagingDirection direction)
+    {
+        if (direction != TranscriptPagingDirection.TowardNewer
+            || _subscribedVm is null
+            || _chatShell is null
+            || _subscribedVm.HasUnmountedTranscriptTail
+            || _chatShell.CurrentDistanceFromBottom > ChatScrollPolicy.DefaultBottomTolerance)
+        {
+            return;
+        }
+
+        _chatShell.EnterFollowTailMode();
+        SyncTranscriptPinnedState();
     }
 
     private void ObserveTranscriptScrollbarPagingDirection(double verticalOffset)
@@ -850,7 +874,7 @@ public partial class ChatView : UserControl
                 ExecuteSearch();
 
             // Keep the loading overlay up (and absorbing clicks) until the deferred, frame-budgeted
-            // realization of the mounted turns has finished, then make a final authoritative re-pin to
+            // realization of the viewport-active tail turns has finished, then make a final authoritative re-pin to
             // the now fully-measured bottom. Without this the overlay would clear while turns are still
             // height-only placeholders → the user sees a blank/jumping transcript, and because the
             // bottom turn grows after the initial pin the scroll otherwise settles part-way up.
@@ -941,6 +965,9 @@ public partial class ChatView : UserControl
             e.IsPinnedToBottom && isActualTailMounted,
             e.DistanceFromBottom);
 
+        if (_subscribedVm.MaintainsStableTranscriptMembership)
+            return;
+
         if (_isTranscriptScrollbarDragging)
         {
             _viewportEvaluationRequested = true;
@@ -961,6 +988,12 @@ public partial class ChatView : UserControl
 
     private void QueueTranscriptViewportEvaluation()
     {
+        if (_subscribedVm?.MaintainsStableTranscriptMembership == true)
+        {
+            _viewportEvaluationRequested = false;
+            return;
+        }
+
         _viewportEvaluationRequested = true;
         if (_isTranscriptScrollbarDragging)
             return;
@@ -1051,6 +1084,12 @@ public partial class ChatView : UserControl
     {
         if (_isApplyingTranscriptMutation || _subscribedVm is null || _chatShell is null)
             return;
+
+        if (_subscribedVm.MaintainsStableTranscriptMembership)
+        {
+            _chatShell.NotifyTranscriptLayoutChanged();
+            return;
+        }
 
         var isActualTailMounted = !_subscribedVm.HasUnmountedTranscriptTail;
         if (!isActualTailMounted && _chatShell.IsFollowingTail)
@@ -1254,10 +1293,9 @@ public partial class ChatView : UserControl
     }
 
     /// <summary>
-    /// Scrolls the transcript to the turn an activity row in the Workspace panel points at. Mirrors the
-    /// in-chat search navigation: mount the target's page, force it to realize (mounted turns are lazy
-    /// height placeholders until flushed), settle at Background priority, then scroll so the turn lands
-    /// just below the header.
+    /// Scrolls the transcript to the turn an activity row in the Workspace panel points at. Far turns
+    /// remain height-only placeholders until requested; scroll the stable item into view, realize it,
+    /// then place it just below the header.
     /// </summary>
     private async void OnWorkspaceJumpToTurnRequested(string stableId)
     {
@@ -1268,19 +1306,7 @@ public partial class ChatView : UserControl
         if (turn is null)
             return;
 
-        _subscribedVm.MountTranscriptPageContainingTurn(turn);
-
-        await Dispatcher.UIThread.InvokeAsync(
-            () =>
-            {
-                if (FindRealizedTurnControl(stableId) is { } control)
-                    TranscriptRealizationScheduler.Instance.FlushControl(control);
-            },
-            DispatcherPriority.Loaded);
-
-        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
-
-        var target = FindRealizedTurnControl(stableId);
+        var target = await EnsureTurnRealizedAsync(turn);
         var point = target?.TranslatePoint(default, _transcriptScrollViewer);
         if (target is null || point is null)
             return;
@@ -1288,6 +1314,58 @@ public partial class ChatView : UserControl
         var offset = Math.Max(0, _chatShell.VerticalOffset + point.Value.Y - 64);
         _chatShell.PreserveViewport();
         _chatShell.ScrollToVerticalOffset(offset);
+    }
+
+    private async Task<TranscriptTurnControl?> EnsureTurnRealizedAsync(TranscriptTurn turn)
+    {
+        if (_subscribedVm is null || _transcript is null)
+            return null;
+
+        _chatShell?.PreserveViewport();
+        var index = _subscribedVm.MountedTranscriptTurns.IndexOf(turn);
+        if (index < 0)
+        {
+            var wasApplyingMutation = _isApplyingTranscriptMutation;
+            _isApplyingTranscriptMutation = true;
+            try
+            {
+                if (!_subscribedVm.MountTranscriptPageContainingTurn(turn))
+                    return null;
+
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+                index = _subscribedVm.MountedTranscriptTurns.IndexOf(turn);
+                if (index < 0)
+                    return null;
+
+                _transcript.ScrollIntoView(index);
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+            }
+            finally
+            {
+                _isApplyingTranscriptMutation = wasApplyingMutation;
+                if (!wasApplyingMutation && _viewportEvaluationRequested)
+                    QueueTranscriptViewportEvaluation();
+            }
+        }
+        else
+        {
+            _transcript.ScrollIntoView(index);
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+        }
+
+        var control = FindRealizedTurnControl(turn.StableId);
+        if (control is null)
+            return null;
+
+        ((Control?)control.GetVisualParent() ?? control).BringIntoView();
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+        control.SetViewportActive(true);
+        TranscriptRealizationScheduler.Instance.FlushControl(control);
+
+        // Markdown realization posts its parse/rebuild work at Loaded priority. Background runs only
+        // after that queue drains, so callers can safely inspect or highlight the realized subtree.
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+        return control;
     }
 
     // ── File picker (requires View-level StorageProvider) ──
@@ -2053,27 +2131,8 @@ public partial class ChatView : UserControl
         var hit = _searchHits[_currentHitIndex];
         if (_subscribedVm is null) return;
 
-        // Ensure the turn's page is mounted
-        _subscribedVm.MountTranscriptPageContainingTurn(hit.Turn);
-
-        // Mounted turns realize lazily under a frame budget, so the freshly mounted target may still
-        // be a height-only placeholder. Wait for its control to attach, force that turn to realize now
-        // (its markdown then re-parses at Loaded priority), then wait once more so the realized item
-        // views are parsed/laid out before we scroll to and highlight the match.
-        await Dispatcher.UIThread.InvokeAsync(
-            () =>
-            {
-                if (FindRealizedTurnControl(hit.Turn.StableId) is { } control)
-                    TranscriptRealizationScheduler.Instance.FlushControl(control);
-            },
-            DispatcherPriority.Loaded);
-
-        // The forced realization above causes StrataMarkdown to post its text rebuild at Loaded
-        // priority. Waiting again at Loaded is the same priority as that rebuild, so whether the
-        // SelectableTextBlocks exist when HighlightHit runs depends on dispatcher FIFO ordering — a race
-        // that silently drops the highlight. Wait at the strictly-lower Background priority instead, which
-        // is guaranteed to run only after the entire Loaded queue (including the reparse) has drained.
-        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+        if (await EnsureTurnRealizedAsync(hit.Turn) is null)
+            return;
 
         HighlightHit(hit);
     }
