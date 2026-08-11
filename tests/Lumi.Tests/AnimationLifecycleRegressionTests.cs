@@ -15,6 +15,7 @@ using Avalonia.Rendering.Composition;
 using Avalonia.Rendering.Composition.Animations;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Lumi.Presence;
 using StrataTheme;
 using StrataTheme.Animation;
 using StrataTheme.Controls;
@@ -188,6 +189,116 @@ public sealed class AnimationLifecycleRegressionTests
                     _ = visual.Compositor.CreateStableScalarKeyFrameAnimation();
 
                     Assert.True(StableCompositionAnimations.IsInstalledForTests(visual.Compositor));
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            session.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task RestingPresence_SuspendsContinuousAnimation_AndActiveStateResumesIt()
+    {
+        var session = HeadlessUnitTestSession.StartNew(
+            typeof(SkiaHeadlessTestApp),
+            AvaloniaTestIsolationLevel.PerTest);
+        try
+        {
+            await session.Dispatch(() =>
+            {
+                var presence = new StrataPresence
+                {
+                    State = PresenceState.Dormant,
+                    Halo = true,
+                };
+                var window = new Window { Width = 900, Height = 700, Content = presence };
+                try
+                {
+                    window.Show();
+                    Dispatcher.UIThread.RunJobs();
+                using var dormantFrame = window.CaptureRenderedFrame();
+                Assert.NotNull(dormantFrame);
+
+                Assert.False(presence.HasContinuousAnimationForTest);
+
+                presence.State = PresenceState.Streaming;
+                presence.Halo = false;
+                Dispatcher.UIThread.RunJobs();
+                using var streamingFrame = window.CaptureRenderedFrame();
+                Assert.NotNull(streamingFrame);
+
+                Assert.True(presence.HasContinuousAnimationForTest);
+
+                presence.State = PresenceState.Idle;
+                Dispatcher.UIThread.RunJobs();
+                using var idleFrame = window.CaptureRenderedFrame();
+                Assert.NotNull(idleFrame);
+
+                Assert.False(presence.HasContinuousAnimationForTest);
+
+                Assert.True(presence.SplitToIsland(new Point(0.82, 0.5)));
+                Dispatcher.UIThread.RunJobs();
+                using var companionFrame = window.CaptureRenderedFrame();
+                Assert.NotNull(companionFrame);
+
+                Assert.False(presence.HasContinuousAnimationForTest);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            session.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task PresenceController_DisableDetachesVisual_AndEnableReattachesIt()
+    {
+        var session = HeadlessTestSession.Start();
+        try
+        {
+            await session.Dispatch(() =>
+            {
+                var host = new Grid();
+                var window = new Window { Width = 900, Height = 700, Content = host };
+                using var controller = new PresenceController(host, isEnabled: false);
+                try
+                {
+                    window.Show();
+                    Dispatcher.UIThread.RunJobs();
+
+                    Assert.DoesNotContain(controller.Visual, host.Children);
+                    Assert.False(controller.Visual.IsAttachedToVisualTree());
+
+                    var beginDeferredArm = typeof(PresenceController).GetMethod(
+                        "BeginDeferredArm",
+                        BindingFlags.Instance | BindingFlags.NonPublic)
+                        ?? throw new MissingMethodException(nameof(PresenceController), "BeginDeferredArm");
+                    beginDeferredArm.Invoke(controller, null);
+                    var armTimer = (DispatcherTimer?)GetRequiredField(controller, "_armTimer").GetValue(controller);
+                    Assert.False(armTimer?.IsEnabled == true);
+
+                    controller.SetEnabled(true);
+                    Dispatcher.UIThread.RunJobs();
+
+                    Assert.Same(controller.Visual, host.Children[0]);
+                    Assert.True(controller.Visual.IsAttachedToVisualTree());
+
+                    controller.SetEnabled(false);
+                    Dispatcher.UIThread.RunJobs();
+
+                    Assert.DoesNotContain(controller.Visual, host.Children);
+                    Assert.False(controller.Visual.IsAttachedToVisualTree());
                 }
                 finally
                 {

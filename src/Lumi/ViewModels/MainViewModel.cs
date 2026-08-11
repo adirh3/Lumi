@@ -380,6 +380,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _backgroundJobService.JobsChanged += OnBackgroundJobServiceJobsChanged;
         _copilotService.ModelCatalogChanged += OnModelCatalogChanged;
 
+        SettingsVM.AmbientPresenceChanged += ApplyAmbientPresenceSetting;
         SettingsVM.SettingsChanged += () =>
         {
             RefreshChatList();
@@ -444,6 +445,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private ChatViewModel AcquireDraftChatSurface(Guid? projectId)
         => _chatSessionStore.AcquireDraft(projectId, PrepareChatSurface);
+
+    internal void ApplyAmbientPresenceSetting(bool enabled)
+        => _chatSessionStore.ApplyToSurfaces(surface => surface.ShowAmbientPresence = enabled);
 
     private Task<ChatViewModel> AcquireChatSurfaceAsync(Chat chat)
         => _chatSessionStore.AcquireChatAsync(chat, PrepareChatSurface);

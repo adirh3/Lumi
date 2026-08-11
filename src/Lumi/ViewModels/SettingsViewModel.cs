@@ -83,6 +83,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(UiScalePreviewPercent))]
     private int _uiScalePreviewLevelIndex;
+    [ObservableProperty] private bool _showAmbientPresence;
     [ObservableProperty] private bool _showAnimations;
     private bool _isSynchronizingUiScaleFromApplication;
 
@@ -430,6 +431,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Raised before persistence work when ambient presence must be applied to live chat surfaces.</summary>
+    public event Action<bool>? AmbientPresenceChanged;
+
     /// <summary>Raised when a setting that affects other ViewModels changes.</summary>
     public event Action? SettingsChanged;
     public event Action? SystemPromptSettingsChanged;
@@ -484,6 +488,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         _uiScalePreviewLevelIndex = UiScaleService.GetLevelIndex(_uiScalePercent);
         s.UiScalePercent = _uiScalePercent;
         s.LegacyFontSize = 0;
+        _showAmbientPresence = s.ShowAmbientPresence;
         _showAnimations = s.ShowAnimations;
 
         // Chat
@@ -793,6 +798,14 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(UiScaleLevelIndex));
     }
 
+    partial void OnShowAmbientPresenceChanged(bool value)
+    {
+        AmbientPresenceChanged?.Invoke(value);
+        _dataStore.Data.Settings.ShowAmbientPresence = value;
+        Save();
+        SettingsChanged?.Invoke();
+        NotifyModified();
+    }
     partial void OnShowAnimationsChanged(bool value) { _dataStore.Data.Settings.ShowAnimations = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); NeedsRestart = true; }
 
     partial void OnSendWithEnterChanged(bool value) { _dataStore.Data.Settings.SendWithEnter = value; Save(); SettingsChanged?.Invoke(); NotifyModified(); }
@@ -1598,6 +1611,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsDarkThemeModified => IsDarkTheme != _defaults.IsDarkTheme;
     public bool IsCompactDensityModified => IsCompactDensity != _defaults.IsCompactDensity;
     public bool IsUiScaleModified => UiScalePercent != _defaults.UiScalePercent;
+    public bool IsShowAmbientPresenceModified => ShowAmbientPresence != _defaults.ShowAmbientPresence;
     public bool IsShowAnimationsModified => ShowAnimations != _defaults.ShowAnimations;
     public bool IsSendWithEnterModified => SendWithEnter != _defaults.SendWithEnter;
     public bool IsShowTimestampsModified => ShowTimestamps != _defaults.ShowTimestamps;
@@ -1627,6 +1641,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsDarkThemeModified));
         OnPropertyChanged(nameof(IsCompactDensityModified));
         OnPropertyChanged(nameof(IsUiScaleModified));
+        OnPropertyChanged(nameof(IsShowAmbientPresenceModified));
         OnPropertyChanged(nameof(IsShowAnimationsModified));
         OnPropertyChanged(nameof(IsSendWithEnterModified));
         OnPropertyChanged(nameof(IsShowTimestampsModified));
@@ -1671,6 +1686,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand] private void RevertIsDarkTheme() => IsDarkTheme = _defaults.IsDarkTheme;
     [RelayCommand] private void RevertIsCompactDensity() => IsCompactDensity = _defaults.IsCompactDensity;
     [RelayCommand] private void RevertUiScale() => UiScalePercent = _defaults.UiScalePercent;
+    [RelayCommand] private void RevertShowAmbientPresence() => ShowAmbientPresence = _defaults.ShowAmbientPresence;
     [RelayCommand] private void RevertShowAnimations() => ShowAnimations = _defaults.ShowAnimations;
     [RelayCommand] private void RevertSendWithEnter() => SendWithEnter = _defaults.SendWithEnter;
     [RelayCommand] private void RevertShowTimestamps() => ShowTimestamps = _defaults.ShowTimestamps;
@@ -1811,6 +1827,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         IsDarkTheme = defaults.IsDarkTheme;
         IsCompactDensity = defaults.IsCompactDensity;
         UiScalePercent = defaults.UiScalePercent;
+        ShowAmbientPresence = defaults.ShowAmbientPresence;
         ShowAnimations = defaults.ShowAnimations;
         SendWithEnter = defaults.SendWithEnter;
         ShowTimestamps = defaults.ShowTimestamps;

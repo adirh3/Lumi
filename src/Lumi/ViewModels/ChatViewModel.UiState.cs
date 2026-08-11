@@ -37,6 +37,7 @@ public partial class ChatViewModel
     public bool IsVoiceAvailable => _voiceService.IsAvailable;
 
     [ObservableProperty] private bool _sendWithEnter = true;
+    [ObservableProperty] private bool _showAmbientPresence = true;
     [ObservableProperty] private bool _isRecording;
     [ObservableProperty] private string? _selectedAgentName;
     [ObservableProperty] private string _selectedAgentGlyph = "◉";
@@ -695,6 +696,7 @@ public partial class ChatViewModel
     private void InitializeMvvmUiState()
     {
         SendWithEnter = _dataStore.Data.Settings.SendWithEnter;
+        ShowAmbientPresence = _dataStore.Data.Settings.ShowAmbientPresence;
 
         ActiveSkillChips.CollectionChanged += OnActiveSkillChipsCollectionChanged;
         ActiveMcpChips.CollectionChanged += OnActiveMcpChipsCollectionChanged;

@@ -267,6 +267,10 @@
         </sc:StrataSettingGroup>
 
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Motion}">
+          <sc:StrataSetting Header="{loc:Str Setting_AmbientPresence}" Description="{loc:Str SettingDesc_AmbientPresence}"
+                            IsModified="{Binding IsShowAmbientPresenceModified}">
+            <ToggleSwitch x:Name="AmbientPresenceToggle" IsChecked="{Binding ShowAmbientPresence}" />
+          </sc:StrataSetting>
           <sc:StrataSetting Header="{loc:Str Setting_ShowAnimations}" Description="{loc:Str SettingDesc_ShowAnimations}"
                             IsModified="{Binding IsShowAnimationsModified}">
             <ToggleSwitch IsChecked="{Binding ShowAnimations}" />

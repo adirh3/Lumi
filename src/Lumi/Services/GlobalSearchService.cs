@@ -93,6 +93,7 @@ public sealed class GlobalSearchService
         new("Dark Mode", "Appearance", 2),
         new("Compact Density", "Appearance", 2),
         new("Font Size", "Appearance", 2),
+        new("Ambient Presence", "Appearance", 2),
         new("Show Animations", "Appearance", 2),
         new("Send with Enter", "Chat", 3),
         new("Show Timestamps", "Chat", 3),

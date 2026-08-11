@@ -28,6 +28,9 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
     public static readonly StyledProperty<bool> UseChatIslandChromeProperty =
         AvaloniaProperty.Register<ChatWorkspaceView, bool>(nameof(UseChatIslandChrome), true);
 
+    public static readonly StyledProperty<bool> IsPresenceEnabledProperty =
+        AvaloniaProperty.Register<ChatWorkspaceView, bool>(nameof(IsPresenceEnabled), true);
+
     public static readonly StyledProperty<Thickness> PreviewIslandMarginProperty =
         AvaloniaProperty.Register<ChatWorkspaceView, Thickness>(nameof(PreviewIslandMargin), new Thickness(0));
 
@@ -70,6 +73,12 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
     {
         get => GetValue(UseChatIslandChromeProperty);
         set => SetValue(UseChatIslandChromeProperty, value);
+    }
+
+    public bool IsPresenceEnabled
+    {
+        get => GetValue(IsPresenceEnabledProperty);
+        set => SetValue(IsPresenceEnabledProperty, value);
     }
 
     public Thickness PreviewIslandMargin
@@ -158,6 +167,8 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
 
         if (change.Property == UseChatIslandChromeProperty)
             ApplyChatIslandChrome();
+        else if (change.Property == IsPresenceEnabledProperty)
+            _presenceController?.SetEnabled(change.GetNewValue<bool>());
     }
 
     private void InitializeComponent()
@@ -270,7 +281,7 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
         // the presence travel from welcome to an opened chat.
         if (_presenceController is null)
         {
-            _presenceController = new PresenceController(contentGrid);
+            _presenceController = new PresenceController(contentGrid, IsPresenceEnabled);
             _presenceController.Attach(chatViewModel);
         }
         else

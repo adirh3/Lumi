@@ -25,6 +25,7 @@ public sealed class PresenceController : IDisposable
 {
     private readonly Grid _host;
     private readonly StrataPresence _presence;
+    private bool _isEnabled;
 
     private ChatViewModel? _vm;
     private Chat? _lastObservedChat;
@@ -76,9 +77,10 @@ public sealed class PresenceController : IDisposable
     // focus/companion resync (at most one Background post in flight at a time).
     private bool _resyncQueued;
 
-    public PresenceController(Grid host)
+    public PresenceController(Grid host, bool isEnabled = true)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
+        _isEnabled = isEnabled;
 
         _presence = new StrataPresence
         {
@@ -99,7 +101,8 @@ public sealed class PresenceController : IDisposable
         Grid.SetColumnSpan(_presence, Math.Max(1, host.ColumnDefinitions.Count));
 
         // Inject as the bottom-most layer so the translucent islands composite over it.
-        _host.Children.Insert(0, _presence);
+        if (_isEnabled)
+            _host.Children.Insert(0, _presence);
 
         // A window resize/maximize re-lays out every surface, so the normalized focus point and the
         // companion island anchor (both derived from live control bounds) go stale. Re-derive them when
@@ -110,6 +113,32 @@ public sealed class PresenceController : IDisposable
 
     /// <summary>The glow visual the controller owns (exposed for diagnostics/automation only).</summary>
     public StrataPresence Visual => _presence;
+
+    public void SetEnabled(bool enabled)
+    {
+        if (_isEnabled == enabled)
+            return;
+
+        _isEnabled = enabled;
+        if (!enabled)
+        {
+            _focusTimer?.Stop();
+            CancelDeferredArm();
+            _host.Children.Remove(_presence);
+            return;
+        }
+
+        if (!_host.Children.Contains(_presence))
+            _host.Children.Insert(0, _presence);
+
+        UpdatePresence();
+        if (_vm is { } vm && AnyIslandOpen(vm))
+        {
+            _companionPoint = null;
+            ReaimCompanion(vm);
+            ArmCompanionSettle();
+        }
+    }
 
     /// <summary>Begin observing a view-model and driving the field from its state.</summary>
     public void Attach(ChatViewModel vm)
@@ -543,6 +572,12 @@ public sealed class PresenceController : IDisposable
     /// <summary>Maps the current view-model state onto the ambient presence field.</summary>
     private void UpdatePresence()
     {
+        if (!_isEnabled)
+        {
+            CancelDeferredArm();
+            return;
+        }
+
         if (_vm is not { } vm)
             return;
 
@@ -732,6 +767,9 @@ public sealed class PresenceController : IDisposable
 
     private void EnsureFocusFollow()
     {
+        if (!_isEnabled)
+            return;
+
         _focusTimer ??= CreateFocusFollowTimer();
         if (!_focusTimer.IsEnabled)
             _focusTimer.Start();
@@ -765,6 +803,9 @@ public sealed class PresenceController : IDisposable
     /// </summary>
     private void BeginDeferredArm()
     {
+        if (!_isEnabled)
+            return;
+
         _armPending = true;
         _armReadyTicks = 0;
         _armLastTick = DateTime.UtcNow;
@@ -831,6 +872,12 @@ public sealed class PresenceController : IDisposable
     /// </summary>
     private void CompleteDeferredArm()
     {
+        if (!_isEnabled)
+        {
+            CancelDeferredArm();
+            return;
+        }
+
         // Fire the felt impulse BEFORE UpdatePresence re-aims the focus (matching the work-edge gesture order),
         // so the punch reads off the field's resting welcome position.
         _presence.Descend();
