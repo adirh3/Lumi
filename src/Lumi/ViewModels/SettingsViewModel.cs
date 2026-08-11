@@ -568,6 +568,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _updateService.StatusChanged -= OnUpdateStatusChanged;
+        DisposeRemoteState();
     }
 
     private void OnUpdateStatusChanged(UpdateStatus status)

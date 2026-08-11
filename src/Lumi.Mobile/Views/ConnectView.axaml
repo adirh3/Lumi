@@ -1,0 +1,278 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.Mobile.ViewModels"
+             xmlns:views="using:Lumi.Mobile.Views"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:textInput="using:Avalonia.Input.TextInput"
+             x:Class="Lumi.Mobile.Views.ConnectView"
+             x:DataType="vm:ConnectViewModel">
+
+  <Grid>
+    <Border x:Name="ConnectSafeAreaSidesProxy"
+            Width="0" Height="0"
+            HorizontalAlignment="Left" VerticalAlignment="Top"
+            IsHitTestVisible="False"
+            x:DataType="vm:MobileShellViewModel"
+            DataContext="{Binding $parent[views:MobileShellView].DataContext}"
+            Padding="{Binding SafeAreaSides}" />
+    <Border x:Name="ConnectSafeAreaTopProxy"
+            Width="0" Height="0"
+            HorizontalAlignment="Left" VerticalAlignment="Top"
+            IsHitTestVisible="False"
+            x:DataType="vm:MobileShellViewModel"
+            DataContext="{Binding $parent[views:MobileShellView].DataContext}"
+            Padding="{Binding SafeAreaTop}" />
+    <Border x:Name="ConnectSafeAreaBottomProxy"
+            Width="0" Height="0"
+            HorizontalAlignment="Left" VerticalAlignment="Top"
+            IsHitTestVisible="False"
+            x:DataType="vm:MobileShellViewModel"
+            DataContext="{Binding $parent[views:MobileShellView].DataContext}"
+            Padding="{Binding SafeAreaBottom}" />
+
+    <Border x:Name="ConnectTopInset" Padding="{Binding #ConnectSafeAreaTopProxy.Padding}">
+      <Border x:Name="ConnectBottomInset" Padding="{Binding #ConnectSafeAreaBottomProxy.Padding}">
+        <Border x:Name="ConnectSideInset" Padding="{Binding #ConnectSafeAreaSidesProxy.Padding}">
+          <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="ConnectContent"
+                        MaxWidth="480"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Top"
+                        Margin="{DynamicResource Mobile.Setup.ContentMargin}"
+                        Spacing="14">
+
+              <!-- Compact brand lockup: the product mark is real, immediate, and equally legible in
+                   both theme variants. -->
+              <Grid x:Name="ConnectHero" ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                <Border Width="64" Height="64"
+                        Padding="4"
+                        CornerRadius="18"
+                        Background="{DynamicResource Brush.Surface1}"
+                        BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                        BorderThickness="1">
+                  <Image x:Name="ConnectOrb"
+                         Source="avares://Lumi.Mobile/Assets/lumi-icon.png"
+                         Width="56" Height="56"
+                         Stretch="Uniform"
+                         HorizontalAlignment="Center"
+                         VerticalAlignment="Center" />
+                </Border>
+
+                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                  <TextBlock Text="Lumi"
+                             FontSize="{DynamicResource Font.SizeTitle}"
+                             FontWeight="SemiBold" />
+                  <TextBlock Text="Your PC, wherever you are."
+                             Classes="muted"
+                             TextWrapping="Wrap" />
+                </StackPanel>
+              </Grid>
+
+              <!-- ═══ Step 1: find the PC ═══ -->
+              <StackPanel x:Name="FindStep" Spacing="12" IsVisible="{Binding IsFindStep}">
+                <StackPanel Spacing="4">
+                  <TextBlock x:Name="FindStepTitle"
+                             Text="Connect to your PC"
+                             FontSize="{DynamicResource Font.SizeTitle}"
+                             FontWeight="SemiBold" />
+                  <TextBlock Text="Follow the three quick steps below. Tailscale keeps the connection encrypted."
+                             Classes="muted"
+                             TextWrapping="Wrap" />
+                </StackPanel>
+
+                <Border Classes="mobile-card">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="On your PC"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="Open Lumi → Settings → Phone, turn on phone access, then copy the Tailscale address."
+                               Classes="muted"
+                               TextWrapping="Wrap" />
+                  </StackPanel>
+                </Border>
+
+                <Border x:Name="ManualAddressPath"
+                        Margin="0,2,0,0">
+                  <StackPanel Spacing="10">
+                    <StackPanel Spacing="2">
+                      <TextBlock Text="Tailscale address"
+                                 FontWeight="SemiBold" />
+                      <TextBlock Text="It usually starts with 100."
+                                 Classes="muted"
+                                 TextWrapping="Wrap" />
+                    </StackPanel>
+                    <TextBox x:Name="ManualAddressBox"
+                             Classes="mobile"
+                             textInput:TextInputOptions.ContentType="Url"
+                             textInput:TextInputOptions.ReturnKeyType="Go"
+                             textInput:TextInputOptions.AutoCapitalization="False"
+                             textInput:TextInputOptions.ShowSuggestions="False"
+                             PlaceholderText="100.64.x.x"
+                             Text="{Binding ManualAddress}"
+                             KeyDown="OnManualAddressKeyDown" />
+                    <Button x:Name="ManualConnectButton"
+                            Classes="touch accent"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            Content="Continue"
+                            IsDefault="True"
+                            Command="{Binding ConnectManuallyCommand}" />
+                  </StackPanel>
+                </Border>
+
+                <Border Margin="0,2,0,0"
+                        Padding="0,12,0,0"
+                        BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                        BorderThickness="0,1,0,0">
+                  <StackPanel Spacing="8">
+                    <ToggleSwitch Content="Use a trusted local network instead"
+                                  IsChecked="{Binding AllowInsecureLanDiscovery}" />
+                    <Button x:Name="SearchButton"
+                            Classes="touch subtle"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            Command="{Binding SearchCommand}"
+                            IsVisible="{Binding AllowInsecureLanDiscovery}"
+                            IsEnabled="{Binding !IsSearching}">
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <sc:StrataPulse IsLive="{Binding IsSearching}"
+                                        Width="{DynamicResource Touch.IconSize}"
+                                        Height="{DynamicResource Touch.IconSize}"
+                                        VerticalAlignment="Center" />
+                        <TextBlock Text="Find Lumi nearby" VerticalAlignment="Center" />
+                      </StackPanel>
+                    </Button>
+                  </StackPanel>
+                </Border>
+
+                <StackPanel x:Name="DiscoveredHosts"
+                            Spacing="6"
+                            IsVisible="{Binding HasHosts}">
+                  <TextBlock Text="Nearby"
+                             FontSize="{DynamicResource Font.SizeCaption}"
+                             FontWeight="SemiBold"
+                             Foreground="{DynamicResource Brush.TextTertiary}" />
+                  <ItemsControl x:Name="HostList" ItemsSource="{Binding Hosts}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:DiscoveredHostViewModel">
+                        <Button Classes="setup-host-row"
+                                Command="{Binding $parent[ItemsControl].((vm:ConnectViewModel)DataContext).ChooseHostCommand}"
+                                CommandParameter="{Binding}">
+                          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                            <Border Grid.Column="0"
+                                    Width="40" Height="40"
+                                    CornerRadius="12"
+                                    Background="{DynamicResource Brush.AccentSubtle}"
+                                    VerticalAlignment="Center">
+                              <PathIcon Width="20" Height="20"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Foreground="{DynamicResource Brush.AccentDefault}"
+                                        Data="M3 4h18v12H3V4zm2 2v8h14V6H5zm3 12h8v2H8v-2z" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                              <TextBlock Text="{Binding HostName}"
+                                         FontWeight="SemiBold"
+                                         TextTrimming="CharacterEllipsis" />
+                              <TextBlock Text="{Binding Subtitle}"
+                                         Classes="muted"
+                                         TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <PathIcon Grid.Column="2"
+                                      Width="{DynamicResource Touch.IconSizeSmall}"
+                                      Height="{DynamicResource Touch.IconSizeSmall}"
+                                      VerticalAlignment="Center"
+                                      Foreground="{DynamicResource Brush.TextTertiary}"
+                                      Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
+                          </Grid>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </StackPanel>
+
+              <!-- ═══ Step 2: pairing code ═══ -->
+              <StackPanel x:Name="PairingStep" Spacing="14" IsVisible="{Binding IsCodeStep}">
+                <StackPanel Spacing="4">
+                  <TextBlock Text="Enter the 6-digit code"
+                             FontSize="{DynamicResource Font.SizeTitle}"
+                             FontWeight="SemiBold" />
+                  <TextBlock Text="On your PC, tap “Pair a device” in Settings → Phone, then enter the code below."
+                             Classes="muted"
+                             TextWrapping="Wrap" />
+                </StackPanel>
+
+                <Border Classes="setup-pairing-panel">
+                  <StackPanel Spacing="12">
+                    <Border HorizontalAlignment="Left"
+                            Padding="10,5"
+                            CornerRadius="{DynamicResource Radius.Full}"
+                            Background="{DynamicResource Brush.AccentSubtle}">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <sc:StrataPulse Width="9" Height="9" VerticalAlignment="Center" IsLive="True" />
+                        <TextBlock Text="{Binding TargetHostName}"
+                                   FontWeight="SemiBold"
+                                   FontSize="{DynamicResource Font.SizeMeta}"
+                                   Foreground="{DynamicResource Brush.AccentDefault}"
+                                   TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                    </Border>
+
+                    <TextBox x:Name="PairingCodeBox"
+                             Classes="mobile pairing-code"
+                             PlaceholderText="000000"
+                             Text="{Binding PairingCode}"
+                             textInput:TextInputOptions.ContentType="Number"
+                             textInput:TextInputOptions.ReturnKeyType="Done"
+                             textInput:TextInputOptions.IsSensitive="True"
+                             textInput:TextInputOptions.ShowSuggestions="False"
+                             FontSize="{DynamicResource Font.SizeHeadline}"
+                             LetterSpacing="6"
+                             TextAlignment="Center"
+                             MaxLength="6"
+                             KeyDown="OnPairingCodeKeyDown" />
+                    <Button x:Name="PairButton"
+                            Classes="touch accent"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            Content="Connect phone"
+                            Command="{Binding SubmitCodeCommand}"
+                            IsEnabled="{Binding CanSubmitCode}" />
+                  </StackPanel>
+                </Border>
+
+                <Button x:Name="PairBackButton"
+                        Classes="touch subtle"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center"
+                        Content="Use a different PC"
+                        Command="{Binding BackCommand}" />
+              </StackPanel>
+
+              <!-- ═══ Busy ═══ -->
+              <StackPanel Spacing="10" IsVisible="{Binding IsBusy}" HorizontalAlignment="Center">
+                <sc:StrataTypingIndicator IsActive="True" HorizontalAlignment="Center" />
+              </StackPanel>
+
+              <TextBlock x:Name="ConnectStatus"
+                         Text="{Binding StatusText}"
+                         Classes="muted"
+                         TextWrapping="Wrap"
+                         TextAlignment="Center"
+                         IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+              <Border x:Name="ConnectError"
+                      Classes="mobile-card"
+                      BorderBrush="{DynamicResource Brush.BorderError}"
+                      IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <TextBlock Text="{Binding ErrorText}"
+                           TextWrapping="Wrap"
+                           Foreground="{DynamicResource Brush.DangerDefault}" />
+              </Border>
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+      </Border>
+    </Border>
+  </Grid>
+</UserControl>

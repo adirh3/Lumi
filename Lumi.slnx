@@ -3,5 +3,9 @@
   <Project Path="src\Lumi\Lumi.csproj" />
   <Project Path="src\Lumi.Mcp\Lumi.Mcp.csproj" />
   <Project Path="src\Lumi.Generators\Lumi.Generators.csproj" />
+  <Project Path="src\Lumi.Remote.Protocol\Lumi.Remote.Protocol.csproj" />
+  <Project Path="src\Lumi.Mobile\Lumi.Mobile.csproj" />
+  <Project Path="src\Lumi.Mobile.Desktop\Lumi.Mobile.Desktop.csproj" />
   <Project Path="tests\Lumi.Tests\Lumi.Tests.csproj" />
+  <Project Path="tests\Lumi.Mobile.Tests\Lumi.Mobile.Tests.csproj" />
 </Solution>

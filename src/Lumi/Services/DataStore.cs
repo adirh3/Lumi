@@ -29,6 +29,7 @@ public class DataStore
     public static string ChatsDir { get; } = Path.Combine(AppDir, "chats");
     public static string CopilotConfigDir { get; } = Path.Combine(AppDir, "copilot");
     public static string SearchContentIndexFile { get; } = Path.Combine(AppDir, "search-content-index.bin");
+    internal static string AppDirectory => AppDir;
 
     /// <summary>Raised when a chat's persisted content changes (saved or deleted) so search indexes can refresh.</summary>
     public event Action<Guid>? ChatContentChanged;
@@ -36,20 +37,37 @@ public class DataStore
     /// <summary>Raised when all chats are cleared so search indexes can be reset.</summary>
     public event Action? ChatsContentReset;
 
+    /// <summary>
+    /// Raised after <see cref="SaveAsync"/> completes, i.e. whenever the index (settings, projects,
+    /// skills, agents, memories, MCP servers, jobs, chat metadata) has been persisted. Every desktop
+    /// CRUD path funnels through that save, so this is the single signal that "the library changed",
+    /// no matter which ViewModel made the edit. May fire on any thread.
+    /// </summary>
+    public event Action? IndexSaved;
+
     private AppData _data;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly SemaphoreSlim _skillSyncLock = new(1, 1);
     private readonly object _chatLoadLocksSync = new();
     private readonly Dictionary<Guid, SemaphoreSlim> _chatLoadLocks = new();
+    private readonly HashSet<Guid> _deletedChatFiles = [];
     private readonly object _chatSearchCacheSync = new();
     private readonly Dictionary<Guid, CachedChatSearchSnapshot> _chatSearchCache = [];
     private readonly object _chatChangeSync = new();
     private readonly object _backgroundJobsSync = new();
+    private readonly object _remoteSecuritySync = new();
+    private readonly object _worktreeAssociationSync = new();
+    private readonly HashSet<string> _worktreeCleanupReservations = new(
+        OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal);
     private readonly Dictionary<Guid, long> _dirtyChatVersions = [];
     private readonly Dictionary<Guid, long> _deletedChatVersions = [];
     private readonly bool _usesPersistentStorage = true;
     private long _nextBackgroundJobsChangeVersion;
     private long _dirtyBackgroundJobsVersion;
+    private long _nextRemotePairedDevicesChangeVersion;
+    private long _dirtyRemotePairedDevicesVersion;
     private int? _activeSkillSyncHash;
     private string? _activeSkillSyncDirectory;
     private long _nextChatChangeVersion;
@@ -93,6 +111,189 @@ public class DataStore
     }
 
     public AppData Data => _data;
+    internal bool UsesPersistentStorage => _usesPersistentStorage;
+
+    internal bool IsWorktreeCleanupReserved(string? path)
+    {
+        if (!TryNormalizeWorktreePath(path, out var normalized))
+            return false;
+
+        lock (_worktreeAssociationSync)
+            return _worktreeCleanupReservations.Contains(normalized);
+    }
+
+    internal bool TrySetChatWorktreePath(Chat chat, string? path)
+    {
+        ArgumentNullException.ThrowIfNull(chat);
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            lock (_worktreeAssociationSync)
+            {
+                chat.WorktreePath = null;
+                return true;
+            }
+        }
+
+        if (!TryNormalizeWorktreePath(path, out var normalized))
+            return false;
+
+        lock (_worktreeAssociationSync)
+        {
+            if (_worktreeCleanupReservations.Contains(normalized))
+                return false;
+
+            chat.WorktreePath = normalized;
+            return true;
+        }
+    }
+
+    internal WorktreeCleanupReservation? TryReserveWorktreeCleanup(
+        Chat ownerChat,
+        string path,
+        out bool isShared)
+    {
+        ArgumentNullException.ThrowIfNull(ownerChat);
+        isShared = false;
+        if (!TryNormalizeWorktreePath(path, out var normalized))
+            return null;
+
+        lock (_worktreeAssociationSync)
+        {
+            if (_worktreeCleanupReservations.Contains(normalized))
+                return null;
+
+            isShared = _data.Chats.Any(chat =>
+                chat.Id != ownerChat.Id &&
+                WorktreePathsEqual(chat.WorktreePath, normalized));
+            if (isShared)
+                return null;
+
+            _worktreeCleanupReservations.Add(normalized);
+            var detachedOwnerPath = WorktreePathsEqual(ownerChat.WorktreePath, normalized)
+                ? ownerChat.WorktreePath
+                : null;
+            if (detachedOwnerPath is not null)
+                ownerChat.WorktreePath = null;
+
+            return new WorktreeCleanupReservation(
+                this,
+                normalized,
+                ownerChat,
+                detachedOwnerPath);
+        }
+    }
+
+    internal sealed class WorktreeCleanupReservation : IDisposable
+    {
+        private DataStore? _owner;
+        private readonly string _normalizedPath;
+        private readonly Chat _ownerChat;
+        private readonly string? _detachedOwnerPath;
+
+        internal WorktreeCleanupReservation(
+            DataStore owner,
+            string normalizedPath,
+            Chat ownerChat,
+            string? detachedOwnerPath)
+        {
+            _owner = owner;
+            _normalizedPath = normalizedPath;
+            _ownerChat = ownerChat;
+            _detachedOwnerPath = detachedOwnerPath;
+        }
+
+        public bool RestoreOwnerAssociation()
+        {
+            var owner = _owner;
+            if (owner is null || _detachedOwnerPath is null)
+                return false;
+
+            lock (owner._worktreeAssociationSync)
+            {
+                if (_ownerChat.WorktreePath is not null)
+                    return false;
+
+                _ownerChat.WorktreePath = _detachedOwnerPath;
+                return true;
+            }
+        }
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref _owner, null);
+            if (owner is null)
+                return;
+
+            lock (owner._worktreeAssociationSync)
+                owner._worktreeCleanupReservations.Remove(_normalizedPath);
+        }
+    }
+
+    private static bool TryNormalizeWorktreePath(string? path, out string normalized)
+    {
+        normalized = "";
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        try
+        {
+            normalized = Path.GetFullPath(path)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return normalized.Length > 0;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+    }
+
+    private static bool WorktreePathsEqual(string? left, string? right)
+    {
+        return TryNormalizeWorktreePath(left, out var normalizedLeft)
+               && TryNormalizeWorktreePath(right, out var normalizedRight)
+               && string.Equals(
+                   normalizedLeft,
+                   normalizedRight,
+                   OperatingSystem.IsWindows()
+                       ? StringComparison.OrdinalIgnoreCase
+                       : StringComparison.Ordinal);
+    }
+
+    internal async Task RefreshRemoteSecurityFromDiskAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_usesPersistentStorage)
+            return;
+
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        FileStream? indexLock = null;
+        try
+        {
+            indexLock = await AcquireIndexLockAsync(cancellationToken).ConfigureAwait(false);
+            if (TryLoadIndexSnapshot() is not { } persisted)
+                return;
+
+            ApplyRemoteSecuritySnapshot(persisted.Settings);
+        }
+        finally
+        {
+            indexLock?.Dispose();
+            _writeLock.Release();
+        }
+    }
+
+    internal void ApplyRemoteSecuritySnapshot(UserSettings persisted)
+    {
+        lock (_remoteSecuritySync)
+        {
+            _data.Settings.RemoteAccessEnabled = persisted.RemoteAccessEnabled;
+            _data.Settings.RemoteAccessPort = persisted.RemoteAccessPort;
+            _data.Settings.RemoteAllowInsecureLan = persisted.RemoteAllowInsecureLan;
+            _data.Settings.RemotePairedDevices = persisted.RemotePairedDevices
+                .Select(CloneRemotePairedDevice)
+                .ToList();
+        }
+    }
 
     private static string ResolveAppDataRoot()
     {
@@ -131,6 +332,79 @@ public class DataStore
     {
         var version = Interlocked.Increment(ref _nextBackgroundJobsChangeVersion);
         Interlocked.Exchange(ref _dirtyBackgroundJobsVersion, version);
+    }
+
+    public void MarkRemoteSecurityChanged()
+    {
+        var version = Interlocked.Increment(ref _nextRemotePairedDevicesChangeVersion);
+        Interlocked.Exchange(ref _dirtyRemotePairedDevicesVersion, version);
+    }
+
+    public void MarkRemotePairedDevicesChanged() => MarkRemoteSecurityChanged();
+
+    public IReadOnlyList<RemotePairedDevice> SnapshotRemotePairedDevices()
+    {
+        lock (_remoteSecuritySync)
+            return _data.Settings.RemotePairedDevices.Select(CloneRemotePairedDevice).ToList();
+    }
+
+    public void UpsertRemotePairedDevice(RemotePairedDevice device)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        lock (_remoteSecuritySync)
+        {
+            var devices = _data.Settings.RemotePairedDevices;
+            var existing = devices.FirstOrDefault(candidate =>
+                string.Equals(candidate.DeviceId, device.DeviceId, StringComparison.Ordinal));
+            if (existing is null)
+            {
+                devices.Add(CloneRemotePairedDevice(device));
+            }
+            else
+            {
+                existing.DeviceName = device.DeviceName;
+                existing.Token = device.Token;
+                existing.PairedAt = device.PairedAt;
+                existing.LastSeenAt = device.LastSeenAt;
+            }
+        }
+
+        MarkRemotePairedDevicesChanged();
+    }
+
+    public bool RemoveRemotePairedDevice(string deviceId)
+    {
+        var removed = false;
+        lock (_remoteSecuritySync)
+        {
+            removed = _data.Settings.RemotePairedDevices.RemoveAll(candidate =>
+                string.Equals(candidate.DeviceId, deviceId, StringComparison.Ordinal)) > 0;
+        }
+
+        if (removed)
+            MarkRemotePairedDevicesChanged();
+        return removed;
+    }
+
+    public void TouchRemotePairedDevice(string deviceId, DateTimeOffset lastSeenAt)
+    {
+        lock (_remoteSecuritySync)
+        {
+            if (_data.Settings.RemotePairedDevices.FirstOrDefault(candidate =>
+                    string.Equals(candidate.DeviceId, deviceId, StringComparison.Ordinal)) is { } device)
+            {
+                device.LastSeenAt = lastSeenAt;
+            }
+        }
+    }
+
+    internal AppData CreateIndexSnapshot()
+    {
+        lock (_backgroundJobsSync)
+        {
+            lock (_remoteSecuritySync)
+                return AppDataSnapshotFactory.CreateIndexSnapshot(_data);
+        }
     }
 
     public List<BackgroundJob> SnapshotBackgroundJobs()
@@ -200,24 +474,26 @@ public class DataStore
     public async Task SaveAsync(CancellationToken cancellationToken = default)
     {
         if (!_usesPersistentStorage)
+        {
+            // In-memory stores still mutate the same AppData, so subscribers must hear about it.
+            IndexSaved?.Invoke();
             return;
+        }
 
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         FileStream? indexLock = null;
         Dictionary<Guid, long>? dirtyChatVersions = null;
         Dictionary<Guid, long>? deletedChatVersions = null;
         long backgroundJobsChangeVersion = 0;
+        long remotePairedDevicesChangeVersion = 0;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
             indexLock = await AcquireIndexLockAsync(cancellationToken).ConfigureAwait(false);
             (dirtyChatVersions, deletedChatVersions) = SnapshotChatChangeVersions();
             backgroundJobsChangeVersion = SnapshotBackgroundJobsChangeVersion();
-            AppData snapshot;
-            lock (_backgroundJobsSync)
-            {
-                snapshot = AppDataSnapshotFactory.CreateIndexSnapshot(_data);
-            }
+            remotePairedDevicesChangeVersion = SnapshotRemotePairedDevicesChangeVersion();
+            var snapshot = CreateIndexSnapshot();
             var persistedSnapshot = TryLoadIndexSnapshot();
             if (persistedSnapshot is not null)
             {
@@ -226,7 +502,8 @@ public class DataStore
                     persistedSnapshot,
                     new HashSet<Guid>(dirtyChatVersions.Keys),
                     new HashSet<Guid>(deletedChatVersions.Keys),
-                    backgroundJobsChangeVersion > 0);
+                    backgroundJobsChangeVersion > 0,
+                    remotePairedDevicesChangeVersion > 0);
             }
 
             await JsonFilePersistence.SaveAppDataAsync(
@@ -236,12 +513,15 @@ public class DataStore
 
             AcknowledgeChatChangeVersions(dirtyChatVersions, deletedChatVersions);
             AcknowledgeBackgroundJobsChangeVersion(backgroundJobsChangeVersion);
+            AcknowledgeRemotePairedDevicesChangeVersion(remotePairedDevicesChangeVersion);
         }
         finally
         {
             indexLock?.Dispose();
             _writeLock.Release();
         }
+
+        IndexSaved?.Invoke();
     }
 
     /// <summary>Saves a chat's messages to its per-chat file.</summary>
@@ -259,35 +539,50 @@ public class DataStore
         if (!_usesPersistentStorage)
             return;
 
+        // Clone synchronously on the caller's thread. Chat messages are UI-owned mutable state; if a
+        // contended gate resumed below on the pool, enumerating them there could race the next event.
         var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
         var messagesSnapshot = chat.Messages
-            .Select(static m => m.Clone())
+            .Select(static message => message.Clone())
             .ToList();
 
-        // Keep the persisted message count in sync so has-content checks work even after
-        // the chat's messages are unloaded from memory while it is inactive.
-        chat.MessageCount = messagesSnapshot.Count;
-
-        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var chatOperationLock = GetChatLoadLock(chat.Id);
+        await chatOperationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await using var stream = new FileStream(
-                chatFile,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                81920,
-                FileOptions.Asynchronous);
+            if (IsChatFileDeleted(chat.Id))
+                return;
 
-            await JsonSerializer.SerializeAsync(
-                stream,
-                messagesSnapshot,
-                AppDataJsonContext.Default.ListChatMessage,
-                cancellationToken).ConfigureAwait(false);
+            // Keep the persisted message count in sync so has-content checks work even after
+            // the chat's messages are unloaded from memory while it is inactive.
+            chat.MessageCount = messagesSnapshot.Count;
+            chat.Preview = ChatPreviewHelper.FromMessages(messagesSnapshot);
+
+            await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await using var stream = new FileStream(
+                    chatFile,
+                    FileMode.Create,
+                    FileAccess.Write,
+                    FileShare.None,
+                    81920,
+                    FileOptions.Asynchronous);
+
+                await JsonSerializer.SerializeAsync(
+                    stream,
+                    messagesSnapshot,
+                    AppDataJsonContext.Default.ListChatMessage,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _writeLock.Release();
+            }
         }
         finally
         {
-            _writeLock.Release();
+            chatOperationLock.Release();
         }
 
         ChatContentChanged?.Invoke(chat.Id);
@@ -312,6 +607,9 @@ public class DataStore
 
         try
         {
+            if (IsChatFileDeleted(chat.Id))
+                return;
+
             // Another concurrent caller may have loaded this chat while we awaited the lock.
             if (chat.Messages.Count > 0) return;
 
@@ -397,7 +695,7 @@ public class DataStore
 
             var messages = loadedMessageSnapshots.TryGetValue(chat.Id, out var loadedMessages)
                 ? loadedMessages
-                : await ReadPersistedChatMessagesFromFileAsync(chat, cancellationToken).ConfigureAwait(false);
+                : await ReadPersistedChatMessagesAsync(chat.Id, cancellationToken).ConfigureAwait(false);
 
             foreach (var message in messages)
             {
@@ -459,57 +757,74 @@ public class DataStore
         if (chat.Messages.Count > 0)
             return chat.Messages.ToList();
 
-        return await ReadPersistedChatMessagesFromFileAsync(chat, cancellationToken).ConfigureAwait(false);
+        return await ReadPersistedChatMessagesAsync(chat.Id, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<IReadOnlyList<ChatMessage>> ReadPersistedChatMessagesFromFileAsync(
-        Chat chat,
+    /// <summary>
+    /// Reads only the persisted history for a chat ID. Unlike <see cref="ReadChatMessagesAsync"/>,
+    /// this method never touches mutable in-memory <see cref="Chat"/> state and is safe for
+    /// background read-side projections after they capture IDs on the UI thread.
+    /// </summary>
+    internal async Task<IReadOnlyList<ChatMessage>> ReadPersistedChatMessagesAsync(
+        Guid chatId,
         CancellationToken cancellationToken)
     {
         if (!_usesPersistentStorage)
             return [];
 
-        var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
-        if (!File.Exists(chatFile))
-            return [];
-
-        const int maxReadAttempts = 3;
-        const int retryDelayMs = 35;
-
-        for (var attempt = 1; attempt <= maxReadAttempts; attempt++)
+        var chatOperationLock = GetChatLoadLock(chatId);
+        await chatOperationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            try
-            {
-                await using var stream = new FileStream(
-                    chatFile,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.ReadWrite | FileShare.Delete,
-                    81920,
-                    FileOptions.Asynchronous | FileOptions.SequentialScan);
+            if (IsChatFileDeleted(chatId))
+                return [];
 
-                return await JsonSerializer.DeserializeAsync(
-                    stream,
-                    AppDataJsonContext.Default.ListChatMessage,
-                    cancellationToken).ConfigureAwait(false) ?? [];
-            }
-            catch (IOException) when (attempt < maxReadAttempts)
-            {
-                await Task.Delay(retryDelayMs, cancellationToken).ConfigureAwait(false);
-            }
-            catch (IOException ex)
-            {
-                Debug.WriteLine($"[Lumi] Suggestion history read failed for chat {chat.Id}: {ex.Message}");
+            var chatFile = Path.Combine(ChatsDir, $"{chatId}.json");
+            if (!File.Exists(chatFile))
                 return [];
-            }
-            catch (JsonException ex)
+
+            const int maxReadAttempts = 3;
+            const int retryDelayMs = 35;
+
+            for (var attempt = 1; attempt <= maxReadAttempts; attempt++)
             {
-                Debug.WriteLine($"[Lumi] Suggestion history JSON parse failed for chat {chat.Id}: {ex.Message}");
-                return [];
+                try
+                {
+                    await using var stream = new FileStream(
+                        chatFile,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete,
+                        81920,
+                        FileOptions.Asynchronous | FileOptions.SequentialScan);
+
+                    return await JsonSerializer.DeserializeAsync(
+                        stream,
+                        AppDataJsonContext.Default.ListChatMessage,
+                        cancellationToken).ConfigureAwait(false) ?? [];
+                }
+                catch (IOException) when (attempt < maxReadAttempts)
+                {
+                    await Task.Delay(retryDelayMs, cancellationToken).ConfigureAwait(false);
+                }
+                catch (IOException ex)
+                {
+                    Debug.WriteLine($"[Lumi] Suggestion history read failed for chat {chatId}: {ex.Message}");
+                    return [];
+                }
+                catch (JsonException ex)
+                {
+                    Debug.WriteLine($"[Lumi] Suggestion history JSON parse failed for chat {chatId}: {ex.Message}");
+                    return [];
+                }
             }
+
+            return [];
         }
-
-        return [];
+        finally
+        {
+            chatOperationLock.Release();
+        }
     }
 
     /// <summary>Returns a search snapshot for a chat, including persisted history when the chat is not loaded.</summary>
@@ -597,14 +912,17 @@ public class DataStore
     private SemaphoreSlim GetChatLoadLock(Guid chatId)
     {
         lock (_chatLoadLocksSync)
-        {
-            if (_chatLoadLocks.TryGetValue(chatId, out var existing))
-                return existing;
+            return GetChatLoadLockLocked(chatId);
+    }
 
-            var created = new SemaphoreSlim(1, 1);
-            _chatLoadLocks[chatId] = created;
-            return created;
-        }
+    private SemaphoreSlim GetChatLoadLockLocked(Guid chatId)
+    {
+        if (_chatLoadLocks.TryGetValue(chatId, out var existing))
+            return existing;
+
+        var created = new SemaphoreSlim(1, 1);
+        _chatLoadLocks[chatId] = created;
+        return created;
     }
 
     private void RemoveChatSearchSnapshot(Guid chatId)
@@ -727,25 +1045,44 @@ public class DataStore
         return string.Join(Environment.NewLine, segments);
     }
 
-    /// <summary>Removes the load-serialisation lock for a chat, freeing the SemaphoreSlim.</summary>
-    public void RemoveChatLoadLock(Guid chatId)
+    private static RemotePairedDevice CloneRemotePairedDevice(RemotePairedDevice device) =>
+        new()
+        {
+            DeviceId = device.DeviceId,
+            DeviceName = device.DeviceName,
+            Token = device.Token,
+            PairedAt = device.PairedAt,
+            LastSeenAt = device.LastSeenAt
+        };
+
+    private bool IsChatFileDeleted(Guid chatId)
     {
         lock (_chatLoadLocksSync)
-        {
-            if (_chatLoadLocks.Remove(chatId, out var semaphore))
-                semaphore.Dispose();
-        }
+            return _deletedChatFiles.Contains(chatId);
     }
 
     /// <summary>Deletes the per-chat file for a given chat ID.</summary>
-    public void DeleteChatFile(Guid chatId)
+    public async Task DeleteChatFileAsync(Guid chatId, CancellationToken cancellationToken = default)
     {
-        RemoveChatLoadLock(chatId);
-        RemoveChatSearchSnapshot(chatId);
+        SemaphoreSlim chatOperationLock;
+        lock (_chatLoadLocksSync)
+        {
+            _deletedChatFiles.Add(chatId);
+            chatOperationLock = GetChatLoadLockLocked(chatId);
+        }
 
-        var chatFile = Path.Combine(ChatsDir, $"{chatId}.json");
-        if (File.Exists(chatFile))
-            File.Delete(chatFile);
+        await chatOperationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            RemoveChatSearchSnapshot(chatId);
+            var chatFile = Path.Combine(ChatsDir, $"{chatId}.json");
+            if (File.Exists(chatFile))
+                File.Delete(chatFile);
+        }
+        finally
+        {
+            chatOperationLock.Release();
+        }
 
         ChatContentChanged?.Invoke(chatId);
     }
@@ -997,6 +1334,7 @@ public class DataStore
 
         if (removed > 0)
             Save();
+
     }
 
     internal sealed record PlatformSkillText(
@@ -1874,6 +2212,9 @@ public class DataStore
     private long SnapshotBackgroundJobsChangeVersion()
         => Volatile.Read(ref _dirtyBackgroundJobsVersion);
 
+    private long SnapshotRemotePairedDevicesChangeVersion()
+        => Volatile.Read(ref _dirtyRemotePairedDevicesVersion);
+
     private void AcknowledgeChatChangeVersions(
         IReadOnlyDictionary<Guid, long> dirtyChatVersions,
         IReadOnlyDictionary<Guid, long> deletedChatVersions)
@@ -1906,6 +2247,14 @@ public class DataStore
             return;
 
         Interlocked.CompareExchange(ref _dirtyBackgroundJobsVersion, 0, version);
+    }
+
+    private void AcknowledgeRemotePairedDevicesChangeVersion(long version)
+    {
+        if (version <= 0)
+            return;
+
+        Interlocked.CompareExchange(ref _dirtyRemotePairedDevicesVersion, 0, version);
     }
 
     private static AppData? TryLoadIndexSnapshot()

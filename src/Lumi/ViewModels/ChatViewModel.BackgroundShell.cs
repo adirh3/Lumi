@@ -8,6 +8,8 @@ using Avalonia.Threading;
 using GitHub.Copilot;
 using GitHub.Copilot.Rpc;
 using Lumi.Localization;
+using Lumi.Models;
+using Lumi.Services;
 
 namespace Lumi.ViewModels;
 
@@ -34,6 +36,11 @@ public partial class ChatViewModel
 
     private DispatcherTimer? _backgroundShellMonitor;
     private bool _backgroundShellPollInFlight;
+
+    internal IReadOnlySet<string> GetRunningBackgroundShellIds(Guid chatId) =>
+        _runtimeStates.TryGetValue(chatId, out var runtime)
+            ? new HashSet<string>(runtime.RunningBackgroundShells.Keys, StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal);
 
     /// <summary>Terminal cards (keyed by root tool-call id) whose async shell may still be running.</summary>
     private readonly Dictionary<string, TrackedBackgroundShell> _trackedBackgroundShells = new();
@@ -172,6 +179,9 @@ public partial class ChatViewModel
         {
             toolMsg.ToolStartedAt = new DateTimeOffset(tracked.StartedUtc);
             toolMsg.ToolDurationMs = durationMs;
+            Messages.LastOrDefault(message =>
+                    message.Message.ToolCallId == tracked.RootToolCallId)
+                ?.NotifyToolDetailsChanged();
         }
 
         _transcriptBuilder.SetTerminalRunningInBackground(tracked.RootToolCallId, false, durationMs);
@@ -261,7 +271,7 @@ public partial class ChatViewModel
 
                 RememberRunningBackgroundShell(toolCallId, shell.StartedAt);
                 _transcriptBuilder.SetTerminalRunningInBackground(toolCallId, true, startedUtc: shell.StartedAt);
-                await UpdateBackgroundShellOutputAsync(session, shell, toolCallId);
+                await UpdateBackgroundShellOutputAsync(session, chat, shell, toolCallId);
             }
 
             // The final per-shell await may also have spanned a chat switch; re-check before mutating
@@ -295,7 +305,11 @@ public partial class ChatViewModel
            && shell.ExecutionMode is { } mode
            && mode == TaskExecutionMode.Background;
 
-    private async Task UpdateBackgroundShellOutputAsync(CopilotSession session, TaskInfoShell shell, string toolCallId)
+    private async Task UpdateBackgroundShellOutputAsync(
+        CopilotSession session,
+        Chat chat,
+        TaskInfoShell shell,
+        string toolCallId)
     {
         try
         {
@@ -303,12 +317,35 @@ public partial class ChatViewModel
             if (progress.Progress is TasksGetProgressResultProgressShell shellProgress
                 && !string.IsNullOrWhiteSpace(shellProgress.RecentOutput))
             {
-                _transcriptBuilder.UpdateTerminalOutput(toolCallId, shellProgress.RecentOutput.TrimEnd(), true);
+                var output = shellProgress.RecentOutput.TrimEnd();
+                ApplyTerminalOutputAndNotify(chat, toolCallId, output, replaceExistingOutput: true);
+                _transcriptBuilder.UpdateTerminalOutput(toolCallId, output, true);
             }
         }
         catch
         {
             // Best-effort live tail; ignore transient progress failures.
+        }
+    }
+
+    private void ApplyTerminalOutputAndNotify(
+        Chat chat,
+        string toolCallId,
+        string output,
+        bool replaceExistingOutput)
+    {
+        var toolMessage = chat.Messages.LastOrDefault(message => message.ToolCallId == toolCallId);
+        var previous = toolMessage?.ToolOutput;
+        ToolDisplayHelper.ApplyTerminalOutput(
+            chat,
+            toolCallId,
+            output,
+            replaceExistingOutput);
+        if (toolMessage is not null
+            && !string.Equals(previous, toolMessage.ToolOutput, StringComparison.Ordinal))
+        {
+            Messages.LastOrDefault(message => ReferenceEquals(message.Message, toolMessage))
+                ?.NotifyToolDetailsChanged();
         }
     }
 

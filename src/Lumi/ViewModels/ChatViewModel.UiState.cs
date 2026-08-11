@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GitHub.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -62,6 +63,26 @@ public partial class ChatViewModel
 
         CurrentChat.PlanContent = value;
         QueueSaveChat(CurrentChat, saveIndex: true);
+    }
+
+    internal async Task<string?> RestoreWorktreeForExternalChatAsync(
+        Chat targetChat,
+        string worktreePath)
+    {
+        if (!_dataStore.TrySetChatWorktreePath(targetChat, worktreePath))
+            return "Lumi could not restore the chat's previous worktree.";
+
+        if (CurrentChat?.Id == targetChat.Id)
+        {
+            WorktreePath = worktreePath;
+            IsWorktreeMode = true;
+        }
+
+        _dataStore.MarkChatChanged(targetChat);
+        await _dataStore.SaveChatAsync(targetChat).ConfigureAwait(true);
+        await _dataStore.SaveAsync().ConfigureAwait(true);
+        QueueRefreshCodingProjectState();
+        return null;
     }
 
     // ── Skill preview (opened from a transcript skill chip) ──
@@ -186,6 +207,8 @@ public partial class ChatViewModel
     private Dictionary<string, long> _modelLongContextTokenLimits = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _modelsWithLongContext = new(StringComparer.OrdinalIgnoreCase);
 
+    public int ModelCatalogVersion { get; private set; }
+
     /// <summary>
     /// Updates the model capabilities cache from SDK ModelInfo list.
     /// Called by MainViewModel after fetching models from the SDK.
@@ -230,12 +253,28 @@ public partial class ChatViewModel
             replaceExisting: !merge);
         ApplyContextWindowLimits(contextWindowLimits, contextTokenLimits, longContextTokenLimits);
 
+        if (merge)
+        {
+            // Existing entries win only where the incoming set says nothing: a caller describing a
+            // model is still authoritative for that model.
+            foreach (var (key, value) in _modelReasoningEfforts)
+                reasoningEfforts.TryAdd(key, value);
+            foreach (var (key, value) in _modelDefaultEfforts)
+                defaultEfforts.TryAdd(key, value);
+            foreach (var (key, value) in _modelContextTokenLimits)
+                contextTokenLimits.TryAdd(key, value);
+            foreach (var (key, value) in _modelLongContextTokenLimits)
+                longContextTokenLimits.TryAdd(key, value);
+        }
+
         _modelReasoningEfforts = reasoningEfforts;
         _modelDefaultEfforts = defaultEfforts;
         _modelContextTokenLimits = contextTokenLimits;
         _modelLongContextTokenLimits = longContextTokenLimits;
         if (longContextModelIds is not null || !merge)
             _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
+        ModelCatalogVersion++;
+        OnPropertyChanged(nameof(ModelCatalogVersion));
 
         UpdateQualityLevels(SelectedModel);
         UpdateContextWindowTiers(SelectedModel);
@@ -315,6 +354,33 @@ public partial class ChatViewModel
         QualityLevels = ModelSelectionHelper.GetQualityLevels(modelId, _modelReasoningEfforts);
         SyncSelectedQualityFromState(modelId);
     }
+
+    /// <summary>
+    /// The reasoning efforts a given model supports, independent of the open chat.
+    ///
+    /// <para>Exposed for the remote projector: the phone defers chat creation until the first
+    /// message, so it needs to know a model's efforts before any chat exists to read them from.</para>
+    /// </summary>
+    public string[]? GetQualityLevelsFor(string? modelId) =>
+        ModelSelectionHelper.GetQualityLevels(modelId, _modelReasoningEfforts);
+
+    public string[]? GetContextWindowTiersFor(string? modelId) =>
+        ModelSelectionHelper.GetContextWindowTiers(modelId, _modelsWithLongContext);
+
+    /// <summary>
+    /// Reconciles a reasoning effort against what a model actually supports, returning null when it
+    /// supports none. Exposed so callers that build a chat outside the normal open/send flow — the
+    /// remote command router, which creates chats for the phone — cannot hand the SDK an effort the
+    /// chosen model rejects. Copying <c>Settings.ReasoningEffort</c> verbatim onto a chat whose
+    /// model is "auto" made every first message from the phone fail with
+    /// "Reasoning effort is not supported when using the auto model".
+    /// </summary>
+    public string? NormalizeReasoningEffortFor(string? modelId, string? effort) =>
+        ModelSelectionHelper.NormalizeEffort(effort, modelId, _modelReasoningEfforts, _modelDefaultEfforts);
+
+    /// <summary>Context-window tier reconciled against what the model supports (null when unsupported).</summary>
+    public string? NormalizeContextWindowTierFor(string? modelId, string? tier) =>
+        ModelSelectionHelper.NormalizeContextWindowTier(tier, modelId, _modelsWithLongContext);
 
     private void UpdateContextWindowTiers(string? modelId)
     {
@@ -595,6 +661,18 @@ public partial class ChatViewModel
         if (contextTier is null)
             return;
 
+        if (CurrentChat is { } activeChat)
+        {
+            var runtime = GetOrCreateRuntimeState(activeChat.Id);
+            InvalidateContextForSelectionChange(activeChat, SelectedModel, contextTier);
+            ApplySelectedContextTokenLimit(
+                activeChat,
+                runtime,
+                ResolveSelectedModelForChat(activeChat),
+                contextTier,
+                updateDisplayed: true);
+        }
+
         if (CurrentChat is null || CurrentChat.Messages.Count == 0)
         {
             if (_dataStore.Data.Settings.ContextWindowTier != contextTier)
@@ -640,7 +718,8 @@ public partial class ChatViewModel
             .Select(a => new StrataComposerChip(
                 a.Name,
                 a.IconGlyph,
-                SecondaryText: BuildChipSearchText(a.Description, a.SystemPrompt)))
+                SecondaryText: BuildChipSearchText(a.Description, a.SystemPrompt),
+                Value: a.Id.ToString()))
             .ToList();
 
         // Start with Lumi skills
@@ -709,7 +788,8 @@ public partial class ChatViewModel
                 .Select(p => new StrataComposerChip(
                     p.Name,
                     "📁",
-                    SecondaryText: BuildProjectInlineCompletionSecondaryText(p))));
+                    SecondaryText: BuildProjectInlineCompletionSecondaryText(p),
+                    Value: p.Id.ToString())));
 
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
@@ -883,6 +963,8 @@ public partial class ChatViewModel
 
     partial void OnCurrentChatChanged(Chat? value)
     {
+        ResetContextDetailsForChatChange(value);
+
         if (_currentChatTitleSource is not null)
             _currentChatTitleSource.PropertyChanged -= OnCurrentChatPropertyChanged;
 
@@ -893,6 +975,7 @@ public partial class ChatViewModel
         OnPropertyChanged(nameof(IsWelcomeVisible));
         OnPropertyChanged(nameof(IsChatVisible));
         OnPropertyChanged(nameof(IsWorktreeLocked));
+        NotifyTokenPropertiesChanged();
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
 
@@ -1656,6 +1739,346 @@ public partial class ChatViewModel
         }
     }
 
+    internal readonly record struct ExternalWorktreeCreationResult(
+        string? Error,
+        string? WorktreePath,
+        string? ProjectDirectory,
+        bool CreatedByThisCall);
+
+    internal Task<ExternalWorktreeCreationResult> CreateWorktreeForExternalChatAsync(Chat targetChat) =>
+        CreateWorktreeForChatAsync(
+            targetChat,
+            attachments: null,
+            userMessage: null,
+            announceProgress: false);
+
+    internal async Task<string?> ClearWorktreeForExternalChatAsync(Chat targetChat)
+    {
+        if (targetChat.WorktreePath is not { Length: > 0 } previousPath)
+            return null;
+
+        try
+        {
+            // Detach this chat without deleting the directory. Worktrees may be shared by a fork,
+            // and even an unshared worktree can contain user changes that must never be discarded
+            // just because the phone switches the first turn back to the local checkout.
+            targetChat.WorktreePath = null;
+            if (CurrentChat?.Id == targetChat.Id)
+            {
+                WorktreePath = null;
+                IsWorktreeMode = false;
+            }
+
+            _dataStore.MarkChatChanged(targetChat);
+            await _dataStore.SaveChatAsync(targetChat).ConfigureAwait(true);
+            await _dataStore.SaveAsync().ConfigureAwait(true);
+            QueueRefreshCodingProjectState();
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _dataStore.TrySetChatWorktreePath(targetChat, previousPath);
+            if (CurrentChat?.Id == targetChat.Id)
+            {
+                WorktreePath = previousPath;
+                IsWorktreeMode = true;
+            }
+            Trace.TraceWarning($"[Chat] Worktree removal failed for {targetChat.Id}: {ex}");
+            return $"Lumi could not remove the worktree: {ex.Message}";
+        }
+    }
+
+    internal async Task<string?> RemoveCreatedWorktreeForExternalChatAsync(
+        Chat targetChat,
+        string worktreePath,
+        string projectDirectory)
+    {
+        DataStore.WorktreeCleanupReservation? cleanupReservation = null;
+        var worktreeRemoved = false;
+        try
+        {
+            cleanupReservation = _dataStore.TryReserveWorktreeCleanup(
+                targetChat,
+                worktreePath,
+                out var isShared);
+            if (cleanupReservation is null)
+            {
+                if (isShared)
+                    return "The pending turn was canceled, but its worktree is used by another chat and was kept.";
+
+                return "The pending turn was canceled, but its worktree is already being cleaned up and was kept.";
+            }
+
+            if (CurrentChat?.Id == targetChat.Id)
+            {
+                WorktreePath = null;
+                IsWorktreeMode = false;
+            }
+
+            // Persist the detachment before touching the directory. If this fails, the worktree is
+            // preserved and the in-memory association is restored.
+            _dataStore.MarkChatChanged(targetChat);
+            await _dataStore.SaveChatAsync(targetChat).ConfigureAwait(true);
+            await _dataStore.SaveAsync().ConfigureAwait(true);
+
+            if (!await GitService
+                    .RemoveWorktreeIfCleanAsync(projectDirectory, worktreePath)
+                    .ConfigureAwait(true))
+            {
+                await RestoreTargetAssociationAsync().ConfigureAwait(true);
+                return "The pending turn was canceled, but its worktree may contain changes and was kept.";
+            }
+
+            worktreeRemoved = true;
+            QueueRefreshCodingProjectState();
+            return null;
+
+            async Task RestoreTargetAssociationAsync()
+            {
+                if (cleanupReservation?.RestoreOwnerAssociation() != true)
+                    return;
+
+                if (CurrentChat?.Id == targetChat.Id)
+                {
+                    WorktreePath = worktreePath;
+                    IsWorktreeMode = true;
+                }
+
+                _dataStore.MarkChatChanged(targetChat);
+                await _dataStore.SaveChatAsync(targetChat).ConfigureAwait(true);
+                await _dataStore.SaveAsync().ConfigureAwait(true);
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!worktreeRemoved && cleanupReservation?.RestoreOwnerAssociation() == true)
+            {
+                if (CurrentChat?.Id == targetChat.Id)
+                {
+                    WorktreePath = worktreePath;
+                    IsWorktreeMode = true;
+                }
+
+                _dataStore.MarkChatChanged(targetChat);
+                try
+                {
+                    await _dataStore.SaveChatAsync(targetChat).ConfigureAwait(true);
+                    await _dataStore.SaveAsync().ConfigureAwait(true);
+                }
+                catch (Exception saveEx)
+                {
+                    Trace.TraceWarning($"[Chat] Restored worktree persistence failed for {targetChat.Id}: {saveEx}");
+                }
+            }
+
+            Trace.TraceWarning($"[Chat] Canceled worktree cleanup failed for {targetChat.Id}: {ex}");
+            return $"Lumi could not remove the canceled worktree: {ex.Message}";
+        }
+        finally
+        {
+            cleanupReservation?.Dispose();
+        }
+    }
+
+    private async Task<ExternalWorktreeCreationResult> CreateWorktreeForChatAsync(
+        Chat targetChat,
+        List<Attachment>? attachments,
+        ChatMessage? userMessage,
+        bool announceProgress)
+    {
+        if (targetChat.WorktreePath is { Length: > 0 } existingPath
+            && Directory.Exists(existingPath))
+        {
+            if (CurrentChat?.Id == targetChat.Id)
+            {
+                WorktreePath = existingPath;
+                IsWorktreeMode = true;
+            }
+
+            return new ExternalWorktreeCreationResult(
+                null,
+                existingPath,
+                null,
+                CreatedByThisCall: false);
+        }
+
+        var project = targetChat.ProjectId is { } projectId
+            ? _dataStore.Data.Projects.FirstOrDefault(candidate => candidate.Id == projectId)
+            : null;
+        var projectDir = project?.WorkingDirectory;
+        if (!GitService.IsGitRepo(projectDir ?? ""))
+            return new ExternalWorktreeCreationResult(
+                "That project is not a Git repository, so Lumi could not create a worktree.",
+                null,
+                null,
+                CreatedByThisCall: false);
+
+        if (announceProgress)
+        {
+            var runtime = GetOrCreateRuntimeState(targetChat.Id);
+            MarkRuntimeActive(runtime, Loc.Status_CreatingWorktree);
+            if (CurrentChat?.Id == targetChat.Id)
+                ApplyDisplayedRuntimeState(runtime);
+        }
+
+        try
+        {
+            var branchName = $"lumi/{targetChat.Id:N}"[..13];
+            var creation = await GitService.CreateWorktreeWithOwnershipAsync(projectDir!, branchName);
+            var path = creation.Path;
+            if (path is null)
+            {
+                return new ExternalWorktreeCreationResult(
+                    "Lumi could not create a worktree for this chat.",
+                    null,
+                    null,
+                    CreatedByThisCall: false);
+            }
+
+            if (!IsExternalProjectContextCurrent(targetChat, project?.Id, projectDir))
+            {
+                if (creation.CreatedByThisCall)
+                {
+                    using var cleanupReservation = _dataStore.TryReserveWorktreeCleanup(
+                        targetChat,
+                        path,
+                        out var isShared);
+                    if (cleanupReservation is null || isShared)
+                    {
+                        return new ExternalWorktreeCreationResult(
+                            $"The chat project changed while Lumi was creating its worktree. " +
+                            $"The worktree at \"{path}\" is in use and was kept.",
+                            path,
+                            projectDir,
+                            CreatedByThisCall: true);
+                    }
+
+                    var removed = await GitService
+                        .RemoveWorktreeIfCleanAsync(projectDir!, path)
+                        .ConfigureAwait(true);
+                    if (!removed)
+                    {
+                        return new ExternalWorktreeCreationResult(
+                            $"The chat project changed while Lumi was creating its worktree. " +
+                            $"The worktree at \"{path}\" may contain changes and was kept.",
+                            path,
+                            projectDir,
+                            CreatedByThisCall: true);
+                    }
+                }
+
+                return new ExternalWorktreeCreationResult(
+                    "The chat project changed while Lumi was creating its worktree.",
+                    null,
+                    null,
+                    CreatedByThisCall: false);
+            }
+
+            if (!_dataStore.TrySetChatWorktreePath(targetChat, path))
+            {
+                if (creation.CreatedByThisCall)
+                {
+                    using var cleanup = _dataStore.TryReserveWorktreeCleanup(
+                        targetChat,
+                        path,
+                        out _);
+                    if (cleanup is not null)
+                        await GitService.RemoveWorktreeIfCleanAsync(projectDir!, path).ConfigureAwait(true);
+                }
+                return new ExternalWorktreeCreationResult(
+                    "That worktree is being cleaned up and cannot be attached to the chat.",
+                    null,
+                    null,
+                    CreatedByThisCall: false);
+            }
+            if (CurrentChat?.Id == targetChat.Id)
+            {
+                WorktreePath = path;
+                IsWorktreeMode = true;
+            }
+
+            if (attachments is { Count: > 0 } && userMessage is not null)
+            {
+                var effectiveWorktreeDir =
+                    GitService.ResolveWorktreeWorkingDirectory(path, projectDir!);
+                RebaseAttachmentPaths(attachments, userMessage, projectDir!, effectiveWorktreeDir);
+            }
+
+            _dataStore.MarkChatChanged(targetChat);
+            if (announceProgress)
+            {
+                // Preserve the desktop send path's AutoSaveChats contract. The user message has
+                // already been appended by this point, so direct persistence would save a chat
+                // even when automatic chat persistence is disabled.
+                QueueSaveChat(targetChat, saveIndex: false);
+            }
+            else
+            {
+                // A remote-created chat was already persisted before its first turn. Persist its
+                // newly-created worktree metadata before acknowledging the remote send.
+                try
+                {
+                    await _dataStore.SaveChatAsync(targetChat).ConfigureAwait(true);
+                    await _dataStore.SaveAsync().ConfigureAwait(true);
+                }
+                catch (Exception saveException)
+                {
+                    _dataStore.TrySetChatWorktreePath(targetChat, null);
+                    if (CurrentChat?.Id == targetChat.Id)
+                    {
+                        WorktreePath = null;
+                        IsWorktreeMode = false;
+                    }
+
+                    var removed = false;
+                    if (creation.CreatedByThisCall)
+                    {
+                        using var cleanup = _dataStore.TryReserveWorktreeCleanup(
+                            targetChat,
+                            path,
+                            out _);
+                        if (cleanup is not null)
+                        {
+                            removed = await GitService
+                                .RemoveWorktreeIfCleanAsync(projectDir!, path)
+                                .ConfigureAwait(true);
+                        }
+                    }
+
+                    return new ExternalWorktreeCreationResult(
+                        removed
+                            ? $"Lumi could not persist the worktree: {saveException.Message}"
+                            : $"Lumi could not persist the worktree. The directory at \"{path}\" was kept: {saveException.Message}",
+                        removed ? null : path,
+                        removed ? null : projectDir,
+                        CreatedByThisCall: !removed && creation.CreatedByThisCall);
+                }
+            }
+
+            QueueRefreshCodingProjectState();
+            return new ExternalWorktreeCreationResult(
+                null,
+                path,
+                projectDir,
+                creation.CreatedByThisCall);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"[Chat] Worktree creation failed for {targetChat.Id}: {ex}");
+            if (CurrentChat?.Id == targetChat.Id)
+            {
+                WorktreePath = null;
+                IsWorktreeMode = false;
+            }
+
+            return new ExternalWorktreeCreationResult(
+                $"Lumi could not create the worktree: {ex.Message}",
+                null,
+                null,
+                CreatedByThisCall: false);
+        }
+    }
+
     /// <summary>Selects an existing worktree. Sets worktree mode with the given path
     /// so no new worktree is created on first message.</summary>
     [RelayCommand]
@@ -1663,6 +2086,7 @@ public partial class ChatViewModel
     {
         if (CurrentChat is not null) return;
         if (!Directory.Exists(path)) return;
+        if (_dataStore.IsWorktreeCleanupReserved(path)) return;
 
         IsWorktreeMode = true;
         WorktreePath = path;

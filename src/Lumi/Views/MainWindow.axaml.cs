@@ -405,8 +405,21 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (IsPrimaryWindow)
+        {
+            foreach (var chatWindow in GetDesktopWindows().OfType<ChatWindow>().ToList())
+                chatWindow.Close();
+        }
+
         CaptureBoundsToSettings();
         base.OnClosing(e);
+    }
+
+    protected virtual IReadOnlyList<Window> GetDesktopWindows()
+    {
+        return Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop
+            ? desktop.Windows
+            : [];
     }
 
     private void RestoreWindowBounds()

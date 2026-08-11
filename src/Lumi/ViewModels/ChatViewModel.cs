@@ -55,6 +55,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// </summary>
     private readonly HashSet<string> _mcpOAuthLoginAttempts = new(StringComparer.Ordinal);
     private readonly object _mcpOAuthLoginLock = new();
+    private static readonly object ChatOperationReservationLock = new();
+    private static readonly HashSet<Guid> ChatDeletionReservations = [];
+    private static readonly HashSet<Guid> ChatSendReservations = [];
+    private readonly object _externalSendReservationLock = new();
+    private readonly Dictionary<Guid, ExternalSendReservationState> _externalSendReservations = [];
 
     /// <summary>
     /// The resolved OAuth chip message per <c>sessionId|serverName</c> once a login attempt has produced
@@ -735,6 +740,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly TranscriptBuilder _transcriptBuilder;
     private readonly TranscriptWindowController _transcriptWindow = new(new TranscriptPagingOptions
     {
+        MaintainStableMembership = true,
         EnableDiagnostics = TranscriptDiagnosticsEnabled,
     });
 
@@ -908,12 +914,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [ObservableProperty] private long _contextCurrentTokens;
     [ObservableProperty] private long _contextTokenLimit;
 
-    public bool HasTokenUsage => TotalInputTokens > 0 || TotalOutputTokens > 0;
+    public bool HasTokenUsage => HasContextUsage || CurrentChat is { Messages.Count: > 0 };
     public bool ShowInfoStrip => IsCodingProject || HasTokenUsage;
     public string TokenUsageSummary => HasContextUsage
         ? $"{ContextUsagePercent}%"
-        : FormatTokenCount(TotalInputTokens + TotalOutputTokens);
-    public string TokenUsageSuffixText => HasContextUsage ? "context" : "tokens";
+        : HasTokenUsage ? Loc.Get("Chat_ContextWindow_ChipLabel") : "";
+    public string TokenUsageSuffixText => HasContextUsage ? "context" : "";
     public string TokenInputDisplay => $"{TotalInputTokens:N0}";
     public string TokenOutputDisplay => $"{TotalOutputTokens:N0}";
     public string TokenTotalDisplay => $"{TotalInputTokens + TotalOutputTokens:N0}";
@@ -927,9 +933,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public string ContextTokenLimitSourceDisplay => CurrentChat is not null && _runtimeStates.TryGetValue(CurrentChat.Id, out var runtime)
         ? runtime.ContextTokenLimitSource.ToString()
         : ContextTokenLimitSource.Unknown.ToString();
-    public int ContextUsagePercent => ContextTokenLimit > 0
-        ? (int)Math.Round(100.0 * ContextCurrentTokens / ContextTokenLimit)
-        : 0;
+    public int ContextUsagePercent
+        => CalculateBoundedContextUsagePercent(ContextCurrentTokens, ContextTokenLimit);
     public string ContextUsageDisplay => HasContextUsage
         ? $"{FormatTokenCount(ContextCurrentTokens)} / {FormatTokenCount(ContextTokenLimit)}"
         : "";
@@ -952,6 +957,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ContextTokenLimitSourceDisplay));
         OnPropertyChanged(nameof(ContextUsagePercent));
         OnPropertyChanged(nameof(ContextUsageDisplay));
+        NotifyContextUsageDerivedPropertiesChanged();
     }
 
     private static string FormatTokenCount(long tokens) => tokens switch
@@ -973,8 +979,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         long sessionTokenLimit,
         long catalogTokenLimit)
     {
-        if (sessionTokenLimit > 0)
+        if (sessionTokenLimit > 0
+            && (catalogTokenLimit <= 0 || sessionTokenLimit == catalogTokenLimit))
+        {
             return (sessionTokenLimit, ContextTokenLimitSource.Session);
+        }
 
         return catalogTokenLimit > 0
             ? (catalogTokenLimit, ContextTokenLimitSource.Catalog)
@@ -1081,10 +1090,30 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var modelStateChanged = !string.Equals(runtime.ActiveModelId, effectiveModel, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(runtime.ActiveContextWindowTier, effectiveContextTier, StringComparison.OrdinalIgnoreCase);
 
+        if (modelStateChanged)
+        {
+            if (CurrentChat?.Id == chat.Id
+                && (!string.IsNullOrWhiteSpace(runtime.ActiveModelId)
+                    || HasContextBreakdown
+                    || _contextDetailsUpdatedAt is not null))
+            {
+                InvalidateContextDetailsForSessionModelChange(chat, effectiveModel, effectiveContextTier);
+            }
+
+            runtime.ContextCurrentTokens = 0;
+            runtime.HasExactContextUsage = false;
+            chat.ContextCurrentTokens = 0;
+            chat.HasExactContextUsage = false;
+            if (updateDisplayed)
+                ContextCurrentTokens = 0;
+        }
+
         if (modelStateChanged && runtime.ContextTokenLimitSource == ContextTokenLimitSource.Session)
         {
             runtime.ContextTokenLimit = 0;
             runtime.ContextTokenLimitSource = ContextTokenLimitSource.Unknown;
+            runtime.ContextTokenLimitModelId = null;
+            runtime.ContextTokenLimitTier = null;
             chat.ContextTokenLimit = 0;
             if (updateDisplayed)
                 ContextTokenLimit = 0;
@@ -1140,7 +1169,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var currentTokens = runtime.ContextCurrentTokens <= 0 && chat.ContextCurrentTokens > 0
             ? chat.ContextCurrentTokens
             : (long?)null;
-        ApplyContextUsage(chat, runtime, currentTokens, tokenLimit, ContextTokenLimitSource.Catalog, updateDisplayed);
+        ApplyContextUsage(
+            chat,
+            runtime,
+            currentTokens,
+            tokenLimit,
+            ContextTokenLimitSource.Catalog,
+            updateDisplayed,
+            currentTokensAreExact: runtime.HasExactContextUsage,
+            tokenLimitModelId: fallbackModelId,
+            tokenLimitTier: contextTier);
     }
 
     private void ApplyContextUsage(
@@ -1149,14 +1187,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         long? currentTokens,
         long? tokenLimit,
         ContextTokenLimitSource tokenLimitSource,
-        bool updateDisplayed)
+        bool updateDisplayed,
+        bool currentTokensAreExact = false,
+        string? tokenLimitModelId = null,
+        string? tokenLimitTier = null)
     {
-        if (currentTokens is > 0 and var currentTokenValue)
-        {
-            runtime.ContextCurrentTokens = currentTokenValue;
-            chat.ContextCurrentTokens = currentTokenValue;
-        }
-
+        var acceptedTokenLimit = runtime.ContextTokenLimit;
+        var tokenLimitApplied = false;
         if (tokenLimit is > 0 and var tokenLimitValue)
         {
             var canApplyTokenLimit = tokenLimitSource != ContextTokenLimitSource.Catalog
@@ -1165,9 +1202,29 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             {
                 runtime.ContextTokenLimit = tokenLimitValue;
                 runtime.ContextTokenLimitSource = tokenLimitSource;
+                runtime.ContextTokenLimitModelId = tokenLimitModelId;
+                runtime.ContextTokenLimitTier = tokenLimitTier;
                 chat.ContextTokenLimit = tokenLimitValue;
+                acceptedTokenLimit = tokenLimitValue;
+                tokenLimitApplied = true;
                 OnPropertyChanged(nameof(ContextTokenLimitSourceDisplay));
             }
+        }
+
+        if (currentTokensAreExact && currentTokens is > 0 and var currentTokenValue)
+        {
+            var normalizedCurrentTokens = NormalizeExactContextCurrentTokens(currentTokenValue, acceptedTokenLimit);
+            runtime.ContextCurrentTokens = normalizedCurrentTokens;
+            runtime.HasExactContextUsage = true;
+            chat.ContextCurrentTokens = normalizedCurrentTokens;
+            chat.HasExactContextUsage = true;
+        }
+        else if (tokenLimitApplied
+                 && runtime.HasExactContextUsage
+                 && runtime.ContextCurrentTokens > acceptedTokenLimit)
+        {
+            runtime.ContextCurrentTokens = acceptedTokenLimit;
+            chat.ContextCurrentTokens = acceptedTokenLimit;
         }
 
         if (updateDisplayed)
@@ -1177,10 +1234,31 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
     }
 
+    internal static long NormalizeExactContextCurrentTokens(long currentTokens, long tokenLimit)
+    {
+        var normalized = Math.Max(currentTokens, 0);
+        return tokenLimit > 0 ? Math.Min(normalized, tokenLimit) : normalized;
+    }
+
+    internal static int CalculateBoundedContextUsagePercent(long currentTokens, long tokenLimit)
+    {
+        if (tokenLimit <= 0)
+            return 0;
+
+        var percent = Math.Round(100.0 * Math.Max(currentTokens, 0) / tokenLimit);
+        return (int)Math.Clamp(percent, 0, 100);
+    }
+
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = [];
     /// <summary>Full transcript turn store retained in memory for the active chat.</summary>
     [ObservableProperty] private ObservableCollection<TranscriptTurn> _transcriptTurns = [];
+    /// <summary>
+    /// Identity-stable visual transcript membership. Production keeps every turn here and virtualizes
+    /// only heavy per-turn content, so scrolling never inserts or evicts collection ranges.
+    /// </summary>
     public ObservableCollection<TranscriptTurn> MountedTranscriptTurns => _transcriptWindow.MountedTurns;
+    public double TranscriptTopSpacerHeight => _transcriptWindow.TopSpacerHeight;
+    public double TranscriptBottomSpacerHeight => _transcriptWindow.BottomSpacerHeight;
     public string TranscriptDiagnosticsText => ShowTranscriptDiagnostics ? _transcriptWindow.DiagnosticsText : string.Empty;
     public bool IsTranscriptPinnedToBottom => _transcriptWindow.IsPinnedToBottom;
     public bool ShowTranscriptDiagnostics { get; } = TranscriptDiagnosticsEnabled;
@@ -1253,7 +1331,67 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public event Action<string, string, string, bool>? QuestionAsked;
 
     /// <summary>Pending question completions keyed by question ID.</summary>
-    private readonly Dictionary<string, TaskCompletionSource<string>> _pendingQuestions = new();
+    private readonly object _pendingQuestionsSync = new();
+    private readonly Dictionary<string, TaskCompletionSource<string>> _pendingQuestions = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Guid> _pendingQuestionChatIds = new(StringComparer.Ordinal);
+
+    private void TrackPendingQuestion(Guid chatId, string questionId, TaskCompletionSource<string> completion)
+    {
+        lock (_pendingQuestionsSync)
+        {
+            _pendingQuestions[questionId] = completion;
+            _pendingQuestionChatIds[questionId] = chatId;
+        }
+    }
+
+    private bool IsPendingQuestion(string questionId)
+    {
+        lock (_pendingQuestionsSync)
+            return _pendingQuestions.ContainsKey(questionId);
+    }
+
+    private bool HasPendingQuestion(Guid chatId)
+    {
+        lock (_pendingQuestionsSync)
+        {
+            if (_pendingQuestionChatIds.Values.Contains(chatId))
+                return true;
+
+            var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+            return chat?.Messages.Any(message =>
+                message.ToolName == "ask_question"
+                && message.ToolStatus == "InProgress"
+                && message.QuestionId is { Length: > 0 } questionId
+                && _pendingQuestions.ContainsKey(questionId)) == true;
+        }
+    }
+
+    private bool TryCompletePendingQuestion(string questionId, string answer)
+    {
+        TaskCompletionSource<string>? completion;
+        lock (_pendingQuestionsSync)
+            _pendingQuestions.TryGetValue(questionId, out completion);
+
+        return completion?.TrySetResult(answer) == true;
+    }
+
+    private void RemovePendingQuestion(string questionId)
+    {
+        lock (_pendingQuestionsSync)
+        {
+            _pendingQuestions.Remove(questionId);
+            _pendingQuestionChatIds.Remove(questionId);
+        }
+    }
+
+    private void ClearPendingQuestionTracking()
+    {
+        lock (_pendingQuestionsSync)
+        {
+            _pendingQuestions.Clear();
+            _pendingQuestionChatIds.Clear();
+        }
+    }
 
     /// <summary>Raised when the view should rebuild DataTemplates (e.g. settings changed).</summary>
     public event Action? TranscriptRebuilt;
@@ -1344,6 +1482,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         if (e.PropertyName == nameof(TranscriptWindowController.IsPinnedToBottom))
             OnPropertyChanged(nameof(IsTranscriptPinnedToBottom));
+
+        if (e.PropertyName == nameof(TranscriptWindowController.TopSpacerHeight))
+            OnPropertyChanged(nameof(TranscriptTopSpacerHeight));
+
+        if (e.PropertyName == nameof(TranscriptWindowController.BottomSpacerHeight))
+            OnPropertyChanged(nameof(TranscriptBottomSpacerHeight));
     }
 
     private void SetSelectedModelValue(string? modelId)
@@ -1365,6 +1509,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     partial void OnIsBusyChanged(bool value)
     {
         UpdateUserMessageEditState();
+        NotifyContextActionAvailabilityChanged();
         if (value)
             _transcriptBuilder.ShowTypingIndicator(StatusText);
         else
@@ -1604,7 +1749,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         double extentHeight,
         bool isFollowingTail,
         bool isPinnedToBottom,
-        double distanceFromBottom)
+        double distanceFromBottom,
+        TranscriptPagingDirection pagingDirection = TranscriptPagingDirection.None)
     {
         var mutation = _transcriptWindow.UpdateViewport(
             new TranscriptViewportState(
@@ -1612,7 +1758,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 viewportHeight,
                 extentHeight,
                 isPinnedToBottom,
-                distanceFromBottom),
+                distanceFromBottom,
+                pagingDirection),
             isFollowingTail,
             "scroll");
         if (ShowTranscriptDiagnostics)
@@ -1631,6 +1778,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             distanceFromBottom,
             "scroll-state");
     }
+
+    internal bool HasUnmountedTranscriptTail => _transcriptWindow.HasNewerPages;
+    internal bool MaintainsStableTranscriptMembership => _transcriptWindow.MaintainsStableMembership;
+    internal bool MaintainsStableTranscriptGeometry => _transcriptWindow.MaintainsStableGeometry;
 
     internal bool EnsureLatestTranscriptMounted()
     {
@@ -1938,61 +2089,32 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             var questionId = Guid.NewGuid().ToString("N");
             var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _pendingQuestions[questionId] = tcs;
+            TrackPendingQuestion(inputHandlerChatId, questionId, tcs);
 
             var optionsList = request.Choices is { Count: > 0 } ? (IList<string>)request.Choices : Array.Empty<string>();
             var optionsJson = System.Text.Json.JsonSerializer.Serialize(optionsList.ToList(), Lumi.Models.AppDataJsonContext.Default.ListString);
             var freeText = request.AllowFreeform ?? true;
 
-            Dispatcher.UIThread.Post(() =>
-            {
-                NotifyQuestionAsked(inputHandlerChatId, request.Question);
-
-                if (CurrentChat?.Id == inputHandlerChatId)
-                {
-                    _transcriptBuilder.AddQuestionToTranscript(questionId, request.Question, optionsList, freeText);
-                    QuestionAsked?.Invoke(questionId, request.Question, optionsJson, freeText);
-                    ScrollToEndRequested?.Invoke();
-                }
-            });
-
-            // Persist question data on the tool message so rebuild can recreate the question card.
-            // If no matching tool message exists (SDK native user-input path), create one.
-            Dispatcher.UIThread.Post(() =>
-            {
-                var owningChat = _dataStore.Data.Chats.Find(c => c.Id == inputHandlerChatId);
-                if (owningChat is not null)
-                {
-                    var toolMsg = owningChat.Messages.LastOrDefault(m =>
-                        m.ToolName == "ask_question" && m.ToolStatus == "InProgress" && m.QuestionId is null);
-                    if (toolMsg is null)
-                    {
-                        toolMsg = new ChatMessage
-                        {
-                            Role = "tool",
-                            ToolName = "ask_question",
-                            ToolStatus = "InProgress",
-                            Content = "",
-                        };
-                        toolMsg.MarkToolStarted(DateTimeOffset.UtcNow);
-                        owningChat.Messages.Add(toolMsg);
-                    }
-                    toolMsg.QuestionId = questionId;
-                    toolMsg.QuestionText = request.Question;
-                    toolMsg.QuestionOptions = optionsJson;
-                    toolMsg.QuestionAllowFreeText = freeText;
-                    toolMsg.QuestionAllowMultiSelect = false;
-                }
-            });
-
             try
             {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                    PresentPendingQuestion(
+                        inputHandlerChatId,
+                        questionId,
+                        request.Question,
+                        optionsList,
+                        optionsJson,
+                        freeText,
+                        allowMultiSelect: false));
+
                 var answer = await tcs.Task;
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                    PersistQuestionAnswer(inputHandlerChatId, questionId, answer));
                 return new GitHub.Copilot.UserInputResponse { Answer = answer, WasFreeform = true };
             }
             finally
             {
-                _pendingQuestions.Remove(questionId);
+                RemovePendingQuestion(questionId);
             }
         };
 
@@ -2763,6 +2885,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         RemoveSuggestionTracking(chatId);
         CurrentChat.CopilotSessionId = null;
         CurrentChat.SessionProviderSignature = null;
+        ResetContextForSessionInvalidation(CurrentChat);
         _dataStore.MarkChatChanged(CurrentChat);
         _activeSession = null;
     }
@@ -2782,6 +2905,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 ReleaseSessionResources(chat.Id, cancelActiveRequest: true, deleteServerSession: true);
                 RemoveSuggestionTracking(chat.Id);
                 chat.CopilotSessionId = null;
+                chat.SessionProviderSignature = null;
+                ResetContextForSessionInvalidation(chat);
                 _dataStore.MarkChatChanged(chat);
             }
 
@@ -2814,7 +2939,208 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     public bool IsChatBusy(Guid chatId)
     {
-        return OwnsLiveChat(chatId);
+        return OwnsLiveChat(chatId) || IsExternalSendReserved(chatId);
+    }
+
+    internal sealed class ExternalSendReservation : IDisposable
+    {
+        private ChatViewModel? _owner;
+        private readonly Guid _chatId;
+        private readonly CancellationTokenSource _cancellation;
+
+        internal ExternalSendReservation(
+            ChatViewModel owner,
+            Guid chatId,
+            Guid token,
+            CancellationTokenSource cancellation)
+        {
+            _owner = owner;
+            _chatId = chatId;
+            _cancellation = cancellation;
+            Token = token;
+        }
+
+        public Guid Token { get; }
+        public bool IsCancellationRequested => _cancellation.IsCancellationRequested;
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _owner, null)
+                ?.ReleaseExternalSendReservation(_chatId, Token);
+        }
+    }
+
+    internal ExternalSendReservation? TryReserveExternalSend(Guid chatId)
+    {
+        lock (ChatOperationReservationLock)
+        {
+            if (ChatDeletionReservations.Contains(chatId)
+                || !ChatSendReservations.Add(chatId))
+                return null;
+
+            lock (_externalSendReservationLock)
+            {
+                if (OwnsLiveChat(chatId) || _externalSendReservations.ContainsKey(chatId))
+                {
+                    ChatSendReservations.Remove(chatId);
+                    return null;
+                }
+
+                var token = Guid.NewGuid();
+                var cancellation = new CancellationTokenSource();
+                _externalSendReservations[chatId] = new ExternalSendReservationState(
+                    token,
+                    cancellation);
+                return new ExternalSendReservation(this, chatId, token, cancellation);
+            }
+        }
+    }
+
+    internal sealed class ChatSendReservationScope : IDisposable
+    {
+        private Guid? _chatId;
+
+        public bool TryReserve(Guid chatId)
+        {
+            if (_chatId == chatId)
+                return true;
+
+            Release();
+            lock (ChatOperationReservationLock)
+            {
+                if (ChatDeletionReservations.Contains(chatId)
+                    || !ChatSendReservations.Add(chatId))
+                {
+                    return false;
+                }
+            }
+
+            _chatId = chatId;
+            return true;
+        }
+
+        public void Release()
+        {
+            if (_chatId is not { } chatId)
+                return;
+
+            _chatId = null;
+            lock (ChatOperationReservationLock)
+                ChatSendReservations.Remove(chatId);
+        }
+
+        public void Dispose() => Release();
+    }
+
+    internal sealed class ChatDeletionReservation : IDisposable
+    {
+        private readonly Guid _chatId;
+        private int _disposed;
+
+        internal ChatDeletionReservation(Guid chatId)
+        {
+            _chatId = chatId;
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+
+            lock (ChatOperationReservationLock)
+                ChatDeletionReservations.Remove(_chatId);
+        }
+    }
+
+    internal static ChatDeletionReservation? TryReserveChatDeletion(Guid chatId)
+    {
+        lock (ChatOperationReservationLock)
+        {
+            if (ChatDeletionReservations.Contains(chatId)
+                || ChatSendReservations.Contains(chatId))
+            {
+                return null;
+            }
+
+            ChatDeletionReservations.Add(chatId);
+            return new ChatDeletionReservation(chatId);
+        }
+    }
+
+    internal static bool IsChatDeletionReserved(Guid chatId)
+    {
+        lock (ChatOperationReservationLock)
+            return ChatDeletionReservations.Contains(chatId);
+    }
+
+    internal bool IsExternalSendReserved(Guid chatId)
+    {
+        lock (_externalSendReservationLock)
+            return _externalSendReservations.ContainsKey(chatId);
+    }
+
+    private bool IsExternalSendReservedByAnother(Guid chatId, Guid? token)
+    {
+        lock (_externalSendReservationLock)
+        {
+            return _externalSendReservations.TryGetValue(chatId, out var reservation)
+                   && reservation.Token != token;
+        }
+    }
+
+    private bool IsExternalSendReservationCanceled(Guid chatId, Guid token)
+    {
+        lock (_externalSendReservationLock)
+        {
+            return !_externalSendReservations.TryGetValue(chatId, out var reservation)
+                   || reservation.Token != token
+                   || reservation.Cancellation.IsCancellationRequested;
+        }
+    }
+
+    internal bool CancelExternalSendReservation(Guid chatId)
+    {
+        lock (_externalSendReservationLock)
+        {
+            if (!_externalSendReservations.TryGetValue(chatId, out var reservation))
+                return false;
+
+            reservation.Cancellation.Cancel();
+            return true;
+        }
+    }
+
+    private void ReleaseExternalSendReservation(Guid chatId, Guid token)
+    {
+        lock (ChatOperationReservationLock)
+        {
+            lock (_externalSendReservationLock)
+            {
+                if (!_externalSendReservations.TryGetValue(chatId, out var reservation)
+                    || reservation.Token != token)
+                {
+                    return;
+                }
+
+                _externalSendReservations.Remove(chatId);
+                reservation.Cancellation.Dispose();
+            }
+
+            ChatSendReservations.Remove(chatId);
+        }
+    }
+
+    private sealed record ExternalSendReservationState(
+        Guid Token,
+        CancellationTokenSource Cancellation);
+
+    internal readonly record struct ExternalMessageStartResult(
+        bool Accepted,
+        string? Error)
+    {
+        public static ExternalMessageStartResult Success { get; } = new(true, null);
+
+        public static ExternalMessageStartResult Rejected(string error) => new(false, error);
     }
 
     public Task SendBackgroundJobMessageAsync(
@@ -2853,18 +3179,84 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             /// active one and marking it unread otherwise. <paramref name="author"/> labels the injected user
             /// message so the transcript shows where it came from.
             /// </summary>
+            internal async Task<ExternalMessageStartResult> StartExternalMessageAsync(
+                Chat targetChat,
+                string prompt,
+                string author,
+                CancellationToken cancellationToken = default,
+                string? modelOverride = null,
+                string? reasoningEffortOverride = null,
+                Guid? reservationToken = null,
+                Guid? reservedProjectId = null,
+                string? reservedProjectDirectory = null,
+                string? remoteDeviceId = null,
+                string? remoteRequestId = null)
+            {
+            var accepted = new TaskCompletionSource<ExternalMessageStartResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            _ = RunAsync();
+            return await accepted.Task.ConfigureAwait(true);
+
+            async Task RunAsync()
+            {
+                try
+                {
+                    await SendExternalMessageAsync(
+                        targetChat,
+                        prompt,
+                        author,
+                        cancellationToken,
+                        modelOverride,
+                        reasoningEffortOverride,
+                        onAccepted: () => accepted.TrySetResult(ExternalMessageStartResult.Success),
+                        reservationToken: reservationToken,
+                        reservedProjectId: reservedProjectId,
+                        reservedProjectDirectory: reservedProjectDirectory,
+                        remoteDeviceId: remoteDeviceId,
+                        remoteRequestId: remoteRequestId).ConfigureAwait(true);
+
+                    // A completed no-op path is still an accepted request.
+                    accepted.TrySetResult(ExternalMessageStartResult.Success);
+                }
+                catch (Exception ex)
+                {
+                    if (!accepted.TrySetResult(ExternalMessageStartResult.Rejected(ex.Message)))
+                        Trace.TraceWarning($"[ExternalSend] Turn failed after acceptance: {ex.Message}");
+                }
+            }
+            }
+
             public async Task SendExternalMessageAsync(
             Chat targetChat,
             string prompt,
             string author,
             CancellationToken cancellationToken = default,
             string? modelOverride = null,
-            string? reasoningEffortOverride = null)
+            string? reasoningEffortOverride = null,
+            Action? onAccepted = null,
+            Guid? reservationToken = null,
+            Guid? reservedProjectId = null,
+            string? reservedProjectDirectory = null,
+            string? remoteDeviceId = null,
+            string? remoteRequestId = null)
             {
             ArgumentNullException.ThrowIfNull(targetChat);
 
-        if (IsChatBusy(targetChat.Id))
+        if (OwnsLiveChat(targetChat.Id)
+            || IsExternalSendReservedByAnother(targetChat.Id, reservationToken))
             throw new InvalidOperationException($"Chat \"{targetChat.Title}\" is already running.");
+        if (reservationToken is { } initialReservationToken
+            && IsExternalSendReservationCanceled(targetChat.Id, initialReservationToken))
+        {
+            throw new OperationCanceledException("The pending turn start was canceled.");
+        }
+        if (reservationToken is not null &&
+            !IsExternalProjectContextCurrent(
+                targetChat,
+                reservedProjectId,
+                reservedProjectDirectory))
+            throw new InvalidOperationException("The chat project changed while its turn was starting.");
 
         await _dataStore.LoadChatMessagesAsync(targetChat, cancellationToken);
 
@@ -2925,14 +3317,32 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 targetChat.LastContextWindowTierUsed = targetTier;
         }
 
+        if (reservationToken is { } activeReservationToken
+            && IsExternalSendReservationCanceled(targetChat.Id, activeReservationToken))
+        {
+            throw new OperationCanceledException("The pending turn start was canceled.");
+        }
+        if (reservationToken is not null &&
+            !IsExternalProjectContextCurrent(
+                targetChat,
+                reservedProjectId,
+                reservedProjectDirectory))
+            throw new InvalidOperationException("The chat project changed while its turn was starting.");
+
         var userMsg = new ChatMessage
         {
             Role = "user",
             Content = prompt,
             Author = author,
+            RemoteRequestId = remoteRequestId,
             ActiveSkills = BuildSkillReferences(targetChat.ActiveSkillIds, targetChat.ActiveExternalSkillNames)
         };
 
+        var previousTitle = targetChat.Title;
+        var previousUnread = targetChat.HasUnreadMessages;
+        var previousDeviceId = targetChat.LastRemoteDeviceId;
+        var previousRequestId = targetChat.LastRemoteRequestId;
+        var remoteReceiptPersisted = false;
         targetChat.Messages.Add(userMsg);
         if (CurrentChat?.Id == targetChat.Id)
         {
@@ -2940,12 +3350,40 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ScrollToEndRequested?.Invoke();
         }
 
+        TryPrepareFirstExternalMessageTitle(targetChat, prompt);
+
         // A background surface holds the target chat as its CurrentChat without being on screen, so
         // unread state follows what the user can actually see, not what this surface has loaded.
         if (!IsChatOnScreen(targetChat.Id))
             targetChat.HasUnreadMessages = true;
 
-        QueueSaveChat(targetChat, saveIndex: true, touchIndex: true);
+        if (remoteDeviceId is { Length: > 0 } && remoteRequestId is { Length: > 0 })
+        {
+            targetChat.LastRemoteDeviceId = remoteDeviceId;
+            targetChat.LastRemoteRequestId = remoteRequestId;
+            try
+            {
+                _dataStore.MarkChatChanged(targetChat);
+                await _dataStore.SaveChatAsync(targetChat, cancellationToken).ConfigureAwait(true);
+                await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(true);
+                remoteReceiptPersisted = true;
+            }
+            catch
+            {
+                RollBackExternalMessageInMemory(
+                    targetChat,
+                    userMsg,
+                    previousTitle,
+                    previousUnread,
+                    previousDeviceId,
+                    previousRequestId);
+                throw;
+            }
+        }
+        else
+        {
+            QueueSaveChat(targetChat, saveIndex: true, touchIndex: true);
+        }
         ChatUpdated?.Invoke();
 
         CancellationTokenSource? cts = null;
@@ -2960,6 +3398,30 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         try
         {
             var chatId = targetChat.Id;
+            if (reservationToken is { } activationReservationToken
+                && IsExternalSendReservationCanceled(chatId, activationReservationToken))
+            {
+                RollBackExternalMessageInMemory(
+                    targetChat,
+                    userMsg,
+                    previousTitle,
+                    previousUnread,
+                    previousDeviceId,
+                    previousRequestId);
+                _dataStore.MarkChatChanged(targetChat);
+                if (remoteReceiptPersisted)
+                {
+                    await _dataStore.SaveChatAsync(targetChat, CancellationToken.None).ConfigureAwait(true);
+                    await _dataStore.SaveAsync(CancellationToken.None).ConfigureAwait(true);
+                }
+                else
+                {
+                    QueueSaveChat(targetChat, saveIndex: true, touchIndex: true);
+                }
+                ChatUpdated?.Invoke();
+                throw new OperationCanceledException("The pending turn start was canceled.");
+            }
+
             var abortedPreviousTurn = ReleasePreviousTurnCancellation(chatId);
             if (abortedPreviousTurn
                 && _sessionCache.TryGetValue(chatId, out var abortSession))
@@ -2970,8 +3432,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             var runtime = GetOrCreateRuntimeState(chatId);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
+            if (reservationToken is { } token)
+            {
+                ReleaseExternalSendReservation(chatId, token);
+                reservationToken = null;
+            }
             if (CurrentChat?.Id == chatId)
                 ApplyDisplayedRuntimeState(runtime);
+            onAccepted?.Invoke();
 
             var needsSessionSetup = targetChat.CopilotSessionId is null
                                     || !_sessionCache.TryGetValue(chatId, out var cachedSession)
@@ -3055,6 +3523,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                             ContextTier = SessionConfigBuilder.CreateContextTier(overrideContextTier)
                         });
                 }
+
                 catch
                 {
                     // Best-effort: keep the session's current model if the mid-session switch fails.
@@ -3179,6 +3648,27 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
     }
 
+    private void RollBackExternalMessageInMemory(
+        Chat targetChat,
+        ChatMessage userMessage,
+        string previousTitle,
+        bool previousUnread,
+        string? previousDeviceId,
+        string? previousRequestId)
+    {
+        targetChat.Title = previousTitle;
+        targetChat.HasUnreadMessages = previousUnread;
+        targetChat.LastRemoteDeviceId = previousDeviceId;
+        targetChat.LastRemoteRequestId = previousRequestId;
+        targetChat.Messages.Remove(userMessage);
+        if (CurrentChat?.Id != targetChat.Id)
+            return;
+
+        var visible = Messages.FirstOrDefault(item => ReferenceEquals(item.Message, userMessage));
+        if (visible is not null)
+            Messages.Remove(visible);
+    }
+
     private static string BuildBackgroundJobPrompt(BackgroundJob job, string triggerContext)
     {
         var builder = new StringBuilder();
@@ -3296,6 +3786,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return true;
 
         return false;
+    }
+
+    private void ClearPendingSessionInvalidation(Guid chatId)
+    {
+        _pendingSessionInvalidations.Remove(chatId);
+        _pendingSessionReconfigurations.Remove(chatId);
     }
 
     private void RestoreComposerEditSnapshot(ComposerEditSnapshot snapshot)
@@ -3735,6 +4231,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (string.IsNullOrWhiteSpace(prompt))
             return;
 
+        if (CurrentChat is { } deletingChat && IsChatDeletionReserved(deletingChat.Id))
+        {
+            StatusText = Loc.Status_DeletingChat;
+            return;
+        }
+
         // No live turn to abort — nothing to stop, so send normally as a fresh turn.
         if (CurrentChat is not { } chat || !IsChatRuntimeActive(chat.Id))
         {
@@ -3762,6 +4264,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         var prompt = promptText.Trim();
         var guardChat = CurrentChat;
+        if (guardChat is not null && IsChatDeletionReserved(guardChat.Id))
+        {
+            StatusText = Loc.Status_DeletingChat;
+            return;
+        }
+
         var selectedModelForSend = guardChat is not null
             ? ResolveSelectedModelForChat(guardChat)
             : SelectedModel;
@@ -3771,6 +4279,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat is { } activeChat && IsChatRuntimeActive(activeChat.Id))
         {
             await SteerActiveTurnAsync(activeChat, prompt, consumeComposerPrompt, queuedMessage);
+            return;
+        }
+
+        using var sendReservation = new ChatSendReservationScope();
+        if (guardChat is not null && !sendReservation.TryReserve(guardChat.Id))
+        {
+            StatusText = Loc.Status_Thinking;
             return;
         }
 
@@ -3821,6 +4336,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var needsWorktreeCreation = false;
         if (CurrentChat is null)
         {
+            var selectedWorktreePath = IsWorktreeMode ? WorktreePath : null;
+            if (selectedWorktreePath is not null
+                && (!Directory.Exists(selectedWorktreePath)
+                    || _dataStore.IsWorktreeCleanupReserved(selectedWorktreePath)))
+            {
+                if (consumeComposerPrompt)
+                    PromptText = prompt;
+                StatusText = "That worktree is no longer available. Choose a workspace and try again.";
+                return;
+            }
+
             var chat = new Chat
             {
                 Title = BuildProvisionalChatTitle(prompt),
@@ -3831,11 +4357,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 ActiveMcpServerNames = new List<string>(ActiveMcpServerNames),
                 HasExplicitMcpServerSelection = true,
                 SdkAgentName = SelectedSdkAgentName,
-                WorktreePath = IsWorktreeMode ? WorktreePath : null,
                 LastModelUsed = SelectedModel,
                 LastReasoningEffortUsed = selectedReasoningEffort,
                 LastContextWindowTierUsed = selectedContextTier
             };
+            if (!_dataStore.TrySetChatWorktreePath(chat, selectedWorktreePath))
+            {
+                if (consumeComposerPrompt)
+                    PromptText = prompt;
+                StatusText = "That worktree is being cleaned up. Choose a workspace and try again.";
+                return;
+            }
             _pendingProjectId = null;
             _dataStore.Data.Chats.Add(chat);
             CurrentChat = chat;
@@ -3845,6 +4377,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         // Capture before any async operations — CurrentChat may change if the user switches chats
         var targetChat = CurrentChat!;
+        if (!sendReservation.TryReserve(targetChat.Id))
+        {
+            StatusText = Loc.Status_DeletingChat;
+            return;
+        }
         ClearPersistedSuggestions(targetChat);
         targetChat.LastModelUsed = SelectedModel;
         ApplyResolvedModelSelectionToChat(targetChat, selectedReasoningEffort, selectedContextTier);
@@ -3910,50 +4447,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // then transitions naturally to "Thinking…" when IsBusy is set.
         if (needsWorktreeCreation)
         {
-            var projectDir = GetProjectWorkingDirectory();
-            if (GitService.IsGitRepo(projectDir))
-            {
-                var runtime = GetOrCreateRuntimeState(targetChat.Id);
-                MarkRuntimeActive(runtime, Loc.Status_CreatingWorktree);
-                if (CurrentChat?.Id == targetChat.Id)
-                    ApplyDisplayedRuntimeState(runtime);
-                try
-                {
-                    var chatId = Guid.NewGuid().ToString("N")[..8];
-                    var branchName = $"lumi/{chatId}";
-                    var path = await GitService.CreateWorktreeAsync(projectDir, branchName);
-
-                    if (path is not null)
-                    {
-                        WorktreePath = path;
-                        targetChat.WorktreePath = path;
-
-                        // Rebase attachment paths before persisting so the saved chat has the
-                        // corrected worktree paths from the start. Rebase onto the mapped project
-                        // subfolder inside the worktree (not the worktree root) so paths stay valid
-                        // when the project working directory is a subfolder of the git root.
-                        if (attachments is { Count: > 0 } && userMsg is not null)
-                        {
-                            var effectiveWorktreeDir = GitService.ResolveWorktreeWorkingDirectory(path, projectDir);
-                            RebaseAttachmentPaths(attachments, userMsg, projectDir, effectiveWorktreeDir);
-                        }
-
-                        QueueSaveChat(targetChat, saveIndex: false);
-                    }
-                    else
-                    {
-                        IsWorktreeMode = false;
-                    }
-                }
-                catch
-                {
-                    IsWorktreeMode = false;
-                }
-            }
-            else
-            {
+            var worktreeResult = await CreateWorktreeForChatAsync(
+                targetChat,
+                attachments,
+                userMsg,
+                announceProgress: true);
+            var worktreeError = worktreeResult.Error;
+            if (worktreeError is not null)
                 IsWorktreeMode = false;
-            }
         }
 
         // Rebase attachment paths for existing worktrees (e.g. files dragged from the
@@ -4005,6 +4506,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
+            sendReservation.Release();
             if (CurrentChat?.Id == targetChat.Id)
                 ApplyDisplayedRuntimeState(runtime);
 
@@ -4625,6 +5127,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         chat.CopilotSessionId = null;
         chat.SessionProviderSignature = null;
+        ResetContextForSessionInvalidation(chat);
         _dataStore.MarkChatChanged(chat);
     }
 
@@ -4878,7 +5381,21 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private Task StopGeneration() => StopGenerationInternal(resolvePendingSteersAsFailed: true);
+    private async Task StopGeneration()
+    {
+        var stoppedChatId = CurrentChat?.Id;
+        var error = await TryStopGenerationAsync(resolvePendingSteersAsFailed: true);
+        ApplyStopError(stoppedChatId, error);
+    }
+
+    internal void ApplyStopError(Guid? stoppedChatId, string? error)
+    {
+        if (error is not null && stoppedChatId is { } chatId && CurrentChat?.Id == chatId)
+            StatusText = error;
+    }
+
+    public Task<string?> TryStopGenerationAsync(bool resolvePendingSteersAsFailed = true) =>
+        StopGenerationInternal(resolvePendingSteersAsFailed);
 
     /// <summary>Core stop/abort path shared by the Stop button and the inline "Send now" steer action.</summary>
     /// <param name="resolvePendingSteersAsFailed">
@@ -4887,28 +5404,39 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// post-abort autopilot continuation can reprocess it and the turn-end/idle fallback resolves it to
     /// "Steered into response" instead of a false "Not delivered".
     /// </param>
-    private async Task StopGenerationInternal(bool resolvePendingSteersAsFailed)
+    private async Task<string?> StopGenerationInternal(bool resolvePendingSteersAsFailed)
     {
-        if (CurrentChat is null) return;
+        if (CurrentChat is null)
+            return "No active chat to stop.";
 
         var chat = CurrentChat;
         var chatId = chat.Id;
-        SetManualStopRequested(chatId, true);
-        ReleaseChatCancellation(chatId, cancel: true);
+        if (await TryStopManualContextCompactionAsync(chat))
+            return null;
 
-        // A user abort tears the turn down before the agent can consume any still-pending steer, so mark
-        // them "Not delivered" now — synchronously, before AbortAsync yields the UI thread. The abort's own
-        // session.idle would otherwise hit the unconditional ResolvePendingSteersAsDelivered fallback and
-        // flip these to a false "Steered into response"; clearing the registry here makes that a no-op.
-        // "Send now" opts out (resolvePendingSteersAsFailed: false) precisely so that fallback delivers it.
+        // Record intent before cancellation or AbortAsync can synchronously emit Abort/Idle events.
+        // Those handlers consume this flag to distinguish a user stop from a broken session.
+        SetManualStopRequested(chatId, true);
+
+        // A plain Stop fails pending steers before any abort event can resolve them as delivered.
+        // "Send now" opts out because its queued steer is intended for the SDK continuation.
         if (resolvePendingSteersAsFailed)
             ResolvePendingSteersAsFailed(chatId);
 
-        // Get the session for this specific chat (not _activeSession which may differ)
+        ReleaseChatCancellation(chatId, cancel: true);
+
+        string? abortError = null;
         if (_sessionCache.TryGetValue(chatId, out var session))
         {
-            try { await session.AbortAsync(); }
-            catch { /* Best-effort abort */ }
+            try
+            {
+                await session.AbortAsync();
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceWarning($"[Chat] Abort failed for {chatId}: {ex}");
+                abortError = $"Could not stop this turn cleanly: {ex.Message}";
+            }
         }
 
         var runtime = GetOrCreateRuntimeState(chatId);
@@ -4938,6 +5466,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // would keep StopGenerationCommand "running" (AsyncRelayCommand disallows concurrent executions),
         // leaving the Stop button dead exactly while the new turn starts.
         ScheduleQueuedBusySendDrain(chatId);
+        return abortError;
     }
 
     private async Task SaveCurrentChatAsync(bool saveIndex = true, bool touchIndex = false)
@@ -4964,6 +5493,35 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         _dataStore.MarkChatChanged(chat);
         _ = SaveIndexAsync();
+    }
+
+    private static readonly string ModelDefaultChatTitle = new Chat().Title;
+
+    internal bool TryPrepareFirstExternalMessageTitle(Chat chat, string firstUserMessage)
+    {
+        if (string.IsNullOrWhiteSpace(firstUserMessage)
+            || chat.Messages.Count(static message => message.Role == "user") != 1
+            || !IsDefaultChatTitle(chat.Title))
+        {
+            return false;
+        }
+
+        // Match the desktop's own first-send convention: give the chat a useful provisional title
+        // immediately, then replace it with the generated title if title generation is enabled.
+        var defaultTitle = chat.Title;
+        ApplyChatTitle(chat, BuildProvisionalChatTitle(firstUserMessage), defaultTitle);
+        QueueGeneratedChatTitle(chat, firstUserMessage);
+        return true;
+    }
+
+    private static bool IsDefaultChatTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return true;
+
+        var normalizedTitle = title.Trim();
+        return string.Equals(normalizedTitle, ModelDefaultChatTitle, StringComparison.Ordinal)
+               || string.Equals(normalizedTitle, Loc.Sidebar_NewChat, StringComparison.Ordinal);
     }
 
     private void QueueGeneratedChatTitle(Chat chat, string firstUserMessage)
@@ -5818,6 +6376,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     selectedContextWindowTier);
                 if (!reconciled)
                 {
+                    ClearPendingSessionInvalidation(chatId);
                     InvalidateCurrentSession();
                     historyRewound = false;
                     shouldReplayPrompt = true;
@@ -6232,6 +6791,8 @@ public partial class ChatMessageViewModel : ObservableObject
     {
         ToolStatus = Message.ToolStatus;
     }
+
+    public void NotifyToolDetailsChanged() => OnPropertyChanged(nameof(ChatMessage.ToolOutput));
 
     public void NotifyLinkedChatChanged()
     {

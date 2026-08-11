@@ -28,6 +28,8 @@ public class ChatMessage
     public string Role { get; set; } = "user"; // user, assistant, system, tool, reasoning, error
     public string Content { get; set; } = "";
     public string? Author { get; set; }
+    /// <summary>Authenticated mobile request that created this user message, when applicable.</summary>
+    public string? RemoteRequestId { get; set; }
     public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.Now;
     public string? ToolName { get; set; }
     public string? ToolCallId { get; set; }
@@ -87,6 +89,7 @@ public class ChatMessage
         Role = Role,
         Content = Content,
         Author = Author,
+        RemoteRequestId = RemoteRequestId,
         Timestamp = Timestamp,
         ToolName = ToolName,
         ToolCallId = ToolCallId,
@@ -432,6 +435,8 @@ public class Chat : INotifyPropertyChanged
     /// has been unloaded from memory to reclaim RAM for inactive chats.
     /// </summary>
     public int MessageCount { get; set; }
+    /// <summary>Bounded last user/assistant text persisted for list surfaces without loading history.</summary>
+    public string? Preview { get; set; }
 
     [JsonIgnore]
     public List<ChatMessage> Messages { get; set; } = [];
@@ -452,6 +457,9 @@ public class Chat : INotifyPropertyChanged
 
     /// <summary>Git worktree path when this chat operates in worktree mode. Null means local mode.</summary>
     public string? WorktreePath { get; set; }
+    /// <summary>Last accepted mobile send receipt, persisted for idempotency across desktop restarts.</summary>
+    public string? LastRemoteDeviceId { get; set; }
+    public string? LastRemoteRequestId { get; set; }
 
     /// <summary>Last model used in this chat. Restored as the selected model when the chat is reopened.</summary>
     public string? LastModelUsed { get; set; }
@@ -480,6 +488,9 @@ public class Chat : INotifyPropertyChanged
 
     /// <summary>Latest known context window usage for this chat.</summary>
     public long ContextCurrentTokens { get; set; }
+
+    /// <summary>Whether <see cref="ContextCurrentTokens"/> came from an authoritative session context snapshot.</summary>
+    public bool HasExactContextUsage { get; set; }
 
     /// <summary>Latest known context window token limit for this chat.</summary>
     public long ContextTokenLimit { get; set; }
@@ -1000,11 +1011,40 @@ public class UserSettings
     // ── Browser ──
     public bool HasImportedBrowserCookies { get; set; }
 
+    // ── Mobile companion (Lumi on your phone) ──
+    /// <summary>
+    /// When true Lumi listens on the local network so the Lumi mobile app can drive this
+    /// desktop. Off by default; every device must still complete a pairing handshake.
+    /// </summary>
+    public bool RemoteAccessEnabled { get; set; }
+
+    /// <summary>TCP port for the remote listener. 0 means "use the protocol default".</summary>
+    public int RemoteAccessPort { get; set; }
+
+    /// <summary>
+    /// Allows plaintext HTTP from ordinary RFC1918/link-local peers. Off by default: loopback and
+    /// Tailscale remain available through their authenticated encrypted tunnel.
+    /// </summary>
+    public bool RemoteAllowInsecureLan { get; set; }
+
+    /// <summary>Devices that completed pairing and hold a long-lived token.</summary>
+    public List<RemotePairedDevice> RemotePairedDevices { get; set; } = [];
+
     // ── Quota (cached, refreshed periodically) ──
     [JsonIgnore] public double? QuotaRemainingPercentage { get; set; }
     [JsonIgnore] public double? QuotaUsedRequests { get; set; }
     [JsonIgnore] public double? QuotaEntitlementRequests { get; set; }
     [JsonIgnore] public string? QuotaResetDate { get; set; }
+}
+
+/// <summary>A phone or tablet that has been authorized to control this Lumi desktop.</summary>
+public class RemotePairedDevice
+{
+    public string DeviceId { get; set; } = "";
+    public string DeviceName { get; set; } = "";
+    public string Token { get; set; } = "";
+    public DateTimeOffset PairedAt { get; set; } = DateTimeOffset.Now;
+    public DateTimeOffset? LastSeenAt { get; set; }
 }
 
 public class AppData

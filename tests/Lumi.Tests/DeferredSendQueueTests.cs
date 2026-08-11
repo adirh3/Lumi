@@ -42,6 +42,16 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    public void QueueBusySendPrompt_PreservesRemoteAuthor()
+    {
+        using var host = DeferredSendHost.Create();
+
+        host.QueuePrompt("sent from the phone", authorOverride: "Lumi Mobile");
+
+        Assert.Equal("Lumi Mobile", Assert.Single(host.Chat.Messages).Author);
+    }
+
+    [Fact]
     public void QueueBusySendPrompt_KeepsEveryPrompt_InOrder()
     {
         using var host = DeferredSendHost.Create();
@@ -392,6 +402,35 @@ public sealed class DeferredSendQueueTests
             host.Chat.Messages.Select(message => message.Content));
     }
 
+    [Fact]
+    public async Task StopDuringManualCompaction_WaitsForCompactionTermination()
+    {
+        using var host = DeferredSendHost.Create();
+        host.MarkManualCompactionActive();
+
+        var stopTask = host.StopGenerationAsync();
+
+        Assert.True(host.ManualCompactionCancellationRequested);
+        Assert.True(host.Runtime.IsBusy);
+        Assert.False(stopTask.IsCompleted);
+
+        host.ConfirmManualCompactionEnded();
+        await stopTask;
+
+        Assert.False(host.Runtime.IsBusy);
+        Assert.Equal("", host.Runtime.StatusText);
+        Assert.False(host.ViewModel.IsContextCompacting);
+    }
+
+    [Fact]
+    public async Task AutomaticCompaction_DoesNotInterceptTheTurnStopPath()
+    {
+        using var host = DeferredSendHost.Create();
+        host.MarkAutomaticCompactionActive();
+
+        Assert.False(await host.TryStopManualCompactionAsync());
+    }
+
     /// <summary>
     /// Deleting a chat is terminal, so its deferred sends must not outlive it in the queue.
     /// </summary>
@@ -444,8 +483,8 @@ public sealed class DeferredSendQueueTests
             return new DeferredSendHost(viewModel, chat);
         }
 
-        public void QueuePrompt(string prompt, Guid? chatId = null)
-            => Invoke("QueueBusySendPrompt", chatId ?? Chat.Id, prompt, null);
+        public void QueuePrompt(string prompt, Guid? chatId = null, string? authorOverride = null)
+            => Invoke("QueueBusySendPrompt", chatId ?? Chat.Id, prompt, null, authorOverride);
 
         public Task DrainAsync(Guid? chatId = null)
             => (Task)Invoke("DrainQueuedBusySendAsync", chatId ?? Chat.Id)!;
@@ -491,6 +530,47 @@ public sealed class DeferredSendQueueTests
 
         public Task StopAndSendAsync()
             => (Task)Invoke("StopAndSendMessage")!;
+
+        public Task StopGenerationAsync()
+            => (Task)Invoke("StopGenerationInternal", true)!;
+
+        public Task<bool> TryStopManualCompactionAsync()
+            => (Task<bool>)Invoke("TryStopManualContextCompactionAsync", Chat)!;
+
+        public bool ManualCompactionCancellationRequested
+            => GetField<CancellationTokenSource>("_contextCompactionCts").IsCancellationRequested;
+
+        public void MarkManualCompactionActive()
+        {
+            var runtime = (ChatRuntimeState)Invoke("GetOrCreateRuntimeState", Chat.Id)!;
+            ChatViewModel.MarkRuntimeCompacting(runtime);
+            Invoke("ApplyDisplayedRuntimeState", runtime);
+
+            SetField("_contextCompactionChatId", (Guid?)Chat.Id);
+            SetField("_contextCompactionCts", new CancellationTokenSource());
+            SetField(
+                "_contextCompactionCompletion",
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously));
+            ViewModel.IsContextOperationRunning = true;
+            ViewModel.IsContextCompacting = true;
+        }
+
+        public void MarkAutomaticCompactionActive()
+        {
+            var runtime = (ChatRuntimeState)Invoke("GetOrCreateRuntimeState", Chat.Id)!;
+            runtime.TurnInProgress = true;
+            ChatViewModel.MarkRuntimeCompacting(runtime);
+            Invoke("ApplyDisplayedRuntimeState", runtime);
+
+            SetField("_contextCompactionChatId", (Guid?)Chat.Id);
+            ViewModel.IsContextCompacting = true;
+        }
+
+        public void ConfirmManualCompactionEnded()
+        {
+            Invoke("CompleteContextCompactionLifecycle", Chat, Runtime, true);
+            Invoke("CompleteManualContextCompactionTracking", Chat.Id);
+        }
 
         public void CleanupSession()
             => ViewModel.CleanupSession(Chat.Id);
@@ -566,6 +646,13 @@ public sealed class DeferredSendQueueTests
                 .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.GetValue(ViewModel)
                 ?? throw new InvalidOperationException($"Field {name} was not found."));
+
+        private void SetField(string name, object? value)
+        {
+            var field = typeof(ChatViewModel).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException($"Field {name} was not found.");
+            field.SetValue(ViewModel, value);
+        }
 
         private object? Invoke(string name, params object?[] args)
         {

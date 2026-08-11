@@ -57,7 +57,7 @@ public partial class ChatViewModel
         }
 
         _runtimeStates.Clear();
-        _pendingQuestions.Clear();
+        ClearPendingQuestionTracking();
         _queuedBusySendPrompts.Clear();
         _inProgressMessages.Clear();
         _voiceService.Dispose();
@@ -73,6 +73,7 @@ public partial class ChatViewModel
         _gitRefreshThrottleCts?.Cancel();
         _gitRefreshThrottleCts?.Dispose();
         _gitRefreshThrottleCts = null;
+        CancelContextWindowOperations();
     }
 
     /// <summary>
@@ -101,8 +102,9 @@ public partial class ChatViewModel
     }
 
     private bool IsChatRuntimeActive(Guid chatId)
-        => _runtimeStates.TryGetValue(chatId, out var runtime)
-           && runtime.HasActiveWork;
+        => (_runtimeStates.TryGetValue(chatId, out var runtime)
+            && runtime.HasActiveWork)
+           || HasPendingQuestion(chatId);
 
     internal bool OwnsLiveChat(Guid chatId)
     {
@@ -112,12 +114,7 @@ public partial class ChatViewModel
             || (_queuedBusySendPrompts.TryGetValue(chatId, out var queued) && queued.Count > 0))
             return true;
 
-        var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
-        return chat?.Messages.Any(message =>
-            message.ToolName == "ask_question"
-            && message.ToolStatus == "InProgress"
-            && message.QuestionId is { Length: > 0 } questionId
-            && _pendingQuestions.ContainsKey(questionId)) == true;
+        return HasPendingQuestion(chatId);
     }
 
     // A browser session outlives its chat's runtime state (it persists across chat switches), so a
@@ -138,6 +135,12 @@ public partial class ChatViewModel
 
     internal bool OwnsAnyLiveChat()
     {
+        lock (_externalSendReservationLock)
+        {
+            if (_externalSendReservations.Count > 0)
+                return true;
+        }
+
         foreach (var chatId in _runtimeStates.Keys
                      .Concat(_ctsSources.Keys)
                      .Concat(_inProgressMessages.Keys)
@@ -148,12 +151,7 @@ public partial class ChatViewModel
                 return true;
         }
 
-        return _dataStore.Data.Chats.Any(chat =>
-            chat.Messages.Any(message =>
-                message.ToolName == "ask_question"
-                && message.ToolStatus == "InProgress"
-                && message.QuestionId is { Length: > 0 } questionId
-                && _pendingQuestions.ContainsKey(questionId)));
+        return _dataStore.Data.Chats.Any(chat => HasPendingQuestion(chat.Id));
     }
 
     /// <summary>
@@ -168,12 +166,16 @@ public partial class ChatViewModel
     /// cannot overwrite the first. Pass <paramref name="existing"/> to re-defer an already-shown
     /// message; that is always the head a delivery path just dequeued, so it goes back to the front.
     /// </summary>
-    private void QueueBusySendPrompt(Guid chatId, string prompt, ChatMessage? existing = null)
+    private void QueueBusySendPrompt(
+        Guid chatId,
+        string prompt,
+        ChatMessage? existing = null,
+        string? authorOverride = null)
     {
         if (existing is null && string.IsNullOrWhiteSpace(prompt))
             return;
 
-        var message = existing ?? CreateQueuedBusySend(chatId, prompt);
+        var message = existing ?? CreateQueuedBusySend(chatId, prompt, authorOverride);
         if (message is null)
             return;
 
@@ -193,7 +195,7 @@ public partial class ChatViewModel
     /// Shows a deferred send in the transcript straight away with a "Queued…" pill, so sending while the
     /// chat is busy is never invisible even though delivery has to wait.
     /// </summary>
-    private ChatMessage? CreateQueuedBusySend(Guid chatId, string prompt)
+    private ChatMessage? CreateQueuedBusySend(Guid chatId, string prompt, string? authorOverride = null)
     {
         var chat = CurrentChat?.Id == chatId
             ? CurrentChat
@@ -205,7 +207,7 @@ public partial class ChatViewModel
         {
             Role = "user",
             Content = prompt,
-            Author = _dataStore.Data.Settings.UserName ?? Loc.Author_You,
+            Author = authorOverride ?? _dataStore.Data.Settings.UserName ?? Loc.Author_You,
             Model = SelectedModel,
             AgentId = ActiveAgent?.Id,
             SdkAgentName = SelectedSdkAgentName,
@@ -488,20 +490,31 @@ public partial class ChatViewModel
     /// </summary>
     private bool CancelPendingQuestions(Chat chat)
     {
-        var pendingQuestionIds = chat.Messages
-            .Where(static m => !string.IsNullOrWhiteSpace(m.QuestionId))
-            .Select(static m => m.QuestionId!)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-
-        foreach (var questionId in pendingQuestionIds)
+        List<TaskCompletionSource<string>> pendingQuestions;
+        lock (_pendingQuestionsSync)
         {
-            if (_pendingQuestions.TryGetValue(questionId, out var tcs))
+            var pendingQuestionIds = chat.Messages
+                .Where(static message => !string.IsNullOrWhiteSpace(message.QuestionId))
+                .Select(static message => message.QuestionId!)
+                .Concat(_pendingQuestionChatIds
+                    .Where(pair => pair.Value == chat.Id)
+                    .Select(static pair => pair.Key))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            pendingQuestions = [];
+            foreach (var questionId in pendingQuestionIds)
             {
-                tcs.TrySetCanceled();
+                if (_pendingQuestions.TryGetValue(questionId, out var completion))
+                    pendingQuestions.Add(completion);
+
                 _pendingQuestions.Remove(questionId);
+                _pendingQuestionChatIds.Remove(questionId);
             }
         }
+
+        foreach (var pendingQuestion in pendingQuestions)
+            pendingQuestion.TrySetCanceled();
 
         // Mark unanswered ask_question tool messages as Failed so rebuild renders them as expired
         var markedExpired = false;

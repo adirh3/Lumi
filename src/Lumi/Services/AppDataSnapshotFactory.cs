@@ -88,6 +88,15 @@ internal static class AppDataSnapshotFactory
                 SidebarCollapsed = settings.SidebarCollapsed,
                 IsMaximized = settings.IsMaximized,
                 HasImportedBrowserCookies = settings.HasImportedBrowserCookies,
+                // Phone companion. This snapshot is field-by-field, so anything omitted here is
+                // silently dropped on every save: without these, enabling phone access and pairing a
+                // device both "worked" until the next launch, then reverted to off/unpaired.
+                RemoteAccessEnabled = settings.RemoteAccessEnabled,
+                RemoteAccessPort = settings.RemoteAccessPort,
+                RemoteAllowInsecureLan = settings.RemoteAllowInsecureLan,
+                RemotePairedDevices = settings.RemotePairedDevices
+                    .Select(CloneRemotePairedDevice)
+                    .ToList(),
             },
             Chats = source.Chats
                 .Select(CloneChatIndex)
@@ -186,12 +195,22 @@ internal static class AppDataSnapshotFactory
         AppData persistedSnapshot,
         ISet<Guid> dirtyChatIds,
         ISet<Guid> deletedChatIds,
-        bool backgroundJobsDirty)
+        bool backgroundJobsDirty,
+        bool remotePairedDevicesDirty = false)
     {
         if (currentSnapshot.Chats.Count == 0 && persistedSnapshot.Chats.Count == 0)
         {
             if (!backgroundJobsDirty)
                 currentSnapshot.BackgroundJobs = persistedSnapshot.BackgroundJobs.Select(CloneBackgroundJob).ToList();
+            if (!remotePairedDevicesDirty)
+            {
+                currentSnapshot.Settings.RemoteAccessEnabled = persistedSnapshot.Settings.RemoteAccessEnabled;
+                currentSnapshot.Settings.RemoteAccessPort = persistedSnapshot.Settings.RemoteAccessPort;
+                currentSnapshot.Settings.RemoteAllowInsecureLan = persistedSnapshot.Settings.RemoteAllowInsecureLan;
+                currentSnapshot.Settings.RemotePairedDevices = persistedSnapshot.Settings.RemotePairedDevices
+                    .Select(CloneRemotePairedDevice)
+                    .ToList();
+            }
             return currentSnapshot;
         }
 
@@ -232,9 +251,28 @@ internal static class AppDataSnapshotFactory
         currentSnapshot.Chats = mergedChats;
         if (!backgroundJobsDirty)
             currentSnapshot.BackgroundJobs = persistedSnapshot.BackgroundJobs.Select(CloneBackgroundJob).ToList();
+        if (!remotePairedDevicesDirty)
+        {
+            currentSnapshot.Settings.RemoteAccessEnabled = persistedSnapshot.Settings.RemoteAccessEnabled;
+            currentSnapshot.Settings.RemoteAccessPort = persistedSnapshot.Settings.RemoteAccessPort;
+            currentSnapshot.Settings.RemoteAllowInsecureLan = persistedSnapshot.Settings.RemoteAllowInsecureLan;
+            currentSnapshot.Settings.RemotePairedDevices = persistedSnapshot.Settings.RemotePairedDevices
+                .Select(CloneRemotePairedDevice)
+                .ToList();
+        }
 
         return currentSnapshot;
     }
+
+    private static RemotePairedDevice CloneRemotePairedDevice(RemotePairedDevice source) =>
+        new()
+        {
+            DeviceId = source.DeviceId,
+            DeviceName = source.DeviceName,
+            Token = source.Token,
+            PairedAt = source.PairedAt,
+            LastSeenAt = source.LastSeenAt
+        };
 
     private static BackgroundJob CloneBackgroundJob(BackgroundJob source)
     {
@@ -289,12 +327,17 @@ internal static class AppDataSnapshotFactory
             SessionMode = source.SessionMode,
             SdkAgentName = source.SdkAgentName,
             WorktreePath = source.WorktreePath,
+            LastRemoteDeviceId = source.LastRemoteDeviceId,
+            LastRemoteRequestId = source.LastRemoteRequestId,
+            MessageCount = source.MessageCount,
+            Preview = source.Preview,
             LastModelUsed = source.LastModelUsed,
             LastReasoningEffortUsed = source.LastReasoningEffortUsed,
             LastContextWindowTierUsed = source.LastContextWindowTierUsed,
             TotalInputTokens = source.TotalInputTokens,
             TotalOutputTokens = source.TotalOutputTokens,
             ContextCurrentTokens = source.ContextCurrentTokens,
+            HasExactContextUsage = source.HasExactContextUsage,
             ContextTokenLimit = source.ContextTokenLimit,
             PlanContent = source.PlanContent,
             FollowUpSuggestions = [..source.FollowUpSuggestions],

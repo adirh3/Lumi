@@ -17,15 +17,23 @@ internal static class TranscriptLayoutMetrics
 
 internal sealed class TranscriptPagingOptions
 {
+    /// <summary>
+    /// Keeps the visual turn collection identity-stable. Production enables this and virtualizes only
+    /// each turn's heavy content; legacy bounded-window behavior remains available to focused tests.
+    /// </summary>
+    public bool MaintainStableMembership { get; init; }
+    public bool MaintainStableGeometry { get; init; }
     public int MaxPageWeight { get; init; } = 34;
     public int MaxTurnsPerPage { get; init; } = 8;
     public int MinInitialPages { get; init; } = 2;
     public int MaxMountedPages { get; init; } = 6;
     public int TrimToMountedPages { get; init; } = 4;
     public int PrependBatchPageCount { get; init; } = 3;
+    public int AppendBatchPageCount { get; init; } = 3;
     public double InitialViewportFillMultiplier { get; init; } = 1.6d;
     public double MountedViewportFillMultiplier { get; init; } = 2.1d;
     public double PrependTriggerPixels { get; init; } = 220d;
+    public double AppendTriggerPixels { get; init; } = 220d;
     public double RetainAboveViewportPixels { get; init; } = 320d;
     public double EstimatedPixelsPerWeightUnit { get; init; } = 56d;
     public bool EnableDiagnostics { get; init; }
@@ -147,8 +155,17 @@ internal enum TranscriptWindowMutationKind
     Reset,
     EnsureCoverage,
     Prepend,
+    Append,
     TrimHead,
     TailRestore,
+    Rewindow,
+}
+
+internal enum TranscriptPagingDirection
+{
+    None,
+    TowardOlder,
+    TowardNewer,
 }
 
 internal readonly record struct TranscriptViewportState(
@@ -156,7 +173,8 @@ internal readonly record struct TranscriptViewportState(
     double ViewportHeight,
     double ExtentHeight,
     bool IsPinnedToBottom,
-    double DistanceFromBottom);
+    double DistanceFromBottom,
+    TranscriptPagingDirection PagingDirection = TranscriptPagingDirection.None);
 
 internal readonly record struct TranscriptWindowMutation(
     TranscriptWindowMutationKind Kind,
@@ -210,6 +228,8 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
     private bool _isFollowingTail = true;
     private bool _isPinnedToBottom = true;
     private double _distanceFromBottom;
+    private double _topSpacerHeight;
+    private double _bottomSpacerHeight;
     private int _pageLoadCount;
     private int _pageUnloadCount;
     private int _prependCount;
@@ -244,6 +264,28 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
 
     public bool IsFollowingTail => _isFollowingTail;
 
+    public bool MaintainsStableMembership => _options.MaintainStableMembership;
+    public bool MaintainsStableGeometry => _options.MaintainStableGeometry;
+
+    public double TopSpacerHeight
+    {
+        get => _topSpacerHeight;
+        private set => SetProperty(ref _topSpacerHeight, value);
+    }
+
+    public double BottomSpacerHeight
+    {
+        get => _bottomSpacerHeight;
+        private set => SetProperty(ref _bottomSpacerHeight, value);
+    }
+
+    public bool HasOlderPages => !_options.MaintainStableMembership && _firstMountedPageIndex > 0;
+
+    public bool HasNewerPages =>
+        !_options.MaintainStableMembership
+        && _lastMountedPageIndex >= 0
+        && _lastMountedPageIndex < _pages.Count - 1;
+
     public double DistanceFromBottom
     {
         get => _distanceFromBottom;
@@ -255,6 +297,14 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         if (ReferenceEquals(_sourceTurns, sourceTurns))
         {
             RebuildPages();
+            if (_options.MaintainStableMembership)
+            {
+                SetFullMountedRange();
+                ReconcileMountedTurns(sourceTurns);
+                UpdateDiagnostics("bind", reason);
+                return;
+            }
+
             ClampMountedRange();
             TrimMountedTailOverflow();
             ReconcileMountedTurns(BuildDesiredMountedTurns());
@@ -268,6 +318,14 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         _sourceTurns = sourceTurns;
         _sourceTurns.CollectionChanged += OnSourceTurnsCollectionChanged;
         RebuildPages();
+        if (_options.MaintainStableMembership)
+        {
+            SetFullMountedRange();
+            ReconcileMountedTurns(sourceTurns);
+            UpdateDiagnostics("bind", reason);
+            return;
+        }
+
         ClampMountedRange();
         ReconcileMountedTurns(BuildDesiredMountedTurns());
         UpdateDiagnostics("bind", reason);
@@ -278,6 +336,8 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         _pages.Clear();
         _firstMountedPageIndex = -1;
         _lastMountedPageIndex = -1;
+        TopSpacerHeight = 0;
+        BottomSpacerHeight = 0;
         ReleaseAllMountedHosts();
         MountedTurns.Clear();
         UpdateDiagnostics("clear", reason);
@@ -309,6 +369,8 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         {
             _firstMountedPageIndex = -1;
             _lastMountedPageIndex = -1;
+            TopSpacerHeight = 0;
+            BottomSpacerHeight = 0;
             ReleaseAllMountedHosts();
             MountedTurns.Clear();
             stopwatch.Stop();
@@ -317,13 +379,27 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
             return new TranscriptWindowMutation(TranscriptWindowMutationKind.Reset, reason, 0, 0, 0, false);
         }
 
+        if (_options.MaintainStableMembership)
+        {
+            var stablePreviousPageCount = MountedPageCount;
+            SetFullMountedRange();
+            ReconcileMountedTurns(_sourceTurns!);
+
+            stopwatch.Stop();
+            _initialLoadMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
+            var stableAddedPages = Math.Max(0, MountedPageCount - stablePreviousPageCount);
+            _pageLoadCount += stableAddedPages;
+            UpdateDiagnostics("reset", reason);
+            return new TranscriptWindowMutation(TranscriptWindowMutationKind.Reset, reason, stableAddedPages, 0, 0, false);
+        }
+
         var estimatedHeight = 0d;
         var targetHeight = viewportHeight * _options.InitialViewportFillMultiplier;
         var firstIndex = _pages.Count - 1;
 
         while (firstIndex >= 0)
         {
-            estimatedHeight += GetEffectivePageHeight(_pages[firstIndex]);
+            estimatedHeight += GetPageContentHeight(_pages[firstIndex]);
             var mountedPageCount = (_pages.Count - 1) - firstIndex + 1;
             if (mountedPageCount > 1)
                 estimatedHeight += TranscriptLayoutMetrics.TurnSpacing;
@@ -353,6 +429,9 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
 
     public TranscriptWindowMutation EnsureViewportCoverage(double viewportHeight, string reason, double? actualExtentHeight = null)
     {
+        if (_options.MaintainStableMembership || _options.MaintainStableGeometry)
+            return TranscriptWindowMutation.None;
+
         if (_pages.Count == 0 || _firstMountedPageIndex <= 0)
             return TranscriptWindowMutation.None;
 
@@ -403,10 +482,21 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
             state.DistanceFromBottom,
             $"viewport:{reason}");
 
+        if (_options.MaintainStableMembership)
+            return TranscriptWindowMutation.None;
+
+        if (_options.MaintainStableGeometry)
+            return UpdateStableGeometryViewport(state, reason);
+
         if (_pages.Count == 0 || MountedPageCount == 0)
             return TranscriptWindowMutation.None;
 
-        if (state.OffsetY <= _options.PrependTriggerPixels && _firstMountedPageIndex > 0)
+        var isPagingTowardOlder = state.PagingDirection == TranscriptPagingDirection.TowardOlder;
+        var isPagingTowardNewer = state.PagingDirection == TranscriptPagingDirection.TowardNewer;
+
+        if (state.OffsetY <= _options.PrependTriggerPixels
+            && _firstMountedPageIndex > 0
+            && !isPagingTowardNewer)
         {
             // Load a small chunk of older pages per near-top scroll. This gives the reader more
             // history above the anchor and avoids a render/layout cycle for every single page.
@@ -433,6 +523,46 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
             ReconcileMountedTurns(BuildDesiredMountedTurns());
             UpdateDiagnostics("prepend", reason);
             return new TranscriptWindowMutation(TranscriptWindowMutationKind.Prepend, reason, addedPages, removedTailPages, estimatedDelta, true);
+        }
+
+        var isApproachingLocalBottom =
+            state.DistanceFromBottom <= _options.AppendTriggerPixels
+            && !isPagingTowardOlder
+            && (isPagingTowardNewer
+                || state.IsPinnedToBottom
+                || state.OffsetY > _options.PrependTriggerPixels);
+        if (isApproachingLocalBottom && HasNewerPages)
+        {
+            // Move the bounded reader window forward again when the user reaches its local bottom.
+            // Keep at least one previously-mounted page so ChatView can restore a stable visible anchor
+            // while older head pages are evicted.
+            var maxBatch = Math.Min(
+                Math.Max(1, _options.AppendBatchPageCount),
+                Math.Max(1, MountedPageCount - 1));
+            var addedPages = 0;
+            var estimatedDelta = 0d;
+            while (_lastMountedPageIndex < _pages.Count - 1 && addedPages < maxBatch)
+            {
+                _lastMountedPageIndex++;
+                var page = _pages[_lastMountedPageIndex];
+                estimatedDelta += GetEffectivePageHeight(page) + TranscriptLayoutMetrics.TurnSpacing;
+                addedPages++;
+            }
+
+            if (addedPages == 0)
+                return TranscriptWindowMutation.None;
+
+            _pageLoadCount += addedPages;
+            var removedHeadPages = TrimMountedHeadOverflow();
+            ReconcileMountedTurns(BuildDesiredMountedTurns());
+            UpdateDiagnostics("append", reason);
+            return new TranscriptWindowMutation(
+                TranscriptWindowMutationKind.Append,
+                reason,
+                addedPages,
+                removedHeadPages,
+                estimatedDelta,
+                removedHeadPages > 0);
         }
 
         if (MountedPageCount > _options.MaxMountedPages)
@@ -481,6 +611,14 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         double distanceFromBottom,
         string reason)
     {
+        if (HasNewerPages)
+        {
+            // The ScrollViewer only knows about the mounted window. Its local bottom is not the
+            // conversation tail while newer pages are unmounted, so it must not re-enable follow mode.
+            isFollowingTail = false;
+            isPinnedToBottom = false;
+        }
+
         var changed = _isFollowingTail != isFollowingTail || IsPinnedToBottom != isPinnedToBottom;
         _isFollowingTail = isFollowingTail;
         IsPinnedToBottom = isPinnedToBottom;
@@ -498,6 +636,9 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
     {
         _isFollowingTail = true;
 
+        if (_options.MaintainStableMembership)
+            return false;
+
         if (_pages.Count == 0)
             return false;
 
@@ -514,6 +655,9 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
 
     public TranscriptWindowMutation EnsureLatestMountedIfAdjacentTailGap(string reason)
     {
+        if (_options.MaintainStableMembership)
+            return TranscriptWindowMutation.None;
+
         if (_pages.Count == 0 || MountedPageCount == 0)
             return TranscriptWindowMutation.None;
 
@@ -549,6 +693,9 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
     /// </summary>
     public bool MountPageContainingTurn(TranscriptTurn turn, string reason)
     {
+        if (_options.MaintainStableMembership)
+            return false;
+
         if (_pages.Count == 0) return false;
 
         var targetPageIndex = -1;
@@ -637,8 +784,26 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
         {
             _firstMountedPageIndex = -1;
             _lastMountedPageIndex = -1;
+            TopSpacerHeight = 0;
+            BottomSpacerHeight = 0;
             ReleaseAllMountedHosts();
             MountedTurns.Clear();
+            UpdateDiagnostics("source-change", e.Action.ToString());
+            return;
+        }
+
+        if (_options.MaintainStableMembership)
+        {
+            SetFullMountedRange();
+            ReconcileMountedTurns(_sourceTurns!);
+
+            if (e.Action is NotifyCollectionChangedAction.Add or NotifyCollectionChangedAction.Remove)
+                _streamingUpdateCount++;
+
+            var stablePageDelta = _pages.Count - previousPageCount;
+            if (stablePageDelta > 0)
+                _pageLoadCount += stablePageDelta;
+
             UpdateDiagnostics("source-change", e.Action.ToString());
             return;
         }
@@ -712,6 +877,12 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
             AddPage(pageTurns, pageStartTurnIndex, filteredTurnIndex - 1, pageItemCount, pageWeight);
     }
 
+    private void SetFullMountedRange()
+    {
+        _firstMountedPageIndex = _pages.Count == 0 ? -1 : 0;
+        _lastMountedPageIndex = _pages.Count - 1;
+    }
+
     private void AddPage(List<TranscriptTurn> pageTurns, int firstTurnIndex, int lastTurnIndex, int itemCount, int estimatedWeight)
     {
         var pageIndex = _pages.Count;
@@ -723,6 +894,80 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
             lastTurnIndex: lastTurnIndex,
             itemCount: itemCount,
             estimatedWeight: estimatedWeight));
+    }
+
+    private TranscriptWindowMutation UpdateStableGeometryViewport(TranscriptViewportState state, string reason)
+    {
+        if (_pages.Count == 0)
+            return TranscriptWindowMutation.None;
+
+        var firstVisiblePage = FindPageAtOffset(state.OffsetY);
+        var lastVisiblePage = FindPageAtOffset(state.OffsetY + Math.Max(0d, state.ViewportHeight - 1d));
+        var maxPages = Math.Max(1, _options.MaxMountedPages);
+
+        var desiredFirst = Math.Max(0, firstVisiblePage - 1);
+        var desiredLast = Math.Min(_pages.Count - 1, desiredFirst + maxPages - 1);
+        var bufferedLast = Math.Min(_pages.Count - 1, lastVisiblePage + 1);
+        if (desiredLast < bufferedLast)
+        {
+            desiredLast = bufferedLast;
+            desiredFirst = Math.Max(0, desiredLast - maxPages + 1);
+        }
+
+        if (desiredFirst == _firstMountedPageIndex && desiredLast == _lastMountedPageIndex)
+            return TranscriptWindowMutation.None;
+
+        var previousFirst = _firstMountedPageIndex;
+        var previousLast = _lastMountedPageIndex;
+        _firstMountedPageIndex = desiredFirst;
+        _lastMountedPageIndex = desiredLast;
+
+        var addedPages = CountRangeDifference(desiredFirst, desiredLast, previousFirst, previousLast);
+        var removedPages = CountRangeDifference(previousFirst, previousLast, desiredFirst, desiredLast);
+        _pageLoadCount += addedPages;
+        _pageUnloadCount += removedPages;
+        if (removedPages > 0)
+            _cleanupCount++;
+
+        ReconcileMountedTurns(BuildDesiredMountedTurns());
+        UpdateDiagnostics("rewindow", reason);
+        return new TranscriptWindowMutation(
+            TranscriptWindowMutationKind.Rewindow,
+            reason,
+            addedPages,
+            removedPages,
+            0,
+            false);
+    }
+
+    private int FindPageAtOffset(double offsetY)
+    {
+        var remaining = Math.Max(0d, offsetY);
+        for (var pageIndex = 0; pageIndex < _pages.Count; pageIndex++)
+        {
+            var height = GetPageLayoutHeight(_pages[pageIndex]);
+            if (remaining < height)
+                return pageIndex;
+
+            remaining -= height;
+        }
+
+        return _pages.Count - 1;
+    }
+
+    private static int CountRangeDifference(int first, int last, int otherFirst, int otherLast)
+    {
+        if (first < 0 || last < first)
+            return 0;
+
+        var count = 0;
+        for (var index = first; index <= last; index++)
+        {
+            if (index < otherFirst || index > otherLast)
+                count++;
+        }
+
+        return count;
     }
 
     private void ClampMountedRange()
@@ -816,6 +1061,8 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
             else
                 MountedTurns.Insert(i, desired);
         }
+
+        UpdateSpacerHeights();
     }
 
     private void ReleaseAllMountedHosts()
@@ -853,11 +1100,40 @@ internal sealed class TranscriptWindowController : ObservableObject, IDisposable
             page.GetMeasuredHeight(_options.EstimatedPixelsPerWeightUnit));
     }
 
+    private double GetPageContentHeight(TranscriptPage page)
+        => _options.MaintainStableGeometry
+            ? page.GetMeasuredHeight(_options.EstimatedPixelsPerWeightUnit)
+            : GetEffectivePageHeight(page);
+
+    private double GetPageLayoutHeight(TranscriptPage page)
+        => GetPageContentHeight(page) + TranscriptLayoutMetrics.TurnSpacing;
+
+    private void UpdateSpacerHeights()
+    {
+        if (!_options.MaintainStableGeometry || _pages.Count == 0 || MountedPageCount == 0)
+        {
+            TopSpacerHeight = 0;
+            BottomSpacerHeight = 0;
+            return;
+        }
+
+        var top = 0d;
+        for (var pageIndex = 0; pageIndex < _firstMountedPageIndex; pageIndex++)
+            top += GetPageLayoutHeight(_pages[pageIndex]);
+
+        var bottom = 0d;
+        for (var pageIndex = _lastMountedPageIndex + 1; pageIndex < _pages.Count; pageIndex++)
+            bottom += GetPageLayoutHeight(_pages[pageIndex]);
+
+        TopSpacerHeight = top;
+        BottomSpacerHeight = bottom;
+    }
+
     private double GetMountedRangeHeight(int firstPageIndex, int lastPageIndex)
     {
         var total = 0d;
         for (var pageIndex = firstPageIndex; pageIndex <= lastPageIndex; pageIndex++)
-            total += GetEffectivePageHeight(_pages[pageIndex]);
+            total += GetPageContentHeight(_pages[pageIndex]);
 
         if (lastPageIndex > firstPageIndex)
             total += (lastPageIndex - firstPageIndex) * TranscriptLayoutMetrics.TurnSpacing;

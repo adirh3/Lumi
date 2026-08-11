@@ -10,6 +10,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Platform;
 using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
@@ -58,6 +59,7 @@ public static class DebugAgentHarness
         var shortlistPath = Path.Combine(root, "TV-Shortlist.csv");
         var dealSummaryPath = Path.Combine(root, "Deal-Summary.md");
         var researchNotesPath = Path.Combine(root, "OLED-Research-Notes.md");
+        var fixtureImagePath = Path.Combine(root, "lumi-markdown-image.png");
 
         File.WriteAllText(attachmentPath, "# Debug fixture attachment\n\nThis file exists so attachment chips can resolve size and icon metadata.\n");
         File.WriteAllText(editedPath, "public class FixtureWidget\n{\n    public string State => \"before\";\n}\n");
@@ -66,6 +68,11 @@ public static class DebugAgentHarness
         File.WriteAllText(shortlistPath, "Model,Panel,Price,Rating\nLG C4,OLED evo,1799,9.1\nSamsung S90D,QD-OLED,1899,9.0\nSony Bravia 8,OLED,1999,8.8\n");
         File.WriteAllText(dealSummaryPath, "# 65\\\" OLED Deal Summary\n\n- LG C4 - $1,799 (Best Buy)\n- Samsung S90D - $1,899\n- Sony Bravia 8 - $1,999\n");
         File.WriteAllText(researchNotesPath, "# OLED research notes\n\nCreated by the debug fixture so the Workspace Changes tab shows a created file.\n");
+        using (var source = AssetLoader.Open(new Uri("avares://Lumi/Assets/lumi-icon.png")))
+        using (var destination = File.Create(fixtureImagePath))
+        {
+            source.CopyTo(destination);
+        }
 
         var codingSkill = dataStore.Data.Skills.FirstOrDefault(s =>
             s.Name.Equals("Code Helper", StringComparison.OrdinalIgnoreCase))
@@ -293,6 +300,18 @@ public static class DebugAgentHarness
         firstAssistant.Author = "Lumi";
         firstAssistant.Model = "gpt-5.5";
         firstAssistant.ActiveSkills.Add(assistantSkillRef);
+        firstAssistant.Content += $"""
+
+            ### Inline markdown images
+
+            Local file:
+
+            ![Lumi icon loaded from a local file]({fixtureImagePath})
+
+            Online image:
+
+            ![GitHub mark loaded over HTTPS](https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png)
+            """;
         firstAssistant.Sources.Add(new SearchSource
         {
             Title = "Lumi debug fixture",

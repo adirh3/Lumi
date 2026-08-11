@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net11.0</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>preview</LangVersion>
+    <!-- Compiled bindings are required, not just nice-to-have: reflection bindings are neither
+         trim- nor AOT-safe (this library sets IsAotCompatible), and a runtime binding that casts
+         through an xmlns prefix - {Binding $parent[UserControl].((vm:T)DataContext).Cmd} - cannot
+         resolve that prefix inside nested deferred template content, which crashed the app the
+         first time a chat row was rendered. Compiling the bindings resolves the cast at build
+         time and turns every binding typo into a build error. -->
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableDefaultAvaloniaItems>true</EnableDefaultAvaloniaItems>
+    <RootNamespace>Lumi.Mobile</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Lumi.Mobile.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.0" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.0" />
+    <PackageReference Include="Avalonia.Themes.Simple" Version="12.1.0" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.1.0" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Strata\src\StrataTheme\StrataTheme.csproj" />
+    <ProjectReference Include="..\Lumi.Remote.Protocol\Lumi.Remote.Protocol.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="..\Lumi\Assets\lumi-icon.png" Link="Assets\lumi-icon.png" />
+  </ItemGroup>
+
+</Project>

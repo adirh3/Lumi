@@ -217,6 +217,9 @@ public sealed class ChatSessionStore : IDisposable
 
     public IReadOnlyList<ChatViewModel> SnapshotSurfaces() => _surfaces.ToArray();
 
+    internal ChatViewModel.ChatDeletionReservation? TryReserveChatDeletion(Guid chatId)
+        => ChatViewModel.TryReserveChatDeletion(chatId);
+
     public void ApplyToSurfaces(Action<ChatViewModel> action)
     {
         foreach (var surface in _surfaces.ToArray())

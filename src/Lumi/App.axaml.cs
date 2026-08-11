@@ -30,6 +30,7 @@ public partial class App : Application
     private ChatSessionStore? _chatSessionStore;
     private GlobalSearchService? _globalSearchService;
     private ProjectGitSyncService? _projectGitSyncService;
+    private Lumi.Services.Remote.LumiRemoteServer? _remoteServer;
     private readonly List<MainWindow> _windows = [];
     private int _secondaryWindowSequence;
     private MainViewModel? _mainViewModel;
@@ -164,6 +165,16 @@ public partial class App : Application
                     Trace.TraceWarning($"[Shutdown] Failed to stop MCP processes: {ex.Message}");
                 }
 
+                try
+                {
+                    if (_remoteServer is not null)
+                        await _remoteServer.DisposeAsync();
+                }
+                catch (Exception ex)
+                {
+                    Trace.TraceWarning($"[Shutdown] Failed to stop the mobile listener: {ex.Message}");
+                }
+
 #if DEBUG
                 try
                 {
@@ -230,6 +241,11 @@ public partial class App : Application
             _debugBridge.Start();
 #endif
 
+            // Mobile companion listener. Opt-in, and every device still has to pair.
+            _remoteServer = new Lumi.Services.Remote.LumiRemoteServer(dataStore, vm);
+            vm.SettingsVM.AttachRemoteServer(_remoteServer);
+            _ = InitializeRemoteServerAsync(_remoteServer);
+
             // Apply RTL for right-to-left languages
             if (Loc.IsRightToLeft)
                 window.FlowDirection = Avalonia.Media.FlowDirection.RightToLeft;
@@ -281,9 +297,22 @@ public partial class App : Application
                             MacOsNative.TrySetDockIcon(iconBytes);
                     }, DispatcherPriority.Background);
             }
+
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private static async Task InitializeRemoteServerAsync(Lumi.Services.Remote.LumiRemoteServer server)
+    {
+        try
+        {
+            await server.InitializeAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"[Remote] Failed to initialize the mobile listener: {ex.Message}");
+        }
     }
 
     private void InitializeCrashReporter(
@@ -711,11 +740,15 @@ public partial class App : Application
             return;
         }
 
-        var window = CreateWindow(CreateMainViewModel(
+        var viewModel = CreateMainViewModel(
 #if DEBUG
             skipOnboarding: Program.SkipOnboarding
 #endif
-        ), isPrimary: false);
+        );
+        if (_remoteServer is { } remoteServer)
+            viewModel.SettingsVM.AttachRemoteServer(remoteServer);
+
+        var window = CreateWindow(viewModel, isPrimary: false);
         if (_mainWindow is { IsVisible: true } owner)
             window.SecondaryWindowAnchorPosition = owner.Position;
 
@@ -725,6 +758,15 @@ public partial class App : Application
 
         if (chatId is Guid targetChatId && window.DataContext is MainViewModel vm)
             _ = vm.OpenChatByIdAsync(targetChatId);
+    }
+
+    internal void OpenChatInNewWindow(Guid chatId, MainViewModel? owner = null)
+    {
+        var viewModel = owner ?? _mainViewModel;
+        if (viewModel?.DataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId) is not { } chat)
+            return;
+
+        viewModel.OpenChatInNewWindowCommand.Execute(chat);
     }
 
     public void ShowMainWindow(Guid? chatId)

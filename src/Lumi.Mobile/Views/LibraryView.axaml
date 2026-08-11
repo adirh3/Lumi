@@ -1,0 +1,280 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.Mobile.ViewModels"
+             xmlns:views="using:Lumi.Mobile.Views"
+             xmlns:sc="using:StrataTheme.Controls"
+             x:Class="Lumi.Mobile.Views.LibraryView"
+             x:DataType="vm:LibraryViewModel"
+             Background="{DynamicResource Brush.Surface0}">
+
+  <UserControl.Styles>
+    <!-- Section picker reads as a row of filter pills rather than a raw list. -->
+    <Style Selector="ListBox#SectionPicker ListBoxItem">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <!-- Selection belongs to the ONE outer pill. Painting the ContentPresenter too produced a
+         second accent rectangle behind the chip with a different visible radius. -->
+    <Style Selector="ListBox#SectionPicker ListBoxItem /template/ Border#LayoutRoot">
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+    <Style Selector="ListBox#SectionPicker ListBoxItem:selected /template/ Border#LayoutRoot">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="CornerRadius" Value="16" />
+    </Style>
+    <Style Selector="ListBox#SectionPicker ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="TextElement.Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="ListBox#SectionPicker ListBoxItem /template/ Border#PART_SelectedPipe">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid RowDefinitions="Auto,Auto,Auto,*">
+
+    <!--
+      Library owns a LibraryViewModel DataContext, unlike the other overlays. These zero-size
+      proxies inherit the shell DataContext without casting through a temporarily-null ancestor,
+      then expose the already-split insets as ordinary control properties for the page below.
+    -->
+    <Border x:Name="LibrarySafeAreaTopProxy"
+            Width="0" Height="0"
+            HorizontalAlignment="Left" VerticalAlignment="Top"
+            IsHitTestVisible="False"
+            x:DataType="vm:MobileShellViewModel"
+            DataContext="{Binding $parent[views:MobileShellView].DataContext}"
+            Padding="{Binding SafeAreaTop}" />
+    <Border x:Name="LibrarySafeAreaBottomProxy"
+            Width="0" Height="0"
+            HorizontalAlignment="Left" VerticalAlignment="Top"
+            IsHitTestVisible="False"
+            x:DataType="vm:MobileShellViewModel"
+            DataContext="{Binding $parent[views:MobileShellView].DataContext}"
+            Padding="{Binding SafeAreaBottom}" />
+    <Border x:Name="LibrarySafeAreaSidesProxy"
+            Width="0" Height="0"
+            HorizontalAlignment="Left" VerticalAlignment="Top"
+            IsHitTestVisible="False"
+            x:DataType="vm:MobileShellViewModel"
+            DataContext="{Binding $parent[views:MobileShellView].DataContext}"
+            Padding="{Binding SafeAreaSides}" />
+    <Border x:Name="LibrarySafeAreaSheetPresenterProxy"
+            Width="0" Height="0"
+            HorizontalAlignment="Left" VerticalAlignment="Top"
+            IsHitTestVisible="False"
+            x:DataType="vm:MobileShellViewModel"
+            DataContext="{Binding $parent[views:MobileShellView].DataContext}"
+            Padding="{Binding SafeAreaSheetPresenterMargin}" />
+    <Border x:Name="LibrarySafeAreaSheetTitleProxy"
+            Width="0" Height="0"
+            HorizontalAlignment="Left" VerticalAlignment="Top"
+            IsHitTestVisible="False"
+            x:DataType="vm:MobileShellViewModel"
+            DataContext="{Binding $parent[views:MobileShellView].DataContext}"
+            Padding="{Binding SafeAreaSheetTitleMargin}" />
+
+    <Border x:Name="LibraryTopInset" Grid.Row="0"
+            Padding="{Binding #LibrarySafeAreaTopProxy.Padding}">
+      <Border x:Name="LibraryHeaderSideInset"
+              Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+        <Grid x:Name="LibraryHeaderLayout"
+              ColumnDefinitions="Auto,*,Auto"
+              ColumnSpacing="4"
+              MaxWidth="720"
+              HorizontalAlignment="Stretch"
+              Margin="{DynamicResource Mobile.Page.HeaderMargin}">
+          <Button x:Name="LibraryBackButton" Grid.Column="0" Classes="page-back"
+                  Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).CloseCommand}">
+            <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
+                      Data="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+          </Button>
+          <TextBlock Grid.Column="1" Text="Library" Classes="section-title" VerticalAlignment="Center" />
+          <Button x:Name="LibraryNewButton" Grid.Column="2" Classes="touch accent"
+                  CornerRadius="16" Padding="16,10"
+                  IsVisible="{Binding CanCreate}"
+                  Command="{Binding BeginCreateCommand}" Content="New" />
+        </Grid>
+      </Border>
+    </Border>
+
+    <!-- Section picker: horizontally scrollable so it survives a 320 dp cover display -->
+    <Border x:Name="LibrarySectionsSideInset" Grid.Row="1"
+            Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+      <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                    MaxWidth="720"
+                    HorizontalAlignment="Stretch"
+                    Margin="{DynamicResource Mobile.Page.ControlMargin}">
+        <ListBox x:Name="SectionPicker" SelectedIndex="{Binding SectionIndex}"
+                 ItemsSource="{Binding SectionNames}"
+                 Background="Transparent" BorderThickness="0" Padding="0">
+          <ListBox.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Orientation="Horizontal" Spacing="6" />
+            </ItemsPanelTemplate>
+          </ListBox.ItemsPanel>
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding}" Margin="14,9" FontSize="{DynamicResource Font.SizeBody}" FontWeight="Medium" />
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </ScrollViewer>
+    </Border>
+
+    <Border x:Name="LibrarySearchSideInset" Grid.Row="2"
+            Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+      <TextBox x:Name="LibrarySearchBox"
+               Classes="mobile"
+               MaxWidth="720"
+               HorizontalAlignment="Stretch"
+               Margin="{DynamicResource Mobile.Page.ControlMargin}"
+               PlaceholderText="Search" Text="{Binding SearchText}" />
+    </Border>
+
+    <Panel Grid.Row="3">
+
+      <!-- List -->
+      <Border x:Name="LibraryListBottomInset"
+              Padding="{Binding #LibrarySafeAreaBottomProxy.Padding}"
+              IsVisible="{Binding !IsEditing}">
+        <Border x:Name="LibraryListSideInset"
+                Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+          <ScrollViewer>
+            <StackPanel x:Name="LibraryListContent"
+                        MaxWidth="720"
+                        HorizontalAlignment="Stretch"
+                        Margin="{DynamicResource Mobile.Page.ContentMargin}">
+              <StackPanel x:Name="LibraryEmpty" IsVisible="{Binding IsEmpty}"
+                          Spacing="8" Margin="12,36" HorizontalAlignment="Center">
+                <TextBlock Text="&#x25C7;" FontSize="44" HorizontalAlignment="Center"
+                           Foreground="{DynamicResource Brush.TextTertiary}" />
+                <TextBlock Text="Nothing here yet" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeSubtitle}"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="Anything you add on your PC shows up here too."
+                           Classes="muted" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="240" />
+              </StackPanel>
+
+              <TextBlock x:Name="LibraryStatus" Text="{Binding StatusMessage}" Classes="muted"
+                         TextWrapping="Wrap" Margin="0,4"
+                         IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+              <ItemsControl x:Name="LibraryEntries" ItemsSource="{Binding Entries}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:LibraryEntryViewModel">
+                    <Button Classes="chat-row"
+                            Holding="OnLibraryRowHolding"
+                            Command="{Binding $parent[UserControl].((vm:LibraryViewModel)DataContext).BeginEditCommand}"
+                            CommandParameter="{Binding}">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                        <Border Grid.Column="0" Width="36" Height="36" CornerRadius="12"
+                                VerticalAlignment="Center"
+                                Background="{DynamicResource Brush.Surface2}">
+                          <TextBlock Text="{Binding Glyph}" FontSize="{DynamicResource Font.SizeSubtitle}"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeBody}"
+                                     TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding Description}" Classes="muted" MaxLines="2"
+                                     TextTrimming="CharacterEllipsis" TextWrapping="Wrap"
+                                     IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
+                        <Border Grid.Column="2" IsVisible="{Binding HasBadge}"
+                                Background="{DynamicResource Brush.Surface2}"
+                                CornerRadius="10" Padding="8,4" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding Badge}" FontSize="{DynamicResource Font.SizeCaption}" Classes="muted" />
+                        </Border>
+                      </Grid>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+      </Border>
+
+      <!-- Editor -->
+      <Border x:Name="LibraryEditorBottomInset"
+              Padding="{Binding #LibrarySafeAreaBottomProxy.Padding}"
+              IsVisible="{Binding IsEditing}">
+        <Border x:Name="LibraryEditorSideInset"
+                Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+          <ScrollViewer>
+            <StackPanel Spacing="14" x:Name="LibraryEditor" MaxWidth="720"
+                        HorizontalAlignment="Stretch"
+                        Margin="{DynamicResource Mobile.Page.FormContentMargin}">
+              <TextBox x:Name="EditNameBox" Classes="mobile" PlaceholderText="Name" Text="{Binding EditName}"
+                       IsEnabled="{Binding !IsEditorLoading}" />
+
+              <TextBox x:Name="EditGlyphBox" Classes="mobile" PlaceholderText="Icon" Text="{Binding EditGlyph}"
+                       MaxLength="4" IsVisible="{Binding ShowGlyphEditor}"
+                       IsEnabled="{Binding !IsEditorLoading}" />
+
+              <TextBox x:Name="EditDescriptionBox" Classes="mobile" PlaceholderText="Description"
+                       Text="{Binding EditDescription}" IsVisible="{Binding ShowDescriptionEditor}"
+                       IsEnabled="{Binding !IsEditorLoading}" />
+
+              <TextBox x:Name="EditWorkingDirectoryBox" Classes="mobile"
+                       PlaceholderText="Working directory"
+                       Text="{Binding EditWorkingDirectory}"
+                       IsVisible="{Binding ShowProjectWorkingDirectory}"
+                       IsEnabled="{Binding !IsEditorLoading}" />
+
+              <StackPanel Spacing="6">
+                <TextBlock Text="{Binding BodyLabel}" Classes="muted" />
+                <TextBox x:Name="EditBodyBox" Classes="mobile" AcceptsReturn="True" TextWrapping="Wrap"
+                         MinHeight="180" Text="{Binding EditBody}"
+                         IsEnabled="{Binding !IsEditorLoading}" />
+              </StackPanel>
+
+              <TextBlock Text="{Binding StatusMessage}" Classes="muted" TextWrapping="Wrap"
+                         IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                <Button x:Name="EditCancelButton" Grid.Column="0" Classes="touch subtle"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        Content="Cancel" Command="{Binding CancelEditCommand}" />
+                <Button x:Name="EditSaveButton" Grid.Column="1" Classes="touch accent"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                        Content="Save" Command="{Binding SaveCommand}"
+                        IsEnabled="{Binding !IsEditorLoading}" />
+              </Grid>
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+      </Border>
+    </Panel>
+
+    <!-- Row actions cover the whole page so the header/search cannot be used through the scrim. -->
+    <sc:StrataBottomSheet x:Name="LibraryActionsSheet"
+                          Grid.RowSpan="4"
+                          Classes="safe-area"
+                          IsOpen="{Binding IsRowActionsOpen, Mode=TwoWay}"
+                          Title="{Binding ActionEntryName}"
+                          Padding="{Binding #LibrarySafeAreaSheetTitleProxy.Padding}"
+                          Tag="{Binding #LibrarySafeAreaSheetPresenterProxy.Padding}">
+      <Border x:Name="LibraryActionsSideInset"
+              Padding="{Binding #LibrarySafeAreaSidesProxy.Padding}">
+        <StackPanel>
+          <Button x:Name="LibraryToggleButton" Classes="sheet-item"
+                  IsVisible="{Binding CanToggleActionEntry}"
+                  Command="{Binding ToggleActionEntryCommand}">
+            <TextBlock Text="Enable / disable" />
+          </Button>
+          <Button x:Name="LibraryDeleteButton" Classes="sheet-item danger"
+                  Command="{Binding DeleteActionEntryCommand}">
+            <TextBlock Text="Delete" />
+          </Button>
+        </StackPanel>
+      </Border>
+    </sc:StrataBottomSheet>
+  </Grid>
+</UserControl>

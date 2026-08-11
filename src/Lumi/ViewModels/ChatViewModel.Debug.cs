@@ -34,6 +34,7 @@ public partial class ChatViewModel
         TotalInputTokens = fixture.TotalInputTokens;
         TotalOutputTokens = fixture.TotalOutputTokens;
         fixture.ContextCurrentTokens = fixture.TotalInputTokens + fixture.TotalOutputTokens;
+        fixture.HasExactContextUsage = true;
         fixture.ContextTokenLimit = 128000;
         ContextCurrentTokens = fixture.ContextCurrentTokens;
         ContextTokenLimit = fixture.ContextTokenLimit;
@@ -59,6 +60,7 @@ public partial class ChatViewModel
                 Messages.Add(new ChatMessageViewModel(msg));
 
             CurrentChat = fixture;
+            LoadDebugContextWindowDetails();
             PromptText = "";
             RebuildTranscript();
             _transcriptBuilder.AppendPlanCardToLastTurn("Debug plan", () => PlanShowRequested?.Invoke());

@@ -239,7 +239,7 @@ public partial class ChatViewModel
     /// <summary>Raised when a browser tool requests the browser panel to be visible. Carries the chat ID.</summary>
     public event Action<Guid>? BrowserShowRequested;
 
-    /// <summary>Raised when a manage_chats tool card requests opening its linked chat.</summary>
+    /// <summary>Raised when a transcript chip requests opening its linked chat.</summary>
     public event Action<Guid>? OpenChatRequested;
 
     /// <summary>True if browser tools have been used in the current session.</summary>
@@ -319,7 +319,24 @@ public partial class ChatViewModel
         if (CurrentChat is { } activeChat)
         {
             var runtime = GetOrCreateRuntimeState(activeChat.Id);
-            ApplyKnownContextTokenLimit(activeChat, runtime, value, updateDisplayed: true);
+            var isUserSelection = !_suppressModelSelectionSideEffects
+                && !IsEditingMessage
+                && !string.IsNullOrWhiteSpace(value);
+            if (isUserSelection)
+            {
+                var selectedContextTier = GetSelectedContextWindowTier();
+                InvalidateContextForSelectionChange(activeChat, value, selectedContextTier);
+                ApplySelectedContextTokenLimit(
+                    activeChat,
+                    runtime,
+                    value,
+                    selectedContextTier,
+                    updateDisplayed: true);
+            }
+            else
+            {
+                ApplyKnownContextTokenLimit(activeChat, runtime, value, updateDisplayed: true);
+            }
         }
 
         if (IsModelBlockedByByokOnlyFlag(value))
@@ -457,7 +474,9 @@ public partial class ChatViewModel
         {
             // Fallback: SDK may not support mid-session switch for all models. Callers that need the
             // switch to take effect this turn (e.g. an edited-message resend) recreate the session on
-            // a false result; the debounced mid-session sync just relies on the next send.
+            // a false result. The debounced sync must also mark the existing session stale so context
+            // refresh/steering cannot mix the requested identity with the still-active old session.
+            InvalidateCurrentSessionForModelSwitch();
             return false;
         }
     }
@@ -575,74 +594,30 @@ public partial class ChatViewModel
                 var multiSelect = allowMultiSelect ?? false;
                 var questionId = Guid.NewGuid().ToString("N");
                 var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-                _pendingQuestions[questionId] = tcs;
+                TrackPendingQuestion(chatId, questionId, tcs);
                 IList<string> optionsList = options ?? Array.Empty<string>();
                 var optionsJson = System.Text.Json.JsonSerializer.Serialize(optionsList.ToList(), Lumi.Models.AppDataJsonContext.Default.ListString);
 
-                Dispatcher.UIThread.Post(() =>
-                {
-                    NotifyQuestionAsked(chatId, question);
-
-                    if (CurrentChat?.Id == chatId)
-                    {
-                        _transcriptBuilder.AddQuestionToTranscript(questionId, question, optionsList, freeText, multiSelect);
-                        QuestionAsked?.Invoke(questionId, question, optionsJson, freeText);
-                        ScrollToEndRequested?.Invoke();
-                    }
-                });
-
-                // Store questionId and question data on the tool message so it can be recovered during rebuild.
-                // If no matching tool message exists, create one to guarantee rebuild works.
-                Dispatcher.UIThread.Post(() =>
-                {
-                    var chat = _dataStore.Data.Chats.Find(c => c.Id == chatId);
-                    if (chat is not null)
-                    {
-                        var toolMsg = chat.Messages.LastOrDefault(m =>
-                            m.ToolName == "ask_question" && m.ToolStatus == "InProgress" && m.QuestionId is null);
-                        if (toolMsg is null)
-                        {
-                            toolMsg = new Models.ChatMessage
-                            {
-                                Role = "tool",
-                                ToolName = "ask_question",
-                                ToolStatus = "InProgress",
-                                Content = "",
-                            };
-                            toolMsg.MarkToolStarted(DateTimeOffset.UtcNow);
-                            chat.Messages.Add(toolMsg);
-                        }
-                        toolMsg.QuestionId = questionId;
-                        toolMsg.QuestionText = question;
-                        toolMsg.QuestionOptions = optionsJson;
-                        toolMsg.QuestionAllowFreeText = freeText;
-                        toolMsg.QuestionAllowMultiSelect = multiSelect;
-                    }
-                });
-
                 try
                 {
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                        PresentPendingQuestion(
+                            chatId,
+                            questionId,
+                            question,
+                            optionsList,
+                            optionsJson,
+                            freeText,
+                            multiSelect));
+
                     var answer = await tcs.Task;
-
-                    // Persist the answer on the tool message so it survives reload
-                    var resultText = $"User answered: {answer}";
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                        var chat = _dataStore.Data.Chats.Find(c => c.Id == chatId);
-                        if (chat is not null)
-                        {
-                            var toolMsg = chat.Messages.LastOrDefault(m =>
-                                m.ToolName == "ask_question" && m.QuestionId == questionId);
-                            if (toolMsg is not null)
-                                toolMsg.ToolOutput = resultText;
-                        }
-                    });
-
-                    return resultText;
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                        PersistQuestionAnswer(chatId, questionId, answer));
+                    return $"User answered: {answer}";
                 }
                 finally
                 {
-                    _pendingQuestions.Remove(questionId);
+                    RemovePendingQuestion(questionId);
                 }
             },
             "ask_question",
@@ -653,8 +628,70 @@ public partial class ChatViewModel
     /// <summary>Called by the View when the user selects an answer on a question card.</summary>
     public void SubmitQuestionAnswer(string questionId, string answer)
     {
-        if (_pendingQuestions.TryGetValue(questionId, out var tcs))
-            tcs.TrySetResult(answer);
+        TryCompletePendingQuestion(questionId, answer);
+    }
+
+    private void PresentPendingQuestion(
+        Guid chatId,
+        string questionId,
+        string question,
+        IList<string> optionsList,
+        string optionsJson,
+        bool allowFreeText,
+        bool allowMultiSelect)
+    {
+        if (!IsPendingQuestion(questionId))
+            return;
+
+        var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
+        if (chat is null)
+            return;
+
+        var toolMessage = chat.Messages.LastOrDefault(message =>
+            message.ToolName == "ask_question"
+            && message.ToolStatus == "InProgress"
+            && message.QuestionId is null);
+        if (toolMessage is null)
+        {
+            toolMessage = new Models.ChatMessage
+            {
+                Role = "tool",
+                ToolName = "ask_question",
+                ToolStatus = "InProgress",
+                Content = "",
+            };
+            toolMessage.MarkToolStarted(DateTimeOffset.UtcNow);
+            chat.Messages.Add(toolMessage);
+        }
+
+        toolMessage.QuestionId = questionId;
+        toolMessage.QuestionText = question;
+        toolMessage.QuestionOptions = optionsJson;
+        toolMessage.QuestionAllowFreeText = allowFreeText;
+        toolMessage.QuestionAllowMultiSelect = allowMultiSelect;
+
+        NotifyQuestionAsked(chatId, question);
+        if (CurrentChat?.Id != chatId)
+            return;
+
+        _transcriptBuilder.AddQuestionToTranscript(
+            questionId,
+            question,
+            optionsList,
+            allowFreeText,
+            allowMultiSelect);
+        QuestionAsked?.Invoke(questionId, question, optionsJson, allowFreeText);
+        ScrollToEndRequested?.Invoke();
+    }
+
+    private void PersistQuestionAnswer(Guid chatId, string questionId, string answer)
+    {
+        var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
+        var toolMessage = chat?.Messages.LastOrDefault(message =>
+            message.ToolName == "ask_question"
+            && message.QuestionId == questionId);
+        if (toolMessage is not null)
+            toolMessage.ToolOutput = $"User answered: {answer}";
     }
 
     private void NotifyQuestionAsked(Guid chatId, string question)
@@ -849,7 +886,24 @@ public partial class ChatViewModel
                     [Description("Include the assistant's internal reasoning text. Default false.")] bool includeReasoning = false,
                     [Description("Include a short summary of tool calls made in the chat. Default true.")] bool includeToolCalls = true) =>
                 {
-                    return await ChatHistory.ReadChatAsync(chat, maxMessages, includeReasoning, includeToolCalls, GetCurrentCancellationToken());
+                    Guid? linkedId = null;
+                    string? linkedTitle = null;
+                    var result = await ChatHistory.ReadChatAsync(
+                        chat,
+                        maxMessages,
+                        includeReasoning,
+                        includeToolCalls,
+                        onChatResolved: (id, title) =>
+                        {
+                            linkedId = id;
+                            linkedTitle = title;
+                        },
+                        cancellationToken: GetCurrentCancellationToken());
+
+                    if (linkedId is Guid id)
+                        StampLinkedChat(chatId, "read_chat", id, linkedTitle);
+
+                    return result;
                 },
                 "read_chat",
                 "Read the full transcript of one of the user's past chats so you can recall exactly what was discussed. Accepts a chat id (preferred — get it from search_chats), an exact title, or a descriptive phrase (it will search and either open the clear match or return candidates to pick from). Returns a clean, role-labelled transcript windowed to the most recent messages. The header also reports the chat's workspace (git worktree path or project folder), additional context directories, any saved plan, active skills/MCP servers, and model/token usage — use the workspace path when the user wants you to act on that chat's files or uncommitted code (e.g. 'implement it like the uncommitted code in that chat'). Use after search_chats, or directly when the user names a specific chat."),
@@ -934,6 +988,8 @@ public partial class ChatViewModel
                 return validation.Error;
 
             normalizedWorktreeRoot = validation.WorktreeRoot;
+            if (_dataStore.IsWorktreeCleanupReserved(normalizedWorktreeRoot))
+                return "That worktree is being cleaned up and cannot be selected right now.";
         }
 
         if (normalizedTitle is null && normalizedWorktreeRoot is null && !clearWorkspace)
@@ -1074,7 +1130,15 @@ public partial class ChatViewModel
             var desiredWorktreeRoot = clearWorkspace ? null : normalizedWorktreeRoot;
             if (!PathsEqual(chat.WorktreePath, desiredWorktreeRoot))
             {
-                chat.WorktreePath = desiredWorktreeRoot;
+                if (!_dataStore.TrySetChatWorktreePath(chat, desiredWorktreeRoot))
+                    return new ManagedCurrentChatMutation(
+                        previousTitle,
+                        chat.Title,
+                        previousWorktreePath,
+                        chat.WorktreePath,
+                        changes,
+                        titleChanged,
+                        WorkspaceChanged: false);
                 workspaceChanged = true;
                 changes.Add(desiredWorktreeRoot is null
                     ? "workspace: local/project directory"
@@ -1117,7 +1181,7 @@ public partial class ChatViewModel
             ChatUpdated?.Invoke();
     }
 
-    private static void RollBackManagedCurrentChatModelUpdate(
+    private void RollBackManagedCurrentChatModelUpdate(
         Chat chat,
         ManagedCurrentChatMutation mutation)
     {
@@ -1130,7 +1194,7 @@ public partial class ChatViewModel
         if (mutation.WorkspaceChanged
             && PathsEqual(chat.WorktreePath, mutation.NewWorktreePath))
         {
-            chat.WorktreePath = mutation.PreviousWorktreePath;
+            _dataStore.TrySetChatWorktreePath(chat, mutation.PreviousWorktreePath);
         }
     }
 
@@ -1269,6 +1333,28 @@ public partial class ChatViewModel
         return await Dispatcher.UIThread.InvokeAsync(action);
     }
 
+    private void StampLinkedChat(Guid sourceChatId, string toolName, Guid linkedChatId, string? linkedChatTitle)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == sourceChatId);
+            // Tool calls within a turn complete sequentially, so the newest still-unlinked card is
+            // the call that just returned. If the runtime becomes concurrent, correlate by call id.
+            var toolMsg = chat?.Messages.LastOrDefault(message =>
+                message.ToolName == toolName && message.LinkedChatId is null);
+            if (toolMsg is null)
+                return;
+
+            toolMsg.LinkedChatId = linkedChatId;
+            toolMsg.LinkedChatTitle = linkedChatTitle;
+            if (CurrentChat?.Id == sourceChatId)
+            {
+                var msgVm = Messages.LastOrDefault(candidate => ReferenceEquals(candidate.Message, toolMsg));
+                msgVm?.NotifyLinkedChatChanged();
+            }
+        });
+    }
+
     private AIFunction BuildManageChatsTool(Guid chatId)
     {
         return AIFunctionFactory.Create(
@@ -1316,27 +1402,7 @@ public partial class ChatViewModel
                     cancellationToken: GetCurrentCancellationToken());
 
                 if (linkedId is Guid lid)
-                {
-                    var capturedTitle = linkedTitle;
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                        var chat = _dataStore.Data.Chats.Find(c => c.Id == chatId);
-                        // Correlate this completed call to its own tool card by taking the newest still-unlinked
-                        // manage_chats message. This is exact because tool calls within a turn are executed and
-                        // completed sequentially: each card is created and stamped before the next manage_chats
-                        // card exists, so at most one unlinked card is present here. If the runtime is ever changed
-                        // to invoke tool calls concurrently, this must instead key off the SDK tool-call id.
-                        var toolMsg = chat?.Messages.LastOrDefault(m => m.ToolName == "manage_chats" && m.LinkedChatId is null);
-                        if (toolMsg is null) return;
-                        toolMsg.LinkedChatId = lid;
-                        toolMsg.LinkedChatTitle = capturedTitle;
-                        if (CurrentChat?.Id == chatId)
-                        {
-                            var msgVm = Messages.LastOrDefault(mv => ReferenceEquals(mv.Message, toolMsg));
-                            msgVm?.NotifyLinkedChatChanged();
-                        }
-                    });
-                }
+                    StampLinkedChat(chatId, "manage_chats", lid, linkedTitle);
 
                 return result;
             },
@@ -1482,9 +1548,9 @@ public partial class ChatViewModel
         if (result.DeletedMcpName is { } deletedName)
             activeNames.RemoveAll(name => string.Equals(name, deletedName, StringComparison.Ordinal));
 
-        var availableGlyphs = AvailableMcpChips
-            .OfType<StrataTheme.Controls.StrataComposerChip>()
-            .ToDictionary(chip => chip.Name, chip => chip.Glyph, StringComparer.OrdinalIgnoreCase);
+        var availableGlyphs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var chip in AvailableMcpChips.OfType<StrataTheme.Controls.StrataComposerChip>())
+            availableGlyphs.TryAdd(chip.Name, chip.Glyph);
 
         activeNames = activeNames
             .Distinct(StringComparer.OrdinalIgnoreCase)

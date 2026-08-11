@@ -744,6 +744,70 @@ public sealed class MultipleChatWindowsTests
     }
 
     [Fact]
+    public async Task StaleWorktreeConfirmation_DoesNotRemoveRemotelyDeletedChatsWorktree()
+    {
+        Loc.Load("en");
+        var root = Path.Combine(Path.GetTempPath(), "lumi-stale-delete-" + Guid.NewGuid().ToString("N"));
+        var worktreePath = Path.Combine(root, "preserved-worktree");
+        Directory.CreateDirectory(worktreePath);
+        try
+        {
+            var chat = new Chat { Title = "Pending dialog", WorktreePath = worktreePath };
+            using var viewModel = CreateViewModel(chat);
+
+            viewModel.DeleteChatCommand.Execute(chat);
+            Assert.True(viewModel.IsWorktreeDeleteDialogOpen);
+
+            Assert.True(await viewModel.DeleteChatKeepingWorktreeAsync(chat));
+            await viewModel.ConfirmDeleteWithWorktreeCommand.ExecuteAsync(null);
+
+            Assert.True(Directory.Exists(worktreePath));
+            Assert.False(viewModel.IsWorktreeDeleteDialogOpen);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+        }
+    }
+
+    [Fact]
+    public async Task StaleWorktreeConfirmation_PreservesWorktreeWhenAnotherChatAttaches()
+    {
+        Loc.Load("en");
+        var root = Path.Combine(Path.GetTempPath(), "lumi-shared-delete-" + Guid.NewGuid().ToString("N"));
+        var worktreePath = Path.Combine(root, "shared-worktree");
+        Directory.CreateDirectory(worktreePath);
+        try
+        {
+            var chat = new Chat { Title = "Pending dialog", WorktreePath = worktreePath };
+            var sibling = new Chat { Title = "New worktree owner" };
+            using var viewModel = CreateViewModel(chat, sibling);
+            var dataStore = GetPrivateField<DataStore>(viewModel, "_dataStore");
+            var project = new Project { Name = "Project", WorkingDirectory = root };
+            dataStore.Data.Projects.Add(project);
+            chat.ProjectId = project.Id;
+
+            viewModel.DeleteChatCommand.Execute(chat);
+            Assert.True(viewModel.IsWorktreeDeleteDialogOpen);
+
+            sibling.WorktreePath = worktreePath;
+            await viewModel.ConfirmDeleteWithWorktreeCommand.ExecuteAsync(null);
+
+            Assert.True(Directory.Exists(worktreePath));
+            Assert.DoesNotContain(chat, dataStore.Data.Chats);
+            Assert.Contains(sibling, dataStore.Data.Chats);
+            Assert.Equal(worktreePath, sibling.WorktreePath);
+            Assert.False(viewModel.IsWorktreeDeleteDialogOpen);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+        }
+    }
+
+    [Fact]
     public void NewChatCommand_WhileCurrentChatIsRunning_KeepsLiveSurfaceOwnedByOriginalSession()
     {
         Loc.Load("en");

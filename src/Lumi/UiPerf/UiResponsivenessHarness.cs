@@ -6,9 +6,14 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Lumi.Services;
 using Lumi.ViewModels;
+using StrataTheme.Controls;
 
 namespace Lumi.UiPerf;
 
@@ -124,7 +129,7 @@ internal sealed class UiResponsivenessHarness
             var mdDelta = StrataTheme.Controls.StrataMarkdown.CaptureDiagnostics() - mdBefore;
             var ttcAfter = TranscriptTurnControl.CaptureDiagnostics();
             var ttxDelta = Lumi.Views.Controls.TranscriptTextContent.CaptureDiagnostics() - ttxBefore;
-            Console.WriteLine($"[ui-perf][diag] StrataMarkdown instances={mdDelta.InstanceCount} rebuilds={mdDelta.RebuildCount} fullParse={mdDelta.FullParseCount} totalRebuildMs={mdDelta.TotalRebuildMilliseconds:n0} avgRebuildMs={mdDelta.AverageRebuildMilliseconds:n2} | TTX instances={ttxDelta.InstanceCount} mdBranch={ttxDelta.MarkdownBranchCount} | TTC created={ttcAfter.ControlCreateCount - ttcBefore.ControlCreateCount} itemHosts={ttcAfter.ItemHostCreateCount - ttcBefore.ItemHostCreateCount}");
+            Console.WriteLine($"[ui-perf][diag] StrataMarkdown instances={mdDelta.InstanceCount} rebuilds={mdDelta.RebuildCount} fullParse={mdDelta.FullParseCount} totalRebuildMs={mdDelta.TotalRebuildMilliseconds:n0} avgRebuildMs={mdDelta.AverageRebuildMilliseconds:n2} | TTX instances={ttxDelta.InstanceCount} mdBranch={ttxDelta.MarkdownBranchCount} | TTC created={ttcAfter.ControlCreateCount - ttcBefore.ControlCreateCount} itemHosts={ttcAfter.ItemHostCreateCount - ttcBefore.ItemHostCreateCount} activeHosts={ttcAfter.ActiveRealizedHostCount} peakHosts={ttcAfter.PeakActiveRealizedHostCount}");
 
             var report = UiResponsivenessReport.Build(_options, results);
             Console.WriteLine();
@@ -235,9 +240,11 @@ internal sealed class UiResponsivenessHarness
         yield return OpenChatAction("chat-open-medium", "Open medium chat (~80 msgs)", scenarios.MediumChatId,
             "Transcript rebuild for a medium history.");
         yield return OpenChatAction("chat-open-large", "Open large chat (~240 msgs)", scenarios.LargeChatId,
-            "Transcript rebuild + paging window mount for a large history.");
+            "Transcript rebuild + stable placeholder creation for a large history.");
         yield return OpenChatAction("chat-open-huge", "Open huge chat (~600 msgs)", scenarios.HugeChatId,
             "Heaviest transcript rebuild; first-screen mount cost dominates perceived open latency.");
+        yield return OpenChatAction("chat-open-mega", "Open mega chat (~1,000 turns)", scenarios.MegaChatId,
+            "Creates 1,000 stable lightweight turn placeholders and realizes only the tail viewport.");
         yield return OpenChatAction("chat-open-tool-heavy", "Open tool-heavy chat", scenarios.ToolHeavyChatId,
             "Many tool-call cards and subagent groups inflate the transcript.");
         yield return OpenChatAction("chat-open-markdown", "Open markdown-heavy chat", scenarios.MarkdownHeavyChatId,
@@ -292,12 +299,27 @@ internal sealed class UiResponsivenessHarness
             "scroll-huge", "Transcript scroll", "Scroll up through huge chat history",
             RunAsync: DriveScrollToTopAsync,
             Prepare: () => OpenChatAsync(scenarios.HugeChatId),
-            Note: "Each scroll-up prepends an older transcript page and re-renders mounted turns.");
+            Note: "Scrolls through stable placeholders while nearby heavy transcript turns realize.");
         yield return new UiAction(
             "scroll-markdown", "Transcript scroll", "Scroll up through markdown-heavy chat",
             RunAsync: DriveScrollToTopAsync,
             Prepare: () => OpenChatAsync(scenarios.MarkdownHeavyChatId),
-            Note: "Prepending pages of large markdown documents while scrolling.");
+            Note: "Scrolls through stable placeholders while nearby large markdown turns realize.");
+        yield return new UiAction(
+            "scroll-mega-fast", "Transcript scroll", "Fast-traverse 1,000-turn chat",
+            RunAsync: DriveScrollToTopAsync,
+            Prepare: () => OpenChatAsync(scenarios.MegaChatId),
+            Note: "Rapidly traverses the full stable geometry, then realizes only the stopped viewport.");
+        yield return new UiAction(
+            "scroll-mega-stops", "Transcript scroll", "Pause through 1,000-turn chat",
+            RunAsync: DriveScrollWithStopsAsync,
+            Prepare: () => OpenChatAsync(scenarios.MegaChatId),
+            Note: "Realizes and releases sixteen evenly-spaced viewports while preserving the native anchor.");
+        yield return new UiAction(
+            "scroll-mega-roundtrip", "Transcript scroll", "Repeat top/bottom jumps in 1,000-turn chat",
+            RunAsync: DriveScrollRoundTripAsync,
+            Prepare: () => OpenChatAsync(scenarios.MegaChatId),
+            Note: "Exercises scrollbar-style long-distance jumps without realizing skipped content.");
 
         // Composer (per-keystroke latency).
         yield return new UiAction(
@@ -381,24 +403,93 @@ internal sealed class UiResponsivenessHarness
 
     private async Task DriveScrollToTopAsync()
     {
-        var chatVm = _mainVm.ChatVM;
-        // Drive off the paging mutation, not the mounted-turn count: the mounted window is capped
-        // (MaxMountedPages) and trims its tail on every prepend, so the turn count plateaus long
-        // before the head is reached. A Prepend means an older page actually loaded; once the
-        // viewport update stops returning Prepend, we've reached the top of the history.
+        var scrollViewer = await OnUiAsync(FindTranscriptScrollViewer);
+        if (scrollViewer is null)
+            throw new InvalidOperationException("The active chat transcript ScrollViewer was not found.");
+
         for (var step = 0; step < MaxScrollSteps; step++)
         {
-            var mutation = await OnUiAsync(() => chatVm.UpdateTranscriptViewport(
-                offsetY: 8d,
-                viewportHeight: 720d,
-                extentHeight: 12000d,
-                isFollowingTail: false,
-                isPinnedToBottom: false,
-                distanceFromBottom: 11000d));
-            await DrainAsync(DispatcherPriority.Render);
-            if (mutation.Kind != TranscriptWindowMutationKind.Prepend)
+            var moved = await OnUiAsync(() =>
+            {
+                var before = scrollViewer.Offset.Y;
+                var stepPixels = Math.Max(1800d, scrollViewer.Viewport.Height * 6d);
+                var target = Math.Max(0d, before - stepPixels);
+                scrollViewer.Offset = scrollViewer.Offset.WithY(target);
+                return before - target > 0.5d;
+            });
+
+            await DrainAsync(DispatcherPriority.Background);
+            if (!moved)
                 break;
         }
+
+        // Keep this action's measurement open through the scroll-idle debounce and the resulting
+        // viewport realization/layout. Otherwise the report would measure placeholder movement only.
+        await SettleStoppedTranscriptViewportAsync();
+    }
+
+    private async Task DriveScrollWithStopsAsync()
+    {
+        var scrollViewer = await OnUiAsync(FindTranscriptScrollViewer);
+        if (scrollViewer is null)
+            throw new InvalidOperationException("The active chat transcript ScrollViewer was not found.");
+
+        var maxOffset = await OnUiAsync(() =>
+            Math.Max(0d, scrollViewer.Extent.Height - scrollViewer.Viewport.Height));
+        const int stopCount = 16;
+        for (var stop = 1; stop <= stopCount; stop++)
+        {
+            var target = maxOffset * (1d - (stop / (double)stopCount));
+            await OnUiAsync(() => scrollViewer.Offset = scrollViewer.Offset.WithY(target));
+            await SettleStoppedTranscriptViewportAsync();
+        }
+    }
+
+    private async Task DriveScrollRoundTripAsync()
+    {
+        var scrollViewer = await OnUiAsync(FindTranscriptScrollViewer);
+        if (scrollViewer is null)
+            throw new InvalidOperationException("The active chat transcript ScrollViewer was not found.");
+
+        for (var cycle = 0; cycle < 12; cycle++)
+        {
+            await OnUiAsync(() =>
+            {
+                var maxOffset = Math.Max(0d, scrollViewer.Extent.Height - scrollViewer.Viewport.Height);
+                scrollViewer.Offset = scrollViewer.Offset.WithY(cycle % 2 == 0 ? 0d : maxOffset);
+            });
+            await DrainAsync(DispatcherPriority.Render);
+        }
+
+        await SettleStoppedTranscriptViewportAsync();
+    }
+
+    private static async Task SettleStoppedTranscriptViewportAsync()
+    {
+        await Task.Delay(TranscriptItemsControl.ScrollIdleRealizationDelay + TimeSpan.FromMilliseconds(30));
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            await DrainAsync(DispatcherPriority.Background);
+            if (!TranscriptRealizationScheduler.Instance.HasPendingWork)
+                break;
+        }
+
+        await DrainAsync(DispatcherPriority.Render);
+        await DrainAsync(DispatcherPriority.Loaded);
+        await DrainAsync(DispatcherPriority.Background);
+    }
+
+    private static ScrollViewer? FindTranscriptScrollViewer()
+    {
+        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            return null;
+
+        return desktop.Windows
+            .Where(static window => window.IsVisible)
+            .SelectMany(static window => window.GetVisualDescendants())
+            .OfType<StrataChatShell>()
+            .FirstOrDefault(static shell => shell.IsVisible)
+            ?.TranscriptScrollViewer;
     }
 
     private async Task DriveSearchAsync(string query)

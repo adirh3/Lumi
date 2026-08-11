@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Wire contract shared by the Lumi desktop remote server and the Lumi mobile client.
+       Deliberately dependency-free and platform-neutral (net8.0 so Android/iOS heads can
+       consume it) so neither side can drift from the other. -->
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net11.0</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>

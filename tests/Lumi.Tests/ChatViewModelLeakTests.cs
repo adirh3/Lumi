@@ -20,6 +20,134 @@ namespace Lumi.Tests;
 public sealed class ChatViewModelLeakTests
 {
     [Fact]
+    public void ChatDeletionReservation_BlocksFirstTurnReservationsAcrossSurfaces()
+    {
+        var chatId = Guid.NewGuid();
+        var first = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var second = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        try
+        {
+            using (var deletion = ChatViewModel.TryReserveChatDeletion(chatId))
+            {
+                Assert.NotNull(deletion);
+                Assert.Null(first.TryReserveExternalSend(chatId));
+                Assert.Null(second.TryReserveExternalSend(chatId));
+                Assert.Null(ChatViewModel.TryReserveChatDeletion(chatId));
+            }
+
+            using var firstTurn = first.TryReserveExternalSend(chatId);
+            Assert.NotNull(firstTurn);
+        }
+        finally
+        {
+            first.Dispose();
+            second.Dispose();
+        }
+    }
+
+    [Fact]
+    public void ExistingFirstTurnReservation_BlocksChatDeletionReservation()
+    {
+        var chatId = Guid.NewGuid();
+        var viewModel = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        try
+        {
+            using var firstTurn = viewModel.TryReserveExternalSend(chatId);
+            Assert.NotNull(firstTurn);
+            Assert.Null(ChatViewModel.TryReserveChatDeletion(chatId));
+        }
+        finally
+        {
+            viewModel.Dispose();
+        }
+    }
+
+    [Fact]
+    public void DesktopSendPreflightReservation_BlocksChatDeletion()
+    {
+        var chatId = Guid.NewGuid();
+        var viewModel = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        try
+        {
+            using var scope = new ChatViewModel.ChatSendReservationScope();
+            Assert.True(scope.TryReserve(chatId));
+
+            Assert.Null(ChatViewModel.TryReserveChatDeletion(chatId));
+        }
+        finally
+        {
+            viewModel.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task ChatDeletionReservation_BlocksDesktopComposerSend()
+    {
+        Loc.Load("en");
+        var chat = new Chat { Title = "Deleting", MessageCount = 1 };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "existing" });
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared)
+        {
+            CurrentChat = chat,
+            PromptText = "do not send"
+        };
+        try
+        {
+            using var deletion = ChatViewModel.TryReserveChatDeletion(chat.Id);
+            Assert.NotNull(deletion);
+
+            viewModel.SendMessageCommand.Execute(null);
+            if (viewModel.SendMessageCommand.ExecutionTask is { } execution)
+                await execution;
+
+            Assert.Equal(Loc.Status_DeletingChat, viewModel.StatusText);
+            Assert.Single(chat.Messages);
+        }
+        finally
+        {
+            viewModel.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task CanceledExternalSend_RollsBackPersistedReceiptBeforeActivation()
+    {
+        var chat = new Chat { Title = "Existing", MessageCount = 1 };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "existing" });
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared)
+        {
+            CurrentChat = chat
+        };
+        try
+        {
+            using var reservation = viewModel.TryReserveExternalSend(chat.Id);
+            Assert.NotNull(reservation);
+            dataStore.IndexSaved += () => viewModel.CancelExternalSendReservation(chat.Id);
+
+            var result = await viewModel.StartExternalMessageAsync(
+                chat,
+                "cancel me",
+                "Lumi Mobile",
+                reservationToken: reservation.Token,
+                remoteDeviceId: "phone",
+                remoteRequestId: "request");
+
+            Assert.False(result.Accepted);
+            Assert.DoesNotContain(chat.Messages, message => message.Content == "cancel me");
+            Assert.Null(chat.LastRemoteDeviceId);
+            Assert.Null(chat.LastRemoteRequestId);
+        }
+        finally
+        {
+            viewModel.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task CombinePendingSessionReleases_WaitsForEveryOutstandingRelease()
     {
         var first = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1097,6 +1225,81 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public async Task SweepInactiveChatStates_KeepsPendingQuestionAnswerableAfterChatSwitch()
+    {
+        var dataStore = CreateDataStore();
+        using var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var questionChat = new Chat { Title = "question-chat" };
+        var visibleChat = new Chat { Title = "visible-chat" };
+        questionChat.Messages.Add(new ChatMessage
+        {
+            Role = "tool",
+            ToolName = "ask_question",
+            ToolStatus = "InProgress",
+            QuestionId = "q-switch"
+        });
+        dataStore.Data.Chats.Add(questionChat);
+        dataStore.Data.Chats.Add(visibleChat);
+        vm.CurrentChat = visibleChat;
+
+        GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates")[questionChat.Id] =
+            new ChatRuntimeState { Chat = questionChat };
+        var pendingQuestion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        InvokePrivate(vm, "TrackPendingQuestion", questionChat.Id, "q-switch", pendingQuestion);
+
+        InvokePrivate(vm, "SweepInactiveChatStates");
+        var questionItem = new QuestionItem(
+            "q-switch",
+            "Keep going?",
+            ["Keep going"],
+            allowFreeText: false,
+            submitAction: vm.SubmitQuestionAnswer);
+        questionItem.SelectedAnswer = "Keep going";
+        questionItem.IsAnswered = true;
+
+        Assert.Equal("Keep going", await pendingQuestion.Task.WaitAsync(TimeSpan.FromSeconds(1)));
+        Assert.Equal("InProgress", questionChat.Messages[0].ToolStatus);
+        Assert.True(GetField<Dictionary<Guid, ChatRuntimeState>>(vm, "_runtimeStates").ContainsKey(questionChat.Id));
+    }
+
+    [Fact]
+    public void CancelPendingQuestions_CancelsQuestionBeforeTranscriptProjection()
+    {
+        var dataStore = CreateDataStore();
+        using var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "unprojected-question" };
+        dataStore.Data.Chats.Add(chat);
+        var pendingQuestion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        InvokePrivate(vm, "TrackPendingQuestion", chat.Id, "q-unprojected", pendingQuestion);
+
+        InvokePrivate(vm, "CancelPendingQuestions", chat);
+
+        Assert.True(pendingQuestion.Task.IsCanceled);
+        Assert.False(vm.IsChatBusy(chat.Id));
+    }
+
+    [Fact]
+    public void PersistQuestionAnswer_StoresAnswerForTranscriptRebuild()
+    {
+        var dataStore = CreateDataStore();
+        using var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "answered-question" };
+        var question = new ChatMessage
+        {
+            Role = "tool",
+            ToolName = "ask_question",
+            ToolStatus = "InProgress",
+            QuestionId = "q-answer"
+        };
+        chat.Messages.Add(question);
+        dataStore.Data.Chats.Add(chat);
+
+        InvokePrivate(vm, "PersistQuestionAnswer", chat.Id, "q-answer", "Continue");
+
+        Assert.Equal("User answered: Continue", question.ToolOutput);
+    }
+
+    [Fact]
     public void IsChatBusy_ReturnsTrueWhileTurnCleanupIsPending()
     {
         var dataStore = CreateDataStore();
@@ -1289,9 +1492,16 @@ public sealed class ChatViewModelLeakTests
             Chat = chat,
             IsBusy = true
         };
+        ChatViewModel.ChatDeletionReservation? deletionDuringSteer = null;
+        vm.UserMessageSent += () =>
+            deletionDuringSteer = ChatViewModel.TryReserveChatDeletion(chat.Id);
 
         await InvokePrivateAsync(vm, "SendMessage");
 
+        deletionDuringSteer?.Dispose();
+        Assert.Null(deletionDuringSteer);
+        using var deletionAfterSteer = ChatViewModel.TryReserveChatDeletion(chat.Id);
+        Assert.NotNull(deletionAfterSteer);
         // The message is visible right away instead of vanishing until the queue is drained.
         Assert.Equal("queued while busy", Assert.Single(chat.Messages).Content);
         Assert.Equal(MessageSteerState.Queued, Assert.Single(vm.Messages).SteerState);
@@ -2277,6 +2487,36 @@ public sealed class ChatViewModelLeakTests
         var chip = Assert.Single(vm.ActiveMcpChips.OfType<StrataTheme.Controls.StrataComposerChip>());
         Assert.Equal("local-filesystem", chip.Name);
         Assert.Equal(["local-filesystem"], chat.ActiveMcpServerNames);
+    }
+
+    [Fact]
+    public void RefreshActiveMcpSelections_UsesFirstDuplicateCatalogEntry()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat
+        {
+            Title = "duplicate-mcp-chat",
+            ActiveMcpServerNames = ["GitHub"]
+        };
+
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+        vm.ActiveMcpServerNames.Add("GitHub");
+        vm.AvailableMcpChips.Add(new StrataTheme.Controls.StrataComposerChip("GitHub", "first"));
+        vm.AvailableMcpChips.Add(new StrataTheme.Controls.StrataComposerChip("github", "second"));
+
+        var changed = InvokePrivate<bool>(
+            vm,
+            "RefreshActiveMcpSelections",
+            new FeatureChangeResult("updated", DataChanged: true));
+
+        Assert.False(changed);
+        Assert.Equal(["GitHub"], vm.ActiveMcpServerNames);
+        var chip = Assert.Single(vm.ActiveMcpChips.OfType<StrataTheme.Controls.StrataComposerChip>());
+        Assert.Equal("GitHub", chip.Name);
+        Assert.Equal("first", chip.Glyph);
+        Assert.Equal(["GitHub"], chat.ActiveMcpServerNames);
     }
 
     [Fact]

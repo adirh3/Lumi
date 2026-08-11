@@ -180,6 +180,28 @@ public sealed class SystemPromptBuilderTests
     }
 
     [Fact]
+    public void Build_IncludesMarkdownImageGuidance()
+    {
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en" },
+            agent: null,
+            project: null,
+            allSkills: [],
+            activeSkills: [],
+            memories: []);
+
+        Assert.Contains("### Markdown images", prompt);
+        Assert.Contains("`![Useful alt text](image-source)`", prompt);
+        Assert.Contains("verified `http://` or `https://` URL", prompt);
+        Assert.Contains("absolute filesystem path or `file:` URI", prompt);
+        Assert.Contains("chat messages have no document-relative base directory", prompt);
+        Assert.Contains("typically 3-6", prompt);
+        Assert.Contains("resized or thumbnail image URLs", prompt);
+        Assert.Contains("instead of repeatedly retrying source discovery", prompt);
+        Assert.Contains("still use `announce_file`", prompt);
+    }
+
+    [Fact]
     public void Build_AppendsConcretePresentationCheckAfterDynamicContext()
     {
         const string projectSentinel = "PROJECT_INSTRUCTIONS_SENTINEL";

@@ -139,6 +139,26 @@ public sealed class ChatHistoryServiceTests
     }
 
     [Fact]
+    public async Task ReadChat_ById_ReportsResolvedChat()
+    {
+        var chat = Chat("Resolved chat", Now, Msg("user", "hello"));
+        var service = CreateService(new AppData { Chats = [chat] }, withSearch: false);
+        Guid? resolvedId = null;
+        string? resolvedTitle = null;
+
+        await service.ReadChatAsync(
+            chat.Id.ToString(),
+            onChatResolved: (id, title) =>
+            {
+                resolvedId = id;
+                resolvedTitle = title;
+            });
+
+        Assert.Equal(chat.Id, resolvedId);
+        Assert.Equal(chat.Title, resolvedTitle);
+    }
+
+    [Fact]
     public async Task ReadChat_IncludeReasoning_ShowsReasoning()
     {
         var chat = Chat(

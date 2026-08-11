@@ -25,6 +25,7 @@ internal sealed class UiWorkloadScenarios
     public Guid MediumChatId { get; private set; }
     public Guid LargeChatId { get; private set; }
     public Guid HugeChatId { get; private set; }
+    public Guid MegaChatId { get; private set; }
     public Guid ToolHeavyChatId { get; private set; }
     public Guid MarkdownHeavyChatId { get; private set; }
     public Guid CodeHeavyChatId { get; private set; }
@@ -53,6 +54,8 @@ internal sealed class UiWorkloadScenarios
             BuildConversation(seed: 4, turns: 95, assistantParagraphs: 2, withRichBlocks: true, toolHeavy: false));
         HugeChatId = AddChat("Huge chat (~600 messages)", now.AddDays(-2),
             BuildConversation(seed: 5, turns: 250, assistantParagraphs: 2, withRichBlocks: true, toolHeavy: false));
+        MegaChatId = AddChat("Mega chat (~1,200 messages / 1,000 turns)", now.AddDays(-5),
+            BuildConversation(seed: 8, turns: 500, assistantParagraphs: 2, withRichBlocks: true, toolHeavy: false));
         ToolHeavyChatId = AddChat("Tool-heavy chat (agents + tools)", now.AddDays(-1).AddHours(-6),
             BuildConversation(seed: 6, turns: 45, assistantParagraphs: 1, withRichBlocks: false, toolHeavy: true), ProjectId);
         MarkdownHeavyChatId = AddChat("Markdown-heavy chat (large documents)", now.AddDays(-4),

@@ -60,6 +60,12 @@ public partial class ChatViewModel
     {
         if (CurrentChat is not null)
         {
+            if (IsExternalSendReserved(CurrentChat.Id))
+            {
+                SyncComposerProjectSelectionFromState();
+                return;
+            }
+
             var changed = CurrentChat.ProjectId != projectId;
             CurrentChat.ProjectId = projectId;
             QueueSaveChat(CurrentChat, saveIndex: true);
@@ -116,6 +122,12 @@ public partial class ChatViewModel
     {
         if (CurrentChat is not null)
         {
+            if (IsExternalSendReserved(CurrentChat.Id))
+            {
+                SyncComposerProjectSelectionFromState();
+                return;
+            }
+
             var changed = CurrentChat.ProjectId is not null;
             CurrentChat.ProjectId = null;
             QueueSaveChat(CurrentChat, saveIndex: true);
@@ -140,6 +152,39 @@ public partial class ChatViewModel
         RefreshComposerCatalogs(); // Re-scan to remove project-context and user Copilot agents/skills
         RefreshActiveSkillChipsFromState();
         QueueRefreshCodingProjectState();
+    }
+
+    internal bool IsExternalProjectContextCurrent(
+        Chat targetChat,
+        Guid? expectedProjectId,
+        string? expectedProjectDirectory)
+    {
+        if (targetChat.ProjectId != expectedProjectId)
+            return false;
+
+        var currentDirectory = expectedProjectId is { } projectId
+            ? _dataStore.Data.Projects
+                .FirstOrDefault(project => project.Id == projectId)?
+                .WorkingDirectory
+            : null;
+        return ProjectPathsEqual(currentDirectory, expectedProjectDirectory);
+    }
+
+    private static bool ProjectPathsEqual(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return string.IsNullOrWhiteSpace(left) && string.IsNullOrWhiteSpace(right);
+
+        var normalizedLeft = Path.GetFullPath(left)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedRight = Path.GetFullPath(right)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(
+            normalizedLeft,
+            normalizedRight,
+            OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal);
     }
 
     private void ApplyDraftProjectWorkspaceDefault(Guid? projectId)
@@ -495,9 +540,15 @@ public partial class ChatViewModel
     /// directory is a subfolder of the git root, e.g. a monorepo app).
     /// </summary>
     private string ResolveEffectiveWorkingDirectory(Guid? projectId, string? worktreePath)
+        => ResolveEffectiveWorkingDirectory(_dataStore, projectId, worktreePath);
+
+    internal static string ResolveEffectiveWorkingDirectory(
+        DataStore dataStore,
+        Guid? projectId,
+        string? worktreePath)
     {
         var project = projectId.HasValue
-            ? _dataStore.Data.Projects.FirstOrDefault(p => p.Id == projectId.Value)
+            ? dataStore.Data.Projects.FirstOrDefault(p => p.Id == projectId.Value)
             : null;
         var projectDir = project is { WorkingDirectory: { Length: > 0 } dir } && Directory.Exists(dir)
             ? dir

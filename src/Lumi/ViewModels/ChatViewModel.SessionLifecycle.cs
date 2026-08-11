@@ -1059,7 +1059,11 @@ public partial class ChatViewModel
                     var output = ToolDisplayHelper.CleanTerminalOutput(partial.Data.PartialOutput);
                     if (!string.IsNullOrWhiteSpace(output))
                     {
-                        ToolDisplayHelper.ApplyTerminalOutput(chat, rootToolCallId, output, replaceExistingOutput: false);
+                        ApplyTerminalOutputAndNotify(
+                            chat,
+                            rootToolCallId,
+                            output,
+                            replaceExistingOutput: false);
                         _transcriptBuilder.UpdateTerminalOutput(rootToolCallId, output, false);
                     }
                     });
@@ -1081,7 +1085,11 @@ public partial class ChatViewModel
                     var output = ToolDisplayHelper.CleanTerminalOutput(progress.Data.ProgressMessage);
                     if (!string.IsNullOrWhiteSpace(output))
                     {
-                        ToolDisplayHelper.ApplyTerminalOutput(chat, rootToolCallId, output, replaceExistingOutput: false);
+                        ApplyTerminalOutputAndNotify(
+                            chat,
+                            rootToolCallId,
+                            output,
+                            replaceExistingOutput: false);
                         _transcriptBuilder.UpdateTerminalOutput(rootToolCallId, output, false);
                     }
                     });
@@ -1125,6 +1133,7 @@ public partial class ChatViewModel
                             {
                                 var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == toolEnd.Data.ToolCallId);
                                 vm?.NotifyToolStatusChanged();
+                                vm?.NotifyToolDetailsChanged();
                             }
                         }
 
@@ -1597,21 +1606,23 @@ public partial class ChatViewModel
                     });
                     break;
 
-                case SessionCompactionStartEvent:
+                case SessionCompactionStartEvent compactionStart:
                     Dispatcher.UIThread.Post(() =>
                     {
-                    MarkRuntimeActive(runtime, Loc.Status_Compacting, isStreaming: false);
-                    if (IsDisplayedSession())
-                        ApplyDisplayedRuntimeState(runtime);
+                        MarkRuntimeCompacting(runtime);
+                        var isDisplayed = IsDisplayedSession();
+                        HandleContextCompactionStarted(chat, runtime, compactionStart.Data, isDisplayed);
+                        if (isDisplayed)
+                            ApplyDisplayedRuntimeState(runtime);
                     });
                     break;
 
-                case SessionCompactionCompleteEvent:
+                case SessionCompactionCompleteEvent compactionComplete:
                     Dispatcher.UIThread.Post(() =>
                     {
-                    runtime.StatusText = "";
-                    if (IsDisplayedSession())
-                        StatusText = runtime.StatusText;
+                        var isDisplayed = IsDisplayedSession();
+                        HandleContextCompactionCompleted(chat, runtime, compactionComplete.Data, isDisplayed);
+                        CompleteContextCompactionLifecycle(chat, runtime, isDisplayed);
                     });
                     break;
 
@@ -1761,6 +1772,18 @@ public partial class ChatViewModel
                         reasoningStream.Clear();
 
                         var isError = shutdown.Data.ShutdownType == ShutdownType.Error;
+                        var shutdownCurrentTokens = shutdown.Data.CurrentTokens ?? 0;
+                        if (shutdownCurrentTokens > 0)
+                        {
+                            ApplyContextUsage(
+                                chat,
+                                runtime,
+                                shutdownCurrentTokens,
+                                tokenLimit: null,
+                                tokenLimitSource: runtime.ContextTokenLimitSource,
+                                updateDisplayed: shouldUpdateDisplayedChatUi,
+                                currentTokensAreExact: true);
+                        }
                         if (IsAuthoritativeSession())
                             ReconcileInProgressSubagentTools(chat, isError ? "Failed" : "Stopped");
                         if (isError && shouldUpdateDisplayedChatUi)
@@ -1955,28 +1978,11 @@ public partial class ChatViewModel
                 case AssistantUsageEvent usage:
                     Dispatcher.UIThread.Post(() =>
                     {
-                        // Track usage data in runtime state for display/debug metrics.
+                        // Assistant usage is billing/request accounting. It may include cache reads and
+                        // can greatly exceed the model's live context window, so never use it as context.
                         var d = usage.Data;
-                        var turnInput = (long)(d.InputTokens ?? 0);
-                        runtime.TotalInputTokens += turnInput;
+                        runtime.TotalInputTokens += (long)(d.InputTokens ?? 0);
                         runtime.TotalOutputTokens += (long)(d.OutputTokens ?? 0);
-                        // Each API call sends the full conversation context, so the latest
-                        // InputTokens is the best proxy for current context window usage.
-                        var usageModel = string.IsNullOrWhiteSpace(d.Model)
-                            ? ResolveSelectedModelForChat(chat)
-                            : d.Model;
-                        var (fallbackModelId, fallbackTier) = ResolveCatalogFallbackContextWindowSelection(
-                            chat,
-                            runtime,
-                            usageModel);
-                        var knownTokenLimit = ResolveKnownContextTokenLimit(fallbackModelId, fallbackTier);
-                        ApplyContextUsage(
-                            chat,
-                            runtime,
-                            turnInput > 0 ? turnInput : null,
-                            knownTokenLimit > 0 ? knownTokenLimit : null,
-                            ContextTokenLimitSource.Catalog,
-                            IsDisplayedSession());
                         // Persist token counts to the Chat model so they survive restarts.
                         chat.TotalInputTokens = runtime.TotalInputTokens;
                         chat.TotalOutputTokens = runtime.TotalOutputTokens;
@@ -2009,7 +2015,10 @@ public partial class ChatViewModel
                             currentTokens > 0 ? currentTokens : null,
                             tokenLimit > 0 ? tokenLimit : null,
                             tokenLimitSource,
-                            IsDisplayedSession());
+                            IsDisplayedSession(),
+                            currentTokensAreExact: true,
+                            tokenLimitModelId: fallbackModelId,
+                            tokenLimitTier: fallbackTier);
                     });
                     break;
 
@@ -2287,6 +2296,34 @@ public partial class ChatViewModel
         runtime.StatusText = statusText ?? string.Empty;
     }
 
+    internal static void MarkRuntimeCompacting(ChatRuntimeState runtime)
+        => MarkRuntimeActive(runtime, Loc.Status_Compacting, isStreaming: false);
+
+    internal static bool FinalizeRuntimeAfterCompaction(ChatRuntimeState runtime)
+    {
+        var hadActiveWork = runtime.HasActiveWork;
+        if (!runtime.TurnInProgress && !ShouldKeepRuntimeBusyUntilSessionIdle(runtime))
+        {
+            MarkRuntimeTerminal(runtime);
+            return hadActiveWork;
+        }
+
+        runtime.StatusText = string.Empty;
+        return false;
+    }
+
+    private void CompleteContextCompactionLifecycle(
+        Chat chat,
+        ChatRuntimeState runtime,
+        bool updateDisplayed)
+    {
+        var becameIdle = FinalizeRuntimeAfterCompaction(runtime);
+        if (updateDisplayed)
+            ApplyDisplayedRuntimeState(runtime);
+        if (becameIdle)
+            ScheduleQueuedBusySendDrain(chat.Id);
+    }
+
     private static void MarkRuntimeActive(
         ChatRuntimeState runtime,
         string? statusText = null,
@@ -2528,13 +2565,31 @@ public partial class ChatViewModel
         if (!_runtimeStates.TryGetValue(chatId, out var runtime))
         {
             var chat = _dataStore.Data.Chats.Find(c => c.Id == chatId);
+            var hasExactContextUsage = chat?.HasExactContextUsage == true;
+            var contextCurrentTokens = hasExactContextUsage
+                ? NormalizeExactContextCurrentTokens(
+                    chat?.ContextCurrentTokens ?? 0,
+                    chat?.ContextTokenLimit ?? 0)
+                : 0;
+            if (chat is not null && chat.ContextCurrentTokens != contextCurrentTokens)
+            {
+                chat.ContextCurrentTokens = contextCurrentTokens;
+                chat.HasExactContextUsage = hasExactContextUsage;
+                _dataStore.MarkChatChanged(chat);
+            }
+
             runtime = new ChatRuntimeState
             {
                 Chat = chat,
                 TotalInputTokens = chat?.TotalInputTokens ?? 0,
                 TotalOutputTokens = chat?.TotalOutputTokens ?? 0,
-                ContextCurrentTokens = chat?.ContextCurrentTokens ?? 0,
+                ContextCurrentTokens = contextCurrentTokens,
+                HasExactContextUsage = hasExactContextUsage,
                 ContextTokenLimit = chat?.ContextTokenLimit ?? 0,
+                ContextTokenLimitModelId = chat is null ? null : ResolveSelectedModelForChat(chat),
+                ContextTokenLimitTier = chat is null
+                    ? null
+                    : ResolveSelectedContextWindowTierForChat(chat, ResolveSelectedModelForChat(chat)),
             };
             if (chat is not null)
                 ApplyKnownContextTokenLimit(chat, runtime, ResolveSelectedModelForChat(chat), updateDisplayed: false);

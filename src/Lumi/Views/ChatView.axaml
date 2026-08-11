@@ -1512,21 +1512,28 @@
 
 
         <sc:StrataChatShell.Transcript>
-          <vm:TranscriptItemsControl x:Name="Transcript"
-                        HorizontalAlignment="Stretch"
-                        MaxWidth="{DynamicResource Chat.ReadingColumnWidth}"
-                        ItemsSource="{Binding MountedTranscriptTurns}">
-            <vm:TranscriptItemsControl.ItemTemplate>
-              <DataTemplate DataType="vm:TranscriptTurn">
-                <vm:TranscriptTurnControl Turn="{Binding}" />
-              </DataTemplate>
-            </vm:TranscriptItemsControl.ItemTemplate>
-            <vm:TranscriptItemsControl.ItemsPanel>
-              <ItemsPanelTemplate>
-                <StackPanel Spacing="8" />
-              </ItemsPanelTemplate>
-            </vm:TranscriptItemsControl.ItemsPanel>
-          </vm:TranscriptItemsControl>
+          <StackPanel HorizontalAlignment="Stretch"
+                      MaxWidth="{DynamicResource Chat.ReadingColumnWidth}">
+            <Border Height="{Binding TranscriptTopSpacerHeight}"
+                    IsHitTestVisible="False" />
+            <vm:TranscriptItemsControl x:Name="Transcript"
+                          HorizontalAlignment="Stretch"
+                          ItemsSource="{Binding MountedTranscriptTurns}">
+              <vm:TranscriptItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:TranscriptTurn">
+                  <vm:TranscriptTurnControl Turn="{Binding}"
+                                            IsViewportManaged="True" />
+                </DataTemplate>
+              </vm:TranscriptItemsControl.ItemTemplate>
+              <vm:TranscriptItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Spacing="8" />
+                </ItemsPanelTemplate>
+              </vm:TranscriptItemsControl.ItemsPanel>
+            </vm:TranscriptItemsControl>
+            <Border Height="{Binding TranscriptBottomSpacerHeight}"
+                    IsHitTestVisible="False" />
+          </StackPanel>
         </sc:StrataChatShell.Transcript>
 
         <sc:StrataChatShell.Composer>
@@ -1792,80 +1799,263 @@
         </Button>
           </StackPanel>
 
-          <!-- Right: token usage -->
-          <Border Grid.Column="1"
+          <!-- Right: compact context window control -->
+          <Button x:Name="ContextWindowButton"
+                  Grid.Column="1"
+                  Classes="subtle"
                   IsVisible="{Binding HasTokenUsage}"
-                  Padding="8,1,8,1"
-                  CornerRadius="8"
-                  Background="{DynamicResource Brush.Surface2}"
-                  Opacity="0.7"
+                  Command="{Binding OpenContextDetailsCommand}"
+                  Padding="8,2"
+                  MinHeight="0"
+                  Height="22"
+                  CornerRadius="999"
+                  Background="{DynamicResource Brush.Surface1}"
+                  BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                  BorderThickness="1"
                   Cursor="Hand"
                   VerticalAlignment="Center">
-            <Border.Transitions>
-              <Transitions>
-                <DoubleTransition Property="Opacity" Duration="0:0:0.2" />
-              </Transitions>
-            </Border.Transitions>
-            <ToolTip.Tip>
-              <StackPanel Spacing="6" MinWidth="180">
-                <TextBlock Text="Token Usage" FontWeight="SemiBold" FontSize="12"
-                           Foreground="{DynamicResource Brush.TextPrimary}" />
-                <Border Height="1" Background="{DynamicResource Brush.BorderSubtle}" />
-                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" Margin="0,2,0,0">
-                  <TextBlock Grid.Row="0" Grid.Column="0" Text="Input" FontSize="11"
-                             Foreground="{DynamicResource Brush.TextSecondary}" />
-                  <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding TokenInputDisplay}" FontSize="11"
-                             Foreground="{DynamicResource Brush.TextPrimary}" HorizontalAlignment="Right" Margin="16,0,0,0" />
-                  <TextBlock Grid.Row="1" Grid.Column="0" Text="Output" FontSize="11" Margin="0,4,0,0"
-                             Foreground="{DynamicResource Brush.TextSecondary}" />
-                  <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding TokenOutputDisplay}" FontSize="11" Margin="16,4,0,0"
-                             Foreground="{DynamicResource Brush.TextPrimary}" HorizontalAlignment="Right" />
-                </Grid>
-                <Border Height="1" Background="{DynamicResource Brush.BorderSubtle}" />
-                <Grid ColumnDefinitions="*,Auto">
-                  <TextBlock Grid.Column="0" Text="Total" FontSize="11" FontWeight="SemiBold"
-                             Foreground="{DynamicResource Brush.TextPrimary}" />
-                  <TextBlock Grid.Column="1" Text="{Binding TokenTotalDisplay}" FontSize="11" FontWeight="SemiBold"
-                             Foreground="{DynamicResource Brush.AccentDefault}" HorizontalAlignment="Right" Margin="16,0,0,0" />
-                </Grid>
-                <!-- Context window usage (only when available) -->
-                <Border Height="1" Background="{DynamicResource Brush.BorderSubtle}"
-                        IsVisible="{Binding HasContextUsage}" />
-                <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasContextUsage}">
-                  <TextBlock Grid.Column="0" Text="Context window" FontSize="11"
-                             Foreground="{DynamicResource Brush.TextSecondary}" />
-                  <TextBlock Grid.Column="1" Text="{Binding ContextUsageDisplay}" FontSize="11"
-                             Foreground="{DynamicResource Brush.TextPrimary}" HorizontalAlignment="Right" Margin="16,0,0,0" />
-                </Grid>
-                <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasContextUsage}" Margin="0,-2,0,0">
-                  <TextBlock Grid.Column="0" Text="Usage" FontSize="11" FontWeight="SemiBold"
-                             Foreground="{DynamicResource Brush.TextPrimary}" />
-                  <TextBlock Grid.Column="1" FontSize="11" FontWeight="SemiBold"
-                             Foreground="{DynamicResource Brush.AccentDefault}" HorizontalAlignment="Right" Margin="16,0,0,0">
-                    <TextBlock.Text>
-                      <MultiBinding StringFormat="{}{0}%">
-                        <Binding Path="ContextUsagePercent" />
-                      </MultiBinding>
-                    </TextBlock.Text>
-                  </TextBlock>
-                </Grid>
-              </StackPanel>
-            </ToolTip.Tip>
-            <StackPanel Orientation="Horizontal" Spacing="4">
-              <PathIcon Width="10" Height="10"
+            <Button.Flyout>
+              <Flyout Placement="TopEdgeAlignedRight">
+                <Flyout.FlyoutPresenterTheme>
+                  <ControlTheme TargetType="FlyoutPresenter"
+                                BasedOn="{StaticResource {x:Type FlyoutPresenter}}">
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="MinWidth" Value="340" />
+                    <Setter Property="MaxWidth" Value="380" />
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="BorderThickness" Value="0" />
+                    <Setter Property="Template">
+                      <ControlTemplate>
+                        <Border Margin="16"
+                                Background="{DynamicResource Brush.SurfaceOverlay}"
+                                BorderBrush="{DynamicResource Brush.BorderDefault}"
+                                BorderThickness="1"
+                                CornerRadius="{DynamicResource Radius.Overlay}"
+                                BoxShadow="0 18 48 -12 #3D000000, 0 6 18 -8 #26000000, 0 0 0 1 #10000000">
+                          <ContentPresenter Name="PART_ContentPresenter"
+                                            Content="{TemplateBinding Content}"
+                                            ContentTemplate="{TemplateBinding ContentTemplate}" />
+                        </Border>
+                      </ControlTemplate>
+                    </Setter>
+                  </ControlTheme>
+                </Flyout.FlyoutPresenterTheme>
+
+                <Border x:Name="ContextWindowFlyout"
+                        Width="340"
+                        Background="Transparent"
+                        CornerRadius="{DynamicResource Radius.Overlay}"
+                        ClipToBounds="True">
+                  <StackPanel Spacing="0">
+                    <Border Height="2"
+                            Background="{DynamicResource Brush.AccentGradient}"
+                            Opacity="0.8" />
+
+                    <Grid ColumnDefinitions="Auto,10,*,Auto"
+                          Margin="14,12,10,11">
+                      <Border Width="30"
+                              Height="30"
+                              CornerRadius="8"
+                              Background="{DynamicResource Brush.AccentSubtle}">
+                        <PathIcon Width="13"
+                                  Height="13"
+                                  Foreground="{DynamicResource Brush.AccentDefault}"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"
+                                  Data="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </Border>
+
+                      <StackPanel Grid.Column="2" Spacing="3" VerticalAlignment="Center">
+                        <TextBlock Text="{loc:Str Chat_ContextWindow_Title}"
+                                   FontSize="12.5"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Brush.TextPrimary}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <TextBlock Text="{Binding ContextDetailsModelId, Converter={StaticResource ModelDisplayConverter}}"
+                                     MaxWidth="185"
+                                     FontSize="10"
+                                     Foreground="{DynamicResource Brush.TextTertiary}"
+                                     TextTrimming="CharacterEllipsis" />
+                          <Border Padding="6,1"
+                                  CornerRadius="999"
+                                  Background="{DynamicResource Brush.Surface1}">
+                            <TextBlock Text="{Binding ContextDetailsTierDisplay}"
+                                       FontSize="9"
+                                       Foreground="{DynamicResource Brush.TextSecondary}" />
+                          </Border>
+                        </StackPanel>
+                      </StackPanel>
+
+                      <Button x:Name="ContextRefreshButton"
+                              Grid.Column="3"
+                              Classes="subtle"
+                              Command="{Binding RefreshContextDetailsCommand}"
+                              IsEnabled="{Binding CanRefreshContextDetails}"
+                              Width="28"
+                              Height="28"
+                              Padding="7"
+                              MinWidth="0"
+                              MinHeight="0"
+                              CornerRadius="7">
+                        <PathIcon Width="12"
+                                  Height="12"
+                                  Foreground="{DynamicResource Brush.TextSecondary}"
+                                  Data="M17.65 6.35A8 8 0 1 0 19.73 13h-2.08A6 6 0 1 1 12 6a5.97 5.97 0 0 1 4.24 1.76L13 11h7V4l-2.35 2.35z" />
+                      </Button>
+                    </Grid>
+
+                    <ProgressBar Height="2"
+                                 MinHeight="2"
+                                 IsIndeterminate="True"
+                                 IsVisible="{Binding IsContextPanelBusy}" />
+                    <Border Height="1"
+                            Background="{DynamicResource Brush.BorderSubtle}"
+                            IsVisible="{Binding !IsContextPanelBusy}" />
+
+                    <StackPanel Margin="14,13,14,14" Spacing="12">
+                      <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="1">
+                          <TextBlock Text="{Binding TokenUsageSummary}"
+                                     FontSize="28"
+                                     FontWeight="SemiBold"
+                                     Foreground="{DynamicResource Brush.TextPrimary}" />
+                          <TextBlock Text="{Binding ContextUsageDetailDisplay}"
+                                     FontSize="10.5"
+                                     Foreground="{DynamicResource Brush.TextTertiary}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1"
+                                    Spacing="5"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center">
+                          <Border Padding="7,2"
+                                  CornerRadius="999"
+                                  Background="{DynamicResource Brush.AccentSubtle}"
+                                  HorizontalAlignment="Right">
+                            <TextBlock Text="{Binding ContextHealthDisplay}"
+                                       FontSize="9.5"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource Brush.AccentDefault}" />
+                          </Border>
+                          <TextBlock Text="{Binding ContextRemainingDisplay}"
+                                     FontSize="10.5"
+                                     FontWeight="SemiBold"
+                                     Foreground="{DynamicResource Brush.TextSecondary}"
+                                     HorizontalAlignment="Right" />
+                        </StackPanel>
+                      </Grid>
+
+                      <ProgressBar Minimum="0"
+                                   Maximum="100"
+                                   Value="{Binding ContextUsageProgress}"
+                                   Height="6"
+                                   MinHeight="6"
+                                   CornerRadius="3" />
+
+                      <TextBlock Text="{Binding ContextCompactionHeadroomDisplay}"
+                                 IsVisible="{Binding HasContextCompactionThreshold}"
+                                 FontSize="9.5"
+                                 Foreground="{DynamicResource Brush.TextTertiary}"
+                                 HorizontalAlignment="Right" />
+
+                      <ItemsControl ItemsSource="{Binding ContextBreakdownItems}"
+                                    IsVisible="{Binding HasContextBreakdown}">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate>
+                            <UniformGrid Columns="3" Rows="1" />
+                          </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:ContextTokenBreakdownItem">
+                            <Border Margin="3,0"
+                                    Padding="9,8"
+                                    CornerRadius="7"
+                                    Background="{DynamicResource Brush.Surface1}"
+                                    BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                                    BorderThickness="1">
+                              <StackPanel Spacing="3">
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Text="{Binding ShareDisplay}"
+                                             FontSize="15"
+                                             FontWeight="SemiBold"
+                                             Foreground="{DynamicResource Brush.TextPrimary}" />
+                                  <TextBlock Grid.Column="1"
+                                             Text="{Binding TokensDisplay}"
+                                             FontSize="9"
+                                             Foreground="{DynamicResource Brush.TextTertiary}"
+                                             VerticalAlignment="Bottom" />
+                                </Grid>
+                                <TextBlock Text="{Binding Label}"
+                                           FontSize="9.5"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource Brush.TextSecondary}"
+                                           TextTrimming="CharacterEllipsis" />
+                              </StackPanel>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+
+                      <Border Background="{DynamicResource Brush.DangerSubtle}"
+                              CornerRadius="7"
+                              Padding="9,7"
+                              IsVisible="{Binding HasContextDetailsError}">
+                        <TextBlock Text="{Binding ContextDetailsError}"
+                                   FontSize="10"
+                                   Foreground="{DynamicResource Brush.DangerDefault}"
+                                   TextWrapping="Wrap" />
+                      </Border>
+
+                      <TextBlock Text="{Binding ContextLastCompactionDisplay}"
+                                 IsVisible="{Binding HasContextLastCompactionDisplay}"
+                                 FontSize="10"
+                                 Foreground="{DynamicResource Brush.TextSecondary}"
+                                 TextAlignment="Center"
+                                 TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <Border Padding="12,10"
+                            Background="{DynamicResource Brush.Surface1}"
+                            BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                            BorderThickness="0,1,0,0">
+                      <Button x:Name="ContextCompactButton"
+                              Classes="accent"
+                              Command="{Binding CompactContextCommand}"
+                              IsEnabled="{Binding CanCompactContext}"
+                              HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Center"
+                              Padding="10,6"
+                              MinHeight="0"
+                              FontSize="11"
+                              FontWeight="SemiBold">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <PathIcon Width="11"
+                                    Height="11"
+                                    Data="M4 5h16v2H4V5zm3 6h10v2H7v-2zm-3 6h16v2H4v-2z" />
+                          <TextBlock Text="{loc:Str Chat_ContextWindow_CompactNow}" />
+                        </StackPanel>
+                      </Button>
+                    </Border>
+                  </StackPanel>
+                </Border>
+              </Flyout>
+            </Button.Flyout>
+
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <PathIcon Width="9"
+                        Height="9"
                         Foreground="{DynamicResource Brush.TextTertiary}"
                         Data="M13 10V3L4 14h7v7l9-11h-7z" />
               <TextBlock Text="{Binding TokenUsageSummary}"
-                         FontSize="10.5"
-                         Foreground="{DynamicResource Brush.TextTertiary}"
+                         FontSize="10"
+                         FontWeight="SemiBold"
+                         Foreground="{DynamicResource Brush.TextSecondary}"
                          VerticalAlignment="Center" />
-              <TextBlock Text="{Binding TokenUsageSuffixText}"
-                         FontSize="10.5"
-                         Foreground="{DynamicResource Brush.TextTertiary}"
-                         Opacity="0.7"
-                         VerticalAlignment="Center" />
+              <PathIcon Width="7"
+                        Height="7"
+                        Foreground="{DynamicResource Brush.TextTertiary}"
+                        Data="M7 10l5 5 5-5z" />
             </StackPanel>
-          </Border>
+          </Button>
         </Grid>
       </Border>
 

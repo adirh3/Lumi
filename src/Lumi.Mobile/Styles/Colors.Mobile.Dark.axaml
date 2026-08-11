@@ -1,0 +1,93 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    ══ Lumi mobile — DARK surfaces ═══════════════════════════════════════════════════════════════
+
+    True black rather than Strata's desktop charcoal (#1E1E1E). On a phone OLED, charcoal reads as
+    washed-out grey next to every other app, costs power, and mutes the accent.
+
+    ELEVATION is the organising idea. With no ambient light and a black canvas, a drop shadow is
+    nearly invisible — so height is expressed by SURFACE TINT first (each level lifts by a small,
+    even step), reinforced by a hairline border, with shadow only as a supporting cue. The steps are
+    deliberately close together: on black, small tonal differences read clearly, and large ones look
+    like unrelated blocks of colour rather than one surface lifted off another.
+  -->
+
+  <!-- Level 0 — the canvas the conversation sits on. -->
+  <Color x:Key="Color.Background">#000000</Color>
+  <Color x:Key="Color.Surface0">#000000</Color>
+
+  <!-- Level 1 — drawer, cards, anything resting on the canvas. -->
+  <Color x:Key="Color.Surface1">#0E0E10</Color>
+
+  <!-- Level 2 — composer, raised controls, chips. -->
+  <Color x:Key="Color.Surface2">#1A1A1E</Color>
+
+  <!-- Level 3 — sheets and popups, which float above everything. -->
+  <Color x:Key="Color.SurfaceOverlay">#232329</Color>
+
+  <!-- Controls sit at level 2 so a button reads as raised without needing a border. -->
+  <Color x:Key="Color.ControlDefault">#1A1A1E</Color>
+  <Color x:Key="Color.ControlHover">#232329</Color>
+  <Color x:Key="Color.ControlPressed">#2E2E36</Color>
+  <Color x:Key="Color.ControlDisabled">#141416</Color>
+
+  <!-- Hairlines, not keylines: on black a desktop-weight border draws a hard box around everything. -->
+  <Color x:Key="Color.BorderSubtle">#1C1C21</Color>
+  <Color x:Key="Color.BorderDefault">#26262D</Color>
+  <Color x:Key="Color.BorderStrong">#3A3A44</Color>
+
+  <!-- Near-white on black, the contrast every native chat app uses for message text. -->
+  <Color x:Key="Color.TextPrimary">#F2F2F5</Color>
+  <Color x:Key="Color.TextSecondary">#A8A8B2</Color>
+  <Color x:Key="Color.TextTertiary">#7A7A85</Color>
+
+  <!-- A press on black needs more lift than on charcoal to register at all. -->
+  <Color x:Key="Color.SubtleHover">#14FFFFFF</Color>
+  <Color x:Key="Color.SubtlePressed">#26FFFFFF</Color>
+
+  <!-- Over a black canvas the scrim must be near-opaque to read as a separate layer. -->
+  <Color x:Key="Color.OverlayScrim">#B3000000</Color>
+
+  <!-- ── Elevation shadows ──────────────────────────────────────────────────────────────────────
+    Supporting cue only (see above). Kept tight and dark so they deepen the edge of a raised surface
+    rather than smearing a grey halo across the black behind it.
+  -->
+  <BoxShadows x:Key="Shadow.Level1">0 1 3 0 #66000000</BoxShadows>
+  <BoxShadows x:Key="Shadow.Level2">0 2 10 0 #73000000</BoxShadows>
+  <BoxShadows x:Key="Shadow.Level3">0 -2 24 0 #80000000</BoxShadows>
+
+  <!--
+    ══ Brushes, not just colours ═══════════════════════════════════════════════════════════════
+
+    Strata's brushes are declared once as `<SolidColorBrush Color="{DynamicResource Color.X}" />`.
+    Overriding only `Color.X` here left the switch HALF applied: cards picked up the new palette
+    while the page background and the group headers stayed on the old one, because the brush object
+    resolves its inner DynamicResource against the dictionary that declared it — not against this
+    one — and whether that lands before or after the variant swap is not something to rely on.
+
+    Declaring the brushes outright removes the indirection: `Brush.X` maps straight to a value in
+    the active variant, so every surface flips together.
+  -->
+  <SolidColorBrush x:Key="Brush.Background" Color="{StaticResource Color.Background}" />
+  <SolidColorBrush x:Key="Brush.Surface0" Color="{StaticResource Color.Surface0}" />
+  <SolidColorBrush x:Key="Brush.Surface1" Color="{StaticResource Color.Surface1}" />
+  <SolidColorBrush x:Key="Brush.Surface1Translucent" Color="{StaticResource Color.Surface1}" Opacity="0.78" />
+  <SolidColorBrush x:Key="Brush.Surface1Glass" Color="{StaticResource Color.Surface1}" Opacity="0.52" />
+  <SolidColorBrush x:Key="Brush.Surface2" Color="{StaticResource Color.Surface2}" />
+  <SolidColorBrush x:Key="Brush.SurfaceOverlay" Color="{StaticResource Color.SurfaceOverlay}" />
+  <SolidColorBrush x:Key="Brush.TextPrimary" Color="{StaticResource Color.TextPrimary}" />
+  <SolidColorBrush x:Key="Brush.TextSecondary" Color="{StaticResource Color.TextSecondary}" />
+  <SolidColorBrush x:Key="Brush.TextTertiary" Color="{StaticResource Color.TextTertiary}" />
+  <SolidColorBrush x:Key="Brush.BorderDefault" Color="{StaticResource Color.BorderDefault}" />
+  <SolidColorBrush x:Key="Brush.BorderSubtle" Color="{StaticResource Color.BorderSubtle}" />
+  <SolidColorBrush x:Key="Brush.BorderStrong" Color="{StaticResource Color.BorderStrong}" />
+  <SolidColorBrush x:Key="Brush.ControlDefault" Color="{StaticResource Color.ControlDefault}" />
+  <SolidColorBrush x:Key="Brush.ControlHover" Color="{StaticResource Color.ControlHover}" />
+  <SolidColorBrush x:Key="Brush.ControlPressed" Color="{StaticResource Color.ControlPressed}" />
+  <SolidColorBrush x:Key="Brush.ControlDisabled" Color="{StaticResource Color.ControlDisabled}" />
+  <SolidColorBrush x:Key="Brush.SubtleHover" Color="{StaticResource Color.SubtleHover}" />
+  <SolidColorBrush x:Key="Brush.SubtlePressed" Color="{StaticResource Color.SubtlePressed}" />
+  <SolidColorBrush x:Key="Brush.OverlayScrim" Color="{StaticResource Color.OverlayScrim}" />
+</ResourceDictionary>
