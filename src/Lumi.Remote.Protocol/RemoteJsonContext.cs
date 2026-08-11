@@ -26,6 +26,8 @@ namespace Lumi.Remote.Protocol;
 [JsonSerializable(typeof(RemoteTranscript))]
 [JsonSerializable(typeof(RemoteTranscriptTurn))]
 [JsonSerializable(typeof(RemoteTranscriptItem))]
+[JsonSerializable(typeof(RemoteActivityDetails))]
+[JsonSerializable(typeof(RemoteFileChange))]
 [JsonSerializable(typeof(RemoteChatStatus))]
 [JsonSerializable(typeof(RemoteConnectionStatus))]
 [JsonSerializable(typeof(RemoteStreamDelta))]

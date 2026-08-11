@@ -492,7 +492,8 @@ internal sealed class RemoteEventHub : IDisposable
                 Text = chunk,
                 IsReasoning = isReasoning
             }, RemoteJsonContext.Default.RemoteStreamDelta, $"stream:{streamingChatId:N}:{messageId:N}",
-                client => client.WantsChat(streamingChatId));
+                client => client.WantsChat(streamingChatId)
+                          && (!isReasoning || !client.WantsCompactTranscript));
             return;
         }
 
@@ -843,6 +844,8 @@ internal sealed class RemoteEventClient : IDisposable
             return subscription.IsForeground && subscription.IncludeLibrary;
         }
     }
+    internal bool WantsCompactTranscript =>
+        Volatile.Read(ref _subscription).CompactTranscript;
 
     internal bool WantsChat(Guid chatId)
     {
@@ -985,6 +988,7 @@ internal sealed class RemoteEventClient : IDisposable
         ChatId = subscription.ChatId,
         IncludeChatList = subscription.IncludeChatList,
         IncludeLibrary = subscription.IncludeLibrary,
+        CompactTranscript = subscription.CompactTranscript,
         IsForeground = subscription.IsForeground
     };
 

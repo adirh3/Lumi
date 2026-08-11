@@ -409,6 +409,161 @@ public sealed class RemoteEventHubObserverTests
         failure?.Throw();
     }
 
+    [Fact]
+    public async Task CompactSubscribersNeverReceiveReasoningTextDeltas()
+    {
+        using var session = HeadlessTestSession.Start();
+        ExceptionDispatchInfo? failure = null;
+
+        await session.Dispatch(() =>
+        {
+            MainViewModel? main = null;
+            try
+            {
+                var chat = Chat("Reasoning");
+                var dataStore = new DataStore(new AppData { Chats = [chat] });
+                main = new MainViewModel(
+                    dataStore,
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    initializeCopilotOnStartup: false);
+                main.ChatVM.CurrentChat = chat;
+                using var hub = new RemoteEventHub(dataStore, main, () => []);
+                Dispatcher.UIThread.RunJobs();
+
+                using var detailed = hub.AddClient(
+                    Stream.Null,
+                    "detailed",
+                    subscription: new RemoteEventSubscription
+                    {
+                        ChatId = chat.Id,
+                        IsForeground = true
+                    });
+                using var compact = hub.AddClient(
+                    Stream.Null,
+                    "compact",
+                    subscription: new RemoteEventSubscription
+                    {
+                        ChatId = chat.Id,
+                        CompactTranscript = true,
+                        IsForeground = true
+                    });
+                Dispatcher.UIThread.RunJobs();
+
+                var reasoning = new ChatMessageViewModel(new ChatMessage
+                {
+                    Role = "reasoning",
+                    Content = "",
+                    IsStreaming = true
+                });
+                main.ChatVM.Messages.Add(reasoning);
+                var detailedBefore = detailed.QueuedFrames;
+                var compactBefore = compact.QueuedFrames;
+
+                reasoning.Content = "private reasoning chunk";
+
+                Assert.Equal(detailedBefore + 1, detailed.QueuedFrames);
+                Assert.Equal(compactBefore, compact.QueuedFrames);
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                main?.Dispose();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
+    [Fact]
+    public async Task LiveTerminalDetailChangesInvalidateCompactTranscript()
+    {
+        using var session = HeadlessTestSession.Start();
+        ExceptionDispatchInfo? failure = null;
+
+        await session.Dispatch(() =>
+        {
+            CancellationTokenSource? cancellation = null;
+            Task? writer = null;
+            MainViewModel? main = null;
+            try
+            {
+                var chat = Chat("Terminal");
+                var toolMessage = new ChatMessage
+                {
+                    Role = "tool",
+                    ToolName = "powershell",
+                    ToolCallId = "terminal-1",
+                    ToolStatus = "InProgress",
+                    Content = """{"command":"dotnet test"}"""
+                };
+                chat.Messages.Add(toolMessage);
+                chat.MessageCount = chat.Messages.Count;
+                var dataStore = new DataStore(new AppData { Chats = [chat] });
+                main = new MainViewModel(
+                    dataStore,
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    initializeCopilotOnStartup: false);
+                main.ChatVM.CurrentChat = chat;
+                main.ChatVM.Messages.Add(new ChatMessageViewModel(toolMessage));
+                using var hub = new RemoteEventHub(dataStore, main, () => []);
+                Dispatcher.UIThread.RunJobs();
+
+                var stream = new RecordingStream();
+                var client = hub.AddClient(
+                    stream,
+                    "compact",
+                    subscription: new RemoteEventSubscription
+                    {
+                        ChatId = chat.Id,
+                        CompactTranscript = true,
+                        IsForeground = true
+                    });
+                cancellation = new CancellationTokenSource();
+                writer = client.RunAsync(cancellation.Token);
+                typeof(RemoteEventHub)
+                    .GetMethod(
+                        "ReconcileMessageObservers",
+                        BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(hub, null);
+                var invalidationsBefore = CountEvent(
+                    stream.Text,
+                    RemoteProtocol.Events.TranscriptInvalidated);
+
+                typeof(ChatViewModel)
+                    .GetMethod(
+                        "ApplyTerminalOutputAndNotify",
+                        BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(main.ChatVM, [chat, "terminal-1", "partial output", false]);
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+
+                Assert.Equal("partial output", toolMessage.ToolOutput);
+                Assert.Equal(
+                    invalidationsBefore + 1,
+                    CountEvent(stream.Text, RemoteProtocol.Events.TranscriptInvalidated));
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                cancellation?.Cancel();
+                if (writer is not null)
+                    Pump(writer);
+                cancellation?.Dispose();
+                main?.Dispose();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
     private static void Flush(RemoteEventHub hub) =>
         typeof(RemoteEventHub)
             .GetMethod("FlushPending", BindingFlags.Instance | BindingFlags.NonPublic)!

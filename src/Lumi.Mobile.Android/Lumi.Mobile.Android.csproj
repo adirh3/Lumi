@@ -22,13 +22,13 @@
     <LangVersion>preview</LangVersion>
     <RootNamespace>Lumi.Mobile.Android</RootNamespace>
     <AssemblyName>Lumi.Mobile.Android</AssemblyName>
-    <Version>1.1.8</Version>
+    <Version>1.1.9</Version>
     <ApplicationId>com.lumi.mobile</ApplicationId>
     <!-- Must increment for every build handed to a device: Android keys installs on versionCode, and
          a reinstall that keeps the same code gives no way to confirm which build is actually on the
          phone. -->
-    <ApplicationVersion>29</ApplicationVersion>
-    <ApplicationDisplayVersion>1.1.8</ApplicationDisplayVersion>
+    <ApplicationVersion>30</ApplicationVersion>
+    <ApplicationDisplayVersion>1.1.9</ApplicationDisplayVersion>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>

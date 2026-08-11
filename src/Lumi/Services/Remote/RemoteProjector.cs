@@ -486,7 +486,11 @@ internal static class RemoteProjector
         bool showReasoning,
         bool showToolCalls,
         long revision,
-        string? revisionEpoch = null)
+        string? revisionEpoch = null,
+        bool compact = false,
+        string? workingDirectory = null,
+        IReadOnlyList<ChatMessage>? activitySourceMessages = null,
+        IReadOnlySet<string>? runningBackgroundToolCallIds = null)
         => BuildTranscript(
             chat,
             new TranscriptMessageWindow(messages, 0, messages.Count, messages.Count),
@@ -494,7 +498,11 @@ internal static class RemoteProjector
             showReasoning,
             showToolCalls,
             revision,
-            revisionEpoch);
+            revisionEpoch,
+            compact,
+            workingDirectory,
+            activitySourceMessages ?? messages,
+            runningBackgroundToolCallIds);
 
     public static RemoteTranscript BuildTranscript(
         Chat chat,
@@ -503,7 +511,11 @@ internal static class RemoteProjector
         bool showReasoning,
         bool showToolCalls,
         long revision,
-        string? revisionEpoch = null)
+        string? revisionEpoch = null,
+        bool compact = false,
+        string? workingDirectory = null,
+        IReadOnlyList<ChatMessage>? activitySourceMessages = null,
+        IReadOnlySet<string>? runningBackgroundToolCallIds = null)
     {
         var transcript = new RemoteTranscript
         {
@@ -522,6 +534,8 @@ internal static class RemoteProjector
 
         RemoteTranscriptTurn? turn = null;
         RemoteTranscriptItem? toolGroup = null;
+        RemoteTranscriptItem? compactActivity = null;
+        var compactSource = activitySourceMessages ?? window.Messages;
 
         RemoteTranscriptTurn EnsureTurn()
         {
@@ -533,6 +547,27 @@ internal static class RemoteProjector
             return turn;
         }
 
+        void EnsureCompactActivity(ChatMessage message)
+        {
+            if (!compact || compactActivity is not null)
+                return;
+
+            compactActivity = BuildCompactActivityForMessage(
+                compactSource,
+                message.Id,
+                workingDirectory,
+                runningBackgroundToolCallIds);
+            if (compactActivity is null)
+                return;
+
+            var target = EnsureTurn();
+            var insertionIndex = target.Items.FindIndex(
+                static item => item.Kind != RemoteProtocol.ItemKinds.User);
+            target.Items.Insert(
+                insertionIndex < 0 ? target.Items.Count : insertionIndex,
+                compactActivity);
+        }
+
         foreach (var message in window.Messages)
         {
             switch (message.Role)
@@ -542,17 +577,21 @@ internal static class RemoteProjector
                     turn = new RemoteTranscriptTurn { Id = $"turn-{transcript.Turns.Count}" };
                     transcript.Turns.Add(turn);
                     toolGroup = null;
+                    compactActivity = null;
                     turn.Items.Add(BuildUserItem(message));
                     break;
 
                 case "assistant":
                     toolGroup = null;
+                    EnsureCompactActivity(message);
                     EnsureTurn().Items.Add(BuildAssistantItem(message));
                     break;
 
                 case "reasoning":
                     toolGroup = null;
-                    if (showReasoning)
+                    if (compact)
+                        EnsureCompactActivity(message);
+                    else if (showReasoning)
                         EnsureTurn().Items.Add(BuildReasoningItem(message));
                     break;
 
@@ -570,19 +609,35 @@ internal static class RemoteProjector
                     break;
 
                 case "tool":
-                    if (!showToolCalls && !IsQuestion(message) && !IsAnnouncedFile(message))
+                    if (!compact
+                        && !showToolCalls
+                        && !IsQuestion(message)
+                        && !IsAnnouncedFile(message))
                     {
                         toolGroup = null;
                         break;
                     }
 
-                    AppendToolLike(EnsureTurn(), message, ref toolGroup);
+                    if (compact && !IsQuestion(message) && !IsAnnouncedFile(message))
+                    {
+                        EnsureCompactActivity(message);
+                        toolGroup = null;
+                    }
+                    else
+                    {
+                        AppendToolLike(
+                            EnsureTurn(),
+                            message,
+                            ref toolGroup,
+                            runningBackgroundToolCallIds);
+                    }
                     break;
 
                 default:
                     toolGroup = null;
                     if (!string.IsNullOrWhiteSpace(message.Content))
                     {
+                        EnsureCompactActivity(message);
                         EnsureTurn().Items.Add(new RemoteTranscriptItem
                         {
                             Id = message.Id.ToString("N"),
@@ -605,6 +660,180 @@ internal static class RemoteProjector
         // instead, where the phone can show it on demand.
 
         return EnforceTranscriptWireLimit(BoundTranscript(transcript));
+    }
+
+    public static RemoteActivityDetails? BuildActivityDetails(
+        Chat chat,
+        IReadOnlyList<ChatMessage> messages,
+        string activityId,
+        string? workingDirectory = null,
+        IReadOnlySet<string>? runningBackgroundToolCallIds = null)
+    {
+        if (string.IsNullOrWhiteSpace(activityId))
+            return null;
+
+        if (!Guid.TryParseExact(activityId, "N", out var activityMessageId)
+            || !TryFindLogicalTurn(messages, activityMessageId, out var start, out var end))
+        {
+            return null;
+        }
+
+        var anchor = messages
+            .Skip(start)
+            .Take(end - start)
+            .FirstOrDefault(static message =>
+                message.Role == "reasoning"
+                || message.Role == "tool"
+                   && !IsQuestion(message)
+                   && !IsAnnouncedFile(message));
+        if (anchor?.Id != activityMessageId)
+            return null;
+
+        var technicalMessages = new List<ChatMessage>();
+        for (var index = start; index < end; index++)
+        {
+            var message = messages[index];
+            if (message.Role == "tool"
+                && !IsQuestion(message)
+                && !IsAnnouncedFile(message))
+            {
+                technicalMessages.Add(message);
+            }
+        }
+
+        var toolMessages = technicalMessages
+            .Where(static message =>
+                !string.Equals(
+                    message.ToolName,
+                    ToolDisplayHelper.WorkspaceFileChangedToolName,
+                    StringComparison.Ordinal))
+            .ToList();
+        var retainedMessages = SelectActivityToolMessages(
+            toolMessages,
+            runningBackgroundToolCallIds,
+            out var omittedToolCount,
+            out var omittedToolStatus);
+        var tools = retainedMessages
+            .Select(message => BuildActivityToolCall(message, runningBackgroundToolCallIds))
+            .Select(BoundActivityTool)
+            .ToList();
+        if (omittedToolCount > 0)
+        {
+            tools.Add(new RemoteToolCall
+            {
+                Id = "omitted-activity-tools",
+                Name = "omitted",
+                DisplayName = $"{omittedToolCount} more actions omitted",
+                Category = "other",
+                Status = omittedToolStatus
+            });
+        }
+
+        var fileChanges = BuildFileChanges(technicalMessages, workingDirectory);
+        return EnforceActivityWireLimit(new RemoteActivityDetails
+        {
+            ChatId = chat.Id,
+            ActivityId = BoundRequired(activityId, RemoteProtocol.MobileIdentifierLimit),
+            Tools = tools,
+            TotalFileChangeCount = fileChanges.Count,
+            FileChanges = BoundFileChanges(fileChanges)
+        });
+    }
+
+    private static List<ChatMessage> SelectActivityToolMessages(
+        IReadOnlyList<ChatMessage> messages,
+        IReadOnlySet<string>? runningBackgroundToolCallIds,
+        out int omittedCount,
+        out string omittedStatus)
+    {
+        var retainedLimit = RemoteProtocol.MobileActivityToolCountLimit - 1;
+        if (messages.Count <= RemoteProtocol.MobileActivityToolCountLimit)
+        {
+            omittedCount = 0;
+            omittedStatus = "Completed";
+            return [.. messages];
+        }
+
+        var selectedIndexes = new HashSet<int>();
+        for (var index = messages.Count - 1;
+             index >= 0 && selectedIndexes.Count < retainedLimit;
+             index--)
+        {
+            if (!string.Equals(
+                    ProjectedToolStatus(messages[index], runningBackgroundToolCallIds),
+                    "Completed",
+                    StringComparison.Ordinal))
+            {
+                selectedIndexes.Add(index);
+            }
+        }
+
+        for (var index = messages.Count - 1;
+             index >= 0 && selectedIndexes.Count < retainedLimit;
+             index--)
+        {
+            selectedIndexes.Add(index);
+        }
+
+        var retained = selectedIndexes
+            .Order()
+            .Select(index => messages[index])
+            .ToList();
+        var omittedStatuses = messages
+            .Select((message, index) => (message, index))
+            .Where(item => !selectedIndexes.Contains(item.index))
+            .Select(item => ProjectedToolStatus(item.message, runningBackgroundToolCallIds));
+        omittedCount = messages.Count - retained.Count;
+        omittedStatus = AggregateActivityStatus(omittedStatuses);
+        return retained;
+    }
+
+    private static string ProjectedToolStatus(
+        ChatMessage message,
+        IReadOnlySet<string>? runningBackgroundToolCallIds) =>
+        message.ToolCallId is { Length: > 0 } toolCallId
+        && runningBackgroundToolCallIds?.Contains(toolCallId) == true
+            ? "InProgress"
+            : message.ToolStatus ?? "Completed";
+
+    private static string AggregateActivityStatus(IEnumerable<string> statuses)
+    {
+        var result = "Completed";
+        foreach (var status in statuses)
+            result = MergeActivityStatus(result, status);
+        return result;
+    }
+
+    private static bool TryFindLogicalTurn(
+        IReadOnlyList<ChatMessage> messages,
+        Guid messageId,
+        out int start,
+        out int end)
+    {
+        var messageIndex = -1;
+        for (var index = 0; index < messages.Count; index++)
+        {
+            if (messages[index].Id == messageId)
+            {
+                messageIndex = index;
+                break;
+            }
+        }
+
+        if (messageIndex < 0)
+        {
+            start = 0;
+            end = 0;
+            return false;
+        }
+
+        start = messageIndex;
+        while (start > 0 && messages[start - 1].Role != "user")
+            start--;
+        end = messageIndex + 1;
+        while (end < messages.Count && messages[end].Role != "user")
+            end++;
+        return true;
     }
 
     /// <summary>
@@ -698,7 +927,11 @@ internal static class RemoteProjector
     private static bool IsAnnouncedFile(ChatMessage message) =>
         string.Equals(message.ToolName, "announce_file", StringComparison.OrdinalIgnoreCase);
 
-    private static void AppendToolLike(RemoteTranscriptTurn turn, ChatMessage message, ref RemoteTranscriptItem? toolGroup)
+    private static void AppendToolLike(
+        RemoteTranscriptTurn turn,
+        ChatMessage message,
+        ref RemoteTranscriptItem? toolGroup,
+        IReadOnlySet<string>? runningBackgroundToolCallIds)
     {
         if (IsQuestion(message))
         {
@@ -726,7 +959,7 @@ internal static class RemoteProjector
             return;
         }
 
-        var call = BuildToolCall(message);
+        var call = BuildToolCall(message, runningBackgroundToolCallIds);
 
         // announce_file is how Lumi hands the user a produced file. The desktop turns it into an
         // attachment chip; rendering it as a raw tool card (which is what falling through to the
@@ -801,7 +1034,174 @@ internal static class RemoteProjector
         toolGroup.DurationMs = toolGroup.Tools.Sum(tool => tool.DurationMs ?? 0);
     }
 
-    private static RemoteToolCall BuildToolCall(ChatMessage message)
+    private static RemoteTranscriptItem? BuildCompactActivityForMessage(
+        IReadOnlyList<ChatMessage> messages,
+        Guid messageId,
+        string? workingDirectory,
+        IReadOnlySet<string>? runningBackgroundToolCallIds)
+    {
+        if (!TryFindLogicalTurn(messages, messageId, out var start, out var end))
+            return null;
+
+        var technicalMessages = new List<ChatMessage>();
+        for (var index = start; index < end; index++)
+        {
+            var candidate = messages[index];
+            if (candidate.Role == "reasoning"
+                || candidate.Role == "tool"
+                   && !IsQuestion(candidate)
+                   && !IsAnnouncedFile(candidate))
+            {
+                technicalMessages.Add(candidate);
+            }
+        }
+
+        if (technicalMessages.Count == 0)
+            return null;
+
+        var anchor = technicalMessages[0];
+        var fileChanges = BuildFileChanges(technicalMessages, workingDirectory);
+        var activity = new RemoteTranscriptItem
+        {
+            Id = $"activity-{anchor.Id:N}",
+            Kind = RemoteProtocol.ItemKinds.Activity,
+            ActivityId = anchor.Id.ToString("N"),
+            Status = "Completed",
+            ActionCount = 0,
+            DetailVersion = ComputeActivityDetailVersion(technicalMessages),
+            FileChangeCount = fileChanges.Count,
+            FileChanges = fileChanges
+        };
+
+        RemoteToolCall? latestRunningTool = null;
+        var hasReasoning = false;
+        foreach (var message in technicalMessages)
+        {
+            if (message.Role == "reasoning")
+            {
+                hasReasoning = true;
+                if (message.IsStreaming)
+                    activity.Status = MergeActivityStatus(activity.Status, "InProgress");
+                continue;
+            }
+
+            if (string.Equals(
+                    message.ToolName,
+                    ToolDisplayHelper.WorkspaceFileChangedToolName,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var call = BuildToolCall(message, runningBackgroundToolCallIds);
+            activity.ActionCount = (activity.ActionCount ?? 0) + 1;
+            activity.DurationMs = (activity.DurationMs ?? 0) + (call.DurationMs ?? 0);
+            activity.Status = MergeActivityStatus(activity.Status, call.Status);
+            if (string.Equals(call.Status, "InProgress", StringComparison.Ordinal))
+                latestRunningTool = call;
+        }
+
+        if (string.Equals(activity.Status, "InProgress", StringComparison.Ordinal)
+            && latestRunningTool is null
+            && hasReasoning)
+        {
+            activity.Label = "Thinking...";
+        }
+        else if ((activity.ActionCount ?? 0) == 0
+                 && activity.FileChanges.Count == 0
+                 && hasReasoning)
+        {
+            activity.Label = "Thought through the response";
+        }
+        else
+        {
+            RefreshActivityLabel(activity, latestRunningTool);
+        }
+
+        return activity;
+    }
+
+    private static long ComputeActivityDetailVersion(IReadOnlyList<ChatMessage> messages)
+    {
+        const ulong offset = 14695981039346656037;
+        const ulong prime = 1099511628211;
+        var hash = offset;
+
+        foreach (var message in messages)
+        {
+            Add(message.Id.ToString("N"));
+            Add(message.Role);
+            Add(message.ToolName);
+            Add(message.ToolStatus);
+            Add(message.Content);
+            Add(message.ToolOutput);
+            Add(message.ToolDurationMs?.ToString(CultureInfo.InvariantCulture));
+            Add(message.IsStreaming ? "1" : "0");
+        }
+
+        return unchecked((long)hash);
+
+        void Add(string? value)
+        {
+            foreach (var character in value ?? "")
+            {
+                hash ^= character;
+                hash *= prime;
+            }
+            hash ^= 0xff;
+            hash *= prime;
+        }
+    }
+
+    private static void RefreshActivityLabel(
+        RemoteTranscriptItem activity,
+        RemoteToolCall? latestRunningTool)
+    {
+        if (string.Equals(activity.Status, "InProgress", StringComparison.Ordinal))
+        {
+            activity.Label = latestRunningTool?.Category switch
+            {
+                "research" => "Researching...",
+                "verify" => "Verifying...",
+                "work" => "Making changes...",
+                _ => latestRunningTool?.DisplayName is { Length: > 0 } label
+                    ? $"{label}..."
+                    : "Working..."
+            };
+            return;
+        }
+
+        activity.Label = activity.FileChanges is { Count: > 0 }
+            ? activity.FileChanges.Count == 1 ? "1 file changed" : $"{activity.FileChanges.Count} files changed"
+            : "Activity";
+    }
+
+    private static string MergeActivityStatus(string? current, string incoming)
+    {
+        if (string.Equals(current, "InProgress", StringComparison.Ordinal)
+            || string.Equals(incoming, "InProgress", StringComparison.Ordinal))
+        {
+            return "InProgress";
+        }
+
+        if (string.Equals(current, "Failed", StringComparison.Ordinal)
+            || string.Equals(incoming, "Failed", StringComparison.Ordinal))
+        {
+            return "Failed";
+        }
+
+        if (string.Equals(current, "Stopped", StringComparison.Ordinal)
+            || string.Equals(incoming, "Stopped", StringComparison.Ordinal))
+        {
+            return "Stopped";
+        }
+
+        return "Completed";
+    }
+
+    private static RemoteToolCall BuildToolCall(
+        ChatMessage message,
+        IReadOnlySet<string>? runningBackgroundToolCallIds = null)
     {
         var toolName = message.ToolName ?? "tool";
         var (friendly, info) = ToolDisplayHelper.GetFriendlyToolDisplay(toolName, message.Author, message.Content);
@@ -816,10 +1216,307 @@ internal static class RemoteProjector
             Output = RemoteProtocol.TruncateForMobile(
                 message.ToolOutput,
                 RemoteProtocol.MobileToolOutputLimit),
-            Status = message.ToolStatus ?? "Completed",
+            Category = ClassifyActivityCategory(toolName, message.Content),
+            Status = message.ToolCallId is { Length: > 0 } toolCallId
+                     && runningBackgroundToolCallIds?.Contains(toolCallId) == true
+                ? "InProgress"
+                : message.ToolStatus ?? "Completed",
             DurationMs = message.ToolDurationMs
         };
     }
+
+    private static RemoteToolCall BuildActivityToolCall(
+        ChatMessage message,
+        IReadOnlySet<string>? runningBackgroundToolCallIds)
+    {
+        var call = BuildToolCall(message, runningBackgroundToolCallIds);
+        call.Input = RemoteProtocol.TruncateForMobile(
+            SanitizeActivityToolInput(message),
+            RemoteProtocol.MobileActivityToolInputLimit);
+        call.Output = RemoteProtocol.TruncateForMobile(
+            message.ToolOutput,
+            RemoteProtocol.MobileActivityToolOutputLimit);
+        return call;
+    }
+
+    private static string? SanitizeActivityToolInput(ChatMessage message)
+    {
+        if (!ToolDisplayHelper.IsSubagentTool(message.ToolName)
+            || string.IsNullOrWhiteSpace(message.Content))
+        {
+            return message.Content;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(message.Content);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                return BuildSafeSubagentActivityInput(message.Content);
+
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream))
+            {
+                writer.WriteStartObject();
+                foreach (var property in document.RootElement.EnumerateObject())
+                {
+                    if (string.Equals(
+                            property.Name,
+                            "reasoning",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    property.WriteTo(writer);
+                }
+                writer.WriteEndObject();
+            }
+
+            return Encoding.UTF8.GetString(stream.ToArray());
+        }
+        catch (JsonException)
+        {
+            return BuildSafeSubagentActivityInput(message.Content);
+        }
+    }
+
+    private static string BuildSafeSubagentActivityInput(string content)
+    {
+        var description = ToolDisplayHelper.GetSubagentDescription(content)
+                          ?? ToolDisplayHelper.ExtractJsonField(content, "description")
+                          ?? "Subagent activity";
+        var name = ToolDisplayHelper.ExtractJsonField(content, "agentDisplayName")
+                   ?? ToolDisplayHelper.ExtractJsonField(content, "agentName");
+        return string.IsNullOrWhiteSpace(name)
+            ? description
+            : $"{name}: {description}";
+    }
+
+    private static string ClassifyActivityCategory(string toolName, string? input)
+    {
+        var normalized = toolName.Trim().ToLowerInvariant();
+        if (normalized.Contains("search", StringComparison.Ordinal)
+            || normalized.Contains("fetch", StringComparison.Ordinal)
+            || normalized.Contains("find", StringComparison.Ordinal)
+            || normalized.Contains("read", StringComparison.Ordinal)
+            || normalized is "view" or "glob" or "rg" or "grep"
+            || normalized.StartsWith("browser_", StringComparison.Ordinal)
+            || normalized.StartsWith("lumi_browser_", StringComparison.Ordinal))
+        {
+            return "research";
+        }
+
+        if (normalized.Contains("test", StringComparison.Ordinal)
+            || normalized.Contains("review", StringComparison.Ordinal)
+            || normalized.Contains("lint", StringComparison.Ordinal)
+            || ((normalized is "powershell" or "bash" or "shell" or "run_in_terminal")
+                && LooksLikeVerificationCommand(input)))
+        {
+            return "verify";
+        }
+
+        if (ToolDisplayHelper.IsFileEditTool(normalized)
+            || normalized.Contains("create", StringComparison.Ordinal)
+            || normalized.Contains("edit", StringComparison.Ordinal)
+            || normalized.Contains("write", StringComparison.Ordinal)
+            || normalized.Contains("apply", StringComparison.Ordinal)
+            || normalized.Contains("upload", StringComparison.Ordinal)
+            || normalized.StartsWith("manage_", StringComparison.Ordinal)
+            || normalized.StartsWith("configure_", StringComparison.Ordinal))
+        {
+            return "work";
+        }
+
+        return "other";
+    }
+
+    private static bool LooksLikeVerificationCommand(string? input)
+    {
+        var command = ToolDisplayHelper.ExtractJsonField(input, "command") ?? input ?? "";
+        return command.Contains(" test", StringComparison.OrdinalIgnoreCase)
+               || command.StartsWith("test", StringComparison.OrdinalIgnoreCase)
+               || command.Contains(" build", StringComparison.OrdinalIgnoreCase)
+               || command.StartsWith("build", StringComparison.OrdinalIgnoreCase)
+               || command.Contains(" lint", StringComparison.OrdinalIgnoreCase)
+               || command.Contains(" check", StringComparison.OrdinalIgnoreCase)
+               || command.Contains(" verify", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static List<RemoteFileChange> BuildFileChanges(
+        IReadOnlyList<ChatMessage> messages,
+        string? workingDirectory)
+    {
+        var changes = new List<RemoteFileChange>();
+        var indexes = new Dictionary<string, int>(
+            OperatingSystem.IsWindows()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal);
+
+        foreach (var message in messages)
+        {
+            if (string.Equals(message.ToolStatus, "Failed", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(message.ToolStatus, "Stopped", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var toolName = message.ToolName ?? "";
+            if (string.Equals(
+                    toolName,
+                    ToolDisplayHelper.WorkspaceFileChangedToolName,
+                    StringComparison.Ordinal))
+            {
+                var path = ToolDisplayHelper.ExtractJsonField(message.Content, "filePath")
+                           ?? ToolDisplayHelper.ExtractJsonField(message.Content, "path");
+                var operation = NormalizeFileOperation(
+                    ToolDisplayHelper.ExtractJsonField(message.Content, "operation"));
+                AddFileChange(path, operation, 0, 0, authoritative: true);
+                continue;
+            }
+
+            if (toolName is "delete_file" or "delete" or "rm")
+            {
+                AddFileChange(
+                    ToolDisplayHelper.ExtractJsonField(message.Content, "filePath")
+                    ?? ToolDisplayHelper.ExtractJsonField(message.Content, "path"),
+                    "Deleted",
+                    0,
+                    0);
+                continue;
+            }
+
+            if (!ToolDisplayHelper.IsFileEditTool(toolName))
+                continue;
+
+            foreach (var diff in ToolDisplayHelper.ExtractAllDiffs(toolName, message.Content))
+            {
+                var operation = toolName == "apply_patch" && diff.NewText is null
+                    ? "Deleted"
+                    : ToolDisplayHelper.IsFileCreateTool(toolName)
+                      || toolName == "apply_patch" && diff.OldText is null
+                        ? "Created"
+                        : "Modified";
+                AddFileChange(
+                    diff.FilePath,
+                    operation,
+                    CountLines(diff.NewText),
+                    CountLines(diff.OldText));
+            }
+        }
+
+        return changes;
+
+        void AddFileChange(
+            string? rawPath,
+            string operation,
+            int linesAdded,
+            int linesRemoved,
+            bool authoritative = false)
+        {
+            if (string.IsNullOrWhiteSpace(rawPath))
+                return;
+
+            var canonicalPath = BuildCanonicalFileChangePath(rawPath, workingDirectory);
+            var displayPath = BuildDisplayFileChangePath(rawPath, workingDirectory);
+            if (canonicalPath.Length == 0 || displayPath.Length == 0)
+                return;
+
+            if (indexes.TryGetValue(canonicalPath, out var existingIndex))
+            {
+                var existing = changes[existingIndex];
+                if (authoritative)
+                {
+                    existing.Operation = operation;
+                }
+                else
+                {
+                    existing.Operation = MergeFileOperation(existing.Operation, operation);
+                }
+                existing.LinesAdded += linesAdded;
+                existing.LinesRemoved += linesRemoved;
+                return;
+            }
+
+            indexes[canonicalPath] = changes.Count;
+            changes.Add(new RemoteFileChange
+            {
+                Path = displayPath,
+                FileName = SafeFileName(displayPath),
+                Operation = operation,
+                LinesAdded = linesAdded,
+                LinesRemoved = linesRemoved
+            });
+        }
+    }
+
+    private static string MergeFileOperation(string current, string incoming)
+    {
+        if (string.Equals(incoming, "Deleted", StringComparison.Ordinal))
+            return "Deleted";
+        if (string.Equals(current, "Created", StringComparison.Ordinal)
+            || string.Equals(incoming, "Created", StringComparison.Ordinal))
+        {
+            return "Created";
+        }
+
+        return "Modified";
+    }
+
+    private static string NormalizeFileOperation(string? operation) =>
+        operation?.Trim().ToLowerInvariant() switch
+        {
+            "create" or "created" => "Created",
+            "delete" or "deleted" or "remove" or "removed" => "Deleted",
+            _ => "Modified"
+        };
+
+    private static string BuildDisplayFileChangePath(string rawPath, string? workingDirectory)
+    {
+        var path = rawPath.Trim();
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(workingDirectory)
+                && Path.IsPathFullyQualified(path))
+            {
+                var relative = Path.GetRelativePath(workingDirectory, path);
+                if (!relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                    && !string.Equals(relative, "..", StringComparison.Ordinal)
+                    && !Path.IsPathFullyQualified(relative))
+                {
+                    return relative.Replace('\\', '/');
+                }
+            }
+        }
+        catch
+        {
+            // A display path must never make transcript projection fail.
+        }
+
+        if (!Path.IsPathFullyQualified(path))
+            return path.Replace('\\', '/');
+        return SafeFileName(path);
+    }
+
+    private static string BuildCanonicalFileChangePath(
+        string rawPath,
+        string? workingDirectory)
+    {
+        try
+        {
+            var path = rawPath.Trim();
+            var fullPath = Path.IsPathFullyQualified(path)
+                ? Path.GetFullPath(path)
+                : !string.IsNullOrWhiteSpace(workingDirectory)
+                    ? Path.GetFullPath(Path.Combine(workingDirectory, path))
+                    : Path.GetFullPath(path);
+            return fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch
+        {
+            return rawPath.Trim().Replace('\\', '/');
+        }
+    }
+
+    private static int CountLines(string? value) =>
+        string.IsNullOrEmpty(value) ? 0 : value.Count(static character => character == '\n') + 1;
 
     private static RemoteTranscriptItem BuildUserItem(ChatMessage message) => new()
     {
@@ -890,7 +1587,11 @@ internal static class RemoteProjector
                 item.Label = BoundOptional(item.Label, RemoteProtocol.MobileMetadataTextLimit);
                 item.Status = BoundOptional(item.Status, RemoteProtocol.MobileStatusValueLimit);
                 item.Model = BoundOptional(item.Model, RemoteProtocol.MobileStatusValueLimit);
+                item.ActivityId = BoundOptional(
+                    item.ActivityId,
+                    RemoteProtocol.MobileIdentifierLimit);
                 item.Tools = BoundTools(item.Id, item.Tools);
+                item.FileChanges = BoundFileChanges(item.FileChanges);
                 item.Attachments = BoundAttachments(item.Attachments);
                 item.Sources = BoundSources(item.Sources);
 
@@ -972,6 +1673,106 @@ internal static class RemoteProjector
         return stream.Length <= RemoteProtocol.MobileTranscriptJsonByteLimit;
     }
 
+    private static RemoteActivityDetails EnforceActivityWireLimit(RemoteActivityDetails details)
+    {
+        if (SerializedActivityFits(details))
+            return details;
+
+        var minimumLength = RemoteProtocol.MobileTruncationMarker.Length + 1;
+        for (var pass = 0; pass < 12; pass++)
+        {
+            var changed = false;
+            foreach (var tool in details.Tools)
+            {
+                tool.Input = CompactOptional(tool.Input, minimumLength, ref changed);
+                tool.Output = CompactOptional(tool.Output, minimumLength, ref changed);
+            }
+            foreach (var fileChange in details.FileChanges)
+            {
+                fileChange.Path = CompactRequired(fileChange.Path, minimumLength, ref changed);
+                fileChange.FileName = CompactRequired(
+                    fileChange.FileName,
+                    minimumLength,
+                    ref changed);
+            }
+
+            if (SerializedActivityFits(details))
+                return details;
+            if (!changed)
+                break;
+        }
+
+        var omittedTools = 0;
+        var omittedToolStatuses = new List<string>();
+        while (details.Tools.Count > 1 && !SerializedActivityFits(details))
+        {
+            var removeIndex = details.Tools.FindLastIndex(tool =>
+                string.Equals(tool.Status, "Completed", StringComparison.Ordinal));
+            if (removeIndex < 0)
+                removeIndex = details.Tools.Count - 1;
+            omittedToolStatuses.Add(details.Tools[removeIndex].Status);
+            details.Tools.RemoveAt(removeIndex);
+            omittedTools++;
+        }
+
+        var omittedFiles = 0;
+        while (details.FileChanges.Count > 1 && !SerializedActivityFits(details))
+        {
+            details.FileChanges.RemoveAt(details.FileChanges.Count - 1);
+            omittedFiles++;
+        }
+
+        if (omittedTools > 0)
+        {
+            details.Tools.Add(new RemoteToolCall
+            {
+                Id = "omitted-activity-tools-wire-limit",
+                Name = "omitted",
+                DisplayName = $"{omittedTools} actions omitted to fit the mobile response limit",
+                Category = "other",
+                Status = AggregateActivityStatus(omittedToolStatuses)
+            });
+        }
+        if (omittedFiles > 0)
+        {
+            details.FileChanges.Add(new RemoteFileChange
+            {
+                Path = $"{omittedFiles} more files omitted",
+                FileName = "More files",
+                Operation = "Omitted"
+            });
+        }
+
+        if (!SerializedActivityFits(details))
+        {
+            var totalOmitted = details.Tools.Count + details.FileChanges.Count;
+            details.Tools =
+            [
+                new RemoteToolCall
+                {
+                    Id = "activity-details-wire-limit",
+                    Name = "omitted",
+                    DisplayName = $"{totalOmitted} activity details omitted on mobile",
+                    Category = "other",
+                    Status = "Completed"
+                }
+            ];
+            details.FileChanges = [];
+        }
+
+        return details;
+    }
+
+    private static bool SerializedActivityFits(RemoteActivityDetails details)
+    {
+        using var stream = new CountingWriteStream();
+        JsonSerializer.Serialize(
+            stream,
+            details,
+            RemoteJsonContext.Default.RemoteActivityDetails);
+        return stream.Length <= RemoteProtocol.MaxActivityJsonBytes;
+    }
+
     private static bool CompactTranscriptStrings(RemoteTranscript transcript, int minimumLength)
     {
         var changed = false;
@@ -990,6 +1791,7 @@ internal static class RemoteProjector
                 item.Label = CompactOptional(item.Label, minimumLength, ref changed);
                 item.Status = CompactOptional(item.Status, minimumLength, ref changed);
                 item.Model = CompactOptional(item.Model, minimumLength, ref changed);
+                item.ActivityId = CompactOptional(item.ActivityId, minimumLength, ref changed);
 
                 if (item.Tools is { } tools)
                 {
@@ -1003,7 +1805,27 @@ internal static class RemoteProjector
                             ref changed);
                         tool.Input = CompactOptional(tool.Input, minimumLength, ref changed);
                         tool.Output = CompactOptional(tool.Output, minimumLength, ref changed);
+                        tool.Category = CompactRequired(tool.Category, minimumLength, ref changed);
                         tool.Status = CompactRequired(tool.Status, minimumLength, ref changed);
+                    }
+                }
+
+                if (item.FileChanges is { } fileChanges)
+                {
+                    foreach (var fileChange in fileChanges)
+                    {
+                        fileChange.Path = CompactRequired(
+                            fileChange.Path,
+                            minimumLength,
+                            ref changed);
+                        fileChange.FileName = CompactRequired(
+                            fileChange.FileName,
+                            minimumLength,
+                            ref changed);
+                        fileChange.Operation = CompactRequired(
+                            fileChange.Operation,
+                            minimumLength,
+                            ref changed);
                     }
                 }
 
@@ -1237,9 +2059,62 @@ internal static class RemoteProjector
                 RemoteProtocol.MobileMetadataTextLimit),
             Input = BoundOptional(tool.Input, RemoteProtocol.MobileToolInputLimit),
             Output = BoundOptional(tool.Output, RemoteProtocol.MobileToolOutputLimit),
+            Category = BoundRequired(tool.Category, RemoteProtocol.MobileStatusValueLimit),
             Status = BoundRequired(tool.Status, RemoteProtocol.MobileStatusValueLimit),
             DurationMs = tool.DurationMs
         };
+
+    private static RemoteToolCall BoundActivityTool(RemoteToolCall tool) =>
+        new()
+        {
+            Id = BoundRequired(tool.Id, RemoteProtocol.MobileIdentifierLimit),
+            Name = BoundRequired(tool.Name, RemoteProtocol.MobileMetadataTextLimit),
+            DisplayName = BoundOptional(
+                tool.DisplayName,
+                RemoteProtocol.MobileMetadataTextLimit),
+            Input = BoundOptional(tool.Input, RemoteProtocol.MobileActivityToolInputLimit),
+            Output = BoundOptional(tool.Output, RemoteProtocol.MobileActivityToolOutputLimit),
+            Category = BoundRequired(tool.Category, RemoteProtocol.MobileStatusValueLimit),
+            Status = BoundRequired(tool.Status, RemoteProtocol.MobileStatusValueLimit),
+            DurationMs = tool.DurationMs
+        };
+
+    private static List<RemoteFileChange> BoundFileChanges(
+        IReadOnlyList<RemoteFileChange>? fileChanges)
+    {
+        if (fileChanges is not { Count: > 0 })
+            return [];
+
+        var hasOmitted = fileChanges.Count > RemoteProtocol.MobileFileChangeCountLimit;
+        var retainedCount = hasOmitted
+            ? RemoteProtocol.MobileFileChangeCountLimit - 1
+            : fileChanges.Count;
+        var bounded = fileChanges
+            .Take(retainedCount)
+            .Select(static change => new RemoteFileChange
+            {
+                Path = BoundRequired(change.Path, RemoteProtocol.MobilePathLimit),
+                FileName = BoundRequired(change.FileName, RemoteProtocol.MobileFileNameLimit),
+                Operation = BoundRequired(
+                    change.Operation,
+                    RemoteProtocol.MobileStatusValueLimit),
+                LinesAdded = Math.Max(0, change.LinesAdded),
+                LinesRemoved = Math.Max(0, change.LinesRemoved)
+            })
+            .ToList();
+        if (hasOmitted)
+        {
+            var omitted = fileChanges.Count - retainedCount;
+            bounded.Add(new RemoteFileChange
+            {
+                Path = $"{omitted} more files",
+                FileName = $"+{omitted} more files",
+                Operation = "Omitted"
+            });
+        }
+
+        return bounded;
+    }
 
     private static List<RemoteAttachment>? BuildAttachments(IReadOnlyList<string> paths)
     {

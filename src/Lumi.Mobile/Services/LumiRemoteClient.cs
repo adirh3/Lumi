@@ -108,6 +108,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     public int ConnectedProtocolVersion => _compatibleProtocolVersion;
     public bool SupportsScopedEvents =>
         _capabilities.Contains(RemoteProtocol.Capabilities.ScopedEventsV1);
+    public bool SupportsCompactTranscript =>
+        _capabilities.Contains(RemoteProtocol.Capabilities.CompactTranscriptV1);
 
     /// <summary>Raised for every SSE frame. Handlers are invoked off the UI thread.</summary>
     public event Action<RemoteEventFrame>? FrameReceived;
@@ -304,6 +306,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             if (beforeMessageIndex is { } before)
                 route += $"&beforeMessageIndex={before}";
             route += $"&limit={Math.Clamp(maxMessages, 1, RemoteProtocol.TranscriptWindowRawMessageLimit)}";
+            if (SupportsCompactTranscript)
+                route += "&mode=compact";
 
             return await GetAsync(
                     route,
@@ -316,6 +320,16 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             _transcriptGate.Release();
         }
     }
+
+    public Task<RemoteActivityDetails?> GetActivityDetailsAsync(
+        Guid chatId,
+        string activityId,
+        CancellationToken cancellationToken) =>
+        GetAsync(
+            $"{RemoteProtocol.Routes.Activity}?chatId={chatId}" +
+            $"&activityId={Uri.EscapeDataString(activityId)}",
+            RemoteJsonContext.Default.RemoteActivityDetails,
+            cancellationToken);
 
     public async Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command, CancellationToken cancellationToken)
     {
@@ -507,7 +521,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             $"generation={subscription.Generation}",
             $"foreground={subscription.IsForeground.ToString().ToLowerInvariant()}",
             $"chats={subscription.IncludeChatList.ToString().ToLowerInvariant()}",
-            $"library={subscription.IncludeLibrary.ToString().ToLowerInvariant()}"
+            $"library={subscription.IncludeLibrary.ToString().ToLowerInvariant()}",
+            $"compact={subscription.CompactTranscript.ToString().ToLowerInvariant()}"
         };
         if (subscription.ChatId is { } chatId && chatId != Guid.Empty)
             query.Add($"chatId={chatId}");
@@ -520,6 +535,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         ChatId = subscription.ChatId,
         IncludeChatList = subscription.IncludeChatList,
         IncludeLibrary = subscription.IncludeLibrary,
+        CompactTranscript = subscription.CompactTranscript,
         IsForeground = subscription.IsForeground
     };
 
@@ -1133,6 +1149,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         RemoteProtocol.Routes.Chats => RemoteProtocol.MaxChatsJsonBytes,
         RemoteProtocol.Routes.LibraryItem => RemoteProtocol.MaxLibraryItemJsonBytes,
         RemoteProtocol.Routes.Transcript => RemoteProtocol.MobileTranscriptJsonByteLimit + 64 * 1024,
+        RemoteProtocol.Routes.Activity => RemoteProtocol.MaxActivityJsonBytes,
         _ => RemoteProtocol.MaxCommandResponseJsonBytes
     };
 

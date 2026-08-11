@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
@@ -36,6 +38,20 @@ public sealed class RemoteProjectionTests
         bool showReasoning = true, bool showToolCalls = true)
         => RemoteProjector.BuildTranscript(chat, messages, new RemoteChatStatus { ChatId = chat.Id },
             showReasoning, showToolCalls, revision: 7);
+
+    private static RemoteTranscript BuildCompact(
+        Chat chat,
+        IReadOnlyList<ChatMessage> messages,
+        string? workingDirectory = null)
+        => RemoteProjector.BuildTranscript(
+            chat,
+            messages,
+            new RemoteChatStatus { ChatId = chat.Id },
+            showReasoning: true,
+            showToolCalls: true,
+            revision: 7,
+            compact: true,
+            workingDirectory: workingDirectory);
 
     [Fact]
     public void LibrarySnapshotCarriesMetadataInsteadOfEditableBodies()
@@ -297,6 +313,540 @@ public sealed class RemoteProjectionTests
         Assert.DoesNotContain(quiet.Turns[0].Items, i => i.Kind == RemoteProtocol.ItemKinds.Reasoning);
         Assert.DoesNotContain(quiet.Turns[0].Items, i => i.Kind == RemoteProtocol.ItemKinds.Terminal);
         Assert.Equal(2, quiet.Turns[0].Items.Count);
+    }
+
+    [Fact]
+    public void CompactTranscript_CollapsesTechnicalRowsAndSurfacesFileChanges()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Compact" };
+        var search = Message(
+            "tool",
+            """{"query":"Avalonia mobile patterns"}""",
+            toolName: "web_search",
+            toolStatus: "Completed");
+        search.ToolDurationMs = 1_200;
+        search.ToolOutput = new string('s', 4_000);
+        var edit = Message(
+            "tool",
+            """{"filePath":"C:\\repo\\src\\Auth.cs","oldString":"old","newString":"new\nline"}""",
+            toolName: "edit",
+            toolStatus: "Completed");
+        edit.ToolDurationMs = 2_400;
+        edit.ToolOutput = new string('e', 4_000);
+        var workspaceChange = Message(
+            "tool",
+            """{"filePath":"C:\\repo\\src\\NewFile.cs","operation":"Create"}""",
+            toolName: ToolDisplayHelper.WorkspaceFileChangedToolName,
+            toolStatus: "Completed");
+        var messages = new List<ChatMessage>
+        {
+            Message("user", "Improve auth"),
+            Message("reasoning", "private chain of thought"),
+            search,
+            edit,
+            workspaceChange,
+            Message("assistant", "Authentication is updated.")
+        };
+
+        var transcript = BuildCompact(chat, messages, @"C:\repo");
+        var items = Assert.Single(transcript.Turns).Items;
+
+        Assert.Collection(
+            items,
+            item => Assert.Equal(RemoteProtocol.ItemKinds.User, item.Kind),
+            item =>
+            {
+                Assert.Equal(RemoteProtocol.ItemKinds.Activity, item.Kind);
+                Assert.Equal(2, item.ActionCount);
+                Assert.Equal("Completed", item.Status);
+                Assert.Equal(3_600, item.DurationMs);
+                Assert.Equal(2, item.FileChanges!.Count);
+                Assert.Contains(item.FileChanges, change =>
+                    change.Path == "src/Auth.cs"
+                    && change.Operation == "Modified"
+                    && change.LinesAdded == 2
+                    && change.LinesRemoved == 1);
+                Assert.Contains(item.FileChanges, change =>
+                    change.Path == "src/NewFile.cs" && change.Operation == "Created");
+                Assert.Null(item.Tools);
+                Assert.False(string.IsNullOrWhiteSpace(item.ActivityId));
+            },
+            item => Assert.Equal(RemoteProtocol.ItemKinds.Assistant, item.Kind));
+
+        var wire = JsonSerializer.Serialize(transcript, RemoteJsonContext.Default.RemoteTranscript);
+        var detailedWire = JsonSerializer.Serialize(
+            Build(chat, messages),
+            RemoteJsonContext.Default.RemoteTranscript);
+        Assert.DoesNotContain("private chain of thought", wire, StringComparison.Ordinal);
+        Assert.DoesNotContain("Avalonia mobile patterns", wire, StringComparison.Ordinal);
+        Assert.True(
+            wire.Length * 3 < detailedWire.Length,
+            $"expected compact wire to be at least 3x smaller; compact={wire.Length}, detailed={detailedWire.Length}");
+    }
+
+    [Fact]
+    public void CompactActivityDetails_LoadRawToolsOnlyOnDemand()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Details" };
+        var search = Message(
+            "tool",
+            """{"query":"current docs"}""",
+            toolName: "web_search",
+            toolStatus: "Completed");
+        search.ToolOutput = "three sources";
+        var verify = Message(
+            "tool",
+            """{"command":"dotnet test"}""",
+            toolName: "powershell",
+            toolStatus: "Completed");
+        verify.ToolOutput = "12 tests passed";
+        var messages = new List<ChatMessage>
+        {
+            Message("user", "Check it"),
+            search,
+            verify,
+            Message("assistant", "Done")
+        };
+        var transcript = BuildCompact(chat, messages);
+        var activity = Assert.Single(
+            Assert.Single(transcript.Turns).Items,
+            item => item.Kind == RemoteProtocol.ItemKinds.Activity);
+
+        var details = Assert.IsType<RemoteActivityDetails>(
+            RemoteProjector.BuildActivityDetails(
+                chat,
+                messages,
+                activity.ActivityId!));
+
+        Assert.Equal(chat.Id, details.ChatId);
+        Assert.Equal(activity.ActivityId, details.ActivityId);
+        Assert.Collection(
+            details.Tools,
+            tool =>
+            {
+                Assert.Equal("research", tool.Category);
+                Assert.Contains("current docs", tool.Input, StringComparison.Ordinal);
+                Assert.Equal("three sources", tool.Output);
+            },
+            tool =>
+            {
+                Assert.Equal("verify", tool.Category);
+                Assert.Contains("dotnet test", tool.Input, StringComparison.Ordinal);
+                Assert.Equal("12 tests passed", tool.Output);
+            });
+    }
+
+    [Fact]
+    public void CompactTranscript_DoesNotDependOnDesktopToolVisibility()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Compact" };
+        var transcript = RemoteProjector.BuildTranscript(
+            chat,
+            [
+                Message("user", "Work"),
+                Message("tool", "{}", toolName: "task", toolStatus: "Completed"),
+                Message("assistant", "Done")
+            ],
+            new RemoteChatStatus { ChatId = chat.Id },
+            showReasoning: false,
+            showToolCalls: false,
+            revision: 1,
+            compact: true);
+
+        Assert.Contains(
+            Assert.Single(transcript.Turns).Items,
+            item => item.Kind == RemoteProtocol.ItemKinds.Activity);
+    }
+
+    [Fact]
+    public void CompactTranscript_UsesStableFullTurnActivityAcrossPagedWindows()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Long turn" };
+        var reasoning = Message("reasoning", "thinking");
+        var messages = new List<ChatMessage>
+        {
+            Message("user", "Do a lot"),
+            reasoning
+        };
+        messages.AddRange(Enumerable.Range(0, 60).Select(index =>
+            Message(
+                "tool",
+                $$"""{"query":"item {{index}}"}""",
+                toolName: "web_search",
+                toolStatus: "Completed")));
+        messages.Add(Message("assistant", "Finished"));
+
+        var latestWindow = RemoteProjector.SelectTranscriptWindow(
+            messages,
+            beforeMessageIndex: null,
+            maxMessages: 40);
+        var latest = RemoteProjector.BuildTranscript(
+            chat,
+            latestWindow,
+            new RemoteChatStatus { ChatId = chat.Id },
+            showReasoning: true,
+            showToolCalls: true,
+            revision: 1,
+            compact: true,
+            activitySourceMessages: messages);
+        var latestActivity = Assert.Single(
+            Assert.Single(latest.Turns).Items,
+            item => item.Kind == RemoteProtocol.ItemKinds.Activity);
+
+        var earlierWindow = RemoteProjector.SelectTranscriptWindow(
+            messages,
+            beforeMessageIndex: latestWindow.StartMessageIndex,
+            maxMessages: 40);
+        var earlier = RemoteProjector.BuildTranscript(
+            chat,
+            earlierWindow,
+            new RemoteChatStatus { ChatId = chat.Id },
+            showReasoning: true,
+            showToolCalls: true,
+            revision: 1,
+            compact: true,
+            activitySourceMessages: messages);
+        var earlierActivity = Assert.Single(
+            Assert.Single(earlier.Turns).Items,
+            item => item.Kind == RemoteProtocol.ItemKinds.Activity);
+
+        Assert.Equal(reasoning.Id.ToString("N"), latestActivity.ActivityId);
+        Assert.Equal(latestActivity.ActivityId, earlierActivity.ActivityId);
+        Assert.Equal(60, latestActivity.ActionCount);
+        Assert.Equal(60, earlierActivity.ActionCount);
+
+        var details = Assert.IsType<RemoteActivityDetails>(
+            RemoteProjector.BuildActivityDetails(
+                chat,
+                messages,
+                latestActivity.ActivityId!));
+        Assert.Equal(RemoteProtocol.MobileActivityToolCountLimit, details.Tools.Count);
+        Assert.Equal("omitted", details.Tools[^1].Name);
+    }
+
+    [Fact]
+    public void CompactTranscript_SummarizesReasoningWithoutSendingItsText()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Reasoning" };
+        var reasoning = Message("reasoning", "private reasoning text");
+        var transcript = BuildCompact(
+            chat,
+            [
+                Message("user", "Explain"),
+                reasoning,
+                Message("assistant", "Answer")
+            ]);
+
+        var activity = Assert.Single(
+            Assert.Single(transcript.Turns).Items,
+            item => item.Kind == RemoteProtocol.ItemKinds.Activity);
+        Assert.Equal(reasoning.Id.ToString("N"), activity.ActivityId);
+        Assert.Equal(0, activity.ActionCount);
+        Assert.Equal("Thought through the response", activity.Label);
+        Assert.DoesNotContain(
+            "private reasoning text",
+            JsonSerializer.Serialize(transcript, RemoteJsonContext.Default.RemoteTranscript),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompactFileChanges_ExcludeFailuresAndClassifyInsertAndDelete()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Changes" };
+        var transcript = BuildCompact(
+            chat,
+            [
+                Message("user", "Edit"),
+                Message(
+                    "tool",
+                    """{"filePath":"failed.cs","oldString":"a","newString":"b"}""",
+                    toolName: "edit",
+                    toolStatus: "Failed"),
+                Message(
+                    "tool",
+                    """{"filePath":"existing.cs","insert_text":"line"}""",
+                    toolName: "insert",
+                    toolStatus: "Completed"),
+                Message(
+                    "tool",
+                    """{"filePath":"authoritative.cs","content":"replacement"}""",
+                    toolName: "write_file",
+                    toolStatus: "Completed"),
+                Message(
+                    "tool",
+                    """{"filePath":"authoritative.cs","operation":"Modify"}""",
+                    toolName: ToolDisplayHelper.WorkspaceFileChangedToolName,
+                    toolStatus: "Completed"),
+                Message(
+                    "tool",
+                    """{"filePath":"delete-after-event.cs","operation":"Modify"}""",
+                    toolName: ToolDisplayHelper.WorkspaceFileChangedToolName,
+                    toolStatus: "Completed"),
+                Message(
+                    "tool",
+                    """{"filePath":"delete-after-event.cs"}""",
+                    toolName: "delete_file",
+                    toolStatus: "Completed"),
+                Message(
+                    "tool",
+                    """
+                    {"patch":"*** Begin Patch\n*** Delete File: removed.cs\n*** End Patch"}
+                    """,
+                    toolName: "apply_patch",
+                    toolStatus: "Completed"),
+                Message("assistant", "Done")
+            ]);
+
+        var changes = Assert.Single(
+            Assert.Single(transcript.Turns).Items,
+            item => item.Kind == RemoteProtocol.ItemKinds.Activity).FileChanges!;
+        Assert.DoesNotContain(changes, change => change.Path == "failed.cs");
+        Assert.Contains(changes, change =>
+            change.Path == "existing.cs" && change.Operation == "Modified");
+        Assert.Contains(changes, change =>
+            change.Path == "authoritative.cs" && change.Operation == "Modified");
+        Assert.Contains(changes, change =>
+            change.Path == "delete-after-event.cs" && change.Operation == "Deleted");
+        Assert.Contains(changes, change =>
+            change.Path == "removed.cs" && change.Operation == "Deleted");
+    }
+
+    [Fact]
+    public void CompactFileChanges_MergeRelativeAndAbsolutePathsAgainstTheExecutionDirectory()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Workspace" };
+        var workingDirectory = Path.Combine(Path.GetTempPath(), "lumi-compact-workspace");
+        var absolutePath = Path.Combine(workingDirectory, "src", "Auth.cs");
+        var transcript = BuildCompact(
+            chat,
+            [
+                Message("user", "Edit"),
+                Message(
+                    "tool",
+                    """{"filePath":"src/Auth.cs","content":"replacement"}""",
+                    toolName: "write_file",
+                    toolStatus: "Completed"),
+                Message(
+                    "tool",
+                    JsonSerializer.Serialize(new
+                    {
+                        filePath = absolutePath,
+                        operation = "Modify"
+                    }),
+                    toolName: ToolDisplayHelper.WorkspaceFileChangedToolName,
+                    toolStatus: "Completed"),
+                Message("assistant", "Done")
+            ],
+            workingDirectory);
+
+        var change = Assert.Single(Assert.Single(
+            Assert.Single(transcript.Turns).Items,
+            item => item.Kind == RemoteProtocol.ItemKinds.Activity).FileChanges!);
+        Assert.Equal("src/Auth.cs", change.Path);
+        Assert.Equal("Modified", change.Operation);
+    }
+
+    [Fact]
+    public void CompactActivity_UsesAuthoritativeBackgroundShellState()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Background" };
+        var shell = Message(
+            "tool",
+            """{"command":"long-running-task"}""",
+            toolName: "powershell",
+            toolStatus: "Completed");
+        shell.ToolCallId = "shell-1";
+        var messages = new List<ChatMessage>
+        {
+            Message("user", "Run it"),
+            shell,
+            Message("assistant", "Started")
+        };
+        var running = new HashSet<string>(["shell-1"], StringComparer.Ordinal);
+
+        var transcript = RemoteProjector.BuildTranscript(
+            chat,
+            messages,
+            new RemoteChatStatus { ChatId = chat.Id },
+            showReasoning: true,
+            showToolCalls: true,
+            revision: 1,
+            compact: true,
+            activitySourceMessages: messages,
+            runningBackgroundToolCallIds: running);
+        var activity = Assert.Single(
+            Assert.Single(transcript.Turns).Items,
+            item => item.Kind == RemoteProtocol.ItemKinds.Activity);
+        var details = Assert.IsType<RemoteActivityDetails>(
+            RemoteProjector.BuildActivityDetails(
+                chat,
+                messages,
+                activity.ActivityId!,
+                runningBackgroundToolCallIds: running));
+
+        Assert.Equal("InProgress", activity.Status);
+        Assert.Equal("InProgress", Assert.Single(details.Tools).Status);
+    }
+
+    [Fact]
+    public void ActivityDetailCapRetainsRunningAndFailedActions()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Capped details" };
+        var messages = new List<ChatMessage> { Message("user", "Run many") };
+        messages.AddRange(Enumerable.Range(0, 40).Select(index =>
+            Message(
+                "tool",
+                $$"""{"query":"{{index}}"}""",
+                toolName: "web_search",
+                toolStatus: "Completed")));
+        var failed = Message(
+            "tool",
+            """{"command":"failing-command"}""",
+            toolName: "powershell",
+            toolStatus: "Failed");
+        failed.ToolCallId = "failed-tool";
+        messages.Add(failed);
+        var runningShell = Message(
+            "tool",
+            """{"command":"background-command"}""",
+            toolName: "powershell",
+            toolStatus: "Completed");
+        runningShell.ToolCallId = "running-shell";
+        messages.Add(runningShell);
+        messages.Add(Message("assistant", "Done"));
+        var running = new HashSet<string>(["running-shell"], StringComparer.Ordinal);
+        var transcript = RemoteProjector.BuildTranscript(
+            chat,
+            messages,
+            new RemoteChatStatus { ChatId = chat.Id },
+            showReasoning: true,
+            showToolCalls: true,
+            revision: 1,
+            compact: true,
+            activitySourceMessages: messages,
+            runningBackgroundToolCallIds: running);
+        var activity = Assert.Single(
+            Assert.Single(transcript.Turns).Items,
+            item => item.Kind == RemoteProtocol.ItemKinds.Activity);
+
+        var details = Assert.IsType<RemoteActivityDetails>(
+            RemoteProjector.BuildActivityDetails(
+                chat,
+                messages,
+                activity.ActivityId!,
+                runningBackgroundToolCallIds: running));
+
+        Assert.Equal(RemoteProtocol.MobileActivityToolCountLimit, details.Tools.Count);
+        Assert.Contains(details.Tools, tool =>
+            tool.Id == "failed-tool" && tool.Status == "Failed");
+        Assert.Contains(details.Tools, tool =>
+            tool.Id == "running-shell" && tool.Status == "InProgress");
+        Assert.Contains(details.Tools, tool =>
+            tool.Name == "omitted" && tool.Status == "Completed");
+    }
+
+    [Fact]
+    public void ActivityDetails_StayWithinTheAdvertisedUtf8Limit()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Bounded" };
+        var messages = new List<ChatMessage> { Message("user", "Work") };
+        messages.AddRange(Enumerable.Range(0, RemoteProtocol.MobileActivityToolCountLimit).Select(index =>
+        {
+            var tool = Message(
+                "tool",
+                JsonSerializer.Serialize(new { command = new string('א', 8_000), index }),
+                toolName: "powershell",
+                toolStatus: "Completed");
+            tool.ToolOutput = new string('界', 24_000);
+            return tool;
+        }));
+        var totalFileChanges = RemoteProtocol.MobileFileChangeCountLimit + 5;
+        messages.AddRange(Enumerable.Range(0, totalFileChanges).Select(index =>
+            Message(
+                "tool",
+                JsonSerializer.Serialize(new
+                {
+                    filePath = $"{index}-{new string('界', RemoteProtocol.MobilePathLimit)}.cs",
+                    operation = "Modify"
+                }),
+                toolName: ToolDisplayHelper.WorkspaceFileChangedToolName,
+                toolStatus: "Completed")));
+        messages.Add(Message("assistant", "Done"));
+        var transcript = BuildCompact(chat, messages);
+        var activity = Assert.Single(
+            Assert.Single(transcript.Turns).Items,
+            item => item.Kind == RemoteProtocol.ItemKinds.Activity);
+
+        var details = Assert.IsType<RemoteActivityDetails>(
+            RemoteProjector.BuildActivityDetails(chat, messages, activity.ActivityId!));
+        var wire = JsonSerializer.Serialize(
+            details,
+            RemoteJsonContext.Default.RemoteActivityDetails);
+
+        Assert.InRange(
+            Encoding.UTF8.GetByteCount(wire),
+            1,
+            RemoteProtocol.MaxActivityJsonBytes);
+        Assert.Equal(totalFileChanges, activity.FileChangeCount);
+        Assert.Equal(totalFileChanges, details.TotalFileChangeCount);
+        Assert.Equal(RemoteProtocol.MobileFileChangeCountLimit, details.FileChanges.Count);
+        Assert.Equal("Omitted", details.FileChanges[^1].Operation);
+    }
+
+    [Fact]
+    public void ActivityDetails_PreserveBoundedRawEditInput()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Raw details" };
+        const string raw =
+            """{"filePath":"src/Auth.cs","oldString":"before","newString":"after"}""";
+        var messages = new List<ChatMessage>
+        {
+            Message("user", "Edit"),
+            Message("tool", raw, toolName: "edit", toolStatus: "Completed"),
+            Message("assistant", "Done")
+        };
+        var transcript = BuildCompact(chat, messages);
+        var activity = Assert.Single(
+            Assert.Single(transcript.Turns).Items,
+            item => item.Kind == RemoteProtocol.ItemKinds.Activity);
+
+        var details = Assert.IsType<RemoteActivityDetails>(
+            RemoteProjector.BuildActivityDetails(chat, messages, activity.ActivityId!));
+
+        Assert.Equal(raw, Assert.Single(details.Tools).Input);
+    }
+
+    [Fact]
+    public void ActivityDetails_NeverTransmitEmbeddedSubagentReasoning()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Subagent privacy" };
+        const string secret = "PRIVATE_SUBAGENT_REASONING";
+        var messages = new List<ChatMessage>
+        {
+            Message("user", "Delegate"),
+            Message(
+                "tool",
+                $$"""
+                {"description":"Review the feature","agentDisplayName":"Reviewer","transcript":"Checked the code","reasoning":"{{secret}}"}
+                """,
+                toolName: "agent:reviewer",
+                toolStatus: "Completed"),
+            Message("assistant", "Done")
+        };
+        var transcript = BuildCompact(chat, messages);
+        var activity = Assert.Single(
+            Assert.Single(transcript.Turns).Items,
+            item => item.Kind == RemoteProtocol.ItemKinds.Activity);
+
+        var details = Assert.IsType<RemoteActivityDetails>(
+            RemoteProjector.BuildActivityDetails(chat, messages, activity.ActivityId!));
+        var wire = JsonSerializer.Serialize(
+            details,
+            RemoteJsonContext.Default.RemoteActivityDetails);
+
+        Assert.DoesNotContain(secret, wire, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"reasoning\"", wire, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Review the feature", Assert.Single(details.Tools).Input, StringComparison.Ordinal);
     }
 
     [Fact]

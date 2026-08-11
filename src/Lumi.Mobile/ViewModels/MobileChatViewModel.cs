@@ -70,6 +70,18 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasOpenSheet))]
     private bool _isPlanOpen;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOpenSheet))]
+    private bool _isActivitySheetOpen;
+
+    [ObservableProperty] private ActivitySummaryItemViewModel? _selectedActivity;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOpenSheet))]
+    private bool _isSourcesSheetOpen;
+
+    [ObservableProperty] private AssistantItemViewModel? _selectedSourceAnswer;
+
     public bool HasPlan => !string.IsNullOrWhiteSpace(PlanContent);
 
     partial void OnPlanContentChanged(string? value)
@@ -83,6 +95,73 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     [RelayCommand]
     private void TogglePlan() => IsPlanOpen = !IsPlanOpen;
+
+    private async Task OpenActivityAsync(ActivitySummaryItemViewModel activity)
+    {
+        SelectedActivity = activity;
+        IsActivitySheetOpen = true;
+        if (activity.DetailsLoaded || activity.IsLoadingDetails)
+            return;
+
+        if (_sink is not IRemoteActivityDetailSink detailsSink)
+        {
+            activity.DetailsError = "Activity details are not available from this Lumi.";
+            return;
+        }
+
+        var chatId = ChatId;
+        var activityId = activity.ActivityId;
+        var activation = Volatile.Read(ref _surfaceActivationGeneration);
+        var detailsVersion = activity.DetailsVersion;
+        var retry = false;
+        activity.IsLoadingDetails = true;
+        try
+        {
+            var details = await detailsSink.GetActivityDetailsAsync(chatId, activityId);
+            if (ChatId != chatId
+                || activation != Volatile.Read(ref _surfaceActivationGeneration)
+                || !string.Equals(activity.ActivityId, activityId, StringComparison.Ordinal))
+            {
+                return;
+            }
+            if (activity.DetailsVersion != detailsVersion)
+            {
+                retry = true;
+                return;
+            }
+
+            if (details is null)
+            {
+                activity.DetailsError = "Activity details could not be loaded.";
+                return;
+            }
+
+            activity.ApplyDetails(details);
+        }
+        catch (Exception ex)
+        {
+            activity.DetailsError = $"Activity details could not be loaded: {ex.Message}";
+        }
+        finally
+        {
+            activity.IsLoadingDetails = false;
+            if (retry
+                && IsActivitySheetOpen
+                && ReferenceEquals(SelectedActivity, activity))
+            {
+                _ = OpenActivityAsync(activity);
+            }
+        }
+    }
+
+    private void OpenSources(AssistantItemViewModel answer)
+    {
+        if (!answer.HasSources)
+            return;
+
+        SelectedSourceAnswer = answer;
+        IsSourcesSheetOpen = true;
+    }
 
     // ── Composer configuration. Setting any of these configures the chat on the PC. ──
     [ObservableProperty] private string? _model;
@@ -582,6 +661,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     /// <summary>Whether any modal sheet currently covers the conversation.</summary>
     public bool HasOpenSheet =>
+        IsSourcesSheetOpen ||
+        IsActivitySheetOpen ||
         IsRunSettingsSheetOpen ||
         IsModelSheetOpen ||
         IsContextSheetOpen ||
@@ -591,6 +672,18 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// <summary>Closes the visually topmost chat sheet.</summary>
     internal bool DismissTopmostSheet()
     {
+        if (IsSourcesSheetOpen)
+        {
+            IsSourcesSheetOpen = false;
+            return true;
+        }
+
+        if (IsActivitySheetOpen)
+        {
+            IsActivitySheetOpen = false;
+            return true;
+        }
+
         if (IsPlanOpen)
         {
             IsPlanOpen = false;
@@ -1301,6 +1394,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
             ErrorText = null;
             TranscriptErrorText = null;
             PlanContent = null;
+            IsActivitySheetOpen = false;
+            SelectedActivity = null;
+            IsSourcesSheetOpen = false;
+            SelectedSourceAnswer = null;
             ResetVisibleActivityProgress();
             Model = model ?? (chatId == Guid.Empty ? _preferredModel : null);
             Quality = null;
@@ -1400,6 +1497,11 @@ public sealed partial class MobileChatViewModel : ObservableObject
         var pendingEcho = retainPendingEcho
             ? Turns.FirstOrDefault(turn => turn.Id == EchoTurnId)
             : null;
+        var selectedActivityId = IsActivitySheetOpen ? SelectedActivity?.ActivityId : null;
+        var technicalDetailsWereVisible =
+            SelectedActivity?.IsTechnicalDetailsVisible == true;
+        var selectedSourceAnswerId =
+            IsSourcesSheetOpen ? SelectedSourceAnswer?.Id : null;
         if (pendingEcho is not null)
             Turns.Remove(pendingEcho);
         else
@@ -1417,7 +1519,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 continue;
             }
 
-            var created = new TranscriptTurnViewModel(incoming.Id);
+            var created = new TranscriptTurnViewModel(
+                incoming.Id,
+                OpenActivityAsync,
+                OpenSources);
             created.Apply(incoming);
 
             if (i < Turns.Count)
@@ -1431,6 +1536,56 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         if (pendingEcho is not null)
             Turns.Add(pendingEcho);
+
+        if (selectedActivityId is { Length: > 0 })
+        {
+            var reconciledActivity = Turns
+                .SelectMany(turn => turn.Items)
+                .OfType<ActivitySummaryItemViewModel>()
+                .FirstOrDefault(activity => string.Equals(
+                    activity.ActivityId,
+                    selectedActivityId,
+                    StringComparison.Ordinal));
+            if (reconciledActivity is null)
+            {
+                IsActivitySheetOpen = false;
+                SelectedActivity = null;
+            }
+            else
+            {
+                if (!ReferenceEquals(SelectedActivity, reconciledActivity))
+                {
+                    reconciledActivity.IsTechnicalDetailsVisible =
+                        technicalDetailsWereVisible;
+                    SelectedActivity = reconciledActivity;
+                }
+
+                if (!reconciledActivity.DetailsLoaded
+                    && !reconciledActivity.IsLoadingDetails)
+                {
+                    _ = OpenActivityAsync(reconciledActivity);
+                }
+            }
+        }
+        if (selectedSourceAnswerId is { Length: > 0 })
+        {
+            var reconciledAnswer = Turns
+                .SelectMany(turn => turn.Items)
+                .OfType<AssistantItemViewModel>()
+                .FirstOrDefault(answer => string.Equals(
+                    answer.Id,
+                    selectedSourceAnswerId,
+                    StringComparison.Ordinal));
+            if (reconciledAnswer is null || !reconciledAnswer.HasSources)
+            {
+                IsSourcesSheetOpen = false;
+                SelectedSourceAnswer = null;
+            }
+            else
+            {
+                SelectedSourceAnswer = reconciledAnswer;
+            }
+        }
 
         _hasAuthoritativeTranscript = true;
         ReconcilePendingRetry(transcript, epochChanged);
@@ -2397,7 +2552,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private TranscriptTurnViewModel? AddPendingEcho(string text, bool steer)
     {
         _pendingEchoBaselineRevision = _revision;
-        var turn = new TranscriptTurnViewModel(EchoTurnId);
+        var turn = new TranscriptTurnViewModel(EchoTurnId, OpenActivityAsync, OpenSources);
         turn.Items.Add(new UserTurnItemViewModel(new RemoteTranscriptItem
         {
             Id = EchoTurnId,
@@ -2964,6 +3119,11 @@ public interface IRemoteLibraryDetailSink
 public interface IRemoteCatalogRefreshSink
 {
     Task RefreshCatalogsAsync();
+}
+
+public interface IRemoteActivityDetailSink
+{
+    Task<RemoteActivityDetails?> GetActivityDetailsAsync(Guid chatId, string activityId);
 }
 
 /// <summary>A file already on the PC, waiting to be referenced by the next message.</summary>

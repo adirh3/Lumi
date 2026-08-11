@@ -51,6 +51,40 @@
       <Setter Property="Padding" Value="14,8" />
       <Setter Property="HorizontalAlignment" Value="Center" />
     </Style>
+
+    <Style Selector="Button.activity-card">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Padding" Value="14,12" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    </Style>
+    <Style Selector="Button.activity-card:pressed">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+      <Setter Property="RenderTransform" Value="scale(0.99)" />
+    </Style>
+
+    <Style Selector="Button.source-card">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="Padding" Value="12,10" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    </Style>
+    <Style Selector="Button.source-card:pressed">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+      <Setter Property="RenderTransform" Value="scale(0.99)" />
+    </Style>
+
+    <Style Selector="Border.activity-file">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="10,7" />
+    </Style>
   </UserControl.Styles>
 
   <UserControl.DataTemplates>
@@ -94,22 +128,36 @@
         <sc:StrataTypingIndicator IsActive="True" Margin="0,4,0,0"
                                   IsVisible="{Binding IsStreaming}" />
 
-        <ItemsControl ItemsSource="{Binding Sources}" IsVisible="{Binding HasSources}" Margin="0,6,0,0">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="proto:RemoteSource">
-              <Button Classes="subtle"
-                      Margin="0,3"
-                      Padding="10,8"
-                      HorizontalContentAlignment="Stretch"
-                      Click="OnSourceClick">
-                <StackPanel Spacing="2">
-                  <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                  <TextBlock Text="{Binding Snippet}" Classes="muted" TextWrapping="Wrap" MaxLines="2" />
-                </StackPanel>
-              </Button>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
+        <Button Classes="source-card"
+                Margin="0,7,0,2"
+                IsVisible="{Binding HasSources}"
+                Command="{Binding OpenSourcesCommand}">
+          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+            <PathIcon Grid.Column="0"
+                      Width="18" Height="18"
+                      VerticalAlignment="Center"
+                      Foreground="{DynamicResource Brush.AccentDefault}"
+                      Data="M3.9 12c0-1.71.69-3.26 1.81-4.39L4.29 6.2A7.93 7.93 0 0 0 2 12c0 2.21.9 4.21 2.34 5.66l1.42-1.42A5.96 5.96 0 0 1 3.9 12zm4.2 0c0-1.08.87-1.95 1.95-1.95h3.9V8.1h-3.9a3.9 3.9 0 1 0 0 7.8h3.9v-1.95h-3.9A1.95 1.95 0 0 1 8.1 12zm1.95.98h3.9v-1.96h-3.9v1.96zm9.61-6.64-1.42 1.42A5.96 5.96 0 0 1 20.1 12c0 1.71-.69 3.26-1.81 4.39l1.42 1.41A7.93 7.93 0 0 0 22 12c0-2.21-.9-4.21-2.34-5.66zm-5.71 3.71h-1.95v3.9h1.95a1.95 1.95 0 1 0 0-3.9z" />
+            <StackPanel Grid.Column="1" Spacing="1">
+              <TextBlock Text="Sources" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding SourceSummary}"
+                         FontSize="{DynamicResource Font.SizeCaption}"
+                         Foreground="{DynamicResource Brush.TextTertiary}"
+                         TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+            <StackPanel Grid.Column="2"
+                        Orientation="Horizontal"
+                        Spacing="7"
+                        VerticalAlignment="Center">
+              <TextBlock Text="{Binding SourceCountText}"
+                         FontSize="{DynamicResource Font.SizeCaption}"
+                         Foreground="{DynamicResource Brush.TextSecondary}" />
+              <PathIcon Width="15" Height="15"
+                        Foreground="{DynamicResource Brush.TextTertiary}"
+                        Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
+            </StackPanel>
+          </Grid>
+        </Button>
 
         <!-- Actions sit under the finished answer, always visible. A phone has no hover and no
              right-click, so hiding copy behind a gesture makes it undiscoverable. -->
@@ -121,6 +169,84 @@
           </Button>
         </StackPanel>
       </StackPanel>
+    </DataTemplate>
+
+    <!-- One compact activity disclosure per assistant turn. Commands and raw output stay off the
+         conversation surface; tapping loads them on demand in a bottom sheet. -->
+    <DataTemplate DataType="vm:ActivitySummaryItemViewModel">
+      <Button Classes="activity-card"
+              Margin="0,4,0,6"
+              Command="{Binding OpenCommand}">
+        <StackPanel Spacing="9">
+          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+            <TextBlock Grid.Column="0"
+                       Text="✓"
+                       IsVisible="{Binding IsSucceeded}"
+                       Foreground="{DynamicResource Brush.SuccessDefault}"
+                       FontWeight="Bold"
+                       VerticalAlignment="Center" />
+            <TextBlock Grid.Column="0"
+                       Text="!"
+                       IsVisible="{Binding IsFailed}"
+                       Foreground="{DynamicResource Brush.DangerDefault}"
+                       FontWeight="Bold"
+                       VerticalAlignment="Center" />
+            <TextBlock Grid.Column="0"
+                       Text="—"
+                       IsVisible="{Binding IsStopped}"
+                       Foreground="{DynamicResource Brush.TextTertiary}"
+                       FontWeight="Bold"
+                       VerticalAlignment="Center" />
+            <sc:StrataPulse Grid.Column="0"
+                            IsLive="{Binding IsRunning}"
+                            IsVisible="{Binding IsRunning}"
+                            Width="10" Height="10"
+                            VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1"
+                       Text="{Binding SummaryText}"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center"
+                       TextWrapping="Wrap" />
+            <PathIcon Grid.Column="2"
+                      Width="16" Height="16"
+                      VerticalAlignment="Center"
+                      Foreground="{DynamicResource Brush.TextTertiary}"
+                      Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
+          </Grid>
+
+          <StackPanel IsVisible="{Binding HasFileChanges}" Spacing="5">
+            <TextBlock Text="{Binding FileSummary}"
+                       FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextSecondary}" />
+            <ItemsControl ItemsSource="{Binding PreviewFileChanges}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ActivityFileChangeViewModel">
+                  <Border Classes="activity-file" Margin="0,2">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                      <PathIcon Grid.Column="0" Width="15" Height="15"
+                                VerticalAlignment="Center"
+                                Foreground="{DynamicResource Brush.TextSecondary}"
+                                Data="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 18H6V4h7v5h5v11z" />
+                      <TextBlock Grid.Column="1" Text="{Binding Path}"
+                                 TextTrimming="CharacterEllipsis"
+                                 VerticalAlignment="Center"
+                                 FontSize="{DynamicResource Font.SizeMeta}" />
+                      <TextBlock Grid.Column="2" Text="{Binding Operation}"
+                                 VerticalAlignment="Center"
+                                 FontSize="{DynamicResource Font.SizeCaption}"
+                                 Foreground="{DynamicResource Brush.TextTertiary}" />
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="{Binding AdditionalFileChangesText}"
+                       IsVisible="{Binding HasAdditionalFileChanges}"
+                       FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextTertiary}" />
+          </StackPanel>
+        </StackPanel>
+      </Button>
     </DataTemplate>
 
     <!-- Reasoning -->
@@ -726,6 +852,214 @@
           </StackPanel>
         </Border>
       </ScrollViewer>
+    </sc:StrataBottomSheet>
+
+    <sc:StrataBottomSheet x:Name="SourcesSheet"
+                          Classes="safe-area"
+                          IsOpen="{Binding Chat.IsSourcesSheetOpen, Mode=TwoWay}"
+                          Title="Sources"
+                          Padding="{Binding SafeAreaSheetTitleMargin}"
+                          Tag="{Binding SafeAreaSheetPresenterMargin}">
+      <Border x:Name="SourcesSheetSideInset" Padding="{Binding SafeAreaSides}">
+        <ContentControl Content="{Binding Chat.SelectedSourceAnswer}">
+          <ContentControl.ContentTemplate>
+            <DataTemplate x:DataType="vm:AssistantItemViewModel">
+              <ScrollViewer MaxHeight="560"
+                            HorizontalScrollBarVisibility="Disabled"
+                            VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="14,0,14,20" Spacing="10">
+                  <TextBlock Text="References used in this answer"
+                             FontSize="{DynamicResource Font.SizeSubtitle}"
+                             FontWeight="SemiBold" />
+                  <TextBlock Text="{Binding SourceCountText}"
+                             FontSize="{DynamicResource Font.SizeMeta}"
+                             Foreground="{DynamicResource Brush.TextTertiary}" />
+                  <ItemsControl ItemsSource="{Binding Sources}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="proto:RemoteSource">
+                        <Button Classes="sheet-item"
+                                Margin="0,2"
+                                HorizontalContentAlignment="Stretch"
+                                Click="OnSourceClick">
+                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel Grid.Column="0" Spacing="4">
+                              <TextBlock Text="{Binding Title}"
+                                         FontWeight="SemiBold"
+                                         TextWrapping="Wrap" />
+                              <TextBlock Text="{Binding Snippet}"
+                                         IsVisible="{Binding Snippet, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         FontSize="{DynamicResource Font.SizeMeta}"
+                                         Foreground="{DynamicResource Brush.TextSecondary}"
+                                         TextWrapping="Wrap"
+                                         MaxLines="3" />
+                              <TextBlock Text="{Binding Url}"
+                                         IsVisible="{Binding Url, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         FontSize="{DynamicResource Font.SizeCaption}"
+                                         Foreground="{DynamicResource Brush.TextTertiary}"
+                                         TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <PathIcon Grid.Column="1"
+                                      Width="18" Height="18"
+                                      VerticalAlignment="Center"
+                                      Foreground="{DynamicResource Brush.TextTertiary}"
+                                      Data="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3zM5 5h5V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5h-2v5H5V5z" />
+                          </Grid>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </ScrollViewer>
+            </DataTemplate>
+          </ContentControl.ContentTemplate>
+        </ContentControl>
+      </Border>
+    </sc:StrataBottomSheet>
+
+    <sc:StrataBottomSheet x:Name="ActivitySheet"
+                          Classes="safe-area"
+                          IsOpen="{Binding Chat.IsActivitySheetOpen, Mode=TwoWay}"
+                          Title="How Lumi worked"
+                          Padding="{Binding SafeAreaSheetTitleMargin}"
+                          Tag="{Binding SafeAreaSheetPresenterMargin}">
+      <Border x:Name="ActivitySheetSideInset" Padding="{Binding SafeAreaSides}">
+        <ContentControl Content="{Binding Chat.SelectedActivity}">
+          <ContentControl.ContentTemplate>
+            <DataTemplate x:DataType="vm:ActivitySummaryItemViewModel">
+              <ScrollViewer MaxHeight="560"
+                            HorizontalScrollBarVisibility="Disabled"
+                            VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="16,0,16,22" Spacing="14">
+            <TextBlock Text="{Binding SummaryText}"
+                       FontSize="{DynamicResource Font.SizeSubtitle}"
+                       FontWeight="SemiBold"
+                       TextWrapping="Wrap" />
+
+            <ProgressBar IsIndeterminate="True"
+                         Height="3"
+                         IsVisible="{Binding IsLoadingDetails}" />
+
+            <TextBlock Text="{Binding DetailsError}"
+                       IsVisible="{Binding DetailsError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       Foreground="{DynamicResource Brush.DangerDefault}"
+                       TextWrapping="Wrap" />
+
+            <StackPanel IsVisible="{Binding HasFileChanges}" Spacing="7">
+              <TextBlock Text="{Binding FileSummary}"
+                         FontWeight="SemiBold" />
+              <ItemsControl ItemsSource="{Binding FileChanges}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ActivityFileChangeViewModel">
+                    <Border Classes="activity-file" Margin="0,2">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="9">
+                        <PathIcon Grid.Column="0" Width="17" Height="17"
+                                  VerticalAlignment="Center"
+                                  Foreground="{DynamicResource Brush.AccentDefault}"
+                                  Data="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 18H6V4h7v5h5v11z" />
+                        <StackPanel Grid.Column="1" Spacing="1">
+                          <TextBlock Text="{Binding FileName}"
+                                     FontWeight="SemiBold"
+                                     TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding Path}"
+                                     FontSize="{DynamicResource Font.SizeCaption}"
+                                     Foreground="{DynamicResource Brush.TextTertiary}"
+                                     TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" HorizontalAlignment="Right">
+                          <TextBlock Text="{Binding Operation}"
+                                     FontSize="{DynamicResource Font.SizeCaption}"
+                                     Foreground="{DynamicResource Brush.TextSecondary}" />
+                          <TextBlock Text="{Binding StatsText}"
+                                     IsVisible="{Binding HasStats}"
+                                     FontSize="{DynamicResource Font.SizeCaption}"
+                                     Foreground="{DynamicResource Brush.SuccessDefault}" />
+                        </StackPanel>
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+
+            <ItemsControl ItemsSource="{Binding Sections}"
+                          IsVisible="{Binding HasSections}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ActivitySectionViewModel">
+                  <StackPanel Spacing="7" Margin="0,3,0,8">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock Grid.Column="0" Text="{Binding Label}" FontWeight="SemiBold" />
+                      <TextBlock Grid.Column="1" Text="{Binding CountText}"
+                                 FontSize="{DynamicResource Font.SizeCaption}"
+                                 Foreground="{DynamicResource Brush.TextTertiary}" />
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding Steps}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ActivityStepViewModel">
+                          <Border Classes="activity-file" Margin="0,2">
+                            <StackPanel Spacing="6">
+                              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                <TextBlock Grid.Column="0"
+                                           Text="✓"
+                                           IsVisible="{Binding IsSucceeded}"
+                                           Foreground="{DynamicResource Brush.SuccessDefault}"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="0"
+                                           Text="!"
+                                           IsVisible="{Binding IsFailed}"
+                                           Foreground="{DynamicResource Brush.DangerDefault}"
+                                           FontWeight="Bold"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="0"
+                                           Text="—"
+                                           IsVisible="{Binding IsStopped}"
+                                           Foreground="{DynamicResource Brush.TextTertiary}"
+                                           FontWeight="Bold"
+                                           VerticalAlignment="Center" />
+                                <sc:StrataPulse Grid.Column="0"
+                                                IsLive="True"
+                                                IsVisible="{Binding IsRunning}"
+                                                Width="9" Height="9"
+                                                VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="{Binding DisplayName}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Grid.Column="2" Text="{Binding DurationText}"
+                                           FontSize="{DynamicResource Font.SizeCaption}"
+                                           Foreground="{DynamicResource Brush.TextTertiary}" />
+                              </Grid>
+                              <StackPanel IsVisible="{Binding ShowTechnicalDetails}" Spacing="5">
+                                <TextBlock Text="{Binding Input}"
+                                           IsVisible="{Binding Input, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           FontSize="{DynamicResource Font.SizeCaption}"
+                                           Foreground="{DynamicResource Brush.TextSecondary}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding Output}"
+                                           IsVisible="{Binding Output, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           FontSize="{DynamicResource Font.SizeCaption}"
+                                           Foreground="{DynamicResource Brush.TextTertiary}"
+                                           TextWrapping="Wrap"
+                                           MaxLines="10" />
+                              </StackPanel>
+                            </StackPanel>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Button Classes="subtle"
+                    HorizontalAlignment="Stretch"
+                    IsVisible="{Binding CanShowTechnicalDetails}"
+                    Command="{Binding ToggleTechnicalDetailsCommand}"
+                    Content="{Binding TechnicalDetailsLabel}" />
+                </StackPanel>
+              </ScrollViewer>
+            </DataTemplate>
+          </ContentControl.ContentTemplate>
+        </ContentControl>
+      </Border>
     </sc:StrataBottomSheet>
   </Panel>
 </UserControl>

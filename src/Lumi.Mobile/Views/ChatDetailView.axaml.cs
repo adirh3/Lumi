@@ -403,7 +403,10 @@ public partial class ChatDetailView : UserControl
 
         // Streaming grows an existing row rather than adding one. That is layout growth, not new
         // content: it must not re-arm the "unseen content" badge on every token.
-        if (e.PropertyName is nameof(AssistantItemViewModel.Text) or nameof(ReasoningItemViewModel.Text))
+        if (e.PropertyName is nameof(AssistantItemViewModel.Text)
+            or nameof(ReasoningItemViewModel.Text)
+            or nameof(ActivitySummaryItemViewModel.SummaryText)
+            or nameof(ActivitySummaryItemViewModel.HasFileChanges))
             RequestFollow(newContent: false);
     }
 
@@ -520,7 +523,9 @@ public partial class ChatDetailView : UserControl
         var activeItems = new HashSet<TranscriptItemViewModel>(
             activeTurns
                 .SelectMany(turn => turn.Items)
-                .Where(item => item is AssistantItemViewModel or ReasoningItemViewModel),
+                .Where(item => item is AssistantItemViewModel
+                    or ReasoningItemViewModel
+                    or ActivitySummaryItemViewModel),
             ReferenceEqualityComparer.Instance);
 
         foreach (var item in _observedItems.Where(item => !activeItems.Contains(item)).ToArray())
@@ -568,7 +573,8 @@ public partial class ChatDetailView : UserControl
 
         try
         {
-            await launcher.LaunchUriAsync(uri);
+            if (!await launcher.LaunchUriAsync(uri) && _shell is { } shell)
+                shell.Chat.ErrorText = "That source could not be opened.";
         }
         catch (Exception ex)
         {

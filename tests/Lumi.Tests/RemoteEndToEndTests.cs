@@ -610,6 +610,71 @@ public sealed class RemoteEndToEndTests
         data.Chats.Add(chat);
     });
 
+    [Fact]
+    public Task CompactTranscriptAndActivityDetailsRoundTripThroughTheRealServer() =>
+        RunAsync(
+            async rig =>
+            {
+                await PairAsync(rig);
+                var chat = Assert.Single(rig.DataStore.Data.Chats);
+
+                var transcript = Assert.IsType<RemoteTranscript>(
+                    await rig.Client.GetTranscriptAsync(chat.Id, CancellationToken.None));
+                var items = Assert.Single(transcript.Turns).Items;
+                var activity = Assert.Single(
+                    items,
+                    item => item.Kind == RemoteProtocol.ItemKinds.Activity);
+
+                Assert.DoesNotContain(
+                    items,
+                    item => item.Kind is RemoteProtocol.ItemKinds.ToolGroup
+                        or RemoteProtocol.ItemKinds.Terminal
+                        or RemoteProtocol.ItemKinds.Reasoning);
+                Assert.Equal(2, activity.ActionCount);
+                Assert.Single(activity.FileChanges!);
+
+                var details = Assert.IsType<RemoteActivityDetails>(
+                    await rig.Client.GetActivityDetailsAsync(
+                        chat.Id,
+                        activity.ActivityId!,
+                        CancellationToken.None));
+                Assert.Equal(["web_search", "edit"], details.Tools.Select(tool => tool.Name));
+                Assert.Equal(["research", "work"], details.Tools.Select(tool => tool.Category));
+                Assert.Single(details.FileChanges);
+            },
+            seed: data =>
+            {
+                var chat = new Chat { Title = "Compact activity" };
+                chat.Messages.Add(new ChatMessage { Role = "user", Content = "Improve it" });
+                chat.Messages.Add(new ChatMessage
+                {
+                    Role = "reasoning",
+                    Content = "private reasoning"
+                });
+                chat.Messages.Add(new ChatMessage
+                {
+                    Role = "tool",
+                    ToolName = "web_search",
+                    ToolStatus = "Completed",
+                    Content = """{"query":"mobile transcript UX"}""",
+                    ToolOutput = "sources"
+                });
+                chat.Messages.Add(new ChatMessage
+                {
+                    Role = "tool",
+                    ToolName = "edit",
+                    ToolStatus = "Completed",
+                    Content = """{"filePath":"src/Auth.cs","oldString":"old","newString":"new"}"""
+                });
+                chat.Messages.Add(new ChatMessage
+                {
+                    Role = "assistant",
+                    Content = "Done"
+                });
+                chat.MessageCount = chat.Messages.Count;
+                data.Chats.Add(chat);
+            });
+
     /// <summary>
     /// The plan is chat-level state. Appending it to the last transcript turn pinned a full-size
     /// card to the bottom of every refresh, pushing the conversation up and re-rendering the whole
@@ -1565,7 +1630,9 @@ public sealed class RemoteEndToEndTests
 
         var items = rig.Shell.Chat.Turns[0].Items;
         Assert.Equal("What's the weather?", Assert.IsType<UserTurnItemViewModel>(items[0]).Text);
-        Assert.Contains(items, i => i is ToolGroupItemViewModel);
+        Assert.Contains(
+            items,
+            i => i is ActivitySummaryItemViewModel { ActionCount: 1 });
         Assert.Contains(items, i => i is AssistantItemViewModel a && a.Text == "It's sunny.");
     },
     seed: data =>

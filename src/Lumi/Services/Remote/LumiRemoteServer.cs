@@ -78,7 +78,15 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         bool ShowReasoning,
         bool ShowToolCalls,
         long Revision,
-        string RevisionEpoch);
+        string RevisionEpoch,
+        string WorkingDirectory,
+        IReadOnlySet<string> RunningBackgroundToolCallIds);
+
+    private sealed record ActivityCapture(
+        Chat Chat,
+        IReadOnlyList<ChatMessage>? LoadedMessages,
+        string WorkingDirectory,
+        IReadOnlySet<string> RunningBackgroundToolCallIds);
 
     private sealed record FileMessageCapture(Chat? Chat, string? Content);
 
@@ -480,6 +488,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 case RemoteProtocol.Routes.Transcript:
                     await HandleTranscriptAsync(context, cancellationToken).ConfigureAwait(false);
                     return;
+                case RemoteProtocol.Routes.Activity:
+                    await HandleActivityAsync(context, cancellationToken).ConfigureAwait(false);
+                    return;
                 case RemoteProtocol.Routes.File:
                     await HandleFileAsync(context, cancellationToken).ConfigureAwait(false);
                     return;
@@ -846,6 +857,10 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         var maxMessages = ResolveTranscriptWindowLimit(
             context.Request.QueryValue("limit"),
             beforeMessageIndex);
+        var compact = string.Equals(
+            context.Request.QueryValue("mode"),
+            "compact",
+            StringComparison.OrdinalIgnoreCase);
 
         // Capture mutable desktop state on the UI thread, then do the potentially large persisted
         // read and bounded projection away from it. A live/detached owner still wins so streaming and
@@ -864,6 +879,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                     ? chat.Messages.Select(CloneMessageForRemote).ToList()
                     : null;
             var settings = _dataStore.Data.Settings;
+            var workingDirectory = ChatViewModel.ResolveEffectiveWorkingDirectory(
+                _dataStore,
+                chat.ProjectId,
+                chat.WorktreePath);
+            var runningBackgroundToolCallIds =
+                (owner ?? _main.ChatVM).GetRunningBackgroundShellIds(chatId);
 
             return new TranscriptCapture(
                 new Chat { Id = chat.Id, Title = chat.Title },
@@ -872,7 +893,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 settings.ShowReasoning,
                 settings.ShowToolCalls,
                 _hub?.Revision ?? 0,
-                _instanceId);
+                _instanceId,
+                workingDirectory,
+                runningBackgroundToolCallIds);
         });
 
         if (capture is null)
@@ -898,10 +921,87 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             capture.ShowReasoning,
             capture.ShowToolCalls,
             capture.Revision,
-            capture.RevisionEpoch);
+            capture.RevisionEpoch,
+            compact,
+            capture.WorkingDirectory,
+            messages,
+            capture.RunningBackgroundToolCallIds);
 
         await context.WriteJsonAsync(
             JsonSerializer.Serialize(transcript, RemoteJsonContext.Default.RemoteTranscript),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task HandleActivityAsync(RemoteHttpContext context, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(context.Request.QueryValue("chatId"), out var chatId))
+        {
+            await WriteErrorAsync(context, 400, "chatId is required.", cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var activityId = context.Request.QueryValue("activityId");
+        if (string.IsNullOrWhiteSpace(activityId))
+        {
+            await WriteErrorAsync(context, 400, "activityId is required.", cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var capture = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+            if (chat is null)
+                return null;
+
+            var owner = RemoteProjector.ResolveChatOwner(_main, chatId);
+            var isActive = owner?.CurrentChat?.Id == chatId;
+            IReadOnlyList<ChatMessage>? loadedMessages = isActive
+                ? owner!.Messages.Select(message => CloneMessageForRemote(message.Message)).ToList()
+                : chat.Messages.Count > 0
+                    ? chat.Messages.Select(CloneMessageForRemote).ToList()
+                    : null;
+            var workingDirectory = ChatViewModel.ResolveEffectiveWorkingDirectory(
+                _dataStore,
+                chat.ProjectId,
+                chat.WorktreePath);
+            var runningBackgroundToolCallIds =
+                (owner ?? _main.ChatVM).GetRunningBackgroundShellIds(chatId);
+
+            return new ActivityCapture(
+                new Chat { Id = chat.Id, Title = chat.Title },
+                loadedMessages,
+                workingDirectory,
+                runningBackgroundToolCallIds);
+        });
+
+        if (capture is null)
+        {
+            await WriteErrorAsync(context, 404, "Chat not found.", cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var messages = capture.LoadedMessages
+                       ?? await _dataStore
+                           .ReadPersistedChatMessagesAsync(capture.Chat.Id, cancellationToken)
+                           .ConfigureAwait(false);
+        var details = RemoteProjector.BuildActivityDetails(
+            capture.Chat,
+            messages,
+            activityId,
+            capture.WorkingDirectory,
+            capture.RunningBackgroundToolCallIds);
+        if (details is null)
+        {
+            await WriteErrorAsync(context, 404, "Activity not found.", cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await context.WriteJsonAsync(
+            JsonSerializer.Serialize(details, RemoteJsonContext.Default.RemoteActivityDetails),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -1421,7 +1521,10 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             IsForeground = !bool.TryParse(request.QueryValue("foreground"), out var foreground)
                            || foreground,
             IncludeChatList = bool.TryParse(request.QueryValue("chats"), out var chats) && chats,
-            IncludeLibrary = bool.TryParse(request.QueryValue("library"), out var library) && library
+            IncludeLibrary = bool.TryParse(request.QueryValue("library"), out var library) && library,
+            CompactTranscript = bool.TryParse(
+                request.QueryValue("compact"),
+                out var compact) && compact
         };
         if (long.TryParse(
                 request.QueryValue("generation"),

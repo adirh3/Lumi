@@ -540,9 +540,15 @@ public partial class ChatViewModel
     /// directory is a subfolder of the git root, e.g. a monorepo app).
     /// </summary>
     private string ResolveEffectiveWorkingDirectory(Guid? projectId, string? worktreePath)
+        => ResolveEffectiveWorkingDirectory(_dataStore, projectId, worktreePath);
+
+    internal static string ResolveEffectiveWorkingDirectory(
+        DataStore dataStore,
+        Guid? projectId,
+        string? worktreePath)
     {
         var project = projectId.HasValue
-            ? _dataStore.Data.Projects.FirstOrDefault(p => p.Id == projectId.Value)
+            ? dataStore.Data.Projects.FirstOrDefault(p => p.Id == projectId.Value)
             : null;
         var projectDir = project is { WorkingDirectory: { Length: > 0 } dir } && Directory.Exists(dir)
             ? dir

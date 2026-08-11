@@ -6515,6 +6515,8 @@ public partial class ChatMessageViewModel : ObservableObject
         ToolStatus = Message.ToolStatus;
     }
 
+    public void NotifyToolDetailsChanged() => OnPropertyChanged(nameof(ChatMessage.ToolOutput));
+
     public void NotifyLinkedChatChanged()
     {
         LinkedChatId = Message.LinkedChatId;

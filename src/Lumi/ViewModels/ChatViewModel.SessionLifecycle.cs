@@ -1059,7 +1059,11 @@ public partial class ChatViewModel
                     var output = ToolDisplayHelper.CleanTerminalOutput(partial.Data.PartialOutput);
                     if (!string.IsNullOrWhiteSpace(output))
                     {
-                        ToolDisplayHelper.ApplyTerminalOutput(chat, rootToolCallId, output, replaceExistingOutput: false);
+                        ApplyTerminalOutputAndNotify(
+                            chat,
+                            rootToolCallId,
+                            output,
+                            replaceExistingOutput: false);
                         _transcriptBuilder.UpdateTerminalOutput(rootToolCallId, output, false);
                     }
                     });
@@ -1081,7 +1085,11 @@ public partial class ChatViewModel
                     var output = ToolDisplayHelper.CleanTerminalOutput(progress.Data.ProgressMessage);
                     if (!string.IsNullOrWhiteSpace(output))
                     {
-                        ToolDisplayHelper.ApplyTerminalOutput(chat, rootToolCallId, output, replaceExistingOutput: false);
+                        ApplyTerminalOutputAndNotify(
+                            chat,
+                            rootToolCallId,
+                            output,
+                            replaceExistingOutput: false);
                         _transcriptBuilder.UpdateTerminalOutput(rootToolCallId, output, false);
                     }
                     });
@@ -1125,6 +1133,7 @@ public partial class ChatViewModel
                             {
                                 var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == toolEnd.Data.ToolCallId);
                                 vm?.NotifyToolStatusChanged();
+                                vm?.NotifyToolDetailsChanged();
                             }
                         }
 

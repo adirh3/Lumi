@@ -25,6 +25,7 @@ public sealed class RemoteEventSubscription
     public Guid? ChatId { get; set; }
     public bool IncludeChatList { get; set; }
     public bool IncludeLibrary { get; set; }
+    public bool CompactTranscript { get; set; }
     public bool IsForeground { get; set; } = true;
 }
 

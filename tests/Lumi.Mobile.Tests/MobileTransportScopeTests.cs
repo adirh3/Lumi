@@ -79,7 +79,8 @@ public sealed class MobileTransportScopeTests
         using var temp = new TempDirectory();
         var handler = new TransportHandler(
             protocolVersion: RemoteProtocol.Version,
-            scopedEvents: true);
+            scopedEvents: true,
+            compactTranscript: true);
         await using var client = CreateClient(handler);
         var store = CreatePairedStore(temp.Path);
         await using var shell = new MobileShellViewModel(
@@ -92,6 +93,7 @@ public sealed class MobileTransportScopeTests
         await WaitUntilAsync(() => shell.IsConnected);
         await WaitUntilAsync(() => shell.BootstrapSnapshotCount > 0);
         Assert.Contains("chats=false", handler.LastEventQuery, StringComparison.Ordinal);
+        Assert.Contains("compact=true", handler.LastEventQuery, StringComparison.Ordinal);
         Assert.DoesNotContain("chatId=", handler.LastEventQuery, StringComparison.Ordinal);
 
         var chatId = Guid.NewGuid();
@@ -101,7 +103,9 @@ public sealed class MobileTransportScopeTests
         Assert.Equal(chatId, chatSubscription.ChatId);
         Assert.False(chatSubscription.IncludeChatList);
 
+        await SettleCountAsync(() => handler.TranscriptRequests);
         var chatsBeforeDrawer = handler.ChatRequests;
+        var transcriptsBeforeDrawer = handler.TranscriptRequests;
         shell.IsDrawerOpen = true;
         var drawerSubscription = await handler.WaitForSubscriptionAsync(
             subscription => subscription.ChatId == chatId && subscription.IncludeChatList);
@@ -109,7 +113,7 @@ public sealed class MobileTransportScopeTests
         await WaitUntilAsync(() => handler.ChatRequests > chatsBeforeDrawer);
         await Task.Delay(50);
         Assert.Equal(chatsBeforeDrawer + 1, handler.ChatRequests);
-        Assert.Equal(0, handler.TranscriptRequests);
+        Assert.Equal(transcriptsBeforeDrawer, handler.TranscriptRequests);
 
         shell.IsDrawerOpen = false;
         shell.Page = MobilePage.Library;
@@ -168,6 +172,26 @@ public sealed class MobileTransportScopeTests
         }
     }
 
+    private static async Task<int> SettleCountAsync(Func<int> count)
+    {
+        var previous = count();
+        for (var stableSamples = 0; stableSamples < 3;)
+        {
+            await Task.Delay(30);
+            var current = count();
+            if (current == previous)
+            {
+                stableSamples++;
+                continue;
+            }
+
+            previous = current;
+            stableSamples = 0;
+        }
+
+        return previous;
+    }
+
     private static void ApplySnapshot(
         MobileShellViewModel shell,
         RemoteSnapshot snapshot,
@@ -205,7 +229,8 @@ public sealed class MobileTransportScopeTests
 
     private sealed class TransportHandler(
         int protocolVersion,
-        bool scopedEvents) : HttpMessageHandler
+        bool scopedEvents,
+        bool compactTranscript) : HttpMessageHandler
     {
         private readonly List<TaskCompletionSource<RemoteEventSubscription>> _subscriptions = [];
         private int _eventRequests;
@@ -273,9 +298,7 @@ public sealed class MobileTransportScopeTests
                     new RemoteHello
                     {
                         ProtocolVersion = protocolVersion,
-                        Capabilities = scopedEvents
-                            ? [RemoteProtocol.Capabilities.ScopedEventsV1]
-                            : []
+                        Capabilities = Capabilities()
                     },
                     RemoteJsonContext.Default.RemoteHello);
             }
@@ -367,11 +390,19 @@ public sealed class MobileTransportScopeTests
         private RemoteSnapshot Snapshot() => new()
         {
             ProtocolVersion = protocolVersion,
-            Capabilities = scopedEvents
-                ? [RemoteProtocol.Capabilities.ScopedEventsV1]
-                : [],
+            Capabilities = Capabilities(),
             HostName = "Lumi PC"
         };
+
+        private List<string> Capabilities()
+        {
+            var capabilities = new List<string>();
+            if (scopedEvents)
+                capabilities.Add(RemoteProtocol.Capabilities.ScopedEventsV1);
+            if (compactTranscript)
+                capabilities.Add(RemoteProtocol.Capabilities.CompactTranscriptV1);
+            return capabilities;
+        }
 
         private static HttpResponseMessage Json<T>(
             T value,

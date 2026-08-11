@@ -231,6 +231,26 @@ public sealed class PopulatedTemplateRenderTests
                                 },
                                 new RemoteTranscriptItem
                                 {
+                                    Id = "activity1",
+                                    Kind = RemoteProtocol.ItemKinds.Activity,
+                                    ActivityId = "activity1",
+                                    Status = "Completed",
+                                    ActionCount = 4,
+                                    DurationMs = 4_800,
+                                    FileChanges =
+                                    [
+                                        new RemoteFileChange
+                                        {
+                                            Path = "src/Auth.cs",
+                                            FileName = "Auth.cs",
+                                            Operation = "Modified",
+                                            LinesAdded = 8,
+                                            LinesRemoved = 2
+                                        }
+                                    ]
+                                },
+                                new RemoteTranscriptItem
+                                {
                                     Id = "q1",
                                     Kind = RemoteProtocol.ItemKinds.Question,
                                     Question = new RemoteQuestion
@@ -294,7 +314,8 @@ public sealed class PopulatedTemplateRenderTests
                     .Single(c => c.Name == "Transcript");
 
                 Assert.Single(shell.Chat.Turns);
-                Assert.Equal(8, shell.Chat.Turns[0].Items.Count);
+                Assert.Equal(9, shell.Chat.Turns[0].Items.Count);
+                Assert.Contains(shell.Chat.Turns[0].Items, item => item is ActivitySummaryItemViewModel);
                 Assert.Contains(shell.Chat.Turns[0].Items, item => item is TerminalItemViewModel);
                 Assert.Contains(shell.Chat.Turns[0].Items, item => item is QuestionItemViewModel);
                 Assert.Contains(shell.Chat.Turns[0].Items, item => item is FileItemViewModel);
@@ -309,6 +330,17 @@ public sealed class PopulatedTemplateRenderTests
                 Assert.NotEmpty(window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataTerminalPreview>());
                 Assert.NotEmpty(window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataQuestionCard>());
                 Assert.NotEmpty(window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataFileAttachment>());
+
+                var sourceAnswer = Assert.IsType<AssistantItemViewModel>(
+                    shell.Chat.Turns[0].Items.Single(item =>
+                        item is AssistantItemViewModel { HasSources: true }));
+                sourceAnswer.OpenSourcesCommand.Execute(null);
+                var sourcesSheet = window.GetVisualDescendants()
+                    .OfType<StrataTheme.Controls.StrataBottomSheet>()
+                    .Single(sheet => sheet.Name == "SourcesSheet");
+                Assert.True(sourcesSheet.IsOpen);
+                Assert.Single(sourceAnswer.Sources);
+                Assert.True(shell.Chat.DismissTopmostSheet());
 
                 var planButton = window.GetVisualDescendants().OfType<Button>()
                     .Single(button => button.Name == "PlanButton");

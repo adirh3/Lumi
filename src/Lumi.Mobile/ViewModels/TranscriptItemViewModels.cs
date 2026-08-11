@@ -75,6 +75,8 @@ public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
 
 public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
 {
+    private readonly Action<AssistantItemViewModel>? _openSources;
+
     [ObservableProperty] private string _text = "";
     [ObservableProperty] private bool _isStreaming;
     [ObservableProperty] private string? _model;
@@ -82,8 +84,29 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
     public ObservableCollection<RemoteSource> Sources { get; } = [];
 
     public bool HasSources => Sources.Count > 0;
+    public string SourceCountText => Sources.Count == 1 ? "1 source" : $"{Sources.Count} sources";
+    public string SourceSummary
+    {
+        get
+        {
+            var hosts = Sources
+                .Select(source => SourceHost(source.Url))
+                .Where(static host => host.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(3)
+                .ToArray();
+            return hosts.Length > 0 ? string.Join(" · ", hosts) : SourceCountText;
+        }
+    }
 
-    public AssistantItemViewModel(RemoteTranscriptItem item) : base(item) => Update(item);
+    public AssistantItemViewModel(
+        RemoteTranscriptItem item,
+        Action<AssistantItemViewModel>? openSources = null)
+        : base(item)
+    {
+        _openSources = openSources;
+        Update(item);
+    }
 
     /// <summary>Actions appear once the answer is finished — copying a half-written one is a trap.</summary>
     public bool ShowActions => !IsStreaming && Text.Length > 0;
@@ -98,6 +121,8 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
         foreach (var source in item.Sources ?? [])
             Sources.Add(source);
         OnPropertyChanged(nameof(HasSources));
+        OnPropertyChanged(nameof(SourceCountText));
+        OnPropertyChanged(nameof(SourceSummary));
     }
 
     partial void OnIsStreamingChanged(bool value) => OnPropertyChanged(nameof(ShowActions));
@@ -130,6 +155,23 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
         data.Add(DataTransferItem.CreateText(Text));
         await clipboard.SetDataAsync(data);
     }
+
+    [RelayCommand]
+    private void OpenSources() => _openSources?.Invoke(this);
+
+    private static string SourceHost(string? rawUrl)
+    {
+        if (string.IsNullOrWhiteSpace(rawUrl)
+            || !Uri.TryCreate(rawUrl, UriKind.Absolute, out var uri)
+            || uri.Scheme is not ("http" or "https"))
+        {
+            return "";
+        }
+
+        return uri.Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase)
+            ? uri.Host[4..]
+            : uri.Host;
+    }
 }
 
 public sealed partial class ReasoningItemViewModel : TranscriptItemViewModel
@@ -160,6 +202,9 @@ public sealed partial class ToolCallViewModel : ObservableObject
     public string Id { get; private set; } = "";
 
     public bool IsRunning => Status == "InProgress";
+    public bool IsSucceeded => Status == "Completed";
+    public bool IsFailed => Status == "Failed";
+    public bool IsStopped => Status == "Stopped";
 
     public ToolCallViewModel(RemoteToolCall tool) => Update(tool);
 
@@ -173,7 +218,325 @@ public sealed partial class ToolCallViewModel : ObservableObject
         Status = tool.Status;
         DurationMs = tool.DurationMs;
         OnPropertyChanged(nameof(IsRunning));
+        OnPropertyChanged(nameof(IsSucceeded));
+        OnPropertyChanged(nameof(IsFailed));
+        OnPropertyChanged(nameof(IsStopped));
     }
+}
+
+public sealed partial class ActivityStepViewModel : ObservableObject
+{
+    [ObservableProperty] private string _displayName = "";
+    [ObservableProperty] private string _status = "Completed";
+    [ObservableProperty] private string? _input;
+    [ObservableProperty] private string? _output;
+    [ObservableProperty] private bool _showTechnicalDetails;
+
+    public string Id { get; private set; } = "";
+    public string Category { get; private set; } = "other";
+    public double? DurationMs { get; private set; }
+
+    public bool IsRunning => Status == "InProgress";
+    public bool IsSucceeded => Status == "Completed";
+    public bool IsFailed => Status == "Failed";
+    public bool IsStopped => Status == "Stopped";
+    public bool HasTechnicalDetails =>
+        !string.IsNullOrWhiteSpace(Input) || !string.IsNullOrWhiteSpace(Output);
+    public string DurationText => FormatDuration(DurationMs);
+
+    public ActivityStepViewModel(RemoteToolCall tool) => Update(tool);
+
+    public void Update(RemoteToolCall tool)
+    {
+        Id = tool.Id;
+        Category = string.IsNullOrWhiteSpace(tool.Category) ? "other" : tool.Category;
+        DisplayName = string.IsNullOrWhiteSpace(tool.DisplayName) ? tool.Name : tool.DisplayName!;
+        Status = tool.Status;
+        Input = tool.Input;
+        Output = tool.Output;
+        DurationMs = tool.DurationMs;
+        OnPropertyChanged(nameof(IsRunning));
+        OnPropertyChanged(nameof(IsSucceeded));
+        OnPropertyChanged(nameof(IsFailed));
+        OnPropertyChanged(nameof(IsStopped));
+        OnPropertyChanged(nameof(HasTechnicalDetails));
+        OnPropertyChanged(nameof(DurationText));
+    }
+
+    internal static string FormatDuration(double? durationMs)
+    {
+        if (durationMs is null or <= 0)
+            return "";
+
+        var totalSeconds = Math.Max(1, (int)Math.Round(durationMs.Value / 1000));
+        return totalSeconds < 60
+            ? $"{totalSeconds}s"
+            : $"{totalSeconds / 60}m {totalSeconds % 60}s";
+    }
+}
+
+public sealed class ActivitySectionViewModel
+{
+    public ActivitySectionViewModel(string category, IEnumerable<ActivityStepViewModel> steps)
+    {
+        Category = category;
+        Label = category switch
+        {
+            "research" => "Researched",
+            "work" => "Implemented",
+            "verify" => "Verified",
+            _ => "Worked"
+        };
+        Steps = new ObservableCollection<ActivityStepViewModel>(steps);
+    }
+
+    public string Category { get; }
+    public string Label { get; }
+    public ObservableCollection<ActivityStepViewModel> Steps { get; }
+    public string CountText => Steps.Count == 1 ? "1 action" : $"{Steps.Count} actions";
+}
+
+public sealed class ActivityFileChangeViewModel
+{
+    public ActivityFileChangeViewModel(RemoteFileChange change)
+    {
+        Path = change.Path;
+        FileName = change.FileName;
+        Operation = change.Operation;
+        LinesAdded = Math.Max(0, change.LinesAdded);
+        LinesRemoved = Math.Max(0, change.LinesRemoved);
+    }
+
+    public string Path { get; }
+    public string FileName { get; }
+    public string Operation { get; }
+    public int LinesAdded { get; }
+    public int LinesRemoved { get; }
+    public string StatsText
+    {
+        get
+        {
+            var parts = new List<string>(2);
+            if (LinesAdded > 0)
+                parts.Add($"+{LinesAdded}");
+            if (LinesRemoved > 0)
+                parts.Add($"-{LinesRemoved}");
+            return string.Join(" ", parts);
+        }
+    }
+    public bool HasStats => LinesAdded > 0 || LinesRemoved > 0;
+}
+
+/// <summary>
+/// One conversation-level disclosure for all technical work in a turn. The normal transcript stays
+/// conversational; raw tool input/output is loaded only when the user opens this row.
+/// </summary>
+public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewModel
+{
+    private readonly Func<ActivitySummaryItemViewModel, Task>? _openAction;
+    private long _detailsVersion;
+
+    [ObservableProperty] private string _activityId = "";
+    [ObservableProperty] private string _label = "Working...";
+    [ObservableProperty] private string _status = "Completed";
+    [ObservableProperty] private int _actionCount;
+    [ObservableProperty] private double? _durationMs;
+    [ObservableProperty] private long? _remoteDetailVersion;
+    [ObservableProperty] private int _totalFileChangeCount;
+    [ObservableProperty] private bool _isLoadingDetails;
+    [ObservableProperty] private bool _detailsLoaded;
+    [ObservableProperty] private string? _detailsError;
+    [ObservableProperty] private bool _isTechnicalDetailsVisible;
+
+    public ObservableCollection<ActivityFileChangeViewModel> FileChanges { get; } = [];
+    public ObservableCollection<ActivityFileChangeViewModel> PreviewFileChanges { get; } = [];
+    public ObservableCollection<ActivitySectionViewModel> Sections { get; } = [];
+    internal long DetailsVersion => Volatile.Read(ref _detailsVersion);
+
+    public bool IsRunning => Status == "InProgress";
+    public bool IsSucceeded => Status == "Completed";
+    public bool IsFailed => Status == "Failed";
+    public bool IsStopped => Status == "Stopped";
+    public bool HasFileChanges => FileChanges.Count > 0;
+    public bool HasSections => Sections.Count > 0;
+    public bool CanShowTechnicalDetails =>
+        Sections.SelectMany(section => section.Steps).Any(step => step.HasTechnicalDetails);
+    public string FileSummary =>
+        TotalFileChangeCount == 1 ? "1 file changed" : $"{TotalFileChangeCount} files changed";
+    public bool HasAdditionalFileChanges => TotalFileChangeCount > PreviewFileChanges.Count;
+    public string AdditionalFileChangesText =>
+        HasAdditionalFileChanges
+            ? $"+{TotalFileChangeCount - PreviewFileChanges.Count} more"
+            : "";
+    public string SummaryText
+    {
+        get
+        {
+            if (IsRunning)
+                return string.IsNullOrWhiteSpace(Label) ? "Working..." : Label;
+
+            var duration = ActivityStepViewModel.FormatDuration(DurationMs);
+            var actions = ActionCount switch
+            {
+                <= 0 => "",
+                1 => "1 action",
+                _ => $"{ActionCount} actions"
+            };
+            var prefix = Status switch
+            {
+                "Failed" => "Finished with an issue",
+                "Stopped" => "Stopped",
+                _ => "Worked"
+            };
+
+            if (duration.Length > 0)
+                return actions.Length > 0
+                    ? $"{prefix} for {duration} · {actions}"
+                    : $"{prefix} for {duration}";
+            if (actions.Length > 0)
+                return $"{prefix} · {actions}";
+            return HasFileChanges ? FileSummary : prefix;
+        }
+    }
+
+    public string TechnicalDetailsLabel =>
+        IsTechnicalDetailsVisible ? "Hide technical details" : "Show technical details";
+
+    public ActivitySummaryItemViewModel(
+        RemoteTranscriptItem item,
+        Func<ActivitySummaryItemViewModel, Task>? openAction = null)
+        : base(item)
+    {
+        _openAction = openAction;
+        Update(item);
+    }
+
+    public override void Update(RemoteTranscriptItem item)
+    {
+        var detailsChanged =
+            ActionCount != Math.Max(0, item.ActionCount ?? 0)
+            || !string.Equals(Status, item.Status ?? "Completed", StringComparison.Ordinal)
+            || DurationMs != item.DurationMs
+            || RemoteDetailVersion != item.DetailVersion
+            || TotalFileChangeCount != (item.FileChangeCount ?? item.FileChanges?.Count ?? 0)
+            || !FileChangesMatch(item.FileChanges);
+
+        ActivityId = item.ActivityId ?? item.Id;
+        Label = string.IsNullOrWhiteSpace(item.Label) ? "Working..." : item.Label!;
+        Status = item.Status ?? "Completed";
+        ActionCount = Math.Max(0, item.ActionCount ?? 0);
+        DurationMs = item.DurationMs;
+        RemoteDetailVersion = item.DetailVersion;
+        TotalFileChangeCount = Math.Max(
+            0,
+            item.FileChangeCount ?? item.FileChanges?.Count ?? 0);
+
+        FileChanges.Clear();
+        foreach (var change in item.FileChanges ?? [])
+            FileChanges.Add(new ActivityFileChangeViewModel(change));
+        PreviewFileChanges.Clear();
+        foreach (var change in FileChanges.Take(3))
+            PreviewFileChanges.Add(change);
+
+        OnPropertyChanged(nameof(IsRunning));
+        OnPropertyChanged(nameof(IsSucceeded));
+        OnPropertyChanged(nameof(IsFailed));
+        OnPropertyChanged(nameof(IsStopped));
+        OnPropertyChanged(nameof(HasFileChanges));
+        OnPropertyChanged(nameof(FileSummary));
+        OnPropertyChanged(nameof(HasAdditionalFileChanges));
+        OnPropertyChanged(nameof(AdditionalFileChangesText));
+        OnPropertyChanged(nameof(SummaryText));
+
+        if (detailsChanged && DetailsLoaded)
+        {
+            DetailsLoaded = false;
+            Sections.Clear();
+            OnPropertyChanged(nameof(HasSections));
+            OnPropertyChanged(nameof(CanShowTechnicalDetails));
+        }
+        if (detailsChanged)
+            Interlocked.Increment(ref _detailsVersion);
+    }
+
+    private bool FileChangesMatch(IReadOnlyList<RemoteFileChange>? incoming)
+    {
+        if (FileChanges.Count != (incoming?.Count ?? 0))
+            return false;
+        if (incoming is null)
+            return true;
+
+        for (var index = 0; index < incoming.Count; index++)
+        {
+            var current = FileChanges[index];
+            var next = incoming[index];
+            if (!string.Equals(current.Path, next.Path, StringComparison.Ordinal)
+                || !string.Equals(current.Operation, next.Operation, StringComparison.Ordinal)
+                || current.LinesAdded != next.LinesAdded
+                || current.LinesRemoved != next.LinesRemoved)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public void ApplyDetails(RemoteActivityDetails details)
+    {
+        Sections.Clear();
+        foreach (var category in new[] { "research", "work", "verify", "other" })
+        {
+            var steps = details.Tools
+                .Where(tool => string.Equals(
+                    string.IsNullOrWhiteSpace(tool.Category) ? "other" : tool.Category,
+                    category,
+                    StringComparison.Ordinal))
+                .Select(tool =>
+                {
+                    var step = new ActivityStepViewModel(tool)
+                    {
+                        ShowTechnicalDetails = IsTechnicalDetailsVisible
+                    };
+                    return step;
+                })
+                .ToList();
+            if (steps.Count > 0)
+                Sections.Add(new ActivitySectionViewModel(category, steps));
+        }
+
+        DetailsError = null;
+        DetailsLoaded = true;
+        OnPropertyChanged(nameof(HasSections));
+        OnPropertyChanged(nameof(CanShowTechnicalDetails));
+    }
+
+    [RelayCommand]
+    private Task OpenAsync() => _openAction?.Invoke(this) ?? Task.CompletedTask;
+
+    [RelayCommand]
+    private void ToggleTechnicalDetails()
+    {
+        IsTechnicalDetailsVisible = !IsTechnicalDetailsVisible;
+        foreach (var step in Sections.SelectMany(section => section.Steps))
+            step.ShowTechnicalDetails = IsTechnicalDetailsVisible;
+        OnPropertyChanged(nameof(TechnicalDetailsLabel));
+    }
+
+    partial void OnStatusChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsRunning));
+        OnPropertyChanged(nameof(IsSucceeded));
+        OnPropertyChanged(nameof(IsFailed));
+        OnPropertyChanged(nameof(IsStopped));
+        OnPropertyChanged(nameof(SummaryText));
+    }
+
+    partial void OnLabelChanged(string value) => OnPropertyChanged(nameof(SummaryText));
+    partial void OnActionCountChanged(int value) => OnPropertyChanged(nameof(SummaryText));
+    partial void OnDurationMsChanged(double? value) => OnPropertyChanged(nameof(SummaryText));
+    partial void OnIsTechnicalDetailsVisibleChanged(bool value) =>
+        OnPropertyChanged(nameof(TechnicalDetailsLabel));
 }
 
 public sealed partial class ToolGroupItemViewModel : TranscriptItemViewModel
@@ -283,9 +646,13 @@ public sealed partial class FileItemViewModel : TranscriptItemViewModel
 
 public static class TranscriptItemFactory
 {
-    public static TranscriptItemViewModel Create(RemoteTranscriptItem item) => item.Kind switch
+    public static TranscriptItemViewModel Create(
+        RemoteTranscriptItem item,
+        Func<ActivitySummaryItemViewModel, Task>? openActivity = null,
+        Action<AssistantItemViewModel>? openSources = null) => item.Kind switch
     {
         RemoteProtocol.ItemKinds.User => new UserTurnItemViewModel(item),
+        RemoteProtocol.ItemKinds.Activity => new ActivitySummaryItemViewModel(item, openActivity),
         RemoteProtocol.ItemKinds.Reasoning => new ReasoningItemViewModel(item),
         RemoteProtocol.ItemKinds.ToolGroup or RemoteProtocol.ItemKinds.Tool => new ToolGroupItemViewModel(item),
         RemoteProtocol.ItemKinds.Terminal => new TerminalItemViewModel(item),
@@ -294,7 +661,7 @@ public static class TranscriptItemFactory
         RemoteProtocol.ItemKinds.File => new FileItemViewModel(item),
 
         // Unknown kinds degrade to plain assistant text rather than breaking the transcript.
-        _ => new AssistantItemViewModel(item)
+        _ => new AssistantItemViewModel(item, openSources)
     };
 
     /// <summary>True when an existing row can be updated in place instead of being replaced.</summary>
@@ -305,7 +672,18 @@ public static class TranscriptItemFactory
 /// <summary>One user turn plus everything the assistant produced in response.</summary>
 public sealed partial class TranscriptTurnViewModel : ObservableObject
 {
-    public TranscriptTurnViewModel(string id) => Id = id;
+    private readonly Func<ActivitySummaryItemViewModel, Task>? _openActivity;
+    private readonly Action<AssistantItemViewModel>? _openSources;
+
+    public TranscriptTurnViewModel(
+        string id,
+        Func<ActivitySummaryItemViewModel, Task>? openActivity = null,
+        Action<AssistantItemViewModel>? openSources = null)
+    {
+        Id = id;
+        _openActivity = openActivity;
+        _openSources = openSources;
+    }
 
     public string Id { get; }
 
@@ -323,7 +701,7 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject
                 continue;
             }
 
-            var created = TranscriptItemFactory.Create(incoming);
+            var created = TranscriptItemFactory.Create(incoming, _openActivity, _openSources);
             if (i < Items.Count)
                 Items[i] = created;
             else

@@ -110,9 +110,31 @@ public sealed class RemoteToolCall
     public string? DisplayName { get; set; }
     public string? Input { get; set; }
     public string? Output { get; set; }
+    /// <summary>research | work | verify | other.</summary>
+    public string Category { get; set; } = "other";
     /// <summary>InProgress | Completed | Failed | Stopped.</summary>
     public string Status { get; set; } = "Completed";
     public double? DurationMs { get; set; }
+}
+
+public sealed class RemoteFileChange
+{
+    /// <summary>Display-safe path relative to the active workspace when possible.</summary>
+    public string Path { get; set; } = "";
+    public string FileName { get; set; } = "";
+    /// <summary>Created | Modified | Deleted.</summary>
+    public string Operation { get; set; } = "Modified";
+    public int LinesAdded { get; set; }
+    public int LinesRemoved { get; set; }
+}
+
+public sealed class RemoteActivityDetails
+{
+    public Guid ChatId { get; set; }
+    public string ActivityId { get; set; } = "";
+    public List<RemoteToolCall> Tools { get; set; } = [];
+    public int TotalFileChangeCount { get; set; }
+    public List<RemoteFileChange> FileChanges { get; set; } = [];
 }
 
 public sealed class RemoteAttachment
@@ -163,7 +185,12 @@ public sealed class RemoteTranscriptItem
     public string? Status { get; set; }
     public double? DurationMs { get; set; }
     public string? Model { get; set; }
+    public string? ActivityId { get; set; }
+    public int? ActionCount { get; set; }
+    public long? DetailVersion { get; set; }
+    public int? FileChangeCount { get; set; }
     public List<RemoteToolCall>? Tools { get; set; }
+    public List<RemoteFileChange>? FileChanges { get; set; }
     public List<RemoteAttachment>? Attachments { get; set; }
     public List<RemoteSource>? Sources { get; set; }
     public RemoteQuestion? Question { get; set; }

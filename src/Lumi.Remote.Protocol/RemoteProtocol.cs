@@ -92,6 +92,10 @@ public static class RemoteProtocol
     public const int MobileSourceCountLimit = 24;
     public const int MobileAttachmentCountLimit = 24;
     public const int MobileToolCallCountLimit = 32;
+    public const int MobileActivityToolCountLimit = 32;
+    public const int MobileFileChangeCountLimit = 64;
+    public const int MobileActivityToolInputLimit = 4 * 1024;
+    public const int MobileActivityToolOutputLimit = 12 * 1024;
     public const int MobileStatusCollectionCountLimit = 32;
     public const int ChatPageSize = 120;
     public const int MaxChatPageSize = 240;
@@ -110,6 +114,7 @@ public static class RemoteProtocol
     public const int MaxChatsJsonBytes = 3 * 1024 * 1024;
     public const int MaxLibraryJsonBytes = 4 * 1024 * 1024;
     public const int MaxLibraryItemJsonBytes = 2 * 1024 * 1024;
+    public const int MaxActivityJsonBytes = 768 * 1024;
     // Snapshot/library payloads are compact single-line JSON. The SSE reader and queue must accept
     // every payload the protocol permits, plus the small event/data framing overhead.
     public const int MaxSseLineBytes = MaxSnapshotJsonBytes + 1024;
@@ -184,6 +189,9 @@ public static class RemoteProtocol
         /// <summary>Authenticated transcript read: <c>/lumi/transcript?chatId=...</c></summary>
         public const string Transcript = "/lumi/transcript";
 
+        /// <summary>Authenticated technical details for one compact activity summary.</summary>
+        public const string Activity = "/lumi/activity";
+
         /// <summary>Authenticated announced-file download by chat/message identity.</summary>
         public const string File = "/lumi/file";
 
@@ -209,9 +217,10 @@ public static class RemoteProtocol
     public static class Capabilities
     {
         public const string ScopedEventsV1 = "scoped-events-v1";
+        public const string CompactTranscriptV1 = "compact-transcript-v1";
 
         public static IReadOnlyList<string> Required { get; } = [ScopedEventsV1];
-        public static IReadOnlyList<string> Server { get; } = [ScopedEventsV1];
+        public static IReadOnlyList<string> Server { get; } = [ScopedEventsV1, CompactTranscriptV1];
     }
 
     /// <summary>Largest upload the desktop will accept, so a phone cannot exhaust its disk.</summary>
@@ -300,6 +309,7 @@ public static class RemoteProtocol
         public const string Question = "question";
         public const string Error = "error";
         public const string Typing = "typing";
+        public const string Activity = "activity";
 
         /// <summary>A file Lumi produced and announced, shown as a tappable attachment chip.</summary>
         public const string File = "file";

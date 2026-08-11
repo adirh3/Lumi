@@ -63,6 +63,7 @@ public sealed partial class MobileShellViewModel :
     IRemoteLibraryDetailSink,
     IRemoteCatalogRefreshSink,
     IRemoteChatPageSink,
+    IRemoteActivityDetailSink,
     IAsyncDisposable
 {
     private readonly MobileSettingsStore _store;
@@ -1009,6 +1010,7 @@ public sealed partial class MobileShellViewModel :
             : null,
         IncludeChatList = IsDrawerVisible || Page == MobilePage.Search,
         IncludeLibrary = Page == MobilePage.Library,
+        CompactTranscript = Client.SupportsCompactTranscript,
         IsForeground = _isApplicationActive
     };
 
@@ -1767,6 +1769,9 @@ public sealed partial class MobileShellViewModel :
             {
                 if (TryParse(frame.Data, RemoteJsonContext.Default.RemoteStreamDelta) is { } delta)
                 {
+                    if (delta.IsReasoning && Client.SupportsCompactTranscript)
+                        return;
+
                     Post(() =>
                     {
                         if (delta.ChatId == Chat.ChatId
@@ -1937,6 +1942,21 @@ public sealed partial class MobileShellViewModel :
                 messageId,
                 fileName,
                 request.Token);
+        }
+        catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
+    public async Task<RemoteActivityDetails?> GetActivityDetailsAsync(
+        Guid chatId,
+        string activityId)
+    {
+        using var request = CreateConnectionRequest();
+        try
+        {
+            return await Client.GetActivityDetailsAsync(chatId, activityId, request.Token);
         }
         catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
         {
