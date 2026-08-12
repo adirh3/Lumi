@@ -91,6 +91,31 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void AmbientPresence_DefaultsOnAndSurvivesIndexSnapshots()
+    {
+        var deserialized = JsonSerializer.Deserialize(
+            "{}",
+            AppDataJsonContext.Default.UserSettings);
+        Assert.NotNull(deserialized);
+        Assert.True(deserialized.ShowAmbientPresence);
+        Assert.False(deserialized.AnimatePresenceWhileWorking);
+
+        var source = new AppData
+        {
+            Settings = new UserSettings
+            {
+                ShowAmbientPresence = false,
+                AnimatePresenceWhileWorking = true
+            }
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+
+        Assert.False(snapshot.Settings.ShowAmbientPresence);
+        Assert.True(snapshot.Settings.AnimatePresenceWhileWorking);
+    }
+
+    [Fact]
     public void CreateIndexSnapshot_PreservesGlobalCustomInstructions()
     {
         var source = new AppData

@@ -381,6 +381,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _backgroundJobService.JobsChanged += OnBackgroundJobServiceJobsChanged;
         _copilotService.ModelCatalogChanged += OnModelCatalogChanged;
 
+        SettingsVM.AmbientPresenceChanged += ApplyAmbientPresenceSetting;
+        SettingsVM.PresenceAnimationChanged += ApplyPresenceAnimationSetting;
         SettingsVM.SettingsChanged += () =>
         {
             RefreshChatList();
@@ -445,6 +447,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private ChatViewModel AcquireDraftChatSurface(Guid? projectId)
         => _chatSessionStore.AcquireDraft(projectId, PrepareChatSurface);
+
+    internal void ApplyAmbientPresenceSetting(bool enabled)
+        => _chatSessionStore.ApplyToSurfaces(surface => surface.ShowAmbientPresence = enabled);
+
+    internal void ApplyPresenceAnimationSetting(bool enabled)
+        => _chatSessionStore.ApplyToSurfaces(surface => surface.AnimatePresenceWhileWorking = enabled);
 
     private Task<ChatViewModel> AcquireChatSurfaceAsync(Chat chat)
         => _chatSessionStore.AcquireChatAsync(chat, PrepareChatSurface);
@@ -1552,14 +1560,28 @@ public partial class MainViewModel : ObservableObject, IDisposable
             .Where(job => job.ChatId == chat.Id)
             .ToList();
 
+        DataStore.StagedChatFileDeletion stagedDeletion;
+        try
+        {
+            // Atomically rename the transcript before removing its index entry. A lock leaves the chat
+            // retryable, while a crash restores or finishes the tombstone based on the persisted index.
+            stagedDeletion = await _dataStore.StageChatFileDeletionAsync(chat.Id);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Lumi] Failed to stage chat file deletion '{chat.Id}': {ex.Message}");
+            RefreshChatList();
+            return false;
+        }
+
         _dataStore.Data.Chats.Remove(chat);
         _dataStore.RemoveBackgroundJobsForChat(chat.Id);
         _backgroundJobService.Reschedule();
         _dataStore.MarkChatDeleted(chat.Id);
         try
         {
-            // Persist the index deletion before deleting the per-chat file. If this fails, restoring the
-            // in-memory chat keeps runtime and disk state aligned even though a worktree was already removed.
+            // The content file is already gone. Persist the index deletion; if this fails, restore both the
+            // in-memory entry and its content file so runtime and disk state remain aligned.
             await _dataStore.SaveAsync();
         }
         catch (Exception ex)
@@ -1570,22 +1592,23 @@ public partial class MainViewModel : ObservableObject, IDisposable
             foreach (var job in removedJobs.Where(job => !_dataStore.Data.BackgroundJobs.Contains(job)))
                 _dataStore.AddBackgroundJob(job);
             _dataStore.MarkChatChanged(chat);
+            try
+            {
+                await _dataStore.RollbackStagedChatFileDeletionAsync(
+                    stagedDeletion,
+                    CancellationToken.None);
+            }
+            catch (Exception restoreEx)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[Lumi] Failed to roll back chat file deletion '{chat.Id}': {restoreEx.Message}");
+            }
             _backgroundJobService.Reschedule();
             RefreshChatList();
             return false;
         }
 
-        try
-        {
-            await _dataStore.DeleteChatFileAsync(chat.Id);
-        }
-        catch (Exception ex)
-        {
-            // The index no longer references this chat, so a locked per-chat file is a harmless orphan,
-            // not a reason to resurrect the deleted chat after the durable index update succeeded.
-            System.Diagnostics.Debug.WriteLine($"[Lumi] Failed to delete orphaned chat file '{chat.Id}': {ex.Message}");
-        }
-
+        await _dataStore.CommitStagedChatFileDeletionAsync(stagedDeletion, CancellationToken.None);
         _chatNavigationHistory.RemoveChat(chat.Id);
         RefreshChatList();
         ChatDeleted?.Invoke(chat.Id);

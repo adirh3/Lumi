@@ -33,6 +33,12 @@ public partial class ChatViewModel
         }
 
         var chatId = activeChat.Id;
+        if (_dataStore.IsChatFileDeletionPending(chatId))
+        {
+            StatusText = Loc.Status_DeletingChat;
+            return false;
+        }
+
         using var sendReservation = new ChatSendReservationScope();
         if (!sendReservation.TryReserve(chatId))
         {

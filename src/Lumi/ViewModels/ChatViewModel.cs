@@ -3244,7 +3244,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ArgumentNullException.ThrowIfNull(targetChat);
 
         if (OwnsLiveChat(targetChat.Id)
-            || IsExternalSendReservedByAnother(targetChat.Id, reservationToken))
+            || IsExternalSendReservedByAnother(targetChat.Id, reservationToken)
+            || _dataStore.IsChatFileDeletionPending(targetChat.Id))
+            throw new InvalidOperationException($"Chat \"{targetChat.Title}\" is already running.");
+        using var internalSendReservation = new ChatSendReservationScope();
+        if (reservationToken is null && !internalSendReservation.TryReserve(targetChat.Id))
             throw new InvalidOperationException($"Chat \"{targetChat.Title}\" is already running.");
         if (reservationToken is { } initialReservationToken
             && IsExternalSendReservationCanceled(targetChat.Id, initialReservationToken))
@@ -3432,6 +3436,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             var runtime = GetOrCreateRuntimeState(chatId);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
+            internalSendReservation.Release();
             if (reservationToken is { } token)
             {
                 ReleaseExternalSendReservation(chatId, token);
@@ -4209,6 +4214,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task SendMessage()
     {
+        if (CurrentChat is { } unavailableChat
+            && (IsChatDeletionReserved(unavailableChat.Id)
+                || _dataStore.IsChatFileDeletionPending(unavailableChat.Id)))
+        {
+            StatusText = Loc.Status_DeletingChat;
+            return;
+        }
+
         if (_editingUserMessage is not null)
         {
             await SendEditedMessage();
@@ -4231,7 +4244,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (string.IsNullOrWhiteSpace(prompt))
             return;
 
-        if (CurrentChat is { } deletingChat && IsChatDeletionReserved(deletingChat.Id))
+        if (CurrentChat is { } deletingChat
+            && (IsChatDeletionReserved(deletingChat.Id)
+                || _dataStore.IsChatFileDeletionPending(deletingChat.Id)))
         {
             StatusText = Loc.Status_DeletingChat;
             return;
@@ -4264,7 +4279,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         var prompt = promptText.Trim();
         var guardChat = CurrentChat;
-        if (guardChat is not null && IsChatDeletionReserved(guardChat.Id))
+        if (guardChat is not null
+            && (IsChatDeletionReserved(guardChat.Id)
+                || _dataStore.IsChatFileDeletionPending(guardChat.Id)))
         {
             StatusText = Loc.Status_DeletingChat;
             return;
@@ -6160,6 +6177,20 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         bool requiresSessionRebuild = false)
     {
         if (CurrentChat is null) return;
+        var targetChat = CurrentChat;
+        if (IsChatDeletionReserved(targetChat.Id)
+            || _dataStore.IsChatFileDeletionPending(targetChat.Id))
+        {
+            StatusText = Loc.Status_DeletingChat;
+            return;
+        }
+
+        using var sendReservation = new ChatSendReservationScope();
+        if (!sendReservation.TryReserve(targetChat.Id))
+        {
+            StatusText = Loc.Status_DeletingChat;
+            return;
+        }
 
         // ── Non-BYOK block ──
         // Enforce before doing any transcript/session work, independent of session caching.
@@ -6173,6 +6204,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // Stop any active generation first
         if (IsBusy)
             await StopGeneration();
+        if (CurrentChat?.Id != targetChat.Id)
+            return;
 
         var idx = CurrentChat.Messages.IndexOf(userMessage);
         if (idx < 0) return;
@@ -6418,6 +6451,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             var runtime = GetOrCreateRuntimeState(CurrentChat.Id);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
+            sendReservation.Release();
             ApplyDisplayedRuntimeState(runtime);
             if (WorktreePath is { Length: > 0 } wtPath && attachments.Count > 0)
             {

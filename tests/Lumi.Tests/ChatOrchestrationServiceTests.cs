@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using GitHub.Copilot;
@@ -687,6 +688,71 @@ public sealed class ChatOrchestrationServiceTests
     }
 
     [Fact]
+    public async Task Send_WhenDeletionReserved_DoesNotStartOrchestratedRun()
+    {
+        using var session = HeadlessTestSession.Start();
+        var target = new Chat { Title = "Deleting worker" };
+        var (store, registry, sessionStore) = CreateEnvironment(CreateData(target));
+        var sends = 0;
+        Func<ChatViewModel, Chat, string, string, string?, string?, CancellationToken, Task> send =
+            (_, _, _, _, _, _, _) =>
+            {
+                Interlocked.Increment(ref sends);
+                return Task.CompletedTask;
+            };
+
+        using (registry)
+        using (sessionStore)
+        using (var service = new ChatOrchestrationService(store, registry, sessionStore, sendOverride: send))
+        using (var deletion = ChatViewModel.TryReserveChatDeletion(target.Id))
+        {
+            Assert.NotNull(deletion);
+            sessionStore.OrchestrationService = service;
+
+            var result = await RunAsync(
+                session,
+                service,
+                "send",
+                identifier: target.Id.ToString(),
+                message: "do not send");
+
+            Assert.Contains("already running", result, StringComparison.Ordinal);
+            Assert.Equal(0, sends);
+        }
+    }
+
+    [Fact]
+    public async Task Send_WhenChatFileRecoveryPending_DoesNotStartOrchestratedRun()
+    {
+        using var session = HeadlessTestSession.Start();
+        var target = new Chat { Title = "Recovering worker" };
+        var (store, registry, sessionStore) = CreateEnvironment(CreateData(target));
+        GetField<HashSet<Guid>>(store, "_chatFileRecoveryPending").Add(target.Id);
+        var sends = 0;
+        Func<ChatViewModel, Chat, string, string, string?, string?, CancellationToken, Task> send =
+            (_, _, _, _, _, _, _) =>
+            {
+                Interlocked.Increment(ref sends);
+                return Task.CompletedTask;
+            };
+
+        using (registry)
+        using (sessionStore)
+        using (var service = new ChatOrchestrationService(store, registry, sessionStore, sendOverride: send))
+        {
+            var result = await RunAsync(
+                session,
+                service,
+                "send",
+                identifier: target.Id.ToString(),
+                message: "do not send");
+
+            Assert.Contains("already running", result, StringComparison.Ordinal);
+            Assert.Equal(0, sends);
+        }
+    }
+
+    [Fact]
     public async Task Send_ForwardsModelAndEffortOverrideToSendPath()
     {
         using var session = HeadlessTestSession.Start();
@@ -941,4 +1007,10 @@ public sealed class ChatOrchestrationServiceTests
                 Supports = new ModelSupports()
             }
         };
+
+    private static T GetField<T>(object instance, string name) where T : class
+        => (T)(instance.GetType()
+            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?.GetValue(instance)
+            ?? throw new InvalidOperationException($"Field {name} was not found."));
 }

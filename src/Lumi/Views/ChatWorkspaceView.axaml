@@ -8,7 +8,8 @@
              xmlns:sys="using:System"
              x:Class="Lumi.Views.ChatWorkspaceView"
              x:DataType="vm:ChatViewModel"
-             x:CompileBindings="True">
+             x:CompileBindings="True"
+             IsPresenceEnabled="{Binding ShowAmbientPresence}">
 
   <UserControl.Resources>
     <x:Double x:Key="ChatWorkspace.SplitPaneMinWidth">220</x:Double>

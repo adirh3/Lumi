@@ -946,6 +946,8 @@ public class UserSettings
     [JsonPropertyName("fontSize")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public int LegacyFontSize { get; set; }
+    public bool ShowAmbientPresence { get; set; } = true;
+    public bool AnimatePresenceWhileWorking { get; set; }
     public bool ShowAnimations { get; set; } = true;
 
     // ── Chat ──

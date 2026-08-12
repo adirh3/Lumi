@@ -30,6 +30,8 @@ internal static class AppDataSnapshotFactory
                 IsDarkTheme = settings.IsDarkTheme,
                 IsCompactDensity = settings.IsCompactDensity,
                 UiScalePercent = settings.UiScalePercent,
+                ShowAmbientPresence = settings.ShowAmbientPresence,
+                AnimatePresenceWhileWorking = settings.AnimatePresenceWhileWorking,
                 ShowAnimations = settings.ShowAnimations,
                 SendWithEnter = settings.SendWithEnter,
                 ShowTimestamps = settings.ShowTimestamps,

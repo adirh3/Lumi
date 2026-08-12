@@ -112,6 +112,62 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public async Task ChatDeletionReservation_BlocksSharedExternalSendWithoutToken()
+    {
+        var chat = new Chat { Title = "Deleting", MessageCount = 1 };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "existing" });
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        using var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared);
+        using var deletion = ChatViewModel.TryReserveChatDeletion(chat.Id);
+        Assert.NotNull(deletion);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => viewModel.SendExternalMessageAsync(chat, "do not send", "Lumi Job"));
+
+        Assert.Single(chat.Messages);
+    }
+
+    [Fact]
+    public async Task ChatFileRecoveryPending_BlocksSharedExternalSend()
+    {
+        var chat = new Chat { Title = "Recovering", MessageCount = 1 };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "existing" });
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        GetField<HashSet<Guid>>(dataStore, "_chatFileRecoveryPending").Add(chat.Id);
+        using var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => viewModel.SendExternalMessageAsync(chat, "do not send", "Lumi Job"));
+
+        Assert.Single(chat.Messages);
+    }
+
+    [Fact]
+    public async Task ChatFileRecoveryPending_BlocksRegenerateBeforeTranscriptMutation()
+    {
+        Loc.Load("en");
+        var chat = new Chat { Title = "Recovering", MessageCount = 2 };
+        var userMessage = new ChatMessage { Role = "user", Content = "existing" };
+        var assistantMessage = new ChatMessage { Role = "assistant", Content = "answer" };
+        chat.Messages.Add(userMessage);
+        chat.Messages.Add(assistantMessage);
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        GetField<HashSet<Guid>>(dataStore, "_chatFileRecoveryPending").Add(chat.Id);
+        using var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared)
+        {
+            CurrentChat = chat
+        };
+
+        await viewModel.ResendFromMessageAsync(userMessage, wasEdited: false);
+
+        Assert.Equal([userMessage, assistantMessage], chat.Messages);
+        Assert.Equal(Loc.Status_DeletingChat, viewModel.StatusText);
+    }
+
+    [Fact]
     public async Task CanceledExternalSend_RollsBackPersistedReceiptBeforeActivation()
     {
         var chat = new Chat { Title = "Existing", MessageCount = 1 };

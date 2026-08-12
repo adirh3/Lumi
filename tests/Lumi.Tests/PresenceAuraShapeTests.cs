@@ -62,7 +62,7 @@ public sealed class PresenceAuraShapeTests
 
                 var presence = new StrataPresence
                 {
-                    State = PresenceState.Idle, // existing-chat resting state (Calm motion => WidthBias)
+                    State = PresenceState.Idle, // existing-chat resting state (Calm profile => WidthBias)
                     Intensity = 3.0,            // lift the (dim) idle ambient so the centroid has signal
                     FocusReach = 1.0,
                     FocusPoint = new Point(0.5, 0.86), // the composer anchor the controller uses when idle
