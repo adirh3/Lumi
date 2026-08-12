@@ -1669,6 +1669,9 @@ public partial class ChatView : UserControl
 
         e.Handled = true;
 
+        if (e.Format != StrataCopyFormat.Text)
+            return;
+
         if (e.IsSelection && !string.IsNullOrEmpty(e.Text))
         {
             await SetClipboardTextAsync(e.Text);
