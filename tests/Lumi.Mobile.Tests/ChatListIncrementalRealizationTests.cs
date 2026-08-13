@@ -53,6 +53,146 @@ public sealed class ChatListIncrementalRealizationTests
     }
 
     [Fact]
+    public void PromoteChatMovesAnExistingChatToTheTopOfToday()
+    {
+        var id = Guid.NewGuid();
+        var list = new ChatListViewModel(new NoOpSink());
+        list.Apply(
+        [
+            new RemoteChatGroup
+            {
+                Label = "Today",
+                Chats = [new RemoteChat { Id = Guid.NewGuid(), Title = "Current top" }]
+            },
+            new RemoteChatGroup
+            {
+                Label = "Yesterday",
+                Chats =
+                [
+                    new RemoteChat
+                    {
+                        Id = id,
+                        Title = "Active chat",
+                        MessageCount = 12
+                    }
+                ]
+            }
+        ]);
+
+        list.PromoteChat(new RemoteChat
+        {
+            Id = id,
+            Title = "Active chat",
+            Preview = "new message",
+            UpdatedAt = DateTimeOffset.Now,
+            IsRunning = true
+        });
+
+        var promoted = Assert.IsType<ChatListItemViewModel>(list.Groups[0].Chats[0]);
+        Assert.Equal("Today", list.Groups[0].Label);
+        Assert.Equal(id, promoted.Id);
+        Assert.Equal("new message", promoted.Preview);
+        Assert.True(promoted.IsRunning);
+        Assert.Equal(2, list.TotalChats);
+    }
+
+    [Fact]
+    public void PromoteChatImmediatelyAddsANewlyCreatedChat()
+    {
+        var id = Guid.NewGuid();
+        var list = new ChatListViewModel(new NoOpSink());
+        list.Apply([]);
+
+        list.PromoteChat(new RemoteChat
+        {
+            Id = id,
+            Title = "New chat",
+            Preview = "first message",
+            UpdatedAt = DateTimeOffset.Now,
+            IsRunning = true
+        }, isNewChat: true);
+
+        var promoted = Assert.Single(Assert.Single(list.Groups).Chats);
+        Assert.Equal(id, promoted.Id);
+        Assert.Equal("first message", promoted.Preview);
+        Assert.Equal(1, list.TotalChats);
+    }
+
+    [Fact]
+    public void PromoteChatUsesTheServerLocalizedTodayLabel()
+    {
+        var id = Guid.NewGuid();
+        var list = new ChatListViewModel(new NoOpSink());
+        list.Apply(new RemoteChatPage
+        {
+            TotalCount = 1,
+            PinnedGroupLabel = "מוצמדים",
+            TodayGroupLabel = "היום",
+            Groups =
+            [
+                new RemoteChatGroup
+                {
+                    Label = "אתמול",
+                    Chats =
+                    [
+                        new RemoteChat
+                        {
+                            Id = id,
+                            Title = "Active chat",
+                            UpdatedAt = DateTimeOffset.Now.AddDays(-1)
+                        }
+                    ]
+                }
+            ]
+        });
+
+        list.PromoteChat(new RemoteChat
+        {
+            Id = id,
+            Title = "Active chat",
+            UpdatedAt = DateTimeOffset.Now
+        });
+
+        Assert.Equal("היום", Assert.Single(list.Groups).Label);
+    }
+
+    [Fact]
+    public async Task PromotingAnExistingOffPageChatDoesNotAdvanceTheServerOffset()
+    {
+        var sink = new RecordingPageSink();
+        var list = new ChatListViewModel(sink);
+        list.Apply(new RemoteChatPage
+        {
+            Offset = 0,
+            TotalCount = 3,
+            HasMore = true,
+            Groups =
+            [
+                new RemoteChatGroup
+                {
+                    Label = "Today",
+                    Chats =
+                    [
+                        new RemoteChat { Id = Guid.NewGuid(), Title = "First" },
+                        new RemoteChat { Id = Guid.NewGuid(), Title = "Second" }
+                    ]
+                }
+            ]
+        });
+
+        list.PromoteChat(new RemoteChat
+        {
+            Id = Guid.NewGuid(),
+            Title = "Existing search result",
+            UpdatedAt = DateTimeOffset.Now
+        });
+        await list.LoadMoreChatsCommand.ExecuteAsync(null);
+
+        Assert.Equal(3, list.TotalChats);
+        Assert.Equal(2, sink.LastOffset);
+    }
+
+    [Fact]
     public void LoadMore_AddsFixedPagesWithoutDuplicatesOrSkippedChats()
     {
         var source = LargeChatHistory.Create();
@@ -206,6 +346,30 @@ public sealed class ChatListIncrementalRealizationTests
             Task.FromResult(new RemoteUploadResponse { FileName = fileName, Path = fileName });
     }
 
+    private sealed class RecordingPageSink : IRemoteCommandSink, IRemoteChatPageSink
+    {
+        public int LastOffset { get; private set; } = -1;
+
+        public Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command) =>
+            Task.FromResult(new RemoteCommandResult { Ok = true });
+
+        public Task<RemoteUploadResponse> UploadAsync(
+            string fileName,
+            ReadOnlyMemory<byte> content) =>
+            Task.FromResult(new RemoteUploadResponse { Ok = true });
+
+        public Task<RemoteChatPage?> GetChatPageAsync(
+            int offset,
+            int limit,
+            string? query,
+            Guid? projectId,
+            CancellationToken cancellationToken)
+        {
+            LastOffset = offset;
+            return Task.FromResult<RemoteChatPage?>(null);
+        }
+    }
+
     private sealed class DelayedPageSink : IRemoteCommandSink, IRemoteChatPageSink
     {
         private readonly TaskCompletionSource<RemoteChatPage?> _loadMore =
@@ -284,7 +448,10 @@ public sealed class ChatListIncrementalRealizationRenderTests
             try
             {
                 shell = new MobileShellViewModel(store: session.NewStore(), post: action => action());
-                shell.ChatList.Apply(LargeChatHistory.Create());
+                var list = loadMoreButtonName == "SearchLoadMoreButton"
+                    ? shell.SearchChatList
+                    : shell.ChatList;
+                list.Apply(LargeChatHistory.Create());
 
                 window = new Window
                 {
@@ -300,15 +467,15 @@ public sealed class ChatListIncrementalRealizationRenderTests
                     .OfType<Button>()
                     .Where(button => button.DataContext is ChatListItemViewModel)
                     .ToList();
-                Assert.Equal(ChatListViewModel.InitialVisibleChatLimit, shell.ChatList.VisibleChatCount);
-                Assert.Equal(shell.ChatList.VisibleChatCount, realizedRows.Count);
+                Assert.Equal(ChatListViewModel.InitialVisibleChatLimit, list.VisibleChatCount);
+                Assert.Equal(list.VisibleChatCount, realizedRows.Count);
                 Assert.True(realizedRows.Count < LargeChatHistory.ChatCount);
 
                 var loadMore = window.GetVisualDescendants()
                     .OfType<Button>()
                     .Single(button => button.Name == loadMoreButtonName);
                 Assert.True(loadMore.IsEffectivelyVisible);
-                Assert.Same(shell.ChatList.LoadMoreChatsCommand, loadMore.Command);
+                Assert.Same(list.LoadMoreChatsCommand, loadMore.Command);
             }
             catch (Exception ex)
             {

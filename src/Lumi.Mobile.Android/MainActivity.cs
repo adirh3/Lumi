@@ -12,6 +12,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Java.Interop;
 using Java.Util.Concurrent;
 using Lumi.Mobile.Layout;
+using Lumi.Mobile.Services;
 using Lumi.Mobile.Views;
 using Object = Java.Lang.Object;
 
@@ -48,10 +49,18 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
 
     private WindowInfoTrackerCallbackAdapter? _windowInfoTracker;
     private IExecutor? _windowLayoutExecutor;
+    private AndroidNativeComposerEditorFactory? _nativeComposerEditorFactory;
+    private AndroidTextSelectionPresenter? _textSelectionPresenter;
+    private GestureDetector? _textSelectionGestureDetector;
     private bool _windowLayoutListenerRegistered;
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
+        _nativeComposerEditorFactory =
+            new AndroidNativeComposerEditorFactory(this);
+        MobilePlatformServices.NativeComposerEditorFactory =
+            _nativeComposerEditorFactory;
+
         // Draw behind the system bars. The shared shell already reserves the safe-area insets that
         // Avalonia reports, so the content stays clear of the notch and the gesture pill while the
         // background still bleeds to the edges — which is what makes it look like a real phone app.
@@ -61,6 +70,13 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
             Window?.SetDecorFitsSystemWindows(false);
 
         base.OnCreate(savedInstanceState);
+
+        _textSelectionPresenter = new AndroidTextSelectionPresenter(this);
+        MobilePlatformServices.TextSelectionPresenter = _textSelectionPresenter;
+        _textSelectionGestureDetector = new GestureDetector(
+            this,
+            new TextSelectionGestureListener());
+        AndroidImeAutocorrect.Install(this);
 
         if (OperatingSystem.IsAndroidVersionAtLeast(37)
             && CheckSelfPermission(LocalNetworkPermission) != Permission.Granted)
@@ -130,6 +146,7 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
         {
             shell.NotifyApplicationActivated();
         }
+        AndroidImeAutocorrect.Refresh(this);
     }
 
     public override void OnRequestPermissionsResult(
@@ -157,8 +174,49 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
 
     protected override void OnDestroy()
     {
+        MobilePlatformServices.ClearTextSelectionGesture();
+        _textSelectionGestureDetector?.Dispose();
+        _textSelectionGestureDetector = null;
         DisposeWindowLayoutTracking();
-        base.OnDestroy();
+        if (_textSelectionPresenter is { } presenter)
+        {
+            MobilePlatformServices.ResetTextSelectionPresenter(presenter);
+            presenter.Dismiss();
+            _textSelectionPresenter = null;
+        }
+        var composerEditorFactory = _nativeComposerEditorFactory;
+        _nativeComposerEditorFactory = null;
+        try
+        {
+            base.OnDestroy();
+        }
+        finally
+        {
+            MobilePlatformServices.ResetNativeComposerEditorFactory(
+                composerEditorFactory);
+        }
+    }
+
+    public override bool DispatchTouchEvent(MotionEvent? motionEvent)
+    {
+        if (motionEvent?.ActionMasked == MotionEventActions.Down)
+            MobilePlatformServices.ClearTextSelectionGesture();
+        var handled = base.DispatchTouchEvent(motionEvent);
+        if (motionEvent is not null)
+            _textSelectionGestureDetector?.OnTouchEvent(motionEvent);
+        if (motionEvent?.ActionMasked is MotionEventActions.Up or MotionEventActions.Cancel)
+            MobilePlatformServices.ClearTextSelectionGesture();
+        if (motionEvent?.ActionMasked == MotionEventActions.Up)
+            AndroidImeAutocorrect.Refresh(this);
+        return handled;
+    }
+
+    public override bool DispatchKeyEvent(KeyEvent? keyEvent)
+    {
+        if (_nativeComposerEditorFactory?.TryDispatchKeyEvent(keyEvent) == true)
+            return true;
+
+        return base.DispatchKeyEvent(keyEvent);
     }
 
     public void Accept(Object? value)
@@ -178,6 +236,23 @@ public class MainActivity : AvaloniaMainActivity, IConsumer
             // A vendor WindowManager implementation must never make an ordinary phone fail to start.
             global::Android.Util.Log.Warn(FoldableTag, $"Could not read folding feature: {ex}");
             PublishFoldLayout(FoldPosture.Flat, 0, 0);
+        }
+    }
+
+    // Packaged builds need a public registered Java peer; a private nested listener is trimmed away.
+    [global::Android.Runtime.Register("com/lumi/mobile/TextSelectionGestureListener")]
+    public sealed class TextSelectionGestureListener
+        : GestureDetector.SimpleOnGestureListener
+    {
+        public override bool OnDown(MotionEvent e) => true;
+
+        public override void OnLongPress(MotionEvent e)
+        {
+            if (MobilePlatformServices.TakeTextSelectionGesture()
+                is { Length: > 0 } text)
+            {
+                MobilePlatformServices.TextSelectionPresenter.Show(text);
+            }
         }
     }
 

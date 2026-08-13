@@ -116,6 +116,8 @@ internal static class RemoteProjector
             HasMore = offset + pageChats.Count < matching.Count,
             Query = query,
             ProjectId = projectId,
+            PinnedGroupLabel = Loc.ChatGroup_Pinned,
+            TodayGroupLabel = Loc.ChatGroup_Today,
             Groups = groups
         };
 
@@ -536,6 +538,8 @@ internal static class RemoteProjector
         RemoteTranscriptItem? toolGroup = null;
         RemoteTranscriptItem? compactActivity = null;
         var compactSource = activitySourceMessages ?? window.Messages;
+        var authorizedImagePaths =
+            RemoteMarkdownImageFiles.BuildAuthorizedPaths(compactSource);
 
         RemoteTranscriptTurn EnsureTurn()
         {
@@ -584,7 +588,9 @@ internal static class RemoteProjector
                 case "assistant":
                     toolGroup = null;
                     EnsureCompactActivity(message);
-                    EnsureTurn().Items.Add(BuildAssistantItem(message));
+                    EnsureTurn().Items.Add(BuildAssistantItem(
+                        message,
+                        authorizedImagePaths));
                     break;
 
                 case "reasoning":
@@ -646,7 +652,8 @@ internal static class RemoteProjector
                                 message.Content,
                                 RemoteProtocol.MobileAssistantTextLimit),
                             Author = message.Author,
-                            Timestamp = message.Timestamp
+                            Timestamp = message.Timestamp,
+                            InlineImages = null
                         });
                     }
 
@@ -885,6 +892,217 @@ internal static class RemoteProjector
 
         return new TranscriptMessageWindow(selected, start, end, total);
     }
+
+    private static int NormalizeCompactWindowEnd(
+        IReadOnlyList<ChatMessage> messages,
+        int end)
+    {
+        while (end < messages.Count && messages[end].Role != "user")
+            end++;
+        return end;
+    }
+
+    /// <summary>
+    /// Selects whole logical turns by the number of rows compact mode will actually project. Raw
+    /// reasoning/tool messages are inspected locally to find turn boundaries and build one activity
+    /// summary, but they neither consume the visible-item/text allowance nor enter the transcript
+    /// DTO individually. The returned raw indexes remain the stable paging cursor.
+    /// </summary>
+    internal static TranscriptMessageWindow SelectCompactTranscriptWindow(
+        IReadOnlyList<ChatMessage> messages,
+        int? beforeMessageIndex,
+        int maxVisibleItems,
+        int textBudgetCharacters = RemoteProtocol.CompactTranscriptWindowTextBudgetCharacters)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxVisibleItems, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(textBudgetCharacters, 1);
+
+        var total = messages.Count;
+        if (total == 0)
+            return new TranscriptMessageWindow([], 0, 0, 0);
+
+        var end = Math.Clamp(beforeMessageIndex ?? total, 1, total);
+        if (beforeMessageIndex is not null)
+            end = NormalizeCompactWindowEnd(messages, end);
+        var start = end;
+        var visibleItemCount = 0;
+        long visibleTextCharacters = 0;
+
+        while (start > 0)
+        {
+            var turnStart = FindCompactTurnStart(messages, start);
+            var remainingTextBudget = Math.Max(
+                0,
+                textBudgetCharacters - visibleTextCharacters);
+            var turnCost = EstimateCompactTurn(
+                messages,
+                turnStart,
+                start,
+                remainingTextBudget);
+
+            // Always include the newest represented turn so paging advances even when one answer is
+            // individually oversized. Older turns are admitted by what the phone will actually draw:
+            // user/assistant/question/file rows plus one activity card, never raw command count.
+            if (start < end
+                && (visibleItemCount + turnCost.VisibleItems > maxVisibleItems
+                    || visibleTextCharacters + turnCost.TextCharacters
+                    > textBudgetCharacters))
+            {
+                break;
+            }
+
+            start = turnStart;
+            visibleItemCount += turnCost.VisibleItems;
+            visibleTextCharacters += turnCost.TextCharacters;
+        }
+
+        var selected = new List<ChatMessage>();
+        var hasActivityAnchor = false;
+        for (var index = start; index < end; index++)
+        {
+            var message = messages[index];
+            if (message.Role == "user")
+            {
+                hasActivityAnchor = false;
+                selected.Add(message);
+                continue;
+            }
+
+            if (IsCompactTechnicalMessage(message))
+            {
+                if (!hasActivityAnchor)
+                {
+                    selected.Add(message);
+                    hasActivityAnchor = true;
+                }
+
+                continue;
+            }
+
+            selected.Add(message);
+        }
+
+        return new TranscriptMessageWindow(selected, start, end, total);
+    }
+
+    private static int FindCompactTurnStart(
+        IReadOnlyList<ChatMessage> messages,
+        int endExclusive)
+    {
+        var start = endExclusive - 1;
+        while (start > 0 && messages[start].Role != "user")
+            start--;
+        return start;
+    }
+
+    private static (int VisibleItems, long TextCharacters) EstimateCompactTurn(
+        IReadOnlyList<ChatMessage> messages,
+        int start,
+        int end,
+        long stopAfterTextCharacters)
+    {
+        var visibleItems = 0;
+        long textCharacters = 0;
+        var hasActivity = false;
+
+        for (var index = start; index < end; index++)
+        {
+            var message = messages[index];
+            if (IsCompactTechnicalMessage(message))
+            {
+                if (!hasActivity)
+                {
+                    visibleItems++;
+                    hasActivity = true;
+                }
+                continue;
+            }
+
+            if (!ProducesCompactTranscriptItem(message))
+                continue;
+
+            visibleItems++;
+            textCharacters += EstimateCompactMessageTextCharacters(
+                message,
+                Math.Max(0, stopAfterTextCharacters - textCharacters));
+        }
+
+        return (visibleItems, textCharacters);
+    }
+
+    private static bool ProducesCompactTranscriptItem(ChatMessage message) =>
+        message.Role switch
+        {
+            "user" or "assistant" or "error" => true,
+            "tool" => IsQuestion(message) || IsAnnouncedFile(message),
+            "reasoning" => false,
+            _ => !string.IsNullOrWhiteSpace(message.Content)
+        };
+
+    private static long EstimateCompactMessageTextCharacters(
+        ChatMessage message,
+        long stopAfter)
+    {
+        long total = 0;
+
+        switch (message.Role)
+        {
+            case "user":
+                if (Add(message.Content))
+                    return stopAfter + 1;
+                foreach (var attachment in message.Attachments)
+                {
+                    if (Add(attachment))
+                        return stopAfter + 1;
+                }
+                break;
+
+            case "assistant":
+                if (Add(message.Content) || Add(message.LinkedChatTitle))
+                    return stopAfter + 1;
+                foreach (var source in message.Sources)
+                {
+                    if (Add(source.Title) || Add(source.Snippet) || Add(source.Url))
+                        return stopAfter + 1;
+                }
+                break;
+
+            case "error":
+                Add(message.Content);
+                break;
+
+            case "tool" when IsQuestion(message):
+                Add(message.QuestionText ?? message.Content);
+                Add(message.QuestionOptions);
+                Add(message.ToolOutput);
+                break;
+
+            case "tool" when IsAnnouncedFile(message):
+                Add(SafeFileName(
+                    ExtractJsonField(message.Content, "filePath") ?? ""));
+                break;
+
+            default:
+                Add(message.Content);
+                Add(message.LinkedChatTitle);
+                break;
+        }
+
+        return total;
+
+        bool Add(string? value)
+        {
+            total += TextLength(value);
+            return total > stopAfter;
+        }
+    }
+
+    private static bool IsCompactTechnicalMessage(ChatMessage message) =>
+        message.Role == "reasoning"
+        || message.Role == "tool"
+           && !IsQuestion(message)
+           && !IsAnnouncedFile(message);
 
     private static long EstimateTranscriptTextCharacters(ChatMessage message, long stopAfter)
     {
@@ -1534,7 +1752,9 @@ internal static class RemoteProjector
         Attachments = BuildAttachments(message.Attachments)
     };
 
-    private static RemoteTranscriptItem BuildAssistantItem(ChatMessage message) => new()
+    private static RemoteTranscriptItem BuildAssistantItem(
+        ChatMessage message,
+        IReadOnlySet<string> authorizedImagePaths) => new()
     {
         Id = message.Id.ToString("N"),
         Kind = RemoteProtocol.ItemKinds.Assistant,
@@ -1547,7 +1767,10 @@ internal static class RemoteProjector
         Model = message.Model,
         LinkedChatId = message.LinkedChatId,
         Label = message.LinkedChatTitle,
-        Sources = BuildSources(message.Sources)
+        Sources = BuildSources(message.Sources),
+        InlineImages = RemoteMarkdownImageFiles.BuildDescriptors(
+            message.Content,
+            authorizedImagePaths)
     };
 
     private static RemoteTranscriptItem BuildReasoningItem(ChatMessage message) => new()
@@ -1594,6 +1817,7 @@ internal static class RemoteProjector
                 item.FileChanges = BoundFileChanges(item.FileChanges);
                 item.Attachments = BoundAttachments(item.Attachments);
                 item.Sources = BoundSources(item.Sources);
+                item.InlineImages = BoundInlineImages(item.InlineImages);
 
                 if (item.Question is { } question)
                 {
@@ -2252,6 +2476,24 @@ internal static class RemoteProjector
             bounded.Add(OmittedSource(sources.Count - retainedCount));
 
         return bounded;
+    }
+
+    private static List<RemoteInlineImage>? BoundInlineImages(
+        IReadOnlyList<RemoteInlineImage>? images)
+    {
+        if (images is not { Count: > 0 })
+            return null;
+
+        return images
+            .Take(RemoteProtocol.MobileInlineImageCountLimit)
+            .Select(image => new RemoteInlineImage
+            {
+                Index = Math.Max(0, image.Index),
+                FileName = BoundRequired(
+                    image.FileName,
+                    RemoteProtocol.MobileFileNameLimit)
+            })
+            .ToList();
     }
 
     private static RemoteSource OmittedSource(int omitted) =>

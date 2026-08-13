@@ -119,6 +119,12 @@ public sealed class RemoteLibraryItem
     public string? WorkingDirectory { get; set; }
 }
 
+/// <summary>Bounded file autocomplete results for the mobile composer's <c>#</c> trigger.</summary>
+public sealed class RemoteFileSuggestions
+{
+    public List<RemoteChip> Items { get; set; } = [];
+}
+
 /// <summary>The one-shot payload a client pulls on connect and whenever it resyncs.</summary>
 public sealed class RemoteSnapshot
 {

@@ -411,6 +411,14 @@ public sealed class RemoteProjectionTests
         var activity = Assert.Single(
             Assert.Single(transcript.Turns).Items,
             item => item.Kind == RemoteProtocol.ItemKinds.Activity);
+        var transcriptWire = JsonSerializer.Serialize(
+            transcript,
+            RemoteJsonContext.Default.RemoteTranscript);
+
+        Assert.DoesNotContain("current docs", transcriptWire, StringComparison.Ordinal);
+        Assert.DoesNotContain("three sources", transcriptWire, StringComparison.Ordinal);
+        Assert.DoesNotContain("dotnet test", transcriptWire, StringComparison.Ordinal);
+        Assert.DoesNotContain("12 tests passed", transcriptWire, StringComparison.Ordinal);
 
         var details = Assert.IsType<RemoteActivityDetails>(
             RemoteProjector.BuildActivityDetails(
@@ -522,6 +530,208 @@ public sealed class RemoteProjectionTests
                 latestActivity.ActivityId!));
         Assert.Equal(RemoteProtocol.MobileActivityToolCountLimit, details.Tools.Count);
         Assert.Equal("omitted", details.Tools[^1].Name);
+    }
+
+    [Fact]
+    public void CompactWindowIncludesTheUserPromptAndCollapsesTechnicalRows()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Dense turn" };
+        var messages = new List<ChatMessage>
+        {
+            Message("user", "Keep the prompt visible"),
+            Message("reasoning", "private")
+        };
+        messages.AddRange(Enumerable.Range(0, 300).Select(index =>
+            Message(
+                "tool",
+                $$"""{"command":"step {{index}}"}""",
+                toolName: "powershell",
+                toolStatus: "Completed")));
+        messages.Add(Message("assistant", "Done"));
+
+        var window = RemoteProjector.SelectCompactTranscriptWindow(
+            messages,
+            beforeMessageIndex: null,
+            maxVisibleItems: 40);
+        var transcript = RemoteProjector.BuildTranscript(
+            chat,
+            window,
+            new RemoteChatStatus { ChatId = chat.Id },
+            showReasoning: true,
+            showToolCalls: true,
+            revision: 1,
+            compact: true,
+            activitySourceMessages: messages);
+
+        Assert.Equal(0, window.StartMessageIndex);
+        Assert.Equal(3, window.Messages.Count);
+        Assert.Collection(
+            Assert.Single(transcript.Turns).Items,
+            item =>
+            {
+                Assert.Equal(RemoteProtocol.ItemKinds.User, item.Kind);
+                Assert.Equal("Keep the prompt visible", item.Text);
+            },
+            item =>
+            {
+                Assert.Equal(RemoteProtocol.ItemKinds.Activity, item.Kind);
+                Assert.Equal(300, item.ActionCount);
+            },
+            item => Assert.Equal(RemoteProtocol.ItemKinds.Assistant, item.Kind));
+    }
+
+    [Fact]
+    public void CompactWindowCountsOnlyRowsThePhoneDisplays()
+    {
+        var chat = new Chat { Id = Guid.NewGuid(), Title = "Tool-heavy history" };
+        var messages = new List<ChatMessage>();
+        ChatMessage? secondTurnUser = null;
+        for (var turnIndex = 0; turnIndex < 3; turnIndex++)
+        {
+            var user = Message("user", $"Prompt {turnIndex}");
+            if (turnIndex == 1)
+                secondTurnUser = user;
+            messages.Add(user);
+            messages.Add(Message("reasoning", $"hidden reasoning {turnIndex}"));
+            for (var toolIndex = 0; toolIndex < 100; toolIndex++)
+            {
+                var tool = Message(
+                    "tool",
+                    $$"""{"command":"secret-command-{{turnIndex}}-{{toolIndex}}"}""",
+                    toolName: "powershell",
+                    toolStatus: "Completed");
+                tool.ToolOutput = $"hidden-output-{turnIndex}-{toolIndex}";
+                messages.Add(tool);
+            }
+            messages.Add(Message("assistant", $"Answer {turnIndex}"));
+        }
+
+        var latest = RemoteProjector.SelectCompactTranscriptWindow(
+            messages,
+            beforeMessageIndex: null,
+            maxVisibleItems: 6,
+            textBudgetCharacters: 128);
+        var transcript = RemoteProjector.BuildTranscript(
+            chat,
+            latest,
+            new RemoteChatStatus { ChatId = chat.Id },
+            showReasoning: true,
+            showToolCalls: true,
+            revision: 1,
+            compact: true,
+            activitySourceMessages: messages);
+
+        Assert.Equal(messages.IndexOf(secondTurnUser!), latest.StartMessageIndex);
+        Assert.Equal(messages.Count, latest.EndMessageIndex);
+        Assert.Equal(6, latest.Messages.Count);
+        Assert.Equal(2, transcript.Turns.Count);
+        Assert.All(
+            transcript.Turns,
+            turn =>
+            {
+                Assert.Collection(
+                    turn.Items,
+                    item => Assert.Equal(RemoteProtocol.ItemKinds.User, item.Kind),
+                    item =>
+                    {
+                        Assert.Equal(RemoteProtocol.ItemKinds.Activity, item.Kind);
+                        Assert.Equal(100, item.ActionCount);
+                        Assert.Null(item.Tools);
+                    },
+                    item => Assert.Equal(RemoteProtocol.ItemKinds.Assistant, item.Kind));
+            });
+
+        var wire = JsonSerializer.Serialize(
+            transcript,
+            RemoteJsonContext.Default.RemoteTranscript);
+        Assert.DoesNotContain("secret-command", wire, StringComparison.Ordinal);
+        Assert.DoesNotContain("hidden-output", wire, StringComparison.Ordinal);
+
+        var earlier = RemoteProjector.SelectCompactTranscriptWindow(
+            messages,
+            beforeMessageIndex: latest.StartMessageIndex,
+            maxVisibleItems: 6,
+            textBudgetCharacters: 128);
+        Assert.Equal(0, earlier.StartMessageIndex);
+        Assert.Equal(latest.StartMessageIndex, earlier.EndMessageIndex);
+        Assert.Equal(3, earlier.Messages.Count);
+    }
+
+    [Fact]
+    public void CompactWindowNormalizesAStaleCursorToTheCurrentTurnBoundary()
+    {
+        var messages = new List<ChatMessage>
+        {
+            Message("user", "Earlier prompt"),
+            Message("assistant", "Earlier answer"),
+            Message("user", "Growing prompt"),
+            Message(
+                "tool",
+                """{"command":"step 1"}""",
+                toolName: "powershell",
+                toolStatus: "Completed")
+        };
+        var staleCursor = messages.Count;
+        messages.Add(Message(
+            "tool",
+            """{"command":"step 2"}""",
+            toolName: "powershell",
+            toolStatus: "Completed"));
+        messages.Add(Message("assistant", "Growing answer"));
+        messages.Add(Message("user", "Newer prompt"));
+        messages.Add(Message("assistant", "Newer answer"));
+
+        var window = RemoteProjector.SelectCompactTranscriptWindow(
+            messages,
+            beforeMessageIndex: staleCursor,
+            maxVisibleItems: 3);
+
+        Assert.Equal(2, window.StartMessageIndex);
+        Assert.Equal(6, window.EndMessageIndex);
+        Assert.True(window.HasLaterMessages);
+        Assert.Collection(
+            window.Messages,
+            message => Assert.Equal("Growing prompt", message.Content),
+            message => Assert.Equal("tool", message.Role),
+            message => Assert.Equal("Growing answer", message.Content));
+    }
+
+    [Fact]
+    public void CompactWindowTextBudgetIgnoresHiddenSpecialToolJson()
+    {
+        var announced = Message(
+            "tool",
+            $$"""{"filePath":"C:\\out\\report.png","hidden":"{{new string('x', 8_000)}}"}""",
+            toolName: "announce_file",
+            toolStatus: "Completed");
+        var question = Message(
+            "tool",
+            $$"""{"hidden":"{{new string('y', 8_000)}}"}""",
+            toolName: "ask_question",
+            toolStatus: "Completed",
+            questionId: "question-1");
+        question.QuestionText = "Choose one";
+        question.QuestionOptions = """["A","B"]""";
+        question.ToolOutput = "A";
+        var messages = new List<ChatMessage>
+        {
+            Message("user", "Earlier"),
+            Message("assistant", "Visible"),
+            Message("user", "Latest"),
+            announced,
+            question,
+            Message("assistant", "Done")
+        };
+
+        var window = RemoteProjector.SelectCompactTranscriptWindow(
+            messages,
+            beforeMessageIndex: null,
+            maxVisibleItems: 6,
+            textBudgetCharacters: 100);
+
+        Assert.Equal(0, window.StartMessageIndex);
+        Assert.Equal(messages.Count, window.EndMessageIndex);
+        Assert.Equal(messages.Count, window.Messages.Count);
     }
 
     [Fact]

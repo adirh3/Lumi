@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using Avalonia.Platform;
+using Lumi.Mobile.Views;
 
 namespace Lumi.Mobile.Services;
 
@@ -10,10 +12,100 @@ public interface IProducedFileOpener
         CancellationToken cancellationToken);
 }
 
+public interface ITextSelectionPresenter
+{
+    void Show(string text);
+
+    void Dismiss();
+}
+
+internal interface INativeComposerEditorFactory
+{
+    bool IsAvailable { get; }
+
+    IPlatformHandle Create(
+        NativeComposerEditorHost host,
+        IPlatformHandle parent);
+
+    void Destroy(
+        NativeComposerEditorHost host,
+        IPlatformHandle control);
+
+    void ApplyText(NativeComposerEditorHost host, string text);
+
+    void ApplyPlaceholder(
+        NativeComposerEditorHost host,
+        string placeholder);
+
+    int GetCaretIndex(NativeComposerEditorHost host);
+
+    void FocusAt(NativeComposerEditorHost host, int caretIndex);
+
+    void FocusAtEnd(NativeComposerEditorHost host);
+}
+
 public static class MobilePlatformServices
 {
+    private static readonly object TextSelectionGestureSync = new();
+    private static string? _armedTextSelection;
+    private static bool _isTextSelectionGestureActive;
+
     public static IProducedFileOpener ProducedFileOpener { get; set; } =
         new DefaultProducedFileOpener();
+
+    public static ITextSelectionPresenter TextSelectionPresenter { get; set; } =
+        new DefaultTextSelectionPresenter();
+
+    internal static INativeComposerEditorFactory NativeComposerEditorFactory { get; set; } =
+        new DefaultNativeComposerEditorFactory();
+
+    public static void ResetTextSelectionPresenter(
+        ITextSelectionPresenter? expected = null)
+    {
+        if (expected is null || ReferenceEquals(TextSelectionPresenter, expected))
+            TextSelectionPresenter = new DefaultTextSelectionPresenter();
+    }
+
+    internal static void ResetNativeComposerEditorFactory(
+        INativeComposerEditorFactory? expected = null)
+    {
+        if (expected is null || ReferenceEquals(NativeComposerEditorFactory, expected))
+            NativeComposerEditorFactory = new DefaultNativeComposerEditorFactory();
+    }
+
+    internal static void ArmTextSelectionGesture(string text)
+    {
+        lock (TextSelectionGestureSync)
+        {
+            _armedTextSelection = text;
+            _isTextSelectionGestureActive = true;
+        }
+    }
+
+    internal static string? TakeTextSelectionGesture()
+    {
+        lock (TextSelectionGestureSync)
+        {
+            var text = _armedTextSelection;
+            _armedTextSelection = null;
+            return text;
+        }
+    }
+
+    internal static bool IsTextSelectionGestureActive()
+    {
+        lock (TextSelectionGestureSync)
+            return _isTextSelectionGestureActive;
+    }
+
+    internal static void ClearTextSelectionGesture()
+    {
+        lock (TextSelectionGestureSync)
+        {
+            _armedTextSelection = null;
+            _isTextSelectionGestureActive = false;
+        }
+    }
 }
 
 internal static class ProducedFileExport
@@ -84,4 +176,52 @@ internal sealed class DefaultProducedFileOpener : IProducedFileOpener
         string displayName,
         CancellationToken cancellationToken) =>
         Task.FromResult(false);
+}
+
+internal sealed class DefaultTextSelectionPresenter : ITextSelectionPresenter
+{
+    public void Show(string text)
+    {
+    }
+
+    public void Dismiss()
+    {
+    }
+}
+
+internal sealed class DefaultNativeComposerEditorFactory : INativeComposerEditorFactory
+{
+    public bool IsAvailable => false;
+
+    public IPlatformHandle Create(
+        NativeComposerEditorHost host,
+        IPlatformHandle parent) =>
+        throw new PlatformNotSupportedException(
+            "A native composer editor is not registered on this platform.");
+
+    public void Destroy(
+        NativeComposerEditorHost host,
+        IPlatformHandle control)
+    {
+    }
+
+    public void ApplyText(NativeComposerEditorHost host, string text)
+    {
+    }
+
+    public void ApplyPlaceholder(
+        NativeComposerEditorHost host,
+        string placeholder)
+    {
+    }
+
+    public int GetCaretIndex(NativeComposerEditorHost host) => host.Text.Length;
+
+    public void FocusAt(NativeComposerEditorHost host, int caretIndex)
+    {
+    }
+
+    public void FocusAtEnd(NativeComposerEditorHost host)
+    {
+    }
 }

@@ -10,7 +10,9 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using Lumi.Mobile.Services;
+using Lumi.Models;
 using Lumi.Remote.Protocol;
+using Lumi.Services;
 using Lumi.Services.Remote;
 using Xunit;
 
@@ -58,6 +60,99 @@ public sealed class RemoteTransportTests
     }
 
     [Fact]
+    public void FileSuggestionsAreBoundedAndKeepExplicitDesktopPaths()
+    {
+        var folder = Path.Combine(
+            Path.GetTempPath(),
+            "LumiFileSuggestionTests",
+            Guid.NewGuid().ToString("N"));
+        var source = Path.Combine(folder, "src", "Lumi", "Views");
+        Directory.CreateDirectory(source);
+        var expectedPath = Path.Combine(source, "ChatView.axaml");
+        File.WriteAllText(expectedPath, "<UserControl />");
+        File.WriteAllText(Path.Combine(folder, "README.md"), "readme");
+        try
+        {
+            var result = LumiRemoteServer.BuildFileSuggestions(
+                new FileSearchService(),
+                folder,
+                "chat",
+                CancellationToken.None);
+
+            var suggestion = Assert.Single(result.Items);
+            Assert.Equal("ChatView.axaml", suggestion.Name);
+            Assert.Equal("src/Lumi/Views", suggestion.Description);
+            Assert.Equal(expectedPath, suggestion.Value);
+            Assert.Equal("📄", suggestion.Glyph);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void MissingExplicitProjectDirectoryDoesNotFallBackToUserProfile()
+    {
+        var project = new Project
+        {
+            Id = Guid.NewGuid(),
+            Name = "Missing",
+            WorkingDirectory = Path.Combine(
+                Path.GetTempPath(),
+                "missing-project",
+                Guid.NewGuid().ToString("N"))
+        };
+        var dataStore = new DataStore(new AppData { Projects = [project] });
+
+        Assert.Null(LumiRemoteServer.ResolveFileSuggestionDirectory(
+            dataStore,
+            chat: null,
+            project.Id));
+    }
+
+    [Fact]
+    public void MissingExplicitWorktreeDoesNotFallBackToProjectCheckout()
+    {
+        var projectDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "LumiProject",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(projectDirectory);
+        try
+        {
+            var project = new Project
+            {
+                Id = Guid.NewGuid(),
+                Name = "Project",
+                WorkingDirectory = projectDirectory
+            };
+            var chat = new Chat
+            {
+                ProjectId = project.Id,
+                WorktreePath = Path.Combine(
+                    Path.GetTempPath(),
+                    "missing-worktree",
+                    Guid.NewGuid().ToString("N"))
+            };
+            var dataStore = new DataStore(new AppData
+            {
+                Projects = [project],
+                Chats = [chat]
+            });
+
+            Assert.Null(LumiRemoteServer.ResolveFileSuggestionDirectory(
+                dataStore,
+                chat,
+                project.Id));
+        }
+        finally
+        {
+            Directory.Delete(projectDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void UploadQuotaBoundsEachDeviceAndTheSharedTemporaryStore()
     {
         Assert.True(LumiRemoteServer.CanAcceptUpload(0, 0, RemoteProtocol.MaxUploadBytes));
@@ -102,6 +197,23 @@ public sealed class RemoteTransportTests
         Assert.Equal(
             expected,
             LumiRemoteServer.ResolveTranscriptWindowLimit(rawLimit, beforeMessageIndex));
+    }
+
+    [Theory]
+    [InlineData(null, null, RemoteProtocol.InitialCompactTranscriptWindowVisibleItemLimit)]
+    [InlineData(null, 100, RemoteProtocol.CompactTranscriptWindowVisibleItemLimit)]
+    [InlineData("900", null, RemoteProtocol.CompactTranscriptWindowVisibleItemLimit)]
+    public void CompactTranscriptWindowUsesVisibleItemLimits(
+        string? rawLimit,
+        int? beforeMessageIndex,
+        int expected)
+    {
+        Assert.Equal(
+            expected,
+            LumiRemoteServer.ResolveTranscriptWindowLimit(
+                rawLimit,
+                beforeMessageIndex,
+                compact: true));
     }
 
     [Fact]

@@ -64,6 +64,8 @@ public sealed partial class MobileShellViewModel :
     IRemoteCatalogRefreshSink,
     IRemoteChatPageSink,
     IRemoteActivityDetailSink,
+    IRemoteMarkdownImageSink,
+    IRemoteFileSuggestionSink,
     IAsyncDisposable
 {
     private readonly MobileSettingsStore _store;
@@ -187,13 +189,15 @@ public sealed partial class MobileShellViewModel :
         Theme = Enum.TryParse<ThemePreference>(_settings.Theme, ignoreCase: true, out var theme) ? theme : ThemePreference.System;
 
         ChatList = new ChatListViewModel(this);
-        Chat = new MobileChatViewModel(this);
+        SearchChatList = new ChatListViewModel(this);
+        Chat = new MobileChatViewModel(this, _post);
         Library = new LibraryViewModel(this);
         Connect = new ConnectViewModel(Client, Discovery, OnPairedAsync);
         IsSidebarCollapsed = _settings.IsSidebarCollapsed;
 
         ChatList.ChatActivated += OnChatActivated;
         ChatList.ChatRemoved += OnChatRemoved;
+        SearchChatList.ChatActivated += OnChatActivated;
         Client.StreamFrameReceived += OnFrameReceived;
         Client.StateChanged += OnClientStateChanged;
 
@@ -220,11 +224,16 @@ public sealed partial class MobileShellViewModel :
             if (e.PropertyName is nameof(MobileChatViewModel.IsBusy)
                 or nameof(MobileChatViewModel.IsStreaming))
             {
-                ChatList.SetRunning(Chat.ChatId, Chat.IsBusy || Chat.IsStreaming);
+                var isRunning = Chat.IsBusy || Chat.IsStreaming;
+                ChatList.SetRunning(Chat.ChatId, isRunning);
+                SearchChatList.SetRunning(Chat.ChatId, isRunning);
             }
 
             if (e.PropertyName is nameof(MobileChatViewModel.ChatId))
+            {
+                SearchChatList.SelectedChatId = Chat.ChatId;
                 QueueSubscriptionUpdate();
+            }
 
         };
 
@@ -246,6 +255,7 @@ public sealed partial class MobileShellViewModel :
                 return;
 
             ChatList.SelectedChatId = chatId;
+            PromoteActiveChat(chatId, LatestUserPreview(), isNewChat: true);
             ChatList.SetRunning(chatId, Chat.IsBusy || Chat.IsStreaming);
             if (IsDrawerVisible)
                 _ = ChatList.RefreshFromServerAsync();
@@ -253,6 +263,13 @@ public sealed partial class MobileShellViewModel :
             _ = Chat.FlushPendingConfigurationAsync();
             _ = RefreshTranscriptAsync();
         });
+        Chat.ChatActivitySubmitted += (chatId, preview) =>
+            _post(() => PromoteActiveChat(chatId, preview));
+        Chat.ChatActivitySubmissionFailed += _failedChatId =>
+            _post(() =>
+            {
+                _ = ChatList.RefreshFromServerAsync();
+            });
 
         Library.CloseRequested += () => Page = MobilePage.Chat;
 
@@ -271,6 +288,8 @@ public sealed partial class MobileShellViewModel :
     public ConnectViewModel Connect { get; }
 
     public ChatListViewModel ChatList { get; }
+
+    public ChatListViewModel SearchChatList { get; }
 
     public MobileChatViewModel Chat { get; }
 
@@ -363,6 +382,8 @@ public sealed partial class MobileShellViewModel :
     partial void OnActiveProjectIdChanged(Guid? value)
     {
         ChatList.ProjectFilterId = value;
+        if (Page == MobilePage.Search)
+            SearchChatList.ProjectFilterId = value;
         OnPropertyChanged(nameof(ActiveProject));
         OnPropertyChanged(nameof(HasActiveProject));
         SyncProjectSelection();
@@ -523,7 +544,9 @@ public sealed partial class MobileShellViewModel :
     [RelayCommand]
     private void OpenSearch()
     {
-        ChatList.SearchText = "";
+        SearchChatList.ProjectFilterId = ChatList.ProjectFilterId;
+        SearchChatList.SearchText = "";
+        SearchChatList.Apply(ChatList.SnapshotLoadedGroups());
         _readWatermarks.Clear();
         Page = MobilePage.Search;
         IsDrawerOpen = false;
@@ -740,7 +763,7 @@ public sealed partial class MobileShellViewModel :
         if (value == MobilePage.Library)
             _ = RefreshSnapshotAsync();
         if (value == MobilePage.Search)
-            _ = ChatList.RefreshFromServerAsync();
+            _ = SearchChatList.RefreshFromServerAsync();
     }
 
     partial void OnIsDrawerOpenChanged(bool value)
@@ -1055,6 +1078,10 @@ public sealed partial class MobileShellViewModel :
         ChatList.SelectedChatId = Guid.Empty;
         ChatList.Apply([]);
         ChatList.SearchText = "";
+        SearchChatList.SelectedChatId = Guid.Empty;
+        SearchChatList.Apply([]);
+        SearchChatList.SearchText = "";
+        SearchChatList.ProjectFilterId = null;
         ApplyLibrary(new RemoteLibrary(), reconcileSelections: false);
         Library.ResetHostState();
         ActionChat = null;
@@ -1187,6 +1214,8 @@ public sealed partial class MobileShellViewModel :
                 ChatList.Apply(snapshot.Chats);
             else
                 _ = ChatList.RefreshFromServerAsync();
+            if (Page == MobilePage.Search)
+                _ = SearchChatList.RefreshFromServerAsync();
             ApplyLibrary(snapshot.Library, reconcileSelections: false);
         }
         Chat.ApplyCatalogs(snapshot.Settings);
@@ -1222,8 +1251,40 @@ public sealed partial class MobileShellViewModel :
         }
     }
 
-    private void OnChatActivated(Guid chatId, string title, string? model, int messageCount) =>
+    private void OnChatActivated(Guid chatId, string title, string? model, int messageCount)
+    {
+        ChatList.SelectedChatId = chatId;
+        SearchChatList.SelectedChatId = chatId;
         _ = ActivateChatAsync(chatId, title, model, messageCount);
+    }
+
+    private void PromoteActiveChat(
+        Guid chatId,
+        string? preview,
+        bool isNewChat = false)
+    {
+        ChatList.PromoteChat(new RemoteChat
+        {
+            Id = chatId,
+            Title = Chat.Title,
+            Preview = preview,
+            ProjectId = Guid.TryParse(Chat.ProjectValue, out var projectId) ? projectId : null,
+            ProjectName = Chat.ProjectName,
+            AgentId = Guid.TryParse(Chat.AgentValue, out var agentId) ? agentId : null,
+            AgentName = Chat.AgentName,
+            AgentGlyph = Chat.AgentGlyph,
+            MessageCount = 1,
+            UpdatedAt = DateTimeOffset.Now,
+            IsRunning = true,
+            LastModelUsed = Chat.Model
+        }, isNewChat);
+    }
+
+    private string? LatestUserPreview() => Chat.Turns
+        .SelectMany(turn => turn.Items)
+        .OfType<UserTurnItemViewModel>()
+        .LastOrDefault()
+        ?.Text;
 
     private async Task ActivateChatAsync(
         Guid chatId,
@@ -1481,8 +1542,12 @@ public sealed partial class MobileShellViewModel :
                         request.ChatId,
                         request.BeforeMessageIndex,
                         request.Kind is TranscriptRefreshKind.Earlier or TranscriptRefreshKind.Newer
-                            ? RemoteProtocol.TranscriptWindowRawMessageLimit
-                            : RemoteProtocol.InitialTranscriptWindowRawMessageLimit,
+                            ? Client.SupportsCompactTranscript
+                                ? RemoteProtocol.CompactTranscriptWindowVisibleItemLimit
+                                : RemoteProtocol.TranscriptWindowRawMessageLimit
+                            : Client.SupportsCompactTranscript
+                                ? RemoteProtocol.InitialCompactTranscriptWindowVisibleItemLimit
+                                : RemoteProtocol.InitialTranscriptWindowRawMessageLimit,
                         requestCts.Token)
                     .ConfigureAwait(false);
 
@@ -1722,6 +1787,9 @@ public sealed partial class MobileShellViewModel :
                         {
                             _ = ChatList.RefreshFromServerAsync();
                         }
+
+                        if (Page == MobilePage.Search)
+                            _ = SearchChatList.RefreshFromServerAsync();
                     });
                 }
                 return;
@@ -1904,6 +1972,30 @@ public sealed partial class MobileShellViewModel :
         }
     }
 
+    public async Task<RemoteFileSuggestions?> GetFileSuggestionsAsync(
+        Guid? chatId,
+        Guid? projectId,
+        string query,
+        CancellationToken cancellationToken)
+    {
+        using var request = CreateConnectionRequest();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+            request.Token,
+            cancellationToken);
+        try
+        {
+            return await Client.GetFileSuggestionsAsync(
+                chatId,
+                projectId,
+                query,
+                linked.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
     public Task RefreshCatalogsAsync() => RefreshSnapshotAsync();
 
     public async Task<RemoteChatPage?> GetChatPageAsync(
@@ -1949,6 +2041,32 @@ public sealed partial class MobileShellViewModel :
         }
     }
 
+    public async Task<string?> DownloadMarkdownImageAsync(
+        Guid chatId,
+        Guid messageId,
+        int imageIndex,
+        string fileName,
+        CancellationToken cancellationToken)
+    {
+        using var request = CreateConnectionRequest();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+            request.Token,
+            cancellationToken);
+        try
+        {
+            return await Client.DownloadMarkdownImageAsync(
+                chatId,
+                messageId,
+                imageIndex,
+                fileName,
+                linked.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
     public async Task<RemoteActivityDetails?> GetActivityDetailsAsync(
         Guid chatId,
         string activityId)
@@ -1989,6 +2107,7 @@ public sealed partial class MobileShellViewModel :
         }
 
         ChatList.Dispose();
+        SearchChatList.Dispose();
         await Client.DisposeAsync();
         await _connectionLifetime.CancelAsync();
         _connectionLifetime.Dispose();

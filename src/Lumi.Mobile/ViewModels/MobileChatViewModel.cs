@@ -18,6 +18,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private static readonly TimeSpan PendingRetryReplayWindow = TimeSpan.FromMinutes(9);
     private readonly IRemoteCommandSink _sink;
     private readonly Func<DateTimeOffset> _now;
+    private readonly Action<Action> _post;
     private readonly SemaphoreSlim _configurationGate = new(1, 1);
     private string? _preferredModel;
     private long _revision = -1;
@@ -30,6 +31,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private readonly Dictionary<Guid, string> _pendingStopRequestIds = [];
     private readonly Dictionary<ChatSurfaceIdentity, DraftState> _drafts = [];
     private readonly Dictionary<ChatSurfaceIdentity, ChatSurfaceIdentity> _surfaceMappings = [];
+    private CancellationTokenSource? _fileSuggestionCts;
+    private long _fileSuggestionVersion;
     private bool _restoringDraftState;
 
     /// <summary>
@@ -245,6 +248,98 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     public event Action? AttachmentPickRequested;
 
+    [RelayCommand(AllowConcurrentExecutions = true)]
+    private async Task SearchFilesAsync(string? rawQuery)
+    {
+        _fileSuggestionCts?.Cancel();
+        _fileSuggestionCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _fileSuggestionCts = cts;
+
+        if (_sink is not IRemoteFileSuggestionSink suggestionSink)
+        {
+            AvailableFiles.Clear();
+            return;
+        }
+
+        var version = Interlocked.Increment(ref _fileSuggestionVersion);
+        var hostGeneration = Volatile.Read(ref _hostGeneration);
+        var surface = CurrentSurface;
+        var activation = Volatile.Read(ref _surfaceActivationGeneration);
+        var query = rawQuery?.Trim() ?? "";
+        var projectId = Guid.TryParse(ProjectValue, out var parsedProjectId)
+            ? parsedProjectId
+            : (Guid?)null;
+        try
+        {
+            await Task.Delay(90, cts.Token);
+            var suggestions = await suggestionSink.GetFileSuggestionsAsync(
+                ChatId == Guid.Empty ? null : ChatId,
+                projectId,
+                query,
+                cts.Token);
+            var items = suggestions?.Items ?? [];
+            _post(() =>
+            {
+                if (cts.IsCancellationRequested
+                    || version != Volatile.Read(ref _fileSuggestionVersion)
+                    || !IsCurrentHost(hostGeneration)
+                    || !IsCurrentSurfaceActivation(surface, activation))
+                {
+                    return;
+                }
+
+                SyncCatalog(AvailableFiles, items, "📄");
+            });
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            if (version == Volatile.Read(ref _fileSuggestionVersion)
+                && IsCurrentHost(hostGeneration)
+                && IsCurrentSurfaceActivation(surface, activation))
+            {
+                _post(AvailableFiles.Clear);
+            }
+            Trace.TraceWarning($"[Mobile] File suggestions failed: {ex}");
+        }
+    }
+
+    [RelayCommand]
+    private void SelectFile(string? filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+            return;
+
+        CancelFileSuggestionSearch();
+        var fileName = FileNameFromRemotePath(filePath);
+        ApplyUploadedAttachment(
+            CurrentSurface,
+            new PendingAttachment(
+                string.IsNullOrWhiteSpace(fileName) ? filePath : fileName,
+                filePath));
+        AvailableFiles.Clear();
+    }
+
+    internal static string FileNameFromRemotePath(string path)
+    {
+        var normalized = path.Replace('\\', '/').TrimEnd('/');
+        var separator = normalized.LastIndexOf('/');
+        return separator >= 0 && separator + 1 < normalized.Length
+            ? normalized[(separator + 1)..]
+            : normalized;
+    }
+
+    private void CancelFileSuggestionSearch()
+    {
+        _fileSuggestionCts?.Cancel();
+        _fileSuggestionCts?.Dispose();
+        _fileSuggestionCts = null;
+        Interlocked.Increment(ref _fileSuggestionVersion);
+    }
+
     /// <summary>
     /// Uploads a picked file and stages it for the next message.
     ///
@@ -301,17 +396,19 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
     }
 
-    public MobileChatViewModel(IRemoteCommandSink sink)
-        : this(sink, static () => DateTimeOffset.UtcNow)
+    public MobileChatViewModel(IRemoteCommandSink sink, Action<Action>? post = null)
+        : this(sink, static () => DateTimeOffset.UtcNow, post)
     {
     }
 
     internal MobileChatViewModel(
         IRemoteCommandSink sink,
-        Func<DateTimeOffset> now)
+        Func<DateTimeOffset> now,
+        Action<Action>? post = null)
     {
         _sink = sink;
         _now = now;
+        _post = post ?? (static action => action());
 
         // The composer adds a picked skill / MCP straight into these collections, so watching them
         // is the only way to learn about a "+" menu selection. Adds made by ApplyStatus are ignored
@@ -375,6 +472,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public ObservableCollection<StrataComposerChip> AvailableSkills { get; } = [];
     public ObservableCollection<StrataComposerChip> AvailableMcps { get; } = [];
     public ObservableCollection<StrataComposerChip> AvailableProjects { get; } = [];
+    public ObservableCollection<StrataComposerChip> AvailableFiles { get; } = [];
 
     public bool HasChat => ChatId != Guid.Empty;
 
@@ -1376,6 +1474,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // Drafts belong to chats, but async completions belong to this particular activation. A user
         // who leaves chat A and later returns to A must not receive A's stale command/upload result.
         _surfaceActivationGeneration++;
+        CancelFileSuggestionSearch();
+        AvailableFiles.Clear();
 
         _applyingServerState = true;
         try
@@ -1385,7 +1485,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
             ChatId = chatId;
             Title = title;
+            DisposeTurns();
             Turns.Clear();
+            ChatSurfaceReset?.Invoke();
             Suggestions.Clear();
             SkillChips.Clear();
             McpChips.Clear();
@@ -1522,17 +1624,26 @@ public sealed partial class MobileChatViewModel : ObservableObject
             var created = new TranscriptTurnViewModel(
                 incoming.Id,
                 OpenActivityAsync,
-                OpenSources);
+                OpenSources,
+                ResolveInlineImagesAsync);
             created.Apply(incoming);
 
             if (i < Turns.Count)
+            {
+                var replaced = Turns[i];
                 Turns[i] = created;
+                replaced.Dispose();
+            }
             else
                 Turns.Add(created);
         }
 
         while (Turns.Count > transcript.Turns.Count)
+        {
+            var removed = Turns[^1];
             Turns.RemoveAt(Turns.Count - 1);
+            removed.Dispose();
+        }
 
         if (pendingEcho is not null)
             Turns.Add(pendingEcho);
@@ -1712,13 +1823,11 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (pendingStopCompleted)
         {
             ResetVisibleActivityProgress();
-            IsBusy = false;
-            IsStreaming = false;
+            ApplyWorkingState(isBusy: false, isStreaming: false);
         }
         else if (!holdingProgress)
         {
-            IsBusy = status.IsBusy;
-            IsStreaming = status.IsStreaming;
+            ApplyWorkingState(status.IsBusy, status.IsStreaming);
             if (!reportsWorking)
                 ResetVisibleActivityProgress();
         }
@@ -1795,6 +1904,21 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         Sync(Suggestions, status.Suggestions);
         OnPropertyChanged(nameof(Starters));
+    }
+
+    private void ApplyWorkingState(bool isBusy, bool isStreaming)
+    {
+        // Keep the combined working state continuously true when the server changes phase from
+        // thinking/tools to text streaming (or back). Clearing the old flag before setting the new
+        // one creates a false idle -> active edge that makes transcript observers jump to the tail.
+        if (isBusy)
+            IsBusy = true;
+        if (isStreaming)
+            IsStreaming = true;
+        if (!isBusy)
+            IsBusy = false;
+        if (!isStreaming)
+            IsStreaming = false;
     }
 
     private void RestorePendingWorkspaceSelections()
@@ -2092,15 +2216,14 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 {
                     case AssistantItemViewModel assistant:
                         if (!ApplyStreamChunk(
-                                assistant.Text,
+                                assistant.SourceText,
                                 delta,
                                 RemoteProtocol.MobileAssistantTextLimit,
                                 out var assistantText))
                         {
                             return false;
                         }
-                        assistant.Text = assistantText;
-                        assistant.IsStreaming = true;
+                        assistant.ApplyStreamText(assistantText);
                         MarkVisibleResponseActivity();
                         return true;
                     case ReasoningItemViewModel reasoning:
@@ -2242,6 +2365,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // the user cannot tell whether the tap registered. The echo is replaced by the server's own
         // copy on the next transcript, so nothing here can drift.
         var echo = AddPendingEcho(text.Length > 0 ? text : attached[0].FileName, effectiveSteer);
+        if (surface.ChatId != Guid.Empty)
+            ChatActivitySubmitted?.Invoke(surface.ChatId, echo?.Items.OfType<UserTurnItemViewModel>().FirstOrDefault()?.Text ?? text);
 
         var command = new RemoteCommand(RemoteProtocol.Actions.SendMessage)
         {
@@ -2286,6 +2411,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 effectiveSteer,
                 "Lumi could not send that message.",
                 echo);
+            if (!surface.IsBlank)
+                ChatActivitySubmissionFailed?.Invoke(surface.ChatId);
             Trace.TraceWarning($"[Mobile] Send failed: {ex}");
             return;
         }
@@ -2325,6 +2452,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 effectiveSteer,
                 result.Error ?? "Lumi could not send that message.",
                 echo);
+            if (!surface.IsBlank)
+                ChatActivitySubmissionFailed?.Invoke(surface.ChatId);
 
             if (surface.IsBlank &&
                 result.ChatId is { } failedCreatedId &&
@@ -2552,7 +2681,11 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private TranscriptTurnViewModel? AddPendingEcho(string text, bool steer)
     {
         _pendingEchoBaselineRevision = _revision;
-        var turn = new TranscriptTurnViewModel(EchoTurnId, OpenActivityAsync, OpenSources);
+        var turn = new TranscriptTurnViewModel(
+            EchoTurnId,
+            OpenActivityAsync,
+            OpenSources,
+            ResolveInlineImagesAsync);
         turn.Items.Add(new UserTurnItemViewModel(new RemoteTranscriptItem
         {
             Id = EchoTurnId,
@@ -2567,6 +2700,40 @@ public sealed partial class MobileChatViewModel : ObservableObject
         return turn;
     }
 
+    private async Task<string> ResolveInlineImagesAsync(
+        string messageId,
+        string markdown,
+        IReadOnlyList<RemoteInlineImage> images,
+        CancellationToken cancellationToken)
+    {
+        if (_sink is not IRemoteMarkdownImageSink imageSink
+            || ChatId == Guid.Empty
+            || !Guid.TryParseExact(messageId, "N", out var parsedMessageId))
+        {
+            return markdown;
+        }
+
+        var chatId = ChatId;
+        var downloads = images.Select(async image =>
+        {
+            var path = await imageSink.DownloadMarkdownImageAsync(
+                chatId,
+                parsedMessageId,
+                image.Index,
+                image.FileName,
+                cancellationToken);
+            return (image.Index, Path: path);
+        });
+        var resolved = await Task.WhenAll(downloads);
+        var replacements = resolved
+            .Where(result => !string.IsNullOrWhiteSpace(result.Path))
+            .ToDictionary(
+                result => result.Index,
+                result => result.Path!);
+
+        return RemoteMarkdownImages.RewriteTargets(markdown, replacements);
+    }
+
     private void RemovePendingEcho(TranscriptTurnViewModel? turn)
     {
         if (turn is null)
@@ -2576,6 +2743,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         _pendingEchoBaselineRevision = null;
         if (removed)
         {
+            turn.Dispose();
             OnPropertyChanged(nameof(IsEmpty));
             OnPropertyChanged(nameof(CanChooseWorktree));
         }
@@ -2592,7 +2760,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
         {
             if (Turns[i].Id == EchoTurnId)
             {
+                var removedTurn = Turns[i];
                 Turns.RemoveAt(i);
+                removedTurn.Dispose();
                 removed = true;
             }
         }
@@ -2610,6 +2780,19 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// first turn itself failed after creation.
     /// </summary>
     public event Action<Guid, long>? ChatCreated;
+
+    public event Action<Guid, string>? ChatActivitySubmitted;
+
+    public event Action<Guid>? ChatActivitySubmissionFailed;
+
+    /// <summary>Raised whenever chat activation clears the visible transcript, even for the same id.</summary>
+    public event Action? ChatSurfaceReset;
+
+    private void DisposeTurns()
+    {
+        foreach (var turn in Turns)
+            turn.Dispose();
+    }
 
     /// <summary>
     /// Promotes the blank surface that issued a send to its server-assigned chat id.
@@ -3124,6 +3307,25 @@ public interface IRemoteCatalogRefreshSink
 public interface IRemoteActivityDetailSink
 {
     Task<RemoteActivityDetails?> GetActivityDetailsAsync(Guid chatId, string activityId);
+}
+
+public interface IRemoteMarkdownImageSink
+{
+    Task<string?> DownloadMarkdownImageAsync(
+        Guid chatId,
+        Guid messageId,
+        int imageIndex,
+        string fileName,
+        CancellationToken cancellationToken);
+}
+
+public interface IRemoteFileSuggestionSink
+{
+    Task<RemoteFileSuggestions?> GetFileSuggestionsAsync(
+        Guid? chatId,
+        Guid? projectId,
+        string query,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>A file already on the PC, waiting to be referenced by the next message.</summary>

@@ -10,6 +10,7 @@ using Avalonia.VisualTree;
 using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -24,6 +25,8 @@ public partial class ChatDetailView : UserControl
 {
     private MobilePresenceController? _presence;
     private MobileShellViewModel? _shell;
+    private StrataChatComposer? _composer;
+    private NativeComposerEditorHost? _nativeComposerEditor;
 
     /// <summary>Every collection and item we have hooked, so detach is exact and nothing leaks.</summary>
     private readonly HashSet<TranscriptTurnViewModel> _observedTurns =
@@ -31,8 +34,7 @@ public partial class ChatDetailView : UserControl
     private readonly HashSet<TranscriptItemViewModel> _observedItems =
         new(ReferenceEqualityComparer.Instance);
     private INotifyCollectionChanged? _composerChipChildren;
-    private bool _composerChipTargetUpdateQueued;
-
+    private bool _composerChipUpdateQueued;
     /// <summary>
     /// Coalesces streaming follow-ups into one per frame.
     ///
@@ -59,26 +61,106 @@ public partial class ChatDetailView : UserControl
     {
         base.OnAttachedToVisualTree(e);
         Dispatcher.UIThread.Post(AttachComposerChipObserver, DispatcherPriority.Loaded);
+        Dispatcher.UIThread.Post(AttachNativeComposerEditor, DispatcherPriority.Loaded);
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
+        DetachNativeComposerEditor();
         DetachComposerChipObserver();
         base.OnDetachedFromVisualTree(e);
     }
 
-    /// <summary>
-    /// Strata creates skill-chip remove buttons in code with desktop-local 16dp dimensions, so an
-    /// ordinary mobile style cannot outrank those values. Observe the chip row and apply the mobile
-    /// touch token whenever Strata rebuilds it; commands and chip behavior remain entirely owned by
-    /// the composer.
-    /// </summary>
+    private void AttachNativeComposerEditor()
+    {
+        DetachNativeComposerEditor();
+        if (!MobilePlatformServices.NativeComposerEditorFactory.IsAvailable
+            || this.FindControl<StrataChatComposer>("Composer") is not { } composer)
+        {
+            return;
+        }
+
+        var editor = new NativeComposerEditorHost
+        {
+            Height = 64,
+            MinHeight = 64,
+            MaxHeight = 64,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Placeholder = composer.Placeholder,
+            Text = composer.PromptText ?? ""
+        };
+        _composer = composer;
+        _nativeComposerEditor = editor;
+        composer.PropertyChanged += OnComposerPropertyChanged;
+        editor.PropertyChanged += OnNativeComposerEditorPropertyChanged;
+        composer.EditorContent = editor;
+        UpdateNativeComposerVisibility();
+    }
+
+    private void DetachNativeComposerEditor()
+    {
+        if (_composer is not null)
+            _composer.PropertyChanged -= OnComposerPropertyChanged;
+        if (_nativeComposerEditor is not null)
+            _nativeComposerEditor.PropertyChanged -= OnNativeComposerEditorPropertyChanged;
+        if (_composer is not null
+            && ReferenceEquals(_composer.EditorContent, _nativeComposerEditor))
+        {
+            _composer.EditorContent = null;
+        }
+
+        _nativeComposerEditor = null;
+        _composer = null;
+    }
+
+    private void OnComposerPropertyChanged(
+        object? sender,
+        AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == StrataChatComposer.PromptTextProperty
+            && _nativeComposerEditor is { } editor)
+        {
+            editor.SetCurrentValue(
+                NativeComposerEditorHost.TextProperty,
+                e.GetNewValue<string?>() ?? "");
+        }
+    }
+
+    private void OnNativeComposerEditorPropertyChanged(
+        object? sender,
+        AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == NativeComposerEditorHost.TextProperty
+            && _composer is { } composer)
+        {
+            composer.SetCurrentValue(
+                StrataChatComposer.PromptTextProperty,
+                e.GetNewValue<string?>() ?? "");
+        }
+    }
+
+    private void UpdateNativeComposerVisibility()
+    {
+        if (_nativeComposerEditor is null)
+            return;
+
+        _nativeComposerEditor.IsVisible = ShouldShowNativeComposerEditor(_shell);
+    }
+
+    internal static bool ShouldShowNativeComposerEditor(MobileShellViewModel? shell) =>
+        shell is
+        {
+            IsChatPage: true,
+            IsDrawerOverlay: false,
+            IsChatActionsOpen: false,
+            HasPageOverlay: false
+        }
+        && !shell.Chat.HasOpenSheet;
+
     private void AttachComposerChipObserver()
     {
         DetachComposerChipObserver();
-        if (!this.IsAttachedToVisualTree())
-            return;
-
         var chipRow = this.FindControl<StrataChatComposer>("Composer")
             ?.GetVisualDescendants()
             .OfType<WrapPanel>()
@@ -88,55 +170,45 @@ public partial class ChatDetailView : UserControl
 
         _composerChipChildren = children;
         children.CollectionChanged += OnComposerChipChildrenChanged;
-        ApplyComposerChipTouchTargets();
+        ApplyProgrammaticChipSize();
     }
 
     private void DetachComposerChipObserver()
     {
         if (_composerChipChildren is not null)
             _composerChipChildren.CollectionChanged -= OnComposerChipChildrenChanged;
-
         _composerChipChildren = null;
-        _composerChipTargetUpdateQueued = false;
+        _composerChipUpdateQueued = false;
     }
 
     private void OnComposerChipChildrenChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (_composerChipTargetUpdateQueued)
+        if (_composerChipUpdateQueued)
             return;
 
-        _composerChipTargetUpdateQueued = true;
-        Dispatcher.UIThread.Post(
-            () =>
-            {
-                _composerChipTargetUpdateQueued = false;
-                if (this.IsAttachedToVisualTree())
-                    ApplyComposerChipTouchTargets();
-            },
-            DispatcherPriority.Loaded);
+        _composerChipUpdateQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _composerChipUpdateQueued = false;
+            if (this.IsAttachedToVisualTree())
+                ApplyProgrammaticChipSize();
+        }, DispatcherPriority.Loaded);
     }
 
-    private void ApplyComposerChipTouchTargets()
+    private void ApplyProgrammaticChipSize()
     {
         if (this.FindControl<StrataChatComposer>("Composer") is not { } composer)
             return;
-
-        var target = composer.TryFindResource(
-            "Touch.MinTarget",
-            composer.ActualThemeVariant,
-            out var resource) && resource is double value
-                ? value
-                : 48;
 
         foreach (var button in composer.GetVisualDescendants()
                      .OfType<Button>()
                      .Where(candidate => candidate.Classes.Contains("chip-remove")))
         {
-            button.Width = target;
-            button.Height = target;
-            button.MinWidth = target;
-            button.MinHeight = target;
-            button.CornerRadius = new CornerRadius(target / 2);
+            button.Width = 28;
+            button.Height = 28;
+            button.MinWidth = 28;
+            button.MinHeight = 28;
+            button.CornerRadius = new CornerRadius(14);
         }
     }
 
@@ -349,10 +421,14 @@ public partial class ChatDetailView : UserControl
         _presence?.Attach(shell);
 
         _shell = shell;
+        shell.PropertyChanged += OnShellPropertyChanged;
         shell.Chat.Turns.CollectionChanged += OnTurnsChanged;
         shell.Chat.PropertyChanged += OnChatPropertyChanged;
+        shell.Chat.ChatActivitySubmitted += OnChatActivitySubmitted;
+        shell.Chat.ChatSurfaceReset += OnChatSurfaceReset;
         shell.Chat.AttachmentPickRequested += OnPickAttachment;
         SynchronizeObservers();
+        UpdateNativeComposerVisibility();
     }
 
     private void Detach()
@@ -362,12 +438,28 @@ public partial class ChatDetailView : UserControl
 
         _shell.Chat.Turns.CollectionChanged -= OnTurnsChanged;
         _shell.Chat.PropertyChanged -= OnChatPropertyChanged;
+        _shell.Chat.ChatActivitySubmitted -= OnChatActivitySubmitted;
+        _shell.Chat.ChatSurfaceReset -= OnChatSurfaceReset;
         _shell.Chat.AttachmentPickRequested -= OnPickAttachment;
+        _shell.PropertyChanged -= OnShellPropertyChanged;
 
         ClearObservers();
 
-        _wasBusy = false;
         _shell = null;
+        UpdateNativeComposerVisibility();
+    }
+
+    private void OnShellPropertyChanged(
+        object? sender,
+        PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(MobileShellViewModel.IsChatPage)
+            or nameof(MobileShellViewModel.IsDrawerOverlay)
+            or nameof(MobileShellViewModel.IsChatActionsOpen)
+            or nameof(MobileShellViewModel.HasPageOverlay))
+        {
+            UpdateNativeComposerVisibility();
+        }
     }
 
     private void OnTurnsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -379,13 +471,19 @@ public partial class ChatDetailView : UserControl
         if (_shell?.Chat.IsLatestWindow != true)
             return;
 
-        // A new turn is the user's own message or the start of a reply. They just acted, so jump
-        // even if they had scrolled away — this is the one case where overriding them is right.
-        if (e.Action == NotifyCollectionChangedAction.Add)
-            Shell?.JumpToLatest();
-        else
-            RequestFollow(newContent: true);
+        // Server reconciliation can append turns repeatedly while Lumi is working. Treat those as
+        // new content and honour a reader who scrolled away; explicit local sends have their own
+        // ChatActivitySubmitted signal below and are the only additions that force the tail.
+        RequestFollow(newContent: true);
     }
+
+    private void OnChatActivitySubmitted(Guid chatId, string _)
+    {
+        if (_shell?.Chat.ChatId == chatId)
+            Shell?.JumpToLatest();
+    }
+
+    private void OnChatSurfaceReset() => Shell?.RequestInitialBottom();
 
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
@@ -410,10 +508,14 @@ public partial class ChatDetailView : UserControl
             RequestFollow(newContent: false);
     }
 
-    private bool _wasBusy;
-
     private void OnChatPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MobileChatViewModel.HasOpenSheet))
+        {
+            UpdateNativeComposerVisibility();
+            return;
+        }
+
         // A picker sheet that opens at the top of a long catalog hides the very thing the user came
         // to check — which model is active. Bring it into view as the sheet opens.
         if (e.PropertyName == nameof(MobileChatViewModel.IsModelSheetOpen)
@@ -456,23 +558,9 @@ public partial class ChatDetailView : UserControl
         if (e.PropertyName is not (nameof(MobileChatViewModel.IsStreaming) or nameof(MobileChatViewModel.IsBusy)))
             return;
 
-        // Rising edge of busy == the user just sent something. That is explicit intent to be at the
-        // tail, so snap there NOW rather than asking politely.
-        //
-        // The gentle notify below honours a reader who has scrolled up and is posted at Background
-        // priority, so after sending from anywhere but the very bottom the echoed bubble and the
-        // thinking row both landed off-screen: the app looked like it had ignored the tap until the
-        // answer eventually pushed the view down. JumpToLatest overrides the scroll-away policy and
-        // runs inline, so the feedback is on screen in the same frame the tap is handled.
-        var busy = _shell?.Chat is { } chat && (chat.IsBusy || chat.IsStreaming);
-        if (busy && !_wasBusy)
-        {
-            _wasBusy = true;
-            Shell?.JumpToLatest();
-            return;
-        }
-
-        _wasBusy = busy;
+        // Status can originate from desktop or another mobile surface. It may update the progress
+        // affordance, but it must not override a reader who deliberately scrolled away. Only the
+        // explicit local ChatActivitySubmitted signal above forces the viewport to the tail.
         RequestFollow(newContent: false);
     }
 

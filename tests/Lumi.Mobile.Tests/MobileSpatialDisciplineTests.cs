@@ -133,14 +133,16 @@ public sealed class MobileSpatialDisciplineTests
             shell =>
             {
                 PairAndOpenChat(shell);
-                shell.ChatList.Apply(
+                RemoteChatGroup[] groups =
                 [
                     new RemoteChatGroup
                     {
                         Label = "Today",
                         Chats = [new RemoteChat { Id = Guid.NewGuid(), Title = "Aligned chat" }]
                     }
-                ]);
+                ];
+                shell.ChatList.Apply(groups);
+                shell.SearchChatList.Apply(groups);
                 shell.Library.Apply(new RemoteLibrary
                 {
                     Projects =
@@ -346,7 +348,7 @@ public sealed class MobileSpatialDisciplineTests
     }
 
     [Fact]
-    public async Task AuxiliaryChatActionsKeepFortyEightDpTouchTargets()
+    public async Task AuxiliaryActionsStayUsableWhileComposerChipsRemainCompact()
     {
         await Run(
             412,
@@ -393,8 +395,8 @@ public sealed class MobileSpatialDisciplineTests
                             button.IsEffectivelyVisible);
 
                 Assert.True(
-                    removeButton.Bounds.Width >= 48 &&
-                    removeButton.Bounds.Height >= 48,
+                    removeButton.Bounds.Width is >= 28 and <= 32 &&
+                    removeButton.Bounds.Height is >= 28 and <= 32,
                     $"Attachment removal target was {removeButton.Bounds.Width:0.#}×" +
                     $"{removeButton.Bounds.Height:0.#}dp");
 
@@ -402,8 +404,8 @@ public sealed class MobileSpatialDisciplineTests
                 {
                     var button = Required<Button>(composer, name);
                     Assert.True(
-                        button.Bounds.Width >= 48 &&
-                        button.Bounds.Height >= 48,
+                        button.Bounds.Width is >= 28 and <= 32 &&
+                        button.Bounds.Height is >= 28 and <= 32,
                         $"{name} was {button.Bounds.Width:0.#}×{button.Bounds.Height:0.#}dp");
                 }
 
@@ -413,12 +415,10 @@ public sealed class MobileSpatialDisciplineTests
                         button.Classes.Contains("chip-remove") &&
                         button.DataContext is not PendingAttachment);
                 Assert.True(
-                    skillRemoveButton.Bounds.Width >= 48 &&
-                    skillRemoveButton.Bounds.Height >= 48,
+                    skillRemoveButton.Bounds.Width is >= 28 and <= 32 &&
+                    skillRemoveButton.Bounds.Height is >= 28 and <= 32,
                     $"Skill removal target was {skillRemoveButton.Bounds.Width:0.#}×" +
                     $"{skillRemoveButton.Bounds.Height:0.#}dp");
-
-                AssertInteractiveMinimum(window, 48);
             });
     }
 

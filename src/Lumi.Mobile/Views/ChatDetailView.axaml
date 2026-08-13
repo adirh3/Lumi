@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.Mobile.ViewModels"
              xmlns:proto="using:Lumi.Remote.Protocol"
+             xmlns:behaviors="using:Lumi.Mobile.Behaviors"
              xmlns:sc="using:StrataTheme.Controls"
              x:Class="Lumi.Mobile.Views.ChatDetailView"
              x:DataType="vm:MobileShellViewModel"
@@ -92,7 +93,16 @@
     <!-- User turn: accent bubble, right-aligned — exactly ChatGPT's shape. -->
     <DataTemplate DataType="vm:UserTurnItemViewModel">
       <StackPanel Spacing="6" Margin="0,14,0,6">
-        <sc:StrataChatMessage Role="User" Content="{Binding Text}" />
+        <sc:StrataChatMessage Role="User">
+          <sc:StrataChatMessage.Content>
+            <SelectableTextBlock Text="{Binding Text}"
+                                 TextWrapping="Wrap"
+                                 FontSize="{DynamicResource Font.SizeBody}"
+                                 Foreground="{DynamicResource Brush.TextPrimary}"
+                                 behaviors:NativeTextSelection.IsEnabled="True"
+                                 behaviors:NativeTextSelection.Text="{Binding Text}" />
+          </sc:StrataChatMessage.Content>
+        </sc:StrataChatMessage>
         <TextBlock Text="{Binding SteerStatusText}"
                    IsVisible="{Binding HasSteerStatus}"
                    HorizontalAlignment="Right"
@@ -124,7 +134,10 @@
       <StackPanel Margin="0,2,0,4" Spacing="2">
         <!-- IsInline drops StrataMarkdown's card surface. An answer is the page, not a document
              pinned to it, and a card border here would just be a bubble by another name. -->
-        <sc:StrataMarkdown Markdown="{Binding Text}" IsInline="True" />
+        <sc:StrataMarkdown Markdown="{Binding Text}"
+                           IsInline="True"
+                           behaviors:NativeTextSelection.IsEnabled="True"
+                           behaviors:NativeTextSelection.Text="{Binding SelectionText}" />
         <sc:StrataTypingIndicator IsActive="True" Margin="0,4,0,0"
                                   IsVisible="{Binding IsStreaming}" />
 
@@ -159,15 +172,6 @@
           </Grid>
         </Button>
 
-        <!-- Actions sit under the finished answer, always visible. A phone has no hover and no
-             right-click, so hiding copy behind a gesture makes it undiscoverable. -->
-        <StackPanel Orientation="Horizontal" Spacing="2" Margin="-6,2,0,0"
-                    IsVisible="{Binding ShowActions}">
-          <Button Classes="msg-action" Command="{Binding CopyCommand}">
-            <PathIcon Width="{DynamicResource Touch.IconSizeSmall}" Height="{DynamicResource Touch.IconSizeSmall}"
-                      Data="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" />
-          </Button>
-        </StackPanel>
       </StackPanel>
     </DataTemplate>
 
@@ -524,10 +528,13 @@
                                AvailableSkills="{Binding Chat.AvailableSkills}"
                                AvailableMcps="{Binding Chat.AvailableMcps}"
                                AvailableProjects="{Binding Chat.AvailableProjects}"
+                               AvailableFiles="{Binding Chat.AvailableFiles}"
                                AgentRemovedCommand="{Binding Chat.RemoveAgentCommand}"
                                ProjectRemovedCommand="{Binding Chat.RemoveProjectCommand}"
                                SkillRemovedCommand="{Binding Chat.RemoveSkillCommand}"
-                               McpRemovedCommand="{Binding Chat.RemoveMcpCommand}">
+                               McpRemovedCommand="{Binding Chat.RemoveMcpCommand}"
+                               FileQueryChangedCommand="{Binding Chat.SearchFilesCommand}"
+                               FileSelectedCommand="{Binding Chat.SelectFileCommand}">
           <!-- One run-settings affordance. Model, effort and context are one decision surface, not
                three permanent toolbar controls competing with the prompt. -->
           <sc:StrataChatComposer.ToolbarContent>

@@ -30,7 +30,12 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     internal static readonly TimeSpan DefaultRequestDeadline = TimeSpan.FromSeconds(20);
     internal static readonly TimeSpan DefaultUploadDeadline = TimeSpan.FromMinutes(5);
     internal static readonly TimeSpan EventSilenceDeadline = TimeSpan.FromSeconds(90);
+    internal const int MaxConcurrentMarkdownImageDownloads = 3;
+    internal const long MarkdownImageCacheByteLimit = 256L * 1024 * 1024;
     private const string RequestTimeoutMessage = "Lumi took too long to answer.";
+    private static readonly SemaphoreSlim MarkdownImageDownloadGate =
+        new(MaxConcurrentMarkdownImageDownloads, MaxConcurrentMarkdownImageDownloads);
+    private static readonly object MarkdownImageCacheSync = new();
 
     private readonly HttpClient _http;
     private readonly SemaphoreSlim _streamGate = new(1, 1);
@@ -110,6 +115,8 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         _capabilities.Contains(RemoteProtocol.Capabilities.ScopedEventsV1);
     public bool SupportsCompactTranscript =>
         _capabilities.Contains(RemoteProtocol.Capabilities.CompactTranscriptV1);
+    public bool SupportsFileSuggestions =>
+        _capabilities.Contains(RemoteProtocol.Capabilities.FileSuggestionsV1);
 
     /// <summary>Raised for every SSE frame. Handlers are invoked off the UI thread.</summary>
     public event Action<RemoteEventFrame>? FrameReceived;
@@ -275,6 +282,28 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             RemoteJsonContext.Default.RemoteLibraryItem,
             cancellationToken);
 
+    public Task<RemoteFileSuggestions?> GetFileSuggestionsAsync(
+        Guid? chatId,
+        Guid? projectId,
+        string query,
+        CancellationToken cancellationToken)
+    {
+        if (!SupportsFileSuggestions)
+            return Task.FromResult<RemoteFileSuggestions?>(null);
+
+        var route =
+            $"{RemoteProtocol.Routes.FileSuggestions}?q={Uri.EscapeDataString(query.Trim())}";
+        if (chatId is { } resolvedChatId && resolvedChatId != Guid.Empty)
+            route += $"&chatId={resolvedChatId}";
+        else if (projectId is { } resolvedProjectId)
+            route += $"&projectId={resolvedProjectId}";
+
+        return GetAsync(
+            route,
+            RemoteJsonContext.Default.RemoteFileSuggestions,
+            cancellationToken);
+    }
+
     public Task<RemoteTranscript?> GetTranscriptAsync(Guid chatId, CancellationToken cancellationToken) =>
         GetTranscriptAsync(chatId, beforeMessageIndex: null, cancellationToken);
 
@@ -296,7 +325,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
     public async Task<RemoteTranscript?> GetTranscriptAsync(
         Guid chatId,
         int? beforeMessageIndex,
-        int maxMessages,
+        int maxItems,
         CancellationToken cancellationToken)
     {
         await _transcriptGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -305,7 +334,10 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             var route = $"{RemoteProtocol.Routes.Transcript}?chatId={chatId}";
             if (beforeMessageIndex is { } before)
                 route += $"&beforeMessageIndex={before}";
-            route += $"&limit={Math.Clamp(maxMessages, 1, RemoteProtocol.TranscriptWindowRawMessageLimit)}";
+            var maximum = SupportsCompactTranscript
+                ? RemoteProtocol.CompactTranscriptWindowVisibleItemLimit
+                : RemoteProtocol.TranscriptWindowRawMessageLimit;
+            route += $"&limit={Math.Clamp(maxItems, 1, maximum)}";
             if (SupportsCompactTranscript)
                 route += "&mode=compact";
 
@@ -472,13 +504,16 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 
     internal void MarkProtocolCompatibleForTests(
         int protocolVersion = RemoteProtocol.Version,
-        bool scopedEvents = true)
+        bool scopedEvents = true,
+        bool fileSuggestions = false)
     {
         _compatibleBaseUrl = BaseUrl;
         _compatibleProtocolVersion = protocolVersion;
-        _capabilities = scopedEvents
-            ? new HashSet<string>([RemoteProtocol.Capabilities.ScopedEventsV1], StringComparer.Ordinal)
-            : new HashSet<string>(StringComparer.Ordinal);
+        _capabilities = new HashSet<string>(StringComparer.Ordinal);
+        if (scopedEvents)
+            _capabilities.Add(RemoteProtocol.Capabilities.ScopedEventsV1);
+        if (fileSuggestions)
+            _capabilities.Add(RemoteProtocol.Capabilities.FileSuggestionsV1);
         _hasCompatibleBootstrap = true;
     }
 
@@ -651,6 +686,231 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         {
             SetState(RemoteLinkState.Error, Describe(ex));
             return null;
+        }
+    }
+
+    public async Task<string?> DownloadMarkdownImageAsync(
+        Guid chatId,
+        Guid messageId,
+        int imageIndex,
+        string fileName,
+        CancellationToken cancellationToken)
+    {
+        if (BaseUrl is not { Length: > 0 })
+            return null;
+
+        var folder = Path.Combine(Path.GetTempPath(), "LumiMobile", "markdown-images");
+        Directory.CreateDirectory(folder);
+        var safeName = SafeDownloadFileName(fileName);
+        var target = Path.Combine(
+            folder,
+            $"{chatId:N}-{messageId:N}-{imageIndex}-{safeName}");
+        if (TryUseCachedMarkdownImage(target))
+            return target;
+
+        using var deadline = CreateDeadline(cancellationToken, _uploadDeadline);
+        try
+        {
+            await MarkdownImageDownloadGate
+                .WaitAsync(deadline.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+            when (IsDeadlineCancellation(cancellationToken, deadline))
+        {
+            return null;
+        }
+        try
+        {
+            if (TryUseCachedMarkdownImage(target))
+                return target;
+
+            PruneMarkdownImageCache(
+                folder,
+                DateTime.UtcNow.AddDays(-1),
+                MarkdownImageCacheByteLimit);
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"{BaseUrl}{RemoteProtocol.Routes.MarkdownImage}" +
+                $"?chatId={chatId}&messageId={messageId}&imageIndex={imageIndex}");
+            ApplyAuth(request);
+            var temporary = $"{target}.{Guid.NewGuid():N}.tmp";
+            try
+            {
+                using var response = await _http
+                    .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token)
+                    .ConfigureAwait(false);
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    SetState(RemoteLinkState.Unauthorized, "This device is no longer paired with Lumi.");
+                    return null;
+                }
+                if (!response.IsSuccessStatusCode
+                    || response.Content.Headers.ContentLength is > RemoteProtocol.MaxMarkdownImageBytes)
+                {
+                    return null;
+                }
+
+                await using var source = await response.Content
+                    .ReadAsStreamAsync(deadline.Token)
+                    .ConfigureAwait(false);
+                await using var destination = new FileStream(
+                    temporary,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None,
+                    64 * 1024,
+                    FileOptions.Asynchronous);
+                var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+                long total = 0;
+                try
+                {
+                    while (true)
+                    {
+                        var read = await source
+                            .ReadAsync(buffer.AsMemory(0, buffer.Length), deadline.Token)
+                            .ConfigureAwait(false);
+                        if (read == 0)
+                            break;
+                        total += read;
+                        if (total > RemoteProtocol.MaxMarkdownImageBytes)
+                            return null;
+                        await destination
+                            .WriteAsync(buffer.AsMemory(0, read), deadline.Token)
+                            .ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(buffer);
+                }
+
+                await destination.FlushAsync(deadline.Token).ConfigureAwait(false);
+                destination.Close();
+                try
+                {
+                    File.Move(temporary, target);
+                }
+                catch (IOException) when (File.Exists(target))
+                {
+                    File.Delete(temporary);
+                }
+                PruneMarkdownImageCache(
+                    folder,
+                    DateTime.UtcNow.AddDays(-1),
+                    MarkdownImageCacheByteLimit,
+                    target);
+                return target;
+            }
+            catch (OperationCanceledException) when (IsDeadlineCancellation(cancellationToken, deadline))
+            {
+                return null;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Trace.TraceWarning($"[Mobile] Inline image download failed: {ex}");
+                return null;
+            }
+            finally
+            {
+                if (File.Exists(temporary))
+                    File.Delete(temporary);
+            }
+        }
+        finally
+        {
+            MarkdownImageDownloadGate.Release();
+        }
+    }
+
+    private static bool TryUseCachedMarkdownImage(string path)
+    {
+        lock (MarkdownImageCacheSync)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                    return false;
+                File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+    }
+
+    internal static void PruneMarkdownImageCache(
+        string folder,
+        DateTime cutoffUtc,
+        long maxBytes,
+        string? preservedPath = null)
+    {
+        lock (MarkdownImageCacheSync)
+        {
+            List<FileInfo> files;
+            try
+            {
+                files = Directory.EnumerateFiles(folder)
+                    .Select(path => new FileInfo(path))
+                    .Where(file => file.Exists)
+                    .ToList();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return;
+            }
+
+            foreach (var file in files)
+            {
+                if (file.LastWriteTimeUtc >= cutoffUtc
+                    || PathsEqual(file.FullName, preservedPath))
+                {
+                    continue;
+                }
+
+                TryDelete(file);
+            }
+
+            var retained = files
+                .Where(file => file.Exists
+                               && !file.Name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(file => file.LastWriteTimeUtc)
+                .ToList();
+            var total = retained.Sum(file => file.Length);
+            foreach (var file in retained)
+            {
+                if (total <= maxBytes)
+                    break;
+                if (PathsEqual(file.FullName, preservedPath))
+                    continue;
+                var length = file.Length;
+                if (TryDelete(file))
+                    total -= length;
+            }
+        }
+
+        static bool PathsEqual(string path, string? other) =>
+            other is not null
+            && string.Equals(
+                path,
+                other,
+                OperatingSystem.IsWindows()
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal);
+
+        static bool TryDelete(FileInfo file)
+        {
+            try
+            {
+                file.Delete();
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
         }
     }
 
@@ -1148,6 +1408,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         RemoteProtocol.Routes.Snapshot => RemoteProtocol.MaxSnapshotJsonBytes,
         RemoteProtocol.Routes.Chats => RemoteProtocol.MaxChatsJsonBytes,
         RemoteProtocol.Routes.LibraryItem => RemoteProtocol.MaxLibraryItemJsonBytes,
+        RemoteProtocol.Routes.FileSuggestions => RemoteProtocol.MaxFileSuggestionsJsonBytes,
         RemoteProtocol.Routes.Transcript => RemoteProtocol.MobileTranscriptJsonByteLimit + 64 * 1024,
         RemoteProtocol.Routes.Activity => RemoteProtocol.MaxActivityJsonBytes,
         _ => RemoteProtocol.MaxCommandResponseJsonBytes

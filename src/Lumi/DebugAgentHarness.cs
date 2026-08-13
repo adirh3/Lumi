@@ -191,6 +191,8 @@ public static class DebugAgentHarness
 
         chat.Messages.Add(Tool("view", JsonObject(
             JsonProperty("path", JsonString(attachmentPath))), "Completed", output: "1. # Debug fixture attachment"));
+        chat.Messages.Add(Tool("announce_file", JsonObject(
+            JsonProperty("filePath", JsonString(fixtureImagePath))), "Completed", output: fixtureImagePath));
 
         var firstAssistant = Message("assistant", """
             ### Transcript fixture is active

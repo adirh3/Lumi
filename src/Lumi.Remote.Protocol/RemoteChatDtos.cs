@@ -33,6 +33,8 @@ public sealed class RemoteChatPage
     public bool HasMore { get; set; }
     public string? Query { get; set; }
     public Guid? ProjectId { get; set; }
+    public string PinnedGroupLabel { get; set; } = "Pinned";
+    public string TodayGroupLabel { get; set; } = "Today";
     public List<RemoteChatGroup> Groups { get; set; } = [];
     public List<Guid> RemovedChatIds { get; set; } = [];
 }
@@ -153,6 +155,12 @@ public sealed class RemoteSource
     public string? Url { get; set; }
 }
 
+public sealed class RemoteInlineImage
+{
+    public int Index { get; set; }
+    public string FileName { get; set; } = "";
+}
+
 public sealed class RemoteQuestion
 {
     public string QuestionId { get; set; } = "";
@@ -193,6 +201,7 @@ public sealed class RemoteTranscriptItem
     public List<RemoteFileChange>? FileChanges { get; set; }
     public List<RemoteAttachment>? Attachments { get; set; }
     public List<RemoteSource>? Sources { get; set; }
+    public List<RemoteInlineImage>? InlineImages { get; set; }
     public RemoteQuestion? Question { get; set; }
     public Guid? LinkedChatId { get; set; }
 }

@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
-using Avalonia.Controls;
-using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Input;
+using System.Diagnostics;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Remote.Protocol;
@@ -12,7 +11,7 @@ namespace Lumi.Mobile.ViewModels;
 /// Base for one renderable row. Concrete subclasses exist per kind so the transcript can use plain
 /// <c>DataTemplate DataType=</c> matching instead of a hand-rolled template selector.
 /// </summary>
-public abstract partial class TranscriptItemViewModel : ObservableObject
+public abstract partial class TranscriptItemViewModel : ObservableObject, IDisposable
 {
     protected TranscriptItemViewModel(RemoteTranscriptItem item)
     {
@@ -26,6 +25,10 @@ public abstract partial class TranscriptItemViewModel : ObservableObject
 
     /// <summary>Applies a newer server projection of the same row in place, keeping the control alive.</summary>
     public abstract void Update(RemoteTranscriptItem item);
+
+    public virtual void Dispose()
+    {
+    }
 }
 
 public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
@@ -76,14 +79,25 @@ public sealed partial class UserTurnItemViewModel : TranscriptItemViewModel
 public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
 {
     private readonly Action<AssistantItemViewModel>? _openSources;
+    private readonly Func<
+        string,
+        string,
+        IReadOnlyList<RemoteInlineImage>,
+        CancellationToken,
+        Task<string>>? _resolveInlineImages;
+    private CancellationTokenSource? _imageResolutionCts;
+    private long _imageResolutionVersion;
 
     [ObservableProperty] private string _text = "";
     [ObservableProperty] private bool _isStreaming;
     [ObservableProperty] private string? _model;
 
+    internal string SourceText { get; private set; } = "";
+
     public ObservableCollection<RemoteSource> Sources { get; } = [];
 
     public bool HasSources => Sources.Count > 0;
+    public string SelectionText => RemoteMarkdownImages.ToSelectionText(Text);
     public string SourceCountText => Sources.Count == 1 ? "1 source" : $"{Sources.Count} sources";
     public string SourceSummary
     {
@@ -101,19 +115,26 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
 
     public AssistantItemViewModel(
         RemoteTranscriptItem item,
-        Action<AssistantItemViewModel>? openSources = null)
+        Action<AssistantItemViewModel>? openSources = null,
+        Func<
+            string,
+            string,
+            IReadOnlyList<RemoteInlineImage>,
+            CancellationToken,
+            Task<string>>? resolveInlineImages = null)
         : base(item)
     {
         _openSources = openSources;
+        _resolveInlineImages = resolveInlineImages;
         Update(item);
     }
 
-    /// <summary>Actions appear once the answer is finished — copying a half-written one is a trap.</summary>
-    public bool ShowActions => !IsStreaming && Text.Length > 0;
-
     public override void Update(RemoteTranscriptItem item)
     {
-        Text = item.Text ?? "";
+        CancelImageResolution();
+        var sourceText = item.Text ?? "";
+        SourceText = sourceText;
+        Text = sourceText;
         IsStreaming = item.IsStreaming;
         Model = item.Model;
 
@@ -123,37 +144,88 @@ public sealed partial class AssistantItemViewModel : TranscriptItemViewModel
         OnPropertyChanged(nameof(HasSources));
         OnPropertyChanged(nameof(SourceCountText));
         OnPropertyChanged(nameof(SourceSummary));
+
+        if (!item.IsStreaming
+            && item.InlineImages is { Count: > 0 }
+            && _resolveInlineImages is not null)
+        {
+            var version = Interlocked.Increment(ref _imageResolutionVersion);
+            var current = new CancellationTokenSource();
+            _imageResolutionCts = current;
+            _ = ResolveInlineImagesAsync(
+                sourceText,
+                item.InlineImages,
+                version,
+                current);
+        }
     }
 
-    partial void OnIsStreamingChanged(bool value) => OnPropertyChanged(nameof(ShowActions));
-
-    partial void OnTextChanged(string value) => OnPropertyChanged(nameof(ShowActions));
-
-    /// <summary>
-    /// Copies the answer to the device clipboard. Reached through the top level rather than an
-    /// injected service because a transcript row is created per frame and must stay allocation-cheap.
-    /// </summary>
-    [RelayCommand]
-    private async Task CopyAsync()
+    internal void ApplyStreamText(string sourceText)
     {
-        if (Text.Length == 0)
-            return;
+        CancelImageResolution();
+        SourceText = sourceText;
+        Text = sourceText;
+        IsStreaming = true;
+    }
 
-        var clipboard = Avalonia.Application.Current?.ApplicationLifetime switch
+    public override void Dispose() => CancelImageResolution();
+
+    partial void OnTextChanged(string value) =>
+        OnPropertyChanged(nameof(SelectionText));
+
+    private void CancelImageResolution()
+    {
+        Interlocked.Increment(ref _imageResolutionVersion);
+        var previous = Interlocked.Exchange(ref _imageResolutionCts, null);
+        previous?.Cancel();
+    }
+
+    private async Task ResolveInlineImagesAsync(
+        string sourceText,
+        IReadOnlyList<RemoteInlineImage> images,
+        long version,
+        CancellationTokenSource cancellation)
+    {
+        var cancellationToken = cancellation.Token;
+        try
         {
-            IClassicDesktopStyleApplicationLifetime desktop =>
-                desktop.MainWindow?.Clipboard,
-            ISingleViewApplicationLifetime single =>
-                TopLevel.GetTopLevel(single.MainView)?.Clipboard,
-            _ => null
-        };
+            var resolved = await _resolveInlineImages!(
+                Id,
+                sourceText,
+                images,
+                cancellationToken);
+            if (cancellationToken.IsCancellationRequested)
+                return;
 
-        if (clipboard is null)
-            return;
+            void ApplyResolvedText()
+            {
+                if (version == Volatile.Read(ref _imageResolutionVersion)
+                    && string.Equals(SourceText, sourceText, StringComparison.Ordinal))
+                {
+                    Text = resolved;
+                }
+            }
 
-        var data = new DataTransfer();
-        data.Add(DataTransferItem.CreateText(Text));
-        await clipboard.SetDataAsync(data);
+            if (Dispatcher.UIThread.CheckAccess())
+                ApplyResolvedText();
+            else
+                Dispatcher.UIThread.Post(ApplyResolvedText);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"[Mobile] Could not resolve inline markdown images: {ex}");
+        }
+        finally
+        {
+            Interlocked.CompareExchange(
+                ref _imageResolutionCts,
+                null,
+                cancellation);
+            cancellation.Dispose();
+        }
     }
 
     [RelayCommand]
@@ -649,7 +721,13 @@ public static class TranscriptItemFactory
     public static TranscriptItemViewModel Create(
         RemoteTranscriptItem item,
         Func<ActivitySummaryItemViewModel, Task>? openActivity = null,
-        Action<AssistantItemViewModel>? openSources = null) => item.Kind switch
+        Action<AssistantItemViewModel>? openSources = null,
+        Func<
+            string,
+            string,
+            IReadOnlyList<RemoteInlineImage>,
+            CancellationToken,
+            Task<string>>? resolveInlineImages = null) => item.Kind switch
     {
         RemoteProtocol.ItemKinds.User => new UserTurnItemViewModel(item),
         RemoteProtocol.ItemKinds.Activity => new ActivitySummaryItemViewModel(item, openActivity),
@@ -661,7 +739,7 @@ public static class TranscriptItemFactory
         RemoteProtocol.ItemKinds.File => new FileItemViewModel(item),
 
         // Unknown kinds degrade to plain assistant text rather than breaking the transcript.
-        _ => new AssistantItemViewModel(item, openSources)
+        _ => new AssistantItemViewModel(item, openSources, resolveInlineImages)
     };
 
     /// <summary>True when an existing row can be updated in place instead of being replaced.</summary>
@@ -670,19 +748,32 @@ public static class TranscriptItemFactory
 }
 
 /// <summary>One user turn plus everything the assistant produced in response.</summary>
-public sealed partial class TranscriptTurnViewModel : ObservableObject
+public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposable
 {
     private readonly Func<ActivitySummaryItemViewModel, Task>? _openActivity;
     private readonly Action<AssistantItemViewModel>? _openSources;
+    private readonly Func<
+        string,
+        string,
+        IReadOnlyList<RemoteInlineImage>,
+        CancellationToken,
+        Task<string>>? _resolveInlineImages;
 
     public TranscriptTurnViewModel(
         string id,
         Func<ActivitySummaryItemViewModel, Task>? openActivity = null,
-        Action<AssistantItemViewModel>? openSources = null)
+        Action<AssistantItemViewModel>? openSources = null,
+        Func<
+            string,
+            string,
+            IReadOnlyList<RemoteInlineImage>,
+            CancellationToken,
+            Task<string>>? resolveInlineImages = null)
     {
         Id = id;
         _openActivity = openActivity;
         _openSources = openSources;
+        _resolveInlineImages = resolveInlineImages;
     }
 
     public string Id { get; }
@@ -701,14 +792,33 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject
                 continue;
             }
 
-            var created = TranscriptItemFactory.Create(incoming, _openActivity, _openSources);
+            var created = TranscriptItemFactory.Create(
+                incoming,
+                _openActivity,
+                _openSources,
+                _resolveInlineImages);
             if (i < Items.Count)
+            {
+                var replaced = Items[i];
                 Items[i] = created;
+                replaced.Dispose();
+            }
             else
                 Items.Add(created);
         }
 
         while (Items.Count > turn.Items.Count)
+        {
+            var removed = Items[^1];
             Items.RemoveAt(Items.Count - 1);
+            removed.Dispose();
+        }
+    }
+
+    public void Dispose()
+    {
+        foreach (var item in Items)
+            item.Dispose();
+        Items.Clear();
     }
 }

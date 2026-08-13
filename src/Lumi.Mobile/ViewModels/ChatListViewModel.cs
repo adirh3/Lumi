@@ -103,6 +103,8 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     private int _totalChatCount;
     private int _matchingChatCount;
     private int _visibleChatCount;
+    private string _pinnedGroupLabel = "Pinned";
+    private string _todayGroupLabel = "Today";
 
     [ObservableProperty] private string _searchText = "";
     [ObservableProperty] private Guid _selectedChatId;
@@ -142,6 +144,13 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
 
     public event Action<Guid>? ChatRemoved;
 
+    internal IReadOnlyList<RemoteChatGroup> SnapshotLoadedGroups() =>
+        _source.Select(group => new RemoteChatGroup
+        {
+            Label = group.Label,
+            Chats = [.. group.Chats]
+        }).ToList();
+
     public void Apply(IEnumerable<RemoteChatGroup> groups)
     {
         _serverPaged = false;
@@ -154,6 +163,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
 
         if (!hadChats || totalChats == 0)
             _visibleLimit = InitialVisibleChatLimit;
+        InferGroupLabels();
 
         if (_totalChatCount != totalChats)
         {
@@ -170,6 +180,8 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     public void Apply(RemoteChatPage page, bool reset = true)
     {
         _serverPaged = true;
+        _pinnedGroupLabel = page.PinnedGroupLabel;
+        _todayGroupLabel = page.TodayGroupLabel;
         if (reset)
             _source = [];
 
@@ -191,6 +203,8 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     /// </summary>
     public void ApplyLive(RemoteChatPage page)
     {
+        _pinnedGroupLabel = page.PinnedGroupLabel;
+        _todayGroupLabel = page.TodayGroupLabel;
         var removedIds = page.RemovedChatIds.ToHashSet();
         foreach (var group in _source)
             group.Chats.RemoveAll(chat => removedIds.Contains(chat.Id));
@@ -247,6 +261,85 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
             chat.IsRunning = isRunning;
         if (_realizedChats.TryGetValue(chatId, out var realized))
             realized.IsRunning = isRunning;
+    }
+
+    public void PromoteChat(RemoteChat incoming, bool isNewChat = false)
+    {
+        RemoteChat? existing = null;
+        foreach (var group in _source)
+        {
+            var index = group.Chats.FindIndex(chat => chat.Id == incoming.Id);
+            if (index < 0)
+                continue;
+            existing = group.Chats[index];
+            existing = group.Chats[index];
+            group.Chats.RemoveAt(index);
+            break;
+        }
+        _source.RemoveAll(group => group.Chats.Count == 0);
+
+        var promoted = new RemoteChat
+        {
+            Id = incoming.Id,
+            Title = string.IsNullOrWhiteSpace(incoming.Title)
+                ? existing?.Title ?? "New chat"
+                : incoming.Title,
+            Preview = incoming.Preview ?? existing?.Preview,
+            ProjectId = incoming.ProjectId ?? existing?.ProjectId,
+            ProjectName = incoming.ProjectName ?? existing?.ProjectName,
+            AgentId = incoming.AgentId ?? existing?.AgentId,
+            AgentName = incoming.AgentName ?? existing?.AgentName,
+            AgentGlyph = incoming.AgentGlyph ?? existing?.AgentGlyph,
+            MessageCount = existing is null
+                ? Math.Max(1, incoming.MessageCount)
+                : Math.Max(incoming.MessageCount, existing.MessageCount),
+            UpdatedAt = incoming.UpdatedAt == default ? DateTimeOffset.Now : incoming.UpdatedAt,
+            IsPinned = existing?.IsPinned ?? incoming.IsPinned,
+            IsRunning = incoming.IsRunning,
+            HasUnreadMessages = false,
+            LastModelUsed = incoming.LastModelUsed ?? existing?.LastModelUsed
+        };
+
+        var targetLabel = promoted.IsPinned
+            ? _pinnedGroupLabel
+            : _todayGroupLabel;
+        var target = _source.FirstOrDefault(group =>
+            string.Equals(group.Label, targetLabel, StringComparison.Ordinal));
+        if (target is null)
+        {
+            target = new RemoteChatGroup { Label = targetLabel };
+            var targetIndex = promoted.IsPinned ? 0 : _source.FindIndex(group =>
+                !string.Equals(
+                    group.Label,
+                    _pinnedGroupLabel,
+                    StringComparison.Ordinal));
+            _source.Insert(targetIndex < 0 ? _source.Count : targetIndex, target);
+        }
+        target.Chats.Insert(0, promoted);
+
+        if (existing is null && isNewChat)
+        {
+            _totalChatCount++;
+            _loadedChatCount++;
+        }
+        _visibleLimit = Math.Max(
+            _visibleLimit,
+            _source.Sum(group => group.Chats.Count));
+        Rebuild();
+    }
+
+    private void InferGroupLabels()
+    {
+        var pinned = _source.FirstOrDefault(group =>
+            group.Chats.Any(chat => chat.IsPinned));
+        if (pinned is not null)
+            _pinnedGroupLabel = pinned.Label;
+
+        var today = DateTimeOffset.Now.Date;
+        var todayGroup = _source.FirstOrDefault(group =>
+            group.Chats.Any(chat => !chat.IsPinned && chat.UpdatedAt.Date == today));
+        if (todayGroup is not null)
+            _todayGroupLabel = todayGroup.Label;
     }
 
     partial void OnSearchTextChanged(string value) => QueueServerReload(debounce: true);

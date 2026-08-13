@@ -193,6 +193,54 @@ public sealed class MobileStateCorrectnessTests
     }
 
     [Fact]
+    public async Task ExistingChatSendRaisesImmediateDrawerPromotion()
+    {
+        var sink = new ControllableSink();
+        var chatId = Guid.NewGuid();
+        var chat = new MobileChatViewModel(sink);
+        Guid promotedId = Guid.Empty;
+        string? promotedPreview = null;
+        chat.ChatActivitySubmitted += (id, preview) =>
+        {
+            promotedId = id;
+            promotedPreview = preview;
+        };
+        chat.Reset(chatId, "Existing");
+        chat.PromptText = "move this chat to the top";
+
+        var send = chat.SendCommand.ExecuteAsync(null);
+        await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal(chatId, promotedId);
+        Assert.Equal("move this chat to the top", promotedPreview);
+        sink.CommandResult.SetResult(new RemoteCommandResult { Ok = true, ChatId = chatId });
+        await send;
+    }
+
+    [Fact]
+    public async Task FailedExistingChatSendRequestsDrawerReconciliation()
+    {
+        var sink = new ControllableSink();
+        var chatId = Guid.NewGuid();
+        var chat = new MobileChatViewModel(sink);
+        Guid failedChatId = Guid.Empty;
+        chat.ChatActivitySubmissionFailed += id => failedChatId = id;
+        chat.Reset(chatId, "Existing");
+        chat.PromptText = "this will fail";
+
+        var send = chat.SendCommand.ExecuteAsync(null);
+        await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        sink.CommandResult.SetResult(new RemoteCommandResult
+        {
+            Ok = false,
+            Error = "Rejected"
+        });
+        await send;
+
+        Assert.Equal(chatId, failedChatId);
+    }
+
+    [Fact]
     public async Task NavigatingAwayAndBackToTheSameChat_MergesOldFailureWithoutOverwritingNewDraft()
     {
         var sink = new ControllableSink();
@@ -287,6 +335,79 @@ public sealed class MobileStateCorrectnessTests
         chat.Reset(Guid.Empty, "Another new chat");
         Assert.Equal("", chat.PromptText);
         Assert.Empty(chat.Attachments);
+    }
+
+    [Fact]
+    public async Task FileSuggestionsUseExplicitChatAndSelectionStagesExistingPcFile()
+    {
+        var chatId = Guid.NewGuid();
+        var path = @"C:\repo\src\Lumi\Views\ChatView.axaml";
+        var sink = new FileSuggestionSink(new RemoteFileSuggestions
+        {
+            Items =
+            [
+                new RemoteChip
+                {
+                    Name = "ChatView.axaml",
+                    Glyph = "📄",
+                    Description = "src/Lumi/Views",
+                    Value = path
+                }
+            ]
+        });
+        var chat = new MobileChatViewModel(sink);
+        chat.Reset(chatId, "Existing");
+
+        await chat.SearchFilesCommand.ExecuteAsync("chat");
+
+        Assert.Equal(chatId, sink.ChatId);
+        Assert.Null(sink.ProjectId);
+        Assert.Equal("chat", sink.Query);
+        var suggestion = Assert.Single(chat.AvailableFiles);
+        Assert.Equal("ChatView.axaml", suggestion.Name);
+        Assert.Equal(path, suggestion.Value);
+
+        chat.SelectFileCommand.Execute(path);
+
+        Assert.Equal(
+            new PendingAttachment("ChatView.axaml", path),
+            Assert.Single(chat.Attachments));
+        Assert.Empty(chat.AvailableFiles);
+    }
+
+    [Theory]
+    [InlineData(@"C:\repo\src\Lumi\Views\ChatView.axaml", "ChatView.axaml")]
+    [InlineData("/repo/src/Lumi/Views/ChatView.axaml", "ChatView.axaml")]
+    public void RemoteFileNamesUseBothDesktopPathSeparators(string path, string expected)
+    {
+        Assert.Equal(expected, MobileChatViewModel.FileNameFromRemotePath(path));
+    }
+
+    [Fact]
+    public async Task FileSuggestionSearchAllowsNewQueryToSupersedeInFlightRequest()
+    {
+        var sink = new DeferredFileSuggestionSink();
+        var chat = new MobileChatViewModel(sink);
+        chat.Reset(Guid.NewGuid(), "Existing");
+
+        var first = chat.SearchFilesCommand.ExecuteAsync("");
+        await sink.WaitForQueryAsync("");
+        var second = chat.SearchFilesCommand.ExecuteAsync("chat");
+        await sink.WaitForQueryAsync("chat");
+
+        sink.Complete("chat", new RemoteFileSuggestions
+        {
+            Items = [new RemoteChip { Name = "ChatView.axaml", Value = "chat-path" }]
+        });
+        await second;
+        sink.Complete("", new RemoteFileSuggestions
+        {
+            Items = [new RemoteChip { Name = "README.md", Value = "readme-path" }]
+        });
+        await first;
+
+        var suggestion = Assert.Single(chat.AvailableFiles);
+        Assert.Equal("ChatView.axaml", suggestion.Name);
     }
 
     [Fact]
@@ -2268,6 +2389,82 @@ public sealed class MobileStateCorrectnessTests
                 FileName = fileName,
                 Path = $@"C:\uploads\{fileName}"
             });
+    }
+
+    private sealed class FileSuggestionSink(RemoteFileSuggestions response) :
+        IRemoteCommandSink,
+        IRemoteFileSuggestionSink
+    {
+        public Guid? ChatId { get; private set; }
+        public Guid? ProjectId { get; private set; }
+        public string? Query { get; private set; }
+
+        public Task<RemoteFileSuggestions?> GetFileSuggestionsAsync(
+            Guid? chatId,
+            Guid? projectId,
+            string query,
+            CancellationToken cancellationToken)
+        {
+            ChatId = chatId;
+            ProjectId = projectId;
+            Query = query;
+            return Task.FromResult<RemoteFileSuggestions?>(response);
+        }
+
+        public Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command) =>
+            Task.FromResult(new RemoteCommandResult { Ok = true });
+
+        public Task<RemoteUploadResponse> UploadAsync(
+            string fileName,
+            ReadOnlyMemory<byte> content) =>
+            Task.FromResult(new RemoteUploadResponse
+            {
+                Ok = true,
+                FileName = fileName,
+                Path = $@"C:\uploads\{fileName}"
+            });
+    }
+
+    private sealed class DeferredFileSuggestionSink :
+        IRemoteCommandSink,
+        IRemoteFileSuggestionSink
+    {
+        private readonly Dictionary<string, TaskCompletionSource<RemoteFileSuggestions?>> _responses = [];
+        private readonly Dictionary<string, TaskCompletionSource> _started = [];
+
+        public Task<RemoteFileSuggestions?> GetFileSuggestionsAsync(
+            Guid? chatId,
+            Guid? projectId,
+            string query,
+            CancellationToken cancellationToken)
+        {
+            var response = new TaskCompletionSource<RemoteFileSuggestions?>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _responses[query] = response;
+            _started.GetValueOrDefault(query)?.TrySetResult();
+            return response.Task;
+        }
+
+        public Task WaitForQueryAsync(string query)
+        {
+            if (_responses.ContainsKey(query))
+                return Task.CompletedTask;
+
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _started[query] = started;
+            return started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+
+        public void Complete(string query, RemoteFileSuggestions response) =>
+            _responses[query].TrySetResult(response);
+
+        public Task<RemoteCommandResult> SendCommandAsync(RemoteCommand command) =>
+            Task.FromResult(new RemoteCommandResult { Ok = true });
+
+        public Task<RemoteUploadResponse> UploadAsync(
+            string fileName,
+            ReadOnlyMemory<byte> content) =>
+            Task.FromResult(new RemoteUploadResponse { Ok = true });
     }
 
     private sealed class ThrowingCommandSink : IRemoteCommandSink

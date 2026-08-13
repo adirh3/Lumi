@@ -30,7 +30,7 @@
 
           <TextBox x:Name="SearchField" Grid.Column="1" Classes="search-field no-focus-accent"
                    PlaceholderText="Search chats"
-                   Text="{Binding ChatList.SearchText}" />
+                   Text="{Binding SearchChatList.SearchText}" />
         </Grid>
       </Border>
     </Border>
@@ -43,14 +43,14 @@
                       HorizontalAlignment="Stretch"
                       Margin="{DynamicResource Mobile.Page.ContentMargin}">
 
-            <StackPanel x:Name="SearchEmpty" IsVisible="{Binding ChatList.IsEmpty}"
+            <StackPanel x:Name="SearchEmpty" IsVisible="{Binding SearchChatList.IsEmpty}"
                         Spacing="8" Margin="12,40" HorizontalAlignment="Center">
               <TextBlock Text="No matches" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeSubtitle}"
                          HorizontalAlignment="Center" />
               <TextBlock Text="Try a different word." Classes="muted" TextAlignment="Center" />
             </StackPanel>
 
-            <ItemsControl x:Name="SearchResults" ItemsSource="{Binding ChatList.Groups}">
+            <ItemsControl x:Name="SearchResults" ItemsSource="{Binding SearchChatList.Groups}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:ChatGroupViewModel">
                   <StackPanel>
@@ -59,7 +59,7 @@
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:ChatListItemViewModel">
                           <Button Classes="search-result"
-                                  Command="{Binding $parent[UserControl].((vm:MobileShellViewModel)DataContext).ChatList.OpenChatCommand}"
+                                  Command="{Binding $parent[UserControl].((vm:MobileShellViewModel)DataContext).SearchChatList.OpenChatCommand}"
                                   CommandParameter="{Binding}">
                             <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                               <Border Grid.Column="0" Width="34" Height="34" CornerRadius="17"
@@ -93,8 +93,8 @@
             <Button x:Name="SearchLoadMoreButton" Classes="search-result"
                     Margin="0,12,0,4"
                     Background="{DynamicResource Brush.Surface1}"
-                    IsVisible="{Binding ChatList.HasMoreChats}"
-                    Command="{Binding ChatList.LoadMoreChatsCommand}">
+                    IsVisible="{Binding SearchChatList.HasMoreChats}"
+                    Command="{Binding SearchChatList.LoadMoreChatsCommand}">
               <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                 <Border Grid.Column="0" Width="34" Height="34" CornerRadius="17"
                         VerticalAlignment="Center"
@@ -107,7 +107,7 @@
 
                 <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
                   <TextBlock Text="Load more chats" FontWeight="SemiBold" />
-                  <TextBlock Text="{Binding ChatList.VisibleChatCountLabel}"
+                  <TextBlock Text="{Binding SearchChatList.VisibleChatCountLabel}"
                              Classes="muted" FontSize="{DynamicResource Font.SizeCaption}" />
                 </StackPanel>
 

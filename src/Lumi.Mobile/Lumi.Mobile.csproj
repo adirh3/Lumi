@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Lumi.Mobile.Tests" />
+    <InternalsVisibleTo Include="Lumi.Mobile.Android" />
   </ItemGroup>
 
   <ItemGroup>

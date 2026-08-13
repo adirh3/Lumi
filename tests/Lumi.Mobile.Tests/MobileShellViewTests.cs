@@ -15,7 +15,9 @@ using Avalonia.Input;
 using Avalonia.Input.TextInput;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Lumi.Mobile.Behaviors;
 using Lumi.Mobile.Layout;
+using Lumi.Mobile.Services;
 using Lumi.Mobile.Views;
 using Lumi.Mobile.ViewModels;
 using Lumi.Remote.Protocol;
@@ -105,6 +107,28 @@ public sealed class MobileShellViewTests
     private static void OpenChat(MobileShellViewModel shell) =>
         shell.Chat.Reset(Guid.NewGuid(), "Hello");
 
+    private static RemoteTranscript LongTranscript(Guid chatId) => new()
+    {
+        ChatId = chatId,
+        Revision = 1,
+        Turns =
+        [
+            .. Enumerable.Range(0, 40).Select(i => new RemoteTranscriptTurn
+            {
+                Id = $"t{i}",
+                Items =
+                [
+                    new RemoteTranscriptItem
+                    {
+                        Id = $"i{i}",
+                        Kind = RemoteProtocol.ItemKinds.User,
+                        Text = $"message number {i} with enough text to take a line or two on a phone"
+                    }
+                ]
+            })
+        ]
+    };
+
     private static void Layout(Window window, MobileShellViewModel shell, double width, double height,
         FoldPosture posture = FoldPosture.Flat, double hingeSize = 0, double hingePosition = 0)
     {
@@ -146,6 +170,31 @@ public sealed class MobileShellViewTests
             // Nothing is docked or slid open on a phone until the user asks for it.
             Assert.False(Named(window, "DockedDrawer").IsVisible);
             Assert.False(DrawerOpen(window));
+        });
+    }
+
+    [Fact]
+    public async Task NativeComposer_RemainsVisibleBesideDockedDrawerButHidesForOverlays()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            Layout(window, shell, 412, 892);
+
+            Assert.True(ChatDetailView.ShouldShowNativeComposerEditor(shell));
+
+            shell.ToggleDrawerCommand.Execute(null);
+            Assert.True(shell.IsDrawerOverlay);
+            Assert.False(ChatDetailView.ShouldShowNativeComposerEditor(shell));
+
+            Layout(window, shell, 1200, 900);
+            Assert.True(shell.IsDrawerDocked);
+            Assert.False(shell.IsDrawerOverlay);
+            Assert.True(ChatDetailView.ShouldShowNativeComposerEditor(shell));
+
+            shell.Chat.OpenRunSettingsSheetCommand.Execute(null);
+            Assert.False(ChatDetailView.ShouldShowNativeComposerEditor(shell));
         });
     }
 
@@ -316,6 +365,21 @@ public sealed class MobileShellViewTests
         {
             Pair(shell);
             Layout(window, shell, 412, 892);
+            shell.ChatList.Apply(
+            [
+                new RemoteChatGroup
+                {
+                    Label = "Today",
+                    Chats =
+                    [
+                        new RemoteChat
+                        {
+                            Id = Guid.NewGuid(),
+                            Title = "Cached drawer chat"
+                        }
+                    ]
+                }
+            ]);
 
             shell.ToggleDrawerCommand.Execute(null);
             shell.OpenSearchCommand.Execute(null);
@@ -323,6 +387,7 @@ public sealed class MobileShellViewTests
 
             Assert.True(shell.IsSearchPage);
             Assert.False(DrawerOpen(window));
+            Assert.Equal(1, shell.SearchChatList.VisibleChatCount);
 
             var search = Named(window, "SearchPage");
             Assert.True(search.IsVisible);
@@ -330,6 +395,12 @@ public sealed class MobileShellViewTests
             Assert.True(
                 Named(window, "SearchField").IsFocused,
                 "the search field must own focus so Android opens the keyboard without a second tap");
+            Assert.NotSame(shell.ChatList, shell.SearchChatList);
+            var searchField = Assert.IsType<TextBox>(Named(window, "SearchField"));
+            searchField.Text = "needle";
+            Pump(window);
+            Assert.Equal("needle", shell.SearchChatList.SearchText);
+            Assert.Equal("", shell.ChatList.SearchText);
             var focusAccent = Named(window, "SearchField")
                 .GetVisualDescendants()
                 .OfType<Border>()
@@ -687,9 +758,96 @@ public sealed class MobileShellViewTests
 
             Assert.False(composer.SendWithEnter);
             Assert.True(input.AcceptsReturn);
+            Assert.Equal(TextInputContentType.Normal, TextInputOptions.GetContentType(input));
             Assert.Equal(TextInputReturnKeyType.Return, TextInputOptions.GetReturnKeyType(input));
+            Assert.True(TextInputOptions.GetMultiline(input));
+            Assert.True(TextInputOptions.GetAutoCapitalization(input));
+            Assert.True(TextInputOptions.GetShowSuggestions(input));
             Assert.False(args.Handled);
         });
+    }
+
+    [Fact]
+    public async Task TranscriptSelectionUsesNativeActionsWithoutPersistentCopyButtons()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            Layout(window, shell, 412, 892);
+            shell.Chat.ApplyTranscript(new RemoteTranscript
+            {
+                ChatId = shell.Chat.ChatId,
+                Revision = 1,
+                Turns =
+                [
+                    new RemoteTranscriptTurn
+                    {
+                        Id = "turn",
+                        Items =
+                        [
+                            new RemoteTranscriptItem
+                            {
+                                Id = "user",
+                                Kind = RemoteProtocol.ItemKinds.User,
+                                Text = "Selectable user text"
+                            },
+                            new RemoteTranscriptItem
+                            {
+                                Id = "assistant",
+                                Kind = RemoteProtocol.ItemKinds.Assistant,
+                                Text = "Selectable assistant text"
+                            }
+                        ]
+                    }
+                ]
+            });
+            Pump(window);
+
+            var chatSurface = Assert.IsType<ChatDetailView>(Named(window, "ChatSurface"));
+            Assert.False(StrataTextSelection.GetIsTouchSelectionEnabled(chatSurface));
+            Assert.DoesNotContain(
+                window.GetVisualDescendants().OfType<Button>(),
+                button => button.Classes.Contains("msg-action"));
+
+            var selectableBlocks = chatSurface.GetVisualDescendants()
+                .OfType<SelectableTextBlock>()
+                .ToArray();
+            var userText = Assert.Single(
+                selectableBlocks,
+                block => block.Text == "Selectable user text");
+            Assert.True(NativeTextSelection.GetIsEnabled(userText));
+            Assert.Equal("Selectable user text", NativeTextSelection.GetText(userText));
+            Assert.True(userText.GetValue(InputElement.IsHoldingEnabledProperty));
+            Assert.True(userText.FontSize >= 14);
+            Assert.Contains(
+                selectableBlocks,
+                block => block.Text == "Selectable assistant text");
+            var assistantMarkdown = Assert.Single(
+                chatSurface.GetVisualDescendants().OfType<StrataMarkdown>());
+            Assert.True(NativeTextSelection.GetIsEnabled(assistantMarkdown));
+            Assert.Equal("Selectable assistant text", NativeTextSelection.GetText(assistantMarkdown));
+            Assert.True(assistantMarkdown.GetValue(InputElement.IsHoldingEnabledProperty));
+        });
+    }
+
+    [Fact]
+    public void NativeSelectionGestureTargetIsConsumedOnce()
+    {
+        MobilePlatformServices.ArmTextSelectionGesture("answer text");
+        Assert.True(MobilePlatformServices.IsTextSelectionGestureActive());
+
+        Assert.Equal(
+            "answer text",
+            MobilePlatformServices.TakeTextSelectionGesture());
+        Assert.True(MobilePlatformServices.IsTextSelectionGestureActive());
+        Assert.Null(MobilePlatformServices.TakeTextSelectionGesture());
+
+        MobilePlatformServices.ArmTextSelectionGesture("discarded");
+        Assert.True(MobilePlatformServices.IsTextSelectionGestureActive());
+        MobilePlatformServices.ClearTextSelectionGesture();
+        Assert.False(MobilePlatformServices.IsTextSelectionGestureActive());
+        Assert.Null(MobilePlatformServices.TakeTextSelectionGesture());
     }
 
     /// <summary>
@@ -716,8 +874,8 @@ public sealed class MobileShellViewTests
             Assert.True(width > 0);
             Assert.False(drawer.IsOpen);
             Assert.True(drawer.CanOpenFromAnywhere);
-            Assert.False(StrataTextSelection.GetIsTouchSelectionEnabled(
-                Assert.IsType<ChatDetailView>(Named(window, "ChatSurface"))));
+            var chatSurface = Assert.IsType<ChatDetailView>(Named(window, "ChatSurface"));
+            Assert.False(StrataTextSelection.GetIsTouchSelectionEnabled(chatSurface));
 
             // Halfway through the drag the panel must be halfway out — not still closed.
             drawer.RaiseEvent(new EdgeDragEventArgs(
@@ -989,7 +1147,7 @@ public sealed class MobileShellViewTests
     }
 
     /// <summary>
-    /// Going busy must snap the transcript to the tail.
+    /// A local send must snap the transcript to the tail.
     ///
     /// <para>Tapping send is explicit intent to be at the bottom, but the view only issued the
     /// gentle "layout changed" notify — which honours a reader who has scrolled up, and is posted at
@@ -998,7 +1156,7 @@ public sealed class MobileShellViewTests
     /// until the answer eventually pushed the view down.</para>
     /// </summary>
     [Fact]
-    public async Task GoingBusy_SnapsTheTranscriptToTheTail()
+    public async Task LocalSend_SnapsTheTranscriptToTheTail()
     {
         await Run((shell, window) =>
         {
@@ -1006,25 +1164,7 @@ public sealed class MobileShellViewTests
             OpenChat(shell);
             Layout(window, shell, 412, 892);
 
-            // A conversation long enough that the tail is genuinely off-screen.
-            shell.Chat.ApplyTranscript(new RemoteTranscript
-            {
-                ChatId = shell.Chat.ChatId,
-                Revision = 1,
-                Turns = [.. Enumerable.Range(0, 40).Select(i => new RemoteTranscriptTurn
-                {
-                    Id = $"t{i}",
-                    Items =
-                    [
-                        new RemoteTranscriptItem
-                        {
-                            Id = $"i{i}",
-                            Kind = RemoteProtocol.ItemKinds.User,
-                            Text = $"message number {i} with enough text to take a line or two on a phone"
-                        }
-                    ]
-                })]
-            });
+            shell.Chat.ApplyTranscript(LongTranscript(shell.Chat.ChatId));
             Pump(window);
 
             var scroll = window.GetVisualDescendants().OfType<ScrollViewer>()
@@ -1035,12 +1175,218 @@ public sealed class MobileShellViewTests
             Pump(window);
             Assert.Equal(0, scroll.Offset.Y, 1);
 
-            shell.Chat.IsBusy = true;
+            shell.Chat.PromptText = "new local message";
+            shell.Chat.SendCommand.Execute(null);
             Pump(window);
 
             Assert.True(
                 scroll.Offset.Y > 0,
                 "sending left the transcript parked at the top, so the thinking row was off-screen");
+        });
+    }
+
+    [Fact]
+    public async Task RemoteActivityStart_DoesNotStealManualScroll()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            Layout(window, shell, 412, 892);
+
+            shell.Chat.ApplyTranscript(LongTranscript(shell.Chat.ChatId));
+            Pump(window);
+
+            var chatShell = Assert.IsType<StrataChatShell>(Named(window, "ChatShell"));
+            var scroll = Assert.IsType<ScrollViewer>(chatShell.TranscriptScrollViewer);
+            scroll.Offset = new Vector(0, 0);
+            Pump(window);
+            Assert.False(chatShell.IsFollowingTail);
+
+            shell.Chat.ApplyStatus(new RemoteChatStatus
+            {
+                ChatId = shell.Chat.ChatId,
+                IsBusy = true
+            });
+            Pump(window);
+
+            Assert.False(chatShell.IsFollowingTail);
+            Assert.Equal(0, scroll.Offset.Y, 1);
+        });
+    }
+
+    [Fact]
+    public async Task ActivePhaseTransition_DoesNotStealManualScroll()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            Layout(window, shell, 412, 892);
+
+            shell.Chat.ApplyTranscript(LongTranscript(shell.Chat.ChatId));
+            shell.Chat.IsBusy = true;
+            Pump(window);
+
+            var chatShell = Assert.IsType<StrataChatShell>(Named(window, "ChatShell"));
+            var scroll = Assert.IsType<ScrollViewer>(chatShell.TranscriptScrollViewer);
+            scroll.Offset = new Vector(0, 0);
+            Pump(window);
+            Assert.False(chatShell.IsFollowingTail);
+
+            shell.Chat.ApplyStatus(new RemoteChatStatus
+            {
+                ChatId = shell.Chat.ChatId,
+                IsBusy = false,
+                IsStreaming = true
+            });
+            Pump(window);
+
+            Assert.False(chatShell.IsFollowingTail);
+            Assert.Equal(0, scroll.Offset.Y, 1);
+        });
+    }
+
+    [Fact]
+    public async Task ServerTurnAddedDuringActiveChat_DoesNotStealManualScroll()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            Layout(window, shell, 412, 892);
+
+            shell.Chat.ApplyTranscript(LongTranscript(shell.Chat.ChatId));
+            shell.Chat.IsBusy = true;
+            Pump(window);
+
+            var chatShell = Assert.IsType<StrataChatShell>(Named(window, "ChatShell"));
+            var scroll = Assert.IsType<ScrollViewer>(chatShell.TranscriptScrollViewer);
+            scroll.Offset = new Vector(0, 0);
+            Pump(window);
+            Assert.False(chatShell.IsFollowingTail);
+
+            var serverTurn = new TranscriptTurnViewModel("server-turn");
+            serverTurn.Items.Add(new AssistantItemViewModel(new RemoteTranscriptItem
+            {
+                Id = "server-answer",
+                Kind = RemoteProtocol.ItemKinds.Assistant,
+                Text = "A later server update arrived while the reader was reviewing history."
+            }));
+            shell.Chat.Turns.Add(serverTurn);
+            Pump(window);
+
+            Assert.False(chatShell.IsFollowingTail);
+            Assert.Equal(0, scroll.Offset.Y, 1);
+        });
+    }
+
+    [Fact]
+    public async Task LocalSteerWhileActive_StillJumpsToLatest()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            Layout(window, shell, 412, 892);
+
+            shell.Chat.ApplyTranscript(LongTranscript(shell.Chat.ChatId));
+            shell.Chat.IsBusy = true;
+            Pump(window);
+
+            var chatShell = Assert.IsType<StrataChatShell>(Named(window, "ChatShell"));
+            var scroll = Assert.IsType<ScrollViewer>(chatShell.TranscriptScrollViewer);
+            scroll.Offset = new Vector(0, 0);
+            Pump(window);
+            Assert.False(chatShell.IsFollowingTail);
+
+            shell.Chat.PromptText = "Change direction";
+            shell.Chat.SendCommand.Execute(null);
+            Pump(window);
+
+            Assert.True(chatShell.IsFollowingTail);
+            Assert.True(scroll.Offset.Y > 0);
+        });
+    }
+
+    [Fact]
+    public async Task SwitchingChatsAfterManualScroll_OpensTheNewChatAtLatest()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            Layout(window, shell, 412, 892);
+
+            shell.Chat.ApplyTranscript(LongTranscript(shell.Chat.ChatId));
+            Pump(window);
+
+            var chatShell = Assert.IsType<StrataChatShell>(Named(window, "ChatShell"));
+            var scroll = Assert.IsType<ScrollViewer>(chatShell.TranscriptScrollViewer);
+            scroll.Offset = new Vector(0, 0);
+            Pump(window);
+            Assert.False(chatShell.IsFollowingTail);
+
+            var nextChatId = Guid.NewGuid();
+            shell.Chat.Reset(nextChatId, "Next chat");
+            shell.Chat.ApplyTranscript(LongTranscript(nextChatId));
+            Pump(window);
+
+            Assert.True(chatShell.IsFollowingTail);
+            Assert.True(scroll.Offset.Y > 0);
+        });
+    }
+
+    [Fact]
+    public async Task ReopeningSameChatAfterManualScroll_OpensAtLatest()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            Layout(window, shell, 412, 892);
+
+            var chatId = shell.Chat.ChatId;
+            shell.Chat.ApplyTranscript(LongTranscript(chatId));
+            Pump(window);
+
+            var chatShell = Assert.IsType<StrataChatShell>(Named(window, "ChatShell"));
+            var scroll = Assert.IsType<ScrollViewer>(chatShell.TranscriptScrollViewer);
+            scroll.Offset = new Vector(0, 0);
+            Pump(window);
+            Assert.False(chatShell.IsFollowingTail);
+
+            shell.Chat.Reset(chatId, "Reopened chat");
+            shell.Chat.ApplyTranscript(LongTranscript(chatId));
+            Pump(window);
+
+            Assert.True(chatShell.IsFollowingTail);
+            Assert.True(scroll.Offset.Y > 0);
+        });
+    }
+
+    [Fact]
+    public async Task SwitchingToBlankChat_ResetsThePreviousScrollIntent()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            OpenChat(shell);
+            Layout(window, shell, 412, 892);
+
+            shell.Chat.ApplyTranscript(LongTranscript(shell.Chat.ChatId));
+            Pump(window);
+
+            var chatShell = Assert.IsType<StrataChatShell>(Named(window, "ChatShell"));
+            var scroll = Assert.IsType<ScrollViewer>(chatShell.TranscriptScrollViewer);
+            scroll.Offset = new Vector(0, 0);
+            Pump(window);
+            Assert.False(chatShell.IsFollowingTail);
+
+            shell.Chat.Reset(Guid.Empty, "New chat");
+            Pump(window);
+
+            Assert.True(chatShell.IsFollowingTail);
         });
     }
 
@@ -1779,8 +2125,13 @@ public sealed class MobileShellViewTests
             scroller.Offset = new Vector(0, 0);
             Pump(window);
 
-            // Drive the same status transition an external/remote turn uses. The view model owns the
-            // "waiting for visible activity" state; setting IsBusy directly would bypass it.
+            shell.Chat.PromptText = "new optimistic message";
+            shell.Chat.SendCommand.Execute(null);
+            Pump(window);
+
+            // The headless shell has no desktop transport, so its send fails immediately after the
+            // local submission signal. Reapply the server's working status to keep the real progress
+            // state visible while verifying the viewport chosen by that explicit local send.
             shell.Chat.ApplyStatus(new RemoteChatStatus
             {
                 ChatId = shell.Chat.ChatId,
@@ -1801,23 +2152,6 @@ public sealed class MobileShellViewTests
                 $"the progress indicator is off-screen at y={y:F0} in a {window.Height:F0}px window — "
                 + "the user would see nothing happen after tapping send");
 
-            // Sending then appends the optimistic user turn. That grows the tail after the first
-            // busy-state jump, so the view must follow again after the new container is measured.
-            var pending = new TranscriptTurnViewModel("__pending_echo__");
-            pending.Items.Add(new UserTurnItemViewModel(new RemoteTranscriptItem
-            {
-                Kind = RemoteProtocol.ItemKinds.User,
-                Text = "new optimistic message"
-            }));
-            shell.Chat.Turns.Add(pending);
-            Pump(window);
-
-            topLeft = indicator.TranslatePoint(new Point(0, 0), window);
-            Assert.NotNull(topLeft);
-            y = topLeft!.Value.Y;
-            Assert.True(
-                y >= 0 && y <= window.Height,
-                $"the optimistic message pushed the progress indicator off-screen to y={y:F0}");
         });
     }
 

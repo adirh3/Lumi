@@ -52,12 +52,15 @@ public static class RemoteProtocol
     public static readonly TimeSpan PairingCodeLifetime = TimeSpan.FromMinutes(5);
 
     /// <summary>
-    /// Maximum raw messages projected into one mobile transcript response. Paging is deliberately
-    /// defined over raw messages rather than projected turns so hidden reasoning/tool preferences
-    /// cannot create gaps or make a page unbounded.
+    /// Detailed transcripts page by raw messages because every selected row can be rendered. Compact
+    /// transcripts page by projected visible items instead: hidden reasoning/tool messages collapse
+    /// to one activity card per turn and must not consume the phone's conversation-history allowance.
+    /// Both modes keep raw-message cursor indexes so earlier pages remain gap- and overlap-free.
     /// </summary>
     public const int TranscriptWindowRawMessageLimit = 100;
     public const int InitialTranscriptWindowRawMessageLimit = 40;
+    public const int CompactTranscriptWindowVisibleItemLimit = 400;
+    public const int InitialCompactTranscriptWindowVisibleItemLimit = 240;
 
     /// <summary>
     /// Cumulative source-text budget for one transcript window. A single oversized message is still
@@ -65,6 +68,7 @@ public static class RemoteProtocol
     /// below.
     /// </summary>
     public const int TranscriptWindowTextBudgetCharacters = 128 * 1024;
+    public const int CompactTranscriptWindowTextBudgetCharacters = 384 * 1024;
 
     public const int MobileUserTextLimit = 24 * 1024;
     public const int MobileAssistantTextLimit = 32 * 1024;
@@ -91,6 +95,7 @@ public static class RemoteProtocol
     public const int MobileQuestionOptionCountLimit = 32;
     public const int MobileSourceCountLimit = 24;
     public const int MobileAttachmentCountLimit = 24;
+    public const int MobileInlineImageCountLimit = 8;
     public const int MobileToolCallCountLimit = 32;
     public const int MobileActivityToolCountLimit = 32;
     public const int MobileFileChangeCountLimit = 64;
@@ -102,9 +107,10 @@ public static class RemoteProtocol
     public const int MobileLibraryPreviewLimit = 512;
 
     /// <summary>
-    /// Hard UTF-8 JSON ceiling for a projected transcript. The source window remains 100 raw
-    /// messages / 128 KiB of source text; pathological metadata is compacted explicitly if the
-    /// fully projected wire shape would exceed this independent response limit.
+    /// Hard UTF-8 JSON ceiling for a projected transcript. Detailed mode remains bounded by raw
+    /// messages; compact mode is bounded by visible items and visible source text. Pathological
+    /// metadata is compacted explicitly if the fully projected wire shape exceeds this independent
+    /// response limit.
     /// </summary>
     public const int MobileTranscriptJsonByteLimit = 1_250_000;
 
@@ -114,7 +120,9 @@ public static class RemoteProtocol
     public const int MaxChatsJsonBytes = 3 * 1024 * 1024;
     public const int MaxLibraryJsonBytes = 4 * 1024 * 1024;
     public const int MaxLibraryItemJsonBytes = 2 * 1024 * 1024;
+    public const int MaxFileSuggestionsJsonBytes = 128 * 1024;
     public const int MaxActivityJsonBytes = 768 * 1024;
+    public const long MaxMarkdownImageBytes = 20L * 1024 * 1024;
     // Snapshot/library payloads are compact single-line JSON. The SSE reader and queue must accept
     // every payload the protocol permits, plus the small event/data framing overhead.
     public const int MaxSseLineBytes = MaxSnapshotJsonBytes + 1024;
@@ -186,11 +194,15 @@ public static class RemoteProtocol
         /// <summary>Authenticated full editable library item.</summary>
         public const string LibraryItem = "/lumi/library-item";
 
+        /// <summary>Authenticated bounded file autocomplete for an explicit chat or project.</summary>
+        public const string FileSuggestions = "/lumi/file-suggestions";
+
         /// <summary>Authenticated transcript read: <c>/lumi/transcript?chatId=...</c></summary>
         public const string Transcript = "/lumi/transcript";
 
         /// <summary>Authenticated technical details for one compact activity summary.</summary>
         public const string Activity = "/lumi/activity";
+        public const string MarkdownImage = "/lumi/markdown-image";
 
         /// <summary>Authenticated announced-file download by chat/message identity.</summary>
         public const string File = "/lumi/file";
@@ -218,9 +230,11 @@ public static class RemoteProtocol
     {
         public const string ScopedEventsV1 = "scoped-events-v1";
         public const string CompactTranscriptV1 = "compact-transcript-v1";
+        public const string FileSuggestionsV1 = "file-suggestions-v1";
 
         public static IReadOnlyList<string> Required { get; } = [ScopedEventsV1];
-        public static IReadOnlyList<string> Server { get; } = [ScopedEventsV1, CompactTranscriptV1];
+        public static IReadOnlyList<string> Server { get; } =
+            [ScopedEventsV1, CompactTranscriptV1, FileSuggestionsV1];
     }
 
     /// <summary>Largest upload the desktop will accept, so a phone cannot exhaust its disk.</summary>

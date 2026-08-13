@@ -16,6 +16,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
+using Lumi.Services;
 using Lumi.ViewModels;
 
 namespace Lumi.Services.Remote;
@@ -48,6 +49,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     private readonly MainViewModel _main;
     private readonly RemoteCommandRouter _router;
     private readonly RemoteHttpListener _listener;
+    private readonly FileSearchService _fileSearchService = new();
     private readonly Func<IReadOnlySet<IPAddress>> _tailscaleAddressProvider;
     private readonly ConcurrentDictionary<Guid, RemoteEventClient> _streams = new();
     private readonly CancellationTokenSource _cts = new();
@@ -89,6 +91,11 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         IReadOnlySet<string> RunningBackgroundToolCallIds);
 
     private sealed record FileMessageCapture(Chat? Chat, string? Content);
+    private sealed record MarkdownImageCapture(
+        Chat? Chat,
+        string? Content,
+        string? Role,
+        IReadOnlySet<string>? AuthorizedPaths);
 
     public LumiRemoteServer(DataStore dataStore, MainViewModel main)
         : this(dataStore, main, GetVerifiedTailscaleAddresses)
@@ -485,6 +492,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 case RemoteProtocol.Routes.LibraryItem:
                     await HandleLibraryItemAsync(context, cancellationToken).ConfigureAwait(false);
                     return;
+                case RemoteProtocol.Routes.FileSuggestions:
+                    await HandleFileSuggestionsAsync(context, cancellationToken).ConfigureAwait(false);
+                    return;
                 case RemoteProtocol.Routes.Transcript:
                     await HandleTranscriptAsync(context, cancellationToken).ConfigureAwait(false);
                     return;
@@ -493,6 +503,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                     return;
                 case RemoteProtocol.Routes.File:
                     await HandleFileAsync(context, cancellationToken).ConfigureAwait(false);
+                    return;
+                case RemoteProtocol.Routes.MarkdownImage:
+                    await HandleMarkdownImageAsync(context, cancellationToken).ConfigureAwait(false);
                     return;
                 case RemoteProtocol.Routes.Command:
                     await HandleCommandAsync(context, device, cancellationToken).ConfigureAwait(false);
@@ -825,6 +838,290 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         await context.WriteFileAsync(stream, file.Length, file.Name, cancellationToken).ConfigureAwait(false);
     }
 
+    private async Task HandleFileSuggestionsAsync(
+        RemoteHttpContext context,
+        CancellationToken cancellationToken)
+    {
+        var query = (context.Request.QueryValue("q") ?? "").Trim();
+        if (query.Length > RemoteProtocol.MobileStatusValueLimit)
+        {
+            await WriteErrorAsync(context, 400, "q is too long.", cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var rawChatId = context.Request.QueryValue("chatId");
+        var rawProjectId = context.Request.QueryValue("projectId");
+        if (!string.IsNullOrWhiteSpace(rawChatId)
+            && !Guid.TryParse(rawChatId, out _))
+        {
+            await WriteErrorAsync(context, 400, "chatId is invalid.", cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(rawProjectId)
+            && !Guid.TryParse(rawProjectId, out _))
+        {
+            await WriteErrorAsync(context, 400, "projectId is invalid.", cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var chatId = Guid.TryParse(rawChatId, out var parsedChatId)
+            ? parsedChatId
+            : (Guid?)null;
+        var projectId = Guid.TryParse(rawProjectId, out var parsedProjectId)
+            ? parsedProjectId
+            : (Guid?)null;
+
+        var resolution = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            Chat? chat = null;
+            if (chatId is { } explicitChatId)
+            {
+                chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == explicitChatId);
+                if (chat is null)
+                    return (Directory: (string?)null, Error: "Chat not found.");
+            }
+            else if (projectId is { } explicitProjectId
+                     && _dataStore.Data.Projects.All(candidate => candidate.Id != explicitProjectId))
+            {
+                return (Directory: (string?)null, Error: "Project not found.");
+            }
+
+            var directory = ResolveFileSuggestionDirectory(
+                _dataStore,
+                chat,
+                projectId);
+            if (directory is null)
+                return (Directory: (string?)null, Error: "Project folder is not available.");
+
+            return (Directory: (string?)directory, Error: (string?)null);
+        });
+
+        if (resolution.Directory is null)
+        {
+            await WriteErrorAsync(context, 404, resolution.Error ?? "Search location not found.", cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var suggestions = BuildFileSuggestions(
+            _fileSearchService,
+            resolution.Directory,
+            query,
+            cancellationToken);
+        await context.WriteJsonAsync(
+                JsonSerializer.Serialize(
+                    suggestions,
+                    RemoteJsonContext.Default.RemoteFileSuggestions),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    internal static RemoteFileSuggestions BuildFileSuggestions(
+        FileSearchService searchService,
+        string directory,
+        string query,
+        CancellationToken cancellationToken)
+    {
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var isProjectDirectory = !string.Equals(
+            Path.GetFullPath(directory),
+            Path.GetFullPath(userProfile),
+            OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal);
+        if (!isProjectDirectory && query.Length == 0)
+            return new RemoteFileSuggestions();
+
+        var maxDepth = isProjectDirectory ? 10 : 4;
+        var results = searchService.Search(
+            directory,
+            query,
+            maxResults: 20,
+            maxDepth,
+            cancellationToken);
+        return new RemoteFileSuggestions
+        {
+            Items =
+            [
+                .. results.Select(result =>
+                {
+                    var fileName = Path.GetFileName(result.RelativePath);
+                    var parentPath = Path.GetDirectoryName(result.RelativePath);
+                    return new RemoteChip
+                    {
+                        Name = RemoteProtocol.TruncateForMobile(
+                                   string.IsNullOrWhiteSpace(fileName)
+                                       ? result.RelativePath
+                                       : fileName,
+                                   RemoteProtocol.MobileFileNameLimit)
+                               ?? "",
+                        Glyph = "📄",
+                        Description = RemoteProtocol.TruncateForMobile(
+                            string.IsNullOrWhiteSpace(parentPath)
+                                ? null
+                                : parentPath.Replace('\\', '/'),
+                            RemoteProtocol.MobileMetadataTextLimit),
+                        Value = RemoteProtocol.TruncateForMobile(
+                            result.FullPath,
+                            RemoteProtocol.MobilePathLimit)
+                    };
+                })
+            ]
+        };
+    }
+
+    internal static string? ResolveFileSuggestionDirectory(
+        DataStore dataStore,
+        Chat? chat,
+        Guid? projectId)
+    {
+        var effectiveProjectId = chat?.ProjectId ?? projectId;
+        var project = effectiveProjectId is { } scopedProjectId
+            ? dataStore.Data.Projects.FirstOrDefault(candidate => candidate.Id == scopedProjectId)
+            : null;
+        if (chat?.WorktreePath is { Length: > 0 } explicitWorktreePath
+            && !Directory.Exists(explicitWorktreePath))
+        {
+            return null;
+        }
+
+        var hasWorktree = chat?.WorktreePath is { Length: > 0 } worktreePath
+                          && Directory.Exists(worktreePath);
+        var hasProjectDirectory = project?.WorkingDirectory is { Length: > 0 } projectDirectory
+                                  && Directory.Exists(projectDirectory);
+        if (effectiveProjectId is not null && !hasWorktree && !hasProjectDirectory)
+            return null;
+
+        return ChatViewModel.ResolveEffectiveWorkingDirectory(
+            dataStore,
+            effectiveProjectId,
+            chat?.WorktreePath);
+    }
+
+    private async Task HandleMarkdownImageAsync(
+        RemoteHttpContext context,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(context.Request.QueryValue("chatId"), out var chatId)
+            || !Guid.TryParse(context.Request.QueryValue("messageId"), out var messageId)
+            || !int.TryParse(
+                context.Request.QueryValue("imageIndex"),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var imageIndex)
+            || imageIndex < 0)
+        {
+            await WriteErrorAsync(
+                    context,
+                    400,
+                    "chatId, messageId and imageIndex are required.",
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var capture = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+            if (chat is null)
+                return new MarkdownImageCapture(null, null, null, null);
+
+            var owner = RemoteProjector.ResolveChatOwner(_main, chatId);
+            IReadOnlyList<ChatMessage>? messages =
+                owner?.CurrentChat?.Id == chatId
+                    ? owner.Messages.Select(item => item.Message).ToList()
+                    : chat.Messages.Count > 0
+                        ? chat.Messages
+                        : null;
+            var message = messages?.FirstOrDefault(candidate =>
+                candidate.Id == messageId);
+            return new MarkdownImageCapture(
+                chat,
+                message?.Content,
+                message?.Role,
+                messages is null
+                    ? null
+                    : RemoteMarkdownImageFiles.BuildAuthorizedPaths(messages));
+        });
+
+        if (capture.Chat is null)
+        {
+            await WriteErrorAsync(context, 404, "Chat not found.", cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var content = capture.Content;
+        var role = capture.Role;
+        var authorizedPaths = capture.AuthorizedPaths;
+        if (content is null || role is null || authorizedPaths is null)
+        {
+            var persisted = await _dataStore
+                .ReadPersistedChatMessagesAsync(chatId, cancellationToken)
+                .ConfigureAwait(false);
+            var message = persisted.FirstOrDefault(candidate =>
+                candidate.Id == messageId);
+            content ??= message?.Content;
+            role ??= message?.Role;
+            authorizedPaths ??=
+                RemoteMarkdownImageFiles.BuildAuthorizedPaths(persisted);
+        }
+
+        var advertised = string.Equals(
+                             role,
+                             "assistant",
+                             StringComparison.OrdinalIgnoreCase)
+                         && RemoteMarkdownImageFiles
+                             .BuildDescriptors(content, authorizedPaths)?
+                             .Take(RemoteProtocol.MobileInlineImageCountLimit)
+                             .Any(image => image.Index == imageIndex) == true;
+        if (!advertised
+            || !RemoteMarkdownImageFiles.TryResolveReferencedPath(
+                content,
+                imageIndex,
+                authorizedPaths,
+                out var path)
+            || !File.Exists(path))
+        {
+            await WriteErrorAsync(
+                    context,
+                    404,
+                    "That inline image is no longer available.",
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var file = new FileInfo(path);
+        if (file.Length > RemoteProtocol.MaxMarkdownImageBytes)
+        {
+            await WriteErrorAsync(
+                    context,
+                    413,
+                    "That inline image is too large for mobile.",
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await using var stream = new FileStream(
+            file.FullName,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete,
+            64 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        await context.WriteFileAsync(
+                stream,
+                file.Length,
+                file.Name,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     private async Task HandleTranscriptAsync(RemoteHttpContext context, CancellationToken cancellationToken)
     {
         if (!Guid.TryParse(context.Request.QueryValue("chatId"), out var chatId))
@@ -854,13 +1151,14 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             beforeMessageIndex = parsedBefore;
         }
 
-        var maxMessages = ResolveTranscriptWindowLimit(
-            context.Request.QueryValue("limit"),
-            beforeMessageIndex);
         var compact = string.Equals(
             context.Request.QueryValue("mode"),
             "compact",
             StringComparison.OrdinalIgnoreCase);
+        var maxMessages = ResolveTranscriptWindowLimit(
+            context.Request.QueryValue("limit"),
+            beforeMessageIndex,
+            compact);
 
         // Capture mutable desktop state on the UI thread, then do the potentially large persisted
         // read and bounded projection away from it. A live/detached owner still wins so streaming and
@@ -910,10 +1208,15 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                            .ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var window = RemoteProjector.SelectTranscriptWindow(
-            messages,
-            beforeMessageIndex,
-            maxMessages);
+        var window = compact
+            ? RemoteProjector.SelectCompactTranscriptWindow(
+                messages,
+                beforeMessageIndex,
+                maxMessages)
+            : RemoteProjector.SelectTranscriptWindow(
+                messages,
+                beforeMessageIndex,
+                maxMessages);
         var transcript = RemoteProjector.BuildTranscript(
             capture.Chat,
             window,
@@ -1545,14 +1848,23 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             ? Math.Clamp(value, minimum, maximum)
             : fallback;
 
-    internal static int ResolveTranscriptWindowLimit(string? raw, int? beforeMessageIndex) =>
+    internal static int ResolveTranscriptWindowLimit(
+        string? raw,
+        int? beforeMessageIndex,
+        bool compact = false) =>
         ParseBoundedInt(
             raw,
             beforeMessageIndex is null
-                ? RemoteProtocol.InitialTranscriptWindowRawMessageLimit
-                : RemoteProtocol.TranscriptWindowRawMessageLimit,
+                ? compact
+                    ? RemoteProtocol.InitialCompactTranscriptWindowVisibleItemLimit
+                    : RemoteProtocol.InitialTranscriptWindowRawMessageLimit
+                : compact
+                    ? RemoteProtocol.CompactTranscriptWindowVisibleItemLimit
+                    : RemoteProtocol.TranscriptWindowRawMessageLimit,
             1,
-            RemoteProtocol.TranscriptWindowRawMessageLimit);
+            compact
+                ? RemoteProtocol.CompactTranscriptWindowVisibleItemLimit
+                : RemoteProtocol.TranscriptWindowRawMessageLimit);
 
     // ── Auth ────────────────────────────────────────────────────────────────────────────────
 
