@@ -13,6 +13,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Services;
 using Lumi.ViewModels;
+using Lumi.Views;
 using StrataTheme.Controls;
 
 namespace Lumi.UiPerf;
@@ -25,7 +26,7 @@ namespace Lumi.UiPerf;
 /// </summary>
 internal sealed class UiResponsivenessHarness
 {
-    private const int MaxScrollSteps = 40;
+    private const int MaxScrollSteps = 10_000;
     private const int GateFailureExitCode = 3;
 
     private readonly MainViewModel _mainVm;
@@ -249,6 +250,8 @@ internal sealed class UiResponsivenessHarness
             "Many tool-call cards and subagent groups inflate the transcript.");
         yield return OpenChatAction("chat-open-markdown", "Open markdown-heavy chat", scenarios.MarkdownHeavyChatId,
             "Large markdown documents (tables + code) per message stress the markdown renderer.");
+        yield return OpenChatAction("chat-open-atomic-markdown", "Open one ~250 KB markdown answer", scenarios.AtomicMarkdownChatId,
+            "Measures the irreducible cost of one exceptionally large rich transcript turn.");
 
         // Chat switch (alternate between two heavy chats).
         yield return new UiAction(
@@ -298,27 +301,27 @@ internal sealed class UiResponsivenessHarness
         yield return new UiAction(
             "scroll-huge", "Transcript scroll", "Scroll up through huge chat history",
             RunAsync: DriveScrollToTopAsync,
-            Prepare: () => OpenChatAsync(scenarios.HugeChatId),
+            Prepare: () => ReopenChatAsync(scenarios.MediumChatId, scenarios.HugeChatId),
             Note: "Scrolls through stable placeholders while nearby heavy transcript turns realize.");
         yield return new UiAction(
             "scroll-markdown", "Transcript scroll", "Scroll up through markdown-heavy chat",
             RunAsync: DriveScrollToTopAsync,
-            Prepare: () => OpenChatAsync(scenarios.MarkdownHeavyChatId),
+            Prepare: () => ReopenChatAsync(scenarios.MediumChatId, scenarios.MarkdownHeavyChatId),
             Note: "Scrolls through stable placeholders while nearby large markdown turns realize.");
         yield return new UiAction(
             "scroll-mega-fast", "Transcript scroll", "Fast-traverse 1,000-turn chat",
             RunAsync: DriveScrollToTopAsync,
-            Prepare: () => OpenChatAsync(scenarios.MegaChatId),
+            Prepare: () => ReopenChatAsync(scenarios.MediumChatId, scenarios.MegaChatId),
             Note: "Rapidly traverses the full stable geometry, then realizes only the stopped viewport.");
         yield return new UiAction(
             "scroll-mega-stops", "Transcript scroll", "Pause through 1,000-turn chat",
             RunAsync: DriveScrollWithStopsAsync,
-            Prepare: () => OpenChatAsync(scenarios.MegaChatId),
+            Prepare: () => ReopenChatAsync(scenarios.MediumChatId, scenarios.MegaChatId),
             Note: "Realizes and releases sixteen evenly-spaced viewports while preserving the native anchor.");
         yield return new UiAction(
             "scroll-mega-roundtrip", "Transcript scroll", "Repeat top/bottom jumps in 1,000-turn chat",
             RunAsync: DriveScrollRoundTripAsync,
-            Prepare: () => OpenChatAsync(scenarios.MegaChatId),
+            Prepare: () => ReopenChatAsync(scenarios.MediumChatId, scenarios.MegaChatId),
             Note: "Exercises scrollbar-style long-distance jumps without realizing skipped content.");
 
         // Composer (per-keystroke latency).
@@ -383,6 +386,12 @@ internal sealed class UiResponsivenessHarness
     private Task OpenChatAsync(Guid chatId)
         => OnUiAsync(async () => await _mainVm.OpenChatByIdAsync(chatId));
 
+    private async Task ReopenChatAsync(Guid resetChatId, Guid targetChatId)
+    {
+        await OpenChatAsync(resetChatId);
+        await OpenChatAsync(targetChatId);
+    }
+
     private Task NewChatAsync()
         => OnUiAsync(() => _mainVm.NewChatCommand.Execute(null));
 
@@ -407,8 +416,10 @@ internal sealed class UiResponsivenessHarness
         if (scrollViewer is null)
             throw new InvalidOperationException("The active chat transcript ScrollViewer was not found.");
 
+        var stalledIterations = 0;
         for (var step = 0; step < MaxScrollSteps; step++)
         {
+            var mountedBefore = await OnUiAsync(() => _mainVm.ChatVM.MountedTranscriptTurns.Count);
             var moved = await OnUiAsync(() =>
             {
                 var before = scrollViewer.Offset.Y;
@@ -419,9 +430,32 @@ internal sealed class UiResponsivenessHarness
             });
 
             await DrainAsync(DispatcherPriority.Background);
-            if (!moved)
+            await DrainAsync(DispatcherPriority.Loaded);
+
+            var state = await OnUiAsync(() => (
+                HasOlderPages: _mainVm.ChatVM.HasOlderTranscriptPages,
+                MountedCount: _mainVm.ChatVM.MountedTranscriptTurns.Count,
+                Offset: scrollViewer.Offset.Y));
+            if (!state.HasOlderPages && state.Offset <= 0.5d)
                 break;
+
+            if (!moved && state.MountedCount == mountedBefore)
+            {
+                await OnUiAsync(() => FindActiveChatView()?.RequestOlderHistoryForDiagnostics());
+                stalledIterations++;
+                if (stalledIterations >= 120)
+                    throw new InvalidOperationException("Progressive transcript traversal stopped making progress.");
+
+                await Task.Delay(16);
+            }
+            else
+            {
+                stalledIterations = 0;
+            }
         }
+
+        if (await OnUiAsync(() => _mainVm.ChatVM.HasOlderTranscriptPages))
+            throw new InvalidOperationException($"Progressive transcript traversal exceeded {MaxScrollSteps} steps.");
 
         // Keep this action's measurement open through the scroll-idle debounce and the resulting
         // viewport realization/layout. Otherwise the report would measure placeholder movement only.
@@ -490,6 +524,18 @@ internal sealed class UiResponsivenessHarness
             .OfType<StrataChatShell>()
             .FirstOrDefault(static shell => shell.IsVisible)
             ?.TranscriptScrollViewer;
+    }
+
+    private static ChatView? FindActiveChatView()
+    {
+        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            return null;
+
+        return desktop.Windows
+            .Where(static window => window.IsVisible)
+            .SelectMany(static window => window.GetVisualDescendants())
+            .OfType<ChatView>()
+            .FirstOrDefault(static view => view.IsVisible);
     }
 
     private async Task DriveSearchAsync(string query)

@@ -31,9 +31,17 @@ public sealed class TranscriptTurn : ObservableObject
 
     public double MeasuredHeight
     {
+        // Synthetic/legacy geometry used by pure paging modes and tests. Production controls keep
+        // measurements locally because one TranscriptTurn can appear at different widths in two windows.
         get => _measuredHeight;
-        set => SetProperty(ref _measuredHeight, value);
+        set
+        {
+            if (SetProperty(ref _measuredHeight, value))
+                HasMeasuredRealizedHeight = value > 0;
+        }
     }
+
+    public bool HasMeasuredRealizedHeight { get; private set; }
 
     /// <summary>
     /// The realized item-host for this turn, cached on the stable turn object so switching away
@@ -75,6 +83,18 @@ public readonly record struct TranscriptTurnControlDiagnosticsSnapshot(
     int ActiveRealizedHostCount,
     int PeakActiveRealizedHostCount);
 
+internal sealed class TranscriptLocalHeightChangedEventArgs(
+    TranscriptTurnControl control,
+    TranscriptTurn turn,
+    double previousHeight,
+    double newHeight) : EventArgs
+{
+    public TranscriptTurnControl Control { get; } = control;
+    public TranscriptTurn Turn { get; } = turn;
+    public double PreviousHeight { get; } = previousHeight;
+    public double NewHeight { get; } = newHeight;
+}
+
 public sealed class TranscriptTurnControl : UserControl
 {
     private TranscriptTurn? _turn;
@@ -83,14 +103,12 @@ public sealed class TranscriptTurnControl : UserControl
     private bool _isSubscribedToTurnItems;
     private bool _realizationPending;
     private bool _isViewportActive;
+    private double _lastLocallyRealizedHeight;
+    private double _lastReservedPlaceholderHeight;
     private static int _controlCreateCount;
     private static int _itemHostCreateCount;
     private static int _activeRealizedHostCount;
     private static int _peakActiveRealizedHostCount;
-
-    // Matches TranscriptPagingOptions.EstimatedPixelsPerWeightUnit so every stable placeholder reserves
-    // the same initial height used by transcript diagnostics before the turn has been measured.
-    private const double PlaceholderPixelsPerWeightUnit = 56d;
 
     public static readonly StyledProperty<TranscriptTurn?> TurnProperty =
         AvaloniaProperty.Register<TranscriptTurnControl, TranscriptTurn?>(nameof(Turn));
@@ -147,6 +165,9 @@ public sealed class TranscriptTurnControl : UserControl
     public ObservableCollection<TranscriptItem>? Items => Turn?.Items;
 
     public string? StableId => Turn?.StableId;
+    internal double LocalMeasuredHeight => _lastLocallyRealizedHeight;
+    internal bool HasLocalMeasuredHeight => _lastLocallyRealizedHeight > 0;
+    internal event EventHandler<TranscriptLocalHeightChangedEventArgs>? LocalHeightChanged;
 
     public static TranscriptTurnControlDiagnosticsSnapshot CaptureDiagnostics() => new(
         Volatile.Read(ref _controlCreateCount),
@@ -171,6 +192,7 @@ public sealed class TranscriptTurnControl : UserControl
         ReleaseAdoptedHost();
 
         _turn = newTurn;
+        _lastLocallyRealizedHeight = 0;
 
         SubscribeToTurnItems(newTurn);
         AdoptHost();
@@ -220,8 +242,27 @@ public sealed class TranscriptTurnControl : UserControl
 
     private void OnSizeChanged(object? sender, SizeChangedEventArgs e)
     {
-        if (_turn is not null && e.NewSize.Height > 0)
-            _turn.MeasuredHeight = e.NewSize.Height;
+        if (_turn is not null
+            && _host is not null
+            && ReferenceEquals(Content, _host)
+            && e.NewSize.Height > 0)
+        {
+            var previousHeight = e.PreviousSize.Height > 0
+                ? e.PreviousSize.Height
+                : _lastReservedPlaceholderHeight;
+            _lastLocallyRealizedHeight = e.NewSize.Height;
+            _lastReservedPlaceholderHeight = 0;
+            if (previousHeight > 0 && Math.Abs(e.NewSize.Height - previousHeight) >= 0.5)
+            {
+                LocalHeightChanged?.Invoke(
+                    this,
+                    new TranscriptLocalHeightChangedEventArgs(
+                        this,
+                        _turn,
+                        previousHeight,
+                        e.NewSize.Height));
+            }
+        }
     }
 
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -324,9 +365,8 @@ public sealed class TranscriptTurnControl : UserControl
 
         // Defer the heavy realization (host build for a fresh turn, or visual-tree re-measure for a
         // retained one) so a chat switch doesn't measure every mounted turn in one synchronous layout
-        // pass — the long freeze the user feels. Reserve the turn's known height meanwhile so the
-        // scrollbar and scroll anchor stay correct, then let the scheduler realize bottom-first in
-        // small frame-budgeted batches.
+        // pass. Reserve only this control's local measurement (or the neutral minimum on first use),
+        // then let the scheduler realize bottom-first in small frame-budgeted batches.
         _realizationPending = true;
         TranscriptRealizationScheduler.Instance.Request(this);
     }
@@ -349,6 +389,13 @@ public sealed class TranscriptTurnControl : UserControl
         {
             _realizationPending = false;
             TranscriptRealizationScheduler.Instance.Cancel(this);
+        }
+
+        if (_host is not null
+            && ReferenceEquals(Content, _host)
+            && Bounds.Height > 0)
+        {
+            _lastLocallyRealizedHeight = Bounds.Height;
         }
 
         ReservePlaceholderHeight();
@@ -469,15 +516,19 @@ public sealed class TranscriptTurnControl : UserControl
         ClearPlaceholderHeight();
     }
 
-    // Reserve the turn's known (or estimated) height with empty content so the placeholder occupies
-    // the right space until the real subtree is measured. Exact for a switch-back (cached
-    // MeasuredHeight) → no reflow; an estimate on first realization.
+    // Reserve only geometry measured by this control in this layout root. A shared turn can be visible
+    // in differently sized windows, so borrowing its last measurement would make one window reserve
+    // another window's height and jump when local content realizes. First-time placeholders use the
+    // small neutral minimum; the view compensates the exact local delta after realization.
     private void ReservePlaceholderHeight()
     {
         if (_turn is null)
             return;
 
-        MinHeight = TranscriptPageWeightEstimator.EstimateTurnHeight(_turn, PlaceholderPixelsPerWeightUnit);
+        _lastReservedPlaceholderHeight = _lastLocallyRealizedHeight > 0
+            ? _lastLocallyRealizedHeight
+            : TranscriptLayoutMetrics.MinimumEstimatedTurnHeight;
+        MinHeight = _lastReservedPlaceholderHeight;
         if (Content is not null)
             Content = null;
     }
@@ -704,17 +755,20 @@ public sealed class TranscriptTurnControl : UserControl
 /// </summary>
 public sealed class TranscriptItemsControl : ItemsControl
 {
-    private const double RealizationCacheViewportMultiplier = 0.75d;
-    internal const int RetainedHostCacheLimit = 128;
-    internal static readonly TimeSpan ScrollIdleRealizationDelay = TimeSpan.FromMilliseconds(90);
+    private const double RealizationCacheViewportMultiplier = 1.5d;
+    internal const int RetainedHostCacheLimit = 32;
+    internal const int RetainedHostWeightLimit = 192;
+    internal static readonly TimeSpan ScrollIdleRealizationDelay = TimeSpan.FromMilliseconds(250);
     private ScrollViewer? _scrollViewer;
     private readonly DispatcherTimer _scrollIdleTimer;
     private readonly LinkedList<TranscriptTurnControl> _retainedHostLru = [];
     private readonly Dictionary<TranscriptTurnControl, LinkedListNode<TranscriptTurnControl>> _retainedHostNodes = [];
-    private Control? _registeredAnchorControl;
+    private readonly Dictionary<TranscriptTurnControl, int> _retainedHostWeights = [];
+    private int _retainedHostWeight;
     private bool _isAttachedToVisualTree;
-    private bool _anchorUpdateQueued;
+    private bool _isWaitingForScrollIdle;
     private bool _viewportUpdateQueued;
+    internal event EventHandler<TranscriptLocalHeightChangedEventArgs>? LocalTurnHeightChanged;
 
     // Inherit the base ItemsControl control theme/template. Avalonia resolves a templated control's
     // ControlTheme by its concrete style key, so without this the subclass would have no template,
@@ -732,6 +786,9 @@ public sealed class TranscriptItemsControl : ItemsControl
         _scrollIdleTimer.Tick += OnScrollIdleTimerTick;
     }
 
+    internal int RetainedHostCount => _retainedHostLru.Count;
+    internal int RetainedHostWeight => _retainedHostWeight;
+
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
@@ -744,7 +801,7 @@ public sealed class TranscriptItemsControl : ItemsControl
     {
         _isAttachedToVisualTree = false;
         _scrollIdleTimer.Stop();
-        SetRegisteredAnchor(null);
+        _isWaitingForScrollIdle = false;
         DetachScrollViewer();
         base.OnDetachedFromVisualTree(e);
     }
@@ -776,66 +833,75 @@ public sealed class TranscriptItemsControl : ItemsControl
             _scrollViewer = null;
         }
 
-        _anchorUpdateQueued = false;
         _viewportUpdateQueued = false;
     }
 
     private void OnScrollViewportChanged(object? sender, ScrollChangedEventArgs e)
+        => DeferViewportRealizationUntilScrollIdle();
+
+    internal void DeferViewportRealizationUntilScrollIdle()
     {
-        QueueAnchorUpdate();
+        _isWaitingForScrollIdle = true;
         _scrollIdleTimer.Stop();
         _scrollIdleTimer.Start();
     }
 
     private void OnScrollViewportSizeChanged(object? sender, SizeChangedEventArgs e)
-    {
-        QueueAnchorUpdate();
-        QueueViewportRealizationUpdate();
-    }
+        => QueueViewportRealizationUpdate();
 
     private void OnContainerPrepared(object? sender, ContainerPreparedEventArgs e)
     {
-        QueueAnchorUpdate();
-        QueueViewportRealizationUpdate();
+        var control = FindTurnControl(e.Container);
+        if (control is not null)
+        {
+            control.LocalHeightChanged -= OnControlLocalHeightChanged;
+            control.LocalHeightChanged += OnControlLocalHeightChanged;
+        }
+
+        if (!_isWaitingForScrollIdle)
+            QueueViewportRealizationUpdate();
     }
 
     private void OnContainerClearing(object? sender, ContainerClearingEventArgs e)
     {
-        var control = e.Container as TranscriptTurnControl
-            ?? e.Container.GetVisualDescendants().OfType<TranscriptTurnControl>().FirstOrDefault();
+        var control = FindTurnControl(e.Container);
         if (control is not null)
         {
-            if (ReferenceEquals(_registeredAnchorControl, e.Container))
-                SetRegisteredAnchor(null);
+            control.LocalHeightChanged -= OnControlLocalHeightChanged;
             RemoveRetainedHost(control, releaseHost: true);
         }
     }
 
+    private static TranscriptTurnControl? FindTurnControl(Control container)
+        => container as TranscriptTurnControl
+           ?? container.GetVisualDescendants().OfType<TranscriptTurnControl>().FirstOrDefault();
+
+    private void OnControlLocalHeightChanged(object? sender, TranscriptLocalHeightChangedEventArgs e)
+        => LocalTurnHeightChanged?.Invoke(this, e);
+
     private void OnScrollIdleTimerTick(object? sender, EventArgs e)
     {
         _scrollIdleTimer.Stop();
+        _isWaitingForScrollIdle = false;
         QueueViewportRealizationUpdate();
     }
 
     internal void RealizeCurrentViewportNow()
     {
         _scrollIdleTimer.Stop();
+        _isWaitingForScrollIdle = false;
         UpdateViewportRealization();
     }
 
-    private void QueueAnchorUpdate()
+    internal void QueueUnmeasuredMountedPrewarm()
     {
-        if (_anchorUpdateQueued)
-            return;
+        foreach (var control in EnumerateTurnControls())
+        {
+            if (control.Turn is null || control.HasLocalMeasuredHeight)
+                continue;
 
-        _anchorUpdateQueued = true;
-        Dispatcher.UIThread.Post(UpdateRegisteredAnchor, DispatcherPriority.Loaded);
-    }
-
-    private void UpdateRegisteredAnchor()
-    {
-        _anchorUpdateQueued = false;
-        SetRegisteredAnchor(FindLeadingVisibleContainer());
+            control.SetViewportActive(true);
+        }
     }
 
     private void QueueViewportRealizationUpdate()
@@ -850,6 +916,9 @@ public sealed class TranscriptItemsControl : ItemsControl
     private void UpdateViewportRealization()
     {
         _viewportUpdateQueued = false;
+        if (_isWaitingForScrollIdle)
+            return;
+
         var scrollViewer = _scrollViewer;
         if (scrollViewer is null || !_isAttachedToVisualTree)
             return;
@@ -861,7 +930,6 @@ public sealed class TranscriptItemsControl : ItemsControl
             return;
         }
 
-        SetRegisteredAnchor(FindLeadingVisibleContainer());
         var cachePixels = viewportHeight * RealizationCacheViewportMultiplier;
         foreach (var control in EnumerateTurnControls())
         {
@@ -882,32 +950,6 @@ public sealed class TranscriptItemsControl : ItemsControl
         TrimRetainedHosts();
     }
 
-    private Control? FindLeadingVisibleContainer()
-    {
-        var scrollViewer = _scrollViewer;
-        if (scrollViewer is null || !_isAttachedToVisualTree)
-            return null;
-
-        var viewportHeight = scrollViewer.Viewport.Height;
-        if (!double.IsFinite(viewportHeight) || viewportHeight <= 0)
-            return null;
-
-        foreach (var control in EnumerateTurnControls())
-        {
-            var point = control.TranslatePoint(default, scrollViewer);
-            if (point is null
-                || point.Value.Y + control.Bounds.Height < 0
-                || point.Value.Y > viewportHeight)
-            {
-                continue;
-            }
-
-            return (Control?)control.FindAncestorOfType<ContentPresenter>() ?? control;
-        }
-
-        return null;
-    }
-
     private IEnumerable<TranscriptTurnControl> EnumerateTurnControls()
     {
         var itemsHost = ItemsPanelRoot;
@@ -916,30 +958,25 @@ public sealed class TranscriptItemsControl : ItemsControl
             : itemsHost.GetVisualDescendants().OfType<TranscriptTurnControl>();
     }
 
-    private void SetRegisteredAnchor(Control? control)
-    {
-        if (ReferenceEquals(_registeredAnchorControl, control))
-            return;
-
-        if (_scrollViewer is not null && _registeredAnchorControl is not null)
-            _scrollViewer.UnregisterAnchorCandidate(_registeredAnchorControl);
-
-        _registeredAnchorControl = control;
-        if (_scrollViewer is not null && _registeredAnchorControl is not null)
-            _scrollViewer.RegisterAnchorCandidate(_registeredAnchorControl);
-    }
-
     private void RetainHost(TranscriptTurnControl control)
     {
         RemoveRetainedHost(control, releaseHost: false);
+        var weight = control.Turn is null
+            ? 1
+            : Math.Max(1, TranscriptPageWeightEstimator.EstimateTurnWeight(control.Turn));
         var node = _retainedHostLru.AddLast(control);
         _retainedHostNodes.Add(control, node);
+        _retainedHostWeights.Add(control, weight);
+        _retainedHostWeight += weight;
+        TrimRetainedHosts();
     }
 
     private void RemoveRetainedHost(TranscriptTurnControl control, bool releaseHost)
     {
         if (_retainedHostNodes.Remove(control, out var node))
             _retainedHostLru.Remove(node);
+        if (_retainedHostWeights.Remove(control, out var weight))
+            _retainedHostWeight -= weight;
 
         if (releaseHost)
             control.ReleaseCachedViewportHost();
@@ -947,11 +984,14 @@ public sealed class TranscriptItemsControl : ItemsControl
 
     private void TrimRetainedHosts()
     {
-        while (_retainedHostLru.Count > RetainedHostCacheLimit)
+        while (_retainedHostLru.Count > RetainedHostCacheLimit
+               || _retainedHostWeight > RetainedHostWeightLimit)
         {
             var node = _retainedHostLru.First!;
             _retainedHostLru.RemoveFirst();
             _retainedHostNodes.Remove(node.Value);
+            if (_retainedHostWeights.Remove(node.Value, out var weight))
+                _retainedHostWeight -= weight;
             node.Value.ReleaseCachedViewportHost();
         }
     }

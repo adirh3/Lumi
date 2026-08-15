@@ -1410,18 +1410,47 @@
       </StackPanel>
     </Panel>
 
-    <!-- Invisible click-guard, raised only while a chat loads / its transcript is still realizing
-         (outside ChatPanel so it also guards the welcome screen). It paints NOTHING: the loading
-         "look" is now the transcript itself materialising — it clears instantly on load and then
-         gently fades + rises back into place once settled (driven from ChatView code-behind). The
-         load gap therefore shows Lumi's real translucent, presence-lit surface (the ambient field
-         breathing through) instead of a dead opaque slab. The Transparent background still captures
-         pointer input so clicks can't reach a half-realized transcript, and the whole guard detaches
-         (collapsed + hit-invisible) the instant loading ends. -->
-    <Panel x:Name="LoadingOverlay" ZIndex="50"
-           Background="Transparent"
-           IsVisible="{Binding IsChatSurfaceLoading}"
-           IsHitTestVisible="{Binding IsChatSurfaceLoading}" />
+    <!-- Loading guard outside ChatPanel so it also covers the welcome screen. Huge histories publish
+         a bounded real tail preview after JSON load, then swap to the settled full transcript. Normal
+         chats show only the labelled loading pill. Input stays blocked until the authoritative tail
+         is measured and pinned, so users never interact with half-realized content. -->
+    <Grid x:Name="LoadingOverlay" ZIndex="50"
+          Background="Transparent"
+          IsVisible="{Binding IsChatLoadingOverlayVisible}"
+          IsHitTestVisible="{Binding IsChatSurfaceLoading}">
+      <Border Background="{DynamicResource Brush.Surface0}"
+              IsVisible="{Binding HasLoadingTranscriptPreview}" />
+      <ScrollViewer x:Name="LoadingPreviewScrollViewer"
+                    IsVisible="{Binding HasLoadingTranscriptPreview}"
+                    IsHitTestVisible="False"
+                    VerticalScrollBarVisibility="Hidden"
+                    HorizontalScrollBarVisibility="Disabled">
+        <Border HorizontalAlignment="Center"
+                MaxWidth="{DynamicResource Chat.ReadingColumnWidth}"
+                Padding="0,52,0,96">
+          <vm:TranscriptItemsControl x:Name="LoadingPreviewTranscript"
+                                    ItemsSource="{Binding LoadingTranscriptPreviewTurns}">
+            <vm:TranscriptItemsControl.ItemTemplate>
+              <DataTemplate DataType="vm:TranscriptTurn">
+                <vm:TranscriptTurnControl Turn="{Binding}"
+                                         IsViewportManaged="True" />
+              </DataTemplate>
+            </vm:TranscriptItemsControl.ItemTemplate>
+            <vm:TranscriptItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Spacing="8" />
+              </ItemsPanelTemplate>
+            </vm:TranscriptItemsControl.ItemsPanel>
+          </vm:TranscriptItemsControl>
+        </Border>
+      </ScrollViewer>
+      <sc:StrataTypingIndicator x:Name="LoadingConversationIndicator"
+                               IsActive="{Binding IsChatLoadingOverlayVisible}"
+                               Label="{loc:Str Chat_LoadingConversation}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Top"
+                               Margin="0,16,0,0" />
+    </Grid>
 
     <!-- Active chat -->
     <Panel x:Name="ChatPanel" Classes.active="{Binding IsChatVisible}">
@@ -1514,11 +1543,11 @@
         <sc:StrataChatShell.Transcript>
           <StackPanel HorizontalAlignment="Stretch"
                       MaxWidth="{DynamicResource Chat.ReadingColumnWidth}">
-            <Border Height="{Binding TranscriptTopSpacerHeight}"
+            <Border x:Name="TranscriptTopSpacer"
+                    Height="{Binding TranscriptTopSpacerHeight}"
                     IsHitTestVisible="False" />
             <vm:TranscriptItemsControl x:Name="Transcript"
-                          HorizontalAlignment="Stretch"
-                          ItemsSource="{Binding MountedTranscriptTurns}">
+                          HorizontalAlignment="Stretch">
               <vm:TranscriptItemsControl.ItemTemplate>
                 <DataTemplate DataType="vm:TranscriptTurn">
                   <vm:TranscriptTurnControl Turn="{Binding}"
@@ -1531,7 +1560,8 @@
                 </ItemsPanelTemplate>
               </vm:TranscriptItemsControl.ItemsPanel>
             </vm:TranscriptItemsControl>
-            <Border Height="{Binding TranscriptBottomSpacerHeight}"
+            <Border x:Name="TranscriptBottomSpacer"
+                    Height="{Binding TranscriptBottomSpacerHeight}"
                     IsHitTestVisible="False" />
           </StackPanel>
         </sc:StrataChatShell.Transcript>
@@ -1542,6 +1572,30 @@
         </sc:StrataChatShell.Composer>
 
       </sc:StrataChatShell>
+
+      <Border x:Name="FocusedHistoryBanner"
+              IsVisible="False"
+              HorizontalAlignment="Center"
+              VerticalAlignment="Top"
+              Margin="0,52,0,0"
+              ZIndex="9"
+              Padding="10,6,6,6"
+              CornerRadius="{DynamicResource Radius.Base}"
+              Background="{DynamicResource Brush.Surface1}"
+              BorderBrush="{DynamicResource Brush.BorderSubtle}"
+              BorderThickness="1"
+              BoxShadow="0 2 8 0 #18000000">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <TextBlock Text="{loc:Str Chat_FocusedHistory}"
+                     VerticalAlignment="Center"
+                     FontSize="11"
+                     Foreground="{DynamicResource Brush.TextSecondary}" />
+          <Button x:Name="ExitFocusedHistoryButton"
+                  Classes="search-nav"
+                  Content="{loc:Str Chat_ReturnToConversation}"
+                  Padding="7,2" />
+        </StackPanel>
+      </Border>
 
       <!-- ── Ctrl+F search bar overlay ── -->
       <Border x:Name="SearchBar"

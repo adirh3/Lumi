@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using Avalonia.Controls;
 using Avalonia.Threading;
 
 namespace Lumi.ViewModels;
@@ -15,18 +16,27 @@ public readonly record struct TranscriptRealizationDiagnosticsSnapshot(
 /// of one giant synchronous layout pass. Stable offscreen turns remain lightweight height placeholders;
 /// only the stopped viewport and its small cache request their heavy retained subtrees.
 ///
-/// Each control reserves its known height and asks the scheduler to realize it. The scheduler
-/// drains the queue newest-first (controls attach top→bottom, so the tail is the bottom / most
-/// recently scrolled-to content the user actually looks at) under a per-frame time budget, yielding
-/// to the dispatcher between batches. The total work is unchanged, but it never blocks the thread
-/// long enough to feel like a freeze — the switch stays responsive and content fills in bottom-first.
+/// Each control reserves its local height and asks the scheduler to realize it. Within one window,
+/// controls drain newest-first (controls attach top→bottom, so the tail is the newest request).
+/// Across windows, queues rotate round-robin so one streaming transcript cannot starve another.
+/// Work remains frame-budgeted and yields to the dispatcher between batches.
 /// UI-thread affine; all members must be touched from the dispatcher thread.
 /// </summary>
 internal sealed class TranscriptRealizationScheduler
 {
+    private const int MaxRealizationsPerDrain = 1;
+    private const int MaxNewestFirstStreak = 8;
+
     public static TranscriptRealizationScheduler Instance { get; } = new();
 
-    private readonly List<TranscriptTurnControl> _pending = [];
+    private readonly Dictionary<object, List<TranscriptTurnControl>> _pendingByOwner =
+        new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<TranscriptTurnControl, object> _ownerByControl =
+        new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<object, int> _newestStreakByOwner =
+        new(ReferenceEqualityComparer.Instance);
+    private readonly List<object> _ownerOrder = [];
+    private int _nextOwnerIndex;
     private bool _drainQueued;
 
     private static int _realizeCount;
@@ -46,7 +56,7 @@ internal sealed class TranscriptRealizationScheduler
     /// opened transcript has actually been measured, instead of revealing a blank / still-settling
     /// transcript the instant the placeholders are mounted. UI-thread affine.
     /// </summary>
-    public bool HasPendingWork => _pending.Count > 0;
+    public bool HasPendingWork => _ownerByControl.Count > 0;
 
     public static TranscriptRealizationDiagnosticsSnapshot CaptureDiagnostics() => new(
         Volatile.Read(ref _realizeCount),
@@ -62,35 +72,50 @@ internal sealed class TranscriptRealizationScheduler
 
     public void Request(TranscriptTurnControl control)
     {
-        // Move-to-tail so the most recently attached control (bottom of the transcript) is realized
-        // first on the next drain.
-        _pending.Remove(control);
-        _pending.Add(control);
+        VerifyUiThread();
+        RemovePending(control);
 
-        var size = _pending.Count;
+        var owner = (object?)TopLevel.GetTopLevel(control) ?? control;
+        if (!_pendingByOwner.TryGetValue(owner, out var pending))
+        {
+            pending = [];
+            _pendingByOwner.Add(owner, pending);
+            _newestStreakByOwner.Add(owner, 0);
+            _ownerOrder.Add(owner);
+        }
+
+        // Move-to-tail within this window so its most recently attached (bottom-most) turn realizes
+        // first, while TakeNextPending rotates between different window queues.
+        pending.Add(control);
+        _ownerByControl.Add(control, owner);
+
+        var size = _ownerByControl.Count;
         if (size > Volatile.Read(ref _maxBatchSize))
             Interlocked.Exchange(ref _maxBatchSize, size);
 
         QueueDrain();
     }
 
-    public void Cancel(TranscriptTurnControl control) => _pending.Remove(control);
+    public void Cancel(TranscriptTurnControl control)
+    {
+        VerifyUiThread();
+        RemovePending(control);
+    }
 
     /// <summary>Realizes a specific pending control immediately (e.g. before scrolling to it).</summary>
     public void FlushControl(TranscriptTurnControl control)
     {
-        if (_pending.Remove(control))
+        VerifyUiThread();
+        if (RemovePending(control))
             RealizeOne(control);
     }
 
     /// <summary>Realizes every queued control synchronously. Used by tests and forced jumps.</summary>
     public void FlushAll()
     {
-        while (_pending.Count > 0)
+        VerifyUiThread();
+        while (TakeNextPending() is { } control)
         {
-            var index = _pending.Count - 1;
-            var control = _pending[index];
-            _pending.RemoveAt(index);
             RealizeOne(control);
         }
     }
@@ -110,19 +135,121 @@ internal sealed class TranscriptRealizationScheduler
         Interlocked.Increment(ref _drainCount);
 
         var stopwatch = Stopwatch.StartNew();
-        while (_pending.Count > 0)
+        var realizedThisDrain = 0;
+        while (TakeNextPending() is { } control)
         {
-            var index = _pending.Count - 1;
-            var control = _pending[index];
-            _pending.RemoveAt(index);
             RealizeOne(control);
+            realizedThisDrain++;
 
-            if (stopwatch.Elapsed.TotalMilliseconds >= FrameBudgetMs && _pending.Count > 0)
+            if ((realizedThisDrain >= MaxRealizationsPerDrain
+                 || stopwatch.Elapsed.TotalMilliseconds >= FrameBudgetMs)
+                && HasPendingWork)
             {
                 QueueDrain();
                 return;
             }
         }
+    }
+
+    private TranscriptTurnControl? TakeNextPending()
+    {
+        while (_ownerOrder.Count > 0)
+        {
+            if (_nextOwnerIndex >= _ownerOrder.Count)
+                _nextOwnerIndex = 0;
+
+            var ownerIndex = _nextOwnerIndex;
+            var owner = _ownerOrder[ownerIndex];
+            var pending = _pendingByOwner[owner];
+            if (pending.Count == 0)
+            {
+                RemoveOwnerAt(ownerIndex);
+                continue;
+            }
+
+            var newestStreak = _newestStreakByOwner[owner];
+            var controlIndex = pending.Count > 1 && newestStreak >= MaxNewestFirstStreak
+                ? 0
+                : pending.Count - 1;
+            var control = pending[controlIndex];
+            pending.RemoveAt(controlIndex);
+            _ownerByControl.Remove(control);
+            _newestStreakByOwner[owner] = controlIndex == 0 ? 0 : newestStreak + 1;
+
+            if (pending.Count == 0)
+            {
+                RemoveOwnerAt(ownerIndex);
+            }
+            else
+            {
+                _nextOwnerIndex = (ownerIndex + 1) % _ownerOrder.Count;
+            }
+
+            return control;
+        }
+
+        return null;
+    }
+
+    private bool RemovePending(TranscriptTurnControl control)
+    {
+        if (!_ownerByControl.TryGetValue(control, out var owner)
+            || !_pendingByOwner.TryGetValue(owner, out var pending))
+        {
+            return false;
+        }
+
+        var controlIndex = ReferenceIndexOf(pending, control);
+        if (controlIndex < 0)
+            return false;
+
+        pending.RemoveAt(controlIndex);
+        _ownerByControl.Remove(control);
+        if (pending.Count == 0)
+        {
+            var ownerIndex = ReferenceIndexOf(_ownerOrder, owner);
+            if (ownerIndex >= 0)
+                RemoveOwnerAt(ownerIndex);
+        }
+
+        return true;
+    }
+
+    private void RemoveOwnerAt(int ownerIndex)
+    {
+        var owner = _ownerOrder[ownerIndex];
+        _ownerOrder.RemoveAt(ownerIndex);
+        _pendingByOwner.Remove(owner);
+        _newestStreakByOwner.Remove(owner);
+
+        if (_ownerOrder.Count == 0)
+        {
+            _nextOwnerIndex = 0;
+            return;
+        }
+
+        if (ownerIndex < _nextOwnerIndex)
+            _nextOwnerIndex--;
+        if (_nextOwnerIndex >= _ownerOrder.Count)
+            _nextOwnerIndex = 0;
+    }
+
+    private static int ReferenceIndexOf<T>(IReadOnlyList<T> items, T target)
+        where T : class
+    {
+        for (var index = 0; index < items.Count; index++)
+        {
+            if (ReferenceEquals(items[index], target))
+                return index;
+        }
+
+        return -1;
+    }
+
+    private static void VerifyUiThread()
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+            throw new InvalidOperationException("Transcript realization scheduling must run on the UI thread.");
     }
 
     private static void RealizeOne(TranscriptTurnControl control)
