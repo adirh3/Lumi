@@ -1,14 +1,12 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Headless;
-using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.ViewModels;
@@ -385,13 +383,9 @@ public sealed class TranscriptPagingHeadlessTests
             turn.Items.Add(new VisualTranscriptItem("item:0001", 72, "Two"));
             Assert.Equal(2, GetHostedItemCount(firstControl));
             Assert.Equal(2, GetHostedItemCount(secondControl));
-            await PumpAsync();
 
-            var firstLocalHeight = firstControl.Bounds.Height;
-            turn.MeasuredHeight = firstLocalHeight + 500;
             firstControl.SetViewportActive(false);
             Assert.Null(firstControl.Content);
-            Assert.Equal(firstLocalHeight, firstControl.MinHeight);
             Assert.Empty(firstHost.Children);
             Assert.Same(secondHost, secondControl.Content);
             Assert.Same(secondHost, turn.RealizedItemsHost);
@@ -401,263 +395,6 @@ public sealed class TranscriptPagingHeadlessTests
             firstWindow.Close();
             await PumpAsync();
         });
-    }
-
-    [Fact]
-    public async Task SameTurnAtDifferentWindowWidths_KeepsIndependentLocalGeometryWhileStreaming()
-    {
-        using var session = HeadlessTestSession.Start();
-
-        await DispatchAsync(session, async () =>
-        {
-            var turn = new TranscriptTurn("turn:shared-widths");
-            turn.Items.Add(new VisualTranscriptItem(
-                "item:0000",
-                0,
-                string.Join(' ', Enumerable.Repeat("Local transcript geometry must remain window scoped.", 80))));
-
-            static Window CreateWindow(TranscriptTurn turn, double width)
-            {
-                var control = new TranscriptTurnControl
-                {
-                    Turn = turn,
-                    IsViewportManaged = true,
-                    Width = width - 40,
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    VerticalAlignment = VerticalAlignment.Top,
-                };
-                var window = new Window
-                {
-                    Width = width,
-                    Height = 5_000,
-                    Content = control,
-                };
-                window.DataTemplates.Add(new FuncDataTemplate<VisualTranscriptItem>((item, _) => new TextBlock
-                {
-                    Text = item.Text,
-                    Height = width < 500 ? 240 : 100,
-                }));
-                return window;
-            }
-
-            var wideWindow = CreateWindow(turn, 760);
-            var narrowWindow = CreateWindow(turn, 320);
-            wideWindow.Show();
-            narrowWindow.Show();
-            try
-            {
-                var wideControl = Assert.IsType<TranscriptTurnControl>(wideWindow.Content);
-                var narrowControl = Assert.IsType<TranscriptTurnControl>(narrowWindow.Content);
-                wideControl.SetViewportActive(true);
-                narrowControl.SetViewportActive(true);
-                wideControl.RealizePendingHost();
-                narrowControl.RealizePendingHost();
-                await PumpAsync();
-
-                Assert.True(narrowControl.LocalMeasuredHeight > wideControl.LocalMeasuredHeight);
-
-                turn.Items.Add(new VisualTranscriptItem(
-                    "item:0001",
-                    0,
-                    string.Join(' ', Enumerable.Repeat("Streaming adds more wrapped content.", 40))));
-                await PumpAsync();
-
-                var wideHeight = wideControl.LocalMeasuredHeight;
-                var narrowHeight = narrowControl.LocalMeasuredHeight;
-                Assert.True(narrowHeight > wideHeight);
-                Assert.Equal(2, GetHostedItemCount(wideControl));
-                Assert.Equal(2, GetHostedItemCount(narrowControl));
-
-                turn.MeasuredHeight = narrowHeight + 5_000;
-                wideControl.SetViewportActive(false);
-                narrowControl.SetViewportActive(false);
-
-                Assert.Equal(wideHeight, wideControl.MinHeight);
-                Assert.Equal(narrowHeight, narrowControl.MinHeight);
-                Assert.NotEqual(wideControl.MinHeight, narrowControl.MinHeight);
-            }
-            finally
-            {
-                narrowWindow.Close();
-                wideWindow.Close();
-            }
-        });
-    }
-
-    [Fact]
-    public async Task RealizationScheduler_RotatesFairlyAcrossWindowsWhileKeepingBottomFirst()
-    {
-        using var session = HeadlessTestSession.Start();
-
-        await DispatchAsync(session, async () =>
-        {
-            var scheduler = TranscriptRealizationScheduler.Instance;
-            scheduler.FlushAll();
-
-            static (Window Window, TranscriptTurnControl Top, TranscriptTurnControl Bottom) CreateWindow(string prefix)
-            {
-                var topTurn = new TranscriptTurn($"{prefix}:top");
-                topTurn.Items.Add(new VisualTranscriptItem($"{prefix}:top:item", 80, "Top"));
-                var bottomTurn = new TranscriptTurn($"{prefix}:bottom");
-                bottomTurn.Items.Add(new VisualTranscriptItem($"{prefix}:bottom:item", 80, "Bottom"));
-
-                var top = new TranscriptTurnControl { Turn = topTurn, IsViewportManaged = true };
-                var bottom = new TranscriptTurnControl { Turn = bottomTurn, IsViewportManaged = true };
-                var window = new Window
-                {
-                    Width = 420,
-                    Height = 360,
-                    Content = new StackPanel
-                    {
-                        Children = { top, bottom },
-                    },
-                };
-                window.DataTemplates.Add(new FuncDataTemplate<VisualTranscriptItem>((item, _) => new Border
-                {
-                    Height = item.DesiredHeight,
-                    Child = new TextBlock { Text = item.Text },
-                }));
-                return (window, top, bottom);
-            }
-
-            var first = CreateWindow("first");
-            var second = CreateWindow("second");
-            first.Window.Show();
-            second.Window.Show();
-            try
-            {
-                first.Top.SetViewportActive(true);
-                first.Bottom.SetViewportActive(true);
-                second.Top.SetViewportActive(true);
-                second.Bottom.SetViewportActive(true);
-
-                scheduler.Cancel(first.Top);
-                scheduler.Cancel(first.Bottom);
-                scheduler.Cancel(second.Top);
-                scheduler.Cancel(second.Bottom);
-                scheduler.Request(first.Top);
-                scheduler.Request(first.Bottom);
-                scheduler.Request(second.Top);
-                scheduler.Request(second.Bottom);
-
-                var drain = typeof(TranscriptRealizationScheduler).GetMethod(
-                    "Drain",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
-                Assert.NotNull(drain);
-
-                drain.Invoke(scheduler, null);
-                Assert.Null(first.Top.Content);
-                Assert.NotNull(first.Bottom.Content);
-                Assert.Null(second.Top.Content);
-                Assert.Null(second.Bottom.Content);
-
-                drain.Invoke(scheduler, null);
-                Assert.NotNull(second.Bottom.Content);
-                Assert.Null(second.Top.Content);
-
-                scheduler.FlushAll();
-                Assert.NotNull(first.Top.Content);
-                Assert.NotNull(second.Top.Content);
-                await PumpAsync();
-            }
-            finally
-            {
-                second.Window.Close();
-                first.Window.Close();
-                scheduler.FlushAll();
-            }
-        });
-    }
-
-    [Fact]
-    public async Task RealizationScheduler_BoundsNewestFirstStarvationWithinOneWindow()
-    {
-        using var session = HeadlessTestSession.Start();
-
-        await DispatchAsync(session, async () =>
-        {
-            var scheduler = TranscriptRealizationScheduler.Instance;
-            scheduler.FlushAll();
-            var host = new StackPanel();
-            var controls = new List<TranscriptTurnControl>();
-            for (var index = 0; index < 10; index++)
-            {
-                var turn = new TranscriptTurn($"turn:starvation:{index}");
-                turn.Items.Add(new VisualTranscriptItem($"item:starvation:{index}", 72, $"Turn {index}"));
-                var control = new TranscriptTurnControl { Turn = turn, IsViewportManaged = true };
-                controls.Add(control);
-                host.Children.Add(control);
-            }
-
-            var window = new Window { Width = 420, Height = 900, Content = host };
-            window.DataTemplates.Add(new FuncDataTemplate<VisualTranscriptItem>((item, _) => new Border
-            {
-                Height = item.DesiredHeight,
-                Child = new TextBlock { Text = item.Text },
-            }));
-            window.Show();
-            try
-            {
-                foreach (var control in controls)
-                {
-                    control.SetViewportActive(true);
-                    scheduler.Cancel(control);
-                    scheduler.Request(control);
-                }
-
-                var drain = typeof(TranscriptRealizationScheduler).GetMethod(
-                    "Drain",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
-                Assert.NotNull(drain);
-                for (var index = 0; index < 8; index++)
-                    drain.Invoke(scheduler, null);
-
-                Assert.Null(controls[0].Content);
-                drain.Invoke(scheduler, null);
-                Assert.NotNull(controls[0].Content);
-
-                scheduler.FlushAll();
-                await PumpAsync();
-            }
-            finally
-            {
-                window.Close();
-                scheduler.FlushAll();
-            }
-        });
-    }
-
-    [Fact]
-    public async Task RetainedHostCache_IsBoundedByCountAndTurnComplexity()
-    {
-        using var session = HeadlessTestSession.Start();
-
-        await session.Dispatch(() =>
-        {
-            var transcript = new TranscriptItemsControl();
-            var retainHost = typeof(TranscriptItemsControl).GetMethod(
-                "RetainHost",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(retainHost);
-
-            for (var index = 0; index < 100; index++)
-            {
-                var turn = new TranscriptTurn($"turn:cache:{index}");
-                turn.Items.Add(new VisualTranscriptItem($"item:cache:{index}", 72, "Normal"));
-                retainHost.Invoke(transcript, [new TranscriptTurnControl { Turn = turn }]);
-            }
-
-            Assert.Equal(TranscriptItemsControl.RetainedHostCacheLimit, transcript.RetainedHostCount);
-            Assert.InRange(transcript.RetainedHostWeight, 1, TranscriptItemsControl.RetainedHostWeightLimit);
-
-            var hugeTurn = new TranscriptTurn("turn:cache:huge");
-            for (var index = 0; index < TranscriptItemsControl.RetainedHostWeightLimit; index++)
-                hugeTurn.Items.Add(new VisualTranscriptItem($"item:cache:huge:{index}", 72, "Huge"));
-            retainHost.Invoke(transcript, [new TranscriptTurnControl { Turn = hugeTurn }]);
-
-            Assert.Equal(0, transcript.RetainedHostCount);
-            Assert.Equal(0, transcript.RetainedHostWeight);
-        }, CancellationToken.None);
     }
 
     [Fact]
@@ -1037,14 +774,14 @@ public sealed class TranscriptPagingHeadlessTests
 
                 Assert.NotNull(aboveTurn);
                 var turnModel = aboveTurn!.Turn!;
-                var heightBefore = aboveTurn.LocalMeasuredHeight;
+                var heightBefore = turnModel.MeasuredHeight;
 
                 // Add a new item to the turn — this will increase its rendered height.
                 turnModel.Items.Add(new VisualTranscriptItem(
                     $"extra:{turnModel.StableId}", 120, "Extra content"));
                 await PumpAsync();
 
-                var heightAfter = aboveTurn.LocalMeasuredHeight;
+                var heightAfter = turnModel.MeasuredHeight;
                 var heightDelta = heightAfter - heightBefore;
                 Assert.True(heightDelta > 1, "Turn height should have increased.");
 

@@ -14,11 +14,6 @@ namespace Lumi.ViewModels;
 
 public class TranscriptBuilder
 {
-    internal const int MaxVisualSegmentWeight = 24;
-    internal const int MaxVisualSegmentItems = 16;
-    internal const int MaxLiveSegmentWeight = MaxVisualSegmentWeight;
-    internal const int MaxLiveSegmentItems = MaxVisualSegmentItems;
-
     private readonly DataStore _dataStore;
     private readonly Action<FileChangeItem> _showDiffAction;
     private readonly Action<Guid>? _openChatAction;
@@ -39,8 +34,6 @@ public class TranscriptBuilder
     private TypingIndicatorItem? _typingIndicator;
     private TranscriptTurn? _typingTurn;
     private TranscriptTurn? _currentTurn;
-    private string? _currentTurnBaseStableId;
-    private int _currentTurnSegmentIndex;
     private readonly Dictionary<string, TerminalPreviewItem> _terminalPreviewsByToolCallId = new(StringComparer.Ordinal);
     // Async shells still running in the background (root tool-call id → authoritative start time),
     // supplied by the ChatViewModel before each Rebuild so a rebuilt terminal card is recreated
@@ -152,55 +145,9 @@ public class TranscriptBuilder
         FinalizeCurrentTurn();
 
         _rebuildTarget = null;
-        var result = SegmentTranscriptTurns(tempTurns);
+        var result = new ObservableCollection<TranscriptTurn>(tempTurns.Where(static turn => turn.Items.Count > 0));
         _liveTarget = result;
         IsRebuildingTranscript = false;
-        return result;
-    }
-
-    private static ObservableCollection<TranscriptTurn> SegmentTranscriptTurns(IEnumerable<TranscriptTurn> sourceTurns)
-    {
-        var result = new ObservableCollection<TranscriptTurn>();
-        foreach (var sourceTurn in sourceTurns)
-        {
-            if (sourceTurn.Items.Count == 0)
-                continue;
-
-            var totalWeight = TranscriptPageWeightEstimator.EstimateTurnWeight(sourceTurn);
-            if (sourceTurn.Items.Count <= MaxVisualSegmentItems && totalWeight <= MaxVisualSegmentWeight)
-            {
-                result.Add(sourceTurn);
-                continue;
-            }
-
-            TranscriptTurn? segment = null;
-            var segmentIndex = 0;
-            var segmentWeight = 0;
-            foreach (var item in sourceTurn.Items)
-            {
-                var itemWeight = Math.Max(1, TranscriptPageWeightEstimator.EstimateItemWeight(item));
-                if (segment is not null
-                    && segment.Items.Count > 0
-                    && (segment.Items.Count >= MaxVisualSegmentItems
-                        || segmentWeight + itemWeight > MaxVisualSegmentWeight))
-                {
-                    result.Add(segment);
-                    segment = null;
-                    segmentIndex++;
-                    segmentWeight = 0;
-                }
-
-                segment ??= new TranscriptTurn(segmentIndex == 0
-                    ? sourceTurn.StableId
-                    : $"{sourceTurn.StableId}:segment:{segmentIndex:D3}");
-                segment.Items.Add(item);
-                segmentWeight += itemWeight;
-            }
-
-            if (segment is not null && segment.Items.Count > 0)
-                result.Add(segment);
-        }
-
         return result;
     }
 
@@ -266,8 +213,6 @@ public class TranscriptBuilder
         _typingIndicator = null;
         _typingTurn = null;
         _currentTurn = null;
-        _currentTurnBaseStableId = null;
-        _currentTurnSegmentIndex = 0;
         _pendingPlanCard = null;
         _pendingModelName = null;
         _terminalPreviewsByToolCallId.Clear();
@@ -2190,36 +2135,15 @@ public class TranscriptBuilder
 
     private TranscriptTurn AppendItemToCurrentTurn(TranscriptItem item, string turnStableId)
     {
-        if (_currentTurn is not null
-            && _currentToolGroup is null
-            && _currentTurn.Items.Count > 0)
-        {
-            var currentWeight = TranscriptPageWeightEstimator.EstimateTurnWeight(_currentTurn);
-            var itemWeight = Math.Max(1, TranscriptPageWeightEstimator.EstimateItemWeight(item));
-            if (_currentTurn.Items.Count >= MaxLiveSegmentItems
-                || currentWeight + itemWeight > MaxLiveSegmentWeight)
-            {
-                CollapseCompletedBlocksInCurrentTurn();
-                RemoveTurnIfEmpty(_currentTurn);
-                _currentTurn = null;
-                _currentTurnSegmentIndex++;
-            }
-        }
-
         if (_currentTurn is not null)
         {
             _currentTurn.Items.Add(item);
             return _currentTurn;
         }
 
-        _currentTurnBaseStableId ??= turnStableId;
-        var segmentStableId = _currentTurnSegmentIndex == 0
-            ? _currentTurnBaseStableId
-            : $"{_currentTurnBaseStableId}:segment:{_currentTurnSegmentIndex:D3}";
-
         // Insert the turn only after it has content so the paging controller
         // never observes a transient empty turn and skips mounting it.
-        var turn = new TranscriptTurn(segmentStableId);
+        var turn = new TranscriptTurn(turnStableId);
         turn.Items.Add(item);
         _currentTurn = turn;
         InsertTurnBeforeTypingIndicator(turn);
@@ -2230,8 +2154,6 @@ public class TranscriptBuilder
     {
         RemoveTurnIfEmpty(_currentTurn);
         _currentTurn = null;
-        _currentTurnBaseStableId = null;
-        _currentTurnSegmentIndex = 0;
     }
 
     private void InsertTurnBeforeTypingIndicator(TranscriptTurn turn)

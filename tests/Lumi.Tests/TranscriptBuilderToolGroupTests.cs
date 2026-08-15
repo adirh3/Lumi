@@ -1,7 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Text.Json;
@@ -15,123 +14,6 @@ namespace Lumi.Tests;
 
 public sealed class TranscriptBuilderToolGroupTests
 {
-    [Fact]
-    public void Rebuild_SegmentsLargeHistoricalTurnsIntoBoundedVisualUnits()
-    {
-        var builder = CreateBuilder();
-        var messages = Enumerable.Range(0, 24)
-            .Select(index => new ChatMessageViewModel(new ChatMessage
-            {
-                Role = "assistant",
-                Content = $"Assistant update {index}"
-            }))
-            .ToArray();
-
-        var turns = builder.Rebuild(messages);
-
-        Assert.True(turns.Count > 1);
-        Assert.Equal(24, turns.Sum(static turn => turn.Items.Count));
-        Assert.All(turns, turn =>
-        {
-            Assert.InRange(turn.Items.Count, 1, TranscriptBuilder.MaxVisualSegmentItems);
-            var weight = TranscriptPageWeightEstimator.EstimateTurnWeight(turn);
-            Assert.True(
-                weight <= TranscriptBuilder.MaxVisualSegmentWeight || turn.Items.Count == 1,
-                $"Segment {turn.StableId} has weight {weight} across {turn.Items.Count} items.");
-        });
-        Assert.Equal(turns.Count, turns.Select(static turn => turn.StableId).Distinct().Count());
-    }
-
-    [Fact]
-    public void LiveProcessing_RollsLargeAgentTurnIntoBoundedVisualSegments()
-    {
-        var builder = CreateBuilder();
-        var turns = new ObservableCollection<TranscriptTurn>();
-        builder.SetLiveTarget(turns);
-
-        for (var index = 0; index < 24; index++)
-        {
-            builder.ProcessMessageToTranscript(new ChatMessageViewModel(new ChatMessage
-            {
-                Role = "assistant",
-                Content = $"Live assistant update {index}"
-            }));
-        }
-
-        Assert.True(turns.Count > 1);
-        Assert.Equal(24, turns.Sum(static turn => turn.Items.Count));
-        Assert.All(turns, turn =>
-        {
-            Assert.InRange(turn.Items.Count, 1, TranscriptBuilder.MaxLiveSegmentItems);
-            var weight = TranscriptPageWeightEstimator.EstimateTurnWeight(turn);
-            Assert.True(
-                weight <= TranscriptBuilder.MaxLiveSegmentWeight || turn.Items.Count == 1,
-                $"Live segment {turn.StableId} has weight {weight} across {turn.Items.Count} items.");
-        });
-    }
-
-    [Fact]
-    public void LiveAndRebuiltSegmentation_UseTheSameStableBoundaries()
-    {
-        var messages = Enumerable.Range(0, 24)
-            .Select(index => new ChatMessageViewModel(new ChatMessage
-            {
-                Role = "assistant",
-                Content = $"Stable assistant update {index}"
-            }))
-            .ToArray();
-
-        var liveBuilder = CreateBuilder();
-        var liveTurns = new ObservableCollection<TranscriptTurn>();
-        liveBuilder.SetLiveTarget(liveTurns);
-        foreach (var message in messages)
-            liveBuilder.ProcessMessageToTranscript(message);
-
-        var rebuiltTurns = CreateBuilder().Rebuild(messages);
-
-        Assert.Equal(
-            liveTurns.Select(static turn => turn.StableId),
-            rebuiltTurns.Select(static turn => turn.StableId));
-        Assert.Equal(
-            liveTurns.Select(static turn => string.Join(
-                "\n",
-                turn.Items.OfType<AssistantMessageItem>().Select(static item => item.Content))),
-            rebuiltTurns.Select(static turn => string.Join(
-                "\n",
-                turn.Items.OfType<AssistantMessageItem>().Select(static item => item.Content))));
-    }
-
-    [Fact]
-    public void LiveAndRebuiltSegmentation_MatchAfterToolAndReasoningCompaction()
-    {
-        var messages = new List<ChatMessageViewModel>();
-        for (var cycle = 0; cycle < 8; cycle++)
-        {
-            messages.Add(CreateAssistantVm($"Assistant checkpoint {cycle}."));
-            messages.Add(CreateToolVm($"tool-{cycle}-a", "view", "Completed", $"{{\"path\":\"file-{cycle}.cs\"}}"));
-            messages.Add(CreateToolVm($"tool-{cycle}-b", "powershell", "Completed", $"{{\"command\":\"build-{cycle}\"}}"));
-            messages.Add(CreateReasoningVm($"Reasoning checkpoint {cycle}."));
-        }
-        messages.Add(CreateAssistantVm("Final answer."));
-
-        var liveBuilder = CreateBuilder();
-        var liveTurns = new ObservableCollection<TranscriptTurn>();
-        liveBuilder.SetLiveTarget(liveTurns);
-        foreach (var message in messages)
-            liveBuilder.ProcessMessageToTranscript(message);
-        liveBuilder.CloseCurrentToolGroup();
-        liveBuilder.CollapseCompletedBlocksInCurrentTurn();
-
-        var rebuiltTurns = CreateBuilder().Rebuild(messages);
-
-        Assert.Equal(
-            liveTurns.Select(static turn => turn.StableId),
-            rebuiltTurns.Select(static turn => turn.StableId));
-        Assert.Equal(
-            liveTurns.Select(static turn => string.Join('|', turn.Items.Select(static item => item.StableId))),
-            rebuiltTurns.Select(static turn => string.Join('|', turn.Items.Select(static item => item.StableId))));
-    }
-
     [Fact]
     public void ProcessMessageToTranscript_SameMessageTwice_RendersOnce()
     {

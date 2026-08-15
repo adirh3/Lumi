@@ -13,14 +13,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
-using Avalonia;
-using Avalonia.Controls;
-using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
-using Avalonia.VisualTree;
 using Lumi.Models;
 using Lumi.ViewModels;
-using Lumi.Views;
 
 namespace Lumi.Services;
 
@@ -225,7 +220,6 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             "status" => InvokeUiAsync(BuildStatus),
             "navigate" => InvokeUiAsync(() => Navigate(arguments)),
             "list_chats" => InvokeUiAsync(() => ListChats(arguments)),
-            "new_chat" => InvokeUiAsync(NewChat),
             "create_chat" => InvokeUiAsync(() => CreateChatAsync(arguments)),
             "open_chat" => InvokeUiAsync(() => OpenChatAsync(arguments)),
             "move_chat" => InvokeUiAsync(() => MoveChat(arguments)),
@@ -233,9 +227,6 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             "wait_for_idle" => WaitForIdleAsync(arguments, cancellationToken),
             "read_transcript" => ReadTranscriptAsync(arguments),
             "read_activity" => ReadActivityAsync(arguments),
-            "request_older_history" => InvokeUiAsync(RequestOlderHistory),
-            "traverse_history" => TraverseHistoryAsync(arguments, cancellationToken),
-            "search_chat" => SearchChatAsync(arguments),
             "load_fixture" => InvokeUiAsync(LoadFixture),
             "load_background_shell" => InvokeUiAsync(LoadBackgroundShellFixture),
             "list_features" => InvokeUiAsync(() => ListFeatures(arguments)),
@@ -284,17 +275,6 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
                 usagePercent = _mainViewModel.ChatVM.ContextUsagePercent
             },
             activeChat = chat is null ? null : ChatSummary(chat),
-            transcript = new
-            {
-                totalTurns = _mainViewModel.ChatVM.TranscriptTurns.Count,
-                mountedTurns = _mainViewModel.ChatVM.MountedTranscriptTurns.Count,
-                hasOlderPages = _mainViewModel.ChatVM.HasOlderTranscriptPages,
-                hasUnmountedTail = _mainViewModel.ChatVM.HasUnmountedTranscriptTail,
-                topSpacerHeight = _mainViewModel.ChatVM.TranscriptTopSpacerHeight,
-                bottomSpacerHeight = _mainViewModel.ChatVM.TranscriptBottomSpacerHeight,
-                isSurfaceLoading = _mainViewModel.ChatVM.IsChatSurfaceLoading,
-                isRealizing = _mainViewModel.ChatVM.IsTranscriptRealizing
-            },
             counts = new
             {
                 chats = _dataStore.Data.Chats.Count,
@@ -306,128 +286,6 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
                 jobs = _dataStore.Data.BackgroundJobs.Count
             }
         };
-    }
-
-    private object RequestOlderHistory()
-    {
-        var chatView = FindActiveChatView();
-        chatView.RequestOlderHistoryForDiagnostics();
-        return BuildStatus();
-    }
-
-    private async Task<object> TraverseHistoryAsync(JsonElement? arguments, CancellationToken cancellationToken)
-    {
-        var args = arguments ?? default;
-        var delayMs = Math.Clamp(GetInt(args, "delayMs") ?? 16, 1, 250);
-        var maxSteps = Math.Clamp(GetInt(args, "maxSteps") ?? 5000, 1, 20_000);
-        var uiLatencies = new List<double>(Math.Min(maxSteps, 5000));
-        var process = Process.GetCurrentProcess();
-        process.Refresh();
-        var startWorkingSet = process.WorkingSet64;
-        var startPrivateBytes = process.PrivateMemorySize64;
-        var startCpu = process.TotalProcessorTime;
-        var peakWorkingSet = startWorkingSet;
-        var peakPrivateBytes = startPrivateBytes;
-        var totalStopwatch = Stopwatch.StartNew();
-        var steps = 0;
-
-        while (steps < maxSteps)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var uiStopwatch = Stopwatch.StartNew();
-            var state = await InvokeUiAsync(() =>
-            {
-                var chatView = FindActiveChatView();
-                chatView.DriveOlderHistoryStepForDiagnostics();
-                return new
-                {
-                    mountedTurns = _mainViewModel.ChatVM.MountedTranscriptTurns.Count,
-                    totalTurns = _mainViewModel.ChatVM.TranscriptTurns.Count,
-                    hasOlderPages = _mainViewModel.ChatVM.HasOlderTranscriptPages
-                };
-            }).ConfigureAwait(false);
-            uiStopwatch.Stop();
-            uiLatencies.Add(uiStopwatch.Elapsed.TotalMilliseconds);
-            steps++;
-
-            process.Refresh();
-            peakWorkingSet = Math.Max(peakWorkingSet, process.WorkingSet64);
-            peakPrivateBytes = Math.Max(peakPrivateBytes, process.PrivateMemorySize64);
-            if (!state.hasOlderPages && state.mountedTurns == state.totalTurns)
-                break;
-
-            await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
-        }
-
-        await Task.Delay(
-            TranscriptItemsControl.ScrollIdleRealizationDelay + TimeSpan.FromMilliseconds(80),
-            cancellationToken).ConfigureAwait(false);
-        await InvokeUiAsync(() =>
-        {
-            FindActiveChatView()
-                .FindControl<TranscriptItemsControl>("Transcript")
-                ?.RealizeCurrentViewportNow();
-            return true;
-        }).ConfigureAwait(false);
-        await Task.Delay(80, cancellationToken).ConfigureAwait(false);
-
-        totalStopwatch.Stop();
-        process.Refresh();
-        var finalState = await InvokeUiAsync(() => new
-        {
-            completed = !_mainViewModel.ChatVM.HasOlderTranscriptPages
-                        && _mainViewModel.ChatVM.MountedTranscriptTurns.Count == _mainViewModel.ChatVM.TranscriptTurns.Count,
-            status = BuildStatus()
-        }).ConfigureAwait(false);
-        var orderedLatencies = uiLatencies.OrderBy(static value => value).ToArray();
-        return new
-        {
-            finalState.completed,
-            steps,
-            delayMs,
-            elapsedMs = totalStopwatch.Elapsed.TotalMilliseconds,
-            uiDispatchP95Ms = Percentile(orderedLatencies, 0.95),
-            uiDispatchP99Ms = Percentile(orderedLatencies, 0.99),
-            uiDispatchMaxMs = orderedLatencies.Length == 0 ? 0 : orderedLatencies[^1],
-            workingSetDeltaBytes = process.WorkingSet64 - startWorkingSet,
-            peakWorkingSetDeltaBytes = peakWorkingSet - startWorkingSet,
-            privateDeltaBytes = process.PrivateMemorySize64 - startPrivateBytes,
-            peakPrivateDeltaBytes = peakPrivateBytes - startPrivateBytes,
-            cpuMs = (process.TotalProcessorTime - startCpu).TotalMilliseconds,
-            activeRealizedHosts = TranscriptTurnControl.CaptureDiagnostics().ActiveRealizedHostCount,
-            finalState.status
-        };
-    }
-
-    private Task<object> SearchChatAsync(JsonElement? arguments)
-    {
-        var query = RequireString(arguments ?? default, "query");
-        return InvokeUiAsync(() => FindActiveChatView().SearchForDiagnosticsAsync(query));
-    }
-
-    private static ChatView FindActiveChatView()
-    {
-        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
-            throw new InvalidOperationException("Lumi desktop lifetime is unavailable.");
-
-        return desktop.Windows
-            .Where(static window => window.IsVisible)
-            .SelectMany(static window => window.GetVisualDescendants())
-            .OfType<ChatView>()
-            .FirstOrDefault(static view => view.IsVisible)
-            ?? throw new InvalidOperationException("The active ChatView was not found.");
-    }
-
-    private static double Percentile(IReadOnlyList<double> orderedValues, double percentile)
-    {
-        if (orderedValues.Count == 0)
-            return 0;
-
-        var index = Math.Clamp(
-            (int)Math.Ceiling(orderedValues.Count * percentile) - 1,
-            0,
-            orderedValues.Count - 1);
-        return orderedValues[index];
     }
 
     private object Navigate(JsonElement? arguments)
@@ -523,12 +381,6 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
                 .ToList(),
             activeChatId = _mainViewModel.ChatVM.CurrentChat?.Id
         };
-    }
-
-    private object NewChat()
-    {
-        _mainViewModel.NewChatCommand.Execute(null);
-        return BuildStatus();
     }
 
     private async Task<object> CreateChatAsync(JsonElement? arguments)

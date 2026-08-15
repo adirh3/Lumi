@@ -28,7 +28,6 @@ internal sealed class UiWorkloadScenarios
     public Guid MegaChatId { get; private set; }
     public Guid ToolHeavyChatId { get; private set; }
     public Guid MarkdownHeavyChatId { get; private set; }
-    public Guid AtomicMarkdownChatId { get; private set; }
     public Guid CodeHeavyChatId { get; private set; }
     public Guid DocHeavyChatId { get; private set; }
     public Guid ProjectId { get; private set; }
@@ -61,13 +60,13 @@ internal sealed class UiWorkloadScenarios
             BuildConversation(seed: 6, turns: 45, assistantParagraphs: 1, withRichBlocks: false, toolHeavy: true), ProjectId);
         MarkdownHeavyChatId = AddChat("Markdown-heavy chat (large documents)", now.AddDays(-4),
             BuildConversation(seed: 7, turns: 12, assistantParagraphs: 16, withRichBlocks: true, toolHeavy: false), ProjectId);
-        AtomicMarkdownChatId = AddChat("Atomic markdown answer (~250 KB)", now.AddDays(-4).AddMinutes(-10),
-            BuildAtomicMarkdownConversation(seed: 17), ProjectId);
 
         // Power-user "real coding session" chats. Their tail turns (the ones that always mount on
         // open/switch) each carry a LARGE assistant payload — multiple big code blocks, wide tables
-        // and long prose, ~15-25KB per turn. This replicates the heavy switch lag power users
-        // actually feel, which the moderate synthetic chats above badly understate.
+        // and long prose, ~15-25KB per turn. The transcript paging weight model caps per-message
+        // weight (base + Min(8, len/450)), so these mount just like a normal chat yet cost far more
+        // to re-realize. This replicates the heavy switch lag power users actually feel, which the
+        // moderate synthetic chats above badly understate.
         CodeHeavyChatId = AddChat("Code-heavy session (large code blocks)", now.AddDays(-1).AddHours(-9),
             BuildHeavyConversation(seed: 21, turns: 18, HeavyContentKind.Code), ProjectId);
         DocHeavyChatId = AddChat("Doc-heavy session (large tables + prose)", now.AddDays(-3).AddHours(-1),
@@ -258,40 +257,6 @@ internal sealed class UiWorkloadScenarios
         }
 
         return messages;
-    }
-
-    private static List<ChatMessage> BuildAtomicMarkdownConversation(int seed)
-    {
-        var random = new Random(seed);
-        var body = new StringBuilder(260_000);
-        for (var section = 0; section < 180; section++)
-        {
-            body.Append("## Section ").Append(section + 1).Append(": ")
-                .Append(Sentence(random, 5)).Append("\n\n");
-            body.Append(Paragraph(random, 8)).Append("\n\n");
-            body.Append(MarkdownTable(random, 8)).Append('\n');
-            body.Append(CodeBlock(random, 24)).Append('\n');
-        }
-
-        var timestamp = DateTimeOffset.Now.AddHours(-1);
-        return
-        [
-            new ChatMessage
-            {
-                Role = "user",
-                Author = "Adir",
-                Content = "Generate one comprehensive technical reference document.",
-                Timestamp = timestamp,
-            },
-            new ChatMessage
-            {
-                Role = "assistant",
-                Author = "Lumi",
-                Model = "gpt-5.5",
-                Content = body.ToString(),
-                Timestamp = timestamp.AddMinutes(2),
-            },
-        ];
     }
 
     private static string BuildHeavyAssistantBody(Random random, HeavyContentKind kind)

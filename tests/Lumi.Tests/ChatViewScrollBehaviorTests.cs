@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
@@ -26,77 +25,6 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class ChatViewScrollBehaviorTests
 {
-    [Fact]
-    public async Task LoadingTailPreview_RendersAndClearsWithOverlayLifecycle()
-    {
-        using var session = HeadlessTestSession.Start();
-
-        await DispatchAsync(session, async () =>
-        {
-            var data = new AppData
-            {
-                Settings = new UserSettings
-                {
-                    AutoSaveChats = false,
-                    EnableMemoryAutoSave = false
-                }
-            };
-            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
-            var message = new ChatMessage
-            {
-                Role = "assistant",
-                Content = "Real recent content appears while the full transcript is prepared."
-            };
-            var turn = new TranscriptTurn("turn:loading-preview");
-            turn.Items.Add(new AssistantMessageItem(
-                new ChatMessageViewModel(message),
-                showTimestamps: false));
-            viewModel.LoadingTranscriptPreviewTurns =
-                new ObservableCollection<TranscriptTurn> { turn };
-            viewModel.HasLoadingTranscriptPreview = true;
-            viewModel.IsLoadingChat = true;
-            var view = new ChatView { DataContext = viewModel };
-            var window = new Window
-            {
-                Width = 1100,
-                Height = 820,
-                Content = view,
-            };
-
-            window.Show();
-            try
-            {
-                await PumpAsync();
-                var preview = Assert.IsType<TranscriptItemsControl>(
-                    view.FindControl<TranscriptItemsControl>("LoadingPreviewTranscript"));
-                preview.RealizeCurrentViewportNow();
-                TranscriptRealizationScheduler.Instance.FlushAll();
-                await PumpAsync();
-
-                Assert.True(view.FindControl<Grid>("LoadingOverlay")?.IsVisible);
-                Assert.True(view.FindControl<StrataTypingIndicator>("LoadingConversationIndicator")?.IsActive);
-                Assert.Contains(
-                    preview.ItemsPanelRoot!.GetVisualDescendants().OfType<TranscriptTurnControl>(),
-                    control => ReferenceEquals(control.Turn, turn) && control.Content is not null);
-
-                viewModel.IsLoadingChat = false;
-                viewModel.TryClearLoadingTranscriptPreview();
-                await PumpAsync();
-
-                Assert.False(viewModel.IsChatLoadingOverlayVisible);
-                Assert.False(viewModel.HasLoadingTranscriptPreview);
-                Assert.Empty(viewModel.LoadingTranscriptPreviewTurns);
-                Assert.False(view.FindControl<Grid>("LoadingOverlay")?.IsVisible == true);
-                Assert.False(view.FindControl<StrataTypingIndicator>("LoadingConversationIndicator")?.IsActive == true);
-            }
-            finally
-            {
-                window.Close();
-                viewModel.Dispose();
-            }
-        }, CancellationToken.None);
-    }
-
     [Fact]
     public async Task CurrentChatMetadataRefresh_DoesNotReenterFollowMode()
     {
@@ -132,7 +60,6 @@ public sealed class ChatViewScrollBehaviorTests
 
                 await viewModel.LoadChatAsync(chat);
                 await WaitUntilAsync(() => view.FindControl<StrataChatShell>("ChatShell")?.TranscriptScrollViewer is not null);
-                await WaitUntilAsync(() => !viewModel.IsChatSurfaceLoading, timeoutMs: 5_000);
 
                 var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
                 var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
@@ -158,70 +85,6 @@ public sealed class ChatViewScrollBehaviorTests
                 var refreshedY = GetTurnViewportY(view, scrollViewer, readerAnchor!.Value.StableId);
                 Assert.NotNull(refreshedY);
                 Assert.InRange(Math.Abs(refreshedY.Value - readerAnchor.Value.ViewportY), 0, 2.0);
-            }
-            finally
-            {
-                window.Close();
-            }
-        }, CancellationToken.None);
-    }
-
-    [Fact]
-    public async Task InPlaceTranscriptRebuild_PreservesReaderAnchorAwayFromTail()
-    {
-        using var session = HeadlessTestSession.Start();
-
-        await DispatchAsync(session, async () =>
-        {
-            var chat = CreateLongChat(pairCount: 48);
-            var data = new AppData
-            {
-                Settings = new UserSettings
-                {
-                    AutoSaveChats = false,
-                    EnableMemoryAutoSave = false
-                }
-            };
-            data.Chats.Add(chat);
-
-            using var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
-            var view = new ChatView { DataContext = viewModel };
-            var window = new Window
-            {
-                Width = 1100,
-                Height = 820,
-                Content = view,
-            };
-
-            window.Show();
-            try
-            {
-                await PumpAsync();
-                await viewModel.LoadChatAsync(chat);
-                await WaitUntilAsync(() =>
-                    view.FindControl<StrataChatShell>("ChatShell")?.TranscriptScrollViewer is not null);
-
-                var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
-                var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
-                shell.JumpToLatest();
-                await PumpAsync();
-
-                scrollViewer.Offset = scrollViewer.Offset.WithY(Math.Max(0, scrollViewer.Offset.Y - 260));
-                await WaitUntilAsync(() => !shell.IsFollowingTail);
-                var anchor = CaptureVisibleTurnAnchor(view, scrollViewer);
-                Assert.NotNull(anchor);
-                var firstMountedStableId = viewModel.MountedTranscriptTurns[0].StableId;
-
-                viewModel.RebuildTranscript();
-                await WaitUntilAsync(() =>
-                    viewModel.MountedTranscriptTurns.Count > 0
-                    && viewModel.MountedTranscriptTurns[0].StableId == firstMountedStableId);
-                await PumpAsync();
-
-                Assert.False(shell.IsFollowingTail);
-                var restoredY = GetTurnViewportY(view, scrollViewer, anchor!.Value.StableId);
-                Assert.NotNull(restoredY);
-                Assert.InRange(Math.Abs(restoredY.Value - anchor.Value.ViewportY), 0, 2.0);
             }
             finally
             {
@@ -323,7 +186,6 @@ public sealed class ChatViewScrollBehaviorTests
 
                 await viewModel.LoadChatAsync(chat);
                 await WaitUntilAsync(() => view.FindControl<StrataChatShell>("ChatShell")?.TranscriptScrollViewer is not null);
-                await WaitUntilAsync(() => !viewModel.IsChatSurfaceLoading, timeoutMs: 5_000);
 
                 var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
                 var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
@@ -465,187 +327,6 @@ public sealed class ChatViewScrollBehaviorTests
     }
 
     [Fact]
-    public async Task LocalHeightCompensation_IsDeferredUntilScrollbarDragEnds()
-    {
-        using var session = HeadlessTestSession.Start();
-
-        await DispatchAsync(session, async () =>
-        {
-            var chat = CreateLongChat(pairCount: 36);
-            var data = new AppData
-            {
-                Settings = new UserSettings
-                {
-                    AutoSaveChats = false,
-                    EnableMemoryAutoSave = false
-                }
-            };
-            data.Chats.Add(chat);
-
-            using var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
-            var view = new ChatView { DataContext = viewModel };
-            var window = new Window
-            {
-                Width = 1100,
-                Height = 820,
-                Content = view,
-            };
-
-            window.Show();
-            try
-            {
-                await PumpAsync();
-                await viewModel.LoadChatAsync(chat);
-                await WaitUntilAsync(() =>
-                    view.FindControl<StrataChatShell>("ChatShell")?.TranscriptScrollViewer is not null);
-                await PumpAsync();
-
-                var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
-                var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
-                shell.JumpToLatest();
-                await PumpAsync();
-                scrollViewer.Offset = scrollViewer.Offset.WithY(Math.Max(0, scrollViewer.Offset.Y - 320));
-                await WaitUntilAsync(() => !shell.IsFollowingTail);
-
-                var aboveControl = view.FindControl<TranscriptItemsControl>("Transcript")?
-                    .ItemsPanelRoot?
-                    .GetVisualDescendants()
-                    .OfType<TranscriptTurnControl>()
-                    .FirstOrDefault(control =>
-                    {
-                        var point = control.TranslatePoint(default, scrollViewer);
-                        return point is not null && point.Value.Y + control.Bounds.Height <= 0;
-                    });
-                Assert.NotNull(aboveControl);
-
-                var flags = BindingFlags.Instance | BindingFlags.NonPublic;
-                var draggingField = typeof(ChatView).GetField("_isTranscriptScrollbarDragging", flags);
-                var applyingField = typeof(ChatView).GetField("_isApplyingTranscriptMutation", flags);
-                var deferredField = typeof(ChatView).GetField("_deferredScrollbarDragCompensation", flags);
-                var scrollField = typeof(ChatView).GetField("_transcriptScrollViewer", flags);
-                var viewModelField = typeof(ChatView).GetField("_subscribedVm", flags);
-                var applyMethod = typeof(ChatView).GetMethod("ApplyLocalTurnHeightChange", flags);
-                var endMethod = typeof(ChatView).GetMethod("EndTranscriptScrollbarDrag", flags);
-                Assert.NotNull(draggingField);
-                Assert.NotNull(applyingField);
-                Assert.NotNull(deferredField);
-                Assert.NotNull(scrollField);
-                Assert.NotNull(viewModelField);
-                Assert.NotNull(applyMethod);
-                Assert.NotNull(endMethod);
-
-                applyingField.SetValue(view, false);
-                draggingField.SetValue(view, true);
-                scrollField.SetValue(view, scrollViewer);
-                viewModelField.SetValue(view, viewModel);
-                shell.PreserveViewport();
-                var abovePoint = aboveControl.TranslatePoint(default, scrollViewer);
-                Assert.NotNull(abovePoint);
-                Assert.True(abovePoint.Value.Y + aboveControl.Bounds.Height <= 0);
-                Assert.False(shell.IsFollowingTail);
-                var offsetBefore = scrollViewer.Offset.Y;
-                applyMethod.Invoke(view, [aboveControl, aboveControl.Bounds.Height, aboveControl.Bounds.Height + 120]);
-
-                Assert.Equal(offsetBefore, scrollViewer.Offset.Y);
-                Assert.InRange(Assert.IsType<double>(deferredField.GetValue(view)), 119.5, 120.5);
-
-                endMethod.Invoke(view, null);
-                await PumpAsync();
-                Assert.InRange(scrollViewer.Offset.Y - offsetBefore, 119.5, 120.5);
-                Assert.Equal(0, Assert.IsType<double>(deferredField.GetValue(view)));
-            }
-            finally
-            {
-                window.Close();
-            }
-        }, CancellationToken.None);
-    }
-
-    [Fact]
-    public async Task PlaceholderGrowthCrossingViewport_StillCompensatesFromPreviousHeight()
-    {
-        using var session = HeadlessTestSession.Start();
-
-        await DispatchAsync(session, async () =>
-        {
-            var chat = CreateLongChat(pairCount: 36);
-            var data = new AppData
-            {
-                Settings = new UserSettings
-                {
-                    AutoSaveChats = false,
-                    EnableMemoryAutoSave = false
-                }
-            };
-            data.Chats.Add(chat);
-
-            using var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
-            var view = new ChatView { DataContext = viewModel };
-            var window = new Window { Width = 1100, Height = 820, Content = view };
-            window.Show();
-            try
-            {
-                await PumpAsync();
-                await viewModel.LoadChatAsync(chat);
-                await WaitUntilAsync(() =>
-                    view.FindControl<StrataChatShell>("ChatShell")?.TranscriptScrollViewer is not null);
-
-                var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
-                var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
-                shell.JumpToLatest();
-                await PumpAsync();
-                scrollViewer.Offset = scrollViewer.Offset.WithY(Math.Max(0, scrollViewer.Offset.Y - 420));
-                await WaitUntilAsync(() => !shell.IsFollowingTail);
-
-                var control = view.FindControl<TranscriptItemsControl>("Transcript")?
-                    .ItemsPanelRoot?
-                    .GetVisualDescendants()
-                    .OfType<TranscriptTurnControl>()
-                    .FirstOrDefault(candidate =>
-                    {
-                        var point = candidate.TranslatePoint(default, scrollViewer);
-                        if (point is null)
-                            return false;
-
-                        var previousBottom = point.Value.Y + candidate.Bounds.Height;
-                        return previousBottom <= 0 && previousBottom > -300;
-                    });
-                Assert.NotNull(control);
-
-                var flags = BindingFlags.Instance | BindingFlags.NonPublic;
-                var applyingField = typeof(ChatView).GetField("_isApplyingTranscriptMutation", flags);
-                var applyMethod = typeof(ChatView).GetMethod("ApplyLocalTurnHeightChange", flags);
-                Assert.NotNull(applyingField);
-                Assert.NotNull(applyMethod);
-
-                var previousHeight = control.Bounds.Height;
-                applyingField.SetValue(view, true);
-                control.Height = previousHeight + 320;
-                await PumpAsync();
-                applyingField.SetValue(view, false);
-
-                var pointAfterGrowth = control.TranslatePoint(default, scrollViewer);
-                Assert.NotNull(pointAfterGrowth);
-                Assert.True(pointAfterGrowth.Value.Y + previousHeight <= 0);
-                Assert.True(pointAfterGrowth.Value.Y + control.Bounds.Height > 0);
-
-                var offsetBeforeCompensation = scrollViewer.Offset.Y;
-                applyMethod.Invoke(view, [control, previousHeight, control.Bounds.Height]);
-                await PumpAsync();
-
-                Assert.InRange(
-                    scrollViewer.Offset.Y - offsetBeforeCompensation,
-                    control.Bounds.Height - previousHeight - 1,
-                    control.Bounds.Height - previousHeight + 1);
-            }
-            finally
-            {
-                window.Close();
-            }
-        }, CancellationToken.None);
-    }
-
-    [Fact]
     public async Task StreamingTailWhileFollowing_RemountsDuringTransientUnpin()
     {
         using var session = HeadlessTestSession.Start();
@@ -722,7 +403,7 @@ public sealed class ChatViewScrollBehaviorTests
     }
 
     [Fact]
-    public async Task ScrollbarThumbDrag_DefersProgressivePrependUntilRelease()
+    public async Task ScrollbarThumbDrag_DoesNotMutateStableTranscriptMembership()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -765,21 +446,23 @@ public sealed class ChatViewScrollBehaviorTests
                 await PumpAsync();
 
                 Assert.True(scrollViewer.Extent.Height > scrollViewer.Viewport.Height);
-                Assert.True(viewModel.MountedTranscriptTurns.Count < viewModel.TranscriptTurns.Count);
-                var actualTail = viewModel.TranscriptTurns[^1];
-                Assert.Contains(actualTail, viewModel.MountedTranscriptTurns);
+                Assert.Equal(viewModel.TranscriptTurns.Count, viewModel.MountedTranscriptTurns.Count);
 
                 var mountedBefore = viewModel.MountedTranscriptTurns
                     .Select(static turn => turn.StableId)
                     .ToArray();
 
-                var dragField = typeof(ChatView)
-                    .GetField("_isTranscriptScrollbarDragging", BindingFlags.Instance | BindingFlags.NonPublic);
-                var endDragMethod = typeof(ChatView)
-                    .GetMethod("EndTranscriptScrollbarDrag", BindingFlags.Instance | BindingFlags.NonPublic);
-                Assert.NotNull(dragField);
-                Assert.NotNull(endDragMethod);
-                dragField.SetValue(view, true);
+                var verticalScrollBar = scrollViewer.GetVisualDescendants()
+                    .OfType<ScrollBar>()
+                    .FirstOrDefault(static scrollBar => scrollBar.Orientation == Orientation.Vertical);
+                Assert.NotNull(verticalScrollBar);
+
+                var thumb = verticalScrollBar.GetVisualDescendants().OfType<Thumb>().FirstOrDefault();
+                Assert.NotNull(thumb);
+
+                var thumbCenter = GetCenterPoint(window, thumb);
+                window.MouseDown(thumbCenter, MouseButton.Left, RawInputModifiers.None);
+                await PumpAsync();
 
                 scrollViewer.Offset = scrollViewer.Offset.WithY(0);
                 await PumpAsync();
@@ -789,9 +472,11 @@ public sealed class ChatViewScrollBehaviorTests
                     mountedBefore,
                     viewModel.MountedTranscriptTurns.Select(static turn => turn.StableId).ToArray());
 
-                endDragMethod.Invoke(view, null);
-                await WaitUntilAsync(() => viewModel.MountedTranscriptTurns.Count > mountedBefore.Length);
-                Assert.Contains(actualTail, viewModel.MountedTranscriptTurns);
+                window.MouseUp(thumbCenter, MouseButton.Left, RawInputModifiers.None);
+                await PumpAsync();
+                Assert.Equal(
+                    mountedBefore,
+                    viewModel.MountedTranscriptTurns.Select(static turn => turn.StableId).ToArray());
 
                 shell.JumpToLatest();
                 await PumpAsync();
@@ -800,7 +485,12 @@ public sealed class ChatViewScrollBehaviorTests
                 var mountedBeforeCaptureLost = viewModel.MountedTranscriptTurns
                     .Select(static turn => turn.StableId)
                     .ToArray();
-                dragField.SetValue(view, true);
+                thumb = verticalScrollBar.GetVisualDescendants().OfType<Thumb>().FirstOrDefault();
+                Assert.NotNull(thumb);
+
+                thumbCenter = GetCenterPoint(window, thumb);
+                window.MouseDown(thumbCenter, MouseButton.Left, RawInputModifiers.None);
+                await PumpAsync();
 
                 scrollViewer.Offset = scrollViewer.Offset.WithY(0);
                 await PumpAsync();
@@ -810,9 +500,12 @@ public sealed class ChatViewScrollBehaviorTests
                     mountedBeforeCaptureLost,
                     viewModel.MountedTranscriptTurns.Select(static turn => turn.StableId).ToArray());
 
-                endDragMethod.Invoke(view, null);
-                await WaitUntilAsync(() => viewModel.MountedTranscriptTurns.Count > mountedBeforeCaptureLost.Length);
-                Assert.Contains(actualTail, viewModel.MountedTranscriptTurns);
+                thumb.RaiseEvent(new PointerCaptureLostEventArgs(thumb, null!));
+                await PumpAsync();
+                Assert.Equal(
+                    mountedBeforeCaptureLost,
+                    viewModel.MountedTranscriptTurns.Select(static turn => turn.StableId).ToArray());
+                window.MouseUp(thumbCenter, MouseButton.Left, RawInputModifiers.None);
             }
             finally
             {
@@ -949,7 +642,6 @@ public sealed class ChatViewScrollBehaviorTests
                 var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
                 var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
                 var transcript = Assert.IsType<TranscriptItemsControl>(view.FindControl<TranscriptItemsControl>("Transcript"));
-                await WaitUntilAsync(() => !viewModel.IsChatSurfaceLoading, timeoutMs: 5_000);
                 shell.JumpToLatest();
                 await PumpAsync();
 
@@ -965,16 +657,20 @@ public sealed class ChatViewScrollBehaviorTests
 
                 var anchor = CaptureVisibleTurnAnchor(view, scrollViewer);
                 Assert.NotNull(anchor);
+                Assert.NotNull(scrollViewer.CurrentAnchor);
 
+                var realizationBefore = TranscriptRealizationScheduler.CaptureDiagnostics();
                 transcript.RealizeCurrentViewportNow();
-                if (TranscriptRealizationScheduler.Instance.HasPendingWork)
-                    await WaitUntilAsync(() => !TranscriptRealizationScheduler.Instance.HasPendingWork);
+                Assert.True(TranscriptRealizationScheduler.Instance.HasPendingWork);
+                await WaitUntilAsync(() => !TranscriptRealizationScheduler.Instance.HasPendingWork);
                 await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
                 await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+                var realizationAfter = TranscriptRealizationScheduler.CaptureDiagnostics();
 
                 var settledY = GetTurnViewportY(view, scrollViewer, anchor!.Value.StableId);
                 Assert.NotNull(settledY);
                 Assert.False(shell.IsFollowingTail);
+                Assert.True(realizationAfter.RealizeCount > realizationBefore.RealizeCount);
                 Assert.InRange(Math.Abs(settledY.Value - anchor.Value.ViewportY), 0, 2.0);
             }
             finally
@@ -985,7 +681,7 @@ public sealed class ChatViewScrollBehaviorTests
     }
 
     [Fact]
-    public async Task ProgressiveTranscript_MountsMeasuredTailAndPrependsWithoutEviction()
+    public async Task StableTranscript_MountsEveryTurnAndRealizesOnlyViewportContent()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -1020,28 +716,26 @@ public sealed class ChatViewScrollBehaviorTests
                 await WaitUntilAsync(() =>
                     view.FindControl<StrataChatShell>("ChatShell")?.TranscriptScrollViewer is not null
                     && transcript.ItemsPanelRoot?.GetVisualDescendants().OfType<TranscriptTurnControl>().Any() == true);
-                await WaitUntilAsync(() => !viewModel.IsChatSurfaceLoading, timeoutMs: 5_000);
                 transcript.RealizeCurrentViewportNow();
                 await PumpUntilAsync(
                     () => viewModel.MountedTranscriptTurns.Any(static turn => turn.RealizedItemsHost is not null)
                         && !TranscriptRealizationScheduler.Instance.HasPendingWork,
                     maxPumps: 20);
 
-                Assert.True(viewModel.MountedTranscriptTurns.Count < viewModel.TranscriptTurns.Count);
+                Assert.Equal(viewModel.TranscriptTurns.Count, viewModel.MountedTranscriptTurns.Count);
                 Assert.Equal(0, viewModel.TranscriptTopSpacerHeight);
                 Assert.Equal(0, viewModel.TranscriptBottomSpacerHeight);
                 var realizedAtTail = viewModel.MountedTranscriptTurns.Count(static turn => turn.RealizedItemsHost is not null);
                 Assert.InRange(realizedAtTail, 1, viewModel.MountedTranscriptTurns.Count);
 
                 var tail = viewModel.TranscriptTurns[^1];
-                Assert.Contains(tail, viewModel.MountedTranscriptTurns);
                 var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
                 var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
-                var mountedBeforePrepend = viewModel.MountedTranscriptTurns.Count;
                 shell.PreserveViewport();
-                scrollViewer.Offset = scrollViewer.Offset.WithY(0);
+                scrollViewer.Offset = scrollViewer.Offset.WithY(
+                    Math.Max(0, (scrollViewer.Extent.Height - scrollViewer.Viewport.Height) * 0.5));
 
-                await WaitUntilAsync(() => viewModel.MountedTranscriptTurns.Count > mountedBeforePrepend);
+                await PumpAsync();
                 transcript.RealizeCurrentViewportNow();
                 await WaitUntilAsync(() => !TranscriptRealizationScheduler.Instance.HasPendingWork);
                 Assert.Contains(tail, viewModel.MountedTranscriptTurns);
@@ -1049,7 +743,6 @@ public sealed class ChatViewScrollBehaviorTests
                     .OfType<TranscriptTurnControl>()
                     .FirstOrDefault(control => ReferenceEquals(control.Turn, tail));
                 Assert.NotNull(tailControl);
-                await WaitUntilAsync(() => !tailControl.IsViewportActive);
                 Assert.False(tailControl.IsViewportActive);
                 Assert.Null(tailControl.Content);
 
@@ -1066,71 +759,7 @@ public sealed class ChatViewScrollBehaviorTests
     }
 
     [Fact]
-    public async Task SharedProgressiveSurface_PreservesOtherWindowAnchorDuringPrepend()
-    {
-        using var session = HeadlessTestSession.Start();
-
-        await DispatchAsync(session, async () =>
-        {
-            var chat = CreateLongChat(pairCount: 80);
-            var data = new AppData
-            {
-                Settings = new UserSettings
-                {
-                    AutoSaveChats = false,
-                    EnableMemoryAutoSave = false
-                }
-            };
-            data.Chats.Add(chat);
-
-            using var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
-            var firstView = new ChatView { DataContext = viewModel };
-            var secondView = new ChatView { DataContext = viewModel };
-            var firstWindow = new Window { Width = 1100, Height = 820, Content = firstView };
-            var secondWindow = new Window { Width = 980, Height = 760, Content = secondView };
-            firstWindow.Show();
-            secondWindow.Show();
-            try
-            {
-                await PumpAsync();
-                await viewModel.LoadChatAsync(chat);
-                await WaitUntilAsync(() => !viewModel.IsChatSurfaceLoading, timeoutMs: 5_000);
-
-                var firstShell = Assert.IsType<StrataChatShell>(firstView.FindControl<StrataChatShell>("ChatShell"));
-                var secondShell = Assert.IsType<StrataChatShell>(secondView.FindControl<StrataChatShell>("ChatShell"));
-                var firstScroll = Assert.IsType<ScrollViewer>(firstShell.TranscriptScrollViewer);
-                var secondScroll = Assert.IsType<ScrollViewer>(secondShell.TranscriptScrollViewer);
-                await WaitUntilAsync(() => firstScroll.Extent.Height > firstScroll.Viewport.Height
-                    && secondScroll.Extent.Height > secondScroll.Viewport.Height);
-
-                secondShell.PreserveViewport();
-                secondScroll.Offset = secondScroll.Offset.WithY(
-                    Math.Max(0, (secondScroll.Extent.Height - secondScroll.Viewport.Height) * 0.45));
-                await PumpAsync();
-                var secondAnchor = CaptureVisibleTurnAnchor(secondView, secondScroll);
-                Assert.NotNull(secondAnchor);
-
-                var mountedBefore = viewModel.MountedTranscriptTurns.Count;
-                firstShell.PreserveViewport();
-                firstScroll.Offset = firstScroll.Offset.WithY(0);
-                await WaitUntilAsync(() => viewModel.MountedTranscriptTurns.Count > mountedBefore);
-                await PumpAsync();
-
-                var restoredY = GetTurnViewportY(secondView, secondScroll, secondAnchor!.Value.StableId);
-                Assert.NotNull(restoredY);
-                Assert.InRange(Math.Abs(restoredY.Value - secondAnchor.Value.ViewportY), 0, 2.0);
-                Assert.Contains(viewModel.TranscriptTurns[^1], viewModel.MountedTranscriptTurns);
-            }
-            finally
-            {
-                firstWindow.Close();
-                secondWindow.Close();
-            }
-        }, CancellationToken.None);
-    }
-
-    [Fact]
-    public async Task FarTurnJump_UsesBoundedFocusedContextWithoutExpandingProgressiveHistory()
+    public async Task FarTurnJump_RealizesStablePlaceholderAndBringsItIntoView()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -1161,24 +790,10 @@ public sealed class ChatViewScrollBehaviorTests
             {
                 await PumpAsync();
                 await viewModel.LoadChatAsync(chat);
-                await WaitUntilAsync(() => !viewModel.IsChatSurfaceLoading, timeoutMs: 5_000);
-                await WaitUntilAsync(() => !TranscriptRealizationScheduler.Instance.HasPendingWork, timeoutMs: 5_000);
-                await PumpAsync();
-
-                var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
-                var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
-                shell.JumpToLatest();
-                await PumpAsync();
-                Assert.True(shell.IsFollowingTail);
-                Assert.True(shell.IsPinnedToBottom);
-                shell.PreserveViewport();
-                Assert.False(shell.IsFollowingTail);
-                Assert.InRange(shell.CurrentDistanceFromBottom, 0, 2.0);
+                await WaitUntilAsync(() => !TranscriptRealizationScheduler.Instance.HasPendingWork);
 
                 var targetTurn = viewModel.TranscriptTurns.First(static turn => turn.Items.Count > 0);
                 Assert.Null(targetTurn.RealizedItemsHost);
-                var mountedBefore = viewModel.MountedTranscriptTurns.ToArray();
-                Assert.DoesNotContain(targetTurn, mountedBefore);
 
                 var method = typeof(ChatView).GetMethod(
                     "EnsureTurnRealizedAsync",
@@ -1190,35 +805,13 @@ public sealed class ChatViewScrollBehaviorTests
                 Assert.NotNull(control);
                 Assert.Same(targetTurn, control.Turn);
                 Assert.NotNull(targetTurn.RealizedItemsHost);
-                Assert.Equal(mountedBefore, viewModel.MountedTranscriptTurns);
-                Assert.DoesNotContain(targetTurn, viewModel.MountedTranscriptTurns);
 
-                var transcript = Assert.IsType<TranscriptItemsControl>(
-                    view.FindControl<TranscriptItemsControl>("Transcript"));
-                var focusedTurns = Assert.IsAssignableFrom<IEnumerable<TranscriptTurn>>(transcript.ItemsSource);
-                Assert.InRange(focusedTurns.Count(), 1, 5);
-                Assert.Contains(targetTurn, focusedTurns);
-                Assert.True(view.FindControl<Border>("FocusedHistoryBanner")?.IsVisible);
-
+                var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
+                var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
                 var point = control.TranslatePoint(default, scrollViewer);
                 Assert.NotNull(point);
                 Assert.True(point.Value.Y + control.Bounds.Height >= 0);
                 Assert.True(point.Value.Y <= scrollViewer.Viewport.Height);
-
-                var exitMethod = typeof(ChatView).GetMethod(
-                    "ExitFocusedHistoryAsync",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
-                Assert.NotNull(exitMethod);
-                var exitTask = Assert.IsAssignableFrom<Task>(exitMethod.Invoke(view, [true]));
-                await exitTask;
-                await PumpAsync();
-
-                Assert.Same(viewModel.MountedTranscriptTurns, transcript.ItemsSource);
-                Assert.False(view.FindControl<Border>("FocusedHistoryBanner")?.IsVisible == true);
-                Assert.Equal(mountedBefore, viewModel.MountedTranscriptTurns);
-                Assert.True(shell.IsFollowingTail);
-                Assert.True(shell.IsPinnedToBottom);
-                Assert.InRange(shell.CurrentDistanceFromBottom, 0, 2.0);
             }
             finally
             {
@@ -1228,117 +821,35 @@ public sealed class ChatViewScrollBehaviorTests
     }
 
     [Fact]
-    public async Task ActiveSearch_RebindsHitsAfterInPlaceTranscriptRebuild()
+    public async Task MeasuredHeightChangeDuringPagingMutation_RefreshesCompensationBaseline()
     {
         using var session = HeadlessTestSession.Start();
 
-        await DispatchAsync(session, async () =>
+        await session.Dispatch(() =>
         {
-            var chat = CreateLongChat(pairCount: 24);
-            var data = new AppData
-            {
-                Settings = new UserSettings
-                {
-                    AutoSaveChats = false,
-                    EnableMemoryAutoSave = false
-                }
-            };
-            data.Chats.Add(chat);
-
-            using var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
-            var view = new ChatView { DataContext = viewModel };
-            var window = new Window
-            {
-                Width = 1100,
-                Height = 820,
-                Content = view,
-            };
-
-            window.Show();
-            try
-            {
-                await PumpAsync();
-                await viewModel.LoadChatAsync(chat);
-                await WaitUntilAsync(() => !viewModel.IsChatSurfaceLoading, timeoutMs: 5_000);
-
-                var flags = BindingFlags.Instance | BindingFlags.NonPublic;
-                var openSearch = typeof(ChatView).GetMethod("OpenSearch", flags);
-                var executeSearch = typeof(ChatView).GetMethod("ExecuteSearch", flags);
-                var hitsField = typeof(ChatView).GetField("_searchHits", flags);
-                Assert.NotNull(openSearch);
-                Assert.NotNull(executeSearch);
-                Assert.NotNull(hitsField);
-
-                openSearch.Invoke(view, null);
-                var input = Assert.IsType<TextBox>(view.FindControl<TextBox>("SearchInput"));
-                input.Text = "Question 0";
-                executeSearch.Invoke(view, null);
-                var hitsBefore = Assert.IsAssignableFrom<System.Collections.IList>(hitsField.GetValue(view));
-                Assert.NotEmpty(hitsBefore.Cast<object>());
-                var oldTurn = hitsBefore[0]!.GetType().GetProperty("Turn")!.GetValue(hitsBefore[0]);
-
-                viewModel.RebuildTranscript();
-                await PumpAsync();
-                await PumpAsync();
-
-                var hitsAfter = Assert.IsAssignableFrom<System.Collections.IList>(hitsField.GetValue(view));
-                Assert.NotEmpty(hitsAfter.Cast<object>());
-                var newTurns = viewModel.TranscriptTurns.ToHashSet(ReferenceEqualityComparer.Instance);
-                foreach (var hit in hitsAfter.Cast<object>())
-                {
-                    var turn = Assert.IsType<TranscriptTurn>(
-                        hit.GetType().GetProperty("Turn")!.GetValue(hit));
-                    Assert.Contains(turn, newTurns);
-                }
-
-                var newTurn = hitsAfter[0]!.GetType().GetProperty("Turn")!.GetValue(hitsAfter[0]);
-                Assert.NotSame(oldTurn, newTurn);
-            }
-            finally
-            {
-                window.Close();
-            }
-        }, CancellationToken.None);
-    }
-
-    [Fact]
-    public async Task SharedMeasuredHeight_DoesNotChangeLocalPlaceholderGeometry()
-    {
-        using var session = HeadlessTestSession.Start();
-
-        await DispatchAsync(session, async () =>
-        {
+            var view = new ChatView();
             var turn = new TranscriptTurn("turn:height-baseline");
-            turn.Items.Add(new AssistantMessageItem(
-                new ChatMessageViewModel(new ChatMessage
-                {
-                    Role = "assistant",
-                    Content = new string('x', 20_000),
-                }),
-                showTimestamps: false));
-            turn.MeasuredHeight = 12_000;
+            var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+            var mutationField = typeof(ChatView).GetField("_isApplyingTranscriptMutation", flags);
+            var observedHeightsField = typeof(ChatView).GetField("_observedTurnHeights", flags);
+            var subscribeMethod = typeof(ChatView).GetMethod("SubscribeToTurnHeight", flags);
+            Assert.NotNull(mutationField);
+            Assert.NotNull(observedHeightsField);
+            Assert.NotNull(subscribeMethod);
 
-            var control = new TranscriptTurnControl
-            {
-                Turn = turn,
-                IsViewportManaged = true,
-            };
-            var window = new Window
-            {
-                Width = 420,
-                Height = 320,
-                Content = control,
-            };
-            window.Show();
+            subscribeMethod.Invoke(view, [turn]);
+            var observedHeights = Assert.IsType<Dictionary<string, double>>(observedHeightsField.GetValue(view));
+            Assert.Equal(0, observedHeights[turn.StableId]);
+
+            mutationField.SetValue(view, true);
             try
             {
-                await PumpAsync();
-                Assert.Null(control.Content);
-                Assert.Equal(TranscriptLayoutMetrics.MinimumEstimatedTurnHeight, control.MinHeight);
+                turn.MeasuredHeight = 137;
+                Assert.Equal(137, observedHeights[turn.StableId]);
             }
             finally
             {
-                window.Close();
+                mutationField.SetValue(view, false);
             }
         }, CancellationToken.None);
     }
@@ -1493,7 +1004,7 @@ public sealed class ChatViewScrollBehaviorTests
     }
 
     [Fact]
-    public async Task ClearingDataContext_ClearsMainTranscriptItemsSource()
+    public async Task ClearingDataContext_DetachesMountedTurnHeightSubscriptions()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -1531,54 +1042,11 @@ public sealed class ChatViewScrollBehaviorTests
 
                 mountedTurn.MeasuredHeight += 20;
                 await PumpAsync();
-                var transcript = Assert.IsType<TranscriptItemsControl>(
-                    view.FindControl<TranscriptItemsControl>("Transcript"));
-                Assert.Null(transcript.ItemsSource);
             }
             finally
             {
                 window.Close();
             }
-        }, CancellationToken.None);
-    }
-
-    [Fact]
-    public async Task UnmeasuredTurnPlaceholderUsesNeutralLocalMinimum()
-    {
-        using var session = HeadlessTestSession.Start();
-
-        await DispatchAsync(session, async () =>
-        {
-            var turn = new TranscriptTurn("turn:estimated-baseline");
-            turn.Items.Add(new AssistantMessageItem(
-                new ChatMessageViewModel(new ChatMessage
-                {
-                    Role = "assistant",
-                    Content = string.Join('\n', Enumerable.Repeat("A markdown paragraph with enough text to wrap.", 12))
-                }),
-                showTimestamps: false));
-            var estimatedHeight = TranscriptPageWeightEstimator.EstimateTurnHeight(turn, 56d);
-            Assert.True(estimatedHeight > TranscriptLayoutMetrics.MinimumEstimatedTurnHeight);
-
-            var control = new TranscriptTurnControl
-            {
-                Turn = turn,
-                IsViewportManaged = true,
-            };
-            var window = new Window
-            {
-                Width = 420,
-                Height = 320,
-                Content = control,
-            };
-            window.Show();
-            await PumpAsync();
-
-            Assert.Null(control.Content);
-            Assert.Equal(TranscriptLayoutMetrics.MinimumEstimatedTurnHeight, control.MinHeight);
-            Assert.False(turn.HasMeasuredRealizedHeight);
-
-            window.Close();
         }, CancellationToken.None);
     }
 

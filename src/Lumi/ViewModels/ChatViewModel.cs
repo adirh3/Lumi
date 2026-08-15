@@ -637,14 +637,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>Maps chat ID → CancellationTokenSource for per-chat cancellation.</summary>
     private readonly Dictionary<Guid, CancellationTokenSource> _ctsSources = new();
     private readonly TranscriptBuilder _transcriptBuilder;
-    private Guid? _transcriptChatId;
-    private bool _transcriptTailPrewarmPending;
     private readonly TranscriptWindowController _transcriptWindow = new(new TranscriptPagingOptions
     {
-        ProgressiveHistory = true,
-        MaxPageWeight = 10,
-        MaxTurnsPerPage = 1,
-        PrependBatchPageCount = 4,
+        MaintainStableMembership = true,
         EnableDiagnostics = TranscriptDiagnosticsEnabled,
     });
 
@@ -766,7 +761,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>True while a chat is being loaded and the loading overlay is shown.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsChatSurfaceLoading))]
-    [NotifyPropertyChangedFor(nameof(IsChatLoadingOverlayVisible))]
     private bool _isLoadingChat;
 
     /// <summary>
@@ -777,28 +771,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsChatSurfaceLoading))]
-    [NotifyPropertyChangedFor(nameof(IsChatLoadingOverlayVisible))]
     private bool _isTranscriptRealizing;
-
-    private int _transcriptRealizationHostCount;
 
     /// <summary>
     /// Drives the chat loading overlay: visible while either the chat history is loading or the
     /// transcript is still realizing its mounted turns after an open/switch.
     /// </summary>
     public bool IsChatSurfaceLoading => IsLoadingChat || IsTranscriptRealizing;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsChatLoadingOverlayVisible))]
-    private ObservableCollection<TranscriptTurn> _loadingTranscriptPreviewTurns = [];
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsChatLoadingOverlayVisible))]
-    private bool _hasLoadingTranscriptPreview;
-
-    private bool _loadingTranscriptPreviewWasPresented;
-
-    public bool IsChatLoadingOverlayVisible => IsChatSurfaceLoading || HasLoadingTranscriptPreview;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CurrentChatTitle))]
@@ -1169,13 +1148,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return (int)Math.Clamp(percent, 0, 100);
     }
 
-    public BulkObservableCollection<ChatMessageViewModel> Messages { get; } = [];
+    public ObservableCollection<ChatMessageViewModel> Messages { get; } = [];
     /// <summary>Full transcript turn store retained in memory for the active chat.</summary>
     [ObservableProperty] private ObservableCollection<TranscriptTurn> _transcriptTurns = [];
     /// <summary>
-    /// The contiguous history suffix currently admitted into the visual transcript. Production starts
-    /// with the real tail and prepends stable one-turn pages; unknown older history contributes no
-    /// fabricated scrollbar geometry.
+    /// Identity-stable visual transcript membership. Production keeps every turn here and virtualizes
+    /// only heavy per-turn content, so scrolling never inserts or evicts collection ranges.
     /// </summary>
     public ObservableCollection<TranscriptTurn> MountedTranscriptTurns => _transcriptWindow.MountedTurns;
     public double TranscriptTopSpacerHeight => _transcriptWindow.TopSpacerHeight;
@@ -1315,10 +1293,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Raised when the view should rebuild DataTemplates (e.g. settings changed).</summary>
-    public event Action? TranscriptRebuilding;
     public event Action? TranscriptRebuilt;
-
-    public event Action? LoadingTranscriptPreviewReady;
 
     /// <summary>Raised when a Workspace activity item asks to scroll the transcript to a turn (by StableId).</summary>
     public event Action<string>? WorkspaceJumpToTurnRequested;
@@ -1342,7 +1317,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _codingToolService = new CodingToolService(copilotService, GetCurrentCancellationToken);
         _selectedModel = dataStore.Data.Settings.PreferredModel;
 
-        _transcriptBuilder = CreateTranscriptBuilder();
+        _transcriptBuilder = new TranscriptBuilder(
+            dataStore,
+            showDiffAction: item => DiffShowRequested?.Invoke(item),
+            submitQuestionAnswerAction: SubmitQuestionAnswer,
+            beginEditMessageAction: BeginComposerEdit,
+            resendFromMessageAction: ResendFromMessageAsync,
+            openSkillAction: OpenSkillPreview,
+            resolveSkill: name => FindSkillReferenceByName(name),
+            openChatAction: id => OpenChatRequested?.Invoke(id),
+            getSelectedModel: () => SelectedModel,
+            sendSteeredNowAsync: SendSteeredNowAsync);
         _transcriptBuilder.SetLiveTarget(_transcriptTurns);
         _transcriptWindow.BindTranscript(_transcriptTurns, "ctor");
         _transcriptWindow.PropertyChanged += OnTranscriptWindowPropertyChanged;
@@ -1358,8 +1343,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         Messages.CollectionChanged += (_, args) =>
         {
             if (_isBulkLoadingMessages || _transcriptBuilder.IsRebuildingTranscript) return;
-
-            InvalidateUnpresentedLoadingTranscriptPreview();
 
             if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add && args.NewItems is not null)
             {
@@ -1390,19 +1373,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         InitializeMvvmUiState();
     }
-
-    private TranscriptBuilder CreateTranscriptBuilder() =>
-        new(
-            _dataStore,
-            showDiffAction: item => DiffShowRequested?.Invoke(item),
-            submitQuestionAnswerAction: SubmitQuestionAnswer,
-            beginEditMessageAction: BeginComposerEdit,
-            resendFromMessageAction: ResendFromMessageAsync,
-            openSkillAction: OpenSkillPreview,
-            resolveSkill: name => FindSkillReferenceByName(name),
-            openChatAction: id => OpenChatRequested?.Invoke(id),
-            getSelectedModel: () => SelectedModel,
-            sendSteeredNowAsync: SendSteeredNowAsync);
 
     private void OnTranscriptWindowPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -1494,32 +1464,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _transcriptBuilder.SetKnownRunningBackgroundShells(EmptyRunningBackgroundShells);
         }
 
-        var currentTranscriptChatId = CurrentChat?.Id;
-        var preservedBoundaryIds = !IsLoadingChat && _transcriptChatId == currentTranscriptChatId
-            ? MountedTranscriptTurns.Select(static turn => turn.StableId).ToArray()
-            : [];
-        TranscriptRebuilding?.Invoke();
-
         TranscriptTurns = _transcriptBuilder.Rebuild(Messages, GetCurrentForkOrigin());
-        _transcriptChatId = currentTranscriptChatId;
         UpdateUserMessageEditState();
         _transcriptWindow.BindTranscript(TranscriptTurns, "rebuild");
-        var newStableIds = preservedBoundaryIds.Length == 0
-            ? null
-            : TranscriptTurns.Select(static turn => turn.StableId).ToHashSet(StringComparer.Ordinal);
-        var preservedBoundaryId = newStableIds is null
-            ? null
-            : preservedBoundaryIds.FirstOrDefault(newStableIds.Contains);
-        if (preservedBoundaryId is not null)
-        {
-            _transcriptWindow.ResetToBoundary(preservedBoundaryId, "rebuild-preserve");
-            _transcriptTailPrewarmPending = false;
-        }
-        else
-        {
-            _transcriptWindow.ResetToLatest(TranscriptWindowController.DefaultInitialViewportHeight, "rebuild");
-            _transcriptTailPrewarmPending = MountedTranscriptTurns.Count > 0;
-        }
+        _transcriptWindow.ResetToLatest(TranscriptWindowController.DefaultInitialViewportHeight, "rebuild");
 
         // Rebuild() calls ResetState() which clears the typing indicator.
         // Re-show it if this chat is still busy (e.g. switching to a streaming chat).
@@ -1606,97 +1554,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return displayMessages;
     }
 
-    private void PrepareLoadingTranscriptPreview(Chat chat)
-    {
-        ClearLoadingTranscriptPreview();
-
-        var displayMessages = GetDisplayMessagesForChat(chat);
-        const int minimumPreviewHistoryMessages = 2000;
-        if (displayMessages.Count < minimumPreviewHistoryMessages)
-            return;
-
-        const int maxPreviewMessages = 1200;
-        var minimumStart = Math.Max(0, displayMessages.Count - maxPreviewMessages);
-        var startIndex = minimumStart;
-        for (var index = displayMessages.Count - 1; index >= minimumStart; index--)
-        {
-            if (displayMessages[index].Role != "user")
-                continue;
-
-            startIndex = index;
-            break;
-        }
-
-        var previewMessages = new ChatMessageViewModel[displayMessages.Count - startIndex];
-        for (var index = startIndex; index < displayMessages.Count; index++)
-            previewMessages[index - startIndex] = new ChatMessageViewModel(displayMessages[index]);
-
-        var previewTurns = CreateTranscriptBuilder().Rebuild(previewMessages);
-        if (previewTurns.Count == 0)
-            return;
-
-        LoadingTranscriptPreviewTurns = previewTurns;
-        HasLoadingTranscriptPreview = true;
-        LoadingTranscriptPreviewReady?.Invoke();
-    }
-
-    private void ClearLoadingTranscriptPreview()
-    {
-        foreach (var turn in LoadingTranscriptPreviewTurns)
-            turn.ReleaseRealizedHost();
-
-        _loadingTranscriptPreviewWasPresented = false;
-        HasLoadingTranscriptPreview = false;
-        LoadingTranscriptPreviewTurns = [];
-    }
-
-    internal bool MarkLoadingTranscriptPreviewPresented()
-    {
-        if (!HasLoadingTranscriptPreview || LoadingTranscriptPreviewTurns.Count == 0)
-            return false;
-
-        if (IsBusy || IsStreaming)
-        {
-            ClearLoadingTranscriptPreview();
-            return false;
-        }
-
-        _loadingTranscriptPreviewWasPresented = true;
-        return true;
-    }
-
-    private void InvalidateUnpresentedLoadingTranscriptPreview()
-    {
-        if (HasLoadingTranscriptPreview && !_loadingTranscriptPreviewWasPresented)
-            ClearLoadingTranscriptPreview();
-    }
-
-    internal void BeginTranscriptRealization()
-    {
-        _transcriptRealizationHostCount++;
-        if (_transcriptRealizationHostCount == 1)
-            IsTranscriptRealizing = true;
-    }
-
-    internal void EndTranscriptRealization()
-    {
-        if (_transcriptRealizationHostCount == 0)
-            return;
-
-        _transcriptRealizationHostCount--;
-        if (_transcriptRealizationHostCount > 0)
-            return;
-
-        IsTranscriptRealizing = false;
-        TryClearLoadingTranscriptPreview();
-    }
-
-    internal void TryClearLoadingTranscriptPreview()
-    {
-        if (!IsLoadingChat && !IsTranscriptRealizing && _loadingTranscriptPreviewWasPresented)
-            ClearLoadingTranscriptPreview();
-    }
-
     private bool AreDisplayedMessagesInSync(IReadOnlyList<ChatMessage> displayMessages)
     {
         if (Messages.Count != displayMessages.Count)
@@ -1728,7 +1585,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _isBulkLoadingMessages = true;
         try
         {
-            Messages.Reset(displayMessages.Select(static msg => new ChatMessageViewModel(msg)));
+            Messages.Clear();
+            foreach (var msg in displayMessages)
+                Messages.Add(new ChatMessageViewModel(msg));
 
             RebuildTranscript();
         }
@@ -1769,22 +1628,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     internal TranscriptWindowMutation InitializeMountedTranscript(double viewportHeight)
     {
-        if (_transcriptWindow.UsesProgressiveHistory && MountedTranscriptTurns.Count > 0)
-            return TranscriptWindowMutation.None;
-
         var mutation = _transcriptWindow.ResetToLatest(viewportHeight, "initial-open");
         if (ShowTranscriptDiagnostics)
             OnPropertyChanged(nameof(TranscriptDiagnosticsText));
         return mutation;
-    }
-
-    internal bool TryClaimInitialTranscriptTailPrewarm()
-    {
-        if (!_transcriptTailPrewarmPending)
-            return false;
-
-        _transcriptTailPrewarmPending = false;
-        return true;
     }
 
     internal TranscriptWindowMutation EnsureMountedTranscriptCoverage(double viewportHeight, double? actualExtentHeight = null)
@@ -1832,7 +1679,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     internal bool HasUnmountedTranscriptTail => _transcriptWindow.HasNewerPages;
-    internal bool HasOlderTranscriptPages => _transcriptWindow.HasOlderPages;
     internal bool MaintainsStableTranscriptMembership => _transcriptWindow.MaintainsStableMembership;
     internal bool MaintainsStableTranscriptGeometry => _transcriptWindow.MaintainsStableGeometry;
 
@@ -1850,6 +1696,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (mutation.HasChanges && ShowTranscriptDiagnostics)
             OnPropertyChanged(nameof(TranscriptDiagnosticsText));
         return mutation;
+    }
+
+    internal bool MountTranscriptPageContainingTurn(TranscriptTurn turn)
+    {
+        var changed = _transcriptWindow.MountPageContainingTurn(turn, "search-navigate");
+        if (changed && ShowTranscriptDiagnostics)
+            OnPropertyChanged(nameof(TranscriptDiagnosticsText));
+        return changed;
     }
 
     internal void RecordTranscriptScrollCompensation(string reason, double beforeOffset, double afterOffset)
@@ -2399,7 +2253,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var (requestId, loadCts) = BeginChatLoad(cancellationToken);
         var loadToken = loadCts.Token;
         var previousChat = CurrentChat?.Id != chat.Id ? CurrentChat : null;
-        ClearLoadingTranscriptPreview();
 
         if (CurrentChat?.Id == chat.Id && chat.Messages.Count > 0)
         {
@@ -2427,7 +2280,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     }
                 }
 
-                TryClearLoadingTranscriptPreview();
                 loadCts.Dispose();
             }
 
@@ -2461,9 +2313,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (loadToken.IsCancellationRequested || !IsCurrentChatLoad(requestId, loadCts))
                 return;
 
-            PrepareLoadingTranscriptPreview(chat);
-
-            // Show the real tail preview before full-history reconstruction blocks the UI thread.
+            // Yield so the UI thread can render the loading overlay before heavy synchronous work
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
 
             // Reuse the cached session only while the current CLI connection can still talk to it.
@@ -2520,8 +2370,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _isBulkLoadingMessages = true;
             try
             {
-                Messages.Reset(GetDisplayMessagesForChat(chat)
-                    .Select(static msg => new ChatMessageViewModel(msg)));
+                Messages.Clear();
+                foreach (var msg in GetDisplayMessagesForChat(chat))
+                    Messages.Add(new ChatMessageViewModel(msg));
 
                 CurrentChat = chat;
                 chat.HasUnreadMessages = false; // Clear unread when switching to this chat
@@ -2674,7 +2525,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     IsLoadingChat = false;
                 }
             }
-            TryClearLoadingTranscriptPreview();
             loadCts.Dispose();
         }
     }
@@ -2771,12 +2621,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _activeSession = null;
         _suggestionDisplayChatId = null;
         ClearSuggestions();
-        _transcriptChatId = null;
 
         Messages.Clear();
         TranscriptTurns.Clear();
         _transcriptBuilder.ResetState();
-        ClearLoadingTranscriptPreview();
         CurrentChat = null;
         QueueRefreshCodingProjectState();
         IsBusy = false;
