@@ -70,14 +70,11 @@ internal static class TranscriptPageWeightEstimator
             JobWakeItem jobWake => Math.Max(5, EstimateTextWeight(jobWake.SearchText, 4)),
             ErrorMessageItem error => EstimateTextWeight(error.Content, 2),
             ReasoningItem reasoning => EstimateTextWeight(reasoning.Content, 4),
-            SubagentToolCallItem subagent => Math.Max(
-                4,
-                2 + subagent.Activities.Count
-                  + EstimateAdditionalTextWeight(subagent.TranscriptText)
-                  + EstimateAdditionalTextWeight(subagent.ReasoningText)),
-            SubagentGroupItem subagentGroup => Math.Max(
-                4,
-                2 + subagentGroup.Subagents.Sum(EstimateItemWeight)),
+            // A sub-agent renders as a single collapsed row; its output and activity live in the
+            // read-only run island, not in this transcript, so it costs one line regardless of how
+            // much the agent did.
+            SubagentToolCallItem => 2,
+            SubagentGroupItem subagentGroup => Math.Max(3, 2 + subagentGroup.Subagents.Count),
             ToolGroupItem toolGroup => Math.Max(4, 2 + toolGroup.ToolCalls.Count),
             QuestionItem => 3,
             PlanCardItem => 3,
@@ -85,14 +82,6 @@ internal static class TranscriptPageWeightEstimator
             SingleToolItem => 3,
             _ => 2,
         };
-    }
-
-    private static int EstimateAdditionalTextWeight(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return 0;
-
-        return 1 + Math.Min(6, Math.Max(0, text.Length / 450));
     }
 
     private static int EstimateTextWeight(string? text, int baseWeight)

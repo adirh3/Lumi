@@ -1327,7 +1327,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             resolveSkill: name => FindSkillReferenceByName(name),
             openChatAction: id => OpenChatRequested?.Invoke(id),
             getSelectedModel: () => SelectedModel,
-            sendSteeredNowAsync: SendSteeredNowAsync);
+            sendSteeredNowAsync: SendSteeredNowAsync,
+            openSubagentRunAction: OpenSubagentRun,
+            subagentRunsChanged: RefreshSubagentRunState);
         _transcriptBuilder.SetLiveTarget(_transcriptTurns);
         _transcriptWindow.BindTranscript(_transcriptTurns, "ctor");
         _transcriptWindow.PropertyChanged += OnTranscriptWindowPropertyChanged;
@@ -1605,7 +1607,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         string? mode,
         string? model = null,
         string? transcript = null,
-        string? reasoning = null)
+        string? reasoning = null,
+        string? prompt = null,
+        string? entriesJson = null)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
@@ -1618,8 +1622,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             writer.WriteString("mode", mode ?? string.Empty);
             if (!string.IsNullOrWhiteSpace(model))
                 writer.WriteString("model", model);
+            // The instruction the sub-agent received. Kept so the read-only run transcript can open
+            // with the request, exactly like a chat starts with the user's message.
+            if (!string.IsNullOrWhiteSpace(prompt))
+                writer.WriteString("prompt", prompt);
             writer.WriteString("transcript", transcript ?? string.Empty);
             writer.WriteString("reasoning", reasoning ?? string.Empty);
+            if (!string.IsNullOrWhiteSpace(entriesJson) && entriesJson != "[]")
+            {
+                writer.WritePropertyName("entries");
+                writer.WriteRawValue(entriesJson);
+            }
+
             writer.WriteEndObject();
         }
 
@@ -2615,6 +2629,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         DiffHideRequested?.Invoke();
         PlanHideRequested?.Invoke();
         SkillHideRequested?.Invoke();
+        SubagentRunHideRequested?.Invoke();
         HasUsedBrowser = false;
 
         // Detach from the visible chat; inactive chat state is released later when it is safe.
@@ -2658,6 +2673,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         IsPlanOpen = false;
         IsSkillOpen = false;
         SkillPreviewContent = null;
+        ResetSubagentRunState();
         SelectedSdkAgentName = null;
         SdkAgentChips.Clear();
 

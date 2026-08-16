@@ -41,6 +41,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
     private readonly Button? _diffBackButton;
     private readonly Border _planPanel;
     private readonly Border _skillPanel;
+    private readonly Border _subagentPanel;
     private readonly Action? _ensureChatVisible;
     private readonly Func<Guid, bool>? _canShowBrowserPanel;
     private BrowserView? _browserView;
@@ -66,6 +67,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
         TextBlock diffTitleText,
         Border planPanel,
         Border skillPanel,
+        Border subagentPanel,
         Action? ensureChatVisible = null,
         Func<Guid, bool>? canShowBrowserPanel = null,
         Button? diffBackButton = null)
@@ -84,6 +86,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _diffBackButton = diffBackButton;
         _planPanel = planPanel;
         _skillPanel = skillPanel;
+        _subagentPanel = subagentPanel;
         _ensureChatVisible = ensureChatVisible;
         _canShowBrowserPanel = canShowBrowserPanel;
 
@@ -97,6 +100,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
     public bool IsDiffOpen => _diffPanel.IsVisible;
     public bool IsPlanOpen => _planPanel.IsVisible;
     public bool IsSkillOpen => _skillPanel.IsVisible;
+    public bool IsSubagentRunOpen => _subagentPanel.IsVisible;
 
     public void Dispose()
     {
@@ -128,6 +132,8 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _viewModel.PlanHideRequested += OnPlanHideRequested;
         _viewModel.SkillShowRequested += OnSkillShowRequested;
         _viewModel.SkillHideRequested += OnSkillHideRequested;
+        _viewModel.SubagentRunShowRequested += OnSubagentRunShowRequested;
+        _viewModel.SubagentRunHideRequested += OnSubagentRunHideRequested;
     }
 
     private void UnwireViewModel()
@@ -141,6 +147,8 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _viewModel.PlanHideRequested -= OnPlanHideRequested;
         _viewModel.SkillShowRequested -= OnSkillShowRequested;
         _viewModel.SkillHideRequested -= OnSkillHideRequested;
+        _viewModel.SubagentRunShowRequested -= OnSubagentRunShowRequested;
+        _viewModel.SubagentRunHideRequested -= OnSubagentRunHideRequested;
     }
 
     private void PostIfActive(Action action)
@@ -166,6 +174,8 @@ internal sealed class ChatPreviewPanelController : IDisposable
     private void OnPlanHideRequested() => PostIfActive(HidePlanPanel);
     private void OnSkillShowRequested() => PostIfActive(ShowSkillPanel);
     private void OnSkillHideRequested() => PostIfActive(HideSkillPanel);
+    private void OnSubagentRunShowRequested() => PostIfActive(ShowSubagentPanel);
+    private void OnSubagentRunHideRequested() => PostIfActive(HideSubagentPanel);
 
     public void ShowCurrentBrowserController()
     {
@@ -317,6 +327,28 @@ internal sealed class ChatPreviewPanelController : IDisposable
         }
 
         _ = HidePreviewPanelAsync(_skillPanel, () => _viewModel.IsSkillOpen = false);
+    }
+
+    public void ShowSubagentPanel()
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(ShowSubagentPanel);
+            return;
+        }
+
+        _ = ShowSubagentPanelAsync();
+    }
+
+    public void HideSubagentPanel()
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(HideSubagentPanel);
+            return;
+        }
+
+        _ = HidePreviewPanelAsync(_subagentPanel, () => _viewModel.IsSubagentRunOpen = false);
     }
 
     private async Task ShowBrowserPanelAsync(Guid chatId)
@@ -486,8 +518,47 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _viewModel.IsSkillOpen = true;
     }
 
-    private async Task HidePreviewPanelAsync(Border panel, Action markClosed)
+    private async Task ShowSubagentPanelAsync()
     {
+        var wasOpen = _subagentPanel.IsVisible;
+        HidePreviewPanelsExcept(_subagentPanel);
+        _ensureChatVisible?.Invoke();
+        EnsureSplitLayout(_subagentPanel);
+
+        // Already open: the user just switched runs, so don't replay the slide-in. The view owns
+        // scroll reset — it knows whether the run actually changed.
+        if (wasOpen)
+        {
+            _viewModel.IsSubagentRunOpen = true;
+            return;
+        }
+
+        _subagentPanel.RenderTransform = new TranslateTransform(PreviewOffsetX, 0);
+        _subagentPanel.Opacity = 0;
+        _subagentPanel.IsVisible = true;
+        if (_splitter is not null)
+            _splitter.IsVisible = true;
+
+        var ct = ReplaceCancellationTokenSource(ref _previewAnimCts).Token;
+        try
+        {
+            await CreatePreviewAnimation(PreviewOffsetX, 0, 0, 1, ShowDuration, new CubicEaseOut())
+                .RunAsync(_subagentPanel, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (ct.IsCancellationRequested)
+            return;
+
+        _subagentPanel.Opacity = 1;
+        _subagentPanel.RenderTransform = null;
+        _viewModel.IsSubagentRunOpen = true;
+    }
+
+    private async Task HidePreviewPanelAsync(Border panel, Action markClosed)    {
         if (!panel.IsVisible)
             return;
 
@@ -525,8 +596,11 @@ internal sealed class ChatPreviewPanelController : IDisposable
 
     private void CollapseSplitLayoutIfIdle()
     {
-        if (_browserPanel.IsVisible || _diffPanel.IsVisible || _planPanel.IsVisible || _skillPanel.IsVisible)
+        if (_browserPanel.IsVisible || _diffPanel.IsVisible || _planPanel.IsVisible
+            || _skillPanel.IsVisible || _subagentPanel.IsVisible)
+        {
             return;
+        }
 
         var defs = _contentGrid.ColumnDefinitions;
         while (defs.Count < 3)
@@ -565,6 +639,12 @@ internal sealed class ChatPreviewPanelController : IDisposable
         {
             HideImmediately(_skillPanel);
             _viewModel.IsSkillOpen = false;
+        }
+
+        if (!ReferenceEquals(keep, _subagentPanel))
+        {
+            HideImmediately(_subagentPanel);
+            _viewModel.IsSubagentRunOpen = false;
         }
     }
 

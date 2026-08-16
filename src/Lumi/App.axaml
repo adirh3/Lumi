@@ -1,9 +1,69 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:chrome="using:Avalonia.Controls.Chrome"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.App"
              Name="Lumi"
              RequestedThemeVariant="Dark">
+
+  <!-- Transcript tool cards live at application scope because the same tool call is rendered in two
+       places: the main chat transcript and the read-only sub-agent run island (a sibling of the chat
+       view, so it cannot reach ChatView's local templates). Keeping one definition here guarantees a
+       sub-agent's steps look exactly like Lumi's own. -->
+  <Application.DataTemplates>
+    <DataTemplate DataType="vm:TerminalPreviewItem">
+      <sc:StrataTerminalPreview ToolName="{Binding ToolName}"
+                                Command="{Binding Command}"
+                                Output="{Binding Output}"
+                                Status="{Binding Status}"
+                                IsRunningInBackground="{Binding IsRunningInBackground}"
+                                RunningSince="{Binding RunningSince}"
+                                DurationMs="{Binding DurationMs}"
+                                IsExpanded="{Binding IsExpanded}" />
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:TodoProgressItem">
+      <sc:StrataAiToolCall ToolName="{Binding ToolName}"
+                           Status="{Binding Status}"
+                           IsExpanded="{Binding IsExpanded}"
+                           InputParameters="{Binding InputParameters}"
+                           MoreInfo="{Binding MoreInfo}" />
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:ToolCallItem">
+      <sc:StrataAiToolCall ToolName="{Binding ToolName}"
+                           Classes.compact="{Binding IsCompact}"
+                           Status="{Binding Status}"
+                           IsExpanded="{Binding IsExpanded}"
+                           InputParameters="{Binding InputParameters}"
+                           MoreInfo="{Binding MoreInfo}"
+                           DurationMs="{Binding DurationMs}"
+                           RunningSince="{Binding RunningSince}">
+        <sc:StrataAiToolCall.HeaderAction>
+          <Button Classes="subtle" Command="{Binding ShowDiffCommand}"
+                  IsVisible="{Binding HasDiff}"
+                  Padding="5,0" MinHeight="0" Height="18"
+                  Cursor="Hand">
+            <StackPanel Orientation="Horizontal" Spacing="3">
+              <OnPlatform>
+                <On Options="macOS, Linux">
+                  <PathIcon Data="M4 4h6v16H4z M14 4h6v16h-6z" Width="9" Height="9"
+                            VerticalAlignment="Center" />
+                </On>
+                <On Options="Default">
+                  <TextBlock Text="&#xE8A7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                             FontSize="9" VerticalAlignment="Center" />
+                </On>
+              </OnPlatform>
+              <TextBlock Text="{loc:Str ShowDiff}" FontSize="9" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+        </sc:StrataAiToolCall.HeaderAction>
+      </sc:StrataAiToolCall>
+    </DataTemplate>
+  </Application.DataTemplates>
 
   <Application.Resources>
     <ResourceDictionary>

@@ -486,6 +486,38 @@ public static partial class ToolDisplayHelper
     public static string? GetSubagentModelName(string? argsJson)
         => ExtractJsonField(argsJson, "model");
 
+    /// <summary>
+    /// The instruction the sub-agent received. Reads the sub-agent payload's <c>prompt</c> field,
+    /// which is seeded from the raw task-tool arguments before they are replaced.
+    /// </summary>
+    public static string? GetSubagentPrompt(string? argsJson)
+    {
+        var prompt = ExtractJsonField(argsJson, "prompt");
+        return string.IsNullOrWhiteSpace(prompt) ? null : prompt;
+    }
+
+    /// <summary>Raw <c>entries</c> array of a sub-agent's ordered run log, or null when absent.</summary>
+    public static string? GetSubagentRunEntriesJson(string? argsJson)
+    {
+        if (string.IsNullOrWhiteSpace(argsJson))
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(argsJson);
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("entries", out var entries)
+                && entries.ValueKind == JsonValueKind.Array
+                    ? entries.GetRawText()
+                    : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
+    /// <summary>Parsed, ordered run log of a sub-agent's finalized assistant/reasoning messages.</summary>
+    public static IReadOnlyList<SubagentRunEntry> GetSubagentRunEntries(string? argsJson)
+        => SubagentRunLog.Parse(GetSubagentRunEntriesJson(argsJson));
+
     /// <summary>Extracts all file diffs from tool call args JSON.</summary>
     public static List<(string FilePath, string? OldText, string? NewText)> ExtractAllDiffs(string toolName, string? argsJson)
     {

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -379,8 +380,21 @@ public static class DebugAgentHarness
             JsonProperty("agentDescription", JsonString("Fast codebase exploration agent used by coding agents.")),
             JsonProperty("mode", JsonString("background")),
             JsonProperty("model", JsonString("claude-haiku-4.5")),
-            JsonProperty("reasoning", JsonString("The fixture should show nested activity under this subagent card.")),
-            JsonProperty("transcript", JsonString("Found ChatView.axaml templates, transcript builders, and debug entry points."))), "Completed", toolCallId: subagentId, output: "Subagent completed"));
+            JsonProperty("prompt", JsonString(
+                "Map how the Lumi chat transcript is rendered. Find the transcript builder, the "
+                + "data templates for each item type, and the debug entry points. Report the exact "
+                + "file paths and the responsibilities of each piece.")),
+            JsonProperty("reasoning", JsonString("")),
+            JsonProperty("transcript", JsonString("")),
+            JsonProperty("entries", SubagentRunEntries(
+                ("r", "Start by locating the transcript builder and the view that renders it."),
+                ("a", "Found `TranscriptBuilder.cs` — it converts `ChatMessageViewModel`s into transcript items.\n\nChecking the view next."),
+                ("r", "Now confirm which templates ChatView declares, and where the debug harness enters."),
+                ("a", "**Summary**\n\n| Piece | Path |\n| --- | --- |\n| Builder | `src/Lumi/ViewModels/TranscriptBuilder.cs` |\n| Templates | `src/Lumi/Views/ChatView.axaml` |\n| Debug entry | `src/Lumi/DebugAgentHarness.cs` |\n\nAll three are reachable from `ChatViewModel`.")))),
+            "Completed", toolCallId: subagentId, output: "Subagent completed"));
+        chat.Messages.Add(Tool("view", JsonObject(
+            JsonProperty("path", JsonString("E:\\Git\\Lumi\\src\\Lumi\\ViewModels\\TranscriptBuilder.cs"))),
+            "Completed", parentToolCallId: subagentId, output: "Read 2245 lines"));
         chat.Messages.Add(Tool("powershell", JsonObject(
             JsonProperty("command", JsonString("dotnet build src\\Lumi\\Lumi.csproj --no-restore")),
             JsonProperty("description", JsonString("Build Lumi"))), "Completed", parentToolCallId: subagentId, output: "Build succeeded."));
@@ -483,6 +497,7 @@ public static class DebugAgentHarness
         // Launch all three agents together (the fan-out the user sees as one batch).
         chat.Messages.Add(Tool("task", JsonObject(
             JsonProperty("description", JsonString("Benchmark the LG C4 evo panel")),
+            JsonProperty("prompt", JsonString("Benchmark the LG C4 evo panel. Pull rtings peak-brightness and near-black measurements, note the refresh rate, and report a two-line verdict.")),
             JsonProperty("agent_type", JsonString("research")),
             JsonProperty("agentName", JsonString("research")),
             JsonProperty("agentDisplayName", JsonString("Research agent")),
@@ -494,6 +509,7 @@ public static class DebugAgentHarness
             "Completed", toolCallId: agentA, output: "Research agent completed"));
         chat.Messages.Add(Tool("task", JsonObject(
             JsonProperty("description", JsonString("Benchmark the Samsung S90D QD-OLED")),
+            JsonProperty("prompt", JsonString("Benchmark the Samsung S90D QD-OLED. Compare highlight brightness and colour volume against the LG C4 and report a two-line verdict.")),
             JsonProperty("agent_type", JsonString("research")),
             JsonProperty("agentName", JsonString("research")),
             JsonProperty("agentDisplayName", JsonString("Research agent")),
@@ -624,7 +640,29 @@ public static class DebugAgentHarness
                 JsonProperty("agentName", JsonString(agentType)),
                 JsonProperty("agentDisplayName", JsonString($"{agentType} agent")),
                 JsonProperty("mode", JsonString("background")),
-                JsonProperty("model", JsonString("claude-haiku-4.5")));
+                JsonProperty("model", JsonString("claude-haiku-4.5")),
+                JsonProperty("prompt", JsonString($"{description}. Report back with a short, concrete summary.")),
+                JsonProperty("entries", SubagentRunEntries(
+                    ("r", $"Planning how to handle: {description}."),
+                    ("a", $"Done. **{description}** produced a short synthetic result for the fixture."))));
+
+        // Builds the ordered run log persisted with a sub-agent ("r" = reasoning, "a" = assistant),
+        // stamped just after the fixture's current clock so the read-only run transcript orders text
+        // against the agent's tool calls exactly as it would live.
+        string SubagentRunEntries(params (string Kind, string Text)[] entries)
+        {
+            var stamped = new string[entries.Length];
+            for (var i = 0; i < entries.Length; i++)
+            {
+                stamped[i] = JsonObject(
+                    JsonProperty("k", JsonString(entries[i].Kind)),
+                    JsonProperty("t", JsonString(
+                        t.AddSeconds(i + 1).ToString("O", CultureInfo.InvariantCulture))),
+                    JsonProperty("c", JsonString(entries[i].Text)));
+            }
+
+            return JsonArray(stamped);
+        }
 
         LumiChatMessage Tool(
             string name,

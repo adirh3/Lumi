@@ -24,6 +24,15 @@ public class TranscriptBuilder
     private readonly Func<string, SkillReference?>? _resolveSkill;
     private readonly Func<string?> _getSelectedModel;
     private readonly Func<ChatMessageViewModel, Task>? _sendSteeredNowAsync;
+    private readonly Action<SubagentToolCallItem>? _openSubagentRunAction;
+    private readonly Action? _subagentRunsChanged;
+
+    /// <summary>
+    /// Every sub-agent run in the current transcript, in the order it started. Backs the chat's
+    /// "agents" index so a user can see and inspect all of them without hunting through the
+    /// transcript.
+    /// </summary>
+    public ObservableCollection<SubagentToolCallItem> SubagentRuns { get; } = [];
 
     private ToolGroupItem? _currentToolGroup;
     private int _currentToolGroupCount;
@@ -82,7 +91,9 @@ public class TranscriptBuilder
         Action<SkillReference>? openSkillAction = null,
         Func<string, SkillReference?>? resolveSkill = null,
         Action<Guid>? openChatAction = null,
-        Func<ChatMessageViewModel, Task>? sendSteeredNowAsync = null)
+        Func<ChatMessageViewModel, Task>? sendSteeredNowAsync = null,
+        Action<SubagentToolCallItem>? openSubagentRunAction = null,
+        Action? subagentRunsChanged = null)
     {
         _dataStore = dataStore;
         _showDiffAction = showDiffAction;
@@ -94,6 +105,8 @@ public class TranscriptBuilder
         _resolveSkill = resolveSkill;
         _openChatAction = openChatAction;
         _sendSteeredNowAsync = sendSteeredNowAsync;
+        _openSubagentRunAction = openSubagentRunAction;
+        _subagentRunsChanged = subagentRunsChanged;
     }
 
     /// <summary>
@@ -148,6 +161,10 @@ public class TranscriptBuilder
         var result = new ObservableCollection<TranscriptTurn>(tempTurns.Where(static turn => turn.Items.Count > 0));
         _liveTarget = result;
         IsRebuildingTranscript = false;
+        // Reconcile the run index once the rebuilt runs are all present. The per-run notifications
+        // during a rebuild fire against a half-built collection (ResetState clears it first), so an
+        // open run could never be matched to its rebuilt twin from inside the loop.
+        _subagentRunsChanged?.Invoke();
         return result;
     }
 
@@ -218,6 +235,8 @@ public class TranscriptBuilder
         _terminalPreviewsByToolCallId.Clear();
         _toolParentById.Clear();
         _subagentsByToolCallId.Clear();
+        SubagentRuns.Clear();
+        _subagentRunsChanged?.Invoke();
         _trackedFileEditToolCalls.Clear();
         _trackedFileEditFilesByToolCall.Clear();
         _deferredFileEditSubscriptions.Clear();
@@ -411,9 +430,7 @@ public class TranscriptBuilder
             var todoSubagent = FindOwningSubagent(msgVm.Message.ParentToolCallId);
             if (todoSubagent is not null)
             {
-                UpsertSubagentTodoProgressToolCall(todoSubagent, steps, msgVm.ToolStatus ?? "InProgress");
-                if (initialStatus == StrataAiToolCallStatus.InProgress && !IsRebuildingTranscript && !todoSubagent.IsGrouped)
-                    todoSubagent.IsExpanded = true;
+                UpsertSubagentTodoProgressToolCall(todoSubagent, msgVm.Message, steps, msgVm.ToolStatus ?? "InProgress");
                 UpdateSubagentState(todoSubagent);
             }
             else
@@ -505,6 +522,7 @@ public class TranscriptBuilder
                 DurationMs = msgVm.Message.ToolDurationMs ?? 0,
                 RunningSince = msgVm.Message.ToolStartedAt,
                 IsExpanded = !IsRebuildingTranscript,
+                Timestamp = msgVm.Message.ToolStartedAt ?? msgVm.Message.Timestamp,
             };
             // Rebuilt while this async shell is still running in the background: recreate the card
             // already running (kept visible + expanded, anchored to the shell's real start time) so a
@@ -558,9 +576,6 @@ public class TranscriptBuilder
 
             AddToolItemToCurrentContext(termPreview, msgVm.Message.ParentToolCallId);
 
-            if (termParentSubagent is not null && initialStatus == StrataAiToolCallStatus.InProgress && !IsRebuildingTranscript && !termParentSubagent.IsGrouped)
-                termParentSubagent.IsExpanded = true;
-
             UpdateToolGroupLabel();
             return;
         }
@@ -571,6 +586,7 @@ public class TranscriptBuilder
             MoreInfo = BuildToolCallMoreInfo(friendlyInfo, msgVm, initialStatus),
             DurationMs = msgVm.Message.ToolDurationMs ?? 0,
             RunningSince = msgVm.Message.ToolStartedAt,
+            Timestamp = msgVm.Message.ToolStartedAt ?? msgVm.Message.Timestamp,
             IsCompact = ToolDisplayHelper.IsCompactEligible(toolName)
                 && initialStatus == StrataAiToolCallStatus.Completed,
         };
@@ -636,8 +652,6 @@ public class TranscriptBuilder
         }
 
         AddToolItemToCurrentContext(toolCall, msgVm.Message.ParentToolCallId);
-        if (toolParentSubagent is not null && initialStatus == StrataAiToolCallStatus.InProgress && !IsRebuildingTranscript && !toolParentSubagent.IsGrouped)
-            toolParentSubagent.IsExpanded = true;
         UpdateToolGroupLabel();
         if (shouldFlushLateFileEdit && diffs.Count > 0)
             FlushPendingFileEdits();
@@ -832,13 +846,15 @@ public class TranscriptBuilder
         var displayName = ToolDisplayHelper.GetSubagentDisplayName(msgVm.ToolName ?? "", msgVm.Content, msgVm.Author);
         var subagent = new SubagentToolCallItem(displayName, initialStatus, $"subagent:{toolStableIdSeed}")
         {
-            IsExpanded = initialStatus == StrataAiToolCallStatus.InProgress && !IsRebuildingTranscript,
+            OpenRunAction = _openSubagentRunAction,
         };
         UpdateSubagentFromMessage(subagent, msgVm.Message);
 
         AttachSubagentToTurn(subagent, turnStableId);
         if (toolCallId is not null)
             _subagentsByToolCallId[toolCallId] = subagent;
+        SubagentRuns.Add(subagent);
+        _subagentRunsChanged?.Invoke();
 
         if (!IsRebuildingTranscript)
         {
@@ -880,6 +896,7 @@ public class TranscriptBuilder
         if (owningSubagent is not null)
         {
             owningSubagent.Activities.Add(item);
+            owningSubagent.AddTimelineTool(item);
             UpdateSubagentState(owningSubagent);
             return;
         }
@@ -891,15 +908,21 @@ public class TranscriptBuilder
     /// <summary>Directly updates the transcript text on a subagent card (called from live streaming flush).</summary>
     public void UpdateSubagentTranscriptText(string toolCallId, string? text)
     {
-        if (_subagentsByToolCallId.TryGetValue(toolCallId, out var subagent))
-            subagent.TranscriptText = text;
+        if (!_subagentsByToolCallId.TryGetValue(toolCallId, out var subagent))
+            return;
+
+        subagent.TranscriptText = text;
+        subagent.RefreshLiveTimeline();
     }
 
     /// <summary>Directly updates the reasoning text on a subagent card (called from live streaming flush).</summary>
     public void UpdateSubagentReasoningText(string toolCallId, string? text)
     {
-        if (_subagentsByToolCallId.TryGetValue(toolCallId, out var subagent))
-            subagent.ReasoningText = text;
+        if (!_subagentsByToolCallId.TryGetValue(toolCallId, out var subagent))
+            return;
+
+        subagent.ReasoningText = text;
+        subagent.RefreshLiveTimeline();
     }
 
     /// <summary>Applies an authoritative sub-agent status even when the wrapping task tool already
@@ -944,9 +967,16 @@ public class TranscriptBuilder
             ?? _getSelectedModel();
         subagent.ModelDisplayName = ChatViewModel.FormatModelDisplay(modelId);
 
+        subagent.Prompt = ToolDisplayHelper.GetSubagentPrompt(message.Content)
+            // Not every sub-agent tool carries a full prompt (an `agent:` call may only supply the
+            // task label). Falling back to the description guarantees the run always opens with the
+            // request it was given rather than with nothing.
+            ?? ToolDisplayHelper.GetSubagentTaskDescription(toolName, message.Content);
         subagent.TranscriptText = ToolDisplayHelper.ExtractJsonField(message.Content, "transcript");
         subagent.ReasoningText = ToolDisplayHelper.ExtractJsonField(message.Content, "reasoning");
+        subagent.StartedAt = message.ToolStartedAt ?? message.Timestamp;
         subagent.DurationMs = message.ToolDurationMs ?? 0;
+        subagent.SyncTimelineText(ToolDisplayHelper.GetSubagentRunEntries(message.Content));
     }
 
     private void UpdateSubagentState(SubagentToolCallItem subagent)
@@ -992,19 +1022,10 @@ public class TranscriptBuilder
                 ? subagent.DurationText
                 : $"{subagent.Meta} · {subagent.DurationText}";
 
-        if (subagent.Status is not StrataAiToolCallStatus.InProgress)
-        {
-            // Duplicate terminal events are authoritative too: collapse a card again if it was
-            // manually reopened after finishing.
-            subagent.IsExpanded = false;
-        }
-        else if (subagent.OwningGroup is null)
-        {
-            subagent.IsExpanded = !IsRebuildingTranscript;
-        }
-
         if (subagent.OwningGroup is { } owningGroup)
             UpdateSubagentGroupState(owningGroup);
+
+        _subagentRunsChanged?.Invoke();
     }
 
     /// <summary>
@@ -1021,12 +1042,10 @@ public class TranscriptBuilder
             if (items[^1] is SubagentGroupItem group)
             {
                 subagent.OwningGroup = group;
-                subagent.IsExpanded = false;
                 group.Subagents.Add(subagent);
                 UpdateSubagentGroupState(group);
                 return;
             }
-
             // A second back-to-back sub-agent promotes the pair into a group.
             if (items[^1] is SubagentToolCallItem lone)
             {
@@ -1034,9 +1053,7 @@ public class TranscriptBuilder
                 var idx = items.IndexOf(lone);
 
                 lone.OwningGroup = newGroup;
-                lone.IsExpanded = false;
                 subagent.OwningGroup = newGroup;
-                subagent.IsExpanded = false;
                 newGroup.Subagents.Add(lone);
                 newGroup.Subagents.Add(subagent);
 
@@ -1088,7 +1105,7 @@ public class TranscriptBuilder
         group.FailedCount = failed;
         group.RunningCount = running;
         group.IsActive = running > 0;
-        group.IsExpanded = running > 0 && !IsRebuildingTranscript;
+        group.ApplyAutoExpansion(running > 0 && !IsRebuildingTranscript);
         group.HeaderLabel = running > 0
             ? string.Format(Loc.SubagentGroup_Working, total)
             : string.Format(Loc.SubagentGroup_Finished, total);
@@ -1670,7 +1687,11 @@ public class TranscriptBuilder
         }
     }
 
-    private void UpsertSubagentTodoProgressToolCall(SubagentToolCallItem subagent, List<ToolDisplayHelper.TodoStepSnapshot> steps, string toolStatus)
+    private void UpsertSubagentTodoProgressToolCall(
+        SubagentToolCallItem subagent,
+        ChatMessage message,
+        List<ToolDisplayHelper.TodoStepSnapshot> steps,
+        string toolStatus)
     {
         subagent.TodoTotal = steps.Count;
         subagent.TodoCompleted = steps.Count(step => string.Equals(step.Status, "completed", StringComparison.OrdinalIgnoreCase));
@@ -1687,8 +1708,12 @@ public class TranscriptBuilder
                 $"todo:{subagent.StableId}")
             {
                 InputParameters = detailsMarkdown,
+                // The message's own instant, like every other tool item — using "now" would sort a
+                // rebuilt plan card after the agent's final answer instead of where it happened.
+                Timestamp = message.ToolStartedAt ?? message.Timestamp,
             };
             subagent.Activities.Add(subagent.TodoItem);
+            subagent.AddTimelineTool(subagent.TodoItem);
         }
         else
         {

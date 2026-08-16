@@ -93,7 +93,6 @@ public sealed class BackgroundResumeTests
 
         Assert.True(subagent.IsCompleted);
         Assert.False(subagent.IsActive);
-        Assert.False(subagent.IsExpanded); // Auto-collapses on completion
     }
 
     // ── ToolDisplayHelper mode detection ──

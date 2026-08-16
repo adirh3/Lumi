@@ -1477,10 +1477,11 @@ internal static class RemoteProjector
                 writer.WriteStartObject();
                 foreach (var property in document.RootElement.EnumerateObject())
                 {
-                    if (string.Equals(
-                            property.Name,
-                            "reasoning",
-                            StringComparison.OrdinalIgnoreCase))
+                    // The verbose parts of a sub-agent payload — its live reasoning and its full
+                    // ordered run log — are desktop-only detail; mobile shows a compact activity
+                    // entry, so they are dropped instead of inflating every projection.
+                    if (string.Equals(property.Name, "reasoning", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(property.Name, "entries", StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
                     }

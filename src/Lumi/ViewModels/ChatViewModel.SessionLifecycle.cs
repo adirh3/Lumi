@@ -484,7 +484,9 @@ public partial class ChatViewModel
             bool updateTranscript = false,
             string? transcript = null,
             bool updateReasoning = false,
-            string? reasoning = null)
+            string? reasoning = null,
+            SubagentRunEntryKind? appendEntryKind = null,
+            string? appendEntryText = null)
         {
             Dispatcher.UIThread.Post(() =>
             {
@@ -507,12 +509,23 @@ public partial class ChatViewModel
                 var agentDescription = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "agentDescription");
                 var mode = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "mode") ?? string.Empty;
                 var model = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "model");
+                var prompt = ToolDisplayHelper.GetSubagentPrompt(toolMsg.Content);
                 var nextTranscript = updateTranscript
                     ? transcript ?? string.Empty
                     : ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "transcript");
                 var nextReasoning = updateReasoning
                     ? reasoning ?? string.Empty
                     : ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "reasoning");
+
+                var entriesJson = ToolDisplayHelper.GetSubagentRunEntriesJson(toolMsg.Content);
+                if (appendEntryKind is { } entryKind)
+                {
+                    entriesJson = SubagentRunLog.Append(
+                        entriesJson,
+                        entryKind,
+                        appendEntryText,
+                        DateTimeOffset.Now);
+                }
 
                 var nextContent = BuildSubagentPayloadJson(
                     description,
@@ -522,7 +535,9 @@ public partial class ChatViewModel
                     mode,
                     model,
                     nextTranscript,
-                    nextReasoning);
+                    nextReasoning,
+                    prompt,
+                    entriesJson);
 
                 if (string.Equals(toolMsg.Content, nextContent, StringComparison.Ordinal))
                     return;
@@ -566,15 +581,39 @@ public partial class ChatViewModel
             if (string.IsNullOrWhiteSpace(toolCallId))
                 return;
 
+            // This runs on the SDK callback thread (SubagentCompleted/Failed finalize their streams
+            // before posting), and the flush mutates the sub-agent's bound run timeline. Snapshot the
+            // buffers here, dispose them, then marshal the UI work like every other mutation in this
+            // handler — flushing inline would touch bound collections off the UI thread.
             var assistantSubagentStream = GetSubagentStream(subagentAssistantStreams, toolCallId);
             assistantSubagentStream?.CancelPending();
-            FlushSubagentAssistantDelta(toolCallId);
+            var finalTranscript = assistantSubagentStream?.SnapshotOrNull();
             DisposeSubagentStream(subagentAssistantStreams, toolCallId);
 
             var reasoningSubagentStream = GetSubagentStream(subagentReasoningStreams, toolCallId);
             reasoningSubagentStream?.CancelPending();
-            FlushSubagentReasoningDelta(toolCallId);
+            var finalReasoning = reasoningSubagentStream?.SnapshotOrNull();
             DisposeSubagentStream(subagentReasoningStreams, toolCallId);
+
+            if (finalTranscript is null && finalReasoning is null)
+                return;
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (finalTranscript is not null)
+                {
+                    if (IsDisplayedSession())
+                        _transcriptBuilder.UpdateSubagentTranscriptText(toolCallId, finalTranscript);
+                    UpdateSubagentCardContent(toolCallId, updateTranscript: true, transcript: finalTranscript);
+                }
+
+                if (finalReasoning is not null)
+                {
+                    if (IsDisplayedSession())
+                        _transcriptBuilder.UpdateSubagentReasoningText(toolCallId, finalReasoning);
+                    UpdateSubagentCardContent(toolCallId, updateReasoning: true, reasoning: finalReasoning);
+                }
+            });
         }
 
         void ResetSubagentOutputState()
@@ -790,12 +829,25 @@ public partial class ChatViewModel
                             if (!string.IsNullOrWhiteSpace(capturedReasoning))
                                 _transcriptBuilder.UpdateSubagentReasoningText(capturedToolCallId, capturedReasoning);
                         });
+                        // The reasoning that led to this message is committed first so the run
+                        // transcript reads in the order the agent produced it.
+                        if (!string.IsNullOrWhiteSpace(capturedReasoning))
+                        {
+                            UpdateSubagentCardContent(
+                                activeSubagentToolCallIdForAssistantMessage,
+                                updateReasoning: true,
+                                reasoning: string.Empty,
+                                appendEntryKind: SubagentRunEntryKind.Reasoning,
+                                appendEntryText: capturedReasoning);
+                        }
+
+                        // Finalized text moves from the live streaming field into the ordered run log.
                         UpdateSubagentCardContent(
                             activeSubagentToolCallIdForAssistantMessage,
                             updateTranscript: true,
-                            transcript: capturedTranscript,
-                            updateReasoning: !string.IsNullOrWhiteSpace(msg.Data.ReasoningText),
-                            reasoning: msg.Data.ReasoningText);
+                            transcript: string.Empty,
+                            appendEntryKind: SubagentRunEntryKind.Assistant,
+                            appendEntryText: capturedTranscript);
                         subagentAssistantStream?.Clear();
                         break;
                     }
@@ -909,7 +961,9 @@ public partial class ChatViewModel
                         UpdateSubagentCardContent(
                             activeSubagentToolCallIdForReasoning,
                             updateReasoning: true,
-                            reasoning: r.Data.Content);
+                            reasoning: string.Empty,
+                            appendEntryKind: SubagentRunEntryKind.Reasoning,
+                            appendEntryText: r.Data.Content);
                         subagentReasoningStream?.Clear();
                         break;
                     }
@@ -1871,6 +1925,10 @@ public partial class ChatViewModel
                         var existingDescription = ToolDisplayHelper.ExtractJsonField(existing.Content, "description") ?? string.Empty;
                         var existingMode = ToolDisplayHelper.ExtractJsonField(existing.Content, "mode") ?? string.Empty;
                         var existingModel = ToolDisplayHelper.ExtractJsonField(existing.Content, "model");
+                        // The raw task-tool args are replaced by the sub-agent payload here, so the
+                        // instruction the agent received has to be carried over now or it is lost.
+                        var existingPrompt = ToolDisplayHelper.GetSubagentPrompt(existing.Content);
+                        var existingEntries = ToolDisplayHelper.GetSubagentRunEntriesJson(existing.Content);
                         var existingTranscript = ToolDisplayHelper.ExtractJsonField(existing.Content, "transcript")
                             ?? GetSubagentStream(subagentAssistantStreams, subStart.Data.ToolCallId)?.SnapshotOrNull();
                         var existingReasoning = ToolDisplayHelper.ExtractJsonField(existing.Content, "reasoning")
@@ -1886,7 +1944,9 @@ public partial class ChatViewModel
                             mode: existingMode,
                             model: existingModel,
                             transcript: existingTranscript,
-                            reasoning: existingReasoning);
+                            reasoning: existingReasoning,
+                            prompt: existingPrompt,
+                            entriesJson: existingEntries);
                         existing.Author = displayName;
                         if (IsDisplayedSession())
                         {

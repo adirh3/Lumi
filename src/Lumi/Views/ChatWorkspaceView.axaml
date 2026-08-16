@@ -404,6 +404,22 @@
       </DockPanel>
     </Border>
 
+    <!-- Read-only sub-agent run island: the agent index, or one agent's full run as a chat. -->
+    <Border x:Name="SubagentIsland"
+            Grid.Column="2"
+            IsVisible="False"
+            MinWidth="{StaticResource ChatWorkspace.SplitPaneMinWidth}"
+            MaxWidth="{Binding Bounds.Width, RelativeSource={RelativeSource AncestorType=Grid}}"
+            Margin="{Binding PreviewIslandMargin, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
+            CornerRadius="{DynamicResource Radius.Overlay}"
+            Background="{DynamicResource Brush.Surface1Glass}"
+            BorderBrush="{DynamicResource Brush.BorderSubtle}"
+            BorderThickness="1"
+            BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000"
+            ClipToBounds="True">
+      <views:SubagentRunView x:Name="SubagentRunHost" DataContext="{Binding}" />
+    </Border>
+
     <!-- ===== Companion Workspace panel =====
          A first-class, tabbed, searchable index of chat landmarks and what Lumi produced/referenced:
          Messages, Deliverables, Links, Sources, Activity (intents + searches, jump-to-transcript) and Changes.

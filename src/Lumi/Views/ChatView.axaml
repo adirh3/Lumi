@@ -21,7 +21,6 @@
          instead of clinging to the edges. On narrow windows it grows to full width. -->
     <x:Double x:Key="Chat.ReadingColumnWidth">900</x:Double>
     <x:Double x:Key="Chat.ToolGroupContentMaxHeight">420</x:Double>
-    <x:Double x:Key="Chat.SubagentContentMaxHeight">420</x:Double>
 
     <!-- Shared chip for files Lumi produced/announced. Right-click exposes file actions
          (open, reveal in folder, copy the file, copy path/name). Used by both the user and
@@ -177,22 +176,80 @@
       <Setter Property="HorizontalAlignment" Value="Left" />
       <Setter Property="MaxWidth" Value="760" />
     </Style>
-    <Style Selector="Border.streaming-tool-summary">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="999" />
-      <Setter Property="Padding" Value="6,2" />
-      <Setter Property="Margin" Value="6,0,0,0" />
-      <Setter Property="MaxWidth" Value="260" />
-      <Setter Property="VerticalAlignment" Value="Center" />
+
+    <!-- ── Sub-agent runs ──────────────────────────────────────────────
+         Chat-side density: one collapsed row per agent. The row is a pure hit target — the Strata
+         agent-run card inside owns all chrome, state and motion. -->
+    <Style Selector="Button.agent-row">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="MaxWidth" Value="760" />
     </Style>
-    <Style Selector="Border.streaming-tool-summary TextBlock">
-      <Setter Property="FontSize" Value="10" />
+    <Style Selector="Button.agent-row /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.agent-row:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <!-- The affordance is quiet until the row is hovered, so a finished run reads as history. -->
+    <Style Selector="PathIcon.agent-row-open">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-      <Setter Property="MaxLines" Value="1" />
+      <Setter Property="Opacity" Value="0.45" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+        </Transitions>
+      </Setter>
     </Style>
+    <Style Selector="Button.agent-row:pointerover PathIcon.agent-row-open">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <!-- Fan-out group: same collapsible language as a tool group. -->
+    <Style Selector="sc|StrataThink.agent-group">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="MaxWidth" Value="760" />
+    </Style>
+    <Style Selector="Border.agent-cluster-avatar">
+      <Setter Property="Width" Value="17" />
+      <Setter Property="Height" Value="17" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.SurfaceCard}" />
+    </Style>
+    <Style Selector="Border.agent-cluster-avatar > TextBlock">
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="FontSize" Value="8.5" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="Foreground" Value="#FFFFFFFF" />
+    </Style>
+
+
+    <!-- Header agents indicator -->
+    <Style Selector="Button.agents-toggle.live PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Border.agents-count">
+      <Setter Property="MinWidth" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="Padding" Value="4,0" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.55" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.6" />
+      <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+
 
     <!-- Steering delivery status pill: shown under a user message that was steered into a
          running turn so it's clear when the message actually reaches the session. -->
@@ -1047,114 +1104,52 @@
       </sc:StrataThink>
     </DataTemplate>
 
-    <!-- ── Subagent card (standalone turn-level item) ── -->
-    <DataTemplate DataType="vm:SubagentToolCallItem">        <sc:StrataThink Label="{Binding Title}"
-                        Meta="{Binding Meta}"
-                        IsExpanded="{Binding IsExpanded}"
-                        IsActive="{Binding IsActive}"
-                        ProgressValue="{Binding ProgressValue}">
-        <sc:StrataThink.Content>
-          <ScrollViewer MaxHeight="{StaticResource Chat.SubagentContentMaxHeight}"
-                        VerticalScrollBarVisibility="Auto"
-                        HorizontalScrollBarVisibility="Disabled"><StackPanel Spacing="6">
-            <!-- Agent byline — visible only when expanded -->
-            <StackPanel Orientation="Horizontal" Spacing="4"
-                        Margin="0,0,0,2">
-              <Border IsVisible="{Binding IsBackgroundMode}"
-                      Background="{DynamicResource Brush.AccentSubtle}"
-                      CornerRadius="999" Padding="6,1">
-                <TextBlock Text="{Binding ModeLabel}" FontSize="10"
-                           Foreground="{DynamicResource Brush.AccentDefault}"
-                           FontWeight="SemiBold" />
-              </Border>
-              <TextBlock Text="{Binding DisplayName}"
-                         FontSize="11"
-                         Foreground="{DynamicResource Brush.TextTertiary}"
-                         Opacity="0.8" />
-              <TextBlock Text="·"
-                         FontSize="11"
-                         Foreground="{DynamicResource Brush.TextTertiary}"
-                         Opacity="0.4"
-                         IsVisible="{Binding HasModelName}" />
-              <TextBlock Text="{Binding ModelDisplayName}"
-                         FontSize="11"
-                         Foreground="{DynamicResource Brush.TextTertiary}"
-                         Opacity="0.6"
-                         IsVisible="{Binding HasModelName}" />
-            </StackPanel>
-
-            <sc:StrataThink Label="{loc:Str Tool_ReasoningLabel}"
-                            IsExpanded="True"
-                            IsActive="{Binding IsActive}"
-                            IsVisible="{Binding HasReasoningText}">
-              <sc:StrataThink.Content>
-                <lc:TranscriptTextContent Text="{Binding ReasoningText}"
-                                          PreferPlainText="{Binding IsActive}"
-                                          RenderMarkdownWhileStreaming="True" />
-              </sc:StrataThink.Content>
-            </sc:StrataThink>
-
-            <lc:TranscriptTextContent Text="{Binding TranscriptText}"
-                                      PreferPlainText="{Binding IsActive}"
-                                      RenderMarkdownWhileStreaming="True"
-                                      IsVisible="{Binding HasTranscriptText}" />
-
-            <ItemsControl ItemsSource="{Binding Activities}"
-                          IsVisible="{Binding HasActivities}">
-              <ItemsControl.Styles>
-                <Style Selector="ContentPresenter">
-                  <Setter Property="Margin" Value="0,0,6,6" />
-                </Style>
-                <Style Selector="sc|StrataAiToolCall">
-                  <Setter Property="MinWidth" Value="320" />
-                  <Setter Property="MaxWidth" Value="420" />
-                </Style>
-                <Style Selector="sc|StrataTerminalPreview">
-                  <Setter Property="MinWidth" Value="360" />
-                  <Setter Property="MaxWidth" Value="560" />
-                </Style>
-              </ItemsControl.Styles>
-              <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
-            </ItemsControl>
-          </StackPanel>
-          </ScrollViewer>
-        </sc:StrataThink.Content>
-        </sc:StrataThink>
+    <!-- ── Sub-agent run (transcript) ──
+         In the chat a delegated agent is one collapsed line: who ran, what it was asked to do, and
+         how it ended. Everything else — its reasoning, messages and tool calls — lives in the
+         read-only run island, which the row opens. Keeping this to a single row means a fan-out of
+         six agents costs six lines instead of six cards. -->
+    <DataTemplate DataType="vm:SubagentToolCallItem">
+      <Button Classes="agent-row" Command="{Binding OpenRunCommand}"
+              ToolTip.Tip="{Binding RowTooltip}">
+        <sc:StrataAgentRun Classes="inline"
+                           AgentName="{Binding DisplayName}"
+                           Title="{Binding Title}"
+                           Initial="{Binding Initial}"
+                           AccentBrush="{Binding AccentIndex, Converter={StaticResource ChartBrush}}"
+                           ModelName="{Binding ModelDisplayName}"
+                           Status="{Binding Status}"
+                           StatusLabel="{Binding StatusText}"
+                           DurationMs="{Binding DurationMs}"
+                           RunningSince="{Binding StartedAt}">
+          <sc:StrataAgentRun.HeaderAction>
+            <PathIcon Classes="agent-row-open" Width="11" Height="11"
+                      Data="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+          </sc:StrataAgentRun.HeaderAction>
+        </sc:StrataAgentRun>
+      </Button>
     </DataTemplate>
 
-    <!-- ── Parallel agents group (native Strata pills) ── -->
+    <!-- ── Parallel agents fan-out ──
+         Collapsible, like a tool group: one header line while the batch is finished, opened
+         automatically only while agents are still working so live work stays visible. -->
     <DataTemplate DataType="vm:SubagentGroupItem">
-      <sc:StrataThink Label="{Binding HeaderLabel}"
+      <sc:StrataThink Classes="agent-group"
+                      Label="{Binding HeaderLabel}"
                       Meta="{Binding Meta}"
                       IsExpanded="{Binding IsExpanded}"
                       IsActive="{Binding IsActive}"
                       ProgressValue="{Binding ProgressValue}">
         <sc:StrataThink.HeaderExtra>
+          <!-- Stacked avatars: who is in this batch, readable before opening it. -->
           <ItemsControl ItemsSource="{Binding Subagents}" VerticalAlignment="Center" Margin="2,0,0,0">
-            <ItemsControl.Styles>
-              <Style Selector="Border.cluster-avatar">
-                <Setter Property="Width" Value="18" />
-                <Setter Property="Height" Value="18" />
-                <Setter Property="CornerRadius" Value="9" />
-                <Setter Property="BorderThickness" Value="2" />
-                <Setter Property="BorderBrush" Value="{DynamicResource Brush.SurfaceCard}" />
-              </Style>
-              <Style Selector="Border.cluster-avatar > TextBlock">
-                <Setter Property="HorizontalAlignment" Value="Center" />
-                <Setter Property="VerticalAlignment" Value="Center" />
-                <Setter Property="FontSize" Value="9" />
-                <Setter Property="FontWeight" Value="Bold" />
-                <Setter Property="Foreground" Value="#FFFFFFFF" />
-              </Style>
-            </ItemsControl.Styles>
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="-6" /></ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate DataType="vm:SubagentToolCallItem">
-                <Border Classes="cluster-avatar"
+                <Border Classes="agent-cluster-avatar"
+                        ToolTip.Tip="{Binding Title}"
                         Background="{Binding AccentIndex, Converter={StaticResource ChartBrush}}">
                   <TextBlock Text="{Binding Initial}" />
                 </Border>
@@ -1163,126 +1158,37 @@
           </ItemsControl>
         </sc:StrataThink.HeaderExtra>
         <sc:StrataThink.Content>
-          <ScrollViewer MaxHeight="{StaticResource Chat.SubagentContentMaxHeight}"
-                        VerticalScrollBarVisibility="Auto"
-                        HorizontalScrollBarVisibility="Disabled"><ItemsControl ItemsSource="{Binding Subagents}">
+          <ItemsControl ItemsSource="{Binding Subagents}">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate DataType="vm:SubagentToolCallItem">
-                <sc:StrataThink Label="{Binding Title}"
-                                Meta="{Binding AgentSubtitle}"
-                                IsExpanded="{Binding IsExpanded}"
-                                IsActive="{Binding IsActive}"
-                                ProgressValue="{Binding ProgressValue}">
-                  <sc:StrataThink.HeaderExtra>
-                    <Border Width="16" Height="16" CornerRadius="8" VerticalAlignment="Center"
-                            Background="{Binding AccentIndex, Converter={StaticResource ChartBrush}}">
-                      <TextBlock Text="{Binding Initial}" FontSize="8.5" FontWeight="Bold"
-                                 Foreground="#FFFFFFFF"
-                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                  </sc:StrataThink.HeaderExtra>
-                  <sc:StrataThink.Content>
-                    <StackPanel Spacing="6">
-                      <sc:StrataThink Label="{loc:Str Tool_ReasoningLabel}"
-                                      IsExpanded="True"
-                                      IsActive="{Binding IsActive}"
-                                      IsVisible="{Binding HasReasoningText}">
-                        <sc:StrataThink.Content>
-                          <lc:TranscriptTextContent Text="{Binding ReasoningText}"
-                                                    PreferPlainText="{Binding IsActive}"
-                                                    RenderMarkdownWhileStreaming="True" />
-                        </sc:StrataThink.Content>
-                      </sc:StrataThink>
-                      <lc:TranscriptTextContent Text="{Binding TranscriptText}"
-                                                PreferPlainText="{Binding IsActive}"
-                                                RenderMarkdownWhileStreaming="True"
-                                                IsVisible="{Binding HasTranscriptText}" />
-                      <ItemsControl ItemsSource="{Binding Activities}"
-                                    IsVisible="{Binding HasActivities}">
-                        <ItemsControl.Styles>
-                          <Style Selector="ContentPresenter">
-                            <Setter Property="Margin" Value="0,0,6,6" />
-                          </Style>
-                          <Style Selector="sc|StrataAiToolCall">
-                            <Setter Property="MinWidth" Value="320" />
-                            <Setter Property="MaxWidth" Value="420" />
-                          </Style>
-                          <Style Selector="sc|StrataTerminalPreview">
-                            <Setter Property="MinWidth" Value="360" />
-                            <Setter Property="MaxWidth" Value="560" />
-                          </Style>
-                        </ItemsControl.Styles>
-                        <ItemsControl.ItemsPanel>
-                          <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                      </ItemsControl>
-                    </StackPanel>
-                  </sc:StrataThink.Content>
-                </sc:StrataThink>
+                <Button Classes="agent-row" Command="{Binding OpenRunCommand}"
+                        ToolTip.Tip="{Binding RowTooltip}">
+                  <sc:StrataAgentRun Classes="inline"
+                                     AgentName="{Binding DisplayName}"
+                                     Title="{Binding Title}"
+                                     Initial="{Binding Initial}"
+                                     AccentBrush="{Binding AccentIndex, Converter={StaticResource ChartBrush}}"
+                                     ModelName="{Binding ModelDisplayName}"
+                                     Status="{Binding Status}"
+                                     StatusLabel="{Binding StatusText}"
+                                     DurationMs="{Binding DurationMs}"
+                                     RunningSince="{Binding StartedAt}">
+                    <sc:StrataAgentRun.HeaderAction>
+                      <PathIcon Classes="agent-row-open" Width="11" Height="11"
+                                Data="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+                    </sc:StrataAgentRun.HeaderAction>
+                  </sc:StrataAgentRun>
+                </Button>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
-          </ScrollViewer>
         </sc:StrataThink.Content>
       </sc:StrataThink>
     </DataTemplate>
 
-    <!-- ── Regular tool call (inside tool group) ────── -->
-    <DataTemplate DataType="vm:ToolCallItem">
-      <sc:StrataAiToolCall ToolName="{Binding ToolName}"
-                           Classes.compact="{Binding IsCompact}"
-                           Status="{Binding Status}"
-                           IsExpanded="{Binding IsExpanded}"
-                           InputParameters="{Binding InputParameters}"
-                           MoreInfo="{Binding MoreInfo}"
-                           DurationMs="{Binding DurationMs}"
-                           RunningSince="{Binding RunningSince}">
-        <sc:StrataAiToolCall.HeaderAction>
-          <Button Classes="subtle" Command="{Binding ShowDiffCommand}"
-                  IsVisible="{Binding HasDiff}"
-                  Padding="5,0" MinHeight="0" Height="18"
-                  Cursor="Hand">
-            <StackPanel Orientation="Horizontal" Spacing="3">
-              <OnPlatform>
-                <On Options="macOS, Linux">
-                  <PathIcon Data="M4 4h6v16H4z M14 4h6v16h-6z" Width="9" Height="9"
-                            VerticalAlignment="Center" />
-                </On>
-                <On Options="Default">
-                  <TextBlock Text="&#xE8A7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
-                             FontSize="9" VerticalAlignment="Center" />
-                </On>
-              </OnPlatform>
-              <TextBlock Text="{loc:Str ShowDiff}" FontSize="9" VerticalAlignment="Center" />
-            </StackPanel>
-          </Button>
-        </sc:StrataAiToolCall.HeaderAction>
-      </sc:StrataAiToolCall>
-    </DataTemplate>
-
-    <!-- ── Terminal preview (inside tool group) ─────── -->
-    <DataTemplate DataType="vm:TerminalPreviewItem">
-      <sc:StrataTerminalPreview ToolName="{Binding ToolName}"
-                                Command="{Binding Command}"
-                                Output="{Binding Output}"
-                                Status="{Binding Status}"
-                                IsRunningInBackground="{Binding IsRunningInBackground}"
-                                RunningSince="{Binding RunningSince}"
-                                DurationMs="{Binding DurationMs}"
-                                IsExpanded="{Binding IsExpanded}" />
-    </DataTemplate>
-
-    <!-- ── Todo progress (inside tool group) ────────── -->
-    <DataTemplate DataType="vm:TodoProgressItem">
-      <sc:StrataAiToolCall ToolName="{Binding ToolName}"
-                           Status="{Binding Status}"
-                           IsExpanded="{Binding IsExpanded}"
-                           InputParameters="{Binding InputParameters}"
-                           MoreInfo="{Binding MoreInfo}" />
-    </DataTemplate>
 
     <!-- ── Question card ────────────────────────────── -->
     <DataTemplate DataType="vm:QuestionItem">
@@ -1461,6 +1367,36 @@
                       Width="1"
                       Height="16"
                       Background="{DynamicResource Brush.BorderSubtle}" />
+
+              <!-- Live agents indicator: every sub-agent this chat delegated to, with how many are
+                   still running. Opens the read-only agent index / run island. -->
+              <Button x:Name="SubagentToggleButton"
+                      Classes="subtle agents-toggle"
+                      IsVisible="{Binding HasSubagentRuns}"
+                      Classes.live="{Binding HasRunningSubagents}"
+                      Command="{Binding ToggleSubagentPanelCommand}"
+                      ToolTip.Tip="{Binding SubagentRunsSummary}"
+                      Height="30"
+                      MinWidth="30"
+                      Padding="8,0"
+                      CornerRadius="7">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <PathIcon Width="14" Height="14"
+                            Foreground="{DynamicResource Brush.TextSecondary}"
+                            Data="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
+                  <Border Classes="agents-count" IsVisible="{Binding HasRunningSubagents}">
+                    <TextBlock Text="{Binding RunningSubagentCount}"
+                               FontSize="9.5" FontWeight="Bold"
+                               Foreground="#FFFFFFFF"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  </Border>
+                  <TextBlock Text="{Binding SubagentRunCount}"
+                             FontSize="11" FontWeight="SemiBold"
+                             VerticalAlignment="Center"
+                             IsVisible="{Binding !HasRunningSubagents}"
+                             Foreground="{DynamicResource Brush.TextTertiary}" />
+                </StackPanel>
+              </Button>
 
               <Button x:Name="BrowserToggleButton"
                       Classes="subtle"

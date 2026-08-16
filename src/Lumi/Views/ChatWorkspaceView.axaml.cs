@@ -136,6 +136,12 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
 
     public void HideSkillPanel() => _previewPanel?.HideSkillPanel();
 
+    public bool IsSubagentRunOpen => _previewPanel?.IsSubagentRunOpen == true;
+
+    public void ShowSubagentPanel() => _previewPanel?.ShowSubagentPanel();
+
+    public void HideSubagentPanel() => _previewPanel?.HideSubagentPanel();
+
     public void Dispose()
     {
         DisposePreviewPanel();
@@ -249,6 +255,8 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
             ?? throw new InvalidOperationException("Chat workspace is missing PlanIsland.");
         var skillPanel = this.FindControl<Border>("SkillIsland")
             ?? throw new InvalidOperationException("Chat workspace is missing SkillIsland.");
+        var subagentPanel = this.FindControl<Border>("SubagentIsland")
+            ?? throw new InvalidOperationException("Chat workspace is missing SubagentIsland.");
 
         _previewPanel = new ChatPreviewPanelController(
             this,
@@ -264,6 +272,7 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
             diffFileNameText,
             planPanel,
             skillPanel,
+            subagentPanel,
             ensureChatVisible: () => EnsureChatVisible?.Invoke(),
             canShowBrowserPanel: chatId => CanShowBrowserPanel?.Invoke(chatId) != false,
             diffBackButton: diffBackButton);

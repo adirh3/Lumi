@@ -1461,7 +1461,7 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
-    public void MarkInProgressToolsStopped_CollapsesDisplayedSubagent()
+    public void MarkInProgressToolsStopped_EndsDisplayedSubagent()
     {
         var dataStore = CreateDataStore();
         var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
@@ -1477,14 +1477,12 @@ public sealed class ChatViewModelLeakTests
         vm.Messages.Add(new ChatMessageViewModel(subagentMessage));
         var card = Assert.IsType<SubagentToolCallItem>(
             Assert.Single(Assert.Single(vm.TranscriptTurns).Items));
-        Assert.True(card.IsExpanded);
 
         var changed = InvokePrivate<bool>(vm, "MarkInProgressToolsStopped", chat);
 
         Assert.True(changed);
         Assert.Equal("Stopped", subagentMessage.ToolStatus);
         Assert.False(card.IsActive);
-        Assert.False(card.IsExpanded);
     }
 
     [Fact]
@@ -1504,17 +1502,15 @@ public sealed class ChatViewModelLeakTests
         vm.Messages.Add(new ChatMessageViewModel(subagentMessage));
         var card = Assert.IsType<SubagentToolCallItem>(
             Assert.Single(Assert.Single(vm.TranscriptTurns).Items));
-        Assert.True(card.IsExpanded);
 
         InvokePrivate(vm, "ReconcileInProgressSubagentTools", chat, "Completed", true);
 
         Assert.Equal("Completed", subagentMessage.ToolStatus);
         Assert.False(card.IsActive);
-        Assert.False(card.IsExpanded);
     }
 
     [Fact]
-    public void ReconcileInProgressSubagentTools_InactiveChatRebuildsCollapsed()
+    public void ReconcileInProgressSubagentTools_InactiveChatRebuildsTerminal()
     {
         var dataStore = CreateDataStore();
         var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
@@ -1538,7 +1534,6 @@ public sealed class ChatViewModelLeakTests
         var card = Assert.IsType<SubagentToolCallItem>(
             Assert.Single(Assert.Single(vm.TranscriptTurns).Items));
         Assert.False(card.IsActive);
-        Assert.False(card.IsExpanded);
     }
 
     [Fact]

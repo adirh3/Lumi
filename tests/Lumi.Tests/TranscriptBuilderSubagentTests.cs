@@ -42,7 +42,6 @@ public sealed class TranscriptBuilderSubagentTests
         Assert.Equal("Explore", first.DisplayName);
         Assert.Same(group, first.OwningGroup);
         Assert.True(first.IsGrouped);
-        Assert.False(first.IsExpanded); // grouped members render collapsed
         Assert.IsType<ToolCallItem>(Assert.Single(first.Activities));
 
         var second = group.Subagents[1];
@@ -50,7 +49,6 @@ public sealed class TranscriptBuilderSubagentTests
         Assert.Equal("Code review", second.DisplayName);
         Assert.Equal("Background", second.ModeLabel);
         Assert.Same(group, second.OwningGroup);
-        Assert.False(second.IsExpanded);
         Assert.IsType<TerminalPreviewItem>(Assert.Single(second.Activities));
     }
 
@@ -71,7 +69,6 @@ public sealed class TranscriptBuilderSubagentTests
         Assert.Null(lone.OwningGroup);
         Assert.False(lone.IsGrouped);
         Assert.Equal("Explore", lone.DisplayName);
-        Assert.False(lone.IsExpanded);
     }
 
     [Fact]
@@ -109,7 +106,6 @@ public sealed class TranscriptBuilderSubagentTests
         var subagent = Assert.IsType<SubagentToolCallItem>(Assert.Single(turn.Items));
         Assert.Equal("Inspect repo", subagent.Title);
         Assert.Equal("General purpose", subagent.DisplayName);
-        Assert.True(subagent.IsExpanded);
 
         root.Message.ToolName = "agent:Coding Lumi";
         root.Message.Author = "Coding Lumi";
@@ -124,11 +120,10 @@ public sealed class TranscriptBuilderSubagentTests
         root.NotifyToolStatusChanged();
 
         Assert.True(subagent.IsCompleted);
-        Assert.False(subagent.IsExpanded);
     }
 
     [Fact]
-    public void AuthoritativeTerminalRefresh_CollapsesReopenedSubagent()
+    public void AuthoritativeTerminalRefresh_CompletesDeferredSubagent()
     {
         var builder = CreateBuilder();
         var liveTurns = new ObservableCollection<TranscriptTurn>();
@@ -147,25 +142,23 @@ public sealed class TranscriptBuilderSubagentTests
         // The successful wrapping task completion is deliberately deferred in production because it
         // only means the real sub-agent was spawned.
         Assert.False(ChatViewModel.ShouldApplyToolExecutionCompletionStatus("task", success: true));
-        Assert.True(subagent.IsExpanded);
 
-        // The authoritative subagent.completed event collapses the live card.
+        // The authoritative subagent.completed event is what settles the live card.
         builder.UpdateSubagentToolStatus("agent-1", "Completed");
 
         Assert.True(subagent.IsCompleted);
-        Assert.False(subagent.IsExpanded);
 
-        // Duplicate terminal events must also re-collapse a completed card the user reopened.
-        subagent.IsExpanded = true;
+        // Duplicate terminal events must stay idempotent.
         builder.UpdateSubagentToolStatus("agent-1", "Completed");
-        Assert.False(subagent.IsExpanded);
+        Assert.True(subagent.IsCompleted);
+        Assert.False(subagent.IsActive);
     }
 
     [Theory]
     [InlineData("Completed")]
     [InlineData("Failed")]
     [InlineData("Stopped")]
-    public void LiveStandalone_TerminalStatusCollapses(string terminalStatus)
+    public void LiveStandalone_TerminalStatusEndsActiveState(string terminalStatus)
     {
         var builder = CreateBuilder();
         var liveTurns = new ObservableCollection<TranscriptTurn>();
@@ -179,12 +172,10 @@ public sealed class TranscriptBuilderSubagentTests
 
         var subagent = Assert.IsType<SubagentToolCallItem>(Assert.Single(Assert.Single(liveTurns).Items));
         Assert.True(subagent.IsActive);
-        Assert.True(subagent.IsExpanded);
 
         builder.UpdateSubagentToolStatus("agent-1", terminalStatus);
 
         Assert.False(subagent.IsActive);
-        Assert.False(subagent.IsExpanded);
     }
 
     [Fact]
@@ -198,7 +189,6 @@ public sealed class TranscriptBuilderSubagentTests
         Assert.True(group.IsExpanded);
         Assert.Equal(1, group.DoneCount);
         Assert.Equal(1, group.RunningCount);
-        Assert.False(group.Subagents[0].IsExpanded);
         Assert.True(group.Subagents[1].IsActive);
     }
 
@@ -251,20 +241,17 @@ public sealed class TranscriptBuilderSubagentTests
     }
 
     [Fact]
-    public void LiveGroup_DuplicateTerminalRefreshCollapsesReopenedMember()
+    public void LiveGroup_DuplicateTerminalRefreshIsIdempotent()
     {
         var (builder, group) = CreateLiveGroup();
         var member = group.Subagents[0];
 
-        member.IsExpanded = true;
         builder.UpdateSubagentToolStatus("agent-1", "Completed");
-        Assert.False(member.IsExpanded);
-
-        member.IsExpanded = true;
-
         builder.UpdateSubagentToolStatus("agent-1", "Completed");
 
-        Assert.False(member.IsExpanded);
+        Assert.True(member.IsCompleted);
+        Assert.Equal(1, group.DoneCount);
+        Assert.Equal(1, group.RunningCount);
         Assert.True(group.IsActive); // sibling is still running
     }
 
@@ -290,7 +277,7 @@ public sealed class TranscriptBuilderSubagentTests
     [InlineData("Completed")]
     [InlineData("Failed")]
     [InlineData("Stopped")]
-    public void Rebuild_TerminalStandaloneIsCollapsed(string terminalStatus)
+    public void Rebuild_TerminalStandaloneIsInactive(string terminalStatus)
     {
         var builder = CreateBuilder();
         var messages = new[]
@@ -306,11 +293,10 @@ public sealed class TranscriptBuilderSubagentTests
             Assert.Single(Assert.Single(builder.Rebuild(messages)).Items));
 
         Assert.False(subagent.IsActive);
-        Assert.False(subagent.IsExpanded);
     }
 
     [Fact]
-    public void Rebuild_RunningStandaloneIsActiveButCollapsed()
+    public void Rebuild_RunningStandaloneStaysActive()
     {
         var builder = CreateBuilder();
         var messages = new[]
@@ -326,7 +312,6 @@ public sealed class TranscriptBuilderSubagentTests
             Assert.Single(Assert.Single(builder.Rebuild(messages)).Items));
 
         Assert.True(subagent.IsActive);
-        Assert.False(subagent.IsExpanded);
     }
 
     private static TranscriptBuilder CreateBuilder()
@@ -352,7 +337,6 @@ public sealed class TranscriptBuilderSubagentTests
         var group = Assert.IsType<SubagentGroupItem>(Assert.Single(Assert.Single(liveTurns).Items));
         Assert.True(group.IsActive);
         Assert.True(group.IsExpanded);
-        Assert.All(group.Subagents, member => Assert.False(member.IsExpanded));
         return (builder, group);
     }
 
