@@ -23,6 +23,28 @@ public sealed class MemoryHarnessOptions
     public int GcPasses { get; private set; } = 4;
     public long MaxManagedGrowthBytes { get; private set; } = 24L * 1024 * 1024;
     public long MaxManagedSlopeBytesPerCycle { get; private set; } = 2L * 1024 * 1024;
+
+    /// <summary>
+    /// Growth budget for total process private bytes across a scenario. Managed-only gates cannot see
+    /// GPU/native surfaces (Skia's OpenGL offscreen render targets are unbudgeted and have no
+    /// finalizer), so a scenario can leak gigabytes of committed memory while the managed heap stays
+    /// perfectly flat. This gate is the backstop for that class of leak.
+    /// </summary>
+    /// <remarks>
+    /// Calibrated against the transcript-scroll GPU leak as it actually presented on a default
+    /// (6-cycle) run: +55.6 MiB growth at +9.6 MiB/cycle. Every healthy scenario measured on the same
+    /// runs came in at or below -0.2 MiB growth and +0.29 MiB/cycle, so this budget sits roughly 1.7x
+    /// under the real defect and two orders of magnitude above normal noise.
+    /// </remarks>
+    public long MaxPrivateGrowthBytes { get; private set; } = 32L * 1024 * 1024;
+
+    /// <summary>
+    /// Per-cycle private-bytes trend that must accompany <see cref="MaxPrivateGrowthBytes"/> before a
+    /// scenario fails. Requiring a sustained trend as well as total growth keeps a scenario that merely
+    /// oscillates around a stable plateau — GPU drivers and native allocators routinely swing tens of
+    /// MiB between cycles — from failing on a single unlucky end-of-run sample.
+    /// </summary>
+    public long MaxPrivateSlopeBytesPerCycle { get; private set; } = 4L * 1024 * 1024;
     public bool KeepOpen { get; private set; }
     public string? OutputPath { get; private set; }
 
@@ -114,6 +136,16 @@ public sealed class MemoryHarnessOptions
                 case "--memory-max-slope-mb":
                     if (TryInt(TakeValue(), out var slopeMb))
                         options.MaxManagedSlopeBytesPerCycle = Math.Clamp(slopeMb, 1, 1024) * 1024L * 1024L;
+                    break;
+                case "--memory-max-private-mb":
+                case "--memory-max-native-mb":
+                    if (TryInt(TakeValue(), out var privateMb))
+                        options.MaxPrivateGrowthBytes = Math.Clamp(privateMb, 1, 16384) * 1024L * 1024L;
+                    break;
+                case "--memory-max-private-slope-mb":
+                case "--memory-max-native-slope-mb":
+                    if (TryInt(TakeValue(), out var privateSlopeMb))
+                        options.MaxPrivateSlopeBytesPerCycle = Math.Clamp(privateSlopeMb, 1, 4096) * 1024L * 1024L;
                     break;
                 case "--memory-keep-open":
                 case "--memory-keepopen":

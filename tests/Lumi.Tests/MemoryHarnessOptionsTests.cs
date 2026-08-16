@@ -26,8 +26,25 @@ public sealed class MemoryHarnessOptionsTests
     }
 
     [Fact]
-    public void Parse_NumericAndOutputFlags()
+    public void Parse_PrivateGrowthFlags_OverrideNativeGateDefaults()
     {
+        var defaults = MemoryHarnessOptions.Parse(["--memory-stress-harness"]);
+        Assert.Equal(32L * 1024 * 1024, defaults.MaxPrivateGrowthBytes);
+        Assert.Equal(4L * 1024 * 1024, defaults.MaxPrivateSlopeBytesPerCycle);
+
+        var options = MemoryHarnessOptions.Parse(
+        [
+            "--memory-stress-harness",
+            "--memory-max-private-mb", "256",
+            "--memory-max-native-slope-mb", "8",
+        ]);
+
+        Assert.Equal(256L * 1024 * 1024, options.MaxPrivateGrowthBytes);
+        Assert.Equal(8L * 1024 * 1024, options.MaxPrivateSlopeBytesPerCycle);
+    }
+
+    [Fact]
+    public void Parse_NumericAndOutputFlags()    {
         var options = MemoryHarnessOptions.Parse(
         [
             "--memory-stress-harness",

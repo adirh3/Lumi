@@ -52,7 +52,8 @@ internal sealed class MemoryStressHarness
         int AllowedRetainedCount,
         Func<int, Task<IReadOnlyList<TrackedReference>>> RunCycleAsync,
         Func<Task>? PrepareAsync = null,
-        string? Note = null);
+        string? Note = null,
+        long? AllowedPrivateGrowthBytes = null);
 
     private sealed class DetachedChatWindowHost
     {
@@ -200,7 +201,13 @@ internal sealed class MemoryStressHarness
                 "Unique attachment thumbnail churn",
                 AllowedRetainedCount: 0,
                 RunCycleAsync: RunThumbnailChurnCycleAsync,
-                Note: "Unique image paths must not remain rooted by a process-lifetime thumbnail cache."));
+                Note: "Unique image paths must not remain rooted by a process-lifetime thumbnail cache.",
+                // Decoding unique bitmaps every cycle drives real GPU texture churn, so this scenario's
+                // private-byte total swings far more between runs than the others (measured -68.0,
+                // -28.4 and +41.5 MiB on an unchanged build). Retention, not the byte total, is what
+                // this scenario actually asserts, so give it a budget above its observed noise instead
+                // of relaxing the global gate that guards the transcript-scroll leak.
+                AllowedPrivateGrowthBytes: 192L * 1024 * 1024));
         }
 
         scenarios.Add(new MemoryScenario(
@@ -254,6 +261,7 @@ internal sealed class MemoryStressHarness
             ScenarioId = scenario.Id,
             DisplayName = scenario.DisplayName,
             AllowedRetainedCount = scenario.AllowedRetainedCount,
+            AllowedPrivateGrowthBytes = scenario.AllowedPrivateGrowthBytes,
             Note = scenario.Note,
         };
         var references = new List<TrackedReference>();

@@ -85,4 +85,26 @@ public sealed class BrowserServiceLifecycleTests
         service.SetTheme(isDark: true);
         await service.DisposeAsync();
     }
+
+    [Fact]
+    public async Task ControllerOperationsRemainSafeAfterDisposal()
+    {
+        // Scope note: this pins the cheap half of the contract — every controller-touching entry point
+        // stays exception-free when there is no live controller. It does NOT reach the
+        // IsWebViewInvalidState catch inside InvokeOnLiveController, because that needs a real
+        // CoreWebView2Controller that WebView2 then closes, which cannot be created in a unit test.
+        // The risky part of that catch — deciding which exceptions are swallowed versus rethrown — is
+        // covered directly by the IsWebViewInvalidState tests above.
+        var service = new BrowserService();
+
+        await service.DisposeAsync();
+
+        service.SetTheme(isDark: true);
+        service.SetControllerVisible(true);
+        service.SyncRasterizationScale(1.5);
+        service.SetBounds(0, 0, 800, 600, cornerRadiusPx: 8);
+        service.Reload();
+
+        Assert.False(service.HasController);
+    }
 }

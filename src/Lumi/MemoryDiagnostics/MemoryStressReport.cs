@@ -34,6 +34,15 @@ public sealed class MemoryScenarioSamples
     public required string DisplayName { get; init; }
     public string? Note { get; init; }
     public int AllowedRetainedCount { get; init; }
+
+    /// <summary>
+    /// Per-scenario override for <see cref="MemoryHarnessOptions.MaxPrivateGrowthBytes"/>. Scenarios
+    /// whose whole point is churning GPU-backed resources (bitmaps, thumbnails) swing far more between
+    /// runs than the global budget allows, so they opt into a wider one instead of forcing every
+    /// scenario up to their noise floor.
+    /// </summary>
+    public long? AllowedPrivateGrowthBytes { get; init; }
+
     public List<MemoryCycleSample> Cycles { get; } = [];
     public List<string> Errors { get; } = [];
 }
@@ -44,6 +53,7 @@ public sealed class MemoryScenarioResult
     public required string DisplayName { get; init; }
     public string? Note { get; init; }
     public int AllowedRetainedCount { get; init; }
+    public long AllowedPrivateGrowthBytes { get; init; }
     public IReadOnlyList<MemoryCycleSample> Cycles { get; init; } = Array.Empty<MemoryCycleSample>();
     public IReadOnlyList<string> Errors { get; init; } = Array.Empty<string>();
     public int FinalRetainedCount { get; init; }
@@ -54,10 +64,12 @@ public sealed class MemoryScenarioResult
     public long HeapGrowthBytes { get; init; }
     public double HeapSlopeBytesPerCycle { get; init; }
     public long PrivateGrowthBytes { get; init; }
+    public double PrivateSlopeBytesPerCycle { get; init; }
     public bool RetentionFailed { get; init; }
     public bool ManagedGrowthFailed { get; init; }
-    public bool MemoryGateFailed => RetentionFailed || ManagedGrowthFailed;
-    public bool Failed => Errors.Count > 0 || RetentionFailed || ManagedGrowthFailed;
+    public bool PrivateGrowthFailed { get; init; }
+    public bool MemoryGateFailed => RetentionFailed || ManagedGrowthFailed || PrivateGrowthFailed;
+    public bool Failed => Errors.Count > 0 || MemoryGateFailed;
 }
 
 public sealed class MemoryStressReport
@@ -70,6 +82,8 @@ public sealed class MemoryStressReport
     public int GcPasses { get; init; }
     public long MaxManagedGrowthBytes { get; init; }
     public long MaxManagedSlopeBytesPerCycle { get; init; }
+    public long MaxPrivateGrowthBytes { get; init; }
+    public long MaxPrivateSlopeBytesPerCycle { get; init; }
     public IReadOnlyList<MemoryScenarioResult> Scenarios { get; init; } = Array.Empty<MemoryScenarioResult>();
     public int GateFailedScenarioCount { get; init; }
     public int HarnessErrorScenarioCount { get; init; }
@@ -94,7 +108,9 @@ public sealed class MemoryStressReport
             var privateGrowth = first is null || last is null ? 0 : last.PrivateBytes - first.PrivateBytes;
             var managedSlope = LinearSlope(cycles.Select(static cycle => (double)cycle.ManagedBytes));
             var heapSlope = LinearSlope(cycles.Select(static cycle => (double)cycle.HeapSizeBytes));
+            var privateSlope = LinearSlope(cycles.Select(static cycle => (double)cycle.PrivateBytes));
             var finalRetained = last?.RetainedCount ?? 0;
+            var privateBudget = sample.AllowedPrivateGrowthBytes ?? options.MaxPrivateGrowthBytes;
 
             results.Add(new MemoryScenarioResult
             {
@@ -112,10 +128,15 @@ public sealed class MemoryStressReport
                 HeapGrowthBytes = heapGrowth,
                 HeapSlopeBytesPerCycle = heapSlope,
                 PrivateGrowthBytes = privateGrowth,
+                PrivateSlopeBytesPerCycle = privateSlope,
+                AllowedPrivateGrowthBytes = privateBudget,
                 RetentionFailed = finalRetained > sample.AllowedRetainedCount,
                 ManagedGrowthFailed =
                     managedGrowth > options.MaxManagedGrowthBytes
                     && managedSlope > options.MaxManagedSlopeBytesPerCycle,
+                PrivateGrowthFailed =
+                    privateGrowth > privateBudget
+                    && privateSlope > options.MaxPrivateSlopeBytesPerCycle,
             });
         }
 
@@ -140,6 +161,8 @@ public sealed class MemoryStressReport
             GcPasses = options.GcPasses,
             MaxManagedGrowthBytes = options.MaxManagedGrowthBytes,
             MaxManagedSlopeBytesPerCycle = options.MaxManagedSlopeBytesPerCycle,
+            MaxPrivateGrowthBytes = options.MaxPrivateGrowthBytes,
+            MaxPrivateSlopeBytesPerCycle = options.MaxPrivateSlopeBytesPerCycle,
             Scenarios = results,
             GateFailedScenarioCount = results.Count(static result => result.MemoryGateFailed),
             HarnessErrorScenarioCount = results.Count(static result => result.Errors.Count > 0),
@@ -175,7 +198,10 @@ public sealed class MemoryStressReport
             $"Cycles: {Cycles} (+{WarmupCycles} warmup)  Actions/cycle: {ActionsPerCycle}");
         sb.AppendLine(
             $" Gate: retained objects above scenario allowance, or managed growth > {MiB(MaxManagedGrowthBytes):n1} MiB " +
-            $"with slope > {MiB(MaxManagedSlopeBytesPerCycle):n1} MiB/cycle");
+            $"with slope > {MiB(MaxManagedSlopeBytesPerCycle):n1} MiB/cycle,");
+        sb.AppendLine(
+            $"       or private (native/GPU) growth > {MiB(MaxPrivateGrowthBytes):n1} MiB " +
+            $"with slope > {MiB(MaxPrivateSlopeBytesPerCycle):n1} MiB/cycle");
         sb.AppendLine(rule);
         sb.AppendLine();
         sb.AppendLine($"   {"RESULT",-7} {"retained",10} {"managed",11} {"slope/cycle",13} {"private",11}  scenario");
@@ -201,6 +227,14 @@ public sealed class MemoryStressReport
 
             foreach (var error in scenario.Errors)
                 sb.AppendLine($"           error: {error}");
+
+            if (scenario.PrivateGrowthFailed)
+            {
+                sb.AppendLine(
+                    $"           native leak: private grew {SignedMiB(scenario.PrivateGrowthBytes)} " +
+                    $"({SignedMiB(scenario.PrivateSlopeBytesPerCycle)}/cycle) while the managed heap stayed flat " +
+                    "- suspect GPU/native surfaces (for example a BitmapCache or other offscreen render target).");
+            }
         }
 
         sb.AppendLine();
@@ -214,7 +248,7 @@ public sealed class MemoryStressReport
         {
             sb.AppendLine(GateFailed
                 ? $" GATE: FAIL - {GateFailedScenarioCount} scenario(s) retained objects or kept growing after forced GC."
-                : " GATE: PASS - no tested scenario retained unexpected objects or showed sustained managed growth.");
+                : " GATE: PASS - no tested scenario retained unexpected objects, or showed sustained managed or native growth.");
         }
         sb.AppendLine(rule);
         return sb.ToString();

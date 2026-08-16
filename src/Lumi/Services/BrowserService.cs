@@ -151,30 +151,65 @@ public sealed partial class BrowserService : IAsyncDisposable
         var controller = _controller;
         var webView = _webView;
 
+        InvokeOnLiveController(
+            "theme update",
+            () =>
+            {
+                if (controller is not null)
+                    controller.DefaultBackgroundColor = _isDark
+                        ? System.Drawing.Color.FromArgb(255, 30, 30, 30)
+                        : System.Drawing.Color.FromArgb(255, 255, 255, 255);
+                if (webView is not null)
+                    webView.Profile.PreferredColorScheme = _isDark
+                        ? CoreWebView2PreferredColorScheme.Dark
+                        : CoreWebView2PreferredColorScheme.Light;
+            });
+    }
+
+    /// <summary>
+    /// Runs an operation that touches the native WebView2 controller, tolerating the controller having
+    /// been closed underneath us.
+    /// </summary>
+    /// <remarks>
+    /// WebView2 ties a controller to its parent HWND, so the browser can be torn down by something we
+    /// do not observe — the owning window being destroyed, or a concurrent disposal. Every subsequent
+    /// member access then throws <see cref="InvalidOperationException"/> wrapping
+    /// <c>COMException 0x8007139F</c>. These calls run from window/panel plumbing (theme sync, layout,
+    /// visibility, reparenting), which is not exception-tolerant, so an unguarded call takes the whole
+    /// app down. When that happens, drop the stale wrappers so the next browser use creates a fresh
+    /// controller instead of repeatedly failing against the dead one.
+    /// </remarks>
+    private bool InvokeOnLiveController(string operation, Action action)
+    {
+        if (_isDisposed || _controller is null)
+            return false;
+
         try
         {
-            if (controller is not null)
-                controller.DefaultBackgroundColor = _isDark
-                    ? System.Drawing.Color.FromArgb(255, 30, 30, 30)
-                    : System.Drawing.Color.FromArgb(255, 255, 255, 255);
-            if (webView is not null)
-                webView.Profile.PreferredColorScheme = _isDark
-                    ? CoreWebView2PreferredColorScheme.Dark
-                    : CoreWebView2PreferredColorScheme.Light;
+            action();
+            return true;
         }
         catch (Exception ex) when (IsWebViewInvalidState(ex))
         {
-            // The parent window or a concurrent teardown already closed the native controller.
-            // Drop the stale wrappers so the next browser use can create a fresh controller.
-            _controller = null;
-            _webView = null;
-            _initialized = false;
-            _webViewHwnd = IntPtr.Zero;
-            System.Diagnostics.Debug.WriteLine(
-                $"WebView2 theme update skipped because the controller is already closed: {ex.Message}");
-            if (controller is not null)
-                CloseControllerIgnoringInvalidState(controller, "after a failed theme update");
+            DropClosedController(operation, ex);
+            return false;
         }
+    }
+
+    private void DropClosedController(string operation, Exception ex)
+    {
+        var controller = _controller;
+
+        _controller = null;
+        _webView = null;
+        _initialized = false;
+        _webViewHwnd = IntPtr.Zero;
+
+        System.Diagnostics.Debug.WriteLine(
+            $"WebView2 {operation} skipped because the controller is already closed: {ex.Message}");
+
+        if (controller is not null)
+            CloseControllerIgnoringInvalidState(controller, $"after a failed {operation}");
     }
 
     internal static bool IsWebViewInvalidState(Exception exception)
@@ -262,19 +297,34 @@ public sealed partial class BrowserService : IAsyncDisposable
     /// <summary>Shows or hides the native browser overlay, if present.</summary>
     public void SetControllerVisible(bool visible)
     {
-        if (_controller is not null)
-            _controller.IsVisible = visible;
+        var controller = _controller;
+        if (controller is not null)
+            InvokeOnLiveController("visibility update", () => controller.IsVisible = visible);
     }
 
     /// <summary>Syncs the native overlay's rasterization scale with Avalonia's effective UI scale.</summary>
     public void SyncRasterizationScale(double scale)
     {
-        if (_controller is not null && Math.Abs(_controller.RasterizationScale - scale) > 0.01)
-            _controller.RasterizationScale = scale;
+        var controller = _controller;
+        if (controller is null)
+            return;
+
+        InvokeOnLiveController(
+            "rasterization scale update",
+            () =>
+            {
+                if (Math.Abs(controller.RasterizationScale - scale) > 0.01)
+                    controller.RasterizationScale = scale;
+            });
     }
 
     /// <summary>Reloads the current page, if initialized.</summary>
-    public void Reload() => _webView?.Reload();
+    public void Reload()
+    {
+        var webView = _webView;
+        if (webView is not null)
+            InvokeOnLiveController("reload", webView.Reload);
+    }
 
     /// <summary>
     /// Initializes the WebView2 environment and controller with a persistent user data folder.
@@ -546,8 +596,15 @@ public sealed partial class BrowserService : IAsyncDisposable
         if (_isDisposed)
             return;
 
-        if (_controller is null) return;
-        _controller.Bounds = new System.Drawing.Rectangle(x, y, width, height);
+        var controller = _controller;
+        if (controller is null) return;
+
+        if (!InvokeOnLiveController(
+                "bounds update",
+                () => controller.Bounds = new System.Drawing.Rectangle(x, y, width, height)))
+        {
+            return;
+        }
 
         if (cornerRadiusPx > 0)
             ApplyRoundedRegion(width, height, cornerRadiusPx);
@@ -2220,16 +2277,25 @@ public sealed partial class BrowserService : IAsyncDisposable
 
     private void ReparentController(IntPtr hwnd)
     {
-        if (_isDisposed || hwnd == IntPtr.Zero || _controller is null || _parentHwnd == hwnd)
+        if (_isDisposed || hwnd == IntPtr.Zero || _parentHwnd == hwnd)
             return;
 
-        var wasVisible = _controller.IsVisible;
-        _controller.IsVisible = false;
-        _controller.ParentWindow = hwnd;
-        _parentHwnd = hwnd;
-        _webViewHwnd = IntPtr.Zero;
-        _controller.IsVisible = wasVisible;
-        _controller.NotifyParentWindowPositionChanged();
+        var controller = _controller;
+        if (controller is null)
+            return;
+
+        InvokeOnLiveController(
+            "reparent",
+            () =>
+            {
+                var wasVisible = controller.IsVisible;
+                controller.IsVisible = false;
+                controller.ParentWindow = hwnd;
+                _parentHwnd = hwnd;
+                _webViewHwnd = IntPtr.Zero;
+                controller.IsVisible = wasVisible;
+                controller.NotifyParentWindowPositionChanged();
+            });
     }
 
     /// <summary>Ensures the browser is initialized, using the stored HWND if needed.
