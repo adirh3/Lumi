@@ -261,17 +261,24 @@ public partial class ChatViewModel
             runtime.ManualStopRequested = false;
     }
 
-    private bool ConsumeManualStopRequested(Guid chatId)
+    /// <summary>
+    /// True when the user stopped the turn that is now terminating.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately NOT one-shot. A single abort is observed by more than one terminal handler (the
+    /// <c>AbortEvent</c> stream handler and the recovery probe), and a flag that cleared itself on first
+    /// read left whichever handler ran second seeing <c>false</c> — classifying a user stop as a broken
+    /// session, which surfaced the false "Copilot stopped responding" banner and discarded the user's
+    /// queued sends. <see cref="PreparePendingTurnTracking"/> resets it when the next turn starts, so the
+    /// intent cannot leak past the turn it belongs to.
+    /// </remarks>
+    private bool WasManualStopRequested(Guid chatId)
     {
         if (!_runtimeStates.TryGetValue(chatId, out var runtime))
             return false;
 
         lock (runtime)
-        {
-            var requested = runtime.ManualStopRequested;
-            runtime.ManualStopRequested = false;
-            return requested;
-        }
+            return runtime.ManualStopRequested;
     }
 
     private string GetUnexpectedAbortMessage()
@@ -694,7 +701,7 @@ public partial class ChatViewModel
 
     private async Task ApplyRecoveredAbortAsync(Chat chat)
     {
-        var wasUserStopRequested = ConsumeManualStopRequested(chat.Id);
+        var wasUserStopRequested = WasManualStopRequested(chat.Id);
         ClearPendingTurnTracking(chat.Id);
         await Dispatcher.UIThread.InvokeAsync(() =>
         {

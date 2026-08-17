@@ -2364,8 +2364,15 @@ public sealed class ChatViewModelLeakTests
         Assert.Equal(["GitHub"], chat.ActiveMcpServerNames);
     }
 
+    /// <summary>
+    /// A single abort is observed by more than one terminal handler (the AbortEvent stream handler and
+    /// the recovery probe). The stop intent must therefore survive repeated reads for the turn it
+    /// belongs to — when it cleared on first read, whichever handler ran second saw <c>false</c>, treated
+    /// the user's own Stop as a broken session, and both raised a false "Copilot stopped responding"
+    /// banner and discarded the sends queued by "Stop and Send" / "Send now".
+    /// </summary>
     [Fact]
-    public void ConsumeManualStopRequested_ReturnsTrueOnlyOnce()
+    public void ManualStopRequested_SurvivesRepeatedReadsWithinTheTurn()
     {
         var dataStore = CreateDataStore();
         var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
@@ -2375,11 +2382,27 @@ public sealed class ChatViewModelLeakTests
 
         InvokePrivate(vm, "SetManualStopRequested", chat.Id, true);
 
-        var first = InvokePrivate<bool>(vm, "ConsumeManualStopRequested", chat.Id);
-        var second = InvokePrivate<bool>(vm, "ConsumeManualStopRequested", chat.Id);
+        Assert.True(InvokePrivate<bool>(vm, "WasManualStopRequested", chat.Id));
+        Assert.True(InvokePrivate<bool>(vm, "WasManualStopRequested", chat.Id));
+    }
 
-        Assert.True(first);
-        Assert.False(second);
+    /// <summary>
+    /// The intent is scoped to its own turn: starting the next turn clears it, so a stop can never make
+    /// a later genuine failure look like a user stop.
+    /// </summary>
+    [Fact]
+    public void ManualStopRequested_IsClearedWhenTheNextTurnStarts()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "tracked-chat" };
+
+        dataStore.Data.Chats.Add(chat);
+
+        InvokePrivate(vm, "SetManualStopRequested", chat.Id, true);
+        InvokePrivate(vm, "PreparePendingTurnTracking", chat, 0, 0);
+
+        Assert.False(InvokePrivate<bool>(vm, "WasManualStopRequested", chat.Id));
     }
 
     [Fact]

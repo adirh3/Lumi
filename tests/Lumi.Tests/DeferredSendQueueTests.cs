@@ -447,6 +447,67 @@ public sealed class DeferredSendQueueTests
         Assert.Empty(host.QueuedPrompts(chatId));
     }
 
+    /// <summary>
+    /// "Send now" delivers by interrupting the running work, because the SDK only injects a steer at the
+    /// running turn's next step boundary and a long tool call does not reach one. The message the user
+    /// clicked must therefore be reclaimed into Lumi's queue first — aborting while the SDK still held it
+    /// destroyed it, leaving the bubble badged "Steering…" with nothing ever delivered.
+    /// </summary>
+    [Fact]
+    public async Task SendNow_OnSteeringMessage_ReclaimsItBeforeStoppingTheTurn()
+    {
+        using var host = DeferredSendHost.Create();
+        host.MarkRuntimeBusy();
+        var message = host.AddTranscriptMessage("answer me now", MessageSteerState.Steering);
+
+        Assert.True(host.IsChatRuntimeActive());
+
+        await host.SendNowAsync(message);
+
+        // Reclaimed, not destroyed: it is back in the queue the post-stop drain reads from.
+        Assert.Equal(MessageSteerState.Queued, message.SteerState);
+        Assert.Contains("answer me now", host.QueuedPrompts());
+    }
+
+    /// <summary>
+    /// A message that is only queued locally was never handed to the SDK, so there is nothing to reclaim —
+    /// it must keep its place in the queue and simply survive the stop that releases it.
+    /// </summary>
+    [Fact]
+    public async Task SendNow_OnQueuedMessage_KeepsItQueuedForTheDrain()
+    {
+        using var host = DeferredSendHost.Create();
+        host.MarkRuntimeBusy();
+        host.QueuePrompt("answer me now");
+        var message = host.ViewModel.Messages.Single(item => item.Content == "answer me now");
+        message.SteerState = MessageSteerState.Queued;
+
+        await host.SendNowAsync(message);
+
+        Assert.Equal(MessageSteerState.Queued, message.SteerState);
+        Assert.Contains("answer me now", host.QueuedPrompts());
+    }
+
+    /// <summary>
+    /// "Send now" is offered for exactly the two pending states. A delivered or failed message has
+    /// nothing left to expedite.
+    /// </summary>
+    [Theory]
+    [InlineData(MessageSteerState.Queued, true)]
+    [InlineData(MessageSteerState.Steering, true)]
+    [InlineData(MessageSteerState.Steered, false)]
+    [InlineData(MessageSteerState.Failed, false)]
+    [InlineData(MessageSteerState.None, false)]
+    public void IsSteerInProgress_IsOfferedForPendingMessagesOnly(MessageSteerState state, bool expected)
+    {
+        var message = new ChatMessageViewModel(new ChatMessage { Role = "user", Content = "m" })
+        {
+            SteerState = state
+        };
+
+        Assert.Equal(expected, message.IsSteerInProgress);
+    }
+
     private sealed class DeferredSendHost : IDisposable
     {
         private DeferredSendHost(ChatViewModel viewModel, Chat chat)
@@ -604,6 +665,19 @@ public sealed class DeferredSendQueueTests
 
         public Task TryFlushAsSteer()
             => (Task)Invoke("FlushQueuedBusySendsAsSteerAsync", Chat.Id)!;
+
+        public Task SendNowAsync(ChatMessageViewModel message)
+            => (Task)Invoke("SendSteeredNowAsync", message)!;
+
+        /// <summary>Adds a user message to the chat and its transcript view model, in a steer state.</summary>
+        public ChatMessageViewModel AddTranscriptMessage(string content, MessageSteerState steerState)
+        {
+            var message = new ChatMessage { Role = "user", Content = content };
+            Chat.Messages.Add(message);
+            var viewModel = new ChatMessageViewModel(message) { SteerState = steerState };
+            ViewModel.Messages.Add(viewModel);
+            return viewModel;
+        }
 
         public void ReleaseInactiveChat()
             => Invoke("ReleaseInactiveChatState", Chat, false, -1);

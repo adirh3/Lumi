@@ -1402,7 +1402,9 @@ public partial class ChatViewModel
                     break;
 
                 case AssistantTurnEndEvent:
-                    ClearManualStopRequested(chat.Id);
+                    // The stop intent is NOT cleared here. An aborted turn still ends, and clearing it
+                    // at turn end made the AbortEvent handler below classify the user's own stop as a
+                    // broken session. PreparePendingTurnTracking resets it when the next turn starts.
                     assistantStream.CancelPending();
                     reasoningStream.CancelPending();
                     if (!IsSubagentOutputActive())
@@ -1456,7 +1458,8 @@ public partial class ChatViewModel
                     break;
 
                 case SessionIdleEvent:
-                    ClearManualStopRequested(chat.Id);
+                    // Same as turn end: an abort drives the session idle too, so clearing the stop
+                    // intent here would race the AbortEvent handler's classification.
                     ClearPendingTurnTracking(chat.Id);
                     DropCompletedTurnState(chat.Id, dropCancellation: true);
                     assistantStream.CancelPending();
@@ -1711,7 +1714,7 @@ public partial class ChatViewModel
                     break;
 
                 case AbortEvent abort:
-                    var wasUserStopRequested = ConsumeManualStopRequested(chat.Id);
+                    var wasUserStopRequested = WasManualStopRequested(chat.Id);
                     ClearPendingTurnTracking(chat.Id);
                     assistantStream.CancelPending();
                     reasoningStream.CancelPending();

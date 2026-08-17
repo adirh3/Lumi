@@ -3964,7 +3964,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ? TakePendingAttachments()
             : BuildUserMessageAttachments(queuedMessage.Attachments);
 
-    [RelayCommand]
+    /// <summary>
+    /// Concurrent executions are allowed on purpose. Steering a running turn goes through this same
+    /// command, and the default <c>AsyncRelayCommand</c> behaviour reports <c>CanExecute == false</c>
+    /// while the turn-start send is still awaiting — which silently swallowed every steer typed during
+    /// that window, because Strata's composer no-ops when the bound command cannot execute.
+    /// </summary>
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task SendMessage()
     {
         if (_editingUserMessage is not null)

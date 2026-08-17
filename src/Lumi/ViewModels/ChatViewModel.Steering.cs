@@ -358,9 +358,20 @@ public partial class ChatViewModel
            || runtime.ActiveToolCount > 0
            || runtime.ActiveSubagentExecutionDepth > 0;
 
+    /// <summary>
+    /// Delivers a still-pending message now instead of letting it wait for the running work to finish.
+    /// An immediate-mode steer is injected by the SDK at the running turn's NEXT STEP BOUNDARY, so while
+    /// a long tool call is in flight there is no boundary to inject at and the message waits for the
+    /// whole tool. Answering "now" therefore means interrupting the turn and letting the message open a
+    /// fresh one — which is what this does.
+    /// </summary>
+    /// <remarks>
+    /// The message must be reclaimed into Lumi's queue BEFORE the abort. Aborting discards whatever the
+    /// SDK was still holding, so stopping without reclaiming destroyed the very message the user asked
+    /// to deliver, leaving it badged "Steering…" forever.
+    /// </remarks>
     private async Task SendSteeredNowAsync(ChatMessageViewModel message)
     {
-        // Covers a queued send as well as an in-flight steer: stopping the turn delivers either.
         if (message.SteerState is not (MessageSteerState.Steering or MessageSteerState.Queued))
             return;
 
@@ -371,6 +382,14 @@ public partial class ChatViewModel
             return;
         }
 
-        await StopGenerationInternal(resolvePendingSteersAsFailed: false);
+        // A queued message is already safe in the local queue; only a materialized steer is held by the
+        // SDK and has to be taken back.
+        if (message.SteerState is MessageSteerState.Steering)
+            RequeueMaterializedSteer(chat.Id, message.Message.Content, message.Message, message);
+
+        // Any OTHER steer the SDK was still holding dies with this abort, so mark those "Not delivered"
+        // rather than leaving them pending against a turn that no longer exists. The reclaimed message
+        // is already out of that set, and the drain scheduled by the stop starts its fresh turn.
+        await StopGenerationInternal(resolvePendingSteersAsFailed: true);
     }
 }
