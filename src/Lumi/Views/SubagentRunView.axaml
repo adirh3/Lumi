@@ -83,10 +83,12 @@
   </UserControl.Styles>
 
   <UserControl.DataTemplates>
-    <!-- The instruction the agent received opens its run exactly like a user turn opens a chat.
-         The island is a narrow column, so the bubble is capped well short of the full measure and
-         every other entry stretches — that keeps one clean right gutter down the whole transcript. -->
-    <DataTemplate DataType="vm:SubagentPromptItem">
+    <!-- The run island renders TranscriptTurns built by the chat's own TranscriptBuilder, so tool
+         calls group, reasoning folds and every card matches Lumi's transcript. Only the message
+         bubbles are re-declared here: a delegated agent has no attachments, sources or fork/edit
+         affordances, and the island is a narrow column, so these are the same Strata controls with
+         the chat's extras left out. Everything else resolves from Application.DataTemplates. -->
+    <DataTemplate DataType="vm:UserMessageItem">
       <StackPanel Spacing="4" HorizontalAlignment="Right" MaxWidth="380">
         <!-- One meta line: what this block is, who asked, and when. The bubble below carries no
              second metadata row of its own, so the request reads as a single unit. -->
@@ -98,50 +100,104 @@
                      FontSize="9.5" FontWeight="SemiBold"
                      VerticalAlignment="Center"
                      Foreground="{DynamicResource Brush.AccentDefault}" />
-          <TextBlock Text="{Binding TimestampText}"
-                     FontSize="9.5"
-                     VerticalAlignment="Center"
-                     Foreground="{DynamicResource Brush.TextTertiary}" />
         </StackPanel>
         <sc:StrataChatMessage Role="User" HorizontalAlignment="Right">
           <sc:StrataChatMessage.Content>
-            <lc:TranscriptTextContent Text="{Binding Text}" />
+            <lc:TranscriptTextContent Text="{Binding Content}" />
           </sc:StrataChatMessage.Content>
         </sc:StrataChatMessage>
       </StackPanel>
     </DataTemplate>
 
-    <DataTemplate DataType="vm:SubagentReasoningEntryItem">
-      <sc:StrataThink Label="{loc:Str Tool_ReasoningLabel}"
-                      IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
-                      IsActive="{Binding IsStreaming}"
-                      HorizontalAlignment="Left">
-        <sc:StrataThink.Content>
-          <lc:TranscriptTextContent Text="{Binding Text}"
-                                    PreferPlainText="{Binding IsStreaming}"
-                                    RenderMarkdownWhileStreaming="True" />
-        </sc:StrataThink.Content>
-      </sc:StrataThink>
-    </DataTemplate>
-
-    <DataTemplate DataType="vm:SubagentAssistantEntryItem">
+    <DataTemplate DataType="vm:AssistantMessageItem">
       <sc:StrataChatMessage Role="Assistant"
                             HorizontalAlignment="Stretch"
-                            Author="{Binding AuthorName}"
+                            Author="{Binding Author}"
                             Timestamp="{Binding TimestampText}"
                             IsStreaming="{Binding IsStreaming}">
         <sc:StrataChatMessage.Content>
-          <lc:TranscriptTextContent Text="{Binding Text}"
+          <lc:TranscriptTextContent Text="{Binding Content}"
                                     PreferPlainText="{Binding IsStreaming}"
                                     RenderMarkdownWhileStreaming="True" />
         </sc:StrataChatMessage.Content>
       </sc:StrataChatMessage>
     </DataTemplate>
 
-    <!-- Tool cards resolve from Application.DataTemplates, so a sub-agent's step looks
-         exactly like a step in Lumi's own transcript. -->
-    <DataTemplate DataType="vm:SubagentToolEntryItem">
-      <ContentControl Content="{Binding Tool}" HorizontalAlignment="Stretch" />
+    <DataTemplate DataType="vm:ReasoningItem">
+      <sc:StrataThink Label="{loc:Str Tool_ReasoningLabel}"
+                      IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
+                      IsActive="{Binding IsActive}"
+                      HorizontalAlignment="Left">
+        <sc:StrataThink.Content>
+          <lc:TranscriptTextContent Text="{Binding Content}"
+                                    PreferPlainText="{Binding IsActive}"
+                                    RenderMarkdownWhileStreaming="True" />
+        </sc:StrataThink.Content>
+      </sc:StrataThink>
+    </DataTemplate>
+
+    <!-- Consecutive steps collapse into one group, exactly like a tool group in the chat. -->
+    <DataTemplate DataType="vm:ToolGroupItem">
+      <sc:StrataThink Label="{Binding Label}"
+                      Meta="{Binding Meta}"
+                      IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
+                      IsActive="{Binding IsActive}"
+                      HorizontalAlignment="Left"
+                      ProgressValue="{Binding ProgressValue}">
+        <sc:StrataThink.Content>
+          <ItemsControl ItemsSource="{Binding ToolCalls}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+          </ItemsControl>
+        </sc:StrataThink.Content>
+      </sc:StrataThink>
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:SingleToolItem">
+      <sc:StrataThink Label="{Binding Label}"
+                      Meta="{Binding Meta}"
+                      IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
+                      IsActive="{Binding IsActive}"
+                      HorizontalAlignment="Left">
+        <sc:StrataThink.Content>
+          <ContentControl Content="{Binding Inner}" HorizontalAlignment="Stretch" />
+        </sc:StrataThink.Content>
+      </sc:StrataThink>
+    </DataTemplate>
+
+    <!-- An agent this run delegated to in turn: identity and outcome, without a second nesting
+         level of transcripts inside the island. -->
+    <DataTemplate DataType="vm:SubagentToolCallItem">
+      <sc:StrataAgentRun Classes="compact" Focusable="False"
+                         AgentName="{Binding DisplayName}"
+                         Title="{Binding Title}"
+                         Initial="{Binding Initial}"
+                         AccentBrush="{Binding AccentIndex, Converter={StaticResource ChartBrush}}"
+                         ModelName="{Binding ModelDisplayName}"
+                         Activity="{Binding LatestActivityText}"
+                         Status="{Binding Status}"
+                         StatusLabel="{Binding StatusText}"
+                         DurationMs="{Binding DurationMs}"
+                         RunningSince="{Binding StartedAt}"
+                         ProgressValue="{Binding ProgressValue}" />
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:SubagentGroupItem">
+      <sc:StrataThink Label="{Binding HeaderLabel}"
+                      Meta="{Binding Meta}"
+                      IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
+                      IsActive="{Binding IsActive}"
+                      HorizontalAlignment="Left"
+                      ProgressValue="{Binding ProgressValue}">
+        <sc:StrataThink.Content>
+          <ItemsControl ItemsSource="{Binding Subagents}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+          </ItemsControl>
+        </sc:StrataThink.Content>
+      </sc:StrataThink>
     </DataTemplate>
   </UserControl.DataTemplates>
 
@@ -291,15 +347,23 @@
                             VerticalScrollBarVisibility="Auto">
                 <StackPanel Spacing="12" Margin="14,12,14,14">
                   <TextBlock Text="{loc:Str Subagent_NoActivity}"
-                             IsVisible="{Binding !Timeline.Count}"
+                             IsVisible="{Binding !$parent[UserControl].((vm:ChatViewModel)DataContext).HasSubagentRunContent}"
                              FontSize="11" TextWrapping="Wrap"
                              Foreground="{DynamicResource Brush.TextTertiary}" />
 
-                  <ItemsControl x:Name="RunTimeline" ItemsSource="{Binding Timeline}">
-                    <ItemsControl.ItemsPanel>
+                  <!-- The chat's own turn control: one definition of how a transcript renders. -->
+                  <vm:TranscriptItemsControl
+                      x:Name="RunTimeline"
+                      ItemsSource="{Binding $parent[UserControl].((vm:ChatViewModel)DataContext).SubagentRunTurns}">
+                    <vm:TranscriptItemsControl.ItemTemplate>
+                      <DataTemplate DataType="vm:TranscriptTurn">
+                        <vm:TranscriptTurnControl Turn="{Binding}" />
+                      </DataTemplate>
+                    </vm:TranscriptItemsControl.ItemTemplate>
+                    <vm:TranscriptItemsControl.ItemsPanel>
                       <ItemsPanelTemplate><StackPanel Spacing="12" /></ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                  </ItemsControl>
+                    </vm:TranscriptItemsControl.ItemsPanel>
+                  </vm:TranscriptItemsControl>
 
                   <StackPanel Orientation="Horizontal" Spacing="8"
                               IsVisible="{Binding IsInProgress}">

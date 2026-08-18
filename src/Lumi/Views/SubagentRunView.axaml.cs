@@ -18,7 +18,7 @@ namespace Lumi.Views;
 /// </summary>
 public partial class SubagentRunView : UserControl
 {
-    private INotifyCollectionChanged? _observedTimeline;
+    private INotifyCollectionChanged? _observedTurns;
     private ChatViewModel? _observedViewModel;
     private string? _observedRunId;
 
@@ -61,29 +61,22 @@ public partial class SubagentRunView : UserControl
             _observedViewModel = null;
         }
 
-        if (_observedTimeline is not null)
-        {
-            _observedTimeline.CollectionChanged -= OnTimelineChanged;
-            _observedTimeline = null;
-        }
+        UnobserveTurns();
         _observedRunId = null;
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName != nameof(ChatViewModel.SelectedSubagentRun))
-            return;
-
-        ObserveSelectedRun();
+        if (e.PropertyName is nameof(ChatViewModel.SelectedSubagentRun)
+            or nameof(ChatViewModel.SubagentRunTurns))
+        {
+            ObserveSelectedRun();
+        }
     }
 
     private void ObserveSelectedRun()
     {
-        if (_observedTimeline is not null)
-        {
-            _observedTimeline.CollectionChanged -= OnTimelineChanged;
-            _observedTimeline = null;
-        }
+        UnobserveTurns();
 
         var run = _observedViewModel?.SelectedSubagentRun;
         // A transcript rebuild swaps in a fresh instance of the SAME run; only a genuinely
@@ -91,24 +84,52 @@ public partial class SubagentRunView : UserControl
         var isDifferentRun = !string.Equals(_observedRunId, run?.StableId, StringComparison.Ordinal);
         _observedRunId = run?.StableId;
 
-        if (run is null)
+        if (run is null || _observedViewModel is null)
             return;
 
-        _observedTimeline = run.Timeline;
-        _observedTimeline.CollectionChanged += OnTimelineChanged;
+        _observedTurns = _observedViewModel.SubagentRunTurns;
+        _observedTurns.CollectionChanged += OnTurnsChanged;
 
         if (isDifferentRun)
             ResetScroll();
+        else
+            FollowTail();
+    }
+
+    private void UnobserveTurns()
+    {
+        if (_observedTurns is null)
+            return;
+
+        _observedTurns.CollectionChanged -= OnTurnsChanged;
+        _observedTurns = null;
     }
 
     /// <summary>Keeps a running agent's transcript pinned to its newest step.</summary>
-    private void OnTimelineChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    private void OnTurnsChanged(object? sender, NotifyCollectionChangedEventArgs e) => FollowTail();
+
+    /// <summary>
+    /// Follows a live run's tail, but only while the reader is already at the bottom. A running
+    /// agent rebuilds this transcript continuously, and yanking the view back down on every rebuild
+    /// would make a busy agent impossible to read.
+    /// </summary>
+    private void FollowTail()
     {
         if (_observedViewModel?.SelectedSubagentRun?.IsInProgress != true)
             return;
 
+        var scroller = FindScroller();
+        if (scroller is not null && !IsAtBottom(scroller))
+            return;
+
         Dispatcher.UIThread.Post(() => FindScroller()?.ScrollToEnd(), DispatcherPriority.Background);
     }
+
+    private static bool IsAtBottom(ScrollViewer scroller)
+        => scroller.Offset.Y >= scroller.Extent.Height - scroller.Viewport.Height - BottomFollowThreshold;
+
+    /// <summary>How far from the bottom still counts as "following" the run.</summary>
+    private const double BottomFollowThreshold = 48;
 
     /// <summary>Resets the view to the top when a different run is opened.</summary>
     private void ResetScroll()

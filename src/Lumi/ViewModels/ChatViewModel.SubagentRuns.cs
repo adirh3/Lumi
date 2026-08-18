@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -28,19 +29,84 @@ public partial class ChatViewModel
     [ObservableProperty] private int _subagentRunCount;
     [ObservableProperty] private int _runningSubagentCount;
 
+    /// <summary>
+    /// The open run rendered with the chat's own transcript pipeline, so its steps group and read
+    /// exactly like Lumi's. Replaced wholesale on each rebuild, hence the notification.
+    /// </summary>
+    [ObservableProperty] private ObservableCollection<TranscriptTurn> _subagentRunTurns = [];
+
+    private SubagentRunTranscript? _subagentRunTranscript;
+    private UiThrottler? _subagentRunRebuild;
+
     /// <summary>True while the island shows the index of all runs rather than a single run.</summary>
     public bool IsSubagentIndexVisible => SelectedSubagentRun is null;
 
     public bool HasSubagentRuns => SubagentRunCount > 0;
     public bool HasRunningSubagents => RunningSubagentCount > 0;
 
+    /// <summary>True once the open run has produced anything worth reading.</summary>
+    public bool HasSubagentRunContent => SubagentRunTurns.Count > 0;
+
     /// <summary>Header badge text: how many agents are running, or how many finished.</summary>
     public string SubagentRunsSummary => RunningSubagentCount > 0
         ? string.Format(Loc.Subagent_RunningOfTotal, RunningSubagentCount, SubagentRunCount)
         : string.Format(Loc.Subagent_AllFinished, SubagentRunCount);
 
-    partial void OnSelectedSubagentRunChanged(SubagentToolCallItem? value)
-        => OnPropertyChanged(nameof(IsSubagentIndexVisible));
+    partial void OnSubagentRunTurnsChanged(ObservableCollection<TranscriptTurn> value)
+        => OnPropertyChanged(nameof(HasSubagentRunContent));
+
+    partial void OnSelectedSubagentRunChanged(SubagentToolCallItem? oldValue, SubagentToolCallItem? newValue)
+    {
+        if (oldValue is not null)
+        {
+            oldValue.RunContentChanged -= OnSubagentRunContentChanged;
+            oldValue.Activities.CollectionChanged -= OnSubagentRunActivitiesChanged;
+        }
+
+        if (newValue is not null)
+        {
+            newValue.RunContentChanged += OnSubagentRunContentChanged;
+            newValue.Activities.CollectionChanged += OnSubagentRunActivitiesChanged;
+        }
+
+        OnPropertyChanged(nameof(IsSubagentIndexVisible));
+        RebuildSubagentRunTranscript();
+    }
+
+    private void OnSubagentRunContentChanged() => RequestSubagentRunRebuild();
+
+    private void OnSubagentRunActivitiesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        => RequestSubagentRunRebuild();
+
+    /// <summary>
+    /// Coalesces the run rebuild. A streaming agent changes its text many times a second, and each
+    /// rebuild re-creates the run's transcript items, so the island refreshes on a short interval
+    /// instead of per token.
+    /// </summary>
+    private void RequestSubagentRunRebuild()
+    {
+        if (SelectedSubagentRun is null)
+            return;
+
+        _subagentRunRebuild ??= new UiThrottler(RebuildSubagentRunTranscript, TimeSpan.FromMilliseconds(180));
+        _subagentRunRebuild.Request();
+    }
+
+    private void RebuildSubagentRunTranscript()
+    {
+        if (SelectedSubagentRun is not { } run)
+        {
+            _subagentRunTranscript?.Clear();
+            SubagentRunTurns = [];
+            return;
+        }
+
+        _subagentRunTranscript ??= new SubagentRunTranscript(
+            _dataStore,
+            item => DiffShowRequested?.Invoke(item));
+        _subagentRunTranscript.Rebuild(run, Messages);
+        SubagentRunTurns = _subagentRunTranscript.Turns;
+    }
 
     partial void OnSubagentRunCountChanged(int value)
     {
@@ -132,5 +198,17 @@ public partial class ChatViewModel
         IsSubagentRunOpen = false;
         SubagentRunCount = 0;
         RunningSubagentCount = 0;
+        _subagentRunRebuild?.CancelPending();
+    }
+
+    /// <summary>Releases the run island's listeners when the chat surface is torn down.</summary>
+    private void DisposeSubagentRunState()
+    {
+        SelectedSubagentRun = null;
+        _subagentRunRebuild?.Dispose();
+        _subagentRunRebuild = null;
+        _subagentRunTranscript?.Clear();
+        _subagentRunTranscript = null;
+        SubagentRunTurns = [];
     }
 }

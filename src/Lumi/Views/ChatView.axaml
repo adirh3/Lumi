@@ -180,6 +180,9 @@
     <!-- ── Sub-agent runs ──────────────────────────────────────────────
          Chat-side density: one collapsed row per agent. The row is a pure hit target — the Strata
          agent-run card inside owns all chrome, state and motion. -->
+    <!-- No MaxWidth: the row fills the reading column so its left edge lines up with the message
+         text above it. Avalonia arranges a Stretch element that is capped below the available width
+         as if it were Centered, so a MaxWidth here would inset the row from both gutters. -->
     <Style Selector="Button.agent-row">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
@@ -188,7 +191,6 @@
       <Setter Property="Cursor" Value="Hand" />
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-      <Setter Property="MaxWidth" Value="760" />
     </Style>
     <Style Selector="Button.agent-row /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="Transparent" />
@@ -211,9 +213,10 @@
       <Setter Property="Opacity" Value="1" />
     </Style>
 
-    <!-- Fan-out group: same collapsible language as a tool group. -->
+    <!-- Fan-out group: same collapsible language as a tool group, so it stays a content-sized pill
+         anchored to the left gutter rather than a full-bleed bar. -->
     <Style Selector="sc|StrataThink.agent-group">
-      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
       <Setter Property="MaxWidth" Value="760" />
     </Style>
     <Style Selector="Border.agent-cluster-avatar">

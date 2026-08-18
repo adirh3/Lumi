@@ -62,6 +62,13 @@ public class TranscriptBuilder
     private IList<TranscriptTurn>? _rebuildTarget;
     public bool IsRebuildingTranscript { get; set; }
 
+    /// <summary>
+    /// Whether a finished turn folds its reasoning and tool activity into a one-line summary. On by
+    /// default so a long chat stays scannable, and switched off by the sub-agent run island: that
+    /// surface exists precisely to show the work, so summarizing it away defeats opening it.
+    /// </summary>
+    public bool CollapseCompletedTurns { get; init; } = true;
+
     public HashSet<string> ShownFileChips { get; } = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<Guid> _processedMessageIds = [];
     private readonly HashSet<string> _shownSkillNames = new(StringComparer.OrdinalIgnoreCase);
@@ -426,7 +433,6 @@ public class TranscriptBuilder
             if (steps.Count == 0)
                 return;
 
-            EnsureCurrentToolGroup(initialStatus, toolStableIdSeed, turnStableId);
             var todoSubagent = FindOwningSubagent(msgVm.Message.ParentToolCallId);
             if (todoSubagent is not null)
             {
@@ -435,6 +441,7 @@ public class TranscriptBuilder
             }
             else
             {
+                EnsureCurrentToolGroup(initialStatus, toolStableIdSeed, turnStableId);
                 _todoUpdateCount++;
                 UpsertTodoProgressToolCall(steps, msgVm.ToolStatus ?? "InProgress");
                 UpdateToolGroupLabel();
@@ -536,10 +543,17 @@ public class TranscriptBuilder
             if (toolCallId is not null)
                 _terminalPreviewsByToolCallId[toolCallId] = termPreview;
 
-            EnsureCurrentToolGroup(initialStatus, toolStableIdSeed, turnStableId);
-            var capturedTermGroup = _currentToolGroup!;
-            capturedTermGroup.Source ??= msgVm;
             var termParentSubagent = FindOwningSubagent(msgVm.Message.ParentToolCallId);
+            // A tool the sub-agent ran belongs to its run, not to Lumi's own tool group. Creating a
+            // group here anyway would leave an empty "Working…" card stranded under the agent row
+            // for as long as the run lasts.
+            ToolGroupItem? capturedTermGroup = null;
+            if (termParentSubagent is null)
+            {
+                EnsureCurrentToolGroup(initialStatus, toolStableIdSeed, turnStableId);
+                capturedTermGroup = _currentToolGroup!;
+                capturedTermGroup.Source ??= msgVm;
+            }
 
             if (!IsRebuildingTranscript)
             {
@@ -574,7 +588,7 @@ public class TranscriptBuilder
                 _pendingToolHandlers.Add((msgVm, handler));
             }
 
-            AddToolItemToCurrentContext(termPreview, msgVm.Message.ParentToolCallId);
+            AddToolItemToCurrentContext(termPreview, termParentSubagent);
 
             UpdateToolGroupLabel();
             return;
@@ -602,10 +616,15 @@ public class TranscriptBuilder
                 toolCall.DiffOriginalContent = CapturePendingOriginalSnapshot(diffs[0].FilePath, IsCreateDiff(toolName, diffs[0].OldText));
         }
 
-        EnsureCurrentToolGroup(initialStatus, toolStableIdSeed, turnStableId);
-        var capturedToolGroup = _currentToolGroup!;
-        capturedToolGroup.Source ??= msgVm;
         var toolParentSubagent = FindOwningSubagent(msgVm.Message.ParentToolCallId);
+        // See the terminal branch above: a sub-agent's tool must not open one of Lumi's tool groups.
+        ToolGroupItem? capturedToolGroup = null;
+        if (toolParentSubagent is null)
+        {
+            EnsureCurrentToolGroup(initialStatus, toolStableIdSeed, turnStableId);
+            capturedToolGroup = _currentToolGroup!;
+            capturedToolGroup.Source ??= msgVm;
+        }
 
         if (!IsRebuildingTranscript)
         {
@@ -651,7 +670,7 @@ public class TranscriptBuilder
             _pendingToolHandlers.Add((msgVm, handler));
         }
 
-        AddToolItemToCurrentContext(toolCall, msgVm.Message.ParentToolCallId);
+        AddToolItemToCurrentContext(toolCall, toolParentSubagent);
         UpdateToolGroupLabel();
         if (shouldFlushLateFileEdit && diffs.Count > 0)
             FlushPendingFileEdits();
@@ -847,6 +866,7 @@ public class TranscriptBuilder
         var subagent = new SubagentToolCallItem(displayName, initialStatus, $"subagent:{toolStableIdSeed}")
         {
             OpenRunAction = _openSubagentRunAction,
+            ToolCallId = toolCallId,
         };
         UpdateSubagentFromMessage(subagent, msgVm.Message);
 
@@ -890,9 +910,13 @@ public class TranscriptBuilder
         UpdateSubagentState(subagent);
     }
 
-    private void AddToolItemToCurrentContext(ToolCallItemBase item, string? parentToolCallId)
+    /// <summary>
+    /// Files a tool card where it belongs: inside the sub-agent run that produced it, or otherwise in
+    /// Lumi's own tool group. The owning sub-agent is resolved by the caller, which must skip creating
+    /// a tool group entirely when the tool belongs to a run.
+    /// </summary>
+    private void AddToolItemToCurrentContext(ToolCallItemBase item, SubagentToolCallItem? owningSubagent)
     {
-        var owningSubagent = FindOwningSubagent(parentToolCallId);
         if (owningSubagent is not null)
         {
             owningSubagent.Activities.Add(item);
@@ -912,7 +936,6 @@ public class TranscriptBuilder
             return;
 
         subagent.TranscriptText = text;
-        subagent.RefreshLiveTimeline();
     }
 
     /// <summary>Directly updates the reasoning text on a subagent card (called from live streaming flush).</summary>
@@ -922,7 +945,6 @@ public class TranscriptBuilder
             return;
 
         subagent.ReasoningText = text;
-        subagent.RefreshLiveTimeline();
     }
 
     /// <summary>Applies an authoritative sub-agent status even when the wrapping task tool already
@@ -976,7 +998,7 @@ public class TranscriptBuilder
         subagent.ReasoningText = ToolDisplayHelper.ExtractJsonField(message.Content, "reasoning");
         subagent.StartedAt = message.ToolStartedAt ?? message.Timestamp;
         subagent.DurationMs = message.ToolDurationMs ?? 0;
-        subagent.SyncTimelineText(ToolDisplayHelper.GetSubagentRunEntries(message.Content));
+        subagent.SyncRunEntries(ToolDisplayHelper.GetSubagentRunEntries(message.Content));
     }
 
     private void UpdateSubagentState(SubagentToolCallItem subagent)
@@ -1724,6 +1746,9 @@ public class TranscriptBuilder
 
     private void CollapseCompletedTurnBlocks(TranscriptTurn turn, AssistantMessageItem assistantItem)
     {
+        if (!CollapseCompletedTurns)
+            return;
+
         var items = turn.Items;
         var idx = items.IndexOf(assistantItem);
         if (idx < 0)
@@ -1740,6 +1765,9 @@ public class TranscriptBuilder
 
     private void CollapseActivityOnlyBlocks(TranscriptTurn turn)
     {
+        if (!CollapseCompletedTurns)
+            return;
+
         var runs = new List<(int StartIndex, List<TranscriptItem> Blocks)>();
         var currentRun = new List<TranscriptItem>();
         var currentRunStart = -1;

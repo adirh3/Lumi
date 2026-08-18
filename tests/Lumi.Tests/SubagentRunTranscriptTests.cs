@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
@@ -61,7 +62,7 @@ public sealed class SubagentRunTranscriptTests
     }
 
     [Fact]
-    public void Rebuild_BuildsRunTimelineFromPromptLogAndToolCalls()
+    public void RunTranscript_RendersPromptLogAndToolCallsAsARealTranscript()
     {
         var builder = CreateBuilder();
         var start = DateTimeOffset.Now.AddMinutes(-2);
@@ -92,30 +93,66 @@ public sealed class SubagentRunTranscriptTests
         Assert.Equal("Map the transcript pipeline", subagent.Prompt);
         Assert.True(subagent.HasPrompt);
 
-        // Prompt → reasoning → tool call → final answer, ordered by when each happened.
+        // Prompt → reasoning → tool call → final answer, ordered by when each happened, and rendered
+        // with the chat's own item types rather than a bespoke timeline.
         Assert.Collection(
-            subagent.Timeline,
-            item => Assert.IsType<SubagentPromptItem>(item),
-            item => Assert.Equal("thinking", Assert.IsType<SubagentReasoningEntryItem>(item).Text),
-            item => Assert.IsType<ToolCallItem>(Assert.IsType<SubagentToolEntryItem>(item).Tool),
-            item => Assert.Equal("final answer", Assert.IsType<SubagentAssistantEntryItem>(item).Text));
+            RunItems(subagent, messages),
+            item => Assert.Equal("Map the transcript pipeline", Assert.IsType<UserMessageItem>(item).Content),
+            item => Assert.Equal("thinking", Assert.IsType<ReasoningItem>(item).Content),
+            item => Assert.IsType<ToolCallItem>(Assert.IsType<SingleToolItem>(item).Inner),
+            item => Assert.Equal("final answer", Assert.IsType<AssistantMessageItem>(item).Content));
     }
 
     [Fact]
-    public void Rebuild_WithoutAnExplicitPrompt_OpensTheRunWithTheTaskDescription()
+    public void RunTranscript_GroupsConsecutiveToolCallsLikeTheChatDoes()
+    {
+        var builder = CreateBuilder();
+        var start = DateTimeOffset.Now.AddMinutes(-1);
+
+        var messages = new[]
+        {
+            CreateToolVm(
+                "agent-1",
+                "task",
+                "Completed",
+                "{\"description\":\"Inspect repo\",\"agent_type\":\"explore\",\"prompt\":\"Look around\"}",
+                timestamp: start),
+            CreateToolVm("child-1", "view", "Completed", "{\"path\":\"a.txt\"}",
+                parentToolCallId: "agent-1", timestamp: start.AddSeconds(1)),
+            CreateToolVm("child-2", "view", "Completed", "{\"path\":\"b.txt\"}",
+                parentToolCallId: "agent-1", timestamp: start.AddSeconds(2)),
+            CreateToolVm("child-3", "view", "Completed", "{\"path\":\"c.txt\"}",
+                parentToolCallId: "agent-1", timestamp: start.AddSeconds(3)),
+        };
+
+        var subagent = Assert.IsType<SubagentToolCallItem>(
+            Assert.Single(Assert.Single(builder.Rebuild(messages)).Items));
+
+        var items = RunItems(subagent, messages);
+
+        Assert.IsType<UserMessageItem>(items[0]);
+        // Three back-to-back steps read as one collapsible group, not three loose cards.
+        var group = Assert.IsType<ToolGroupItem>(items[1]);
+        Assert.Equal(3, group.ToolCalls.Count);
+    }
+
+    [Fact]
+    public void RunTranscript_WithoutAnExplicitPrompt_OpensWithTheTaskDescription()
     {
         var builder = CreateBuilder();
 
         // An `agent:` style call that only carries a task label — no `prompt` field at all.
+        var messages = new[]
+        {
+            CreateToolVm(
+                "agent-1",
+                "task",
+                "Completed",
+                "{\"description\":\"Benchmark the Sony Bravia 8\",\"agent_type\":\"explore\"}"),
+        };
+
         var subagent = Assert.IsType<SubagentToolCallItem>(
-            Assert.Single(Assert.Single(builder.Rebuild(
-            [
-                CreateToolVm(
-                    "agent-1",
-                    "task",
-                    "Completed",
-                    "{\"description\":\"Benchmark the Sony Bravia 8\",\"agent_type\":\"explore\"}"),
-            ])).Items));
+            Assert.Single(Assert.Single(builder.Rebuild(messages)).Items));
 
         // The run must never open with an empty request.
         Assert.True(subagent.HasPrompt);
@@ -123,7 +160,7 @@ public sealed class SubagentRunTranscriptTests
         Assert.Equal("Benchmark the Sony Bravia 8", subagent.RowTooltip);
         Assert.Equal(
             "Benchmark the Sony Bravia 8",
-            Assert.IsType<SubagentPromptItem>(subagent.Timeline[0]).Text);
+            Assert.IsType<UserMessageItem>(RunItems(subagent, messages)[0]).Content);
     }
 
     [Fact]
@@ -227,37 +264,45 @@ public sealed class SubagentRunTranscriptTests
     }
 
     [Fact]
-    public void ReasoningEntry_KeepsTheReadersDisclosureStateAcrossLiveUpdates()
+    public void RunTranscript_KeepsTheReadersDisclosureStateAcrossRebuilds()
     {
         var builder = CreateBuilder();
-        builder.SetLiveTarget([]);
-
         var entries = SubagentRunLog.Append(null, SubagentRunEntryKind.Reasoning, "why", DateTimeOffset.Now);
-        builder.ProcessMessageToTranscript(CreateToolVm(
-            "agent-1",
-            "task",
-            "InProgress",
-            "{\"description\":\"Inspect repo\",\"agent_type\":\"explore\",\"entries\":" + entries + "}"));
+        var messages = new[]
+        {
+            CreateToolVm(
+                "agent-1",
+                "task",
+                "InProgress",
+                "{\"description\":\"Inspect repo\",\"agent_type\":\"explore\",\"entries\":" + entries + "}"),
+        };
 
-        var run = Assert.Single(builder.SubagentRuns);
-        var reasoning = run.Timeline.OfType<SubagentReasoningEntryItem>().Single();
+        var run = Assert.IsType<SubagentToolCallItem>(
+            Assert.Single(Assert.Single(builder.Rebuild(messages)).Items));
+
+        var transcript = CreateRunTranscript();
+        transcript.Rebuild(run, messages);
+        var reasoning = transcript.Turns.SelectMany(static turn => turn.Items).OfType<ReasoningItem>().Single();
 
         // Finalized reasoning starts folded, and the reader opens it to inspect.
         Assert.False(reasoning.IsExpanded);
         reasoning.IsExpanded = true;
 
-        // The agent keeps streaming; syncing the timeline must not re-fold what the reader opened,
-        // nor disturb the streaming flag the disclosure used to be bound to.
-        builder.UpdateSubagentTranscriptText("agent-1", "still working");
-        builder.UpdateSubagentTranscriptText("agent-1", "still working more");
+        // The agent keeps streaming. Every token rebuilds the run, and none of those rebuilds may
+        // re-fold a card the reader deliberately opened.
+        run.TranscriptText = "still working";
+        transcript.Rebuild(run, messages);
+        run.TranscriptText = "still working more";
+        transcript.Rebuild(run, messages);
 
-        Assert.True(reasoning.IsExpanded);
-        Assert.False(reasoning.IsStreaming);
-        Assert.Equal("why", reasoning.Text);
+        var rebuilt = transcript.Turns.SelectMany(static turn => turn.Items).OfType<ReasoningItem>().Single();
+        Assert.True(rebuilt.IsExpanded);
+        Assert.Equal("why", rebuilt.Content);
     }
 
     [Fact]
-    public void Rebuild_LegacyPayloadWithoutRunLogStillRendersFinalOutput()    {
+    public void RunTranscript_LegacyPayloadWithoutRunLogStillRendersFinalOutput()
+    {
         var builder = CreateBuilder();
         var messages = new[]
         {
@@ -273,45 +318,52 @@ public sealed class SubagentRunTranscriptTests
             Assert.Single(Assert.Single(builder.Rebuild(messages)).Items));
 
         Assert.Collection(
-            subagent.Timeline,
+            RunItems(subagent, messages),
             // The task label stands in for the missing prompt so the run still opens with its request.
-            item => Assert.Equal("Inspect repo", Assert.IsType<SubagentPromptItem>(item).Text),
-            item => Assert.Equal("legacy reasoning", Assert.IsType<SubagentReasoningEntryItem>(item).Text),
-            item => Assert.Equal("legacy answer", Assert.IsType<SubagentAssistantEntryItem>(item).Text));
+            item => Assert.Equal("Inspect repo", Assert.IsType<UserMessageItem>(item).Content),
+            item => Assert.Equal("legacy reasoning", Assert.IsType<ReasoningItem>(item).Content),
+            item => Assert.Equal("legacy answer", Assert.IsType<AssistantMessageItem>(item).Content));
     }
 
     [Fact]
-    public void LiveStreaming_KeepsFinalizedEntriesAndTracksTheStreamingTail()
+    public void RunTranscript_KeepsFinalizedEntriesAndTracksTheStreamingTail()
     {
         var builder = CreateBuilder();
-        builder.SetLiveTarget([]);
-
         var entries = SubagentRunLog.Append(null, SubagentRunEntryKind.Assistant, "first message", DateTimeOffset.Now);
-        var root = CreateToolVm(
-            "agent-1",
-            "task",
-            "InProgress",
-            "{\"description\":\"Inspect repo\",\"agent_type\":\"explore\",\"entries\":" + entries + "}");
-        builder.ProcessMessageToTranscript(root);
+        var messages = new[]
+        {
+            CreateToolVm(
+                "agent-1",
+                "task",
+                "InProgress",
+                "{\"description\":\"Inspect repo\",\"agent_type\":\"explore\",\"entries\":" + entries + "}"),
+        };
 
-        var subagent = Assert.Single(builder.SubagentRuns);
+        var run = Assert.IsType<SubagentToolCallItem>(
+            Assert.Single(Assert.Single(builder.Rebuild(messages)).Items));
+
+        var transcript = CreateRunTranscript();
+        transcript.Rebuild(run, messages);
+
         // The request plus the one finalized message.
-        Assert.Equal(2, subagent.Timeline.Count);
-        Assert.IsType<SubagentPromptItem>(subagent.Timeline[0]);
+        Assert.Equal(2, RunItems(transcript).Count);
 
-        builder.UpdateSubagentTranscriptText("agent-1", "still writ");
-        Assert.Equal(3, subagent.Timeline.Count);
-        var tail = Assert.IsType<SubagentAssistantEntryItem>(subagent.Timeline[2]);
-        Assert.Equal("still writ", tail.Text);
-        Assert.True(tail.IsStreaming);
+        run.TranscriptText = "still writ";
+        transcript.Rebuild(run, messages);
+        var items = RunItems(transcript);
+        Assert.Equal(3, items.Count);
+        Assert.Equal("still writ", Assert.IsType<AssistantMessageItem>(items[2]).Content);
 
-        builder.UpdateSubagentTranscriptText("agent-1", "still writing");
-        Assert.Equal(3, subagent.Timeline.Count);
-        Assert.Equal("still writing", tail.Text);
+        run.TranscriptText = "still writing";
+        transcript.Rebuild(run, messages);
+        items = RunItems(transcript);
+        Assert.Equal(3, items.Count);
+        Assert.Equal("still writing", Assert.IsType<AssistantMessageItem>(items[2]).Content);
 
         // Clearing the live field (the message finalized into the run log) removes the tail.
-        builder.UpdateSubagentTranscriptText("agent-1", "");
-        Assert.Equal(2, subagent.Timeline.Count);
+        run.TranscriptText = "";
+        transcript.Rebuild(run, messages);
+        Assert.Equal(2, RunItems(transcript).Count);
     }
 
     [Fact]
@@ -404,6 +456,31 @@ public sealed class SubagentRunTranscriptTests
         Assert.Equal(2, run.Activities.Count);
     }
 
+    [Fact]
+    public void LiveRun_ToolsDoNotOpenAToolGroupBesideTheAgentRow()
+    {
+        var builder = CreateBuilder();
+        var liveTurns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(liveTurns);
+
+        builder.ProcessMessageToTranscript(CreateToolVm(
+            "agent-1", "task", "InProgress", "{\"description\":\"Inspect repo\",\"agent_type\":\"explore\"}"));
+
+        // Everything this agent runs belongs to its run. None of it may leave an empty "Working…"
+        // tool group stranded under the agent row for as long as the run lasts.
+        builder.ProcessMessageToTranscript(CreateToolVm(
+            "child-1", "view", "InProgress", "{\"path\":\"a.txt\"}", parentToolCallId: "agent-1"));
+        builder.ProcessMessageToTranscript(CreateToolVm(
+            "child-2", "powershell", "InProgress", "{\"command\":\"dotnet test\"}", parentToolCallId: "agent-1"));
+
+        var items = liveTurns.SelectMany(static turn => turn.Items).ToList();
+        Assert.IsType<SubagentToolCallItem>(Assert.Single(items));
+
+        // Lumi's own next step still opens a group of its own.
+        builder.ProcessMessageToTranscript(CreateToolVm("own-1", "view", "InProgress", "{\"path\":\"b.txt\"}"));
+        Assert.Single(liveTurns.SelectMany(static turn => turn.Items).OfType<ToolGroupItem>());
+    }
+
     private static TranscriptBuilder CreateBuilder(
         Action<SubagentToolCallItem>? openRun = null,
         Action? runsChanged = null)
@@ -416,6 +493,22 @@ public sealed class SubagentRunTranscriptTests
             () => null,
             openSubagentRunAction: openRun,
             subagentRunsChanged: runsChanged);
+
+    private static SubagentRunTranscript CreateRunTranscript()
+        => new(CreateDataStore(), _ => { });
+
+    /// <summary>Builds one run's island transcript and flattens it to the items it renders.</summary>
+    private static IReadOnlyList<TranscriptItem> RunItems(
+        SubagentToolCallItem run,
+        IReadOnlyList<ChatMessageViewModel> chatMessages)
+    {
+        var transcript = CreateRunTranscript();
+        transcript.Rebuild(run, chatMessages);
+        return RunItems(transcript);
+    }
+
+    private static IReadOnlyList<TranscriptItem> RunItems(SubagentRunTranscript transcript)
+        => transcript.Turns.SelectMany(static turn => turn.Items).ToList();
 
     private static ChatMessageViewModel CreateToolVm(
         string toolCallId,

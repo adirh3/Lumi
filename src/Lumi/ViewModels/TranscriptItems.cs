@@ -693,102 +693,6 @@ public abstract partial class ToolCallItemBase : ObservableObject
     public DateTimeOffset Timestamp { get; set; }
 }
 
-// ── Sub-agent run timeline ────────────────────────────
-
-/// <summary>
-/// One entry of a sub-agent's run rendered as a read-only chat. Concrete subclasses map 1:1 onto
-/// data templates so the run island renders each kind natively (prompt bubble, reasoning block,
-/// tool card, assistant markdown). Entries are ordered by the instant they were produced.
-/// </summary>
-public abstract partial class SubagentTimelineItem : ObservableObject
-{
-    /// <summary>Sort key that pins the still-streaming assistant tail to the bottom of the run.</summary>
-    internal static readonly DateTimeOffset LiveAssistantAnchor = DateTimeOffset.MaxValue;
-
-    /// <summary>Sort key that pins streaming reasoning just above the streaming assistant tail.</summary>
-    internal static readonly DateTimeOffset LiveReasoningAnchor = DateTimeOffset.MaxValue.AddTicks(-1);
-
-    [ObservableProperty] private DateTimeOffset _timestamp;
-
-    protected SubagentTimelineItem(string key, DateTimeOffset timestamp)
-    {
-        Key = key;
-        _timestamp = timestamp;
-    }
-
-    public string Key { get; }
-
-    /// <summary>
-    /// Short clock time shown in the entry's metadata row. The ordering sentinels (the instruction's
-    /// MinValue and the live tail anchors) are positions, not instants — they must never be rendered,
-    /// or a streaming bubble would claim to have been sent at "11:59 PM".
-    /// </summary>
-    public string TimestampText => Timestamp == default
-        || Timestamp == DateTimeOffset.MinValue
-        || Timestamp >= LiveReasoningAnchor
-            ? string.Empty
-            : Timestamp.ToLocalTime().ToString("t", Loc.Culture);
-
-    partial void OnTimestampChanged(DateTimeOffset value) => OnPropertyChanged(nameof(TimestampText));
-}
-
-/// <summary>Text entry (instruction, reasoning, or assistant message).</summary>
-public abstract partial class SubagentTextEntryItem : SubagentTimelineItem
-{
-    [ObservableProperty] private string _text;
-    [ObservableProperty] private bool _isStreaming;
-
-    /// <summary>Name shown above the bubble — the agent that produced this message.</summary>
-    [ObservableProperty] private string? _authorName;
-
-    /// <summary>
-    /// Whether this entry's disclosure (a reasoning block) is open. Seeded once when the entry is
-    /// created and never rewritten by a timeline sync, so an entry the reader opened stays open
-    /// while the agent keeps working. Binding a disclosure directly to <see cref="IsStreaming"/>
-    /// would both fight the reader and corrupt the streaming flag through the two-way binding.
-    /// </summary>
-    [ObservableProperty] private bool _isExpanded;
-
-    protected SubagentTextEntryItem(string key, string text, DateTimeOffset timestamp)
-        : base(key, timestamp)
-    {
-        _text = text;
-    }
-}
-
-/// <summary>The instruction the sub-agent was given — opens its run transcript like a user turn.</summary>
-public sealed partial class SubagentPromptItem : SubagentTextEntryItem
-{
-    public SubagentPromptItem(string key, string text, DateTimeOffset timestamp)
-        : base(key, text, timestamp) { }
-}
-
-/// <summary>A reasoning block the sub-agent emitted.</summary>
-public sealed partial class SubagentReasoningEntryItem : SubagentTextEntryItem
-{
-    public SubagentReasoningEntryItem(string key, string text, DateTimeOffset timestamp)
-        : base(key, text, timestamp) { }
-}
-
-/// <summary>An assistant message the sub-agent produced.</summary>
-public sealed partial class SubagentAssistantEntryItem : SubagentTextEntryItem
-{
-    public SubagentAssistantEntryItem(string key, string text, DateTimeOffset timestamp)
-        : base(key, text, timestamp) { }
-}
-
-/// <summary>A tool call the sub-agent made, reusing the transcript's own tool card.</summary>
-public sealed partial class SubagentToolEntryItem : SubagentTimelineItem
-{
-    public SubagentToolEntryItem(ToolCallItemBase tool, DateTimeOffset timestamp)
-        : base($"tool:{tool.StableId}", timestamp)
-    {
-        Tool = tool;
-    }
-
-    public ToolCallItemBase Tool { get; }
-}
-
 // ── Subagent card (standalone turn-level item) ─────────
 
 public partial class SubagentToolCallItem : TranscriptItem
@@ -827,12 +731,17 @@ public partial class SubagentToolCallItem : TranscriptItem
 
     public ObservableCollection<ToolCallItemBase> Activities { get; } = [];
 
+    /// <summary>The tool call that launched this run, used to gather the messages it produced.</summary>
+    internal string? ToolCallId { get; set; }
+
     /// <summary>
-    /// The run rendered as an ordered conversation — the instruction the agent received, then every
-    /// reasoning block, assistant message and tool call in the order it happened. Backs the
-    /// read-only run transcript island.
+    /// The run's finalized assistant/reasoning log, in the order the agent produced it. Lives on the
+    /// tool payload rather than in the chat, so the run island synthesizes messages from it.
     /// </summary>
-    public ObservableCollection<SubagentTimelineItem> Timeline { get; } = [];
+    internal IReadOnlyList<SubagentRunEntry> RunEntries { get; private set; } = [];
+
+    /// <summary>Raised whenever anything the run island renders changed.</summary>
+    internal event Action? RunContentChanged;
 
     public string Title
         => !string.IsNullOrWhiteSpace(CurrentIntent)
@@ -910,6 +819,7 @@ public partial class SubagentToolCallItem : TranscriptItem
     {
         OnPropertyChanged(nameof(HasPrompt));
         OnPropertyChanged(nameof(RowTooltip));
+        RunContentChanged?.Invoke();
     }
     partial void OnProgressValueChanged(double value) => OnPropertyChanged(nameof(HasProgressValue));
     partial void OnDurationMsChanged(double value) => OnPropertyChanged(nameof(DurationText));
@@ -922,142 +832,31 @@ public partial class SubagentToolCallItem : TranscriptItem
         OnPropertyChanged(nameof(IsFailed));
         OnPropertyChanged(nameof(StatusText));
 
-        // The live tail's streaming flag is derived from this status, and a run can reach a terminal
-        // state without any further text arriving (a stopped or failed agent). Re-sync so the tail
-        // stops rendering as an in-flight message.
-        RefreshLiveTimeline();
+        // The live tail is only a streaming message while the run is in flight, and a run can reach a
+        // terminal state without any further text arriving (a stopped or failed agent).
+        RunContentChanged?.Invoke();
     }
+
+    partial void OnTranscriptTextChanged(string? value) => RunContentChanged?.Invoke();
+    partial void OnReasoningTextChanged(string? value) => RunContentChanged?.Invoke();
 
     [RelayCommand]
     private void OpenRun() => OpenRunAction?.Invoke(this);
 
-    // ── Timeline maintenance ──────────────────────────────
+    // ── Run content ───────────────────────────────────────
 
-    /// <summary>Places a tool call on the run timeline at the instant it was recorded.</summary>
+    /// <summary>Records a tool call this run made, so the card can summarize its latest step.</summary>
     internal void AddTimelineTool(ToolCallItemBase tool)
     {
-        var key = $"tool:{tool.StableId}";
-        for (var i = 0; i < Timeline.Count; i++)
-            if (string.Equals(Timeline[i].Key, key, StringComparison.Ordinal))
-                return;
-
-        InsertOrdered(new SubagentToolEntryItem(tool, tool.Timestamp));
         LatestActivityText = DescribeTool(tool);
+        RunContentChanged?.Invoke();
     }
 
-    /// <summary>
-    /// Reconciles the non-tool part of the timeline (instruction, finalized run log, and the
-    /// still-streaming tail) in place, so live updates never rebuild the whole conversation.
-    /// <para>
-    /// The <c>entry:N</c> keys index straight into <paramref name="entries"/>, which is safe only
-    /// because the run log is append-only: an entry never changes kind and indices never shift.
-    /// </para>
-    /// </summary>
-    internal void SyncTimelineText(IReadOnlyList<SubagentRunEntry> entries)
+    /// <summary>Adopts the run's finalized assistant/reasoning log from the tool payload.</summary>
+    internal void SyncRunEntries(IReadOnlyList<SubagentRunEntry> entries)
     {
-        _runEntries = entries;
-        // The instruction always opens the run, regardless of how the surrounding clocks line up.
-        UpsertText("prompt", SubagentTimelineKind.Prompt, Prompt, DateTimeOffset.MinValue, isStreaming: false);
-
-        var previous = StartedAt ?? DateTimeOffset.MinValue;
-        for (var i = 0; i < entries.Count; i++)
-        {
-            var entry = entries[i];
-            var timestamp = entry.Timestamp == default ? previous : entry.Timestamp;
-            previous = timestamp;
-            UpsertText(
-                $"entry:{i}",
-                entry.Kind == SubagentRunEntryKind.Reasoning
-                    ? SubagentTimelineKind.Reasoning
-                    : SubagentTimelineKind.Assistant,
-                entry.Text,
-                timestamp,
-                isStreaming: false);
-        }
-
-        // Drop entries that a rebuild no longer knows about (e.g. a shorter persisted log).
-        for (var i = Timeline.Count - 1; i >= 0; i--)
-        {
-            var key = Timeline[i].Key;
-            if (!key.StartsWith("entry:", StringComparison.Ordinal))
-                continue;
-            if (int.TryParse(key["entry:".Length..], out var index) && index >= entries.Count)
-                Timeline.RemoveAt(i);
-        }
-
-        // The in-flight text always sits at the very bottom, exactly like a streaming chat reply.
-        UpsertText("live:reasoning", SubagentTimelineKind.Reasoning, ReasoningText,
-            SubagentTimelineItem.LiveReasoningAnchor, IsInProgress);
-        UpsertText("live:assistant", SubagentTimelineKind.Assistant, TranscriptText,
-            SubagentTimelineItem.LiveAssistantAnchor, IsInProgress);
-    }
-
-    private IReadOnlyList<SubagentRunEntry> _runEntries = [];
-
-    /// <summary>Re-applies the timeline using the last known run log — used when only the live
-    /// streaming tail changed, so finalized entries are preserved.</summary>
-    internal void RefreshLiveTimeline() => SyncTimelineText(_runEntries);
-
-    private enum SubagentTimelineKind { Prompt, Reasoning, Assistant }
-
-    private void UpsertText(
-        string key,
-        SubagentTimelineKind kind,
-        string? text,
-        DateTimeOffset timestamp,
-        bool isStreaming)
-    {
-        for (var i = 0; i < Timeline.Count; i++)
-        {
-            if (!string.Equals(Timeline[i].Key, key, StringComparison.Ordinal))
-                continue;
-
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                Timeline.RemoveAt(i);
-                return;
-            }
-
-            if (Timeline[i] is SubagentTextEntryItem existing)
-            {
-                existing.Text = text;
-                existing.Timestamp = timestamp;
-                existing.IsStreaming = isStreaming;
-                existing.AuthorName = DisplayName;
-            }
-
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(text))
-            return;
-
-        SubagentTextEntryItem created = kind switch
-        {
-            SubagentTimelineKind.Prompt => new SubagentPromptItem(key, text, timestamp),
-            SubagentTimelineKind.Reasoning => new SubagentReasoningEntryItem(key, text, timestamp),
-            _ => new SubagentAssistantEntryItem(key, text, timestamp),
-        };
-        created.IsStreaming = isStreaming;
-        // Seeded once: reasoning is open while it streams in, folded away once it has finalized.
-        // Subsequent syncs leave it alone so the reader keeps control.
-        created.IsExpanded = isStreaming;
-        created.AuthorName = DisplayName;
-        InsertOrdered(created);
-    }
-
-    private void InsertOrdered(SubagentTimelineItem item)
-    {
-        for (var i = 0; i < Timeline.Count; i++)
-        {
-            if (Timeline[i].Timestamp > item.Timestamp)
-            {
-                Timeline.Insert(i, item);
-                return;
-            }
-        }
-
-        Timeline.Add(item);
+        RunEntries = entries;
+        RunContentChanged?.Invoke();
     }
 
     private static string? DescribeTool(ToolCallItemBase tool) => tool switch
