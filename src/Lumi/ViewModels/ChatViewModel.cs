@@ -6462,6 +6462,7 @@ public partial class ChatMessageViewModel : ObservableObject
     [ObservableProperty] private string? _toolStatus;
     [ObservableProperty] private Guid? _linkedChatId;
     [ObservableProperty] private string? _linkedChatTitle;
+    internal long PresentationRevision { get; private set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSteerBadge))]
@@ -6503,6 +6504,8 @@ public partial class ChatMessageViewModel : ObservableObject
     // Mirror the transient steer state onto the model so the badge survives transcript/VM rebuilds
     // (reconciliation, stall recovery, remount) within the session — VMs are recreated from the model.
     partial void OnSteerStateChanged(MessageSteerState value) => Message.SteerDelivery = value;
+    partial void OnContentChanged(string value) => PresentationRevision++;
+    partial void OnToolStatusChanged(string? value) => PresentationRevision++;
 
     public string Role => Message.Role;
     public string? Author => Message.Author;
@@ -6537,11 +6540,16 @@ public partial class ChatMessageViewModel : ObservableObject
         ToolStatus = Message.ToolStatus;
     }
 
-    public void NotifyToolDetailsChanged() => OnPropertyChanged(nameof(ChatMessage.ToolOutput));
+    public void NotifyToolDetailsChanged()
+    {
+        PresentationRevision++;
+        OnPropertyChanged(nameof(ChatMessage.ToolOutput));
+    }
 
     public void NotifyLinkedChatChanged()
     {
         LinkedChatId = Message.LinkedChatId;
         LinkedChatTitle = Message.LinkedChatTitle;
+        PresentationRevision++;
     }
 }

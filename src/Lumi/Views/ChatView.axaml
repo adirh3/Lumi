@@ -198,6 +198,19 @@
     <Style Selector="Button.agent-row:pointerover /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="Transparent" />
     </Style>
+    <!-- The row is the affordance for opening the run, so it lifts very slightly on hover. Kept
+         subtle: a fan-out stacks several of these and anything stronger reads as noise. -->
+    <Style Selector="Button.agent-row">
+      <Setter Property="RenderTransform" Value="translateY(0px)" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.16" Easing="CubicEaseOut" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.agent-row:pointerover">
+      <Setter Property="RenderTransform" Value="translateY(-1px)" />
+    </Style>
     <!-- The affordance is quiet until the row is hovered, so a finished run reads as history. -->
     <Style Selector="PathIcon.agent-row-open">
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />

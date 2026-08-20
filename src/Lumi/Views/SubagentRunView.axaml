@@ -80,6 +80,38 @@
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
+    <!-- Navigating between the agent index and one run reads as forward/back: the arriving pane
+         eases in from the side it came from. Driven by a property selector so the animation replays
+         every time that pane is shown again, which a plain Transition cannot do (a pane restored
+         from IsVisible="False" already holds its final values). -->
+    <Style Selector="ScrollViewer.run-pane-back[IsVisible=True]">
+      <Style.Animations>
+        <Animation Duration="0:0:0.22" Easing="CubicEaseOut" FillMode="Forward">
+          <KeyFrame Cue="0%">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="TranslateTransform.X" Value="-14" />
+          </KeyFrame>
+          <KeyFrame Cue="100%">
+            <Setter Property="Opacity" Value="1" />
+            <Setter Property="TranslateTransform.X" Value="0" />
+          </KeyFrame>
+        </Animation>
+      </Style.Animations>
+    </Style>
+    <Style Selector="ContentControl.run-pane-forward[IsVisible=True]">
+      <Style.Animations>
+        <Animation Duration="0:0:0.22" Easing="CubicEaseOut" FillMode="Forward">
+          <KeyFrame Cue="0%">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="TranslateTransform.X" Value="14" />
+          </KeyFrame>
+          <KeyFrame Cue="100%">
+            <Setter Property="Opacity" Value="1" />
+            <Setter Property="TranslateTransform.X" Value="0" />
+          </KeyFrame>
+        </Animation>
+      </Style.Animations>
+    </Style>
   </UserControl.Styles>
 
   <UserControl.DataTemplates>
@@ -279,7 +311,8 @@
 
     <Panel>
       <!-- ── Index: every agent in this chat ─────────────────────── -->
-      <ScrollViewer IsVisible="{Binding IsSubagentIndexVisible}"
+      <ScrollViewer Classes="run-pane-back"
+                    IsVisible="{Binding IsSubagentIndexVisible}"
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto">
         <!-- Gutters live on the content, not on the ScrollViewer: Padding only offsets the arrange
@@ -318,7 +351,8 @@
       </ScrollViewer>
 
       <!-- ── Detail: one agent's run as a read-only chat ─────────── -->
-      <ContentControl Content="{Binding SelectedSubagentRun}"
+      <ContentControl Classes="run-pane-forward"
+                      Content="{Binding SelectedSubagentRun}"
                       IsVisible="{Binding !IsSubagentIndexVisible}">
         <ContentControl.ContentTemplate>
           <DataTemplate DataType="vm:SubagentToolCallItem">

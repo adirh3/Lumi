@@ -104,7 +104,7 @@ public partial class ChatViewModel
         _subagentRunTranscript ??= new SubagentRunTranscript(
             _dataStore,
             item => DiffShowRequested?.Invoke(item));
-        _subagentRunTranscript.Rebuild(run, Messages);
+        _subagentRunTranscript.Sync(run, Messages);
         SubagentRunTurns = _subagentRunTranscript.Turns;
     }
 

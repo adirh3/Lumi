@@ -49,6 +49,72 @@ public sealed class BusyStateSubagentTests
         Assert.True(ChatViewModel.ShouldApplyToolExecutionCompletionStatus("task", success: false));
     }
 
+    [Fact]
+    public void ShouldReconcileSubagentToolsOnTurnEnd_NestedSubagentTurn_IsDeferred()
+    {
+        // A sub-agent's own turns raise assistant.turn.end while it is still working, so turn end
+        // must not settle the chat's sub-agent tools until every agent has reported in.
+        Assert.False(ChatViewModel.ShouldReconcileSubagentToolsOnTurnEnd(1));
+
+        // Fan-out: still deferred until the LAST agent reports.
+        Assert.False(ChatViewModel.ShouldReconcileSubagentToolsOnTurnEnd(2));
+
+        Assert.True(ChatViewModel.ShouldReconcileSubagentToolsOnTurnEnd(0));
+    }
+
+    [Fact]
+    public void SettlingARunningSubagentEarly_PermanentlyDestroysItsRealDuration()
+    {
+        // Why the turn-end guard has to exist. A sub-agent's first inner turn ends milliseconds in;
+        // the unguarded reconcile settled the card there, and because MarkToolFinished is one-shot
+        // the authoritative subagent.completed 20 seconds later could no longer correct it — which
+        // is exactly how a 20-second run came to render as "Done 131 ms".
+        var startedAt = DateTimeOffset.UtcNow;
+        var agent = CreateToolMessage("agent:explore", "InProgress", "agent-1");
+        agent.MarkToolStarted(startedAt);
+        var chat = new Chat { Title = "early settle", Messages = [agent] };
+
+        // The premature turn-end reconcile, moments after the agent started.
+        ChatViewModel.SetInProgressSubagentStatuses(chat, "Completed");
+        var frozenDurationMs = agent.ToolDurationMs;
+        Assert.NotNull(frozenDurationMs);
+
+        // The real terminal event, 20 seconds later, is now powerless.
+        Assert.False(agent.MarkToolFinished(startedAt.AddSeconds(20)));
+        Assert.Equal(frozenDurationMs, agent.ToolDurationMs);
+        Assert.True(agent.ToolDurationMs < 1_000, "the run's real duration was lost");
+    }
+
+    [Fact]
+    public void SessionIdle_SettlesASubagentWhoseTerminalEventNeverArrived()
+    {
+        // Turn end now defers while the depth is up, so idle is the last line of defence: without
+        // it a lost subagent.completed leaves the card spinning forever, persisted that way.
+        var startedAt = DateTimeOffset.UtcNow;
+        var agent = CreateToolMessage("agent:explore", "InProgress", "agent-1");
+        agent.MarkToolStarted(startedAt);
+        var chat = new Chat { Title = "lost terminal event", Messages = [agent] };
+
+        // The depth stayed pinned, so turn end correctly declined to settle the card.
+        var runtime = new ChatRuntimeState { Chat = chat, ActiveSubagentExecutionDepth = 1 };
+        Assert.False(ChatViewModel.ShouldReconcileSubagentToolsOnTurnEnd(
+            runtime.ActiveSubagentExecutionDepth));
+        Assert.Equal("InProgress", agent.ToolStatus);
+
+        // session.idle marks the runtime terminal (which zeroes the depth), then settles the card.
+        InvokeMarkRuntimeTerminal(runtime);
+        Assert.Equal(0, runtime.ActiveSubagentExecutionDepth);
+        ChatViewModel.SetInProgressSubagentStatuses(chat, "Completed");
+
+        Assert.Equal("Completed", agent.ToolStatus);
+        Assert.NotNull(agent.ToolDurationMs);
+    }
+
+    private static void InvokeMarkRuntimeTerminal(ChatRuntimeState runtime)
+        => typeof(ChatViewModel)
+            .GetMethod("MarkRuntimeTerminal", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, [runtime, null]);
+
     [Theory]
     [InlineData("Completed")]
     [InlineData("Failed")]

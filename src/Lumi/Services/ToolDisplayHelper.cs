@@ -435,23 +435,25 @@ public static partial class ToolDisplayHelper
     }
 
     public static string GetSubagentDisplayName(string toolName, string? argsJson, string? author)
+        => GetSubagentDisplayName(toolName, SubagentPayload.Parse(argsJson), author);
+
+    /// <summary>Single-parse overload — see <see cref="SubagentPayload"/>.</summary>
+    public static string GetSubagentDisplayName(string toolName, in SubagentPayload payload, string? author)
     {
-        var displayName = ExtractJsonField(argsJson, "agentDisplayName");
-        if (!string.IsNullOrWhiteSpace(displayName))
-            return displayName;
+        if (!string.IsNullOrWhiteSpace(payload.AgentDisplayName))
+            return payload.AgentDisplayName;
 
         if (toolName == "task")
         {
-            var agentType = FormatAgentName(ExtractJsonField(argsJson, "agent_type"));
+            var agentType = FormatAgentName(payload.AgentType);
             if (!string.IsNullOrWhiteSpace(agentType))
                 return agentType;
         }
 
         if (toolName.StartsWith("agent:", StringComparison.Ordinal))
         {
-            var explicitName = ExtractJsonField(argsJson, "agentName");
-            if (!string.IsNullOrWhiteSpace(explicitName))
-                return FormatAgentName(explicitName) ?? explicitName;
+            if (!string.IsNullOrWhiteSpace(payload.AgentName))
+                return FormatAgentName(payload.AgentName) ?? payload.AgentName;
 
             var suffix = toolName["agent:".Length..];
             if (!string.IsNullOrWhiteSpace(suffix))
@@ -462,26 +464,25 @@ public static partial class ToolDisplayHelper
     }
 
     public static string? GetSubagentTaskDescription(string toolName, string? argsJson)
-    {
-        if (string.IsNullOrWhiteSpace(argsJson))
-            return null;
+        => string.IsNullOrWhiteSpace(argsJson)
+            ? null
+            : GetSubagentTaskDescription(toolName, SubagentPayload.Parse(argsJson));
 
-        return toolName == "task" || toolName.StartsWith("agent:", StringComparison.Ordinal)
-            ? ExtractJsonField(argsJson, "description")
+    /// <summary>Single-parse overload — see <see cref="SubagentPayload"/>.</summary>
+    public static string? GetSubagentTaskDescription(string toolName, in SubagentPayload payload)
+        => toolName == "task" || toolName.StartsWith("agent:", StringComparison.Ordinal)
+            ? payload.Description
             : null;
-    }
 
     public static string? GetSubagentDescription(string? argsJson)
         => ExtractJsonField(argsJson, "agentDescription");
 
     public static string? GetSubagentModeLabel(string? argsJson)
-    {
-        var mode = ExtractJsonField(argsJson, "mode");
-        if (string.IsNullOrWhiteSpace(mode))
-            return null;
+        => GetSubagentModeLabel(SubagentPayload.Parse(argsJson));
 
-        return FormatAgentName(mode);
-    }
+    /// <summary>Single-parse overload — see <see cref="SubagentPayload"/>.</summary>
+    public static string? GetSubagentModeLabel(in SubagentPayload payload)
+        => string.IsNullOrWhiteSpace(payload.Mode) ? null : FormatAgentName(payload.Mode);
 
     public static string? GetSubagentModelName(string? argsJson)
         => ExtractJsonField(argsJson, "model");
@@ -491,10 +492,11 @@ public static partial class ToolDisplayHelper
     /// which is seeded from the raw task-tool arguments before they are replaced.
     /// </summary>
     public static string? GetSubagentPrompt(string? argsJson)
-    {
-        var prompt = ExtractJsonField(argsJson, "prompt");
-        return string.IsNullOrWhiteSpace(prompt) ? null : prompt;
-    }
+        => GetSubagentPrompt(SubagentPayload.Parse(argsJson));
+
+    /// <summary>Single-parse overload — see <see cref="SubagentPayload"/>.</summary>
+    public static string? GetSubagentPrompt(in SubagentPayload payload)
+        => string.IsNullOrWhiteSpace(payload.Prompt) ? null : payload.Prompt;
 
     /// <summary>Raw <c>entries</c> array of a sub-agent's ordered run log, or null when absent.</summary>
     public static string? GetSubagentRunEntriesJson(string? argsJson)

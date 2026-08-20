@@ -852,12 +852,25 @@ public partial class SubagentToolCallItem : TranscriptItem
         RunContentChanged?.Invoke();
     }
 
-    /// <summary>Adopts the run's finalized assistant/reasoning log from the tool payload.</summary>
-    internal void SyncRunEntries(IReadOnlyList<SubagentRunEntry> entries)
+    /// <summary>
+    /// Adopts the run's finalized assistant/reasoning log from the tool payload. The raw JSON is
+    /// only re-parsed when it actually changed: a streaming sub-agent rewrites its payload ~20×/s
+    /// but appends to this log only when a message finalizes, so the common flush is a no-op.
+    /// </summary>
+    internal void SyncRunEntries(string? entriesJson)
     {
-        RunEntries = entries;
+        if (string.Equals(_runEntriesJson, entriesJson, StringComparison.Ordinal))
+            return;
+
+        _runEntriesJson = entriesJson;
+        RunEntries = SubagentRunLog.Parse(entriesJson);
         RunContentChanged?.Invoke();
     }
+
+    /// <summary>Signals that one of this run's already-added tool cards changed presentation.</summary>
+    internal void NotifyRunContentChanged() => RunContentChanged?.Invoke();
+
+    private string? _runEntriesJson;
 
     private static string? DescribeTool(ToolCallItemBase tool) => tool switch
     {

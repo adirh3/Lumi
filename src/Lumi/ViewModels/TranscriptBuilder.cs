@@ -979,26 +979,30 @@ public class TranscriptBuilder
     private void UpdateSubagentFromMessage(SubagentToolCallItem subagent, ChatMessage message)
     {
         var toolName = message.ToolName ?? "task";
-        subagent.DisplayName = ToolDisplayHelper.GetSubagentDisplayName(toolName, message.Content, message.Author);
-        subagent.TaskDescription = ToolDisplayHelper.GetSubagentTaskDescription(toolName, message.Content);
-        subagent.AgentDescription = ToolDisplayHelper.GetSubagentDescription(message.Content);
-        subagent.ModeLabel = ToolDisplayHelper.GetSubagentModeLabel(message.Content);
+        // One parse for the whole payload: a streaming sub-agent re-enters here on every flush.
+        var payload = SubagentPayload.Parse(message.Content);
+        var taskDescription = ToolDisplayHelper.GetSubagentTaskDescription(toolName, payload);
 
-        var modelId = ToolDisplayHelper.GetSubagentModelName(message.Content)
+        subagent.DisplayName = ToolDisplayHelper.GetSubagentDisplayName(toolName, payload, message.Author);
+        subagent.TaskDescription = taskDescription;
+        subagent.AgentDescription = payload.AgentDescription;
+        subagent.ModeLabel = ToolDisplayHelper.GetSubagentModeLabel(payload);
+
+        var modelId = payload.Model
             ?? message.Model
             ?? _getSelectedModel();
         subagent.ModelDisplayName = ChatViewModel.FormatModelDisplay(modelId);
 
-        subagent.Prompt = ToolDisplayHelper.GetSubagentPrompt(message.Content)
+        subagent.Prompt = ToolDisplayHelper.GetSubagentPrompt(payload)
             // Not every sub-agent tool carries a full prompt (an `agent:` call may only supply the
             // task label). Falling back to the description guarantees the run always opens with the
             // request it was given rather than with nothing.
-            ?? ToolDisplayHelper.GetSubagentTaskDescription(toolName, message.Content);
-        subagent.TranscriptText = ToolDisplayHelper.ExtractJsonField(message.Content, "transcript");
-        subagent.ReasoningText = ToolDisplayHelper.ExtractJsonField(message.Content, "reasoning");
+            ?? taskDescription;
+        subagent.TranscriptText = payload.Transcript;
+        subagent.ReasoningText = payload.Reasoning;
         subagent.StartedAt = message.ToolStartedAt ?? message.Timestamp;
         subagent.DurationMs = message.ToolDurationMs ?? 0;
-        subagent.SyncRunEntries(ToolDisplayHelper.GetSubagentRunEntries(message.Content));
+        subagent.SyncRunEntries(payload.EntriesJson);
     }
 
     private void UpdateSubagentState(SubagentToolCallItem subagent)
@@ -1047,6 +1051,7 @@ public class TranscriptBuilder
         if (subagent.OwningGroup is { } owningGroup)
             UpdateSubagentGroupState(owningGroup);
 
+        subagent.NotifyRunContentChanged();
         _subagentRunsChanged?.Invoke();
     }
 
@@ -2046,16 +2051,18 @@ public class TranscriptBuilder
         if (!_terminalPreviewsByToolCallId.TryGetValue(rootToolCallId, out var target))
             return;
 
+        var previousOutput = target.Output;
         if (replaceExistingOutput || string.IsNullOrEmpty(target.Output))
         {
             target.Output = output;
-            return;
         }
-
-        if (output.StartsWith(target.Output, StringComparison.Ordinal))
+        else if (output.StartsWith(target.Output, StringComparison.Ordinal))
             target.Output = output;
         else if (!target.Output.EndsWith(output, StringComparison.Ordinal))
             target.Output = target.Output + "\n" + output;
+
+        if (!string.Equals(previousOutput, target.Output, StringComparison.Ordinal))
+            FindOwningSubagent(rootToolCallId)?.NotifyRunContentChanged();
     }
 
     /// <summary>
@@ -2071,6 +2078,7 @@ public class TranscriptBuilder
             return;
 
         var changed = card.IsRunningInBackground != running;
+        var presentationChanged = changed;
         card.IsRunningInBackground = running;
 
         if (running)
@@ -2079,7 +2087,10 @@ public class TranscriptBuilder
             // recreation (chat switch, virtualization) and manual collapse. Idempotent: the monitor
             // passes the same StartedAt every poll, so the setter no-ops after the first.
             if (startedUtc is { } s)
+            {
+                presentationChanged |= card.RunningSince != s;
                 card.RunningSince = s;
+            }
 
             // Auto-expand only on the transition into "running in background" — NOT on every poll —
             // so a manual collapse by the user is respected instead of springing back open each tick.
@@ -2088,11 +2099,14 @@ public class TranscriptBuilder
         }
         else if (finalDurationMs is > 0)
         {
+            presentationChanged |= card.DurationMs != finalDurationMs.Value;
             card.DurationMs = finalDurationMs.Value;
         }
 
         if (changed)
             RefreshOwningToolGroup(card);
+        if (presentationChanged)
+            FindOwningSubagent(rootToolCallId)?.NotifyRunContentChanged();
     }
 
     /// <summary>Supplies the async shells still running in the background (root tool-call id →

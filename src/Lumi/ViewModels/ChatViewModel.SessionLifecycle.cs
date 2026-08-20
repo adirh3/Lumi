@@ -125,6 +125,18 @@ public partial class ChatViewModel
     internal static bool ShouldApplyToolExecutionCompletionStatus(string? toolName, bool success)
         => !success || !ToolDisplayHelper.IsSubagentTool(toolName);
 
+    /// <summary>
+    /// Whether an <c>assistant.turn.end</c> may settle the chat's still-running sub-agent tools.
+    /// A sub-agent's own nested turns raise that event too, so reconciling while one is executing
+    /// marks the running agent Completed and freezes its duration at its first inner turn — and
+    /// because <see cref="ChatMessage.MarkToolFinished"/> is one-shot, the real duration is then
+    /// lost for good. Settling a sub-agent belongs to its authoritative
+    /// <c>subagent.completed</c>/<c>subagent.failed</c> event; <c>session.idle</c> is the terminal
+    /// safety net for a run whose event never arrived.
+    /// </summary>
+    internal static bool ShouldReconcileSubagentToolsOnTurnEnd(int activeSubagentExecutionDepth)
+        => activeSubagentExecutionDepth <= 0;
+
     internal static IReadOnlyList<ChatMessage> SetInProgressSubagentStatuses(
         Chat chat,
         string terminalStatus)
@@ -488,36 +500,31 @@ public partial class ChatViewModel
             SubagentRunEntryKind? appendEntryKind = null,
             string? appendEntryText = null)
         {
-            Dispatcher.UIThread.Post(() =>
+            void Apply()
             {
                 var toolMsg = chat.Messages.LastOrDefault(m => m.ToolCallId == toolCallId);
                 if (toolMsg is null)
                     return;
 
-                var description = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "description") ?? string.Empty;
-                var agentName = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "agentName");
+                // One parse for the whole payload: this runs on every streaming flush, and the
+                // payload grows with the run.
+                var payload = SubagentPayload.Parse(toolMsg.Content);
+
+                var agentName = payload.AgentName;
                 if (string.IsNullOrWhiteSpace(agentName)
                     && toolMsg.ToolName?.StartsWith("agent:", StringComparison.Ordinal) == true)
                 {
                     agentName = toolMsg.ToolName["agent:".Length..];
                 }
 
-                var agentDisplayName = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "agentDisplayName")
+                var agentDisplayName = payload.AgentDisplayName
                     ?? toolMsg.Author
                     ?? agentName
                     ?? "Agent";
-                var agentDescription = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "agentDescription");
-                var mode = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "mode") ?? string.Empty;
-                var model = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "model");
-                var prompt = ToolDisplayHelper.GetSubagentPrompt(toolMsg.Content);
-                var nextTranscript = updateTranscript
-                    ? transcript ?? string.Empty
-                    : ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "transcript");
-                var nextReasoning = updateReasoning
-                    ? reasoning ?? string.Empty
-                    : ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "reasoning");
+                var nextTranscript = updateTranscript ? transcript ?? string.Empty : payload.Transcript;
+                var nextReasoning = updateReasoning ? reasoning ?? string.Empty : payload.Reasoning;
 
-                var entriesJson = ToolDisplayHelper.GetSubagentRunEntriesJson(toolMsg.Content);
+                var entriesJson = payload.EntriesJson;
                 if (appendEntryKind is { } entryKind)
                 {
                     entriesJson = SubagentRunLog.Append(
@@ -528,15 +535,15 @@ public partial class ChatViewModel
                 }
 
                 var nextContent = BuildSubagentPayloadJson(
-                    description,
+                    payload.Description,
                     agentName,
                     agentDisplayName,
-                    agentDescription,
-                    mode,
-                    model,
+                    payload.AgentDescription,
+                    payload.Mode,
+                    payload.Model,
                     nextTranscript,
                     nextReasoning,
-                    prompt,
+                    payload.Prompt,
                     entriesJson);
 
                 if (string.Equals(toolMsg.Content, nextContent, StringComparison.Ordinal))
@@ -548,7 +555,15 @@ public partial class ChatViewModel
                     var vm = Messages.LastOrDefault(m => m.Message.ToolCallId == toolCallId);
                     vm?.NotifyContentChanged();
                 }
-            });
+            }
+
+            // Stream finalization is already marshalled to the UI thread. Applying inline there
+            // keeps the final payload update ordered before idle reconciliation and QueueSaveChat,
+            // instead of inserting a second dispatcher hop that could persist the stale payload.
+            if (Dispatcher.UIThread.CheckAccess())
+                Apply();
+            else
+                Dispatcher.UIThread.Post(Apply);
         }
 
         void FlushSubagentAssistantDelta(string toolCallId)
@@ -614,6 +629,30 @@ public partial class ChatViewModel
                     UpdateSubagentCardContent(toolCallId, updateReasoning: true, reasoning: finalReasoning);
                 }
             });
+        }
+
+        /// <summary>
+        /// Finalizes any sub-agent text still buffered when the session reaches a terminal boundary,
+        /// then clears every routing hint. This is especially important for the idle safety-net path:
+        /// if a subagent.completed event was lost, its tool-call id would otherwise remain "active"
+        /// and route the next top-level assistant reply into the already-finished agent card.
+        /// </summary>
+        void CompleteAndResetSubagentOutputState()
+        {
+            List<string> toolCallIds;
+            lock (subagentStateGate)
+            {
+                toolCallIds = activeSubagentToolCallIds
+                    .Concat(subagentAssistantStreams.Keys)
+                    .Concat(subagentReasoningStreams.Keys)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList();
+            }
+
+            foreach (var toolCallId in toolCallIds)
+                CompleteSubagentStreams(toolCallId);
+
+            ResetSubagentOutputState();
         }
 
         void ResetSubagentOutputState()
@@ -1405,14 +1444,25 @@ public partial class ChatViewModel
                     // The stop intent is NOT cleared here. An aborted turn still ends, and clearing it
                     // at turn end made the AbortEvent handler below classify the user's own stop as a
                     // broken session. PreparePendingTurnTracking resets it when the next turn starts.
+                    // Snapshot this before any cancellation work can interleave with a terminal
+                    // sub-agent callback. The question is whether an agent was active when THIS
+                    // turn-end arrived, not what the depth happens to be when the UI callback runs.
+                    var activeSubagentDepthAtTurnEnd =
+                        Volatile.Read(ref runtime.ActiveSubagentExecutionDepth);
+                    var shouldReconcileSubagentTools =
+                        ShouldReconcileSubagentToolsOnTurnEnd(activeSubagentDepthAtTurnEnd);
                     assistantStream.CancelPending();
                     reasoningStream.CancelPending();
-                    if (!IsSubagentOutputActive())
+                    if (shouldReconcileSubagentTools)
                         ResetSubagentOutputState();
                     Dispatcher.UIThread.Post(() =>
                     {
                         var shouldUpdateDisplayedChatUi = IsDisplayedSession();
-                        if (IsAuthoritativeSession())
+                        // A sub-agent's own nested turns raise this event too (the guard above exists
+                        // for exactly that reason), and settling them here would mark a running agent
+                        // Completed and irreversibly freeze its duration at its first inner turn.
+                        // session.idle carries the safety net for a lost terminal event instead.
+                        if (IsAuthoritativeSession() && shouldReconcileSubagentTools)
                             ReconcileInProgressSubagentTools(chat, "Completed");
                         FinalizeCompletedTurnStreams(shouldUpdateDisplayedChatUi);
                         DropCompletedTurnState(chat.Id, dropCancellation: false);
@@ -1464,6 +1514,7 @@ public partial class ChatViewModel
                     DropCompletedTurnState(chat.Id, dropCancellation: true);
                     assistantStream.CancelPending();
                     reasoningStream.CancelPending();
+                    CompleteAndResetSubagentOutputState();
 
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -1478,6 +1529,15 @@ public partial class ChatViewModel
                         // In SDK 0.2.2+, session.idle is only emitted once background work is drained.
                         // Clearing IsBusy updates Chat.IsRunning, so keep it on the UI thread.
                         MarkRuntimeTerminal(runtime);
+
+                        // Terminal safety net for sub-agent cards. Turn end deliberately defers this
+                        // while an agent is executing, so a run whose authoritative
+                        // subagent.completed/failed never arrived would otherwise keep its card
+                        // spinning forever (and persist that way). Idle is the unambiguous place to
+                        // settle it: MarkRuntimeTerminal above has just zeroed the execution depth,
+                        // so nothing can still be running.
+                        if (IsAuthoritativeSession())
+                            ReconcileInProgressSubagentTools(chat, "Completed");
 
                         // Session idle == all attached background work has drained, so any terminal
                         // cards still shown "running in background" for this chat are now finished.
@@ -1925,31 +1985,28 @@ public partial class ChatViewModel
                     var existing = chat.Messages.LastOrDefault(m => m.ToolCallId == subStart.Data.ToolCallId);
                     if (existing is not null)
                     {
-                        var existingDescription = ToolDisplayHelper.ExtractJsonField(existing.Content, "description") ?? string.Empty;
-                        var existingMode = ToolDisplayHelper.ExtractJsonField(existing.Content, "mode") ?? string.Empty;
-                        var existingModel = ToolDisplayHelper.ExtractJsonField(existing.Content, "model");
-                        // The raw task-tool args are replaced by the sub-agent payload here, so the
-                        // instruction the agent received has to be carried over now or it is lost.
-                        var existingPrompt = ToolDisplayHelper.GetSubagentPrompt(existing.Content);
-                        var existingEntries = ToolDisplayHelper.GetSubagentRunEntriesJson(existing.Content);
-                        var existingTranscript = ToolDisplayHelper.ExtractJsonField(existing.Content, "transcript")
+                        // The raw task-tool args are replaced by the sub-agent payload here, so
+                        // everything already recorded — notably the instruction the agent received —
+                        // has to be carried over now or it is lost.
+                        var existingPayload = SubagentPayload.Parse(existing.Content);
+                        var existingTranscript = existingPayload.Transcript
                             ?? GetSubagentStream(subagentAssistantStreams, subStart.Data.ToolCallId)?.SnapshotOrNull();
-                        var existingReasoning = ToolDisplayHelper.ExtractJsonField(existing.Content, "reasoning")
+                        var existingReasoning = existingPayload.Reasoning
                             ?? GetSubagentStream(subagentReasoningStreams, subStart.Data.ToolCallId)?.SnapshotOrNull();
                         existing.ToolName = $"agent:{subStart.Data.AgentName}";
                         existing.ToolStatus = "InProgress";
                         existing.MarkToolStarted(subagentStartedAt);
                         existing.Content = BuildSubagentPayloadJson(
-                            description: existingDescription,
+                            description: existingPayload.Description,
                             agentName: subStart.Data.AgentName,
                             agentDisplayName: displayName,
                             agentDescription: subStart.Data.AgentDescription,
-                            mode: existingMode,
-                            model: existingModel,
+                            mode: existingPayload.Mode,
+                            model: existingPayload.Model,
                             transcript: existingTranscript,
                             reasoning: existingReasoning,
-                            prompt: existingPrompt,
-                            entriesJson: existingEntries);
+                            prompt: existingPayload.Prompt,
+                            entriesJson: existingPayload.EntriesJson);
                         existing.Author = displayName;
                         if (IsDisplayedSession())
                         {
