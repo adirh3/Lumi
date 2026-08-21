@@ -122,11 +122,10 @@ public partial class ChatViewModel
     private static readonly TimeSpan NativeForkBudget = TimeSpan.FromSeconds(6);
 
     /// <summary>
-    /// Forks <paramref name="sessionId"/> at <paramref name="retainedUserTurns"/> user turns, using
-    /// an already-live handle when one is supplied and otherwise resuming a short-lived bare handle.
-    /// Returns the forked session id, or null when the branch point cannot be resolved, the attempt
-    /// fails, or it outruns <see cref="NativeForkBudget"/> — the caller then leaves
-    /// <c>CopilotSessionId</c> null and the transcript-replay path takes over.
+    /// Forks <paramref name="sessionId"/>, using an already-live handle when one is supplied and
+    /// otherwise resuming a short-lived bare handle. A null
+    /// <paramref name="sessionForkCutUserTurns"/> forks the whole Copilot conversation directly;
+    /// a value maps a message-level branch onto the server event log.
     /// </summary>
     /// <param name="live">
     /// A handle some surface already holds for this session, or null to resume one. Reusing a live
@@ -136,7 +135,7 @@ public partial class ChatViewModel
         CopilotService copilot,
         string sessionId,
         CopilotSession? live,
-        int retainedUserTurns,
+        int? sessionForkCutUserTurns,
         string? name,
         CancellationToken ct = default)
     {
@@ -160,12 +159,20 @@ public partial class ChatViewModel
 
         async Task<string?> ForkFromHandleAsync(CopilotSession session, CancellationToken token)
         {
+            // A whole-chat duplicate needs no local/server turn mapping. Requiring the local
+            // transcript count to match Copilot made valid sessions fall back whenever Lumi held a
+            // duplicate/cancelled local bubble that was not a distinct backend turn.
+            if (sessionForkCutUserTurns is null)
+                return await copilot.ForkSessionAsync(sessionId, name: name, ct: token);
+
             var events = await session.GetEventsAsync(token);
 
-            // The first turn the fork must NOT contain is the (retainedUserTurns)-th genuine user
+            // The first turn the fork must NOT contain is the requested genuine user
             // turn, so the cut is the event just before it. Injected SDK/CLI user messages have no
             // local counterpart and are skipped, so the ordinals line up.
-            var cut = PendingTurnRecoveryAnalyzer.SelectForkCutEvent(events, retainedUserTurns);
+            var cut = PendingTurnRecoveryAnalyzer.SelectForkCutEvent(
+                events,
+                sessionForkCutUserTurns.Value);
             if (!cut.Resolved)
                 return null;
 

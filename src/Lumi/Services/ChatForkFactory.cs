@@ -15,12 +15,15 @@ namespace Lumi.Services;
 /// stops *before* that message so the transcript ends on an answer, and the message itself becomes
 /// an editable draft ("fork and edit").
 /// </param>
-/// <param name="RetainedUserTurns">
-/// How many user turns the forked transcript contains. This is the single source of truth for
-/// where the server-side session fork must be cut, so the copied transcript and the model's
-/// memory can never disagree about how much history the branch has.
+/// <param name="SessionForkCutUserTurns">
+/// How many user turns a message-level native session fork should retain. Null means the user
+/// requested a whole-chat duplicate and <c>sessions.fork</c> should run without resolving a cut
+/// point.
 /// </param>
-public readonly record struct ForkPlan(Chat Chat, string? ComposerPrefill, int RetainedUserTurns);
+public readonly record struct ForkPlan(
+    Chat Chat,
+    string? ComposerPrefill,
+    int? SessionForkCutUserTurns);
 
 /// <summary>
 /// Builds a forked copy of a <see cref="Chat"/> — an independent chat that carries the source
@@ -37,16 +40,12 @@ public readonly record struct ForkPlan(Chat Chat, string? ComposerPrefill, int R
 /// <para><b>How the fork keeps working memory.</b> This factory produces the Lumi-side copy only,
 /// and deliberately leaves <see cref="Chat.CopilotSessionId"/> <c>null</c>. The caller
 /// (<c>MainViewModel.ForkChatAsync</c>) then tries to fork the source's Copilot session
-/// server-side via <c>CopilotService.ForkSessionAsync</c>, cutting it at
-/// <see cref="ForkPlan.RetainedUserTurns"/>; on success it assigns the forked session id and the
-/// new chat continues with the model's real conversation state — no replay.</para>
+/// server-side via <c>CopilotService.ForkSessionAsync</c>. Whole-chat copies use no cut point;
+/// message-level branches map <see cref="ForkPlan.SessionForkCutUserTurns"/> onto the server event
+/// log. On success the new chat continues with the model's real conversation state — no replay.</para>
 ///
-/// <para>A native fork is not always possible: the source session must be live, which in practice
-/// means the source chat is the one currently open. When it fails, the null session id is not a
-/// loss — it is exactly the shape <c>ChatViewModel.ShouldReplayTranscriptAfterSessionReset</c>
-/// already recognises (messages present + no session id), so the fork's first send replays the
-/// copied transcript through <c>BuildSessionRecoveryReplayPrompt</c>, using the same mechanism
-/// Lumi uses to recover a lost session.</para>
+/// <para>When a native fork is unavailable, the null session id keeps the existing transcript-replay
+/// fallback. That fallback is intentionally separate from native whole-chat duplication.</para>
 /// </summary>
 public static class ChatForkFactory
 {
@@ -120,8 +119,10 @@ public static class ChatForkFactory
         fork.Messages.AddRange(CopyMessages(sourceMessages, take));
         fork.MessageCount = fork.Messages.Count;
 
-        var retainedUserTurns = fork.Messages.Count(static m => m.Role == "user");
-        return new ForkPlan(fork, prefill, retainedUserTurns);
+        int? sessionForkCutUserTurns = throughMessageId is null
+            ? null
+            : fork.Messages.Count(static m => m.Role == "user");
+        return new ForkPlan(fork, prefill, sessionForkCutUserTurns);
     }
 
     /// <summary>

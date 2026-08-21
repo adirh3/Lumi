@@ -1566,7 +1566,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
             // working memory, cut at the same point as the copied transcript. When that is not
             // possible the fork keeps a null session id, which is exactly what makes its first send
             // replay the copied transcript instead — see ChatForkFactory.
-            var forkedSessionId = await ForkSourceSessionAsync(chat, plan.RetainedUserTurns, fork.Title);
+            var forkedSessionId = await ForkSourceSessionAsync(
+                chat,
+                plan.SessionForkCutUserTurns,
+                fork.Title);
             if (!string.IsNullOrWhiteSpace(forkedSessionId))
             {
                 fork.CopilotSessionId = forkedSessionId;
@@ -1633,7 +1636,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// is left strictly alone: resuming a second handle for it would destroy the session the
     /// recovering surface is about to re-adopt, so the duplicate falls back to replay instead.
     /// </remarks>
-    private async Task<string?> ForkSourceSessionAsync(Chat source, int retainedUserTurns, string? name)
+    private async Task<string?> ForkSourceSessionAsync(
+        Chat source,
+        int? sessionForkCutUserTurns,
+        string? name)
     {
         if (source.CopilotSessionId is not { Length: > 0 } sessionId)
             return null;
@@ -1655,7 +1661,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
 
         return await ChatViewModel.ForkSessionAtTurnAsync(
-            _copilotService, sessionId, live, retainedUserTurns, name);
+            _copilotService, sessionId, live, sessionForkCutUserTurns, name);
     }
 
     /// <summary>

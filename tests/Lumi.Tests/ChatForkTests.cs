@@ -144,7 +144,7 @@ public class ChatForkFactoryTests
 
         Assert.Equal(["hello", "hi there"], plan.Chat.Messages.Select(m => m.Content));
         Assert.Null(plan.ComposerPrefill);
-        Assert.Equal(1, plan.RetainedUserTurns);
+        Assert.Equal(1, plan.SessionForkCutUserTurns);
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public class ChatForkFactoryTests
 
         Assert.Equal(["hello", "hi there"], plan.Chat.Messages.Select(m => m.Content));
         Assert.Equal("keep going", plan.ComposerPrefill);
-        Assert.Equal(1, plan.RetainedUserTurns);
+        Assert.Equal(1, plan.SessionForkCutUserTurns);
     }
 
     [Fact]
@@ -172,28 +172,37 @@ public class ChatForkFactoryTests
 
         Assert.Empty(plan.Chat.Messages);
         Assert.Equal("hello", plan.ComposerPrefill);
-        Assert.Equal(0, plan.RetainedUserTurns);
+        Assert.Equal(0, plan.SessionForkCutUserTurns);
     }
 
     [Fact]
-    public void CreateFork_RetainedUserTurnsMatchesTheCopiedTranscript()
+    public void CreateFork_ThroughFinalAssistantMessage_StillRequestsSessionBoundaryValidation()
     {
         var source = CreateSourceChat();
         var messages = CreateMessages();
 
-        // RetainedUserTurns drives where the *server* session is cut, so it must always be derived
-        // from the transcript that was actually copied — that is what keeps the branch's visible
-        // history and the model's memory from disagreeing.
+        var plan = ChatForkFactory.CreateFork(source, messages, messages[^1].Id);
+
+        Assert.Equal(messages.Count, plan.Chat.Messages.Count);
+        Assert.Equal(2, plan.SessionForkCutUserTurns);
+    }
+
+    [Fact]
+    public void CreateFork_SessionCutIsOnlySkippedForWholeChatDuplicate()
+    {
+        var source = CreateSourceChat();
+        var messages = CreateMessages();
+
         foreach (var anchor in messages)
         {
             var plan = ChatForkFactory.CreateFork(source, messages, anchor.Id);
             Assert.Equal(
                 plan.Chat.Messages.Count(m => m.Role == "user"),
-                plan.RetainedUserTurns);
+                plan.SessionForkCutUserTurns);
         }
 
         var whole = ChatForkFactory.CreateFork(source, messages);
-        Assert.Equal(2, whole.RetainedUserTurns);
+        Assert.Null(whole.SessionForkCutUserTurns);
         Assert.Null(whole.ComposerPrefill);
     }
 

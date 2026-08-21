@@ -1953,6 +1953,44 @@ public class CopilotIntegrationTests : IAsyncLifetime
         await original.DisposeAsync();
     }
 
+    [SkippableFact]
+    public async Task ForkSession_WholeConversation_SkipsTurnResolution()
+    {
+        SkipIfDisabled();
+
+        var original = await _service.CreateSessionAsync(SimpleConfig("You are a terse test assistant."));
+        var first = $"Alpha{Random.Shared.Next(10000, 99999)}";
+        var second = $"Beta{Random.Shared.Next(10000, 99999)}";
+
+        var (_, s1) = await SendAndWait(original, $"Remember word ONE: {first}. Reply only: OK");
+        s1.Dispose();
+        var (_, s2) = await SendAndWait(original, $"Remember word TWO: {second}. Reply only: OK");
+        s2.Dispose();
+
+        var forkedId = await ChatViewModel.ForkSessionAtTurnAsync(
+            _service,
+            original.SessionId,
+            original,
+            sessionForkCutUserTurns: null,
+            name: "integration whole fork");
+
+        Assert.False(string.IsNullOrWhiteSpace(forkedId));
+
+        var fork = await _service.ResumeSessionAsync(
+            forkedId!,
+            ResumeConfigFor("You are a terse test assistant."));
+        var (known, sub) = await SendAndWait(
+            fork,
+            "List every code word you know, comma separated. If none, say NONE.");
+        sub.Dispose();
+
+        Assert.Contains(first, known, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(second, known, StringComparison.OrdinalIgnoreCase);
+
+        await fork.DisposeAsync();
+        await original.DisposeAsync();
+    }
+
     /// <summary>A released session has no in-memory events, so it cannot be forked — Lumi must fall
     /// back to transcript replay rather than silently producing an empty branch.</summary>
     [SkippableFact]
