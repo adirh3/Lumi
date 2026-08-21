@@ -97,6 +97,23 @@ public sealed class BackgroundJobServiceChatSurfaceTests
     }
 
     [Fact]
+    public void IsChatBusyForTest_IncludesDeletionAndFileRecoveryReservations()
+    {
+        var chat = new Chat { Title = "Deleting job target" };
+        var store = new DataStore(new AppData { Chats = [chat] });
+        using var registry = new ChatSurfaceRegistry();
+        using var fallback = new ChatViewModel(store, TestCopilot.Shared);
+        using var service = new BackgroundJobService(store, registry, fallback);
+        using var deletion = ChatViewModel.TryReserveChatDeletion(chat.Id);
+        Assert.NotNull(deletion);
+
+        Assert.True(service.IsChatBusyForTest(chat.Id));
+        deletion.Dispose();
+        GetField<HashSet<Guid>>(store, "_chatFileRecoveryPending").Add(chat.Id);
+        Assert.True(service.IsChatBusyForTest(chat.Id));
+    }
+
+    [Fact]
     public async Task ResolveChatExecutorForInvocation_RetainsCachedOwnerUntilInvocationReleasesIt()
     {
         var chat = new Chat { Title = "Cached job target" };

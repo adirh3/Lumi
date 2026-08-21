@@ -24,6 +24,9 @@ public class DataStore
     private static readonly string DataFile = Path.Combine(AppDir, "data.json");
     private static readonly string IndexLockFile = Path.Combine(AppDir, "data.lock");
     private static readonly TimeSpan StartupIndexLockTimeout = TimeSpan.FromSeconds(10);
+    private const int ChatFileDeleteAttempts = 4;
+    private const string ChatFileDeletionSuffix = ".deleting";
+    private static readonly TimeSpan ChatFileDeleteRetryDelay = TimeSpan.FromMilliseconds(75);
 
     public static string SkillsDir { get; } = Path.Combine(AppDir, "skills");
     public static string ChatsDir { get; } = Path.Combine(AppDir, "chats");
@@ -55,6 +58,7 @@ public class DataStore
     private readonly object _chatLoadLocksSync = new();
     private readonly Dictionary<Guid, SemaphoreSlim> _chatLoadLocks = new();
     private readonly HashSet<Guid> _deletedChatFiles = [];
+    private readonly HashSet<Guid> _chatFileRecoveryPending = [];
     private readonly object _chatSearchCacheSync = new();
     private readonly Dictionary<Guid, CachedChatSearchSnapshot> _chatSearchCache = [];
     private readonly object _chatChangeSync = new();
@@ -81,13 +85,15 @@ public class DataStore
     /// process-wide <see cref="SkillsDir"/>; tests can point it at an isolated folder.
     /// </summary>
     public string SkillsDirectory { get; }
+    internal string ChatsDirectory { get; }
 
     public DataStore()
     {
         SkillsDirectory = SkillsDir;
+        ChatsDirectory = ChatsDir;
         Directory.CreateDirectory(AppDir);
         Directory.CreateDirectory(SkillsDir);
-        Directory.CreateDirectory(ChatsDir);
+        Directory.CreateDirectory(ChatsDirectory);
         Directory.CreateDirectory(CopilotConfigDir);
         _data = Load();
         // One-time migration: previous Lumi versions auto-injected an "api-key" header for Azure
@@ -100,18 +106,23 @@ public class DataStore
         {
             Save();
         }
-        CleanOrphanedChats();
+        var unresolvedChatFileDeletions = RecoverStagedChatFileDeletions();
+        CleanOrphanedChats(unresolvedChatFileDeletions);
         SeedDefaults();
         SeedCodingLumi();
         EnsureCurrentChatManagementTool();
         EnsureFeatureManagerSkill();
     }
 
-    internal DataStore(AppData data, string? skillsDirectoryOverride = null)
+    internal DataStore(
+        AppData data,
+        string? skillsDirectoryOverride = null,
+        string? chatsDirectoryOverride = null)
     {
         _usesPersistentStorage = false;
         _data = data ?? new AppData();
         SkillsDirectory = string.IsNullOrWhiteSpace(skillsDirectoryOverride) ? SkillsDir : skillsDirectoryOverride;
+        ChatsDirectory = string.IsNullOrWhiteSpace(chatsDirectoryOverride) ? ChatsDir : chatsDirectoryOverride;
     }
 
     public AppData Data => _data;
@@ -551,7 +562,7 @@ public class DataStore
 
         // Clone synchronously on the caller's thread. Chat messages are UI-owned mutable state; if a
         // contended gate resumed below on the pool, enumerating them there could race the next event.
-        var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
+        var chatFile = Path.Combine(ChatsDirectory, $"{chat.Id}.json");
         var messagesSnapshot = chat.Messages
             .Select(static message => message.Clone())
             .ToList();
@@ -605,7 +616,15 @@ public class DataStore
     /// not currently loaded in memory.
     /// </summary>
     public bool HasStoredMessages(Guid chatId)
-        => _usesPersistentStorage && File.Exists(Path.Combine(ChatsDir, $"{chatId}.json"));
+    {
+        if (!_usesPersistentStorage)
+            return false;
+
+        var chatFile = Path.Combine(ChatsDirectory, $"{chatId}.json");
+        return File.Exists(chatFile)
+               || (IsChatFileDeletionPending(chatId)
+                   && File.Exists(chatFile + ChatFileDeletionSuffix));
+    }
 
     /// <summary>Loads messages from a chat's per-chat file into chat.Messages.</summary>
     public async Task LoadChatMessagesAsync(Chat chat, CancellationToken cancellationToken = default)
@@ -617,13 +636,16 @@ public class DataStore
 
         try
         {
-            if (IsChatFileDeleted(chat.Id))
+            var recoveryPending = IsChatFileDeletionPending(chat.Id);
+            if (IsChatFileDeleted(chat.Id) && !recoveryPending)
                 return;
 
             // Another concurrent caller may have loaded this chat while we awaited the lock.
             if (chat.Messages.Count > 0) return;
 
-            var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
+            var chatFile = Path.Combine(ChatsDirectory, $"{chat.Id}.json");
+            if (recoveryPending)
+                chatFile += ChatFileDeletionSuffix;
             if (!File.Exists(chatFile)) return;
 
             const int maxReadAttempts = 3;
@@ -789,7 +811,7 @@ public class DataStore
             if (IsChatFileDeleted(chatId))
                 return [];
 
-            var chatFile = Path.Combine(ChatsDir, $"{chatId}.json");
+            var chatFile = Path.Combine(ChatsDirectory, $"{chatId}.json");
             if (!File.Exists(chatFile))
                 return [];
 
@@ -848,7 +870,7 @@ public class DataStore
             // live list would risk ArgumentOutOfRangeException / torn reads.
             return CreateLoadedChatSearchSnapshot(chat.Messages.ToArray());
 
-        var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
+        var chatFile = Path.Combine(ChatsDirectory, $"{chat.Id}.json");
         if (!File.Exists(chatFile))
         {
             RemoveChatSearchSnapshot(chat.Id);
@@ -950,7 +972,7 @@ public class DataStore
     /// </summary>
     public DateTimeOffset? GetChatFileTimestamp(Guid chatId)
     {
-        var chatFile = Path.Combine(ChatsDir, $"{chatId}.json");
+        var chatFile = Path.Combine(ChatsDirectory, $"{chatId}.json");
         try
         {
             return File.Exists(chatFile)
@@ -1071,8 +1093,22 @@ public class DataStore
             return _deletedChatFiles.Contains(chatId);
     }
 
-    /// <summary>Deletes the per-chat file for a given chat ID.</summary>
+    internal bool IsChatFileDeletionPending(Guid chatId)
+    {
+        lock (_chatLoadLocksSync)
+            return _chatFileRecoveryPending.Contains(chatId);
+    }
+
+    /// <summary>Deletes or durably tombstones the per-chat file for a given chat ID.</summary>
     public async Task DeleteChatFileAsync(Guid chatId, CancellationToken cancellationToken = default)
+    {
+        var stagedDeletion = await StageChatFileDeletionAsync(chatId, cancellationToken).ConfigureAwait(false);
+        await CommitStagedChatFileDeletionAsync(stagedDeletion, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async Task<StagedChatFileDeletion> StageChatFileDeletionAsync(
+        Guid chatId,
+        CancellationToken cancellationToken = default)
     {
         SemaphoreSlim chatOperationLock;
         lock (_chatLoadLocksSync)
@@ -1081,21 +1117,216 @@ public class DataStore
             chatOperationLock = GetChatLoadLockLocked(chatId);
         }
 
-        await chatOperationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var lockHeld = false;
+        var staged = false;
         try
         {
-            RemoveChatSearchSnapshot(chatId);
-            var chatFile = Path.Combine(ChatsDir, $"{chatId}.json");
+            await chatOperationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            lockHeld = true;
+            var chatFile = Path.Combine(ChatsDirectory, $"{chatId}.json");
+            var tombstoneFile = chatFile + ChatFileDeletionSuffix;
+            if (File.Exists(tombstoneFile) && File.Exists(chatFile))
+            {
+                await ExecuteChatFileOperationWithRetryAsync(
+                    () => File.Delete(tombstoneFile),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            var hadFile = File.Exists(chatFile) || File.Exists(tombstoneFile);
             if (File.Exists(chatFile))
-                File.Delete(chatFile);
+            {
+                await ExecuteChatFileOperationWithRetryAsync(
+                    () => File.Move(chatFile, tombstoneFile),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            RemoveChatSearchSnapshot(chatId);
+            staged = true;
+            return new StagedChatFileDeletion(chatId, chatFile, tombstoneFile, hadFile);
         }
         finally
         {
-            chatOperationLock.Release();
+            if (lockHeld)
+                chatOperationLock.Release();
+            if (!staged)
+            {
+                lock (_chatLoadLocksSync)
+                    _deletedChatFiles.Remove(chatId);
+            }
+        }
+    }
+
+    internal async Task<bool> CommitStagedChatFileDeletionAsync(
+        StagedChatFileDeletion stagedDeletion,
+        CancellationToken cancellationToken = default)
+    {
+        var deleted = true;
+        if (stagedDeletion.HadFile && File.Exists(stagedDeletion.TombstoneFile))
+        {
+            try
+            {
+                await ExecuteChatFileOperationWithRetryAsync(
+                    () => File.Delete(stagedDeletion.TombstoneFile),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (IOException ex)
+            {
+                // The explicit tombstone is a durable deletion queue. Startup will retry it without
+                // sweeping unrelated unindexed chat files that may have been recovered from backup.
+                Debug.WriteLine(
+                    $"[Lumi] Chat file deletion remains queued for '{stagedDeletion.ChatId}': {ex.Message}");
+                deleted = false;
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Debug.WriteLine(
+                    $"[Lumi] Chat file deletion remains queued for '{stagedDeletion.ChatId}': {ex.Message}");
+                deleted = false;
+            }
         }
 
-        ChatContentChanged?.Invoke(chatId);
+        ChatContentChanged?.Invoke(stagedDeletion.ChatId);
+        lock (_chatLoadLocksSync)
+            _chatFileRecoveryPending.Remove(stagedDeletion.ChatId);
+        return deleted;
     }
+
+    internal async Task RollbackStagedChatFileDeletionAsync(
+        StagedChatFileDeletion stagedDeletion,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (stagedDeletion.HadFile)
+            {
+                if (!File.Exists(stagedDeletion.TombstoneFile)
+                    && !File.Exists(stagedDeletion.ChatFile))
+                {
+                    throw new IOException(
+                        $"Neither the chat file nor its deletion tombstone exists for {stagedDeletion.ChatId}.");
+                }
+
+                if (File.Exists(stagedDeletion.TombstoneFile))
+                {
+                    await ExecuteChatFileOperationWithRetryAsync(
+                        () => File.Move(
+                            stagedDeletion.TombstoneFile,
+                            stagedDeletion.ChatFile,
+                            overwrite: true),
+                        cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            lock (_chatLoadLocksSync)
+            {
+                _deletedChatFiles.Remove(stagedDeletion.ChatId);
+                _chatFileRecoveryPending.Remove(stagedDeletion.ChatId);
+            }
+            ChatContentChanged?.Invoke(stagedDeletion.ChatId);
+        }
+        catch
+        {
+            lock (_chatLoadLocksSync)
+            {
+                _deletedChatFiles.Add(stagedDeletion.ChatId);
+                _chatFileRecoveryPending.Add(stagedDeletion.ChatId);
+            }
+            throw;
+        }
+    }
+
+    private static async Task ExecuteChatFileOperationWithRetryAsync(
+        Action operation,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; attempt <= ChatFileDeleteAttempts; attempt++)
+        {
+            try
+            {
+                operation();
+                return;
+            }
+            catch (IOException) when (attempt < ChatFileDeleteAttempts)
+            {
+                await Task.Delay(ChatFileDeleteRetryDelay * attempt, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    internal HashSet<Guid> RecoverStagedChatFileDeletions()
+    {
+        var unresolvedIndexedChats = new HashSet<Guid>();
+        if (!Directory.Exists(ChatsDirectory))
+            return unresolvedIndexedChats;
+
+        foreach (var tombstoneFile in Directory.EnumerateFiles(
+                     ChatsDirectory,
+                     $"*.json{ChatFileDeletionSuffix}"))
+        {
+            var chatFile = tombstoneFile[..^ChatFileDeletionSuffix.Length];
+            var fileName = Path.GetFileNameWithoutExtension(chatFile);
+            if (!Guid.TryParse(fileName, out var chatId))
+                continue;
+
+            var isIndexed = _data.Chats.Any(chat => chat.Id == chatId);
+            try
+            {
+                if (isIndexed)
+                {
+                    if (File.Exists(chatFile))
+                        File.Delete(tombstoneFile);
+                    else
+                        File.Move(tombstoneFile, chatFile);
+                }
+                else
+                {
+                    File.Delete(tombstoneFile);
+                }
+
+                lock (_chatLoadLocksSync)
+                {
+                    _deletedChatFiles.Remove(chatId);
+                    _chatFileRecoveryPending.Remove(chatId);
+                }
+            }
+            catch (IOException ex)
+            {
+                if (isIndexed)
+                {
+                    unresolvedIndexedChats.Add(chatId);
+                    lock (_chatLoadLocksSync)
+                    {
+                        _deletedChatFiles.Add(chatId);
+                        _chatFileRecoveryPending.Add(chatId);
+                    }
+                }
+                Debug.WriteLine(
+                    $"[Lumi] Could not recover staged chat deletion '{chatId}': {ex.Message}");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                if (isIndexed)
+                {
+                    unresolvedIndexedChats.Add(chatId);
+                    lock (_chatLoadLocksSync)
+                    {
+                        _deletedChatFiles.Add(chatId);
+                        _chatFileRecoveryPending.Add(chatId);
+                    }
+                }
+                Debug.WriteLine(
+                    $"[Lumi] Could not recover staged chat deletion '{chatId}': {ex.Message}");
+            }
+        }
+
+        return unresolvedIndexedChats;
+    }
+
+    internal sealed record StagedChatFileDeletion(
+        Guid ChatId,
+        string ChatFile,
+        string TombstoneFile,
+        bool HadFile);
 
     /// <summary>Deletes all per-chat files.</summary>
     public void DeleteAllChatFiles()
@@ -1103,9 +1334,9 @@ public class DataStore
         lock (_chatSearchCacheSync)
             _chatSearchCache.Clear();
 
-        if (Directory.Exists(ChatsDir))
+        if (Directory.Exists(ChatsDirectory))
         {
-            foreach (var file in Directory.GetFiles(ChatsDir, "*.json"))
+            foreach (var file in Directory.GetFiles(ChatsDirectory, "*.json"))
                 File.Delete(file);
         }
 
@@ -1312,11 +1543,14 @@ public class DataStore
     /// per-chat message file was never written (e.g. due to a save failure
     /// or the process being killed between the two writes).
     /// </summary>
-    private void CleanOrphanedChats()
+    internal void CleanOrphanedChats(IReadOnlySet<Guid> unresolvedChatFileDeletions)
     {
         var removed = _data.Chats.RemoveAll(chat =>
         {
-            var chatFile = Path.Combine(ChatsDir, $"{chat.Id}.json");
+            if (unresolvedChatFileDeletions.Contains(chat.Id))
+                return false;
+
+            var chatFile = Path.Combine(ChatsDirectory, $"{chat.Id}.json");
             if (!File.Exists(chatFile))
             {
                 MarkChatDeleted(chat.Id);
@@ -1344,6 +1578,7 @@ public class DataStore
 
         if (removed > 0)
             Save();
+
     }
 
     internal sealed record PlatformSkillText(

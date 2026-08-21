@@ -127,22 +127,27 @@ public partial class ChatViewModel
         string workDir,
         ProjectContextCatalogSnapshot projectContextCatalog,
         Chat chat,
-        LumiAgent? activeAgent)
+        LumiAgent? activeAgent,
+        out IReadOnlyDictionary<string, string> displayNamesByNamespace)
     {
         IReadOnlyCollection<string>? selectedServerNames = null;
         if (CurrentChat?.Id == chat.Id)
             selectedServerNames = ActiveMcpServerNames.ToList();
 
         var proxyRuntime = McpSessionPlanner.SelectProxyRuntime(_dataStore.Data.Settings, McpProxyRuntime.Shared);
+        var displayNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        return McpSessionPlanner.Build(
+        var servers = McpSessionPlanner.Build(
             _dataStore.Data,
             workDir,
             projectContextCatalog,
             chat,
             selectedServerNames,
             activeAgent,
-            proxyRuntime);
+            proxyRuntime,
+            displayNames);
+        displayNamesByNamespace = displayNames;
+        return servers;
     }
 
     private List<AIFunction> BuildWebTools()

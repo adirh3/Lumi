@@ -31,6 +31,7 @@ public sealed record DetachedChatWindowRequest(
 
 public partial class MainViewModel : ObservableObject, IDisposable
 {
+    private static readonly TimeSpan WorktreeDeleteCleanupTimeout = TimeSpan.FromSeconds(30);
     /// <summary>
     /// Display-name cache for BYOK picker tokens, populated by <see cref="InjectByokModels"/>.
     /// Read by <see cref="ChatViewModel.FormatModelDisplay"/> which has no access to <c>UserSettings</c>.
@@ -1381,9 +1382,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
             && !IsWorktreeSharedWithOtherChats(chat))
         {
             _pendingDeleteChat = chat;
+            WorktreeDeleteErrorMessage = "";
             IsWorktreeDeleteDialogOpen = true;
             return;
         }
+
+        using var deletionReservation = _chatSessionStore.TryReserveChatDeletion(chat.Id);
+        if (deletionReservation is null)
+            return;
 
         await PerformDeleteChatAsync(chat);
     }
@@ -1406,6 +1412,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private Chat? _pendingDeleteChat;
     [ObservableProperty] private bool _isWorktreeDeleteDialogOpen;
+    [ObservableProperty] private string _worktreeDeleteErrorMessage = "";
+    public bool HasWorktreeDeleteError => !string.IsNullOrWhiteSpace(WorktreeDeleteErrorMessage);
+    partial void OnWorktreeDeleteErrorMessageChanged(string value)
+        => OnPropertyChanged(nameof(HasWorktreeDeleteError));
 
     [RelayCommand]
     private async Task ConfirmDeleteWithWorktree()
@@ -1413,22 +1423,77 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_pendingDeleteChat is not null)
         {
             var chat = _pendingDeleteChat;
-            if (IsChatFirstTurnReserved(chat.Id))
+            using var deletionReservation = _chatSessionStore.TryReserveChatDeletion(chat.Id);
+            if (deletionReservation is null)
                 return;
+            if (!_dataStore.Data.Chats.Contains(chat))
+            {
+                _pendingDeleteChat = null;
+                WorktreeDeleteErrorMessage = "";
+                IsWorktreeDeleteDialogOpen = false;
+                return;
+            }
 
+            var worktreePath = chat.WorktreePath;
+            var projectDir = GetProjectDirForChat(chat);
             _pendingDeleteChat = null;
             IsWorktreeDeleteDialogOpen = false;
-            if (!await PerformDeleteChatAsync(chat))
-                return;
+            WorktreeDeleteErrorMessage = "";
 
-            // Clean up worktree + branch in background
-            if (chat.WorktreePath is { Length: > 0 } wt)
+            if (worktreePath is not { Length: > 0 } wt || projectDir is null)
             {
-                var projectDir = GetProjectDirForChat(chat);
-                if (projectDir is not null)
-                    await GitService.RemoveWorktreeAsync(projectDir, wt);
+                ShowWorktreeDeleteFailure(chat);
+                return;
+            }
+
+            using var cleanupReservation = _dataStore.TryReserveWorktreeCleanup(
+                chat,
+                wt,
+                out var isShared);
+            if (cleanupReservation is null)
+            {
+                // A chat may begin sharing this worktree after the dialog opens. Delete only the
+                // requested chat in that case; the newly attached chat still owns the directory.
+                if (isShared && !await PerformDeleteChatAsync(chat))
+                    ShowWorktreeDeleteFailure(chat);
+                else if (!isShared)
+                    ShowWorktreeDeleteFailure(chat);
+                return;
+            }
+
+            try
+            {
+                using var cleanupCts = new CancellationTokenSource(WorktreeDeleteCleanupTimeout);
+                await _chatSessionStore.CleanupChatAsync(chat.Id, cleanupCts.Token);
+                await McpProxyRuntime.Shared.RetireRegistrationsForWorkingDirectoryAsync(wt);
+                if (!await GitService.RemoveWorktreeAsync(projectDir, wt))
+                {
+                    cleanupReservation.RestoreOwnerAssociation();
+                    ShowWorktreeDeleteFailure(chat);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Lumi] Failed to remove worktree '{wt}': {ex.Message}");
+                cleanupReservation.RestoreOwnerAssociation();
+                ShowWorktreeDeleteFailure(chat);
+                return;
+            }
+
+            if (_dataStore.Data.Chats.Contains(chat)
+                && !await PerformDeleteChatAsync(chat))
+            {
+                ShowWorktreeDeleteFailure(chat, Loc.Status_ChatDeleteFailedAfterWorktreeRemoved);
             }
         }
+    }
+
+    private void ShowWorktreeDeleteFailure(Chat chat, string? message = null)
+    {
+        _pendingDeleteChat = chat;
+        WorktreeDeleteErrorMessage = message ?? Loc.Status_WorktreeRemoveFailed;
+        IsWorktreeDeleteDialogOpen = true;
     }
 
     [RelayCommand]
@@ -1437,11 +1502,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_pendingDeleteChat is not null)
         {
             var chat = _pendingDeleteChat;
-            if (IsChatFirstTurnReserved(chat.Id))
+            using var deletionReservation = _chatSessionStore.TryReserveChatDeletion(chat.Id);
+            if (deletionReservation is null)
                 return;
 
             _pendingDeleteChat = null;
             IsWorktreeDeleteDialogOpen = false;
+            WorktreeDeleteErrorMessage = "";
             await PerformDeleteChatAsync(chat);
         }
     }
@@ -1450,12 +1517,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private void CancelDeleteWorktreeDialog()
     {
         _pendingDeleteChat = null;
+        WorktreeDeleteErrorMessage = "";
         IsWorktreeDeleteDialogOpen = false;
     }
 
     internal async Task<bool> DeleteChatKeepingWorktreeAsync(Chat chat)
     {
-        if (!_dataStore.Data.Chats.Contains(chat) || IsChatFirstTurnReserved(chat.Id))
+        using var deletionReservation = _chatSessionStore.TryReserveChatDeletion(chat.Id);
+        if (deletionReservation is null || !_dataStore.Data.Chats.Contains(chat))
             return false;
 
         return await PerformDeleteChatAsync(chat);
@@ -1479,16 +1548,68 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 surface.ClearChat();
         });
 
-        _chatSessionStore.CleanupChat(chat.Id);
         if (deletedActiveChat)
             ClearMainChatSurface();
+
+        // Worktree deletion may already have stopped and awaited every session before Git removal, but
+        // active/detached surfaces were still hosted then. Clear each matching surface, release the main
+        // host, and only now run the idempotent final cleanup so no deleted transcript remains cached.
+        _chatSessionStore.CleanupChat(chat.Id);
+        var chatIndex = _dataStore.Data.Chats.IndexOf(chat);
+        var removedJobs = _dataStore.Data.BackgroundJobs
+            .Where(job => job.ChatId == chat.Id)
+            .ToList();
+
+        DataStore.StagedChatFileDeletion stagedDeletion;
+        try
+        {
+            // Atomically rename the transcript before removing its index entry. A lock leaves the chat
+            // retryable, while a crash restores or finishes the tombstone based on the persisted index.
+            stagedDeletion = await _dataStore.StageChatFileDeletionAsync(chat.Id);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Lumi] Failed to stage chat file deletion '{chat.Id}': {ex.Message}");
+            RefreshChatList();
+            return false;
+        }
+
         _dataStore.Data.Chats.Remove(chat);
         _dataStore.RemoveBackgroundJobsForChat(chat.Id);
         _backgroundJobService.Reschedule();
-        _chatNavigationHistory.RemoveChat(chat.Id);
         _dataStore.MarkChatDeleted(chat.Id);
-        await _dataStore.DeleteChatFileAsync(chat.Id);
-        await _dataStore.SaveAsync();
+        try
+        {
+            // The content file is already gone. Persist the index deletion; if this fails, restore both the
+            // in-memory entry and its content file so runtime and disk state remain aligned.
+            await _dataStore.SaveAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Lumi] Failed to persist chat deletion '{chat.Id}': {ex.Message}");
+            if (!_dataStore.Data.Chats.Contains(chat))
+                _dataStore.Data.Chats.Insert(Math.Clamp(chatIndex, 0, _dataStore.Data.Chats.Count), chat);
+            foreach (var job in removedJobs.Where(job => !_dataStore.Data.BackgroundJobs.Contains(job)))
+                _dataStore.AddBackgroundJob(job);
+            _dataStore.MarkChatChanged(chat);
+            try
+            {
+                await _dataStore.RollbackStagedChatFileDeletionAsync(
+                    stagedDeletion,
+                    CancellationToken.None);
+            }
+            catch (Exception restoreEx)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[Lumi] Failed to roll back chat file deletion '{chat.Id}': {restoreEx.Message}");
+            }
+            _backgroundJobService.Reschedule();
+            RefreshChatList();
+            return false;
+        }
+
+        await _dataStore.CommitStagedChatFileDeletionAsync(stagedDeletion, CancellationToken.None);
+        _chatNavigationHistory.RemoveChat(chat.Id);
         RefreshChatList();
         ChatDeleted?.Invoke(chat.Id);
 

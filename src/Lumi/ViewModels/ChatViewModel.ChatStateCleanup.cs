@@ -465,6 +465,8 @@ public partial class ChatViewModel
             _sessionSubs.Remove(chatId);
         }
         _activeMcpConfigs.TryRemove(chatId, out _);
+        _activeMcpStatuses.TryRemove(chatId, out _);
+        _activeMcpDisplayNames.TryRemove(chatId, out _);
         ForgetMcpOAuthState(chatId);
     }
 
@@ -633,18 +635,28 @@ public partial class ChatViewModel
     /// </summary>
     private void TrackSessionRelease(Guid chatId, CopilotSession session, bool deleteServerSession)
     {
-        var releaseTask = DisposeReleasedSessionAsync(session, deleteServerSession);
-        _sessionReleaseTasks[chatId] = releaseTask;
-        _ = releaseTask.ContinueWith(
+        var sessionReleaseTask = DisposeReleasedSessionAsync(session, deleteServerSession);
+        _sessionReleaseTasks.TryGetValue(chatId, out var previousReleaseTask);
+        var trackedReleaseTask = CombinePendingSessionReleases(previousReleaseTask, sessionReleaseTask);
+        _sessionReleaseTasks[chatId] = trackedReleaseTask;
+        _ = trackedReleaseTask.ContinueWith(
             _ => Dispatcher.UIThread.Post(() =>
             {
                 if (_sessionReleaseTasks.TryGetValue(chatId, out var trackedTask)
-                    && ReferenceEquals(trackedTask, releaseTask))
+                    && ReferenceEquals(trackedTask, trackedReleaseTask))
                 {
                     _sessionReleaseTasks.Remove(chatId);
                 }
             }),
             TaskScheduler.Default);
+    }
+
+    internal static Task CombinePendingSessionReleases(Task? previousRelease, Task currentRelease)
+    {
+        ArgumentNullException.ThrowIfNull(currentRelease);
+        return previousRelease is null
+            ? currentRelease
+            : Task.WhenAll(previousRelease, currentRelease);
     }
 
     // Routes every dropped session through CopilotService so the release is registered by server
@@ -678,6 +690,12 @@ public partial class ChatViewModel
         // Removal is already owned by TrackSessionRelease's completion continuation, which marshals
         // back to the UI thread and drops the entry (guarded by the same ReferenceEquals check).
     }
+
+    internal Task WaitForSessionReleaseAsync(Guid chatId, CancellationToken ct = default)
+        => AwaitPendingSessionReleaseAsync(chatId, ct);
+
+    internal bool HasPendingSessionRelease(Guid chatId)
+        => _sessionReleaseTasks.ContainsKey(chatId);
 
     internal void ReleaseIdleCachedChatRuntime()
     {

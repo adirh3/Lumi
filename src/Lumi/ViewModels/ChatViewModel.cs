@@ -55,6 +55,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// </summary>
     private readonly HashSet<string> _mcpOAuthLoginAttempts = new(StringComparer.Ordinal);
     private readonly object _mcpOAuthLoginLock = new();
+    private static readonly object ChatOperationReservationLock = new();
+    private static readonly HashSet<Guid> ChatDeletionReservations = [];
+    private static readonly HashSet<Guid> ChatSendReservations = [];
     private readonly object _externalSendReservationLock = new();
     private readonly Dictionary<Guid, ExternalSendReservationState> _externalSendReservations = [];
 
@@ -74,12 +77,22 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly ConcurrentDictionary<Guid, IReadOnlyDictionary<string, McpServerConfig>> _activeMcpConfigs = new();
 
     /// <summary>
+    /// Latest runtime status reported for each MCP server in each chat. The startup status RPC can
+    /// block until every server connects, so live events are the only reliable way to identify which
+    /// individual servers are still starting when the overall settle budget expires.
+    /// </summary>
+    private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, McpServerStatus>> _activeMcpStatuses = new();
+
+    /// <summary>Maps CAPI-safe runtime namespaces back to the user-visible MCP server names.</summary>
+    private readonly ConcurrentDictionary<Guid, IReadOnlyDictionary<string, string>> _activeMcpDisplayNames = new();
+
+    /// <summary>
     /// How long the first prompt waits for remote MCP servers to connect. Without it the first turn is
     /// dispatched while they are still <c>not_configured</c> and the model gets none of their tools.
-    /// Measured settle times are ~1.2s connected and ~4.2s with an OAuth exchange; the cap only bites
-    /// when a server is genuinely stuck, since failed and consent-pending servers exit immediately.
+    /// Warm proxy connections normally settle immediately, while a legitimate cold start (for example,
+    /// a project MCP launched through <c>dotnet run</c>) can take around 40 seconds.
     /// </summary>
-    private static readonly TimeSpan McpSettleBudget = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan McpSettleBudget = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan McpSettlePollInterval = TimeSpan.FromMilliseconds(200);
 
     /// <summary>
@@ -88,7 +101,22 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// go out with no remote tools.
     /// </summary>
     internal static bool IsMcpStatusSettling(McpServerStatus status)
-        => status == McpServerStatus.Pending || status == McpServerStatus.NotConfigured;
+        => status == McpServerStatus.Pending
+           || status == McpServerStatus.NotConfigured
+           || string.Equals(status.Value, "starting", StringComparison.OrdinalIgnoreCase);
+
+    internal static IReadOnlyList<string> GetUnsettledMcpServerNames(
+        IEnumerable<string> configuredServerNames,
+        IReadOnlyDictionary<string, McpServerStatus> observedStatuses)
+    {
+        ArgumentNullException.ThrowIfNull(configuredServerNames);
+        ArgumentNullException.ThrowIfNull(observedStatuses);
+
+        return configuredServerNames
+            .Where(serverName => !observedStatuses.TryGetValue(serverName, out var status)
+                                 || IsMcpStatusSettling(status))
+            .ToList();
+    }
 
     /// <summary>
     /// True when any configured server is remote. Only remote servers connect asynchronously over the
@@ -174,7 +202,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         IReadOnlyDictionary<string, McpServerConfig> configuredServers,
         CancellationToken ct)
     {
-        _activeMcpConfigs[chatId] = configuredServers;
+        var observedStatuses = _activeMcpStatuses.GetOrAdd(
+            chatId,
+            static _ => new ConcurrentDictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase));
         var handledStatuses = new Dictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase);
         var handedOff = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -193,6 +223,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // An empty list means the runtime hasn't registered the servers we configured yet —
                 // the same "not ready" state as not_configured, so keep waiting.
                 var servers = mcpList?.Servers is { Count: > 0 } reported ? reported : null;
+                if (servers is not null)
+                {
+                    foreach (var server in servers)
+                        observedStatuses[server.Name] = server.Status;
+                }
+
                 var evaluation = servers is not null
                     ? EvaluateMcpSettle(servers, handledStatuses, handedOff)
                     : new McpSettleEvaluation([], KeepWaiting: true);
@@ -217,7 +253,49 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 await Task.Delay(McpSettlePollInterval, settleCt).ConfigureAwait(false);
             }
         }
-        catch { /* best effort — don't let MCP status checks break the chat flow */ }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            var timedOutServers = GetUnsettledMcpServerNames(configuredServers.Keys, observedStatuses);
+            Debug.WriteLine(
+                $"[MCP] Startup settle timed out for chat {chatId}: {string.Join(", ", timedOutServers)}");
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!_sessionCache.TryGetValue(chatId, out var currentSession)
+                    || !ReferenceEquals(currentSession, session))
+                {
+                    return;
+                }
+
+                foreach (var serverName in timedOutServers)
+                {
+                    if (observedStatuses.TryGetValue(serverName, out var latestStatus)
+                        && !IsMcpStatusSettling(latestStatus))
+                    {
+                        continue;
+                    }
+
+                    var displayName = ResolveMcpDisplayName(chatId, serverName);
+                    SetMcpChipError(
+                        chatId,
+                        serverName,
+                        $"MCP server '{displayName}' did not finish connecting within 60 seconds. Its tools may appear after startup completes.");
+                }
+            });
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex) when (ex is IOException or HttpRequestException or TimeoutException)
+        {
+            Debug.WriteLine($"[MCP] Startup status check failed for chat {chatId}: {ex.Message}");
+        }
+        catch (Exception ex) when (string.Equals(
+                                      ex.GetType().FullName,
+                                      "GitHub.Copilot.RemoteRpcException",
+                                      StringComparison.Ordinal))
+        {
+            Debug.WriteLine($"[MCP] Startup status RPC failed for chat {chatId}: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -237,9 +315,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (string.IsNullOrWhiteSpace(serverName))
             return false;
 
+        var observedStatuses = _activeMcpStatuses.GetOrAdd(
+            chatId,
+            static _ => new ConcurrentDictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase));
+        observedStatuses[serverName] = status;
+
         McpServerConfig? config = null;
         if (_activeMcpConfigs.TryGetValue(chatId, out var configured))
             configured.TryGetValue(serverName, out config);
+        var displayName = ResolveMcpDisplayName(chatId, serverName);
 
         if (status == McpServerStatus.Connected)
         {
@@ -259,7 +343,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return false;
 
         var errorMessage = await BuildMcpStatusErrorMessageAsync(
-            serverName, status, error ?? "", config, ct).ConfigureAwait(false);
+            displayName, status, error ?? "", config, ct).ConfigureAwait(false);
 
         if (status == McpServerStatus.NeedsAuth)
         {
@@ -308,6 +392,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat?.Id != chatId || _activeSession != session)
             return true;
 
+        var displayName = ResolveMcpDisplayName(chatId, serverName);
         var key = McpOAuthKey(session, serverName);
         lock (_mcpOAuthLoginLock)
         {
@@ -330,9 +415,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // An empty URL means a cached token is being reused; a later Connected event clears the chip.
             if (!string.IsNullOrWhiteSpace(authorizationUrl))
             {
-                var openedMessage =
-                    $"Lumi opened your browser to sign in to MCP server '{serverName}'. " +
-                    "Finish signing in and it reconnects automatically.";
+                var openedMessage = BuildMcpOAuthOpenedMessage(displayName);
                 ResolveMcpOAuthChip(chatId, serverName, key, openedMessage);
                 return true;
             }
@@ -353,9 +436,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // Sign-in couldn't be started — e.g. the server's identity provider doesn't support
             // dynamic client registration. Report it honestly and keep the attempt recorded so we
             // don't hammer a failing endpoint on every status event; a later session retries cleanly.
-            var failedMessage =
-                $"Lumi couldn't start sign-in for MCP server '{serverName}' automatically " +
-                $"({DescribeMcpOAuthLoginFailure(ex)}). Open it from the MCP servers page to sign in.";
+            var failedMessage = BuildMcpOAuthFailureMessage(
+                displayName,
+                DescribeMcpOAuthLoginFailure(ex));
             ResolveMcpOAuthChip(chatId, serverName, key, failedMessage);
             return true;
         }
@@ -363,6 +446,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // Empty URL: a cached token is being reused and the server reconnects shortly on its own.
         return false;
     }
+
+    internal static string BuildMcpOAuthOpenedMessage(string displayName)
+        => $"Lumi opened your browser to sign in to MCP server '{displayName}'. " +
+           "Finish signing in and it reconnects automatically.";
+
+    internal static string BuildMcpOAuthFailureMessage(string displayName, string failure)
+        => $"Lumi couldn't start sign-in for MCP server '{displayName}' automatically " +
+           $"({failure}). Open it from the MCP servers page to sign in.";
 
     /// <summary>
     /// Records the final OAuth chip message for a session+server and shows it, so later repeated
@@ -421,7 +512,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat?.Id != chatId)
             return;
 
-        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>().FirstOrDefault(c => c.Name == serverName);
+        var displayName = ResolveMcpDisplayName(chatId, serverName);
+        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>()
+            .FirstOrDefault(c => string.Equals(c.Name, displayName, StringComparison.OrdinalIgnoreCase));
         if (existingChip is null)
             return;
 
@@ -434,12 +527,20 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat?.Id != chatId)
             return;
 
-        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>().FirstOrDefault(c => c.Name == serverName);
+        var displayName = ResolveMcpDisplayName(chatId, serverName);
+        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>()
+            .FirstOrDefault(c => string.Equals(c.Name, displayName, StringComparison.OrdinalIgnoreCase));
         if (existingChip is null || !existingChip.HasError)
             return;
 
         ActiveMcpChips[ActiveMcpChips.IndexOf(existingChip)] = existingChip with { ErrorMessage = null };
     }
+
+    private string ResolveMcpDisplayName(Guid chatId, string serverName)
+        => _activeMcpDisplayNames.TryGetValue(chatId, out var displayNames)
+           && displayNames.TryGetValue(serverName, out var displayName)
+            ? displayName
+            : serverName;
 
     internal static async Task<string> BuildMcpStatusErrorMessageAsync(
         string serverName,
@@ -1958,7 +2059,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var externalAgent = activeAgent is null
             ? FindExternalAgentByName(projectContextCatalog, sdkAgentName)
             : null;
-        var mcpServers = BuildMcpServers(workDir, projectContextCatalog, chat, activeAgent);
+        var mcpServers = BuildMcpServers(
+            workDir,
+            projectContextCatalog,
+            chat,
+            activeAgent,
+            out var mcpDisplayNamesByNamespace);
 
         var customAgents = BuildCustomAgents(projectContextCatalog);
         var customTools = BuildCustomTools(chat.Id, activeAgent, projectContextCatalog);
@@ -2049,7 +2155,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         };
 
         if (mcpServers is { Count: > 0 })
+        {
             SetSessionSetupStatus(chat, Loc.Status_ConnectingMcp);
+        }
 
         // When MCP servers are configured, apply a timeout so a broken server
         // doesn't block the UI indefinitely.
@@ -2104,6 +2212,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             && !string.Equals(chat.SessionProviderSignature, currentByokSignature, StringComparison.Ordinal))
         {
             DetachPersistedSession(chat);
+        }
+
+        if (mcpServers is { Count: > 0 })
+        {
+            _activeMcpConfigs[chat.Id] = mcpServers;
+            _activeMcpStatuses[chat.Id] = new ConcurrentDictionary<string, McpServerStatus>(
+                StringComparer.OrdinalIgnoreCase);
+            _activeMcpDisplayNames[chat.Id] = mcpDisplayNamesByNamespace;
         }
 
         // Local helpers: capture the shared session-config arguments (system prompt, model,
@@ -2872,18 +2988,105 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     internal ExternalSendReservation? TryReserveExternalSend(Guid chatId)
     {
-        lock (_externalSendReservationLock)
+        lock (ChatOperationReservationLock)
         {
-            if (OwnsLiveChat(chatId) || _externalSendReservations.ContainsKey(chatId))
+            if (ChatDeletionReservations.Contains(chatId)
+                || !ChatSendReservations.Add(chatId))
                 return null;
 
-            var token = Guid.NewGuid();
-            var cancellation = new CancellationTokenSource();
-            _externalSendReservations[chatId] = new ExternalSendReservationState(
-                token,
-                cancellation);
-            return new ExternalSendReservation(this, chatId, token, cancellation);
+            lock (_externalSendReservationLock)
+            {
+                if (OwnsLiveChat(chatId) || _externalSendReservations.ContainsKey(chatId))
+                {
+                    ChatSendReservations.Remove(chatId);
+                    return null;
+                }
+
+                var token = Guid.NewGuid();
+                var cancellation = new CancellationTokenSource();
+                _externalSendReservations[chatId] = new ExternalSendReservationState(
+                    token,
+                    cancellation);
+                return new ExternalSendReservation(this, chatId, token, cancellation);
+            }
         }
+    }
+
+    internal sealed class ChatSendReservationScope : IDisposable
+    {
+        private Guid? _chatId;
+
+        public bool TryReserve(Guid chatId)
+        {
+            if (_chatId == chatId)
+                return true;
+
+            Release();
+            lock (ChatOperationReservationLock)
+            {
+                if (ChatDeletionReservations.Contains(chatId)
+                    || !ChatSendReservations.Add(chatId))
+                {
+                    return false;
+                }
+            }
+
+            _chatId = chatId;
+            return true;
+        }
+
+        public void Release()
+        {
+            if (_chatId is not { } chatId)
+                return;
+
+            _chatId = null;
+            lock (ChatOperationReservationLock)
+                ChatSendReservations.Remove(chatId);
+        }
+
+        public void Dispose() => Release();
+    }
+
+    internal sealed class ChatDeletionReservation : IDisposable
+    {
+        private readonly Guid _chatId;
+        private int _disposed;
+
+        internal ChatDeletionReservation(Guid chatId)
+        {
+            _chatId = chatId;
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+
+            lock (ChatOperationReservationLock)
+                ChatDeletionReservations.Remove(_chatId);
+        }
+    }
+
+    internal static ChatDeletionReservation? TryReserveChatDeletion(Guid chatId)
+    {
+        lock (ChatOperationReservationLock)
+        {
+            if (ChatDeletionReservations.Contains(chatId)
+                || ChatSendReservations.Contains(chatId))
+            {
+                return null;
+            }
+
+            ChatDeletionReservations.Add(chatId);
+            return new ChatDeletionReservation(chatId);
+        }
+    }
+
+    internal static bool IsChatDeletionReserved(Guid chatId)
+    {
+        lock (ChatOperationReservationLock)
+            return ChatDeletionReservations.Contains(chatId);
     }
 
     internal bool IsExternalSendReserved(Guid chatId)
@@ -2925,14 +3128,21 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void ReleaseExternalSendReservation(Guid chatId, Guid token)
     {
-        lock (_externalSendReservationLock)
+        lock (ChatOperationReservationLock)
         {
-            if (_externalSendReservations.TryGetValue(chatId, out var reservation)
-                && reservation.Token == token)
+            lock (_externalSendReservationLock)
             {
+                if (!_externalSendReservations.TryGetValue(chatId, out var reservation)
+                    || reservation.Token != token)
+                {
+                    return;
+                }
+
                 _externalSendReservations.Remove(chatId);
                 reservation.Cancellation.Dispose();
             }
+
+            ChatSendReservations.Remove(chatId);
         }
     }
 
@@ -3050,7 +3260,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ArgumentNullException.ThrowIfNull(targetChat);
 
         if (OwnsLiveChat(targetChat.Id)
-            || IsExternalSendReservedByAnother(targetChat.Id, reservationToken))
+            || IsExternalSendReservedByAnother(targetChat.Id, reservationToken)
+            || _dataStore.IsChatFileDeletionPending(targetChat.Id))
+            throw new InvalidOperationException($"Chat \"{targetChat.Title}\" is already running.");
+        using var internalSendReservation = new ChatSendReservationScope();
+        if (reservationToken is null && !internalSendReservation.TryReserve(targetChat.Id))
             throw new InvalidOperationException($"Chat \"{targetChat.Title}\" is already running.");
         if (reservationToken is { } initialReservationToken
             && IsExternalSendReservationCanceled(targetChat.Id, initialReservationToken))
@@ -3144,6 +3358,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ActiveSkills = BuildSkillReferences(targetChat.ActiveSkillIds, targetChat.ActiveExternalSkillNames)
         };
 
+        var previousTitle = targetChat.Title;
+        var previousUnread = targetChat.HasUnreadMessages;
+        var previousDeviceId = targetChat.LastRemoteDeviceId;
+        var previousRequestId = targetChat.LastRemoteRequestId;
+        var remoteReceiptPersisted = false;
         targetChat.Messages.Add(userMsg);
         if (CurrentChat?.Id == targetChat.Id)
         {
@@ -3160,8 +3379,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         if (remoteDeviceId is { Length: > 0 } && remoteRequestId is { Length: > 0 })
         {
-            var previousDeviceId = targetChat.LastRemoteDeviceId;
-            var previousRequestId = targetChat.LastRemoteRequestId;
             targetChat.LastRemoteDeviceId = remoteDeviceId;
             targetChat.LastRemoteRequestId = remoteRequestId;
             try
@@ -3169,18 +3386,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 _dataStore.MarkChatChanged(targetChat);
                 await _dataStore.SaveChatAsync(targetChat, cancellationToken).ConfigureAwait(true);
                 await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(true);
+                remoteReceiptPersisted = true;
             }
             catch
             {
-                targetChat.LastRemoteDeviceId = previousDeviceId;
-                targetChat.LastRemoteRequestId = previousRequestId;
-                targetChat.Messages.Remove(userMsg);
-                if (CurrentChat?.Id == targetChat.Id)
-                {
-                    var visible = Messages.FirstOrDefault(item => ReferenceEquals(item.Message, userMsg));
-                    if (visible is not null)
-                        Messages.Remove(visible);
-                }
+                RollBackExternalMessageInMemory(
+                    targetChat,
+                    userMsg,
+                    previousTitle,
+                    previousUnread,
+                    previousDeviceId,
+                    previousRequestId);
                 throw;
             }
         }
@@ -3202,6 +3418,30 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         try
         {
             var chatId = targetChat.Id;
+            if (reservationToken is { } activationReservationToken
+                && IsExternalSendReservationCanceled(chatId, activationReservationToken))
+            {
+                RollBackExternalMessageInMemory(
+                    targetChat,
+                    userMsg,
+                    previousTitle,
+                    previousUnread,
+                    previousDeviceId,
+                    previousRequestId);
+                _dataStore.MarkChatChanged(targetChat);
+                if (remoteReceiptPersisted)
+                {
+                    await _dataStore.SaveChatAsync(targetChat, CancellationToken.None).ConfigureAwait(true);
+                    await _dataStore.SaveAsync(CancellationToken.None).ConfigureAwait(true);
+                }
+                else
+                {
+                    QueueSaveChat(targetChat, saveIndex: true, touchIndex: true);
+                }
+                ChatUpdated?.Invoke();
+                throw new OperationCanceledException("The pending turn start was canceled.");
+            }
+
             var abortedPreviousTurn = ReleasePreviousTurnCancellation(chatId);
             if (abortedPreviousTurn
                 && _sessionCache.TryGetValue(chatId, out var abortSession))
@@ -3212,6 +3452,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             var runtime = GetOrCreateRuntimeState(chatId);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
+            internalSendReservation.Release();
             if (reservationToken is { } token)
             {
                 ReleaseExternalSendReservation(chatId, token);
@@ -3303,6 +3544,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                             ContextTier = SessionConfigBuilder.CreateContextTier(overrideContextTier)
                         });
                 }
+
                 catch
                 {
                     // Best-effort: keep the session's current model if the mid-session switch fails.
@@ -3425,6 +3667,27 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             HandleSendError(ex, cts.IsCancellationRequested, chat: targetChat);
             throw;
         }
+    }
+
+    private void RollBackExternalMessageInMemory(
+        Chat targetChat,
+        ChatMessage userMessage,
+        string previousTitle,
+        bool previousUnread,
+        string? previousDeviceId,
+        string? previousRequestId)
+    {
+        targetChat.Title = previousTitle;
+        targetChat.HasUnreadMessages = previousUnread;
+        targetChat.LastRemoteDeviceId = previousDeviceId;
+        targetChat.LastRemoteRequestId = previousRequestId;
+        targetChat.Messages.Remove(userMessage);
+        if (CurrentChat?.Id != targetChat.Id)
+            return;
+
+        var visible = Messages.FirstOrDefault(item => ReferenceEquals(item.Message, userMessage));
+        if (visible is not null)
+            Messages.Remove(visible);
     }
 
     private static string BuildBackgroundJobPrompt(BackgroundJob job, string triggerContext)
@@ -3973,6 +4236,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task SendMessage()
     {
+        if (CurrentChat is { } unavailableChat
+            && (IsChatDeletionReserved(unavailableChat.Id)
+                || _dataStore.IsChatFileDeletionPending(unavailableChat.Id)))
+        {
+            StatusText = Loc.Status_DeletingChat;
+            return;
+        }
+
         if (_editingUserMessage is not null)
         {
             await SendEditedMessage();
@@ -3994,6 +4265,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var prompt = PromptText?.Trim();
         if (string.IsNullOrWhiteSpace(prompt))
             return;
+
+        if (CurrentChat is { } deletingChat
+            && (IsChatDeletionReserved(deletingChat.Id)
+                || _dataStore.IsChatFileDeletionPending(deletingChat.Id)))
+        {
+            StatusText = Loc.Status_DeletingChat;
+            return;
+        }
 
         // No live turn to abort — nothing to stop, so send normally as a fresh turn.
         if (CurrentChat is not { } chat || !IsChatRuntimeActive(chat.Id))
@@ -4022,6 +4301,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         var prompt = promptText.Trim();
         var guardChat = CurrentChat;
+        if (guardChat is not null
+            && (IsChatDeletionReserved(guardChat.Id)
+                || _dataStore.IsChatFileDeletionPending(guardChat.Id)))
+        {
+            StatusText = Loc.Status_DeletingChat;
+            return;
+        }
+
         var selectedModelForSend = guardChat is not null
             ? ResolveSelectedModelForChat(guardChat)
             : SelectedModel;
@@ -4034,7 +4321,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (CurrentChat is { } reservedChat && IsExternalSendReserved(reservedChat.Id))
+        using var sendReservation = new ChatSendReservationScope();
+        if (guardChat is not null && !sendReservation.TryReserve(guardChat.Id))
         {
             StatusText = Loc.Status_Thinking;
             return;
@@ -4128,6 +4416,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         // Capture before any async operations — CurrentChat may change if the user switches chats
         var targetChat = CurrentChat!;
+        if (!sendReservation.TryReserve(targetChat.Id))
+        {
+            StatusText = Loc.Status_DeletingChat;
+            return;
+        }
         ClearPersistedSuggestions(targetChat);
         targetChat.LastModelUsed = SelectedModel;
         ApplyResolvedModelSelectionToChat(targetChat, selectedReasoningEffort, selectedContextTier);
@@ -4252,6 +4545,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
+            sendReservation.Release();
             if (CurrentChat?.Id == targetChat.Id)
                 ApplyDisplayedRuntimeState(runtime);
 
@@ -5905,6 +6199,20 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         bool requiresSessionRebuild = false)
     {
         if (CurrentChat is null) return;
+        var targetChat = CurrentChat;
+        if (IsChatDeletionReserved(targetChat.Id)
+            || _dataStore.IsChatFileDeletionPending(targetChat.Id))
+        {
+            StatusText = Loc.Status_DeletingChat;
+            return;
+        }
+
+        using var sendReservation = new ChatSendReservationScope();
+        if (!sendReservation.TryReserve(targetChat.Id))
+        {
+            StatusText = Loc.Status_DeletingChat;
+            return;
+        }
 
         // ── Non-BYOK block ──
         // Enforce before doing any transcript/session work, independent of session caching.
@@ -5918,6 +6226,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // Stop any active generation first
         if (IsBusy)
             await StopGeneration();
+        if (CurrentChat?.Id != targetChat.Id)
+            return;
 
         var idx = CurrentChat.Messages.IndexOf(userMessage);
         if (idx < 0) return;
@@ -6163,6 +6473,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             var runtime = GetOrCreateRuntimeState(CurrentChat.Id);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
+            sendReservation.Release();
             ApplyDisplayedRuntimeState(runtime);
             if (WorktreePath is { Length: > 0 } wtPath && attachments.Count > 0)
             {

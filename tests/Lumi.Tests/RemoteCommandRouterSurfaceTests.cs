@@ -17,6 +17,79 @@ namespace Lumi.Tests;
 public sealed class RemoteCommandRouterSurfaceTests
 {
     [Fact]
+    public Task RemoteSendIsRejectedWhileChatDeletionIsReserved() => RunAsync(async () =>
+    {
+        var chat = new Chat { Title = "Deleting", MessageCount = 1 };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "existing" });
+        var dataStore = new DataStore(new AppData
+        {
+            Settings = TestSettings(),
+            Chats = [chat]
+        });
+        using var main = new MainViewModel(
+            dataStore,
+            TestCopilot.Shared,
+            new UpdateService(),
+            initializeCopilotOnStartup: false);
+        await main.OpenChatByIdAsync(chat.Id);
+        using var deletion = ChatViewModel.TryReserveChatDeletion(chat.Id);
+        Assert.NotNull(deletion);
+        var router = new RemoteCommandRouter(dataStore, main);
+
+        var result = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                .With("chatId", chat.Id.ToString())
+                .With("message", "do not send"),
+            CancellationToken.None);
+
+        Assert.False(result.Ok);
+        Assert.Equal("That chat is being deleted.", result.Error);
+        Assert.Single(chat.Messages);
+    });
+
+    [Fact]
+    public Task ExistingChatRemoteSendBlocksDeletionThroughoutPreflight() => RunAsync(async () =>
+    {
+        var chat = new Chat { Title = "Sending", MessageCount = 1 };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "existing" });
+        var dataStore = new DataStore(new AppData
+        {
+            Settings = TestSettings(),
+            Chats = [chat]
+        });
+        using var main = new MainViewModel(
+            dataStore,
+            TestCopilot.Shared,
+            new UpdateService(),
+            initializeCopilotOnStartup: false);
+        await main.OpenChatByIdAsync(chat.Id);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var router = new RemoteCommandRouter(
+            dataStore,
+            main,
+            async (_, _, _, _, _, _) =>
+            {
+                entered.TrySetResult();
+                await release.Task;
+                return null;
+            });
+
+        var sendTask = router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                .With("chatId", chat.Id.ToString())
+                .With("message", "continue"),
+            CancellationToken.None);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Null(ChatViewModel.TryReserveChatDeletion(chat.Id));
+
+        release.TrySetResult();
+        var result = await sendTask;
+        Assert.True(result.Ok, result.Error);
+    });
+
+    [Fact]
     public Task PersistedRemoteReceiptShortCircuitsARetryAfterRestart() => RunAsync(async () =>
     {
         var chat = new Chat

@@ -192,6 +192,118 @@ public sealed class DataStorePersistenceTests
         Assert.Equal("keep", await File.ReadAllTextAsync(unrelatedTemp));
     }
 
+    [Fact]
+    public async Task StagedChatDeletion_RollbackRestoresUnloadedTranscriptBytes()
+    {
+        using var directory = new TemporaryDirectory();
+        var chat = new Chat { Title = "Unloaded transcript", MessageCount = 1 };
+        var store = new DataStore(
+            new AppData { Chats = [chat] },
+            chatsDirectoryOverride: directory.Path);
+        var chatFile = Path.Combine(directory.Path, $"{chat.Id}.json");
+        var transcript = """[{"role":"user","content":"preserve exactly"}]"""u8.ToArray();
+        await File.WriteAllBytesAsync(chatFile, transcript);
+
+        var staged = await store.StageChatFileDeletionAsync(chat.Id);
+
+        Assert.False(File.Exists(chatFile));
+        Assert.True(File.Exists(staged.TombstoneFile));
+        Assert.Empty(chat.Messages);
+
+        await store.RollbackStagedChatFileDeletionAsync(staged);
+
+        Assert.Equal(transcript, await File.ReadAllBytesAsync(chatFile));
+        Assert.False(File.Exists(staged.TombstoneFile));
+    }
+
+    [Fact]
+    public async Task RecoverStagedChatFileDeletions_UsesPersistedIndexAsCommitDecision()
+    {
+        using var directory = new TemporaryDirectory();
+        var retainedChat = new Chat { Title = "Retained" };
+        var deletedChatId = Guid.NewGuid();
+        var store = new DataStore(
+            new AppData { Chats = [retainedChat] },
+            chatsDirectoryOverride: directory.Path);
+        var retainedFile = Path.Combine(directory.Path, $"{retainedChat.Id}.json");
+        var retainedTombstone = retainedFile + ".deleting";
+        var deletedFile = Path.Combine(directory.Path, $"{deletedChatId}.json");
+        var deletedTombstone = deletedFile + ".deleting";
+        await File.WriteAllTextAsync(retainedTombstone, """[{"role":"user","content":"restore"}]""");
+        await File.WriteAllTextAsync(deletedTombstone, """[{"role":"user","content":"remove"}]""");
+
+        var unresolved = store.RecoverStagedChatFileDeletions();
+
+        Assert.Empty(unresolved);
+        Assert.True(File.Exists(retainedFile));
+        Assert.False(File.Exists(retainedTombstone));
+        Assert.False(File.Exists(deletedFile));
+        Assert.False(File.Exists(deletedTombstone));
+    }
+
+    [Fact]
+    public async Task FailedTombstoneRestore_IsExcludedFromOrphanCleanupUntilRetrySucceeds()
+    {
+        using var directory = new TemporaryDirectory();
+        var chat = new Chat { Title = "Retry restore" };
+        var store = new DataStore(
+            new AppData { Chats = [chat] },
+            chatsDirectoryOverride: directory.Path);
+        var chatFile = Path.Combine(directory.Path, $"{chat.Id}.json");
+        var tombstoneFile = chatFile + ".deleting";
+        await File.WriteAllTextAsync(tombstoneFile, """[{"role":"user","content":"keep"}]""");
+        Directory.CreateDirectory(chatFile);
+
+        var unresolved = store.RecoverStagedChatFileDeletions();
+        store.CleanOrphanedChats(unresolved);
+
+        Assert.Contains(chat.Id, unresolved);
+        Assert.True(store.IsChatFileDeletionPending(chat.Id));
+        Assert.Contains(chat, store.Data.Chats);
+        Assert.True(File.Exists(tombstoneFile));
+        await store.LoadChatMessagesAsync(chat);
+        Assert.Equal("keep", Assert.Single(chat.Messages).Content);
+
+        Directory.Delete(chatFile);
+        unresolved = store.RecoverStagedChatFileDeletions();
+        store.CleanOrphanedChats(unresolved);
+
+        Assert.Empty(unresolved);
+        Assert.False(store.IsChatFileDeletionPending(chat.Id));
+        Assert.Contains(chat, store.Data.Chats);
+        Assert.True(File.Exists(chatFile));
+        Assert.False(File.Exists(tombstoneFile));
+    }
+
+    [Fact]
+    public async Task FailedRollback_KeepsChatFileDeletionPendingUntilRetrySucceeds()
+    {
+        using var directory = new TemporaryDirectory();
+        var chat = new Chat { Title = "Rollback retry" };
+        var store = new DataStore(
+            new AppData { Chats = [chat] },
+            chatsDirectoryOverride: directory.Path);
+        var chatFile = Path.Combine(directory.Path, $"{chat.Id}.json");
+        var transcript = """[{"role":"user","content":"keep"}]"""u8.ToArray();
+        await File.WriteAllBytesAsync(chatFile, transcript);
+        var staged = await store.StageChatFileDeletionAsync(chat.Id);
+        Directory.CreateDirectory(chatFile);
+
+        var rollbackError = await Record.ExceptionAsync(
+            () => store.RollbackStagedChatFileDeletionAsync(staged));
+
+        Assert.True(
+            rollbackError is IOException or UnauthorizedAccessException,
+            $"Expected a filesystem failure, got {rollbackError?.GetType().Name ?? "none"}.");
+        Assert.True(store.IsChatFileDeletionPending(chat.Id));
+        Directory.Delete(chatFile);
+
+        await store.RollbackStagedChatFileDeletionAsync(staged);
+
+        Assert.False(store.IsChatFileDeletionPending(chat.Id));
+        Assert.Equal(transcript, await File.ReadAllBytesAsync(chatFile));
+    }
+
     private static async Task CreatePrimaryAndBackupAsync(string dataFile)
     {
         await JsonFilePersistence.SaveAppDataAsync(dataFile, CreateData("backup"));

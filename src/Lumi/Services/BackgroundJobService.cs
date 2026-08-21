@@ -116,9 +116,14 @@ public sealed class BackgroundJobService : IDisposable
     }
 
     internal ChatViewModel ResolveChatExecutorForTest(Guid chatId) => ResolveChatExecutor(chatId);
+    internal bool IsChatBusyForTest(Guid chatId) => IsChatBusy(chatId);
 
     private bool IsChatBusy(Guid chatId)
     {
+        if (ChatViewModel.IsChatDeletionReserved(chatId)
+            || _dataStore.IsChatFileDeletionPending(chatId))
+            return true;
+
         if (_chatSurfaceRegistry.TryGetLiveOwner(chatId, out var liveSurface))
             return liveSurface.IsChatBusy(chatId);
 

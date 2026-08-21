@@ -301,6 +301,9 @@ internal sealed class RemoteCommandRouter
             if (owner.CurrentChat?.Id != chat.Id)
                 return Fail("Lumi could not activate that chat's surface.", chat.Id);
 
+            if (ChatViewModel.IsChatDeletionReserved(chat.Id))
+                return Fail("That chat is being deleted.", chat.Id);
+
             if (owner.IsExternalSendReserved(chat.Id))
                 return Fail("That chat is already starting a turn.", chat.Id);
 
@@ -319,18 +322,13 @@ internal sealed class RemoteCommandRouter
                     : Fail("Lumi could not steer that message.", chat.Id);
             }
 
-            var initiallyEmpty = chat.MessageCount == 0 && chat.Messages.Count == 0;
-            using var firstTurnReservation = initiallyEmpty
-                ? owner.TryReserveExternalSend(chat.Id)
-                : null;
-            if (initiallyEmpty && firstTurnReservation is null)
-                return Fail("That chat is already starting a turn.", chat.Id);
-            if (!initiallyEmpty && owner.IsExternalSendReserved(chat.Id))
+            using var sendReservation = owner.TryReserveExternalSend(chat.Id);
+            if (sendReservation is null)
                 return Fail("That chat is already starting a turn.", chat.Id);
 
             var previousProjectId = chat.ProjectId;
             var previousWorktreePath = chat.WorktreePath;
-            if (firstTurnReservation?.IsCancellationRequested == true)
+            if (sendReservation.IsCancellationRequested)
                 return Fail("The pending turn start was canceled.", chat.Id);
 
             var projectChangeError = await PrepareProjectChangeAsync(
@@ -340,7 +338,7 @@ internal sealed class RemoteCommandRouter
                 .ConfigureAwait(true);
             if (projectChangeError is not null)
                 return Fail(projectChangeError, chat.Id);
-            if (firstTurnReservation?.IsCancellationRequested == true)
+            if (sendReservation.IsCancellationRequested)
             {
                 if (previousWorktreePath is { Length: > 0 }
                     && chat.ProjectId == previousProjectId
@@ -379,10 +377,8 @@ internal sealed class RemoteCommandRouter
                                   && project?.DefaultNewChatsUseWorktree == true
                                   && GitService.IsGitRepo(project.WorkingDirectory ?? ""));
             var projectChanged = previousProjectId != chat.ProjectId;
-            var reservedProjectId = firstTurnReservation is null ? null : chat.ProjectId;
-            var reservedProjectDirectory = firstTurnReservation is null
-                ? null
-                : project?.WorkingDirectory;
+            var reservedProjectId = chat.ProjectId;
+            var reservedProjectDirectory = project?.WorkingDirectory;
             var hadWorktreeReference = previousWorktreePath is { Length: > 0 };
             var hadReusableWorktree = hadWorktreeReference
                                       && Directory.Exists(previousWorktreePath);
@@ -418,7 +414,7 @@ internal sealed class RemoteCommandRouter
                 }
             }
 
-            if (firstTurnReservation?.IsCancellationRequested == true)
+            if (sendReservation.IsCancellationRequested)
             {
                 var cleanupError = await CleanupCanceledWorktreeAsync(
                         owner,
@@ -444,7 +440,7 @@ internal sealed class RemoteCommandRouter
                         cancellationToken,
                         model,
                         effort,
-                        firstTurnReservation?.Token,
+                        sendReservation.Token,
                         reservedProjectId,
                         reservedProjectDirectory,
                         command.AuthenticatedDeviceId,
@@ -458,8 +454,7 @@ internal sealed class RemoteCommandRouter
             if (startResult.Accepted)
                 return Success("Message sent.", chat.Id);
 
-            if (firstTurnReservation is not null &&
-                !owner.IsExternalProjectContextCurrent(
+            if (!owner.IsExternalProjectContextCurrent(
                     chat,
                     reservedProjectId,
                     reservedProjectDirectory))
@@ -474,7 +469,7 @@ internal sealed class RemoteCommandRouter
 
                 return Fail("The chat project changed while its turn was starting.", chat.Id);
             }
-            if (firstTurnReservation?.IsCancellationRequested == true)
+            if (sendReservation.IsCancellationRequested)
             {
                 var cleanupError = await CleanupCanceledWorktreeAsync(
                         owner,

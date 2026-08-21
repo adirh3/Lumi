@@ -592,7 +592,11 @@ public sealed class ChatOrchestrationService : IDisposable
     }
 
     private bool IsBusy(Guid chatId)
-        => _starting.Contains(chatId) || _runs.ContainsKey(chatId) || _registry.TryGetLiveOwner(chatId, out _);
+        => ChatViewModel.IsChatDeletionReserved(chatId)
+           || _dataStore.IsChatFileDeletionPending(chatId)
+           || _starting.Contains(chatId)
+           || _runs.ContainsKey(chatId)
+           || _registry.TryGetLiveOwner(chatId, out _);
 
     /// <summary>Completes when no orchestrated run is in flight. Intended for graceful shutdown and for
     /// tests that need to drain background runs deterministically; await it on the UI thread.</summary>

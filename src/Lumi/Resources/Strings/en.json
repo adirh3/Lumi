@@ -512,6 +512,9 @@
   "Status_CopilotStoppedResponding": "GitHub Copilot stopped responding. Lumi couldn't recover this turn automatically.",
   "Status_ConnectingMcp": "Connecting MCP servers\u2026",
   "Status_CreatingWorktree": "Creating worktree\u2026",
+  "Status_DeletingChat": "Deleting chat\u2026",
+  "Status_WorktreeRemoveFailed": "Couldn't remove the worktree. The chat was kept so you can retry.",
+  "Status_ChatDeleteFailedAfterWorktreeRemoved": "The worktree was removed, but Lumi couldn't finish deleting the chat. The chat was kept so you can retry.",
 
   "Author_Lumi": "Lumi",
   "Author_Thinking": "Thinking",

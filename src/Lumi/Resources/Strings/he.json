@@ -512,6 +512,9 @@
   "Status_CopilotStoppedResponding": "GitHub Copilot הפסיק להגיב ו-Lumi לא הצליח לשחזר את התור הזה אוטומטית.",
   "Status_ConnectingMcp": "מתחבר לשרתי MCP\u2026",
   "Status_CreatingWorktree": "יוצר worktree\u2026",
+  "Status_DeletingChat": "מוחק את השיחה\u2026",
+  "Status_WorktreeRemoveFailed": "לא ניתן להסיר את ה-worktree. השיחה נשמרה כדי שתוכל לנסות שוב.",
+  "Status_ChatDeleteFailedAfterWorktreeRemoved": "ה-worktree הוסר, אך Lumi לא הצליח להשלים את מחיקת השיחה. השיחה נשמרה כדי שתוכל לנסות שוב.",
 
   "Author_Lumi": "לומי",
   "Author_Thinking": "חשיבה",

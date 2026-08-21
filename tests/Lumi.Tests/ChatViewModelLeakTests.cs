@@ -20,6 +20,205 @@ namespace Lumi.Tests;
 public sealed class ChatViewModelLeakTests
 {
     [Fact]
+    public void ChatDeletionReservation_BlocksFirstTurnReservationsAcrossSurfaces()
+    {
+        var chatId = Guid.NewGuid();
+        var first = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var second = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        try
+        {
+            using (var deletion = ChatViewModel.TryReserveChatDeletion(chatId))
+            {
+                Assert.NotNull(deletion);
+                Assert.Null(first.TryReserveExternalSend(chatId));
+                Assert.Null(second.TryReserveExternalSend(chatId));
+                Assert.Null(ChatViewModel.TryReserveChatDeletion(chatId));
+            }
+
+            using var firstTurn = first.TryReserveExternalSend(chatId);
+            Assert.NotNull(firstTurn);
+        }
+        finally
+        {
+            first.Dispose();
+            second.Dispose();
+        }
+    }
+
+    [Fact]
+    public void ExistingFirstTurnReservation_BlocksChatDeletionReservation()
+    {
+        var chatId = Guid.NewGuid();
+        var viewModel = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        try
+        {
+            using var firstTurn = viewModel.TryReserveExternalSend(chatId);
+            Assert.NotNull(firstTurn);
+            Assert.Null(ChatViewModel.TryReserveChatDeletion(chatId));
+        }
+        finally
+        {
+            viewModel.Dispose();
+        }
+    }
+
+    [Fact]
+    public void DesktopSendPreflightReservation_BlocksChatDeletion()
+    {
+        var chatId = Guid.NewGuid();
+        var viewModel = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        try
+        {
+            using var scope = new ChatViewModel.ChatSendReservationScope();
+            Assert.True(scope.TryReserve(chatId));
+
+            Assert.Null(ChatViewModel.TryReserveChatDeletion(chatId));
+        }
+        finally
+        {
+            viewModel.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task ChatDeletionReservation_BlocksDesktopComposerSend()
+    {
+        Loc.Load("en");
+        var chat = new Chat { Title = "Deleting", MessageCount = 1 };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "existing" });
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared)
+        {
+            CurrentChat = chat,
+            PromptText = "do not send"
+        };
+        try
+        {
+            using var deletion = ChatViewModel.TryReserveChatDeletion(chat.Id);
+            Assert.NotNull(deletion);
+
+            viewModel.SendMessageCommand.Execute(null);
+            if (viewModel.SendMessageCommand.ExecutionTask is { } execution)
+                await execution;
+
+            Assert.Equal(Loc.Status_DeletingChat, viewModel.StatusText);
+            Assert.Single(chat.Messages);
+        }
+        finally
+        {
+            viewModel.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task ChatDeletionReservation_BlocksSharedExternalSendWithoutToken()
+    {
+        var chat = new Chat { Title = "Deleting", MessageCount = 1 };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "existing" });
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        using var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared);
+        using var deletion = ChatViewModel.TryReserveChatDeletion(chat.Id);
+        Assert.NotNull(deletion);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => viewModel.SendExternalMessageAsync(chat, "do not send", "Lumi Job"));
+
+        Assert.Single(chat.Messages);
+    }
+
+    [Fact]
+    public async Task ChatFileRecoveryPending_BlocksSharedExternalSend()
+    {
+        var chat = new Chat { Title = "Recovering", MessageCount = 1 };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "existing" });
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        GetField<HashSet<Guid>>(dataStore, "_chatFileRecoveryPending").Add(chat.Id);
+        using var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => viewModel.SendExternalMessageAsync(chat, "do not send", "Lumi Job"));
+
+        Assert.Single(chat.Messages);
+    }
+
+    [Fact]
+    public async Task ChatFileRecoveryPending_BlocksRegenerateBeforeTranscriptMutation()
+    {
+        Loc.Load("en");
+        var chat = new Chat { Title = "Recovering", MessageCount = 2 };
+        var userMessage = new ChatMessage { Role = "user", Content = "existing" };
+        var assistantMessage = new ChatMessage { Role = "assistant", Content = "answer" };
+        chat.Messages.Add(userMessage);
+        chat.Messages.Add(assistantMessage);
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        GetField<HashSet<Guid>>(dataStore, "_chatFileRecoveryPending").Add(chat.Id);
+        using var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared)
+        {
+            CurrentChat = chat
+        };
+
+        await viewModel.ResendFromMessageAsync(userMessage, wasEdited: false);
+
+        Assert.Equal([userMessage, assistantMessage], chat.Messages);
+        Assert.Equal(Loc.Status_DeletingChat, viewModel.StatusText);
+    }
+
+    [Fact]
+    public async Task CanceledExternalSend_RollsBackPersistedReceiptBeforeActivation()
+    {
+        var chat = new Chat { Title = "Existing", MessageCount = 1 };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "existing" });
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared)
+        {
+            CurrentChat = chat
+        };
+        try
+        {
+            using var reservation = viewModel.TryReserveExternalSend(chat.Id);
+            Assert.NotNull(reservation);
+            dataStore.IndexSaved += () => viewModel.CancelExternalSendReservation(chat.Id);
+
+            var result = await viewModel.StartExternalMessageAsync(
+                chat,
+                "cancel me",
+                "Lumi Mobile",
+                reservationToken: reservation.Token,
+                remoteDeviceId: "phone",
+                remoteRequestId: "request");
+
+            Assert.False(result.Accepted);
+            Assert.DoesNotContain(chat.Messages, message => message.Content == "cancel me");
+            Assert.Null(chat.LastRemoteDeviceId);
+            Assert.Null(chat.LastRemoteRequestId);
+        }
+        finally
+        {
+            viewModel.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task CombinePendingSessionReleases_WaitsForEveryOutstandingRelease()
+    {
+        var first = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var second = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var combined = ChatViewModel.CombinePendingSessionReleases(first.Task, second.Task);
+        second.SetResult();
+        Assert.False(combined.IsCompleted);
+
+        first.SetResult();
+        await combined;
+        Assert.True(combined.IsCompletedSuccessfully);
+    }
+
+    [Fact]
     public void Dispose_UnsubscribesFromChatModel_SoDisposedSurfaceIsNotPinned()
     {
         var dataStore = CreateDataStore();
@@ -1349,9 +1548,16 @@ public sealed class ChatViewModelLeakTests
             Chat = chat,
             IsBusy = true
         };
+        ChatViewModel.ChatDeletionReservation? deletionDuringSteer = null;
+        vm.UserMessageSent += () =>
+            deletionDuringSteer = ChatViewModel.TryReserveChatDeletion(chat.Id);
 
         await InvokePrivateAsync(vm, "SendMessage");
 
+        deletionDuringSteer?.Dispose();
+        Assert.Null(deletionDuringSteer);
+        using var deletionAfterSteer = ChatViewModel.TryReserveChatDeletion(chat.Id);
+        Assert.NotNull(deletionAfterSteer);
         // The message is visible right away instead of vanishing until the queue is drained.
         Assert.Equal("queued while busy", Assert.Single(chat.Messages).Content);
         Assert.Equal(MessageSteerState.Queued, Assert.Single(vm.Messages).SteerState);

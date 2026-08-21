@@ -176,14 +176,38 @@ public sealed class ChatSessionStore : IDisposable
 
     public void CleanupChat(Guid chatId)
     {
+        CleanupChatSurfaces(chatId);
+        UntrackUnhostedChatSurface(chatId);
+    }
+
+    public async Task CleanupChatAsync(Guid chatId, CancellationToken cancellationToken = default)
+    {
+        var affectedSurfaces = CleanupChatSurfaces(chatId);
+        foreach (var surface in affectedSurfaces)
+            await surface.WaitForSessionReleaseAsync(chatId, cancellationToken);
+        UntrackUnhostedChatSurface(chatId);
+    }
+
+    private List<ChatViewModel> CleanupChatSurfaces(Guid chatId)
+    {
+        List<ChatViewModel> affectedSurfaces = [];
         foreach (var surface in _surfaces.ToArray())
         {
             if (surface.CurrentChat?.Id == chatId
                 || surface.OwnsLiveChat(chatId)
-                || surface.HasBrowserService(chatId))
+                || surface.HasBrowserService(chatId)
+                || surface.HasPendingSessionRelease(chatId))
+            {
                 surface.CleanupSession(chatId);
+                affectedSurfaces.Add(surface);
+            }
         }
 
+        return affectedSurfaces;
+    }
+
+    private void UntrackUnhostedChatSurface(Guid chatId)
+    {
         if (_sessionsByChatId.TryGetValue(chatId, out var mappedSurface)
             && _hostCounts.GetValueOrDefault(mappedSurface) == 0)
         {
@@ -192,6 +216,9 @@ public sealed class ChatSessionStore : IDisposable
     }
 
     public IReadOnlyList<ChatViewModel> SnapshotSurfaces() => _surfaces.ToArray();
+
+    internal ChatViewModel.ChatDeletionReservation? TryReserveChatDeletion(Guid chatId)
+        => ChatViewModel.TryReserveChatDeletion(chatId);
 
     public void ApplyToSurfaces(Action<ChatViewModel> action)
     {

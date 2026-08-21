@@ -97,6 +97,33 @@ public sealed class McpSessionPlannerTests
     }
 
     [Fact]
+    public async Task Build_WithProxyRuntime_ReusesPerDirectoryWithoutCrossingDirectories()
+    {
+        await using var proxyRuntime = new McpProxyRuntime();
+        var local = new McpServer
+        {
+            Name = "filesystem",
+            Command = "node",
+            Args = ["server.js"]
+        };
+        var data = new AppData { McpServers = [local] };
+        var chat = new Chat { ActiveMcpServerNames = ["filesystem"] };
+
+        var projectA = McpSessionPlanner.Build(
+            data, "C:\\repo-a", EmptyCatalog(), chat, null, null, proxyRuntime);
+        var projectB = McpSessionPlanner.Build(
+            data, "C:\\repo-b", EmptyCatalog(), chat, null, null, proxyRuntime);
+        var projectAAgain = McpSessionPlanner.Build(
+            data, "C:\\repo-a", EmptyCatalog(), chat, null, null, proxyRuntime);
+
+        var projectAUrl = Assert.IsType<McpHttpServerConfig>(projectA["filesystem"]).Url;
+        var projectBUrl = Assert.IsType<McpHttpServerConfig>(projectB["filesystem"]).Url;
+        var projectAAgainUrl = Assert.IsType<McpHttpServerConfig>(projectAAgain["filesystem"]).Url;
+        Assert.NotEqual(projectAUrl, projectBUrl);
+        Assert.Equal(projectAUrl, projectAAgainUrl);
+    }
+
+    [Fact]
     public void Build_UsesCurrentSessionSelectionInsteadOfPersistedChatSelection()
     {
         var data = new AppData
@@ -271,6 +298,33 @@ public sealed class McpSessionPlannerTests
         Assert.All(servers.Keys, key => Assert.Matches("^[a-zA-Z0-9_-]+$", key));
         Assert.True(servers.ContainsKey("Avalonia_MCP"));
         Assert.False(servers.ContainsKey("Avalonia MCP"));
+    }
+
+    [Fact]
+    public void Build_MapsSanitizedNamespacesBackToDisplayNames()
+    {
+        var data = new AppData
+        {
+            McpServers =
+            [
+                new McpServer { Name = "Avalonia MCP", Command = "dotnet" },
+                new McpServer { Name = "Avalonia/MCP", Command = "dotnet" }
+            ]
+        };
+        var chat = new Chat { ActiveMcpServerNames = ["Avalonia MCP", "Avalonia/MCP"] };
+        var displayNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        McpSessionPlanner.Build(
+            data,
+            "C:\\repo",
+            EmptyCatalog(),
+            chat,
+            null,
+            null,
+            displayNamesByNamespace: displayNames);
+
+        Assert.Equal("Avalonia MCP", displayNames["Avalonia_MCP"]);
+        Assert.Equal("Avalonia/MCP", displayNames["Avalonia_MCP_2"]);
     }
 
     [Fact]

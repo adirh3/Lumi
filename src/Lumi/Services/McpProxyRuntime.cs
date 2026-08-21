@@ -29,6 +29,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
     private readonly object _gate = new();
     private readonly Dictionary<string, McpProxyRegistration> _registrationsByKey = new(StringComparer.Ordinal);
     private readonly Dictionary<string, McpProxyRegistration> _registrationsByRoute = new(StringComparer.Ordinal);
+    private readonly Dictionary<McpProxyRegistration, Task> _retiringRegistrations = [];
     private readonly string _routeToken = Guid.NewGuid().ToString("N");
 
     private HttpListener? _listener;
@@ -43,7 +44,6 @@ public sealed class McpProxyRuntime : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(definition.Key))
             throw new ArgumentException("MCP proxy definition key cannot be empty.", nameof(definition));
 
-        McpProxyRegistration? staleRegistration = null;
         McpProxyRegistration activeRegistration;
         int port;
         lock (_gate)
@@ -60,7 +60,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
                 if (currentRegistration is not null)
                 {
                     _registrationsByRoute.Remove(currentRegistration.RouteId);
-                    staleRegistration = currentRegistration;
+                    BeginRetirementLocked(currentRegistration);
                 }
 
                 currentRegistration = new McpProxyRegistration(
@@ -75,9 +75,6 @@ public sealed class McpProxyRuntime : IAsyncDisposable
             port = _port;
         }
 
-        if (staleRegistration is not null)
-            RetireRegistrationInBackground(staleRegistration);
-
         return new McpHttpServerConfig
             {
                 Url = $"http://127.0.0.1:{port}/mcp/{_routeToken}/{activeRegistration.RouteId}",
@@ -86,13 +83,17 @@ public sealed class McpProxyRuntime : IAsyncDisposable
             };
     }
 
+    internal static string CreateUserRegistrationKey(Guid serverId, string workingDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
+        var normalizedWorkingDirectory = NormalizeWorkingDirectory(workingDirectory);
+        return $"lumi:{serverId}:{Hash(normalizedWorkingDirectory)[..16]}";
+    }
+
     public void RetireUserRegistrationsExcept(IEnumerable<Guid> activeLocalServerIds)
     {
         ArgumentNullException.ThrowIfNull(activeLocalServerIds);
-        var retainedKeys = activeLocalServerIds
-            .Select(id => "lumi:" + id)
-            .ToHashSet(StringComparer.Ordinal);
-        List<McpProxyRegistration> staleRegistrations = [];
+        var retainedServerIds = activeLocalServerIds.ToHashSet();
 
         lock (_gate)
         {
@@ -101,17 +102,60 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
             foreach (var (key, registration) in _registrationsByKey.ToArray())
             {
-                if (!key.StartsWith("lumi:", StringComparison.Ordinal) || retainedKeys.Contains(key))
+                if (!TryGetUserServerId(key, out var serverId) || retainedServerIds.Contains(serverId))
                     continue;
 
                 _registrationsByKey.Remove(key);
                 _registrationsByRoute.Remove(registration.RouteId);
-                staleRegistrations.Add(registration);
+                BeginRetirementLocked(registration);
+            }
+        }
+    }
+
+    public async Task RetireRegistrationsForWorkingDirectoryAsync(string workingDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
+        var root = NormalizeWorkingDirectory(workingDirectory);
+        HashSet<Task> retirementTasks = [];
+
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+
+            foreach (var (key, registration) in _registrationsByKey.ToArray())
+            {
+                if (!IsWorkingDirectoryWithinRoot(registration.WorkingDirectory, root))
+                    continue;
+
+                _registrationsByKey.Remove(key);
+                _registrationsByRoute.Remove(registration.RouteId);
+                retirementTasks.Add(BeginRetirementLocked(registration));
+            }
+
+            foreach (var (registration, task) in _retiringRegistrations)
+            {
+                if (IsWorkingDirectoryWithinRoot(registration.WorkingDirectory, root))
+                    retirementTasks.Add(task);
             }
         }
 
-        foreach (var registration in staleRegistrations)
-            RetireRegistrationInBackground(registration);
+        await Task.WhenAll(retirementTasks).ConfigureAwait(false);
+    }
+
+    private static bool TryGetUserServerId(string registrationKey, out Guid serverId)
+    {
+        serverId = default;
+        const string prefix = "lumi:";
+        if (!registrationKey.StartsWith(prefix, StringComparison.Ordinal))
+            return false;
+
+        var serverIdText = registrationKey.AsSpan(prefix.Length);
+        var separatorIndex = serverIdText.IndexOf(':');
+        if (separatorIndex >= 0)
+            serverIdText = serverIdText[..separatorIndex];
+
+        return Guid.TryParse(serverIdText, out serverId);
     }
 
     public async ValueTask DisposeAsync()
@@ -120,6 +164,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
         CancellationTokenSource? cts;
         Task? listenerTask;
         List<McpProxyRegistration> registrations;
+        List<Task> retiringTasks;
 
         lock (_gate)
         {
@@ -128,8 +173,10 @@ public sealed class McpProxyRuntime : IAsyncDisposable
             cts = _listenerCts;
             listenerTask = _listenerTask;
             registrations = _registrationsByKey.Values.ToList();
+            retiringTasks = _retiringRegistrations.Values.ToList();
             _registrationsByKey.Clear();
             _registrationsByRoute.Clear();
+            _retiringRegistrations.Clear();
             _listener = null;
             _listenerCts = null;
             _listenerTask = null;
@@ -152,6 +199,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
         foreach (var registration in registrations)
             await registration.DisposeAsync().ConfigureAwait(false);
+        await Task.WhenAll(retiringTasks).ConfigureAwait(false);
 
         cts?.Dispose();
     }
@@ -299,15 +347,28 @@ public sealed class McpProxyRuntime : IAsyncDisposable
         return Task.CompletedTask;
     }
 
-    private static void RetireRegistrationInBackground(McpProxyRegistration registration)
+    private Task BeginRetirementLocked(McpProxyRegistration registration)
     {
+        if (_retiringRegistrations.TryGetValue(registration, out var existing))
+            return existing;
+
         var task = registration.RetireAsync().AsTask();
         if (task.IsCompletedSuccessfully)
-            return;
+            return task;
 
+        _retiringRegistrations[registration] = task;
         _ = task.ContinueWith(
-            static t => Trace.TraceWarning("MCP proxy registration cleanup failed: {0}", t.Exception),
-            TaskContinuationOptions.OnlyOnFaulted);
+            t =>
+            {
+                lock (_gate)
+                    _retiringRegistrations.Remove(registration);
+                if (t.IsFaulted)
+                    Trace.TraceWarning("MCP proxy registration cleanup failed: {0}", t.Exception);
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return task;
     }
 
     private static async Task WriteJsonAsync(HttpListenerResponse response, string json, CancellationToken cancellationToken)
@@ -339,7 +400,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
     {
         var builder = new StringBuilder();
         builder.AppendLine(config.Command);
-        builder.AppendLine(config.WorkingDirectory);
+        builder.AppendLine(NormalizeWorkingDirectory(config.WorkingDirectory));
         builder.AppendLine(config.Timeout?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         foreach (var arg in config.Args ?? [])
             builder.Append("arg:").AppendLine(arg);
@@ -348,6 +409,28 @@ public sealed class McpProxyRuntime : IAsyncDisposable
         foreach (var pair in (config.Env ?? new Dictionary<string, string>()).OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
             builder.Append("env:").Append(pair.Key).Append('=').AppendLine(pair.Value);
         return Hash(builder.ToString());
+    }
+
+    private static string NormalizeWorkingDirectory(string? workingDirectory)
+    {
+        var directory = string.IsNullOrWhiteSpace(workingDirectory)
+            ? Environment.CurrentDirectory
+            : workingDirectory;
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+    }
+
+    private static bool IsWorkingDirectoryWithinRoot(string workingDirectory, string root)
+    {
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        if (string.Equals(workingDirectory, root, comparison))
+            return true;
+
+        var rootPrefix = Path.EndsInDirectorySeparator(root)
+            ? root
+            : root + Path.DirectorySeparatorChar;
+        return workingDirectory.StartsWith(rootPrefix, comparison);
     }
 
     private static string Hash(string value)
@@ -364,6 +447,8 @@ public sealed class McpProxyRuntime : IAsyncDisposable
         public string RouteId { get; } = RouteId;
 
         public string Fingerprint { get; } = Fingerprint;
+
+        public string WorkingDirectory { get; } = NormalizeWorkingDirectory(definition.Config.WorkingDirectory);
 
         public McpStdioServerConnection Connection { get; } = new(definition);
 
@@ -458,6 +543,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
 internal sealed class McpStdioServerConnection : IAsyncDisposable
 {
+    private const int InitializeTimeoutMilliseconds = 45_000;
     private const int DiagnosticLineLimit = 8;
     private const int DiagnosticLineMaxLength = 500;
     private const int DiagnosticTextMaxLength = 2_000;
@@ -504,6 +590,16 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
     {
         _definition = definition;
         _timeoutMilliseconds = definition.Config.Timeout is > 0 ? definition.Config.Timeout.Value : 60_000;
+    }
+
+    internal static int GetInitializeTimeoutMilliseconds(int requestTimeoutMilliseconds)
+        => Math.Min(requestTimeoutMilliseconds, InitializeTimeoutMilliseconds);
+
+    private CancellationTokenSource CreateInitializeTimeoutSource(CancellationToken cancellationToken)
+    {
+        var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(GetInitializeTimeoutMilliseconds(_timeoutMilliseconds));
+        return timeoutCts;
     }
 
     public async Task<string?> HandleClientMessageAsync(string body, CancellationToken cancellationToken)
@@ -627,10 +723,12 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         if (_initializeResult is { } existing && IsProcessRunning(_process))
             return existing;
 
-        await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var initializeCts = CreateInitializeTimeoutSource(cancellationToken);
+        var initializeCt = initializeCts.Token;
+        await _lifecycleLock.WaitAsync(initializeCt).ConfigureAwait(false);
         try
         {
-            return await EnsureInitializedUnderLockAsync(clientParams, cancellationToken).ConfigureAwait(false);
+            return await EnsureInitializedUnderLockAsync(clientParams, initializeCt).ConfigureAwait(false);
         }
         finally
         {
@@ -711,7 +809,9 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
 
     private async Task RecoverExpiredServerSessionAsync(int observedGeneration, CancellationToken cancellationToken)
     {
-        await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var initializeCts = CreateInitializeTimeoutSource(cancellationToken);
+        var initializeCt = initializeCts.Token;
+        await _lifecycleLock.WaitAsync(initializeCt).ConfigureAwait(false);
         try
         {
             ThrowIfDisposed();
@@ -738,8 +838,8 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
                 StartProcess();
 
                 var initParams = _initializeParams ?? JsonRpc.DefaultInitializeParams();
-                var initializedResult = await SendInitializeWithRetryAsync(initParams, cancellationToken).ConfigureAwait(false);
-                await SendNotificationAsync("notifications/initialized", null, cancellationToken).ConfigureAwait(false);
+                var initializedResult = await SendInitializeWithRetryAsync(initParams, initializeCt).ConfigureAwait(false);
+                await SendNotificationAsync("notifications/initialized", null, initializeCt).ConfigureAwait(false);
                 _initializeResult = initializedResult;
                 _sessionRecoveryOutcomes[observedGeneration] = null;
                 var successes = Interlocked.Increment(ref _sessionRecoverySuccesses);
@@ -1104,10 +1204,12 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         var processGeneration = 0;
         var pendingRegistered = false;
 
-        await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var initializeCts = CreateInitializeTimeoutSource(cancellationToken);
+        var initializeCt = initializeCts.Token;
+        await _lifecycleLock.WaitAsync(initializeCt).ConfigureAwait(false);
         try
         {
-            await EnsureInitializedUnderLockAsync(null, cancellationToken).ConfigureAwait(false);
+            await EnsureInitializedUnderLockAsync(null, initializeCt).ConfigureAwait(false);
             processGeneration = Volatile.Read(ref _processGeneration);
             lock (_pending)
                 _pending[key] = new PendingRequest(processGeneration, tcs);
@@ -1143,7 +1245,10 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         }
     }
 
-    private async Task<JsonElement> SendRequestAsync(string method, JsonElement? parameters, CancellationToken cancellationToken)
+    private async Task<JsonElement> SendRequestAsync(
+        string method,
+        JsonElement? parameters,
+        CancellationToken cancellationToken)
     {
         var internalId = Interlocked.Increment(ref _nextId);
         var request = JsonRpc.Request(internalId, method, parameters);

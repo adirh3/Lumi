@@ -22,6 +22,7 @@ public sealed class McpSettleTests
     // terminal is exactly what let the first prompt go out with no remote tools.
     [InlineData("not_configured")]
     [InlineData("pending")]
+    [InlineData("starting")]
     public void IsMcpStatusSettling_TreatsUninitializedStatusesAsStillSettling(string status)
     {
         Assert.True(ChatViewModel.IsMcpStatusSettling(new McpServerStatus(status)));
@@ -217,5 +218,24 @@ public sealed class McpSettleTests
 
         Assert.False(evaluation.KeepWaiting);
         Assert.Empty(evaluation.ToHandle);
+    }
+
+    [Fact]
+    public void GetUnsettledMcpServerNames_ReturnsOnlyServersStillStartingOrUnreported()
+    {
+        var observed = new Dictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["connected"] = McpServerStatus.Connected,
+            ["failed"] = McpServerStatus.Failed,
+            ["needs-auth"] = McpServerStatus.NeedsAuth,
+            ["starting"] = new McpServerStatus("starting"),
+            ["pending"] = McpServerStatus.Pending
+        };
+
+        var unsettled = ChatViewModel.GetUnsettledMcpServerNames(
+            ["connected", "failed", "needs-auth", "starting", "pending", "unreported"],
+            observed);
+
+        Assert.Equal(["starting", "pending", "unreported"], unsettled);
     }
 }
