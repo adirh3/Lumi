@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using GitHub.Copilot;
+using Lumi.Localization;
 using Lumi.ViewModels;
 using Xunit;
 using RpcMcpServer = GitHub.Copilot.Rpc.McpServer;
@@ -17,6 +18,28 @@ namespace Lumi.Tests;
 /// </summary>
 public sealed class McpSettleTests
 {
+    [Theory]
+    [InlineData(true, true, "resume")]
+    [InlineData(true, false, "resume")]
+    [InlineData(false, true, "mcp")]
+    [InlineData(false, false, null)]
+    public void ResolveInitialSessionSetupStatus_DescribesResumeBeforeMcpConnection(
+        bool hasPersistedSession,
+        bool hasMcpServers,
+        string? expected)
+    {
+        var status = ChatViewModel.ResolveInitialSessionSetupStatus(hasPersistedSession, hasMcpServers);
+
+        Assert.Equal(
+            expected switch
+            {
+                "resume" => Loc.Status_Resuming,
+                "mcp" => Loc.Status_ConnectingMcp,
+                _ => null
+            },
+            status);
+    }
+
     [Theory]
     // NotConfigured is what a remote server reports before its transport is initialized. Treating it as
     // terminal is exactly what let the first prompt go out with no remote tools.

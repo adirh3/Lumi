@@ -563,34 +563,7 @@ public static class SystemPromptBuilder
             }
         }
 
-        if (backgroundJobs is { Count: > 0 })
-        {
-            var jobs = backgroundJobs
-                .Where(static job => job.IsEnabled || job.LastRunAt.HasValue)
-                .OrderBy(static job => job.NextRunAt ?? DateTimeOffset.MaxValue)
-                .ThenBy(static job => job.Name, StringComparer.OrdinalIgnoreCase)
-                .Take(20)
-                .ToList();
-
-            if (jobs.Count > 0)
-            {
-                promptBuilder.Append("\n\n--- Background Jobs ---\n");
-                foreach (var job in jobs)
-                {
-                    promptBuilder.Append("- ")
-                        .Append(job.IsEnabled ? "enabled" : "paused")
-                        .Append(" | ")
-                        .Append(job.Name)
-                        .Append(" | ")
-                        .Append(BackgroundJobSchedule.Describe(job))
-                        .Append(" | next: ")
-                        .Append(job.NextRunAt?.ToLocalTime().ToString("g") ?? "(none)")
-                        .Append(" | last: ")
-                        .Append(string.IsNullOrWhiteSpace(job.LastRunStatus) ? BackgroundJobRunStatuses.Idle : job.LastRunStatus)
-                        .Append('\n');
-                }
-            }
-        }
+        promptBuilder.Append(BuildBackgroundJobsContext(backgroundJobs));
 
         promptBuilder.Append("""
 
@@ -605,6 +578,48 @@ public static class SystemPromptBuilder
 
         promptBuilder.Append(ResponsePresentationReminder);
         return promptBuilder.ToString();
+    }
+
+    internal static string BuildBackgroundJobsContext(
+        IReadOnlyList<BackgroundJob>? backgroundJobs,
+        bool authoritative = false)
+    {
+        var orderedJobs = (backgroundJobs ?? [])
+            .Where(job => authoritative || job.IsEnabled || job.LastRunAt.HasValue)
+            .OrderBy(static job => job.NextRunAt ?? DateTimeOffset.MaxValue)
+            .ThenBy(static job => job.Name, StringComparer.OrdinalIgnoreCase);
+        var jobs = (authoritative ? orderedJobs : orderedJobs.Take(20)).ToList();
+
+        if (jobs.Count == 0 && !authoritative)
+            return string.Empty;
+
+        var builder = new StringBuilder();
+        builder.Append(authoritative
+            ? "\n\n--- Background Jobs (authoritative current state) ---\n"
+            : "\n\n--- Background Jobs ---\n");
+
+        if (jobs.Count == 0)
+        {
+            builder.Append("- none\n");
+            return builder.ToString();
+        }
+
+        foreach (var job in jobs)
+        {
+            builder.Append("- ")
+                .Append(job.IsEnabled ? "enabled" : "paused")
+                .Append(" | ")
+                .Append(job.Name)
+                .Append(" | ")
+                .Append(BackgroundJobSchedule.Describe(job))
+                .Append(" | next: ")
+                .Append(job.NextRunAt?.ToLocalTime().ToString("g") ?? "(none)")
+                .Append(" | last: ")
+                .Append(string.IsNullOrWhiteSpace(job.LastRunStatus) ? BackgroundJobRunStatuses.Idle : job.LastRunStatus)
+                .Append('\n');
+        }
+
+        return builder.ToString();
     }
 
     /// <summary>

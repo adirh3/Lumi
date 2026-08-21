@@ -618,6 +618,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             StatusText = statusText;
     }
 
+    internal static string? ResolveInitialSessionSetupStatus(bool hasPersistedSession, bool hasMcpServers)
+        => hasPersistedSession
+            ? Loc.Status_Resuming
+            : hasMcpServers
+                ? Loc.Status_ConnectingMcp
+                : null;
+
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
     private readonly GlobalSearchService? _globalSearchService;
@@ -1196,17 +1203,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
      // Events for the view to react to
      public event Action? ScrollToEndRequested;
-     public event Action? UserMessageSent;
-     public event Action? ChatUpdated;
+    public event Action? UserMessageSent;
+    public event Action? ChatUpdated;
     public event Action? FeatureManagementStateChanged;
-     public event Action? McpConfigurationChanged;
+    internal event Action<ChatViewModel, FeatureChangeResult>? FeatureCatalogChanged;
 
-     /// <summary>Test-only helper to raise ChatUpdated without sending a real message.</summary>
-     internal void RaiseChatUpdatedForTest() => ChatUpdated?.Invoke();
-     /// <summary>Test-only helper to raise feature-management UI refresh notifications.</summary>
-     internal void RaiseFeatureManagementStateChangedForTest() => FeatureManagementStateChanged?.Invoke();
-     internal void RaiseMcpConfigurationChangedForTest() => McpConfigurationChanged?.Invoke();
-     public event Action<Guid, string>? ChatTitleChanged;
+    /// <summary>Test-only helper to raise ChatUpdated without sending a real message.</summary>
+    internal void RaiseChatUpdatedForTest() => ChatUpdated?.Invoke();
+    /// <summary>Test-only helper to raise feature-management UI refresh notifications.</summary>
+    internal void RaiseFeatureManagementStateChangedForTest() => FeatureManagementStateChanged?.Invoke();
+    public event Action<Guid, string>? ChatTitleChanged;
      public event Action? BrowserHideRequested;
 
     /// <summary>Raised when a file-edit tool wants to show a diff in the preview island.</summary>
@@ -2048,9 +2054,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
         };
 
-        if (mcpServers is { Count: > 0 })
-            SetSessionSetupStatus(chat, Loc.Status_ConnectingMcp);
-
         // When MCP servers are configured, apply a timeout so a broken server
         // doesn't block the UI indefinitely.
         using var sessionCts = mcpServers is { Count: > 0 }
@@ -2106,6 +2109,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             DetachPersistedSession(chat);
         }
 
+        var initialSetupStatus = ResolveInitialSessionSetupStatus(
+            hasPersistedSession: chat.CopilotSessionId is not null,
+            hasMcpServers: mcpServers is { Count: > 0 });
+        if (initialSetupStatus is not null)
+            SetSessionSetupStatus(chat, initialSetupStatus);
+
         // Local helpers: capture the shared session-config arguments (system prompt, model,
         // tooling, MCP, reasoning/context settings, and the resolved BYOK provider) so the three
         // create/resume call sites below don't repeat the long argument list — they stay in sync
@@ -2153,6 +2162,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     await BeginMcpServerStatusCheckAsync(createdSession, chat.Id, mcpServers, ct);
                 }
 
+                _staleBackgroundJobPromptChats.Remove(chat.Id);
                 return true;
             }
             catch (OperationCanceledException) when (sessionCts is not null && sessionCts.IsCancellationRequested && !ct.IsCancellationRequested)
@@ -2188,7 +2198,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 _dataStore.MarkChatChanged(chat);
 
                 if (mcpServers is { Count: > 0 })
+                {
+                    if (HasRemoteMcpServers(mcpServers))
+                        SetSessionSetupStatus(chat, Loc.Status_ConnectingMcp);
                     await BeginMcpServerStatusCheckAsync(session, chat.Id, mcpServers, ct);
+                }
 
                 // The SDK does not automatically change the session model on resume —
                 // ResumeSessionConfig.Model only sets a preference for the CLI process,
@@ -2212,6 +2226,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     catch { /* best-effort — session works with original model if this fails */ }
                 }
 
+                _staleBackgroundJobPromptChats.Remove(chat.Id);
                 return true; // Resume succeeded
             }
             catch (OperationCanceledException) when (sessionCts is not null && sessionCts.IsCancellationRequested && !ct.IsCancellationRequested)
@@ -2239,6 +2254,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         try
         {
+            if (mcpServers is { Count: > 0 })
+                SetSessionSetupStatus(chat, Loc.Status_ConnectingMcp);
+
             var createConfig = buildSessionConfig();
             var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
             chat.CopilotSessionId = createdSession.SessionId;
@@ -2254,6 +2272,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             RecordSessionProviderSignature(chat, currentByokSignature);
             _dataStore.MarkChatChanged(chat);
             await SaveChatAsync(chat, saveIndex: true);
+            _staleBackgroundJobPromptChats.Remove(chat.Id);
             return true;
         }
         catch (OperationCanceledException) when (sessionCts is not null && sessionCts.IsCancellationRequested && !ct.IsCancellationRequested)
@@ -3194,7 +3213,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         MessageOptions? sendOptions = null;
         CopilotSession? sendSession = null;
         var retainedContext = targetChat.Messages.Take(Math.Max(targetChat.Messages.Count - 1, 0)).ToList();
-        var promptAdditions = BuildSendPromptAdditions(consumePendingSkillInjections: false);
+        var promptAdditions = BuildSendPromptAdditions(
+            consumePendingSkillInjections: false,
+            targetChat);
         var skillDirectives = string.Empty;
         var localUserMessageCount = 0;
         var localAssistantMessageCount = 0;
@@ -4228,7 +4249,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var retainedContext = targetChat.Messages
             .TakeWhile(message => !ReferenceEquals(message, userMsg))
             .ToList();
-        var promptAdditions = BuildSendPromptAdditions();
+        var promptAdditions = BuildSendPromptAdditions(targetChat: targetChat);
         // Hoisted so the stale-session recovery path below re-applies the same skill directives:
         // the directive text is session-independent, but the recreated session still needs it.
         var skillDirectives = string.Empty;
@@ -4876,7 +4897,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _dataStore.MarkChatChanged(chat);
     }
 
-    private string BuildSendPromptAdditions(bool consumePendingSkillInjections = true)
+    private string BuildSendPromptAdditions(
+        bool consumePendingSkillInjections = true,
+        Chat? targetChat = null)
     {
         var builder = new StringBuilder();
         var hasActivatedSkillsSection = false;
@@ -4907,6 +4930,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         .Append('\n');
                 }
             }
+        }
+
+        var contextChat = targetChat ?? CurrentChat;
+        if (contextChat is not null
+            && _staleBackgroundJobPromptChats.Remove(contextChat.Id))
+        {
+            builder.Append(SystemPromptBuilder.BuildBackgroundJobsContext(
+                _dataStore.SnapshotBackgroundJobs(),
+                authoritative: true));
         }
 
         return builder.ToString();
@@ -6019,7 +6051,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         MessageOptions? resendOptions = null;
-        var promptAdditions = BuildSendPromptAdditions(consumePendingSkillInjections: false);
+        var promptAdditions = BuildSendPromptAdditions(
+            consumePendingSkillInjections: false,
+            targetChat: CurrentChat);
         // Editing/regenerating rewinds (or recreates) the session past the original turn, which drops
         // that turn's skill load. Re-activate the selected file-based skills so the replacement turn
         // runs with the same skill context. Hoisted so the recovery path below reuses the directives.

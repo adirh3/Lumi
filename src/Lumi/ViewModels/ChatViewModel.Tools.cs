@@ -68,6 +68,7 @@ public partial class ChatViewModel
     private LumiFeatureManager? _lumiFeatureManager;
     private readonly HashSet<Guid> _pendingSessionInvalidations = [];
     private readonly HashSet<Guid> _pendingSessionReconfigurations = [];
+    private readonly HashSet<Guid> _staleBackgroundJobPromptChats = [];
     private LumiFeatureManager FeatureManager => _lumiFeatureManager ??= new LumiFeatureManager(_dataStore);
 
     /// <summary>
@@ -741,7 +742,7 @@ public partial class ChatViewModel
                         additionalContextDirectories,
                         clearAdditionalContextDirectories,
                         query);
-                    return await ApplyFeatureChangeAsync(result);
+                    return await ApplyFeatureChangeAsync(result, chatId);
                 },
                 "manage_projects",
                 "List, create, update, or delete Lumi projects. Use this only when the user explicitly asks to manage Lumi's internal projects.",
@@ -761,7 +762,7 @@ public partial class ChatViewModel
                     [Description("For updateMode='patch'/'append'/'prepend'/'replaceSection': the replacement/added text.")] string? editNewString = null) =>
                 {
                     var result = FeatureManager.ManageSkills(action, identifier, name, description, content, iconGlyph, query, updateMode, editOldString, editNewString);
-                    return await ApplyFeatureChangeAsync(result);
+                    return await ApplyFeatureChangeAsync(result, chatId);
                 },
                 "manage_skills",
                 "List, create, update, delete, or import Lumi skills. Use this only when the user explicitly asks to manage Lumi's internal skills. For edits to an EXISTING skill, PREFER updateMode='patch' with editOldString/editNewString (or 'append'/'prepend'/'replaceSection') instead of resending the full content — it is safer and avoids truncation on large skills. Use full content only for create or an intentional full rewrite.",
@@ -781,7 +782,7 @@ public partial class ChatViewModel
                     [Description("Optional text query for list filtering.")] string? query = null) =>
                 {
                     var result = FeatureManager.ManageLumis(action, identifier, name, description, systemPrompt, iconGlyph, skillIdentifiers, toolNames, mcpServerIdentifiers, query);
-                    return await ApplyFeatureChangeAsync(result);
+                    return await ApplyFeatureChangeAsync(result, chatId);
                 },
                 "manage_lumis",
                 "List, create, update, or delete Lumi agents. Use this only when the user explicitly asks to manage Lumi's internal Lumis.",
@@ -806,7 +807,7 @@ public partial class ChatViewModel
                     [Description("Optional text query for list filtering.")] string? query = null) =>
                 {
                     var result = FeatureManager.ManageMcps(action, identifier, name, description, serverType, command, args, url, envEntries, headerEntries, toolNames, timeout, clearTimeout, isEnabled, query);
-                    return await ApplyFeatureChangeAsync(result);
+                    return await ApplyFeatureChangeAsync(result, chatId);
                 },
                 "manage_mcps",
                 "List, create, update, or delete Lumi MCP servers. Use this only when the user explicitly asks to manage Lumi's internal MCP configuration.",
@@ -842,7 +843,7 @@ public partial class ChatViewModel
                     var result = FeatureManager.ManageJobs(action, identifier, name, description, prompt, chatIdentifier,
                         triggerType, scheduleType, intervalMinutes, dailyTime, daysOfWeek, monthlyDay, cronExpression, runAt,
                         scriptContent, scriptLanguage, isTemporary, isEnabled, runNow, query, defaultChatId: chatId);
-                    return await ApplyFeatureChangeAsync(result);
+                    return await ApplyFeatureChangeAsync(result, chatId);
                 },
                 "manage_jobs",
                 "List, create, update, delete, pause, resume, or run Lumi background jobs. Use when the user explicitly asks Lumi to monitor, remind, wait for a condition, follow up, or automate a recurring/temporary task in the background. Script jobs are one-shot wake scripts: the script waits/polls, exits when attention is needed, and Lumi wakes the linked chat with the script output.",
@@ -858,7 +859,7 @@ public partial class ChatViewModel
                     [Description("Optional text query for list filtering.")] string? query = null) =>
                 {
                     var result = FeatureManager.ManageMemories(action, identifier, key, content, category, query);
-                    return await ApplyFeatureChangeAsync(result);
+                    return await ApplyFeatureChangeAsync(result, chatId);
                 },
                 "manage_memories",
                 "List, create, update, or delete Lumi memories. Use this only when the user explicitly asks to manage memories directly.",
@@ -1406,7 +1407,7 @@ public partial class ChatViewModel
             Lumi.Models.AppDataJsonContext.Default.Options);
     }
 
-    private async Task<string> ApplyFeatureChangeAsync(FeatureChangeResult result)
+    private async Task<string> ApplyFeatureChangeAsync(FeatureChangeResult result, Guid sourceChatId)
     {
         if (!result.DataChanged)
             return result.Message;
@@ -1416,29 +1417,27 @@ public partial class ChatViewModel
 
         await SaveIndexAsync();
 
-        Dispatcher.UIThread.Post(() =>
-        {
-            RefreshComposerCatalogs(syncProjectContextMcpSelections: false);
-            var chatMetadataChanged = RefreshCurrentChatFeatureState(result);
-            if (chatMetadataChanged)
-                _ = SaveIndexAsync();
-
-            if (CurrentChat?.CopilotSessionId is not null)
-            {
-                _pendingSessionInvalidations.Add(CurrentChat.Id);
-                _pendingSkillInjections.Clear();
-            }
-            else
-            {
-                PrunePendingSkillInjections();
-            }
-
-            if (result.McpCatalogChanged)
-                McpConfigurationChanged?.Invoke();
-            FeatureManagementStateChanged?.Invoke();
-        });
+        Dispatcher.UIThread.Post(() => ApplyFeatureChangeUiState(result, sourceChatId));
 
         return result.Message;
+    }
+
+    private void ApplyFeatureChangeUiState(FeatureChangeResult result, Guid sourceChatId)
+    {
+        RefreshFeatureCatalogState(result);
+
+        if (result.BackgroundJobsChanged)
+            _staleBackgroundJobPromptChats.Add(sourceChatId);
+        FeatureCatalogChanged?.Invoke(this, result);
+        FeatureManagementStateChanged?.Invoke();
+    }
+
+    internal void RefreshFeatureCatalogState(FeatureChangeResult result)
+    {
+        RefreshComposerCatalogs(syncProjectContextMcpSelections: false);
+        var chatMetadataChanged = RefreshCurrentChatFeatureState(result);
+        if (chatMetadataChanged)
+            _ = SaveIndexAsync();
     }
 
     private bool RefreshCurrentChatFeatureState(FeatureChangeResult result)

@@ -458,7 +458,7 @@ public sealed class ChatViewModelProjectSkillComposerTests
 
                 promptAdditions = (string)typeof(ChatViewModel)
                     .GetMethod("BuildSendPromptAdditions", BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .Invoke(viewModel, [true])!;
+                    .Invoke(viewModel, [true, null])!;
                 viewModel.Dispose();
             }, CancellationToken.None);
 

@@ -268,7 +268,7 @@ public sealed class ChatSessionStore : IDisposable
         _registry.Attach(surface);
         surface.PropertyChanged += OnSurfacePropertyChanged;
         surface.FeatureManagementStateChanged += OnSurfaceFeatureManagementStateChanged;
-        surface.McpConfigurationChanged += OnSurfaceMcpConfigurationChanged;
+        surface.FeatureCatalogChanged += OnSurfaceFeatureCatalogChanged;
         if (surface.CurrentChat is { } chat)
             RegisterChatOwner(surface, chat.Id);
     }
@@ -277,10 +277,9 @@ public sealed class ChatSessionStore : IDisposable
     {
         if (!_surfaces.Remove(surface))
             return;
-
         surface.PropertyChanged -= OnSurfacePropertyChanged;
         surface.FeatureManagementStateChanged -= OnSurfaceFeatureManagementStateChanged;
-        surface.McpConfigurationChanged -= OnSurfaceMcpConfigurationChanged;
+        surface.FeatureCatalogChanged -= OnSurfaceFeatureCatalogChanged;
         _registry.Detach(surface);
         _hostCounts.Remove(surface);
         RemoveFromIdleCache(surface);
@@ -292,7 +291,14 @@ public sealed class ChatSessionStore : IDisposable
 
     private void OnSurfaceFeatureManagementStateChanged() => SurfaceFeatureManagementStateChanged?.Invoke();
 
-    private void OnSurfaceMcpConfigurationChanged() => ApplyMcpConfigurationChange();
+    private void OnSurfaceFeatureCatalogChanged(ChatViewModel source, FeatureChangeResult result)
+    {
+        foreach (var surface in _surfaces.ToArray())
+        {
+            if (!ReferenceEquals(surface, source))
+                surface.RefreshFeatureCatalogState(result);
+        }
+    }
 
     private void OnSurfacePropertyChanged(object? sender, PropertyChangedEventArgs args)
     {

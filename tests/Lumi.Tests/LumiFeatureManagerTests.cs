@@ -31,8 +31,8 @@ public sealed class LumiFeatureManagerTests
             triggerType: BackgroundJobTriggerTypes.Script,
             scriptContent: "Write-Output price-dropped",
             defaultChatId: chat.Id);
-
         Assert.True(result.DataChanged);
+        Assert.True(result.BackgroundJobsChanged);
         var job = Assert.Single(data.BackgroundJobs);
         Assert.Equal(chat.Id, job.ChatId);
         Assert.Equal(BackgroundJobTriggerTypes.Script, job.TriggerType);
@@ -63,8 +63,8 @@ public sealed class LumiFeatureManagerTests
             intervalMinutes: 60,
             isTemporary: false,
             defaultChatId: chat.Id);
-
         Assert.True(result.DataChanged);
+        Assert.True(result.BackgroundJobsChanged);
         var job = Assert.Single(data.BackgroundJobs);
         Assert.Equal(BackgroundJobTriggerTypes.Time, job.TriggerType);
         Assert.Equal(BackgroundJobScheduleTypes.Interval, job.ScheduleType);

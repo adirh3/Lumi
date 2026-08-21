@@ -19,7 +19,8 @@ public sealed record FeatureChangeResult(
     string? DeletedMcpName = null,
     int? SkillContentBytes = null,
     string? SkillContentHash = null,
-    bool McpCatalogChanged = false);
+    bool McpCatalogChanged = false,
+    bool BackgroundJobsChanged = false);
 
 public sealed class LumiFeatureManager
 {
@@ -166,7 +167,7 @@ public sealed class LumiFeatureManager
         Guid? defaultChatId = null)
     {
         var normalizedAction = NormalizeOrNull(action)?.ToLowerInvariant() ?? "";
-        return normalizedAction switch
+        var result = normalizedAction switch
         {
             "list" or "show" or "search" => new FeatureChangeResult(ListJobs(query ?? identifier)),
             "create" or "add" or "new" => CreateJob(name, description, prompt, chatIdentifier, triggerType, scheduleType,
@@ -181,6 +182,11 @@ public sealed class LumiFeatureManager
             "run" or "run_now" or "run-now" => RunJobSoon(identifier),
             _ => InvalidAction("background jobs", action)
         };
+
+        // Keep the next prompt's background-job inventory current without changing session lifecycle.
+        return result.DataChanged
+            ? result with { BackgroundJobsChanged = true }
+            : result;
     }
 
     private FeatureChangeResult CreateJob(

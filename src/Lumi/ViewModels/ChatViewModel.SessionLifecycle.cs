@@ -2540,6 +2540,7 @@ public partial class ChatViewModel
     {
         _pendingSessionInvalidations.Remove(chatId);
         _pendingSessionReconfigurations.Remove(chatId);
+        _staleBackgroundJobPromptChats.Remove(chatId);
         var chat = _dataStore.Data.Chats.FirstOrDefault(c => c.Id == chatId);
         if (chat is not null)
             CancelPendingQuestions(chat);

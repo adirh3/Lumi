@@ -243,6 +243,41 @@ public sealed class SystemPromptBuilderTests
     }
 
     [Fact]
+    public void BuildBackgroundJobsContext_AuthoritativeIncludesNeverRunPausedJobs()
+    {
+        var context = SystemPromptBuilder.BuildBackgroundJobsContext(
+        [
+            new BackgroundJob
+            {
+                Name = "Paused watcher",
+                IsEnabled = false
+            }
+        ],
+        authoritative: true);
+
+        Assert.Contains("--- Background Jobs (authoritative current state) ---", context);
+        Assert.Contains("- paused | Paused watcher", context);
+        Assert.DoesNotContain("- none", context);
+    }
+
+    [Fact]
+    public void BuildBackgroundJobsContext_AuthoritativeDoesNotTruncateInventory()
+    {
+        var jobs = Enumerable.Range(1, 21)
+            .Select(index => new BackgroundJob
+            {
+                Name = $"Paused watcher {index:D2}",
+                IsEnabled = false
+            })
+            .ToList();
+
+        var context = SystemPromptBuilder.BuildBackgroundJobsContext(jobs, authoritative: true);
+
+        Assert.Equal(21, context.Split('\n').Count(line => line.StartsWith("- paused |", StringComparison.Ordinal)));
+        Assert.Contains("Paused watcher 21", context);
+    }
+
+    [Fact]
     public void Build_PresentsFinalUrlArtifactsAsCards()
     {
         var prompt = SystemPromptBuilder.Build(

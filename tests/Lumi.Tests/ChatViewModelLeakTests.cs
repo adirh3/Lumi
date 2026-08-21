@@ -721,7 +721,72 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
-    public async Task McpToolChange_ReconfiguresEveryWarmCachedSurface()
+    public async Task ManageMcpChange_DoesNotReconfigureWarmCachedSurfaces()
+    {
+        var server = new McpServer
+        {
+            Name = "managed-mcp",
+            ServerType = "local",
+            Command = "managed-mcp.exe",
+            IsEnabled = true
+        };
+        var chatA = new Chat
+        {
+            Title = "mcp-a",
+            CopilotSessionId = "sid-mcp-a",
+            ActiveMcpServerNames = ["managed-mcp"],
+            HasExplicitMcpServerSelection = true
+        };
+        var chatB = new Chat
+        {
+            Title = "mcp-b",
+            CopilotSessionId = "sid-mcp-b",
+            ActiveMcpServerNames = ["managed-mcp"],
+            HasExplicitMcpServerSelection = true
+        };
+        var dataStore = new DataStore(new AppData
+        {
+            Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+            Chats = [chatA, chatB],
+            McpServers = [server]
+        });
+        using var registry = new ChatSurfaceRegistry();
+        using var sessionStore = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            });
+        var surfaceA = await sessionStore.AcquireChatAsync(chatA);
+        var surfaceB = await sessionStore.AcquireChatAsync(chatB);
+        var sessionA = CreateDetachedSession("sid-mcp-a");
+        var sessionB = CreateDetachedSession("sid-mcp-b");
+        GetField<Dictionary<Guid, CopilotSession>>(surfaceA, "_sessionCache")[chatA.Id] = sessionA;
+        GetField<Dictionary<Guid, CopilotSession>>(surfaceB, "_sessionCache")[chatB.Id] = sessionB;
+        SetPrivateField(surfaceA, "_activeSession", sessionA);
+        SetPrivateField(surfaceB, "_activeSession", sessionB);
+        sessionStore.Release(surfaceA);
+        sessionStore.Release(surfaceB);
+
+        var result = new LumiFeatureManager(dataStore).ManageMcps(
+            "update",
+            identifier: "managed-mcp",
+            name: "renamed-mcp");
+        InvokePrivate(surfaceA, "ApplyFeatureChangeUiState", result, chatA.Id);
+
+        Assert.False(SessionWasDisposed(sessionA));
+        Assert.False(SessionWasDisposed(sessionB));
+        Assert.Equal("sid-mcp-a", chatA.CopilotSessionId);
+        Assert.Equal("sid-mcp-b", chatB.CopilotSessionId);
+        Assert.Equal(["renamed-mcp"], surfaceA.ActiveMcpServerNames);
+        Assert.Equal(["renamed-mcp"], surfaceB.ActiveMcpServerNames);
+    }
+
+    [Fact]
+    public async Task ExplicitMcpConfigurationChange_ReconfiguresEveryWarmCachedSurface()
     {
         var chatA = new Chat { Title = "mcp-a", CopilotSessionId = "sid-mcp-a" };
         var chatB = new Chat { Title = "mcp-b", CopilotSessionId = "sid-mcp-b" };
@@ -751,7 +816,7 @@ public sealed class ChatViewModelLeakTests
         sessionStore.Release(surfaceA);
         sessionStore.Release(surfaceB);
 
-        surfaceA.RaiseMcpConfigurationChangedForTest();
+        sessionStore.ApplyMcpConfigurationChange();
         await DrainSessionReleaseAsync(surfaceA, chatA.Id);
         await DrainSessionReleaseAsync(surfaceB, chatB.Id);
 
@@ -2362,6 +2427,53 @@ public sealed class ChatViewModelLeakTests
         Assert.Equal("GitHub", chip.Name);
         Assert.Equal("first", chip.Glyph);
         Assert.Equal(["GitHub"], chat.ActiveMcpServerNames);
+    }
+
+    [Fact]
+    public void ManageJobsChange_DoesNotInvalidateFocusedWarmSession()
+    {
+        var dataStore = CreateDataStore();
+        var chat = new Chat
+        {
+            Title = "warm job chat",
+            CopilotSessionId = "sid-warm-job"
+        };
+        var otherChat = new Chat { Title = "other chat" };
+        dataStore.Data.Chats.AddRange([chat, otherChat]);
+        using var vm = new ChatViewModel(dataStore, TestCopilot.Shared)
+        {
+            CurrentChat = chat
+        };
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        var sessionCache = GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache");
+        sessionCache[chat.Id] = session;
+        SetPrivateField(vm, "_activeSession", session);
+
+        var result = new LumiFeatureManager(dataStore).ManageJobs(
+            "create",
+            name: "Warm wake",
+            prompt: "Reply when triggered.",
+            triggerType: BackgroundJobTriggerTypes.Time,
+            scheduleType: BackgroundJobScheduleTypes.Once,
+            runAt: DateTimeOffset.Now.AddHours(1).ToString("O"),
+            defaultChatId: chat.Id);
+
+        Assert.True(result.DataChanged);
+        Assert.True(result.BackgroundJobsChanged);
+
+        vm.CurrentChat = otherChat;
+        InvokePrivate(vm, "ApplyFeatureChangeUiState", result, chat.Id);
+
+        Assert.False(InvokePrivate<bool>(vm, "ConsumePendingSessionInvalidation", chat));
+        Assert.Equal("sid-warm-job", chat.CopilotSessionId);
+        Assert.Same(session, sessionCache[chat.Id]);
+        var otherPromptAdditions = InvokePrivate<string>(vm, "BuildSendPromptAdditions", false, otherChat);
+        Assert.DoesNotContain("--- Background Jobs (authoritative current state) ---", otherPromptAdditions);
+        var sourcePromptAdditions = InvokePrivate<string>(vm, "BuildSendPromptAdditions", false, chat);
+        Assert.Contains("--- Background Jobs (authoritative current state) ---", sourcePromptAdditions);
+        Assert.Contains("Warm wake", sourcePromptAdditions);
+        var nextPromptAdditions = InvokePrivate<string>(vm, "BuildSendPromptAdditions", false, chat);
+        Assert.DoesNotContain("--- Background Jobs (authoritative current state) ---", nextPromptAdditions);
     }
 
     /// <summary>

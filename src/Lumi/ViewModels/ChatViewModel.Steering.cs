@@ -157,7 +157,7 @@ public partial class ChatViewModel
 
             var sendOptions = new MessageOptions
             {
-                Prompt = skillDirectives + prompt + BuildSendPromptAdditions(),
+                Prompt = skillDirectives + prompt + BuildSendPromptAdditions(targetChat: activeChat),
                 Mode = GitHub.Copilot.Rpc.SendMode.Immediate.Value
             };
             ApplyMessageAttachments(sendOptions, attachments);
