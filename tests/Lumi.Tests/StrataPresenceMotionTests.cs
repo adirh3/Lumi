@@ -238,6 +238,97 @@ public sealed class StrataPresenceMotionTests
         Assert.Equal(MotionKind.Ramp, kind);
     }
 
+    [SkippableFact]
+    public void Handoff_GlowsThenReturnsToFrameStableRest()
+    {
+        HeadlessUnitTestSession? session = null;
+        string? skipReason = null;
+        try
+        {
+            session = HeadlessUnitTestSession.StartNew(typeof(SkiaHeadlessTestApp), AvaloniaTestIsolationLevel.PerTest);
+        }
+        catch (Exception ex)
+        {
+            skipReason = $"Skia headless session unavailable: {ex.Message}";
+        }
+
+        Skip.If(session is null, skipReason ?? "Skia headless session unavailable.");
+
+        var started = false;
+        var coalesced = false;
+        var glowDelta = -1.0;
+        var settledDelta = -1.0;
+        var activeAfterSettle = true;
+        var hasContinuousAnimation = true;
+
+        try
+        {
+            session!.Dispatch(() =>
+            {
+                var resources = Application.Current!.Resources;
+                resources["Color.AccentDefault"] = Color.FromRgb(120, 110, 245);
+                resources["Color.AccentViolet"] = Color.FromRgb(160, 100, 230);
+                resources["Color.AccentRose"] = Color.FromRgb(230, 110, 170);
+                resources["Palette.Warning400"] = Color.FromRgb(235, 175, 90);
+
+                var presence = new StrataPresence
+                {
+                    State = PresenceState.Streaming,
+                    Intensity = 4.0,
+                    FocusReach = 1.0,
+                    FocusPoint = new Point(0.5, 0.72),
+                };
+                var window = new Window
+                {
+                    Width = 460,
+                    Height = 460,
+                    Background = Brushes.White,
+                    Content = presence,
+                };
+
+                window.Show();
+                for (int i = 0; i < 5; i++)
+                    Tick(40);
+
+                using var baseline = window.CaptureRenderedFrame();
+                started = presence.Handoff();
+                coalesced = !presence.Handoff();
+                Assert.True(presence.HandoffRemaining > TimeSpan.Zero);
+
+                for (int i = 0; i < 4; i++)
+                {
+                    Tick(90);
+                    using var glowing = window.CaptureRenderedFrame();
+                    glowDelta = Math.Max(glowDelta, MeanAbsoluteRgbDelta(baseline, glowing));
+                }
+
+                Tick(1600);
+                Tick(80);
+                using var settled = window.CaptureRenderedFrame();
+                Tick(180);
+                using var later = window.CaptureRenderedFrame();
+
+                settledDelta = MeanAbsoluteRgbDelta(settled, later);
+                activeAfterSettle = presence.IsHandoffAnimationActiveForTest;
+                hasContinuousAnimation = presence.HasContinuousAnimationForTest;
+                Assert.Equal(TimeSpan.Zero, presence.HandoffRemaining);
+                window.Close();
+            }, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        finally
+        {
+            session?.Dispose();
+        }
+
+        Skip.If(glowDelta < 0 || settledDelta < 0, "Skia headless capture returned no rendered frames.");
+
+        Assert.True(started);
+        Assert.True(coalesced);
+        Assert.True(glowDelta >= 0.15, $"Handoff glow was not visibly measurable (delta={glowDelta:F3}).");
+        Assert.True(settledDelta <= 0.02, $"Handoff kept changing after settling (delta={settledDelta:F3}).");
+        Assert.False(activeAfterSettle);
+        Assert.False(hasContinuousAnimation);
+    }
     /// <summary>
     /// Permanent guard against the regression that made the field feel motionless: when the lobes were
     /// sized to the surface's LONG edge, a wide window produced lobes LARGER than the viewport, so
@@ -339,5 +430,41 @@ public sealed class StrataPresenceMotionTests
         }
 
         return sw > 0 ? sy / sw : -1;
+    }
+
+    private static double MeanAbsoluteRgbDelta(WriteableBitmap? first, WriteableBitmap? second)
+    {
+        if (first is null || second is null)
+            return -1;
+
+        using var firstFrame = first.Lock();
+        using var secondFrame = second.Lock();
+        if (firstFrame.Size != secondFrame.Size)
+            return -1;
+
+        long sum = 0;
+        long channels = 0;
+        unsafe
+        {
+            var firstBase = (byte*)firstFrame.Address;
+            var secondBase = (byte*)secondFrame.Address;
+            for (int y = 0; y < firstFrame.Size.Height; y += 2)
+            {
+                var firstRow = firstBase + y * firstFrame.RowBytes;
+                var secondRow = secondBase + y * secondFrame.RowBytes;
+                for (int x = 0; x < firstFrame.Size.Width; x += 2)
+                {
+                    var firstPixel = firstRow + x * 4;
+                    var secondPixel = secondRow + x * 4;
+                    for (int channel = 0; channel < 3; channel++)
+                    {
+                        sum += Math.Abs(firstPixel[channel] - secondPixel[channel]);
+                        channels++;
+                    }
+                }
+            }
+        }
+
+        return channels == 0 ? -1 : sum / (double)channels;
     }
 }

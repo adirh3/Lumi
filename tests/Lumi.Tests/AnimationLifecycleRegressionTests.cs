@@ -15,7 +15,10 @@ using Avalonia.Rendering.Composition;
 using Avalonia.Rendering.Composition.Animations;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Lumi.Models;
 using Lumi.Presence;
+using Lumi.Services;
+using Lumi.ViewModels;
 using StrataTheme;
 using StrataTheme.Animation;
 using StrataTheme.Controls;
@@ -352,6 +355,97 @@ public sealed class AnimationLifecycleRegressionTests
 
                     Assert.DoesNotContain(controller.Visual, host.Children);
                     Assert.False(controller.Visual.IsAttachedToVisualTree());
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            session.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task PresenceController_SameStateChatSwitchesUseFiniteCoalescedHandoff()
+    {
+        var session = HeadlessUnitTestSession.StartNew(
+            typeof(SkiaHeadlessTestApp),
+            AvaloniaTestIsolationLevel.PerTest);
+        try
+        {
+            await session.Dispatch(() =>
+            {
+                var idleA = ExistingChat("Idle A");
+                var idleB = ExistingChat("Idle B");
+                var thinkingA = ExistingChat("Thinking A");
+                var thinkingB = ExistingChat("Thinking B");
+                var thinkingC = ExistingChat("Thinking C");
+                var dataStore = new DataStore(new AppData
+                {
+                    Chats = [idleA, idleB, thinkingA, thinkingB, thinkingC],
+                });
+
+                using var idleSurfaceA = Surface(dataStore, idleA);
+                using var idleSurfaceB = Surface(dataStore, idleB);
+                using var thinkingSurfaceA = Surface(dataStore, thinkingA, isBusy: true);
+                using var thinkingSurfaceB = Surface(dataStore, thinkingB, isBusy: true);
+                using var thinkingSurfaceC = Surface(dataStore, thinkingC, isBusy: true);
+
+                var host = new Grid();
+                var window = new Window { Width = 900, Height = 700, Content = host };
+                using var controller = new PresenceController(host);
+                try
+                {
+                    controller.Attach(idleSurfaceA);
+                    window.Show();
+                    Dispatcher.UIThread.RunJobs();
+                    using var frame = window.CaptureRenderedFrame();
+                    Assert.NotNull(frame);
+
+                    controller.Visual.FocusPoint = new Point(0.31, 0.37);
+                    var heldFocus = controller.Visual.FocusPoint;
+                    controller.Repoint(idleSurfaceB);
+                    Assert.Equal(1, controller.Visual.HandoffCountForTest);
+                    Assert.True(controller.Visual.IsHandoffAnimationActiveForTest);
+                    Assert.False(controller.Visual.HasContinuousAnimationForTest);
+                    Assert.Equal(heldFocus, controller.Visual.FocusPoint);
+                    Assert.NotNull(GetRequiredField(controller, "_sameStateFocusSnapRegistration").GetValue(controller));
+                    var focusTimer = (DispatcherTimer?)GetRequiredField(controller, "_focusTimer").GetValue(controller);
+                    Assert.False(focusTimer?.IsEnabled == true);
+
+                    controller.Repoint(thinkingSurfaceA);
+                    Assert.Equal(PresenceState.Thinking, controller.Visual.State);
+                    Assert.Equal(1, controller.Visual.HandoffCountForTest);
+                    Assert.False(controller.Visual.IsHandoffAnimationActiveForTest);
+                    Assert.Null(GetRequiredField(controller, "_sameStateFocusSnapRegistration").GetValue(controller));
+
+                    Thread.Sleep(1600);
+                    Assert.False(controller.Visual.IsHandoffAnimationActiveForTest);
+                    controller.Repoint(thinkingSurfaceB);
+                    Assert.Equal(2, controller.Visual.HandoffCountForTest);
+                    Assert.True(controller.Visual.IsHandoffAnimationActiveForTest);
+                    Assert.False(controller.Visual.HasContinuousAnimationForTest);
+                    var firstHoldUntil = (DateTime)GetRequiredField(
+                        controller,
+                        "_sameStateFocusHoldUntil").GetValue(controller)!;
+
+                    controller.Repoint(thinkingSurfaceC);
+                    Assert.Equal(2, controller.Visual.HandoffCountForTest);
+                    var coalescedHoldUntil = (DateTime)GetRequiredField(
+                        controller,
+                        "_sameStateFocusHoldUntil").GetValue(controller)!;
+                    Assert.InRange(
+                        Math.Abs((coalescedHoldUntil - firstHoldUntil).TotalMilliseconds),
+                        0,
+                        60);
+
+                    controller.SetEnabled(false);
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.False(controller.Visual.IsHandoffAnimationActiveForTest);
+                    Assert.Null(GetRequiredField(controller, "_sameStateFocusSnapRegistration").GetValue(controller));
                 }
                 finally
                 {
@@ -971,6 +1065,20 @@ public sealed class AnimationLifecycleRegressionTests
             fieldName,
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
         ?? throw new MissingFieldException(instance.GetType().FullName, fieldName);
+
+    private static Chat ExistingChat(string title)
+    {
+        var chat = new Chat { Title = title };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "Hello" });
+        return chat;
+    }
+
+    private static ChatViewModel Surface(DataStore dataStore, Chat chat, bool isBusy = false) =>
+        new(dataStore, TestCopilot.Shared)
+        {
+            CurrentChat = chat,
+            IsBusy = isBusy,
+        };
 
     private static PropertyInfo GetRequiredProperty(object instance, string propertyName) =>
         instance.GetType().GetProperty(

@@ -50,6 +50,10 @@ public sealed class PresenceController : IDisposable
     // field at the live message so the gaze visibly tracks the answer.
     private DispatcherTimer? _focusTimer;
     private DateTime _focusSettleUntil;
+    private IDisposable? _sameStateFocusSnapRegistration;
+    private int _sameStateFocusSnapGeneration;
+    private DateTime _sameStateFocusHoldUntil;
+    private static readonly TimeSpan SameStateFocusPeakRemaining = TimeSpan.FromMilliseconds(870);
 
     // One-shot deferral for the welcome -> existing-chat hand-off. Opening a chat with history
     // triggers a heavy transcript rebuild that briefly STALLS the UI thread. The focus glide is a
@@ -123,6 +127,7 @@ public sealed class PresenceController : IDisposable
         if (!enabled)
         {
             _focusTimer?.Stop();
+            CancelSameStateHandoff();
             CancelDeferredArm();
             _host.Children.Remove(_presence);
             return;
@@ -240,13 +245,24 @@ public sealed class PresenceController : IDisposable
         if (ReferenceEquals(current, _lastObservedChat))
             return;
 
-        var fromWelcome = _lastObservedChat is null;
+        var previous = _lastObservedChat;
+        var previousState = _presence.State;
+        var fromWelcome = previous is null;
         _lastObservedChat = current;
 
         // Any in-flight deferred arm is stale the moment the chat changes again.
         CancelDeferredArm();
+        CancelSameStateFocusSnap();
 
         _attentionPending = false;
+        var handoffSameState =
+            _isEnabled &&
+            previous is not null &&
+            current is { Messages.Count: > 0 } &&
+            previous.Id != current.Id &&
+            previousState == ResolvePresenceState(vm);
+        if (!handoffSameState)
+            _presence.CancelHandoff();
         if (current is { Messages.Count: > 0 })
         {
             // Existing chat: a load rebuild follows and replaces the workspace collections,
@@ -277,7 +293,16 @@ public sealed class PresenceController : IDisposable
             if (current is { Messages.Count: 0 })
                 _presence.Pulse(PresencePulse.Awaken);
         }
-        UpdatePresence();
+        var handoffActive = false;
+        if (handoffSameState)
+        {
+            _presence.Handoff();
+            var remaining = _presence.HandoffRemaining;
+            handoffActive = remaining > TimeSpan.Zero;
+            if (handoffActive)
+                BeginSameStateFocusSnap(remaining);
+        }
+        UpdatePresence(preserveFocus: handoffActive);
     }
 
     /// <summary>Stop observing the current view-model (the field stays, at rest).</summary>
@@ -293,6 +318,7 @@ public sealed class PresenceController : IDisposable
         _lastObservedChat = null;
         _companionPoint = null;
         _focusTimer?.Stop();
+        CancelSameStateHandoff();
         CancelDeferredArm();
     }
 
@@ -368,6 +394,7 @@ public sealed class PresenceController : IDisposable
 
             case nameof(ChatViewModel.IsBusy):
             {
+                CancelSameStateHandoff();
                 var busy = vm.IsBusy;
                 if (!busy && _wasBusy)
                 {
@@ -385,6 +412,7 @@ public sealed class PresenceController : IDisposable
 
             case nameof(ChatViewModel.IsStreaming):
             {
+                CancelSameStateHandoff();
                 // Streaming resuming means a pending question was answered.
                 if (vm.IsStreaming)
                     _attentionPending = false;
@@ -424,6 +452,7 @@ public sealed class PresenceController : IDisposable
         }
 
         _attentionPending = true;
+        CancelSameStateHandoff();
         UpdatePresence();
         _presence.Pulse(PresencePulse.Ripple);
     }
@@ -574,7 +603,7 @@ public sealed class PresenceController : IDisposable
     // ── Rendering the field from observed state ──────────────────────────────────────
 
     /// <summary>Maps the current view-model state onto the ambient presence field.</summary>
-    private void UpdatePresence()
+    private void UpdatePresence(bool preserveFocus = false)
     {
         if (!_isEnabled)
         {
@@ -588,31 +617,33 @@ public sealed class PresenceController : IDisposable
         // Any state we render here supersedes a pending welcome -> existing deferral (this is also the
         // path the deferred arm itself takes once the load drains), so clear it and proceed.
         CancelDeferredArm();
-        PresenceState state;
-        if (vm.CurrentChat is null)
-            state = PresenceState.Dormant;
-        else if (_attentionPending)
-            state = PresenceState.Attention;
-        else if (vm.IsStreaming)
-            state = PresenceState.Streaming;
-        else if (vm.IsBusy)
-            state = PresenceState.Thinking;
-        else
-            state = PresenceState.Idle;
-
-        _presence.State = state;
+        _presence.State = ResolvePresenceState(vm);
         // A soft luminance haloes the Lumi mark on the welcome screen ("new chat"); it clears the
         // instant a real canvas takes over.
         _presence.Halo = vm.CurrentChat is null;
         _presence.AnimateWhileWorking = vm.AnimatePresenceWhileWorking;
-        UpdateFocusTarget();
+        var holdFocus = preserveFocus || _sameStateFocusSnapRegistration is not null;
+        if (!holdFocus)
+            UpdateFocusTarget();
 
         // Follow the live message while working; keep a brief settle window afterward so the glow
         // can find the final turn and then glide down to rest at the composer.
         var working = vm.IsBusy || vm.IsStreaming;
         if (!working)
             _focusSettleUntil = DateTime.UtcNow + TimeSpan.FromMilliseconds(1600);
-        EnsureFocusFollow();
+        if (!holdFocus)
+            EnsureFocusFollow();
+    }
+
+    private PresenceState ResolvePresenceState(ChatViewModel vm)
+    {
+        if (vm.CurrentChat is null)
+            return PresenceState.Dormant;
+        if (_attentionPending)
+            return PresenceState.Attention;
+        if (vm.IsStreaming)
+            return PresenceState.Streaming;
+        return vm.IsBusy ? PresenceState.Thinking : PresenceState.Idle;
     }
 
     /// <summary>
@@ -622,15 +653,15 @@ public sealed class PresenceController : IDisposable
     /// user types. The new→existing and busy→idle changes therefore read as the light gliding *down*
     /// into the conversation. (The companion pool, not this focal point, leans into an open island.)
     /// </summary>
-    private void UpdateFocusTarget(bool snap = false)
+    private bool UpdateFocusTarget(bool snap = false, bool allowFallbackSnap = false)
     {
         if (_vm is not { } vm)
-            return;
+            return false;
 
         // While a welcome -> existing hand-off is deferred, keep the welcome luminance pooled at the
         // hero; the focus glide is armed (once) when the load drains, never re-aimed into the stall.
         if (_armPending)
-            return;
+            return false;
 
         var working = vm.IsBusy || vm.IsStreaming || _attentionPending;
 
@@ -680,8 +711,8 @@ public sealed class PresenceController : IDisposable
 
         // A resize re-aim that found no live anchor leaves the established focus untouched (see above):
         // better to hold the last good spot for a frame than to flash the field to centre.
-        if (snap && !anchored)
-            return;
+        if (snap && !anchored && !allowFallbackSnap)
+            return false;
 
         var target = new Point(Math.Clamp(x, 0.0, 1.0), Math.Clamp(y, 0.0, 1.0));
 
@@ -691,7 +722,7 @@ public sealed class PresenceController : IDisposable
             // or the spring's deferred-completion revert-to-centre. No dedup — the underlying pixels moved
             // even when the normalized point barely did, and the resize arrange clobbered the base Offset.
             _presence.ResyncFocus(target);
-            return;
+            return true;
         }
 
         var cur = _presence.FocusPoint;
@@ -699,8 +730,95 @@ public sealed class PresenceController : IDisposable
         // use a tighter threshold so the gaze visibly tracks the live answer as it grows.
         var dedup = working ? 0.006 : 0.014;
         if (Math.Abs(target.X - cur.X) + Math.Abs(target.Y - cur.Y) < dedup)
-            return;
+            return true;
         _presence.FocusPoint = target;
+        return true;
+    }
+
+    /// <summary>
+    /// A same-state chat switch should show only the focal glow, never a second whole-field spring.
+    /// Pause the old follow loop while the replacement transcript realizes, then snap once to the new
+    /// anchor at Background priority. A few short retries cover frame-budgeted transcript mounting;
+    /// the final attempt uses the normal state fallback so focus can never remain tied to the old chat.
+    /// </summary>
+    private void BeginSameStateFocusSnap(TimeSpan handoffRemaining)
+    {
+        CancelSameStateFocusSnap();
+        _focusTimer?.Stop();
+        _sameStateFocusHoldUntil = DateTime.UtcNow + handoffRemaining;
+        var generation = ++_sameStateFocusSnapGeneration;
+        var initialDelay = handoffRemaining - SameStateFocusPeakRemaining;
+        if (initialDelay < TimeSpan.Zero)
+            initialDelay = TimeSpan.Zero;
+        ScheduleSameStateFocusSnap(generation, attempt: 0, initialDelay);
+    }
+
+    private void ScheduleSameStateFocusSnap(int generation, int attempt, TimeSpan delay)
+    {
+        _sameStateFocusSnapRegistration = DispatcherTimer.RunOnce(
+            () =>
+            {
+                if (generation != _sameStateFocusSnapGeneration)
+                    return;
+
+                _sameStateFocusSnapRegistration = null;
+                if (!_isEnabled || _vm is null)
+                    return;
+
+                var snapped = UpdateFocusTarget(
+                    snap: true,
+                    allowFallbackSnap: attempt >= 4);
+                if (!snapped && attempt < 4)
+                {
+                    var retryDelay = _sameStateFocusHoldUntil - DateTime.UtcNow;
+                    if (retryDelay > TimeSpan.FromMilliseconds(80))
+                        retryDelay = TimeSpan.FromMilliseconds(80);
+                    if (retryDelay < TimeSpan.Zero)
+                        retryDelay = TimeSpan.Zero;
+                    ScheduleSameStateFocusSnap(generation, attempt + 1, retryDelay);
+                    return;
+                }
+
+                var remaining = _sameStateFocusHoldUntil - DateTime.UtcNow;
+                if (remaining > TimeSpan.Zero)
+                {
+                    _sameStateFocusSnapRegistration = DispatcherTimer.RunOnce(
+                        () => ResumeFocusAfterSameStateHandoff(generation),
+                        remaining,
+                        DispatcherPriority.Background);
+                    return;
+                }
+
+                ResumeFocusAfterSameStateHandoff(generation);
+            },
+            delay,
+            DispatcherPriority.Background);
+    }
+
+    private void ResumeFocusAfterSameStateHandoff(int generation)
+    {
+        if (generation != _sameStateFocusSnapGeneration)
+            return;
+
+        _sameStateFocusSnapRegistration = null;
+        _sameStateFocusHoldUntil = default;
+        UpdateFocusTarget(snap: true, allowFallbackSnap: true);
+        _focusSettleUntil = DateTime.UtcNow + TimeSpan.FromMilliseconds(1600);
+        EnsureFocusFollow();
+    }
+
+    private void CancelSameStateFocusSnap()
+    {
+        _sameStateFocusSnapGeneration++;
+        _sameStateFocusSnapRegistration?.Dispose();
+        _sameStateFocusSnapRegistration = null;
+        _sameStateFocusHoldUntil = default;
+    }
+
+    private void CancelSameStateHandoff()
+    {
+        CancelSameStateFocusSnap();
+        _presence.CancelHandoff();
     }
 
     /// <summary>
