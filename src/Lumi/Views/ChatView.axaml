@@ -1127,7 +1127,7 @@
          six agents costs six lines instead of six cards. -->
     <DataTemplate DataType="vm:SubagentToolCallItem">
       <Button Classes="agent-row" Command="{Binding OpenRunCommand}"
-              ToolTip.Tip="{Binding RowTooltip}">
+              ToolTip.Tip="{loc:Str Subagent_OpenTranscriptTip}">
         <sc:StrataAgentRun Classes="inline"
                            AgentName="{Binding DisplayName}"
                            Title="{Binding Title}"
@@ -1165,7 +1165,7 @@
             <ItemsControl.ItemTemplate>
               <DataTemplate DataType="vm:SubagentToolCallItem">
                 <Border Classes="agent-cluster-avatar"
-                        ToolTip.Tip="{Binding Title}"
+                        ToolTip.Tip="{Binding DisplayName}"
                         Background="{Binding AccentIndex, Converter={StaticResource ChartBrush}}">
                   <TextBlock Text="{Binding Initial}" />
                 </Border>
@@ -1181,7 +1181,7 @@
             <ItemsControl.ItemTemplate>
               <DataTemplate DataType="vm:SubagentToolCallItem">
                 <Button Classes="agent-row" Command="{Binding OpenRunCommand}"
-                        ToolTip.Tip="{Binding RowTooltip}">
+                        ToolTip.Tip="{loc:Str Subagent_OpenTranscriptTip}">
                   <sc:StrataAgentRun Classes="inline"
                                      AgentName="{Binding DisplayName}"
                                      Title="{Binding Title}"

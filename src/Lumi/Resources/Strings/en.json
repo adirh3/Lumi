@@ -612,7 +612,7 @@
   "Subagent_StatusStopped": "Stopped",
   "Subagent_OneStep": "1 step",
   "Subagent_Steps": "{0} steps",
-  "Subagent_OpenTranscriptTip": "Open this agent's full run as a read-only chat",
+  "Subagent_OpenTranscriptTip": "Open agent run",
   "Subagent_RunTitle": "Agent run",
   "Subagent_AllRuns": "Agents in this chat",
   "Subagent_BackToList": "All agents",

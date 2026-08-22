@@ -613,7 +613,7 @@
   "Subagent_StatusStopped": "הופסק",
   "Subagent_OneStep": "צעד אחד",
   "Subagent_Steps": "{0} צעדים",
-  "Subagent_OpenTranscriptTip": "פתיחת ההרצה המלאה של הסוכן כצ׳אט לקריאה בלבד",
+  "Subagent_OpenTranscriptTip": "פתיחת הרצת הסוכן",
   "Subagent_RunTitle": "הרצת סוכן",
   "Subagent_AllRuns": "סוכנים בצ׳אט הזה",
   "Subagent_BackToList": "כל הסוכנים",

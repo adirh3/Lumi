@@ -754,11 +754,6 @@ public partial class SubagentToolCallItem : TranscriptItem
     public bool HasModeLabel => !string.IsNullOrWhiteSpace(ModeLabel);
     public bool HasPrompt => !string.IsNullOrWhiteSpace(Prompt);
 
-    /// <summary>
-    /// Hover text for the collapsed chat row: the instruction the agent was given, so the request
-    /// is readable without opening the run.
-    /// </summary>
-    public string RowTooltip => HasPrompt ? Prompt! : Loc.Subagent_OpenTranscriptTip;
     public bool HasProgressValue => ProgressValue >= 0;
     public bool IsInProgress => Status == StrataAiToolCallStatus.InProgress;
     public bool IsCompleted => Status == StrataAiToolCallStatus.Completed;
@@ -818,7 +813,6 @@ public partial class SubagentToolCallItem : TranscriptItem
     partial void OnPromptChanged(string? value)
     {
         OnPropertyChanged(nameof(HasPrompt));
-        OnPropertyChanged(nameof(RowTooltip));
         RunContentChanged?.Invoke();
     }
     partial void OnProgressValueChanged(double value) => OnPropertyChanged(nameof(HasProgressValue));

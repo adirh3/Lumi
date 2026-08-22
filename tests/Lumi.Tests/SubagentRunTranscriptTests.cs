@@ -157,7 +157,6 @@ public sealed class SubagentRunTranscriptTests
         // The run must never open with an empty request.
         Assert.True(subagent.HasPrompt);
         Assert.Equal("Benchmark the Sony Bravia 8", subagent.Prompt);
-        Assert.Equal("Benchmark the Sony Bravia 8", subagent.RowTooltip);
         Assert.Equal(
             "Benchmark the Sony Bravia 8",
             Assert.IsType<UserMessageItem>(RunItems(subagent, messages)[0]).Content);
