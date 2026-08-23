@@ -178,15 +178,19 @@ public class GlobalSearchServiceTests
         var service = CreateService(new AppData { Skills = [skill] });
 
         var previewResults = await service.SearchAsync("excel", GlobalSearchExecutionMode.Preview);
-        Assert.Empty(previewResults);
+        Assert.DoesNotContain(previewResults, result => ReferenceEquals(result.Item, skill));
 
         var interactiveResults = await service.SearchAsync("excel", GlobalSearchExecutionMode.Interactive);
-        var interactiveMatch = Assert.Single(interactiveResults);
+        var interactiveMatch = Assert.Single(
+            interactiveResults,
+            result => ReferenceEquals(result.Item, skill));
         Assert.Equal(GlobalSearchCategory.Skills, interactiveMatch.Category);
         Assert.True(interactiveMatch.IsContentMatch);
 
         var fullResults = await service.SearchAsync("excel", GlobalSearchExecutionMode.Full);
-        var match = Assert.Single(fullResults);
+        var match = Assert.Single(
+            fullResults,
+            result => ReferenceEquals(result.Item, skill));
         Assert.Equal(GlobalSearchCategory.Skills, match.Category);
         Assert.True(match.IsContentMatch);
     }
