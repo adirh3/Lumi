@@ -457,8 +457,8 @@ public sealed class ChatWorkspaceViewTests
         var browserServiceCode = File.ReadAllText(Path.Combine(root, "src", "Lumi", "Services", "BrowserService.cs"));
 
         Assert.Contains("_browserService.SetParentHwnd(platformHandle.Handle)", browserViewCode);
-        Assert.Contains("_controller.ParentWindow = hwnd", browserServiceCode);
-        Assert.Contains("_controller.NotifyParentWindowPositionChanged()", browserServiceCode);
+        Assert.Contains("controller.ParentWindow = hwnd", browserServiceCode);
+        Assert.Contains("controller.NotifyParentWindowPositionChanged()", browserServiceCode);
         Assert.Contains("_webViewHwnd = IntPtr.Zero", browserServiceCode);
     }
 
