@@ -6,12 +6,20 @@ namespace Lumi.Tests;
 public sealed class SingleInstanceCoordinatorTests
 {
     [Fact]
-    public void InstanceMutex_UsesGlobalNamespace()
+    public void InstanceNames_AreCrossPlatformSafe()
     {
         var names = SingleInstanceCoordinator.CreateNamesForScope($"test-{Guid.NewGuid():N}");
 
         Assert.StartsWith(@"Global\Lumi.SingleInstance.", names.MutexName);
-        Assert.Equal(names.MutexName["Global\\".Length..], names.PipeName);
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.StartsWith("Lumi.SingleInstance.", names.PipeName);
+        }
+        else
+        {
+            Assert.StartsWith("Lumi.SI.", names.PipeName);
+            Assert.InRange(names.PipeName.Length, 1, 28);
+        }
     }
 
     [Fact]

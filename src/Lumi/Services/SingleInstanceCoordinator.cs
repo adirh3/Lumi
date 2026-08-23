@@ -63,11 +63,14 @@ internal sealed class SingleInstanceCoordinator : IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
 
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(scope)))[..32];
-        var pipeName = $"Lumi.SingleInstance.{hash}";
+        // Unix named pipes are domain sockets; keep the name below macOS's 104-byte path limit.
+        var pipeName = OperatingSystem.IsWindows()
+            ? $"Lumi.SingleInstance.{hash}"
+            : $"Lumi.SI.{hash[..20]}";
 
         // Unqualified .NET mutex names are session-scoped on Unix, so separate desktop launches
         // can both become primary. The global namespace keeps the app single-instance on every OS.
-        return ($@"Global\{pipeName}", pipeName);
+        return ($@"Global\Lumi.SingleInstance.{hash}", pipeName);
     }
 
     internal bool TryBecomePrimary(TimeSpan timeout)
