@@ -6,6 +6,15 @@ namespace Lumi.Tests;
 public sealed class SingleInstanceCoordinatorTests
 {
     [Fact]
+    public void InstanceMutex_UsesGlobalNamespace()
+    {
+        var names = SingleInstanceCoordinator.CreateNamesForScope($"test-{Guid.NewGuid():N}");
+
+        Assert.StartsWith(@"Global\Lumi.SingleInstance.", names.MutexName);
+        Assert.Equal(names.MutexName["Global\\".Length..], names.PipeName);
+    }
+
+    [Fact]
     public void QueuedActivation_IsDeliveredWhenHandlerRegisters()
     {
         using var coordinator = SingleInstanceCoordinator.CreateForScope(

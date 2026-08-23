@@ -83,6 +83,7 @@ jobs:
           |FullyQualifiedName~Lumi.Tests.BrowserServiceLifecycleTests
           |FullyQualifiedName~Lumi.Tests.DataStorePlatformSkillMigrationTests
           |FullyQualifiedName~Lumi.Tests.LocKeyboardHintTests
+          |FullyQualifiedName~Lumi.Tests.SingleInstanceCoordinatorTests
           |FullyQualifiedName~Lumi.Tests.UpdateServiceSafetyTests.UpdateChannel_)"
 
       - name: Upload test results

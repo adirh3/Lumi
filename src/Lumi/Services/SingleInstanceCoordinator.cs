@@ -54,14 +54,20 @@ internal sealed class SingleInstanceCoordinator : IDisposable
 
     internal static SingleInstanceCoordinator CreateForScope(string scope)
     {
+        var names = CreateNamesForScope(scope);
+        return new SingleInstanceCoordinator(names.MutexName, names.PipeName);
+    }
+
+    internal static (string MutexName, string PipeName) CreateNamesForScope(string scope)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
 
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(scope)))[..32];
-        var mutexName = OperatingSystem.IsWindows()
-            ? $@"Global\Lumi.SingleInstance.{hash}"
-            : $"Lumi.SingleInstance.{hash}";
         var pipeName = $"Lumi.SingleInstance.{hash}";
-        return new SingleInstanceCoordinator(mutexName, pipeName);
+
+        // Unqualified .NET mutex names are session-scoped on Unix, so separate desktop launches
+        // can both become primary. The global namespace keeps the app single-instance on every OS.
+        return ($@"Global\{pipeName}", pipeName);
     }
 
     internal bool TryBecomePrimary(TimeSpan timeout)
