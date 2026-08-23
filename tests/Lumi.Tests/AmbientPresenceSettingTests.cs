@@ -1,3 +1,4 @@
+using Avalonia.Headless;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
@@ -5,6 +6,7 @@ using Xunit;
 
 namespace Lumi.Tests;
 
+[Collection("Headless UI")]
 public sealed class AmbientPresenceSettingTests
 {
     private static SettingsViewModel CreateViewModel(DataStore dataStore)
@@ -54,16 +56,26 @@ public sealed class AmbientPresenceSettingTests
     }
 
     [Fact]
-    public void PresencePreferencesSynchronizeAcrossSettingsWindows()
+    public async Task PresencePreferencesSynchronizeAcrossSettingsWindows()
     {
-        var dataStore = new DataStore(new AppData());
-        using var first = CreateViewModel(dataStore);
-        using var second = CreateViewModel(dataStore);
+        using var session = HeadlessTestSession.Start();
+        var animationSynchronized = false;
+        var presenceSynchronized = false;
 
-        first.AnimatePresenceWhileWorking = true;
-        Assert.True(second.AnimatePresenceWhileWorking);
+        await session.Dispatch(() =>
+        {
+            var dataStore = new DataStore(new AppData());
+            using var first = CreateViewModel(dataStore);
+            using var second = CreateViewModel(dataStore);
 
-        second.ShowAmbientPresence = false;
-        Assert.False(first.ShowAmbientPresence);
+            first.AnimatePresenceWhileWorking = true;
+            animationSynchronized = second.AnimatePresenceWhileWorking;
+
+            second.ShowAmbientPresence = false;
+            presenceSynchronized = !first.ShowAmbientPresence;
+        }, CancellationToken.None);
+
+        Assert.True(animationSynchronized);
+        Assert.True(presenceSynchronized);
     }
 }
