@@ -208,9 +208,7 @@ public sealed class AnimationLifecycleRegressionTests
     [Fact]
     public async Task PresenceStates_DoNotRunContinuousAnimation()
     {
-        var session = HeadlessUnitTestSession.StartNew(
-            typeof(SkiaHeadlessTestApp),
-            AvaloniaTestIsolationLevel.PerTest);
+        var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
         try
         {
             await session.Dispatch(() =>
@@ -284,9 +282,7 @@ public sealed class AnimationLifecycleRegressionTests
     [Fact]
     public async Task OptInWorkingAnimationBeforeAttach_StartsBeaconScaleLoop()
     {
-        var session = HeadlessUnitTestSession.StartNew(
-            typeof(SkiaHeadlessTestApp),
-            AvaloniaTestIsolationLevel.PerTest);
+        var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
         try
         {
             await session.Dispatch(() =>
@@ -371,9 +367,7 @@ public sealed class AnimationLifecycleRegressionTests
     [Fact]
     public async Task PresenceController_SameStateChatSwitchesUseFiniteCoalescedHandoff()
     {
-        var session = HeadlessUnitTestSession.StartNew(
-            typeof(SkiaHeadlessTestApp),
-            AvaloniaTestIsolationLevel.PerTest);
+        var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
         try
         {
             await session.Dispatch(() =>
@@ -644,9 +638,7 @@ public sealed class AnimationLifecycleRegressionTests
         bool forceExactCycleBoundary = false)
     {
         CompositionCycleBoundaryResult? result = null;
-        var session = HeadlessUnitTestSession.StartNew(
-            typeof(SkiaHeadlessTestApp),
-            AvaloniaTestIsolationLevel.PerTest);
+        var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
         try
         {
             await session.Dispatch(

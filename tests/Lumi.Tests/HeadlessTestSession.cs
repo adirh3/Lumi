@@ -15,9 +15,14 @@ internal sealed class HeadlessTestSession : IDisposable
     }
 
     public static HeadlessTestSession Start()
+        => Start(typeof(HeadlessTestApp));
+
+    public static HeadlessTestSession Start(Type appType)
     {
+        ArgumentNullException.ThrowIfNull(appType);
+
         return new HeadlessTestSession(HeadlessUnitTestSession.StartNew(
-            typeof(HeadlessTestApp),
+            appType,
             AvaloniaTestIsolationLevel.PerTest));
     }
 
