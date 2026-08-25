@@ -668,7 +668,9 @@ public partial class ChatViewModel
         ClearPendingTurnTracking(chatId);
         DisposeSessionSubscription(chatId);
 
-        if (_sessionCache.Remove(chatId, out var session))
+        var removedSession = _sessionCache.Remove(chatId, out var session);
+        CancelMcpToolCatalogRefresh(chatId);
+        if (removedSession && session is not null)
         {
             if (ReferenceEquals(_activeSession, session)
                 || string.Equals(_activeSession?.SessionId, session.SessionId, StringComparison.Ordinal))

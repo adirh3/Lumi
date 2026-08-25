@@ -60,6 +60,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly Dictionary<Guid, ExternalSendReservationState> _externalSendReservations = [];
     private readonly object _chatLifecycleEventSync = new();
     private readonly Dictionary<(Guid ChatId, string EventType), long> _publishedTerminalChatEventTurns = [];
+    private readonly object _mcpToolCatalogRefreshLock = new();
+    private readonly Dictionary<Guid, CancellationTokenSource> _mcpToolCatalogRefreshCts = [];
 
     /// <summary>
     /// The resolved OAuth chip message per <c>sessionId|serverName</c> once a login attempt has produced
@@ -88,6 +90,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// </summary>
     private static readonly TimeSpan NativeMcpSettleBudget = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan ProxyMcpSettleBudget = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan McpToolCatalogRefreshBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan McpSettlePollInterval = TimeSpan.FromMilliseconds(200);
 
     /// <summary>
@@ -194,15 +197,172 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// prompt is dispatched only once those servers have signed in and registered their tools; stdio-only
     /// sessions keep the previous fire-and-forget behaviour.
     /// </summary>
-    private Task BeginMcpServerStatusCheckAsync(
+    private async Task BeginMcpServerStatusCheckAsync(
         CopilotSession session,
-        Guid chatId,
+        Chat chat,
         IReadOnlyDictionary<string, McpServerConfig> configuredServers,
         bool usesProxy,
         CancellationToken ct)
     {
-        var check = CheckMcpServerStatusAsync(session, chatId, configuredServers, usesProxy, ct);
-        return HasRemoteMcpServers(configuredServers) ? check : Task.CompletedTask;
+        try
+        {
+            var statusCheck = CheckMcpServerStatusAsync(
+                session,
+                chat.Id,
+                configuredServers,
+                usesProxy,
+                ct);
+            if (HasRemoteMcpServers(configuredServers))
+                await statusCheck.ConfigureAwait(false);
+
+            // The SDK can resume a persisted session whose MCP server is connected while its effective
+            // model-facing tool catalog still reflects an earlier tools/list failure. Explicitly rebuild
+            // that catalog before the first prompt so selected-and-healthy servers actually appear.
+            using var catalogCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            catalogCts.CancelAfter(McpToolCatalogRefreshBudget);
+            try
+            {
+                await session.Rpc.Tools.InitializeAndValidateAsync(catalogCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                throw new TimeoutException(CopilotService.McpSetupTimeoutMessage);
+            }
+        }
+        catch
+        {
+            // A failed/cancelled catalog rebuild must not leave this handle reusable: the next send
+            // should resume the persisted server session and retry initialization before prompting.
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (IsCurrentSession(chat.Id, session))
+                    InvalidateLocalSessionCache(chat);
+            });
+            throw;
+        }
+    }
+
+    private async Task RefreshMcpToolCatalogAsync(
+        CopilotSession session,
+        Guid chatId,
+        string serverName)
+    {
+        CancellationTokenSource? refreshCts = null;
+        CancellationTokenSource? previous = null;
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (!IsCurrentSession(chatId, session))
+                return;
+
+            lock (_mcpToolCatalogRefreshLock)
+            {
+                _mcpToolCatalogRefreshCts.Remove(chatId, out previous);
+                refreshCts = new CancellationTokenSource(McpToolCatalogRefreshBudget);
+                _mcpToolCatalogRefreshCts[chatId] = refreshCts;
+            }
+        });
+
+        if (refreshCts is null)
+            return;
+
+        var activeRefreshCts = refreshCts;
+        TryCancelMcpToolCatalogRefresh(previous);
+
+        try
+        {
+            await session.Rpc.Tools.InitializeAndValidateAsync(activeRefreshCts.Token).ConfigureAwait(false);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (IsCurrentSession(chatId, session))
+                    ClearMcpChipError(chatId, serverName);
+            });
+        }
+        catch (OperationCanceledException ex)
+        {
+            var shouldReport = await Dispatcher.UIThread.InvokeAsync(() =>
+                IsCurrentSession(chatId, session)
+                && IsCurrentMcpToolCatalogRefresh(chatId, activeRefreshCts));
+            if (shouldReport)
+                await ReportFailureAsync(ex);
+        }
+        catch (Exception ex)
+        {
+            await ReportFailureAsync(ex);
+        }
+        finally
+        {
+            lock (_mcpToolCatalogRefreshLock)
+            {
+                if (_mcpToolCatalogRefreshCts.TryGetValue(chatId, out var current)
+                    && ReferenceEquals(current, activeRefreshCts))
+                {
+                    _mcpToolCatalogRefreshCts.Remove(chatId);
+                }
+            }
+            activeRefreshCts.Dispose();
+        }
+
+        async Task ReportFailureAsync(Exception ex)
+        {
+            Debug.WriteLine(
+                $"[MCP] Tool catalog refresh failed for chat {chatId}, server '{serverName}': {ex.Message}");
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (!IsCurrentSession(chatId, session))
+                    return;
+
+                var displayName = ResolveMcpDisplayName(chatId, serverName);
+                SetMcpChipError(
+                    chatId,
+                    serverName,
+                    $"MCP server '{displayName}' changed its tools, but Lumi could not refresh them ({ex.Message}).");
+            });
+        }
+    }
+
+    private bool IsCurrentSession(Guid chatId, CopilotSession session)
+        => _sessionCache.TryGetValue(chatId, out var current)
+           && ReferenceEquals(current, session);
+
+    private bool IsCurrentMcpToolCatalogRefresh(Guid chatId, CancellationTokenSource refreshCts)
+    {
+        lock (_mcpToolCatalogRefreshLock)
+        {
+            return _mcpToolCatalogRefreshCts.TryGetValue(chatId, out var current)
+                   && ReferenceEquals(current, refreshCts);
+        }
+    }
+
+    private void CancelMcpToolCatalogRefresh(Guid chatId)
+    {
+        CancellationTokenSource? refreshCts;
+        lock (_mcpToolCatalogRefreshLock)
+            _mcpToolCatalogRefreshCts.Remove(chatId, out refreshCts);
+        TryCancelMcpToolCatalogRefresh(refreshCts);
+    }
+
+    private void CancelAllMcpToolCatalogRefreshes()
+    {
+        CancellationTokenSource[] refreshSources;
+        lock (_mcpToolCatalogRefreshLock)
+        {
+            refreshSources = _mcpToolCatalogRefreshCts.Values.ToArray();
+            _mcpToolCatalogRefreshCts.Clear();
+        }
+
+        foreach (var refreshCts in refreshSources)
+            TryCancelMcpToolCatalogRefresh(refreshCts);
+    }
+
+    private static void TryCancelMcpToolCatalogRefresh(CancellationTokenSource? refreshCts)
+    {
+        try
+        {
+            refreshCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
     /// <summary>
@@ -2365,7 +2525,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 if (mcpPlan.Servers is { Count: > 0 })
                 {
                     await BeginMcpServerStatusCheckAsync(
-                        createdSession, chat.Id, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
+                        createdSession, chat, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
                 }
 
                 _staleBackgroundJobPromptChats.Remove(chat.Id);
@@ -2409,7 +2569,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     if (HasRemoteMcpServers(mcpPlan.Servers))
                         SetSessionSetupStatus(chat, Loc.Status_ConnectingMcp);
                     await BeginMcpServerStatusCheckAsync(
-                        session, chat.Id, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
+                        session, chat, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
                 }
 
                 // The SDK does not automatically change the session model on resume —
@@ -2478,7 +2638,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _activeSession = createdSession;
             if (mcpPlan.Servers is { Count: > 0 })
                 await BeginMcpServerStatusCheckAsync(
-                    createdSession, chat.Id, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
+                    createdSession, chat, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
             RecordSessionProviderSignature(chat, currentByokSignature);
             _dataStore.MarkChatChanged(chat);
             await SaveChatAsync(chat, saveIndex: true);
@@ -5119,6 +5279,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return;
 
         _sessionCache.Remove(chat.Id);
+        CancelMcpToolCatalogRefresh(chat.Id);
         if (_sessionsPendingResume.Remove(chat.Id, out var previousCandidate)
             && !ReferenceEquals(previousCandidate, invalidatedSession)
             && !string.Equals(
@@ -5168,6 +5329,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 || string.Equals(cachedSession.SessionId, detachedSessionId, StringComparison.Ordinal)))
         {
             _sessionCache.Remove(chat.Id);
+            CancelMcpToolCatalogRefresh(chat.Id);
             TrackSessionRelease(chat.Id, cachedSession, deleteServerSession: false);
             releasedSession = cachedSession;
         }
