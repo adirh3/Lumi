@@ -5192,11 +5192,17 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return null;
 
         // Record intent before cancellation or AbortAsync can synchronously emit Abort/Idle events.
-        // Those handlers consume this flag to distinguish a user stop from a broken session.
+        // Those handlers read this flag to distinguish a user stop from a broken session.
         SetManualStopRequested(chatId, true);
 
+        // ask_question waits on a Lumi-owned TaskCompletionSource rather than the SDK turn token.
+        // Cancel it synchronously before the queued-send drain is scheduled; otherwise the stopped
+        // question remains in _pendingQuestions, HasPendingQuestion keeps the chat "active" forever,
+        // and "Send now" plus every later message stays queued until the app restarts.
+        var canceledQuestions = CancelPendingQuestions(chat);
+
         // A plain Stop fails pending steers before any abort event can resolve them as delivered.
-        // "Send now" opts out because its queued steer is intended for the SDK continuation.
+        // Send now reclaims its selected message into Lumi's queue before entering this path.
         if (resolvePendingSteersAsFailed)
             ResolvePendingSteersAsFailed(chatId);
 
@@ -5236,7 +5242,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
         }
 
-        if (stoppedTools)
+        if (stoppedTools || canceledQuestions)
             QueueSaveChat(chat, saveIndex: false);
 
         // Scheduled rather than awaited: the follow-up send owns a full turn setup, and awaiting it here

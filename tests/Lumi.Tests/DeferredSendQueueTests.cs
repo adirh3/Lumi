@@ -489,6 +489,29 @@ public sealed class DeferredSendQueueTests
     }
 
     /// <summary>
+    /// A pending ask_question task is Lumi-owned state, not SDK turn state. Stopping the SDK tool without
+    /// cancelling that task leaves HasPendingQuestion true forever, so the post-stop drain and every later
+    /// send remain queued even though the UI says the chat is idle.
+    /// </summary>
+    [Fact]
+    public async Task SendNow_WithPendingQuestion_CancelsQuestionBeforeTheQueuedSendDrain()
+    {
+        using var host = DeferredSendHost.Create();
+        var pendingQuestion = host.TrackPendingQuestion();
+        var message = host.AddTranscriptMessage("answer me now", MessageSteerState.Steering);
+
+        Assert.True(host.IsChatRuntimeActive());
+
+        await host.SendNowAsync(message);
+
+        Assert.True(pendingQuestion.Task.IsCanceled);
+        Assert.Equal("Failed", host.QuestionMessage.ToolStatus);
+        Assert.Equal(MessageSteerState.Queued, message.SteerState);
+        Assert.False(host.IsChatRuntimeActive());
+        Assert.Contains("answer me now", host.QueuedPrompts());
+    }
+
+    /// <summary>
     /// "Send now" is offered for exactly the two pending states. A delivered or failed message has
     /// nothing left to expedite.
     /// </summary>
@@ -521,6 +544,8 @@ public sealed class DeferredSendQueueTests
         public Chat Chat { get; }
 
         public ChatRuntimeState Runtime => GetRuntimeStates()[Chat.Id];
+
+        public ChatMessage QuestionMessage { get; private set; } = null!;
 
         public static DeferredSendHost Create()
         {
@@ -668,6 +693,23 @@ public sealed class DeferredSendQueueTests
 
         public Task SendNowAsync(ChatMessageViewModel message)
             => (Task)Invoke("SendSteeredNowAsync", message)!;
+
+        public TaskCompletionSource<string> TrackPendingQuestion()
+        {
+            const string questionId = "q-send-now";
+            QuestionMessage = new ChatMessage
+            {
+                Role = "tool",
+                ToolName = "ask_question",
+                ToolStatus = "InProgress",
+                QuestionId = questionId
+            };
+            Chat.Messages.Add(QuestionMessage);
+
+            var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Invoke("TrackPendingQuestion", Chat.Id, questionId, completion);
+            return completion;
+        }
 
         /// <summary>Adds a user message to the chat and its transcript view model, in a steer state.</summary>
         public ChatMessageViewModel AddTranscriptMessage(string content, MessageSteerState steerState)
