@@ -235,6 +235,7 @@ public partial class ChatViewModel
         if (_sessionCache.TryGetValue(chat.Id, out var previousSession)
             && !ReferenceEquals(previousSession, session))
         {
+            CancelMcpToolCatalogRefresh(chat.Id);
             if (!string.Equals(previousSession.SessionId, session.SessionId, StringComparison.Ordinal))
             {
                 _sessionCache.Remove(chat.Id);
@@ -271,6 +272,7 @@ public partial class ChatViewModel
         }
 
         _sessionCache[chat.Id] = session;
+        CancelMcpToolCatalogRefresh(chat.Id);
 
         // Per-session streaming state — captured by closure, independent per subscription
         ChatMessage? streamingMsg = null;
@@ -2445,6 +2447,16 @@ public partial class ChatViewModel
                         CancellationToken.None);
                     break;
 
+                case McpToolsListChangedEvent mcpToolsChanged:
+                    // A recovered or dynamically updated MCP can change its tools after the session's
+                    // initial catalog was built. Rebuild the model-facing catalog so the new tools become
+                    // available in the next turn instead of remaining selected-but-invisible.
+                    _ = RefreshMcpToolCatalogAsync(
+                        session,
+                        chat.Id,
+                        mcpToolsChanged.Data.ServerName);
+                    break;
+
                 case SessionPlanChangedEvent planChanged:
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -2710,6 +2722,7 @@ public partial class ChatViewModel
         // resume once the CLI/server recovers.
         if (_sessionCache.Remove(chat.Id, out var detachedSession))
             ReleaseMcpProxyLease(chat.Id, detachedSession);
+        CancelMcpToolCatalogRefresh(chat.Id);
         if (wasActive)
             _activeSession = null;
 
@@ -2791,6 +2804,7 @@ public partial class ChatViewModel
                 DetachMcpProxyLease(session)?.Dispose();
         }
         _sessionCache.Clear();
+        CancelAllMcpToolCatalogRefreshes();
         _sessionsPendingResume.Clear();
         _activeSession = null;
 
