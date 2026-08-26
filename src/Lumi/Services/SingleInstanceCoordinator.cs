@@ -26,28 +26,34 @@ internal sealed class SingleInstanceCoordinator : IDisposable
     private const byte PrimaryShuttingDownResponse = 2;
     private const byte PrimaryRestartingResponse = 3;
 
-    private readonly Mutex _mutex;
+    private readonly Mutex? _windowsMutex;
+    private readonly string? _unixLockFilePath;
     private readonly string _pipeName;
     private readonly CancellationTokenSource _listenerCts = new();
     private readonly object _activationSync = new();
     private readonly Queue<AppActivationRequest> _pendingActivations = [];
+    private FileStream? _unixLockStream;
     private Task? _listenerTask;
     private Action<AppActivationRequest>? _activationHandler;
     private bool _acceptingActivations = true;
     private byte _rejectedActivationResponse = PrimaryShuttingDownResponse;
-    private bool _ownsMutex;
+    private bool _ownsInstanceLock;
     private volatile bool _disposed;
 
-    private SingleInstanceCoordinator(string mutexName, string pipeName)
+    private SingleInstanceCoordinator(string mutexName, string pipeName, string unixLockFilePath)
     {
-        _mutex = new Mutex(initiallyOwned: false, mutexName);
+        if (OperatingSystem.IsWindows())
+            _windowsMutex = new Mutex(initiallyOwned: false, mutexName);
+        else
+            _unixLockFilePath = unixLockFilePath;
+
         _pipeName = pipeName;
 
-        if (TryAcquireMutex(TimeSpan.Zero))
+        if (TryAcquireInstanceLock(TimeSpan.Zero))
             StartListener();
     }
 
-    internal bool IsPrimaryInstance => _ownsMutex;
+    internal bool IsPrimaryInstance => _ownsInstanceLock;
 
     internal static SingleInstanceCoordinator Create()
         => CreateForScope(ResolveInstanceScope());
@@ -55,10 +61,14 @@ internal sealed class SingleInstanceCoordinator : IDisposable
     internal static SingleInstanceCoordinator CreateForScope(string scope)
     {
         var names = CreateNamesForScope(scope);
-        return new SingleInstanceCoordinator(names.MutexName, names.PipeName);
+        return new SingleInstanceCoordinator(
+            names.MutexName,
+            names.PipeName,
+            names.UnixLockFilePath);
     }
 
-    internal static (string MutexName, string PipeName) CreateNamesForScope(string scope)
+    internal static (string MutexName, string PipeName, string UnixLockFilePath) CreateNamesForScope(
+        string scope)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
 
@@ -68,19 +78,24 @@ internal sealed class SingleInstanceCoordinator : IDisposable
             ? $"Lumi.SingleInstance.{hash}"
             : $"Lumi.SI.{hash[..20]}";
 
-        // Unqualified .NET mutex names are session-scoped on Unix, so separate desktop launches
-        // can both become primary. The global namespace keeps the app single-instance on every OS.
-        return ($@"Global\Lumi.SingleInstance.{hash}", pipeName);
+        var unixLockRoot = Path.IsPathRooted(scope)
+            ? scope
+            : Path.Combine(Path.GetTempPath(), "Lumi-single-instance", hash);
+
+        return (
+            $@"Global\Lumi.SingleInstance.{hash}",
+            pipeName,
+            Path.Combine(unixLockRoot, "instance.lock"));
     }
 
     internal bool TryBecomePrimary(TimeSpan timeout)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        if (_ownsMutex)
+        if (_ownsInstanceLock)
             return true;
 
-        if (!TryAcquireMutex(timeout))
+        if (!TryAcquireInstanceLock(timeout))
             return false;
 
         StartListener();
@@ -93,7 +108,7 @@ internal sealed class SingleInstanceCoordinator : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        if (_ownsMutex)
+        if (_ownsInstanceLock)
         {
             return PublishActivation(request)
                 ? ActivationRedirectResult.Accepted
@@ -212,18 +227,68 @@ internal sealed class SingleInstanceCoordinator : IDisposable
             : appDirectory;
     }
 
-    private bool TryAcquireMutex(TimeSpan timeout)
+    private bool TryAcquireInstanceLock(TimeSpan timeout)
+        => _windowsMutex is not null
+            ? TryAcquireWindowsMutex(timeout)
+            : TryAcquireUnixFileLock(timeout);
+
+    private bool TryAcquireWindowsMutex(TimeSpan timeout)
     {
         try
         {
-            _ownsMutex = _mutex.WaitOne(timeout);
+            _ownsInstanceLock = _windowsMutex!.WaitOne(timeout);
         }
         catch (AbandonedMutexException)
         {
-            _ownsMutex = true;
+            _ownsInstanceLock = true;
         }
 
-        return _ownsMutex;
+        return _ownsInstanceLock;
+    }
+
+    private bool TryAcquireUnixFileLock(TimeSpan timeout)
+    {
+        if (timeout < TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan)
+            throw new ArgumentOutOfRangeException(nameof(timeout));
+
+        var lockFilePath = _unixLockFilePath
+            ?? throw new InvalidOperationException("The Unix instance lock path is not configured.");
+        Directory.CreateDirectory(Path.GetDirectoryName(lockFilePath)!);
+
+        var stopwatch = Stopwatch.StartNew();
+        while (true)
+        {
+            try
+            {
+                _unixLockStream = new FileStream(
+                    lockFilePath,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None);
+                _ownsInstanceLock = true;
+                return true;
+            }
+            catch (IOException)
+            {
+            }
+
+            if (timeout == TimeSpan.Zero
+                || (timeout != Timeout.InfiniteTimeSpan && stopwatch.Elapsed >= timeout))
+            {
+                return false;
+            }
+
+            var retryDelay = TimeSpan.FromMilliseconds(50);
+            if (timeout != Timeout.InfiniteTimeSpan)
+            {
+                var remaining = timeout - stopwatch.Elapsed;
+                if (remaining < retryDelay)
+                    retryDelay = remaining;
+            }
+
+            if (retryDelay > TimeSpan.Zero)
+                Thread.Sleep(retryDelay);
+        }
     }
 
     private void StartListener()
@@ -382,11 +447,11 @@ internal sealed class SingleInstanceCoordinator : IDisposable
             }
         }
 
-        if (_ownsMutex)
+        if (_ownsInstanceLock && _windowsMutex is not null)
         {
             try
             {
-                _mutex.ReleaseMutex();
+                _windowsMutex.ReleaseMutex();
             }
             catch (ApplicationException ex)
             {
@@ -394,7 +459,8 @@ internal sealed class SingleInstanceCoordinator : IDisposable
             }
         }
 
-        _mutex.Dispose();
+        _unixLockStream?.Dispose();
+        _windowsMutex?.Dispose();
         _listenerCts.Dispose();
     }
 }
