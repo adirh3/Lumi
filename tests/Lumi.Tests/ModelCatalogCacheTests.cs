@@ -18,6 +18,23 @@ public class ModelCatalogCacheTests
 {
     private static ModelInfo Model(string id) => new() { Id = id, Name = id };
 
+    private static ModelInfo RichModel(string? changedField = null) => new()
+    {
+        Id = "gpt-5.4",
+        Name = "GPT 5.4",
+        Capabilities = new ModelCapabilities
+        {
+            Limits = new ModelLimits { MaxContextWindowTokens = 128_000 },
+            Supports = new ModelSupports
+            {
+                Vision = changedField == "vision",
+                ReasoningEffort = changedField == "reasoning"
+            }
+        },
+        Billing = new ModelBilling { Multiplier = changedField == "billing" ? 0.5 : 1 },
+        Policy = new ModelPolicy { State = changedField == "policy" ? "unconfigured" : "enabled" }
+    };
+
     private static ModelContextWindowCatalog Catalog(params string[] longContextModelIds)
         => new(
             new HashSet<string>(longContextModelIds, StringComparer.OrdinalIgnoreCase),
@@ -61,6 +78,27 @@ public class ModelCatalogCacheTests
         Assert.True(await cache.RefreshAsync(force: true));
         Assert.NotNull(latest);
         Assert.Contains(latest!.Models, m => m.Id == "claude-opus-6");
+    }
+
+    [Theory]
+    [InlineData("vision")]
+    [InlineData("reasoning")]
+    [InlineData("billing")]
+    [InlineData("policy")]
+    public async Task Refresh_Publishes_WhenRichPickerMetadataChanges(string changedField)
+    {
+        var models = new List<ModelInfo> { RichModel() };
+        var published = 0;
+        var cache = new ModelCatalogCache(
+            _ => Task.FromResult(models),
+            _ => Task.FromResult<ModelContextWindowCatalog?>(Catalog()));
+        cache.Changed += _ => published++;
+
+        Assert.True(await cache.RefreshAsync());
+        models = [RichModel(changedField)];
+
+        Assert.True(await cache.RefreshAsync(force: true));
+        Assert.Equal(2, published);
     }
 
     /// <summary>

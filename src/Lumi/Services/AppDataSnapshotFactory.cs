@@ -39,6 +39,7 @@ internal static class AppDataSnapshotFactory
                 ShowReasoning = settings.ShowReasoning,
                 AutoGenerateTitles = settings.AutoGenerateTitles,
                 PreferredModel = settings.PreferredModel,
+                FavoriteModelIds = settings.FavoriteModelIds is null ? [] : [.. settings.FavoriteModelIds],
                 ReasoningEffort = settings.ReasoningEffort,
                 GlobalCustomInstructions = settings.GlobalCustomInstructions,
                 UseMcpProxy = settings.UseMcpProxy,

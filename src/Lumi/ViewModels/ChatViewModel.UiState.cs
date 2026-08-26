@@ -209,7 +209,83 @@ public partial class ChatViewModel
     private Dictionary<string, long> _modelLongContextTokenLimits = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _modelsWithLongContext = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Badge-worthy catalog metadata per model id, kept alongside the capability maps so the
+    /// picker can show context/cost/vision without refetching.</summary>
+    private Dictionary<string, ModelOptionMetadata> _modelOptionMetadata = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Rich rows for the composer's model picker: the same models as <see cref="AvailableModels"/>,
+    /// pinned favorites first, each carrying the metadata its badges render.
+    /// <see cref="SelectedModel"/> stays a plain id — the picker resolves an option back to it.
+    /// </summary>
+    public ObservableCollection<ModelOption> ModelOptions { get; } = [];
+
+    public string ModelPinToolTip => Loc.ModelPicker_Pin;
+
+    public string ModelUnpinToolTip => Loc.ModelPicker_Unpin;
+
+    /// <summary>
+    /// Rebuilds <see cref="ModelOptions"/> from the current model list, catalog metadata and saved
+    /// favorites. Existing option instances are reused so a rebuild refreshes badges in place instead
+    /// of re-creating rows the user may be pointing at.
+    /// </summary>
+    private void RebuildModelOptions()
+    {
+        var favorites = _dataStore.Data.Settings.FavoriteModelIds;
+        var ordered = ModelOptionCatalog.OrderPinnedFirst(AvailableModels, favorites);
+        var pinned = new HashSet<string>(favorites ?? [], StringComparer.Ordinal);
+
+        var existing = ModelOptions.ToDictionary(static option => option.Id, StringComparer.Ordinal);
+
+        for (var index = ModelOptions.Count - 1; index >= 0; index--)
+        {
+            if (!ordered.Contains(ModelOptions[index].Id, StringComparer.Ordinal))
+                ModelOptions.RemoveAt(index);
+        }
+
+        for (var index = 0; index < ordered.Count; index++)
+        {
+            var id = ordered[index];
+            if (!existing.TryGetValue(id, out var option))
+            {
+                option = new ModelOption(id);
+                existing[id] = option;
+            }
+
+            if (_modelOptionMetadata.TryGetValue(id, out var metadata))
+                option.Apply(metadata);
+            option.IsPinned = pinned.Contains(id);
+
+            var currentIndex = ModelOptions.IndexOf(option);
+            if (currentIndex < 0)
+                ModelOptions.Insert(Math.Min(index, ModelOptions.Count), option);
+            else if (currentIndex != index)
+                ModelOptions.Move(currentIndex, index);
+        }
+    }
+
+    /// <summary>
+    /// Pins or unpins a model in the picker. Favorites are an app-wide preference, so this writes
+    /// straight to settings; every surface picks the new order up when its picker is next opened.
+    /// </summary>
+    [RelayCommand]
+    private void TogglePinnedModel(ModelOption? option)
+    {
+        if (option is null || string.IsNullOrWhiteSpace(option.Id))
+            return;
+
+        var settings = _dataStore.Data.Settings;
+        settings.FavoriteModelIds ??= [];
+
+        if (!settings.FavoriteModelIds.Remove(option.Id))
+            settings.FavoriteModelIds.Add(option.Id);
+
+        _dataStore.Save();
+        RebuildModelOptions();
+    }
+
     public int ModelCatalogVersion { get; private set; }
+
 
     /// <summary>
     /// Updates the model capabilities cache from SDK ModelInfo list.
@@ -246,6 +322,12 @@ public partial class ChatViewModel
         var longContextTokenLimits = merge
             ? new Dictionary<string, long>(_modelLongContextTokenLimits, StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        var optionMetadata = merge
+            ? new Dictionary<string, ModelOptionMetadata>(_modelOptionMetadata, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, ModelOptionMetadata>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (id, metadata) in ModelOptionCatalog.BuildMetadata(models))
+            optionMetadata[id] = metadata;
 
         ModelSelectionHelper.ApplyModelCapabilities(
             models,
@@ -269,10 +351,13 @@ public partial class ChatViewModel
                 longContextTokenLimits.TryAdd(key, value);
         }
 
+        ApplyModelOptionContextLimits(optionMetadata, contextTokenLimits, longContextTokenLimits);
+
         _modelReasoningEfforts = reasoningEfforts;
         _modelDefaultEfforts = defaultEfforts;
         _modelContextTokenLimits = contextTokenLimits;
         _modelLongContextTokenLimits = longContextTokenLimits;
+        _modelOptionMetadata = optionMetadata;
         if (longContextModelIds is not null || !merge)
             _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
         ModelCatalogVersion++;
@@ -280,6 +365,7 @@ public partial class ChatViewModel
 
         UpdateQualityLevels(SelectedModel);
         UpdateContextWindowTiers(SelectedModel);
+        RebuildModelOptions();
 
         if (CurrentChat is { } chat)
         {
@@ -313,6 +399,11 @@ public partial class ChatViewModel
     [RelayCommand]
     private async Task RefreshModelCatalogAsync()
     {
+        // Favorites are app-wide, so another surface may have pinned a model since this picker last
+        // built its rows. Re-deriving here is enough to keep every picker in sync without any
+        // cross-surface plumbing.
+        RebuildModelOptions();
+
         try
         {
             await _copilotService.RefreshModelCatalogAsync().ConfigureAwait(false);
@@ -347,8 +438,12 @@ public partial class ChatViewModel
         _modelsWithLongContext = new HashSet<string>(
             source._modelsWithLongContext,
             StringComparer.OrdinalIgnoreCase);
+        _modelOptionMetadata = new Dictionary<string, ModelOptionMetadata>(
+            source._modelOptionMetadata,
+            StringComparer.OrdinalIgnoreCase);
         UpdateQualityLevels(SelectedModel);
         UpdateContextWindowTiers(SelectedModel);
+        RebuildModelOptions();
     }
 
     private void UpdateQualityLevels(string? modelId)
@@ -417,6 +512,26 @@ public partial class ChatViewModel
 
             if (limits.LongContext is > 0 and var longContextLimit)
                 longContextTokenLimits[modelId] = longContextLimit;
+        }
+    }
+
+    /// <summary>
+    /// The raw models RPC is authoritative for context-window tiers and sometimes reports limits the
+    /// SDK's <see cref="ModelInfo"/> omits. The picker badge shows the largest context the model can
+    /// offer, while the existing dictionaries continue to drive the selected default/long tier.
+    /// </summary>
+    private static void ApplyModelOptionContextLimits(
+        IDictionary<string, ModelOptionMetadata> metadata,
+        IReadOnlyDictionary<string, long> contextTokenLimits,
+        IReadOnlyDictionary<string, long> longContextTokenLimits)
+    {
+        foreach (var (modelId, modelMetadata) in metadata.ToList())
+        {
+            var effectiveLimit = longContextTokenLimits.TryGetValue(modelId, out var longLimit)
+                ? longLimit
+                : contextTokenLimits.GetValueOrDefault(modelId);
+            if (effectiveLimit > 0)
+                metadata[modelId] = modelMetadata with { ContextTokens = effectiveLimit };
         }
     }
 

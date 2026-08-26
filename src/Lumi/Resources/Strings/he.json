@@ -649,6 +649,14 @@
   "ContextWindow_Default": "ברירת מחדל",
   "ContextWindow_Long": "ארוך",
 
+  "ModelPicker_ContextBadge": "הקשר {0}",
+  "ModelPicker_CostIncluded": "כלול",
+  "ModelPicker_Vision": "ראייה",
+  "ModelPicker_Reasoning": "חשיבה",
+  "ModelPicker_NeedsEnabling": "דורש הפעלה",
+  "ModelPicker_Pin": "הצמדה לראש הרשימה",
+  "ModelPicker_Unpin": "ביטול הצמדה",
+
   "FieldLabel_URL": "כתובת URL",
   "FieldLabel_File": "קובץ",
   "FieldLabel_Path": "נתיב",

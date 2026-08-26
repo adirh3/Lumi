@@ -967,6 +967,13 @@ public class UserSettings
 
     // ── AI & Models ──
     public string PreferredModel { get; set; } = "";
+
+    /// <summary>
+    /// Model ids the user pinned in the composer's model picker, in pin order. Pinned models are
+    /// listed first in the picker. Ids that are no longer in the catalog are simply not rendered, so
+    /// a retired favorite never has to be cleaned up.
+    /// </summary>
+    public List<string> FavoriteModelIds { get; set; } = [];
     public string ReasoningEffort { get; set; } = ""; // CLI-defined value, e.g. low, medium, high, xhigh, max
     public string ContextWindowTier { get; set; } = ModelContextWindowTiers.Default;
     public string GlobalCustomInstructions { get; set; } = "";

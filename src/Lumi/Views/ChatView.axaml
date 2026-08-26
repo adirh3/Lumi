@@ -2033,8 +2033,11 @@
                              FileQueryChangedCommand="{Binding HandleFileQueryCommand}"
                              FileSelectedCommand="{Binding HandleFileSelectionCommand}"
                              ClipboardPasteCommand="{Binding RequestClipboardPasteCommand}"
-                             Models="{Binding AvailableModels}"
+                             Models="{Binding ModelOptions}"
                              ModelPickerOpenedCommand="{Binding RefreshModelCatalogCommand}"
+                             ModelPinCommand="{Binding TogglePinnedModelCommand}"
+                             ModelPinToolTip="{Binding ModelPinToolTip}"
+                             ModelUnpinToolTip="{Binding ModelUnpinToolTip}"
                              SelectedModel="{Binding SelectedModel, Mode=TwoWay}"
                              QualityLevels="{Binding QualityLevels}"
                              SelectedQuality="{Binding SelectedQuality, Mode=TwoWay}"
@@ -2096,10 +2099,59 @@
           </Grid>
         </sc:StrataChatComposer.StatusContent>
         <sc:StrataChatComposer.ModelItemTemplate>
+          <DataTemplate DataType="vm:ModelOption">
+            <StackPanel Spacing="3" MinWidth="0">
+              <TextBlock Text="{Binding DisplayName}"
+                         TextTrimming="CharacterEllipsis" />
+              <WrapPanel Orientation="Horizontal">
+                <!-- Badges are derived only from what the model catalog actually reports:
+                     context window, premium-request multiplier, vision, reasoning and policy. -->
+                <Border Classes="model-tier-badge"
+                        Padding="5,1"
+                        CornerRadius="4"
+                        Margin="0,0,4,0"
+                        IsVisible="{Binding HasContextBadge}">
+                  <TextBlock Text="{Binding ContextBadge}" />
+                </Border>
+                <Border Classes="model-tier-badge tier-premium"
+                        Padding="5,1"
+                        CornerRadius="4"
+                        Margin="0,0,4,0"
+                        IsVisible="{Binding HasCostBadge}">
+                  <TextBlock Text="{Binding CostBadge}" />
+                </Border>
+                <Border Classes="model-tier-badge tier-reasoning"
+                        Padding="5,1"
+                        CornerRadius="4"
+                        Margin="0,0,4,0"
+                        IsVisible="{Binding SupportsReasoning}">
+                  <TextBlock Text="{loc:Str ModelPicker_Reasoning}" />
+                </Border>
+                <Border Classes="model-tier-badge"
+                        Padding="5,1"
+                        CornerRadius="4"
+                        Margin="0,0,4,0"
+                        IsVisible="{Binding SupportsVision}">
+                  <TextBlock Text="{loc:Str ModelPicker_Vision}" />
+                </Border>
+                <Border Classes="model-tier-badge"
+                        Padding="5,1"
+                        CornerRadius="4"
+                        Margin="0,0,4,0"
+                        IsVisible="{Binding RequiresOptIn}">
+                  <TextBlock Text="{loc:Str ModelPicker_NeedsEnabling}" />
+                </Border>
+              </WrapPanel>
+            </StackPanel>
+          </DataTemplate>
+        </sc:StrataChatComposer.ModelItemTemplate>
+        <sc:StrataChatComposer.SelectedModelTemplate>
+          <!-- The collapsed picker button shows the selected model *id*, not the row item, and has
+               nowhere near the width for badges. -->
           <DataTemplate>
             <TextBlock Text="{Binding Converter={StaticResource ModelDisplayConverter}}" />
           </DataTemplate>
-        </sc:StrataChatComposer.ModelItemTemplate>
+        </sc:StrataChatComposer.SelectedModelTemplate>
         <sc:StrataChatComposer.AttachmentContent>
           <sc:StrataAttachmentList ShowAddButton="False"
                                    ItemsSource="{Binding PendingAttachmentItems}"

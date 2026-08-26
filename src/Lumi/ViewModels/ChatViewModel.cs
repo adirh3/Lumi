@@ -1344,6 +1344,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (!string.IsNullOrWhiteSpace(_selectedModel))
             AvailableModels.Add(_selectedModel);
 
+        // Every path that touches the model list (catalog sync, BYOK injection, a selection that
+        // introduces an unlisted id) goes through this collection, so deriving the picker rows from
+        // its changes keeps them correct without auditing each caller.
+        AvailableModels.CollectionChanged += (_, _) => RebuildModelOptions();
+        RebuildModelOptions();
+
         // Default all enabled MCPs to active so the MCP picker shows them checked
         PopulateDefaultMcps();
 

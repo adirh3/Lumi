@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using GitHub.Copilot;
 
@@ -169,8 +170,8 @@ public sealed class ModelCatalogCache
 
     /// <summary>
     /// Builds a stable, order-independent fingerprint of everything Lumi's UI derives from the model
-    /// catalog (ids, reasoning efforts, context limits). Two catalogs with the same fingerprint
-    /// produce an identical picker, so a refresh can skip rebinding entirely.
+    /// catalog (ids, reasoning efforts, context limits, rich-row badges and policy). Two catalogs
+    /// with the same fingerprint produce an identical picker, so a refresh can skip rebinding.
     /// </summary>
     internal static string BuildSignature(
         IEnumerable<ModelInfo> models,
@@ -187,6 +188,12 @@ public sealed class ModelCatalogCache
                 builder.AppendJoin(',', efforts.OrderBy(static effort => effort, StringComparer.Ordinal));
             builder.Append('|');
             builder.Append(model.Capabilities?.Limits?.MaxContextWindowTokens ?? 0).Append('|');
+            builder.Append(model.Capabilities?.Supports?.Vision == true ? '1' : '0').Append('|');
+            builder.Append(model.Capabilities?.Supports?.ReasoningEffort == true ? '1' : '0').Append('|');
+            builder.Append(model.Billing?.Multiplier is { } multiplier
+                ? multiplier.ToString("R", CultureInfo.InvariantCulture)
+                : string.Empty).Append('|');
+            builder.Append(model.Policy?.State).Append('|');
 
             if (contextWindows.Limits.TryGetValue(model.Id, out var limits))
                 builder.Append(limits.Default).Append(':').Append(limits.LongContext ?? 0);

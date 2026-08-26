@@ -648,6 +648,14 @@
   "ContextWindow_Default": "Default",
   "ContextWindow_Long": "Long",
 
+  "ModelPicker_ContextBadge": "{0} context",
+  "ModelPicker_CostIncluded": "Included",
+  "ModelPicker_Vision": "Vision",
+  "ModelPicker_Reasoning": "Reasoning",
+  "ModelPicker_NeedsEnabling": "Needs enabling",
+  "ModelPicker_Pin": "Pin to top",
+  "ModelPicker_Unpin": "Unpin",
+
   "FieldLabel_URL": "URL",
   "FieldLabel_File": "File",
   "FieldLabel_Path": "Path",
