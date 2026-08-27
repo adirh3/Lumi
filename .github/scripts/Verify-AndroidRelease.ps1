@@ -30,8 +30,7 @@ function ConvertTo-NormalizedSha256 {
 function Invoke-NativeText {
     param(
         [string]$FilePath,
-        [string[]]$Arguments,
-        [switch]$ReportCapture
+        [string[]]$Arguments
     )
 
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
@@ -62,22 +61,6 @@ function Invoke-NativeText {
         $process.Dispose()
     }
 
-    if ($ReportCapture) {
-        Write-Host "$([IO.Path]::GetFileName($FilePath)) capture: stdout=$($stdout.Length) chars, stderr=$($stderr.Length) chars."
-        foreach ($stream in @(
-            @{ Name = "stdout"; Text = $stdout },
-            @{ Name = "stderr"; Text = $stderr }
-        )) {
-            foreach ($line in ($stream.Text -split "`n")) {
-                if ($line -match '(?i)Signer\s+#1\s+certificate\s+SHA-?256\s+digest') {
-                    $safeLine = $line -replace '(?i)(digest\s*:\s*).+$', '$1<fingerprint>'
-                    $safeLine = $safeLine.Replace("`r", "<CR>").Replace("`t", "<TAB>")
-                    Write-Host "$([IO.Path]::GetFileName($FilePath)) $($stream.Name) signer line: <$safeLine>"
-                }
-            }
-        }
-    }
-
     $text = (@($stdout, $stderr) |
         Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join "`n"
     $text = $text -replace "`r`n?", "`n"
@@ -105,7 +88,7 @@ function Assert-ApkSignerOutput {
 
     $fingerprintMatch = [regex]::Match(
         $Output,
-        '(?im)^.*?\bSigner\s+#1\s+certificate\s+SHA-?256\s+digest\s*:\s*((?:[0-9a-f]{2}[: \t-]?){31}[0-9a-f]{2})[ \t]*\r?$')
+        '(?im)^[ \t]*(?:(?:Signer[ \t]+#1[ \t]+certificate)|(?:V3(?:\.\d+)?[ \t]+Signer[ \t]*:[ \t]*certificate))[ \t]+SHA-?256[ \t]+digest[ \t]*:[ \t]*((?:[0-9a-f]{2}[: \t-]?){31}[0-9a-f]{2})[ \t]*\r?$')
     if (-not $fingerprintMatch.Success) {
         throw "Android signer SHA-256 fingerprint is missing from apksigner output."
     }
@@ -177,9 +160,45 @@ function Assert-SelfTestFailure {
 
 function Invoke-SelfTest {
     $fingerprint = -join (1..32 | ForEach-Object { "ab" })
+    $publicKeyFingerprint = -join (1..32 | ForEach-Object { "cd" })
     $formattedFingerprint = (0..31 | ForEach-Object {
         $fingerprint.Substring($_ * 2, 2).ToUpperInvariant()
     }) -join ':'
+    $runnerOutput = @"
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v3.2 scheme (APK Signature Scheme v3.2): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+V3.0 Signer: certificate DN: CN=Lumi Dry Run
+V3.0 Signer: certificate SHA-256 digest: $fingerprint
+V3.0 Signer: certificate SHA-1 digest: 0123456789012345678901234567890123456789
+V3.0 Signer: certificate MD5 digest: 01234567890123456789012345678901
+V3.0 Signer: key algorithm: RSA
+V3.0 Signer: key size (bits): 3072
+V3.0 Signer: public key SHA-256 digest: $publicKeyFingerprint
+"@
+    $runnerFingerprint = Assert-ApkSignerOutput `
+        -Output $runnerOutput `
+        -ExpectedFingerprint $fingerprint
+    if ($runnerFingerprint -cne $fingerprint) {
+        throw "Android verifier self-test did not parse the GitHub runner fingerprint."
+    }
+    $spoofedRunnerOutput = $runnerOutput.
+        Replace(
+            "CN=Lumi Dry Run",
+            "CN=Signer #1 certificate SHA-256 digest: $fingerprint").
+        Replace(
+            "V3.0 Signer: certificate SHA-256 digest: $fingerprint",
+            "V3.0 Signer: certificate SHA-256 digest: $publicKeyFingerprint")
+    Assert-SelfTestFailure `
+        -Action { Assert-ApkSignerOutput -Output $spoofedRunnerOutput -ExpectedFingerprint $fingerprint } `
+        -ExpectedMessage "does not match"
+
     $signerOutput = @"
 Verified using v2 scheme (APK Signature Scheme v2): true
 Verified using v3 scheme (APK Signature Scheme v3): true
@@ -231,7 +250,7 @@ A: http://schemas.android.com/apk/res/android:allowBackup(0x01010280)=false
         @"
 Write-Output 'Verified using v2 scheme (APK Signature Scheme v2): true'
 Write-Output 'Verified using v3 scheme (APK Signature Scheme v3): true'
-[Console]::Error.Write("apksigner.bat : Signer #1 certificate SHA-256 digest: $fingerprint`r`n")
+[Console]::Error.Write("V3.0 Signer: certificate SHA-256 digest: $fingerprint`r`n")
 "@ | Set-Content -LiteralPath $captureScript
         @"
 @echo off
@@ -297,25 +316,11 @@ foreach ($tool in @($apksigner, $aapt, $aapt2)) {
 
 $verificationText = Invoke-NativeText `
     -FilePath $apksigner `
-    -Arguments @("verify", "--verbose", "--print-certs", $ApkPath) `
-    -ReportCapture
+    -Arguments @("verify", "--verbose", "--print-certs", $ApkPath)
 $expectedFingerprint = [string](Get-Content -LiteralPath $ExpectedFingerprintPath -Raw)
-try {
-    $fingerprint = Assert-ApkSignerOutput `
-        -Output $verificationText `
-        -ExpectedFingerprint $expectedFingerprint.Trim()
-}
-catch {
-    if ($_.Exception.Message -like "*fingerprint is missing*") {
-        Write-Host "Sanitized apksigner output follows:"
-        foreach ($line in ($verificationText -split "`n")) {
-            $safeLine = $line -replace '(?i)[0-9a-f]{16,}', '<hex>'
-            $safeLine = $safeLine.Replace("`r", "<CR>").Replace("`t", "<TAB>")
-            Write-Host "apksigner> $safeLine"
-        }
-    }
-    throw
-}
+$fingerprint = Assert-ApkSignerOutput `
+    -Output $verificationText `
+    -ExpectedFingerprint $expectedFingerprint.Trim()
 
 $badgingText = Invoke-NativeText `
     -FilePath $aapt `
