@@ -300,9 +300,22 @@ $verificationText = Invoke-NativeText `
     -Arguments @("verify", "--verbose", "--print-certs", $ApkPath) `
     -ReportCapture
 $expectedFingerprint = [string](Get-Content -LiteralPath $ExpectedFingerprintPath -Raw)
-$fingerprint = Assert-ApkSignerOutput `
-    -Output $verificationText `
-    -ExpectedFingerprint $expectedFingerprint.Trim()
+try {
+    $fingerprint = Assert-ApkSignerOutput `
+        -Output $verificationText `
+        -ExpectedFingerprint $expectedFingerprint.Trim()
+}
+catch {
+    if ($_.Exception.Message -like "*fingerprint is missing*") {
+        Write-Host "Sanitized apksigner output follows:"
+        foreach ($line in ($verificationText -split "`n")) {
+            $safeLine = $line -replace '(?i)[0-9a-f]{16,}', '<hex>'
+            $safeLine = $safeLine.Replace("`r", "<CR>").Replace("`t", "<TAB>")
+            Write-Host "apksigner> $safeLine"
+        }
+    }
+    throw
+}
 
 $badgingText = Invoke-NativeText `
     -FilePath $aapt `
