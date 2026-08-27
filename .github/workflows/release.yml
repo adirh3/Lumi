@@ -322,45 +322,14 @@ jobs:
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
           if (-not $apk) { throw "Signed Android APK was not produced." }
-
-          $buildTools = Get-ChildItem "$env:ANDROID_HOME\build-tools" -Directory |
-            Sort-Object { [version]$_.Name } -Descending |
-            Select-Object -First 1
-          $apksigner = Join-Path $buildTools.FullName "apksigner.bat"
-          $aapt = Join-Path $buildTools.FullName "aapt.exe"
-          $verification = & $apksigner verify --verbose --print-certs $apk.FullName
-          $verificationText = $verification -join "`n"
-          if ($LASTEXITCODE -ne 0 -or
-              $verificationText -notmatch 'Verified using v2 scheme .*: true' -or
-              $verificationText -notmatch 'Verified using v3 scheme .*: true') {
-            throw "Android APK signature verification failed."
-          }
-
-          $fingerprintLine = $verification | Select-String 'Signer #1 certificate SHA-256 digest:' | Select-Object -First 1
-          $fingerprint = ($fingerprintLine.Line -split ': ', 2)[1].Replace(':', '').Trim().ToLowerInvariant()
-          $expectedFingerprint = (Get-Content (Join-Path $env:RUNNER_TEMP "android-expected-fingerprint.txt") -Raw).Trim()
-          if ($expectedFingerprint -and $fingerprint -ne $expectedFingerprint) {
-            throw "Android signer mismatch. Expected $expectedFingerprint, got $fingerprint."
-          }
-
-          $badging = & $aapt dump badging $apk.FullName
-          $badgingText = $badging -join "`n"
-          if ($badgingText -notmatch "versionName='$env:RELEASE_VERSION'" -or
-              $badgingText -notmatch "versionCode='$env:ANDROID_VERSION_CODE'" -or
-              $badgingText -notmatch "native-code: 'arm64-v8a'") {
-            throw "Android APK metadata verification failed."
-          }
-
-          New-Item -ItemType Directory -Force Releases | Out-Null
-          $target = "Releases/Lumi-$env:RELEASE_VERSION-android-arm64.apk"
-          Copy-Item $apk.FullName $target -Force
-          @(
-            "SHA256=$((Get-FileHash $target -Algorithm SHA256).Hash)"
-            "SIGNER_SHA256=$fingerprint"
-            "VERSION=$env:RELEASE_VERSION"
-            "VERSION_CODE=$env:ANDROID_VERSION_CODE"
-            "ABI=arm64-v8a"
-          ) | Set-Content "Releases/Lumi-$env:RELEASE_VERSION-android-arm64.txt"
+          & .\.github\scripts\Verify-AndroidRelease.ps1 -SelfTest
+          & .\.github\scripts\Verify-AndroidRelease.ps1 `
+            -ApkPath $apk.FullName `
+            -ReleaseVersion $env:RELEASE_VERSION `
+            -AndroidVersionCode $env:ANDROID_VERSION_CODE `
+            -ExpectedFingerprintPath (Join-Path $env:RUNNER_TEMP "android-expected-fingerprint.txt") `
+            -AndroidHome $env:ANDROID_HOME `
+            -ReleaseDirectory Releases
 
       - name: Upload Android workflow artifact
         uses: actions/upload-artifact@v4
