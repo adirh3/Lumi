@@ -30,13 +30,57 @@ function ConvertTo-NormalizedSha256 {
 function Invoke-NativeText {
     param(
         [string]$FilePath,
-        [string[]]$Arguments
+        [string[]]$Arguments,
+        [switch]$ReportCapture
     )
 
-    $PSNativeCommandUseErrorActionPreference = $false
-    $output = @(& $FilePath @Arguments 2>&1)
-    $exitCode = $LASTEXITCODE
-    $text = ($output | ForEach-Object { $_.ToString() }) -join "`n"
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $Arguments) {
+        $startInfo.ArgumentList.Add($argument)
+    }
+
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) {
+            throw "Failed to start $([IO.Path]::GetFileName($FilePath))."
+        }
+
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        $exitCode = $process.ExitCode
+    }
+    finally {
+        $process.Dispose()
+    }
+
+    if ($ReportCapture) {
+        Write-Host "$([IO.Path]::GetFileName($FilePath)) capture: stdout=$($stdout.Length) chars, stderr=$($stderr.Length) chars."
+        foreach ($stream in @(
+            @{ Name = "stdout"; Text = $stdout },
+            @{ Name = "stderr"; Text = $stderr }
+        )) {
+            foreach ($line in ($stream.Text -split "`n")) {
+                if ($line -match '(?i)Signer\s+#1\s+certificate\s+SHA-?256\s+digest') {
+                    $safeLine = $line -replace '(?i)(digest\s*:\s*).+$', '$1<fingerprint>'
+                    $safeLine = $safeLine.Replace("`r", "<CR>").Replace("`t", "<TAB>")
+                    Write-Host "$([IO.Path]::GetFileName($FilePath)) $($stream.Name) signer line: <$safeLine>"
+                }
+            }
+        }
+    }
+
+    $text = (@($stdout, $stderr) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join "`n"
+    $text = $text -replace "`r`n?", "`n"
     if ($exitCode -ne 0) {
         throw "$([IO.Path]::GetFileName($FilePath)) failed with exit code $exitCode."
     }
@@ -61,7 +105,7 @@ function Assert-ApkSignerOutput {
 
     $fingerprintMatch = [regex]::Match(
         $Output,
-        '(?im)^[ \t]*Signer[ \t]+#1[ \t]+certificate[ \t]+SHA-?256[ \t]+digest[ \t]*:[ \t]*([0-9a-fA-F][0-9a-fA-F: \t-]*)[ \t]*$')
+        '(?im)^.*?\bSigner\s+#1\s+certificate\s+SHA-?256\s+digest\s*:\s*((?:[0-9a-f]{2}[: \t-]?){31}[0-9a-f]{2})[ \t]*\r?$')
     if (-not $fingerprintMatch.Success) {
         throw "Android signer SHA-256 fingerprint is missing from apksigner output."
     }
@@ -153,6 +197,9 @@ Signer #1 certificate SHA256 digest : $formattedFingerprint
         -Action { Assert-ApkSignerOutput -Output ($signerOutput -replace $formattedFingerprint, 'not-a-fingerprint') -ExpectedFingerprint "" } `
         -ExpectedMessage "fingerprint is missing"
     Assert-SelfTestFailure `
+        -Action { Assert-ApkSignerOutput -Output ($signerOutput -replace $formattedFingerprint, "$formattedFingerprint`:AB") -ExpectedFingerprint "" } `
+        -ExpectedMessage "fingerprint is missing"
+    Assert-SelfTestFailure `
         -Action { Assert-ApkSignerOutput -Output ($signerOutput -replace 'v3 scheme \(APK Signature Scheme v3\): true', 'v3 scheme (APK Signature Scheme v3): false') -ExpectedFingerprint "" } `
         -ExpectedMessage "both v2 and v3"
     Assert-SelfTestFailure `
@@ -176,26 +223,33 @@ A: http://schemas.android.com/apk/res/android:allowBackup(0x01010280)=false
         -Action { Assert-AndroidManifestBackupPolicy -Output ($manifest -replace '=false', '=true') } `
         -ExpectedMessage "backup-disabled policy"
 
-    $captureScript = Join-Path ([IO.Path]::GetTempPath()) "lumi-apksigner-stream-$([Guid]::NewGuid()).ps1"
+    $captureRoot = Join-Path ([IO.Path]::GetTempPath()) "lumi-apksigner-stream-$([Guid]::NewGuid())"
+    $captureScript = Join-Path $captureRoot "fake-apksigner.ps1"
+    $captureWrapper = Join-Path $captureRoot "fake-apksigner.bat"
     try {
+        New-Item -ItemType Directory -Path $captureRoot | Out-Null
         @"
 Write-Output 'Verified using v2 scheme (APK Signature Scheme v2): true'
 Write-Output 'Verified using v3 scheme (APK Signature Scheme v3): true'
-[Console]::Error.WriteLine('Signer #1 certificate SHA-256 digest: $fingerprint')
+[Console]::Error.Write("apksigner.bat : Signer #1 certificate SHA-256 digest: $fingerprint`r`n")
 "@ | Set-Content -LiteralPath $captureScript
+        @"
+@echo off
+"$((Join-Path $PSHOME "pwsh.exe"))" -NoProfile -File "%~dp0fake-apksigner.ps1"
+"@ | Set-Content -LiteralPath $captureWrapper
         $captured = Invoke-NativeText `
-            -FilePath (Join-Path $PSHOME "pwsh.exe") `
-            -Arguments @("-NoProfile", "-File", $captureScript)
+            -FilePath $captureWrapper `
+            -Arguments @()
         Assert-ApkSignerOutput -Output $captured -ExpectedFingerprint $fingerprint | Out-Null
 
         "[Console]::Error.WriteLine('expected failure'); exit 7" |
             Set-Content -LiteralPath $captureScript
         Assert-SelfTestFailure `
-            -Action { Invoke-NativeText -FilePath (Join-Path $PSHOME "pwsh.exe") -Arguments @("-NoProfile", "-File", $captureScript) } `
+            -Action { Invoke-NativeText -FilePath $captureWrapper -Arguments @() } `
             -ExpectedMessage "exit code 7"
     }
     finally {
-        Remove-Item -LiteralPath $captureScript -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $captureRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     Write-Output "Android release verifier self-test passed."
@@ -243,7 +297,8 @@ foreach ($tool in @($apksigner, $aapt, $aapt2)) {
 
 $verificationText = Invoke-NativeText `
     -FilePath $apksigner `
-    -Arguments @("verify", "--verbose", "--print-certs", $ApkPath)
+    -Arguments @("verify", "--verbose", "--print-certs", $ApkPath) `
+    -ReportCapture
 $expectedFingerprint = [string](Get-Content -LiteralPath $ExpectedFingerprintPath -Raw)
 $fingerprint = Assert-ApkSignerOutput `
     -Output $verificationText `
