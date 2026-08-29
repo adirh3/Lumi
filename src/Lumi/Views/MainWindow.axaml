@@ -8,6 +8,7 @@
         xmlns:models="using:Lumi.Models"
         xmlns:services="using:Lumi.Services"
         xmlns:loc="using:Lumi.Localization"
+        xmlns:conv="using:Lumi.Converters"
         x:Class="Lumi.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         x:CompileBindings="True"
@@ -21,6 +22,7 @@
   <Window.Resources>
     <Thickness x:Key="MainLayout.IslandOuterMargin">0,38,6,6</Thickness>
     <x:Double x:Key="MainLayout.SplitIslandMinWidth">220</x:Double>
+    <conv:ChatTagBrushConverter x:Key="ChatTagBrush" />
     <!-- ── SVG Icon Paths ── -->
     <StreamGeometry x:Key="Icon.Chat">M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7l-4 3V6a2 2 0 0 1 2-2z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Folder">M2 6a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z</StreamGeometry>
@@ -41,6 +43,7 @@
     <StreamGeometry x:Key="Icon.Check">M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Clock">M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 5h-2v6l5 3 .9-1.6-3.9-2.3V7z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Play">M8 5v14l11-7L8 5z</StreamGeometry>
+    <StreamGeometry x:Key="Icon.Tag">M4 3h7.2a2 2 0 0 1 1.42.59l7.79 7.79a2 2 0 0 1 0 2.83l-6.2 6.2a2 2 0 0 1-2.83 0L3.59 12.62A2 2 0 0 1 3 11.2V4a1 1 0 0 1 1-1zm3.25 3a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Pin">M10.0589 2.44535C9.34701 1.73087 8.14697 1.90854 7.67261 2.79864L5.6526 6.58902L2.8419 7.52592C2.6775 7.58072 2.5532 7.71673 2.51339 7.88539C2.47357 8.05404 2.52392 8.23128 2.64646 8.35382L4.79291 10.5003L2.14645 13.1467L2 14.0003L2.85356 13.8538L5.50002 11.2074L7.64646 13.3538C7.76899 13.4764 7.94623 13.5267 8.11489 13.4869C8.28354 13.4471 8.41955 13.3228 8.47435 13.1584L9.41143 10.3472L13.1897 8.32448C14.0759 7.85006 14.2538 6.65535 13.5443 5.9433L10.0589 2.44535ZM8.55511 3.26895C8.71323 2.97225 9.11324 2.91303 9.35055 3.15119L12.836 6.64914C13.0725 6.88648 13.0131 7.28472 12.7178 7.44286L8.76403 9.55946C8.65137 9.61977 8.56608 9.72092 8.52567 9.84215L7.7815 12.0746L3.92562 8.21877L6.15812 7.47461C6.27966 7.43409 6.38101 7.34848 6.44126 7.23542L8.55511 3.26895Z</StreamGeometry>
     <StreamGeometry x:Key="Icon.PinOff">M9.56016 10.2673L14.1464 14.8536C14.3417 15.0488 14.6583 15.0488 14.8536 14.8536C15.0488 14.6583 15.0488 14.3417 14.8536 14.1464L1.85355 1.14645C1.65829 0.951184 1.34171 0.951184 1.14645 1.14645C0.951184 1.34171 0.951184 1.65829 1.14645 1.85355L5.73223 6.43934L5.6526 6.58876L2.8419 7.52566C2.6775 7.58046 2.5532 7.71648 2.51339 7.88513C2.47357 8.05378 2.52392 8.23102 2.64646 8.35356L4.79291 10.5L2.14645 13.1465L2 14L2.85356 13.8536L5.50002 11.2071L7.64646 13.3536C7.76899 13.4761 7.94623 13.5264 8.11489 13.4866C8.28354 13.4468 8.41955 13.3225 8.47435 13.1581L9.41143 10.3469L9.56016 10.2673ZM8.82138 9.52849L8.76403 9.5592C8.65137 9.61951 8.56608 9.72066 8.52567 9.84189L7.7815 12.0744L3.92562 8.21851L6.15812 7.47435C6.27966 7.43383 6.38101 7.34822 6.44126 7.23516L6.47143 7.17854L8.82138 9.52849ZM12.7178 7.4426L10.6636 8.54227L11.4024 9.28105L13.1897 8.32422C14.0759 7.84981 14.2538 6.65509 13.5443 5.94304L10.0589 2.44509C9.34701 1.73062 8.14697 1.90828 7.67261 2.79838L6.71556 4.59421L7.45476 5.33341L8.55511 3.26869C8.71323 2.97199 9.11324 2.91277 9.35055 3.15093L12.836 6.64888C13.0725 6.88623 13.0131 7.28446 12.7178 7.4426Z</StreamGeometry>
     <StreamGeometry x:Key="Icon.Pause">M7 5h4v14H7V5zm6 0h4v14h-4V5z</StreamGeometry>
@@ -1198,6 +1201,11 @@
                                         <PathIcon Data="{StaticResource Icon.Window}" Width="14" Height="14" />
                                       </MenuItem.Icon>
                                     </MenuItem>
+                                    <MenuItem x:Name="ChatTagMenu" Header="{loc:Str Menu_ChatTag}">
+                                      <MenuItem.Icon>
+                                        <PathIcon Data="{StaticResource Icon.Tag}" Width="14" Height="14" />
+                                      </MenuItem.Icon>
+                                    </MenuItem>
                                     <MenuItem x:Name="MoveToProjectMenu" Header="{loc:Str Menu_MoveToProject}">
                                        <MenuItem.Icon>
                                          <PathIcon Data="{StaticResource Icon.Folder}" Width="14" Height="14" />
@@ -1214,30 +1222,52 @@
                                   </ContextMenu>
                                 </Panel.ContextMenu>
                                 <DockPanel>
-                                  <Border DockPanel.Dock="Bottom"
-                                          x:Name="ProjectBadge"
-                                          IsVisible="{Binding ShowProjectBadge}"
-                                          ToolTip.Tip="{Binding ProjectBadgeText}"
-                                          HorizontalAlignment="Left"
-                                          MaxWidth="180"
-                                          Margin="0,5,0,1"
-                                          Padding="7,2,9,2"
-                                          CornerRadius="{DynamicResource Radius.Full}"
-                                          Background="{DynamicResource Brush.AccentSubtle}">
-                                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                      <PathIcon Data="{StaticResource Icon.Folder}"
-                                                Width="10" Height="10"
+                                  <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="5">
+                                    <Border x:Name="ChatTagBadge"
+                                            IsVisible="{Binding HasTag}"
+                                            ToolTip.Tip="{Binding TagName}"
+                                            HorizontalAlignment="Left"
+                                            MaxWidth="105"
+                                            Margin="0,5,0,1"
+                                            Padding="7,2,9,2"
+                                            CornerRadius="{DynamicResource Radius.Full}"
+                                            Background="{Binding TagColor, Converter={StaticResource ChatTagBrush}, ConverterParameter=subtle}">
+                                      <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                        <Border Width="6" Height="6" CornerRadius="3"
                                                 VerticalAlignment="Center"
-                                                Foreground="{DynamicResource Brush.AccentDefault}" />
-                                      <TextBlock x:Name="ProjectLabel"
-                                                 Text="{Binding ProjectBadgeText}"
-                                                 FontSize="10.5"
-                                                 FontWeight="Medium"
-                                                 VerticalAlignment="Center"
-                                                 Foreground="{DynamicResource Brush.AccentDefault}"
-                                                 TextTrimming="CharacterEllipsis" />
-                                    </StackPanel>
-                                  </Border>
+                                                Background="{Binding TagColor, Converter={StaticResource ChatTagBrush}}" />
+                                        <TextBlock Text="{Binding TagName}"
+                                                   FontSize="10.5"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource Brush.TextPrimary}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                      </StackPanel>
+                                    </Border>
+                                    <Border x:Name="ProjectBadge"
+                                            IsVisible="{Binding ShowProjectBadge}"
+                                            ToolTip.Tip="{Binding ProjectBadgeText}"
+                                            HorizontalAlignment="Left"
+                                            MaxWidth="115"
+                                            Margin="0,5,0,1"
+                                            Padding="7,2,9,2"
+                                            CornerRadius="{DynamicResource Radius.Full}"
+                                            Background="{DynamicResource Brush.AccentSubtle}">
+                                      <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                        <PathIcon Data="{StaticResource Icon.Folder}"
+                                                  Width="10" Height="10"
+                                                  VerticalAlignment="Center"
+                                                  Foreground="{DynamicResource Brush.AccentDefault}" />
+                                        <TextBlock x:Name="ProjectLabel"
+                                                   Text="{Binding ProjectBadgeText}"
+                                                   FontSize="10.5"
+                                                   FontWeight="Medium"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource Brush.AccentDefault}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                      </StackPanel>
+                                    </Border>
+                                  </StackPanel>
                                   <Border x:Name="UnreadIndicator" DockPanel.Dock="Left"
                                           Width="6" Height="6" CornerRadius="3"
                                           Background="{DynamicResource Brush.AccentDefault}"
@@ -2365,6 +2395,174 @@
     <!-- ═══ Search Overlay (Command Palette) ═══ -->
     <views:SearchOverlay x:Name="SearchOverlay"
                          DataContext="{Binding SearchOverlayVM}" />
+
+    <!-- ═══ Chat Tags Dialog ═══ -->
+    <sc:StrataDialog x:Name="ChatTagsDialog"
+                     Title="{loc:Str ChatTags_DialogTitle}"
+                     IsDialogOpen="{Binding ChatTagsVM.IsDialogOpen}"
+                     CloseCommand="{Binding ChatTagsVM.CloseManagerCommand}"
+                     MaxDialogWidth="700"
+                     ZIndex="200">
+      <sc:StrataDialog.DialogContent>
+        <StackPanel Spacing="16">
+          <Grid ColumnDefinitions="200,1,*" ColumnSpacing="18" MinHeight="280">
+            <StackPanel Grid.Column="0" Spacing="10">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="{loc:Str ChatTags_ListTitle}"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center" />
+                <Button x:Name="AddChatTagButton"
+                        Grid.Column="1"
+                        Classes="subtle motion-action"
+                        Command="{Binding ChatTagsVM.NewTagCommand}"
+                        Padding="9,5"
+                        MinHeight="0"
+                        ToolTip.Tip="{loc:Str ChatTags_Add}">
+                  <StackPanel Orientation="Horizontal" Spacing="5">
+                    <PathIcon Data="{StaticResource Icon.Plus}" Width="11" Height="11" />
+                    <TextBlock Text="{loc:Str ChatTags_Add}" FontSize="11" FontWeight="Medium" />
+                  </StackPanel>
+                </Button>
+              </Grid>
+
+              <Border Background="{DynamicResource Brush.Surface1}"
+                      BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                      BorderThickness="1"
+                      CornerRadius="{DynamicResource Radius.Base}"
+                      MinHeight="230">
+                <Grid>
+                  <ListBox x:Name="ChatTagsList"
+                           Classes="sidebar-list"
+                           ItemsSource="{Binding ChatTagsVM.Tags}"
+                           SelectedItem="{Binding ChatTagsVM.SelectedTag, Mode=TwoWay}"
+                           Background="Transparent"
+                           BorderThickness="0"
+                           Margin="4">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:DataType="models:ChatTag">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                          <Border Width="9" Height="9" CornerRadius="4.5"
+                                  VerticalAlignment="Center"
+                                  Background="{Binding Color, Converter={StaticResource ChatTagBrush}}" />
+                          <TextBlock Text="{Binding Name}"
+                                     VerticalAlignment="Center"
+                                     TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <TextBlock Text="{loc:Str ChatTags_Empty}"
+                             IsVisible="{Binding ChatTagsVM.HasNoTags}"
+                             HorizontalAlignment="Center"
+                             VerticalAlignment="Center"
+                             Foreground="{DynamicResource Brush.TextTertiary}" />
+                </Grid>
+              </Border>
+            </StackPanel>
+
+            <Border Grid.Column="1" Width="1" Background="{DynamicResource Brush.BorderSubtle}" />
+
+            <StackPanel Grid.Column="2"
+                        Spacing="12"
+                        IsVisible="{Binding ChatTagsVM.IsEditorVisible}">
+              <TextBlock Text="{Binding ChatTagsVM.EditorTitle}"
+                         FontSize="{DynamicResource Font.SizeBody}"
+                         FontWeight="SemiBold" />
+
+              <StackPanel Spacing="5">
+                <TextBlock Text="{loc:Str ChatTags_Name}"
+                           FontSize="{DynamicResource Font.SizeCaption}"
+                           Foreground="{DynamicResource Brush.TextSecondary}" />
+                <TextBox x:Name="ChatTagNameTextBox"
+                         Text="{Binding ChatTagsVM.EditName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                         MaxLength="32" />
+              </StackPanel>
+
+              <StackPanel Spacing="5">
+                <TextBlock Text="{loc:Str ChatTags_Color}"
+                           FontSize="{DynamicResource Font.SizeCaption}"
+                           Foreground="{DynamicResource Brush.TextSecondary}" />
+                <ListBox x:Name="ChatTagColorPicker"
+                         ItemsSource="{Binding ChatTagsVM.ColorOptions}"
+                         SelectedItem="{Binding ChatTagsVM.SelectedColorOption, Mode=TwoWay}"
+                         SelectionMode="Single"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Padding="0"
+                         HorizontalAlignment="Left">
+                  <ListBox.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel />
+                    </ItemsPanelTemplate>
+                  </ListBox.ItemsPanel>
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ChatTagColorOption">
+                      <Border Width="26" Height="26"
+                              CornerRadius="13"
+                              Background="{Binding Hex, Converter={StaticResource ChatTagBrush}}"
+                              ToolTip.Tip="{Binding Hex}"
+                              AutomationProperties.Name="{Binding Hex}" />
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </StackPanel>
+
+              <StackPanel Spacing="5">
+                <TextBlock Text="{loc:Str ChatTags_Preview}"
+                           FontSize="{DynamicResource Font.SizeCaption}"
+                           Foreground="{DynamicResource Brush.TextSecondary}" />
+                <Border HorizontalAlignment="Left"
+                        MaxWidth="180"
+                        Padding="9,4,11,4"
+                        CornerRadius="{DynamicResource Radius.Full}"
+                        Background="{Binding ChatTagsVM.SelectedColorOption.Hex, Converter={StaticResource ChatTagBrush}, ConverterParameter=subtle}">
+                  <StackPanel Orientation="Horizontal" Spacing="5">
+                    <Border Width="7" Height="7" CornerRadius="3.5"
+                            VerticalAlignment="Center"
+                            Background="{Binding ChatTagsVM.SelectedColorOption.Hex, Converter={StaticResource ChatTagBrush}}" />
+                    <TextBlock Text="{Binding ChatTagsVM.EditName}"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource Brush.TextPrimary}" />
+                  </StackPanel>
+                </Border>
+              </StackPanel>
+
+              <TextBlock Text="{Binding ChatTagsVM.ValidationMessage}"
+                         IsVisible="{Binding ChatTagsVM.ValidationMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                         Foreground="{DynamicResource Brush.DangerDefault}"
+                         FontSize="{DynamicResource Font.SizeCaption}"
+                         TextWrapping="Wrap" />
+
+              <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,6,0,0">
+                <Button x:Name="DeleteChatTagButton"
+                        Classes="subtle motion-action"
+                        Content="{loc:Str ChatTags_Delete}"
+                        Command="{Binding ChatTagsVM.DeleteTagCommand}"
+                        IsVisible="{Binding ChatTagsVM.CanDeleteSelectedTag}"
+                        Padding="12,7"
+                        MinHeight="0" />
+                <Button x:Name="SaveChatTagButton"
+                        Grid.Column="2"
+                        Classes="accent motion-action"
+                        Content="{loc:Str Common_Save}"
+                        Command="{Binding ChatTagsVM.SaveTagCommand}"
+                        Padding="16,7"
+                        MinHeight="0" />
+              </Grid>
+            </StackPanel>
+          </Grid>
+
+          <Button x:Name="CloseChatTagsButton"
+                  Classes="subtle motion-action"
+                  Content="{loc:Str ChatTags_Done}"
+                  Command="{Binding ChatTagsVM.CloseManagerCommand}"
+                  HorizontalAlignment="Right"
+                  Padding="16,7"
+                  MinHeight="0" />
+        </StackPanel>
+      </sc:StrataDialog.DialogContent>
+    </sc:StrataDialog>
 
     <!-- ═══ Rename Dialog Overlay ═══ -->
     <Panel x:Name="RenameOverlay" IsVisible="False">

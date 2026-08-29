@@ -15,7 +15,8 @@ namespace Lumi.Services;
 /// <summary>
 /// Backs the <c>manage_chats</c> tool, letting Lumi act as a "manager" that orchestrates other chats:
 /// create new chats (optionally in a project / with a Lumi agent), send messages into existing chats,
-/// track their progress, pin or unpin them, and list them — all without leaving the current conversation.
+/// track their progress, edit their title/tag, pin or unpin them, and list them — all without leaving
+/// the current conversation.
 ///
 /// Messages are delivered through the same robust target-chat send path that background jobs use
 /// (<see cref="ChatViewModel.SendExternalMessageAsync"/>). Executor resolution mirrors
@@ -88,6 +89,8 @@ public sealed class ChatOrchestrationService : IDisposable
         int? maxMessages = null,
         string? query = null,
         int? limit = null,
+        string? tag = null,
+        bool clearTag = false,
         Guid? sourceChatId = null,
         Action<Guid, string>? onChatLinked = null,
         CancellationToken cancellationToken = default)
@@ -98,10 +101,11 @@ public sealed class ChatOrchestrationService : IDisposable
             "create" or "new" => CreateChatAsync(title, message, project, agent, skills, model, reasoningEffort, worktree, wait, timeoutSeconds, sourceChatId, onChatLinked, cancellationToken),
             "send" or "message" or "reply" => SendMessageAsync(identifier, message, model, reasoningEffort, wait, timeoutSeconds, sourceChatId, onChatLinked, cancellationToken),
             "status" or "progress" or "read" => GetStatusAsync(identifier, maxMessages, cancellationToken),
+            "edit" or "update" => EditChatAsync(identifier, title, tag, clearTag, cancellationToken),
             "pin" => SetPinnedAsync(identifier, isPinned: true, cancellationToken),
             "unpin" => SetPinnedAsync(identifier, isPinned: false, cancellationToken),
             _ => Task.FromResult(
-                $"Unknown manage_chats action \"{action}\". Use list, create, send, status, pin, or unpin.")
+                $"Unknown manage_chats action \"{action}\". Use list, create, send, status, edit, pin, or unpin.")
         };
     }
 
@@ -123,7 +127,12 @@ public sealed class ChatOrchestrationService : IDisposable
                 chats = chats.Where(c => c.ProjectId == projectFilter.Id);
 
             if (trimmedQuery.Length > 0)
-                chats = chats.Where(c => c.Title.Contains(trimmedQuery, StringComparison.OrdinalIgnoreCase));
+            {
+                chats = chats.Where(c =>
+                    c.Title.Contains(trimmedQuery, StringComparison.OrdinalIgnoreCase)
+                    || GetProjectName(c.ProjectId).Contains(trimmedQuery, StringComparison.OrdinalIgnoreCase)
+                    || GetTagName(c.TagId).Contains(trimmedQuery, StringComparison.OrdinalIgnoreCase));
+            }
 
             var ordered = chats
                 .OrderByDescending(c => c.IsPinned)
@@ -131,9 +140,13 @@ public sealed class ChatOrchestrationService : IDisposable
                 .Take(max)
                 .ToList();
             if (ordered.Count == 0)
-                return trimmedQuery.Length > 0 || projectFilter is not null
+            {
+                var empty = new StringBuilder(trimmedQuery.Length > 0 || projectFilter is not null
                     ? "No chats matched that filter."
-                    : "There are no chats yet. Use manage_chats action=create to start one.";
+                    : "There are no chats yet. Use manage_chats action=create to start one.");
+                AppendAvailableTags(empty);
+                return empty.ToString();
+            }
 
             var builder = new StringBuilder();
             builder.Append(projectFilter is not null
@@ -152,9 +165,91 @@ public sealed class ChatOrchestrationService : IDisposable
                 builder.Append("   status: ").Append(DescribeLiveState(chat)).Append('\n');
             }
 
-            builder.Append("\nUse manage_chats action=status with an id to see progress, action=send to message it, or action=pin/unpin to change its priority.");
+            AppendAvailableTags(builder);
+            builder.Append("\nUse action=status to inspect a chat, action=send to message it, action=edit to change its title/tag, or action=pin/unpin to change its priority.");
             return builder.ToString();
         }).ConfigureAwait(false);
+    }
+
+    // ── edit ─────────────────────────────────────────────────────────────────
+
+    private async Task<string> EditChatAsync(
+        string? identifier,
+        string? title,
+        string? tag,
+        bool clearTag,
+        CancellationToken cancellationToken)
+    {
+        var result = await InvokeUiAsync(() =>
+        {
+            var (chat, error) = ResolveChat(identifier);
+            if (chat is null)
+                return (Changed: false, Message: error!);
+
+            var hasTitle = title is not null;
+            var newTitle = title?.Trim();
+            if (hasTitle && string.IsNullOrEmpty(newTitle))
+                return (Changed: false, Message: "A chat title cannot be empty.");
+
+            var hasTag = !string.IsNullOrWhiteSpace(tag);
+            if (hasTag && clearTag)
+                return (Changed: false, Message: "Use either tag or clearTag=true, not both.");
+            if (!hasTitle && !hasTag && !clearTag)
+                return (Changed: false, Message: "No changes requested. Provide title, tag, or clearTag=true.");
+
+            ChatTag? resolvedTag = null;
+            if (hasTag)
+            {
+                resolvedTag = ResolveTag(tag);
+                if (resolvedTag is null)
+                {
+                    var available = _dataStore.Data.ChatTags
+                        .OrderBy(candidate => candidate.Name, StringComparer.CurrentCultureIgnoreCase)
+                        .Select(candidate => $"{Quote(candidate.Name)} ({candidate.Id})")
+                        .ToArray();
+                    var guidance = available.Length == 0
+                        ? "No chat tags exist yet. Create one from a chat's right-click Tag > Manage tags menu first."
+                        : $"Available tags: {string.Join(", ", available)}.";
+                    return (Changed: false, Message: $"No tag matches {Quote(tag!.Trim())}. {guidance}");
+                }
+            }
+
+            var changes = new List<string>();
+            if (hasTitle && !string.Equals(chat.Title, newTitle, StringComparison.Ordinal))
+            {
+                chat.Title = newTitle!;
+                changes.Add($"title: {Quote(chat.Title)}");
+            }
+
+            if (clearTag)
+            {
+                if (chat.TagId is not null || chat.Tag is not null)
+                {
+                    chat.TagId = null;
+                    chat.Tag = null;
+                    changes.Add("tag removed");
+                }
+            }
+            else if (resolvedTag is not null
+                     && (chat.TagId != resolvedTag.Id || !ReferenceEquals(chat.Tag, resolvedTag)))
+            {
+                chat.TagId = resolvedTag.Id;
+                chat.Tag = resolvedTag;
+                changes.Add($"tag: {Quote(resolvedTag.Name)}");
+            }
+
+            if (changes.Count == 0)
+                return (Changed: false, Message: $"Chat {Quote(chat.Title)} already has the requested values.");
+
+            _dataStore.MarkChatChanged(chat);
+            return (Changed: true, Message: $"Updated chat {Quote(chat.Title)} (id: {chat.Id}). {string.Join("; ", changes)}.");
+        }).ConfigureAwait(false);
+
+        if (!result.Changed)
+            return result.Message;
+
+        await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(false);
+        return result.Message;
     }
 
     // ── pin / unpin ─────────────────────────────────────────────────────────
@@ -661,6 +756,9 @@ public sealed class ChatOrchestrationService : IDisposable
     private LumiAgent? ResolveAgent(string? identifier)
         => ResolveByIdOrName(_dataStore.Data.Agents, identifier, a => a.Id, a => a.Name);
 
+    private ChatTag? ResolveTag(string? identifier)
+        => ResolveByIdOrName(_dataStore.Data.ChatTags, identifier, tag => tag.Id, tag => tag.Name);
+
     private Skill? ResolveSkill(string? identifier)
         => ResolveByIdOrName(_dataStore.Data.Skills, identifier, s => s.Id, s => s.Name);
 
@@ -690,6 +788,11 @@ public sealed class ChatOrchestrationService : IDisposable
             ? _dataStore.Data.Agents.FirstOrDefault(a => a.Id == id)?.Name ?? "?"
             : "";
 
+    private string GetTagName(Guid? tagId)
+        => tagId is { } id
+            ? _dataStore.Data.ChatTags.FirstOrDefault(tag => tag.Id == id)?.Name ?? "?"
+            : "";
+
     // ── formatting helpers (call on UI thread for chat access) ────────────────
 
     private string DescribeMeta(Chat chat)
@@ -697,12 +800,31 @@ public sealed class ChatOrchestrationService : IDisposable
         var parts = new List<string>();
         if (chat.IsPinned)
             parts.Add("pinned");
+        if (chat.TagId is not null)
+            parts.Add($"tag: {GetTagName(chat.TagId)}");
         if (chat.ProjectId is not null)
             parts.Add($"project: {GetProjectName(chat.ProjectId)}");
         if (chat.AgentId is not null)
             parts.Add($"Lumi: {GetAgentName(chat.AgentId)}");
         parts.Add($"updated {DescribeRelative(chat.UpdatedAt)}");
         return string.Join(" · ", parts);
+    }
+
+    private void AppendAvailableTags(StringBuilder builder)
+    {
+        var tags = _dataStore.Data.ChatTags
+            .OrderBy(tag => tag.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+        builder.Append("\n\nAvailable tags");
+        if (tags.Length == 0)
+        {
+            builder.Append(": none. Create tags from any chat's right-click Tag > Manage tags menu.");
+            return;
+        }
+
+        builder.Append(" (usable with action=edit):\n");
+        foreach (var tag in tags)
+            builder.Append("  • ").Append(Quote(tag.Name)).Append(" — id: ").Append(tag.Id).Append('\n');
     }
 
     private string DescribeLiveState(Chat chat)

@@ -104,6 +104,14 @@ internal static class AppDataSnapshotFactory
             Chats = source.Chats
                 .Select(CloneChatIndex)
                 .ToList(),
+            ChatTags = source.ChatTags
+                .Select(static tag => new ChatTag
+                {
+                    Id = tag.Id,
+                    Name = tag.Name,
+                    Color = tag.Color
+                })
+                .ToList(),
             Projects = source.Projects
                 .Select(static p => new Project
                  {
@@ -321,6 +329,7 @@ internal static class AppDataSnapshotFactory
             Title = source.Title,
             ProjectId = source.ProjectId,
             AgentId = source.AgentId,
+            TagId = source.TagId,
             CopilotSessionId = source.CopilotSessionId,
             SessionProviderSignature = source.SessionProviderSignature,
             CreatedAt = source.CreatedAt,

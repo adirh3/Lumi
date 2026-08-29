@@ -10,6 +10,8 @@ namespace Lumi.Models;
 [JsonSerializable(typeof(AppData))]
 [JsonSerializable(typeof(Chat))]
 [JsonSerializable(typeof(List<Chat>))]
+[JsonSerializable(typeof(ChatTag))]
+[JsonSerializable(typeof(List<ChatTag>))]
 [JsonSerializable(typeof(UserSettings))]
 [JsonSerializable(typeof(JsonDocument))]
 [JsonSerializable(typeof(List<ChatMessage>))]

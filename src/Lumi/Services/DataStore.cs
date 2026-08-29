@@ -39,11 +39,17 @@ public class DataStore
 
     /// <summary>
     /// Raised after <see cref="SaveAsync"/> completes, i.e. whenever the index (settings, projects,
-    /// skills, agents, memories, MCP servers, jobs, chat metadata) has been persisted. Every desktop
-    /// CRUD path funnels through that save, so this is the single signal that "the library changed",
-    /// no matter which ViewModel made the edit. May fire on any thread.
+    /// skills, agents, memories, MCP servers, jobs, chat tags, chat metadata) has been persisted.
+    /// Every desktop CRUD path funnels through that save, so this is the single signal that "the
+    /// library changed", no matter which ViewModel made the edit. May fire on any thread.
     /// </summary>
     public event Action? IndexSaved;
+
+    /// <summary>
+    /// Raised on the caller's thread after the shared chat-tag catalog changes so every open main
+    /// window can refresh its independent tag manager.
+    /// </summary>
+    public event Action<object?>? ChatTagCatalogChanged;
 
     /// <summary>Synchronizes the two ambient-presence preferences across every Settings window that
     /// shares this store. Raised on the caller's thread; UI callers raise it on the UI thread.</summary>
@@ -116,6 +122,9 @@ public class DataStore
 
     public AppData Data => _data;
     internal bool UsesPersistentStorage => _usesPersistentStorage;
+
+    public void NotifyChatTagCatalogChanged(object? source = null)
+        => ChatTagCatalogChanged?.Invoke(source);
 
     internal bool IsWorktreeCleanupReserved(string? path)
     {
@@ -466,7 +475,7 @@ public class DataStore
     }
 
     /// <summary>
-    /// Saves the index file (settings, chat metadata, projects, skills, agents, memories).
+    /// Saves the index file (settings, chat metadata, chat tags, projects, skills, agents, memories).
     /// Does NOT save chat messages — use SaveChat() for that.
     /// </summary>
     public void Save()
@@ -478,7 +487,7 @@ public class DataStore
     }
 
     /// <summary>
-    /// Saves the index file (settings, chat metadata, projects, skills, agents, memories).
+    /// Saves the index file (settings, chat metadata, chat tags, projects, skills, agents, memories).
     /// Does NOT save chat messages — use SaveChatAsync() for that.
     /// </summary>
     public async Task SaveAsync(CancellationToken cancellationToken = default)

@@ -199,6 +199,30 @@ public class AppDataSnapshotFactoryTests
     }
 
     [Fact]
+    public void CreateIndexSnapshot_PreservesChatTagsAndAssignments()
+    {
+        var tag = new ChatTag
+        {
+            Name = "Research",
+            Color = "#35C2A8"
+        };
+        var source = new AppData
+        {
+            ChatTags = [tag],
+            Chats = [new Chat { Title = "Tagged chat", TagId = tag.Id }]
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+
+        var copiedTag = Assert.Single(snapshot.ChatTags);
+        Assert.NotSame(tag, copiedTag);
+        Assert.Equal(tag.Id, copiedTag.Id);
+        Assert.Equal("Research", copiedTag.Name);
+        Assert.Equal("#35C2A8", copiedTag.Color);
+        Assert.Equal(tag.Id, Assert.Single(snapshot.Chats).TagId);
+    }
+
+    [Fact]
     public void AppDataJsonContext_RoundTripsSessionProviderSignature()
     {
         var source = new AppData

@@ -27,7 +27,7 @@ public readonly record struct ForkPlan(
 
 /// <summary>
 /// Builds a forked copy of a <see cref="Chat"/> — an independent chat that carries the source
-/// chat's setup (project, agent, skills, MCP servers, worktree, model preferences) and its
+/// chat's setup (project, agent, tag, skills, MCP servers, worktree, model preferences) and its
 /// transcript, optionally truncated at a chosen message.
 ///
 /// <para><b>Where the branch is cut.</b> Forking from an <i>assistant</i> message keeps everything
@@ -86,6 +86,8 @@ public static class ChatForkFactory
             Title = BuildForkTitle(source.Title, throughMessageId is null ? CopyMarker : ForkMarker),
             ProjectId = source.ProjectId,
             AgentId = source.AgentId,
+            TagId = source.TagId,
+            Tag = source.Tag,
             CreatedAt = now,
             UpdatedAt = now,
 
@@ -123,6 +125,18 @@ public static class ChatForkFactory
             ? null
             : fork.Messages.Count(static m => m.Role == "user");
         return new ForkPlan(fork, prefill, sessionForkCutUserTurns);
+    }
+
+    internal static void ReconcileTag(Chat fork, IReadOnlyList<ChatTag> currentTags)
+    {
+        ArgumentNullException.ThrowIfNull(fork);
+        ArgumentNullException.ThrowIfNull(currentTags);
+
+        var tag = fork.TagId is { } tagId
+            ? currentTags.FirstOrDefault(candidate => candidate.Id == tagId)
+            : null;
+        fork.TagId = tag?.Id;
+        fork.Tag = tag;
     }
 
     /// <summary>

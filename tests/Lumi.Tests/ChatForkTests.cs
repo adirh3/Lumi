@@ -29,6 +29,7 @@ public class ChatForkFactoryTests
         Title = "Ship the release",
         ProjectId = Guid.NewGuid(),
         AgentId = Guid.NewGuid(),
+        TagId = Guid.NewGuid(),
         ActiveSkillIds = [Guid.NewGuid()],
         ActiveExternalSkillNames = ["pdf"],
         ActiveMcpServerNames = ["lumi-mcp"],
@@ -63,6 +64,7 @@ public class ChatForkFactoryTests
 
         Assert.Equal(source.ProjectId, fork.ProjectId);
         Assert.Equal(source.AgentId, fork.AgentId);
+        Assert.Equal(source.TagId, fork.TagId);
         Assert.Equal(source.ActiveSkillIds, fork.ActiveSkillIds);
         Assert.Equal(source.ActiveExternalSkillNames, fork.ActiveExternalSkillNames);
         Assert.Equal(source.ActiveMcpServerNames, fork.ActiveMcpServerNames);
@@ -327,6 +329,18 @@ public class ChatForkFactoryTests
 
         Assert.False(ChatForkFactory.CreateFork(source, source.Messages).Chat.ForkedFromMessage);
         Assert.True(ChatForkFactory.CreateFork(source, source.Messages, answer.Id).Chat.ForkedFromMessage);
+    }
+
+    [Fact]
+    public void ReconcileTag_ClearsTagDeletedWhileForkWasInFlight()
+    {
+        var tag = new ChatTag { Name = "Priority" };
+        var fork = new Chat { TagId = tag.Id, Tag = tag };
+
+        ChatForkFactory.ReconcileTag(fork, []);
+
+        Assert.Null(fork.TagId);
+        Assert.Null(fork.Tag);
     }
 }
 

@@ -188,6 +188,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public ProjectsViewModel ProjectsVM { get; }
     public MemoriesViewModel MemoriesVM { get; }
     public McpServersViewModel McpServersVM { get; }
+    public ChatTagsViewModel ChatTagsVM { get; }
     public LibraryViewModel LibraryVM { get; }
     public SettingsViewModel SettingsVM { get; }
     public OnboardingViewModel OnboardingVM { get; }
@@ -242,7 +243,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _chatSessionStore = chatSessionStore ?? new ChatSessionStore(dataStore, copilotService, _chatSurfaceRegistry, _globalSearchService, _secureKeyStore);
         _ownsChatSessionStore = chatSessionStore is null;
 
-        // Backs the manage_chats tool ("Lumi as a manager"): create/list/status/send across chats.
+        // Backs the manage_chats tool ("Lumi as a manager"): create/list/status/send/edit across chats.
         // The backend is owned by the (possibly shared) session store for the store's whole lifetime,
         // so every window observes the same instance and none disposes it per-window. We only subscribe.
         _chatOrchestrationService = _chatSessionStore.OrchestrationService;
@@ -292,6 +293,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
         _ownsBackgroundJobService = backgroundJobService is null;
         JobsVM = new BackgroundJobsViewModel(dataStore, _backgroundJobService);
+        ChatTagsVM = new ChatTagsViewModel(dataStore);
         SkillsVM = new SkillsViewModel(dataStore);
         AgentsVM = new AgentsViewModel(dataStore);
         ProjectsVM = new ProjectsViewModel(dataStore, projectGitSyncService);
@@ -759,6 +761,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         UnsubscribeChatRunningState();
         if (_ownsChatSurfaceRegistry)
             _chatSurfaceRegistry.Dispose();
+        ChatTagsVM.Dispose();
         SettingsVM.Dispose();
         _ = _settingsBrowserService.DisposeAsync();
     }
@@ -1144,6 +1147,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var showBadges = !SelectedProjectFilter.HasValue;
         foreach (var chat in ordered)
         {
+            ChatTagsVM.ResolveTag(chat);
             var name = showBadges ? GetProjectName(chat.ProjectId) : null;
             chat.ProjectBadgeText = name;
             chat.ShowProjectBadge = name is not null;
@@ -1578,6 +1582,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 fork.SessionProviderSignature = chat.SessionProviderSignature;
             }
 
+            ChatForkFactory.ReconcileTag(fork, _dataStore.Data.ChatTags);
             _dataStore.Data.Chats.Add(fork);
             _dataStore.MarkChatChanged(fork);
             await _dataStore.SaveChatAsync(fork);

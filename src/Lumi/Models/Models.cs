@@ -401,9 +401,45 @@ public class SearchSource
     public string Url { get; set; } = "";
 }
 
+public class ChatTag : INotifyPropertyChanged
+{
+    public const string DefaultColor = "#6E8BFF";
+
+    private string _name = "";
+    private string _color = DefaultColor;
+
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name
+    {
+        get => _name;
+        set
+        {
+            var name = value ?? "";
+            if (_name == name) return;
+            _name = name;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
+        }
+    }
+    public string Color
+    {
+        get => _color;
+        set
+        {
+            var color = value ?? DefaultColor;
+            if (_color == color) return;
+            _color = color;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Color)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+}
+
 public class Chat : INotifyPropertyChanged
 {
     private string _title = "New Chat";
+    private Guid? _tagId;
+    private ChatTag? _tag;
     private bool _isRunning;
     private bool _hasUnreadMessages;
     private bool _isPinned;
@@ -426,6 +462,43 @@ public class Chat : INotifyPropertyChanged
     }
     public Guid? ProjectId { get; set; }
     public Guid? AgentId { get; set; }
+    public Guid? TagId
+    {
+        get => _tagId;
+        set
+        {
+            if (_tagId == value) return;
+            _tagId = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TagId)));
+        }
+    }
+    [JsonIgnore]
+    public ChatTag? Tag
+    {
+        get => _tag;
+        set
+        {
+            if (ReferenceEquals(_tag, value)) return;
+            _tag = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Tag)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasTag)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TagName)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TagColor)));
+        }
+    }
+    [JsonIgnore]
+    public bool HasTag => Tag is not null;
+    [JsonIgnore]
+    public string TagName => Tag?.Name ?? "";
+    [JsonIgnore]
+    public string TagColor => Tag?.Color ?? ChatTag.DefaultColor;
+
+    internal void NotifyTagDetailsChanged()
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TagName)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TagColor)));
+    }
+
     public string? CopilotSessionId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
@@ -1142,6 +1215,7 @@ public class AppData
 {
     public UserSettings Settings { get; set; } = new();
     public List<Chat> Chats { get; set; } = [];
+    public List<ChatTag> ChatTags { get; set; } = [];
     public List<Project> Projects { get; set; } = [];
     public List<Skill> Skills { get; set; } = [];
     public List<LumiAgent> Agents { get; set; } = [];

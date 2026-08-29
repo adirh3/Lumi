@@ -23,6 +23,7 @@ using Avalonia.Rendering.Composition.Animations;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Lumi.Converters;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
@@ -3097,6 +3098,7 @@ public partial class MainWindow : Window
         if (chat is not null)
         {
             UpdateChatPinMenuItem(menu, chat);
+            TryPopulateChatTagSubmenu(menu, chat);
             TryPopulateMoveToProjectSubmenu(menu, chat);
         }
     }
@@ -3115,6 +3117,7 @@ public partial class MainWindow : Window
         if ((menu.Tag as Chat ?? menu.DataContext as Chat) is Chat chat)
         {
             UpdateChatPinMenuItem(menu, chat);
+            TryPopulateChatTagSubmenu(menu, chat);
             TryPopulateMoveToProjectSubmenu(menu, chat);
         }
     }
@@ -3129,6 +3132,58 @@ public partial class MainWindow : Window
         pinMenu.CommandParameter = chat;
         if (pinMenu.Icon is PathIcon icon)
             icon.Data = GetIconGeometry(chat.IsPinned ? "Icon.PinOff" : "Icon.Pin");
+    }
+
+    private void TryPopulateChatTagSubmenu(ContextMenu menu, Chat chat)
+    {
+        if (DataContext is not MainViewModel vm) return;
+
+        var tagMenu = menu.Items.OfType<MenuItem>()
+            .FirstOrDefault(item => item.Name == "ChatTagMenu" || (item.Header as string) == Loc.Menu_ChatTag);
+        if (tagMenu is null) return;
+
+        tagMenu.Items.Clear();
+        tagMenu.Items.Add(new MenuItem
+        {
+            Header = Loc.ChatTags_NoTag,
+            ToggleType = MenuItemToggleType.CheckBox,
+            IsChecked = chat.TagId is null,
+            Command = vm.ChatTagsVM.AssignTagCommand,
+            CommandParameter = new ChatTagAssignment(chat, null)
+        });
+
+        var tags = vm.DataStore.Data.ChatTags
+            .OrderBy(tag => tag.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+        if (tags.Length > 0)
+            tagMenu.Items.Add(new Separator());
+
+        foreach (var tag in tags)
+        {
+            tagMenu.Items.Add(new MenuItem
+            {
+                Header = tag.Name,
+                Icon = new Border
+                {
+                    Width = 10,
+                    Height = 10,
+                    CornerRadius = new CornerRadius(5),
+                    Background = ChatTagBrushConverter.CreateBrush(tag.Color)
+                },
+                ToggleType = MenuItemToggleType.CheckBox,
+                IsChecked = chat.TagId == tag.Id,
+                Command = vm.ChatTagsVM.AssignTagCommand,
+                CommandParameter = new ChatTagAssignment(chat, tag)
+            });
+        }
+
+        tagMenu.Items.Add(new Separator());
+        tagMenu.Items.Add(new MenuItem
+        {
+            Header = Loc.ChatTags_Manage,
+            Icon = CreateMenuGlyph("Icon.Gear"),
+            Command = vm.ChatTagsVM.OpenManagerCommand
+        });
     }
 
     /// <summary>Finds the "Move to Project" submenu within a chat context menu and (re)builds its targets.</summary>

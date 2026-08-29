@@ -1358,9 +1358,9 @@ public partial class ChatViewModel
     {
         return AIFunctionFactory.Create(
             async (
-                [Description("Action to perform: 'list' (all chats with live status), 'create' (start a new chat, optionally in a project/agent and with an initial message), 'send' (send a message to an existing chat), 'status' (detailed progress of one chat), 'pin', or 'unpin'.")] string action,
-                [Description("For 'send'/'status'/'pin'/'unpin': the target chat id (preferred) or its exact title. Ignored for 'list'/'create'.")] string? identifier = null,
-                [Description("For 'create': the title of the new chat. Optional — a title is generated if omitted.")] string? title = null,
+                [Description("Action to perform: 'list' (all chats with live status plus the available tag catalog), 'create' (start a new chat), 'send', 'status', 'edit', 'pin', or 'unpin'.")] string action,
+                [Description("For 'send'/'status'/'edit'/'pin'/'unpin': the target chat id (preferred) or its exact title. Ignored for 'list'/'create'.")] string? identifier = null,
+                [Description("For 'create': the new chat title. For 'edit': an optional replacement title.")] string? title = null,
                 [Description("For 'create'/'send': the message to deliver to the chat. For 'create' this is the initial prompt (optional — omit to create an empty chat). For 'send' this is required.")] string? message = null,
                 [Description("For 'create': project id or exact name to place the chat in. Optional.")] string? project = null,
                 [Description("For 'create': Lumi agent id or exact name to run the chat as. Optional.")] string? agent = null,
@@ -1371,8 +1371,10 @@ public partial class ChatViewModel
                 [Description("For 'create'/'send': when true, wait for the worker chat to finish its reply before returning (up to timeoutSeconds). When false (default), start the work in the background and return immediately so you can keep managing.")] bool wait = false,
                 [Description("For 'create'/'send' with wait=true: how long to wait, in seconds, before returning with a 'still running' note. Default 240, max 1800.")] int? timeoutSeconds = null,
                 [Description("For 'status': how many recent messages to summarize (1-40, default 8). For 'list': ignored.")] int? maxMessages = null,
-                [Description("For 'list': optional text filter to match chat titles/projects.")] string? query = null,
-                [Description("For 'list': maximum number of chats to return (1-100, default 40).")] int? limit = null) =>
+                [Description("For 'list': optional text filter to match chat titles, projects, or assigned tags.")] string? query = null,
+                [Description("For 'list': maximum number of chats to return (1-60, default 20).")] int? limit = null,
+                [Description("For 'edit': existing tag id or exact name to assign. Use action=list to discover all tags, including unassigned tags.")] string? tag = null,
+                [Description("For 'edit': set true to remove the chat's assigned tag. Do not combine with tag.")] bool clearTag = false) =>
             {
                 var svc = OrchestrationService;
                 if (svc is null)
@@ -1396,6 +1398,8 @@ public partial class ChatViewModel
                     maxMessages,
                     query,
                     limit,
+                    tag,
+                    clearTag,
                     sourceChatId: chatId,
                     onChatLinked: (id, chatTitle) => { linkedId = id; linkedTitle = chatTitle; },
                     cancellationToken: GetCurrentCancellationToken());
@@ -1406,7 +1410,7 @@ public partial class ChatViewModel
                 return result;
             },
             "manage_chats",
-            "Orchestrate other Lumi chats so you can act as a manager coordinating work across multiple chats and projects. Actions: 'list' shows every chat with pinned state, live status (running/idle), last activity, unread and message counts; 'create' starts a brand-new chat (optionally inside a project, running as a specific Lumi agent, with skills, a model and reasoning effort, and — for coding projects — in an isolated git worktree via worktree=true) and can kick off an initial message; 'send' delivers a message/instruction to an existing chat (optionally overriding the model/reasoningEffort from that message onward); 'status' reports the detailed progress of one chat (running state, latest assistant reply snippet, recent tool activity, counts); 'pin' and 'unpin' control whether a chat stays at the top of its project. By default create/send run the target chat in the BACKGROUND and return immediately — the worker keeps going after your turn ends — so you can start several chats and check back with 'status' or 'list'. Set wait=true to block for the reply. Use this when the user asks you to spin up, delegate to, track, pin, or coordinate multiple chats.",
+            "Orchestrate other Lumi chats so you can act as a manager coordinating work across multiple chats and projects. Actions: 'list' shows chats plus every available custom tag (including unassigned tags); 'create' starts a chat; 'send' delivers a message; 'status' reports progress; 'edit' changes the title and/or assigns an existing tag (or clears it); 'pin' and 'unpin' control priority. By default create/send run the target chat in the BACKGROUND and return immediately. Set wait=true to block for the reply. Use this when the user asks you to spin up, delegate to, track, edit, tag, or coordinate multiple chats.",
             Lumi.Models.AppDataJsonContext.Default.Options);
     }
 

@@ -112,6 +112,8 @@ public sealed class ChatOrchestrationServiceTests
         int? maxMessages = null,
         string? query = null,
         int? limit = null,
+        string? tag = null,
+        bool clearTag = false,
         Guid? sourceChatId = null)
     {
         string result = "";
@@ -122,7 +124,7 @@ public sealed class ChatOrchestrationServiceTests
             {
                 result = await service.ManageChatsAsync(
                     action, identifier, title, message, project, agent, skills, model,
-                    reasoningEffort, worktree, wait, timeoutSeconds, maxMessages, query, limit, sourceChatId,
+                    reasoningEffort, worktree, wait, timeoutSeconds, maxMessages, query, limit, tag, clearTag, sourceChatId,
                     cancellationToken: CancellationToken.None);
             }
             catch (Exception ex)
@@ -236,6 +238,91 @@ public sealed class ChatOrchestrationServiceTests
             Assert.Contains("already pinned", duplicateResult);
             Assert.Contains("Unpinned chat", unpinResult);
             Assert.Equal(2, changes);
+        }
+    }
+
+    [Fact]
+    public async Task Edit_AssignsAndClearsExistingTag_WhileListShowsUnassignedTags()
+    {
+        using var session = HeadlessTestSession.Start();
+        var chat = new Chat { Title = "Tag target" };
+        var assigned = new ChatTag { Name = "Work", Color = "#6E8BFF" };
+        var unassigned = new ChatTag { Name = "Later", Color = "#F59E0B" };
+        var data = CreateData(chat);
+        data.ChatTags.AddRange([assigned, unassigned]);
+        var (store, registry, sessionStore) = CreateEnvironment(data);
+
+        using (registry)
+        using (sessionStore)
+        using (var service = new ChatOrchestrationService(store, registry, sessionStore))
+        {
+            sessionStore.OrchestrationService = service;
+
+            var edit = "";
+            var list = "";
+            var clear = "";
+            Exception? failure = null;
+            await session.Dispatch(async () =>
+            {
+                try
+                {
+                    edit = await service.ManageChatsAsync(
+                        "edit",
+                        identifier: chat.Id.ToString(),
+                        tag: assigned.Name,
+                        cancellationToken: CancellationToken.None);
+                    list = await service.ManageChatsAsync(
+                        "list",
+                        cancellationToken: CancellationToken.None);
+                    clear = await service.ManageChatsAsync(
+                        "edit",
+                        identifier: chat.Id.ToString(),
+                        clearTag: true,
+                        cancellationToken: CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                }
+            }, CancellationToken.None);
+
+            Assert.Null(failure);
+            Assert.Contains("tag: \"Work\"", edit);
+            Assert.Contains("tag: Work", list);
+            Assert.Contains("\"Later\"", list);
+            Assert.Contains(unassigned.Id.ToString(), list);
+            Assert.Contains("tag removed", clear);
+            Assert.Null(chat.TagId);
+            Assert.Null(chat.Tag);
+        }
+    }
+
+    [Fact]
+    public async Task Edit_RejectsUnknownTagAndListsValidChoices()
+    {
+        using var session = HeadlessTestSession.Start();
+        var chat = new Chat { Title = "Tag target" };
+        var existing = new ChatTag { Name = "Existing" };
+        var data = CreateData(chat);
+        data.ChatTags.Add(existing);
+        var (store, registry, sessionStore) = CreateEnvironment(data);
+
+        using (registry)
+        using (sessionStore)
+        using (var service = new ChatOrchestrationService(store, registry, sessionStore))
+        {
+            sessionStore.OrchestrationService = service;
+
+            var result = await RunAsync(
+                session,
+                service,
+                "edit",
+                identifier: chat.Id.ToString(),
+                tag: "Missing");
+
+            Assert.Contains("No tag matches", result);
+            Assert.Contains("\"Existing\"", result);
+            Assert.Null(chat.TagId);
         }
     }
 
