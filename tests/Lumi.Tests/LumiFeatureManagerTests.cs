@@ -74,6 +74,141 @@ public sealed class LumiFeatureManagerTests
     }
 
     [Fact]
+    public void ManageJobs_CreateChatEventJob_DefaultsToIdleAndUsesSeparateSourceChat()
+    {
+        var leadChat = new Chat { Title = "Lead" };
+        var workerChat = new Chat { Title = "Worker" };
+        var data = new AppData { Chats = [leadChat, workerChat] };
+        var manager = new LumiFeatureManager(new DataStore(data));
+
+        var result = manager.ManageJobs(
+            "create",
+            name: "Worker finished",
+            prompt: "Review the worker result.",
+            triggerType: BackgroundJobTriggerTypes.ChatEvent,
+            defaultChatId: leadChat.Id,
+            sourceChatIdentifier: workerChat.Id.ToString());
+
+        Assert.True(result.DataChanged);
+        var job = Assert.Single(data.BackgroundJobs);
+        Assert.Equal(leadChat.Id, job.ChatId);
+        Assert.Equal(workerChat.Id, job.SourceChatId);
+        Assert.Equal([ChatLifecycleEventTypes.Idle], job.ChatEventTypes);
+        Assert.Null(job.NextRunAt);
+        Assert.False(job.IsTemporary);
+    }
+
+    [Fact]
+    public void ManageJobs_CreateChatEventJob_RejectsSelfSubscription()
+    {
+        var chat = new Chat { Title = "Lead" };
+        var data = new AppData { Chats = [chat] };
+        var manager = new LumiFeatureManager(new DataStore(data));
+
+        var result = manager.ManageJobs(
+            "create",
+            name: "Loop",
+            prompt: "Wake yourself.",
+            triggerType: BackgroundJobTriggerTypes.ChatEvent,
+            defaultChatId: chat.Id,
+            sourceChatIdentifier: chat.Id.ToString());
+
+        Assert.False(result.DataChanged);
+        Assert.Contains("different chat", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(data.BackgroundJobs);
+    }
+
+    [Fact]
+    public void ManageJobs_CreateChatEventJob_NormalizesMultipleFilters()
+    {
+        var leadChat = new Chat { Title = "Lead" };
+        var workerChat = new Chat { Title = "Worker" };
+        var data = new AppData { Chats = [leadChat, workerChat] };
+        var manager = new LumiFeatureManager(new DataStore(data));
+
+        var result = manager.ManageJobs(
+            "create",
+            name: "Worker activity",
+            prompt: "Track worker progress.",
+            triggerType: "event",
+            defaultChatId: leadChat.Id,
+            sourceChatIdentifier: workerChat.Title,
+            chatEventTypes: ["turn_started", "turn-ended", "error"]);
+
+        Assert.True(result.DataChanged);
+        Assert.Equal(
+            [ChatLifecycleEventTypes.TurnStart, ChatLifecycleEventTypes.TurnEnd, ChatLifecycleEventTypes.Error],
+            Assert.Single(data.BackgroundJobs).ChatEventTypes);
+    }
+
+    [Fact]
+    public void ManageJobs_CreateChatEventJob_RejectsReciprocalCycle()
+    {
+        var firstChat = new Chat { Title = "First" };
+        var secondChat = new Chat { Title = "Second" };
+        var data = new AppData { Chats = [firstChat, secondChat] };
+        var manager = new LumiFeatureManager(new DataStore(data));
+
+        var first = manager.ManageJobs(
+            "create",
+            name: "First wakes second",
+            prompt: "Continue in second.",
+            chatIdentifier: secondChat.Id.ToString(),
+            triggerType: BackgroundJobTriggerTypes.ChatEvent,
+            sourceChatIdentifier: firstChat.Id.ToString());
+        var second = manager.ManageJobs(
+            "create",
+            name: "Second wakes first",
+            prompt: "Continue in first.",
+            chatIdentifier: firstChat.Id.ToString(),
+            triggerType: BackgroundJobTriggerTypes.ChatEvent,
+            sourceChatIdentifier: secondChat.Id.ToString());
+
+        Assert.True(first.DataChanged);
+        Assert.False(second.DataChanged);
+        Assert.Contains("cycle", second.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(data.BackgroundJobs);
+    }
+
+    [Fact]
+    public void ManageJobs_FailedUpdate_DoesNotMutateExistingChatEventJob()
+    {
+        var leadChat = new Chat { Title = "Lead" };
+        var workerChat = new Chat { Title = "Worker" };
+        var job = new BackgroundJob
+        {
+            Name = "Worker completion",
+            Prompt = "Review the worker result.",
+            ChatId = leadChat.Id,
+            SourceChatId = workerChat.Id,
+            TriggerType = BackgroundJobTriggerTypes.ChatEvent,
+            ChatEventTypes = [ChatLifecycleEventTypes.Idle],
+            IsEnabled = true
+        };
+        var data = new AppData
+        {
+            Chats = [leadChat, workerChat],
+            BackgroundJobs = [job]
+        };
+        var manager = new LumiFeatureManager(new DataStore(data));
+
+        var result = manager.ManageJobs(
+            "update",
+            identifier: job.Name,
+            name: "Mutated name",
+            triggerType: BackgroundJobTriggerTypes.Time,
+            scheduleType: BackgroundJobScheduleTypes.Cron,
+            cronExpression: "invalid cron");
+
+        Assert.False(result.DataChanged);
+        Assert.Equal("Worker completion", job.Name);
+        Assert.Equal(BackgroundJobTriggerTypes.ChatEvent, job.TriggerType);
+        Assert.Equal(workerChat.Id, job.SourceChatId);
+        Assert.Equal([ChatLifecycleEventTypes.Idle], job.ChatEventTypes);
+        Assert.True(job.IsEnabled);
+    }
+
+    [Fact]
     public void ManageSkills_Delete_RemovesLinkedReferences()
     {
         var skill = new Skill

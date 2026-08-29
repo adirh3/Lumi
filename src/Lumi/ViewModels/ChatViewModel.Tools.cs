@@ -821,7 +821,9 @@ public partial class ChatViewModel
                     [Description("Short human-readable purpose shown in the Jobs tab.")] string? description = null,
                     [Description("The prompt/instructions Lumi should receive whenever this job invokes the chat. Required for create.")] string? prompt = null,
                     [Description("Optional target chat ID or exact title. If omitted, uses the current chat.")] string? chatIdentifier = null,
-                    [Description("Trigger type: time or script.")] string? triggerType = null,
+                    [Description("For chat_event triggers: source chat ID or exact title to observe. Must differ from the target chat.")] string? sourceChatIdentifier = null,
+                    [Description("For chat_event triggers: event filters. Supported values: turn_start, turn_end, idle, error, aborted, or * for any. Defaults to idle.")] string[]? chatEventTypes = null,
+                    [Description("Trigger type: time, script, or chat_event.")] string? triggerType = null,
                     [Description("For time triggers: interval, daily, weekly, monthly, once, or cron.")] string? scheduleType = null,
                     [Description("For interval time triggers: minutes between runs.")] int? intervalMinutes = null,
                     [Description("For daily time triggers: local HH:mm time, e.g. 08:00.")] string? dailyTime = null,
@@ -842,11 +844,12 @@ public partial class ChatViewModel
                 {
                     var result = FeatureManager.ManageJobs(action, identifier, name, description, prompt, chatIdentifier,
                         triggerType, scheduleType, intervalMinutes, dailyTime, daysOfWeek, monthlyDay, cronExpression, runAt,
-                        scriptContent, scriptLanguage, isTemporary, isEnabled, runNow, query, defaultChatId: chatId);
+                        scriptContent, scriptLanguage, isTemporary, isEnabled, runNow, query, defaultChatId: chatId,
+                        sourceChatIdentifier: sourceChatIdentifier, chatEventTypes: chatEventTypes);
                     return await ApplyFeatureChangeAsync(result, chatId);
                 },
                 "manage_jobs",
-                "List, create, update, delete, pause, resume, or run Lumi background jobs. Use when the user explicitly asks Lumi to monitor, remind, wait for a condition, follow up, or automate a recurring/temporary task in the background. Script jobs are one-shot wake scripts: the script waits/polls, exits when attention is needed, and Lumi wakes the linked chat with the script output.",
+                "List, create, update, delete, pause, resume, or run Lumi background jobs. Use when the user explicitly asks Lumi to monitor, remind, wait for a condition, follow up, or automate a recurring/temporary task in the background. Chat-event jobs wake a target chat directly when another chat emits selected lifecycle events, without polling. Script jobs are one-shot wake scripts: the script waits/polls, exits when attention is needed, and Lumi wakes the linked chat with the script output.",
                 Lumi.Models.AppDataJsonContext.Default.Options),
 
             AIFunctionFactory.Create(

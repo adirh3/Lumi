@@ -14,6 +14,17 @@ public static class BackgroundJobSchedule
 
         job.TriggerType = NormalizeTriggerType(job.TriggerType);
         job.ScheduleType = NormalizeScheduleType(job.ScheduleType);
+        if (!ChatLifecycleEventTypes.TryNormalize(
+                job.ChatEventTypes,
+                out var normalizedChatEventTypes,
+                out _,
+                defaultToIdle: job.TriggerType == BackgroundJobTriggerTypes.ChatEvent))
+        {
+            normalizedChatEventTypes = job.TriggerType == BackgroundJobTriggerTypes.ChatEvent
+                ? [ChatLifecycleEventTypes.Idle]
+                : [];
+        }
+        job.ChatEventTypes = normalizedChatEventTypes;
         job.IntervalMinutes = Math.Clamp(job.IntervalMinutes, 1, 525_600);
         job.MonthlyDay = Math.Clamp(job.MonthlyDay, 1, 31);
 
@@ -34,6 +45,7 @@ public static class BackgroundJobSchedule
         return (value ?? "").Trim().ToLowerInvariant() switch
         {
             "script" or "poll" or "polling" => BackgroundJobTriggerTypes.Script,
+            "chat_event" or "chat-event" or "event" or "chat" => BackgroundJobTriggerTypes.ChatEvent,
             _ => BackgroundJobTriggerTypes.Time
         };
     }
@@ -89,6 +101,9 @@ public static class BackgroundJobSchedule
             return afterRun ? null : now;
         }
 
+        if (job.TriggerType == BackgroundJobTriggerTypes.ChatEvent)
+            return null;
+
         return job.ScheduleType switch
         {
             BackgroundJobScheduleTypes.Daily => ComputeDailyRun(job.DailyTime, now),
@@ -109,6 +124,9 @@ public static class BackgroundJobSchedule
         if (job.TriggerType == BackgroundJobTriggerTypes.Script)
             return "Wake script: runs once, then wakes Lumi when it exits";
 
+        if (job.TriggerType == BackgroundJobTriggerTypes.ChatEvent)
+            return $"Chat event: {ChatLifecycleEventTypes.Describe(job.ChatEventTypes)}";
+
         return job.ScheduleType switch
         {
             BackgroundJobScheduleTypes.Daily => $"Every day at {job.DailyTime}",
@@ -120,6 +138,44 @@ public static class BackgroundJobSchedule
             BackgroundJobScheduleTypes.Cron => $"Advanced schedule: {job.CronExpression}",
             _ => $"Every {FormatInterval(job.IntervalMinutes)}"
         };
+    }
+
+    public static bool WouldCreateChatEventCycle(
+        IEnumerable<BackgroundJob> jobs,
+        Guid sourceChatId,
+        Guid targetChatId,
+        Guid? excludedJobId = null)
+    {
+        if (sourceChatId == targetChatId)
+            return true;
+
+        var edges = jobs
+            .Where(job => job.Id != excludedJobId
+                && NormalizeTriggerType(job.TriggerType) == BackgroundJobTriggerTypes.ChatEvent
+                && job.SourceChatId.HasValue)
+            .GroupBy(job => job.SourceChatId!.Value)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(job => job.ChatId).Distinct().ToArray());
+
+        var pending = new Stack<Guid>();
+        var visited = new HashSet<Guid>();
+        pending.Push(targetChatId);
+
+        while (pending.TryPop(out var chatId))
+        {
+            if (!visited.Add(chatId))
+                continue;
+            if (chatId == sourceChatId)
+                return true;
+            if (!edges.TryGetValue(chatId, out var targets))
+                continue;
+
+            foreach (var target in targets)
+                pending.Push(target);
+        }
+
+        return false;
     }
 
     public static bool TryValidateCronExpression(string value, out string error)

@@ -141,7 +141,7 @@ public partial class AgentsViewModel : ObservableObject
         ("manage_skills", "Manage Skills", "Utility", "List, create, update, or delete Lumi skills on explicit request."),
         ("manage_lumis", "Manage Lumis", "Utility", "List, create, update, or delete Lumi agents on explicit request."),
         ("manage_mcps", "Manage MCPs", "Utility", "List, create, update, or delete Lumi MCP servers on explicit request."),
-        ("manage_jobs", "Manage Jobs", "Utility", "Create, pause, resume, or delete Lumi background jobs on explicit request."),
+        ("manage_jobs", "Manage Jobs", "Utility", "Create, pause, resume, or delete scheduled, script, and chat-event background jobs on explicit request."),
         ("manage_memories", "Manage Memories", "Utility", "List, create, update, or delete Lumi memories on explicit request."),
         ("manage_current_chat", "Manage Current Chat", "Utility", "Inspect or update this chat's title and linked worktree workspace."),
         ("manage_chats", "Manage Chats", "Utility", "Create, list, message, and track other chats — act as a manager orchestrating chats across projects."),

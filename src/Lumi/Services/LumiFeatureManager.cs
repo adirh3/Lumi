@@ -164,7 +164,9 @@ public sealed class LumiFeatureManager
         bool? isEnabled = null,
         bool? runNow = null,
         string? query = null,
-        Guid? defaultChatId = null)
+        Guid? defaultChatId = null,
+        string? sourceChatIdentifier = null,
+        string[]? chatEventTypes = null)
     {
         var normalizedAction = NormalizeOrNull(action)?.ToLowerInvariant() ?? "";
         var result = normalizedAction switch
@@ -172,10 +174,11 @@ public sealed class LumiFeatureManager
             "list" or "show" or "search" => new FeatureChangeResult(ListJobs(query ?? identifier)),
             "create" or "add" or "new" => CreateJob(name, description, prompt, chatIdentifier, triggerType, scheduleType,
                 intervalMinutes, dailyTime, daysOfWeek, monthlyDay, cronExpression, runAt, scriptContent, scriptLanguage,
-                isTemporary, isEnabled, runNow, defaultChatId),
+                isTemporary, isEnabled, runNow, defaultChatId, sourceChatIdentifier, chatEventTypes),
             "update" or "edit" or "rename" or "modify" => UpdateJob(identifier, name, description, prompt, chatIdentifier,
                 triggerType, scheduleType, intervalMinutes, dailyTime, daysOfWeek, monthlyDay, cronExpression, runAt,
-                scriptContent, scriptLanguage, isTemporary, isEnabled, runNow, defaultChatId),
+                scriptContent, scriptLanguage, isTemporary, isEnabled, runNow, defaultChatId, sourceChatIdentifier,
+                chatEventTypes),
             "delete" or "remove" => DeleteJob(identifier),
             "pause" or "disable" => SetJobEnabled(identifier, enabled: false),
             "resume" or "enable" => SetJobEnabled(identifier, enabled: true),
@@ -207,7 +210,9 @@ public sealed class LumiFeatureManager
         bool? isTemporary,
         bool? isEnabled,
         bool? runNow,
-        Guid? defaultChatId)
+        Guid? defaultChatId,
+        string? sourceChatIdentifier,
+        string[]? chatEventTypes)
     {
         var normalizedName = NormalizeOrNull(name);
         var normalizedPrompt = NormalizeOrNull(prompt);
@@ -226,6 +231,34 @@ public sealed class LumiFeatureManager
         var normalizedTriggerType = triggerType is null && !string.IsNullOrWhiteSpace(scriptContent)
             ? BackgroundJobTriggerTypes.Script
             : BackgroundJobSchedule.NormalizeTriggerType(triggerType);
+        Guid? sourceChatId = null;
+        List<string> normalizedChatEventTypes = [];
+        if (normalizedTriggerType == BackgroundJobTriggerTypes.ChatEvent)
+        {
+            var sourceChatLookup = ResolveChat(sourceChatIdentifier, defaultChatId: null);
+            if (!sourceChatLookup.Success)
+                return Failure($"Source {sourceChatLookup.Error}");
+            if (sourceChatLookup.Item!.Id == chatLookup.Item!.Id)
+                return Failure("A chat-event job must observe a different chat than the chat it wakes.");
+            if (BackgroundJobSchedule.WouldCreateChatEventCycle(
+                    jobs,
+                    sourceChatLookup.Item.Id,
+                    chatLookup.Item.Id))
+            {
+                return Failure("This chat-event subscription would create a trigger cycle between chats.");
+            }
+            if (!ChatLifecycleEventTypes.TryNormalize(
+                    chatEventTypes,
+                    out normalizedChatEventTypes,
+                    out var eventTypesError,
+                    defaultToIdle: true))
+            {
+                return Failure(eventTypesError);
+            }
+
+            sourceChatId = sourceChatLookup.Item.Id;
+        }
+
         var job = new BackgroundJob
         {
             Name = normalizedName,
@@ -241,6 +274,8 @@ public sealed class LumiFeatureManager
             CronExpression = NormalizeOrNull(cronExpression) ?? "0 8 * * *",
             ScriptContent = NormalizeOrNull(scriptContent) ?? "",
             ScriptLanguage = NormalizeOrNull(scriptLanguage) ?? BackgroundJobScriptLanguages.DefaultForCurrentOs(),
+            SourceChatId = sourceChatId,
+            ChatEventTypes = normalizedChatEventTypes,
             IsTemporary = normalizedTriggerType == BackgroundJobTriggerTypes.Script || isTemporary == true,
             IsEnabled = isEnabled ?? true
         };
@@ -282,7 +317,9 @@ public sealed class LumiFeatureManager
         bool? isTemporary,
         bool? isEnabled,
         bool? runNow,
-        Guid? defaultChatId)
+        Guid? defaultChatId,
+        string? sourceChatIdentifier,
+        string[]? chatEventTypes)
     {
         var lookup = ResolveByIdOrLabel(
             _dataStore.SnapshotBackgroundJobs(),
@@ -297,86 +334,188 @@ public sealed class LumiFeatureManager
             && triggerType is null && scheduleType is null && intervalMinutes is null && dailyTime is null
             && daysOfWeek is null && monthlyDay is null && cronExpression is null && runAt is null
             && scriptContent is null && scriptLanguage is null
-            && isTemporary is null && isEnabled is null && runNow is null)
+            && isTemporary is null && isEnabled is null && runNow is null
+            && sourceChatIdentifier is null && chatEventTypes is null)
             return Failure("No background job changes were provided.");
 
         var job = lookup.Item!;
-
         lock (job.SyncRoot)
         {
-        if (name is not null)
-        {
-            var normalizedName = NormalizeOrNull(name);
-            if (normalizedName is null)
-                return Failure("Background job name cannot be empty.");
-            if (HasConflictingLabel(_dataStore.SnapshotBackgroundJobs(), normalizedName, static item => item.Name, static item => item.Id, job.Id))
-                return Failure($"A background job named \"{normalizedName}\" already exists.");
-            job.Name = normalizedName;
-        }
+            var candidate = CreateJobUpdateCandidate(job);
+            var proposedTriggerType = triggerType is null
+                ? BackgroundJobSchedule.NormalizeTriggerType(candidate.TriggerType)
+                : BackgroundJobSchedule.NormalizeTriggerType(triggerType);
+            var proposedTargetChatId = candidate.ChatId;
+            if (chatIdentifier is not null)
+            {
+                var chatLookup = ResolveChat(chatIdentifier, defaultChatId);
+                if (!chatLookup.Success)
+                    return Failure(chatLookup.Error!);
+                proposedTargetChatId = chatLookup.Item!.Id;
+            }
 
-        if (description is not null)
-            job.Description = NormalizeOrNull(description) ?? "";
+            var proposedSourceChatId = candidate.SourceChatId;
+            if (sourceChatIdentifier is not null)
+            {
+                var sourceChatLookup = ResolveChat(sourceChatIdentifier, defaultChatId: null);
+                if (!sourceChatLookup.Success)
+                    return Failure($"Source {sourceChatLookup.Error}");
+                proposedSourceChatId = sourceChatLookup.Item!.Id;
+            }
 
-        if (prompt is not null)
-        {
-            var normalizedPrompt = NormalizeOrNull(prompt);
-            if (normalizedPrompt is null)
-                return Failure("Background job prompt cannot be empty.");
-            job.Prompt = normalizedPrompt;
-        }
+            var proposedChatEventTypes = candidate.ChatEventTypes.ToList();
+            if (proposedTriggerType == BackgroundJobTriggerTypes.ChatEvent)
+            {
+                if (proposedSourceChatId is null)
+                    return Failure("Chat-event background jobs require sourceChatIdentifier.");
+                if (proposedSourceChatId == proposedTargetChatId)
+                    return Failure("A chat-event job must observe a different chat than the chat it wakes.");
+                if (BackgroundJobSchedule.WouldCreateChatEventCycle(
+                        _dataStore.SnapshotBackgroundJobs(),
+                        proposedSourceChatId.Value,
+                        proposedTargetChatId,
+                        excludedJobId: job.Id))
+                {
+                    return Failure("This chat-event subscription would create a trigger cycle between chats.");
+                }
+                if (!ChatLifecycleEventTypes.TryNormalize(
+                        chatEventTypes is null ? proposedChatEventTypes : chatEventTypes,
+                        out proposedChatEventTypes,
+                        out var eventTypesError,
+                        defaultToIdle: true))
+                {
+                    return Failure(eventTypesError);
+                }
+            }
+            else
+            {
+                proposedSourceChatId = null;
+                proposedChatEventTypes = [];
+            }
 
-        if (chatIdentifier is not null)
-        {
-            var chatLookup = ResolveChat(chatIdentifier, defaultChatId);
-            if (!chatLookup.Success)
-                return Failure(chatLookup.Error!);
-            job.ChatId = chatLookup.Item!.Id;
-        }
+            if (name is not null)
+            {
+                var normalizedName = NormalizeOrNull(name);
+                if (normalizedName is null)
+                    return Failure("Background job name cannot be empty.");
+                if (HasConflictingLabel(_dataStore.SnapshotBackgroundJobs(), normalizedName, static item => item.Name, static item => item.Id, job.Id))
+                    return Failure($"A background job named \"{normalizedName}\" already exists.");
+                candidate.Name = normalizedName;
+            }
 
-        if (triggerType is not null)
-            job.TriggerType = triggerType;
-        if (scheduleType is not null)
-            job.ScheduleType = scheduleType;
-        if (intervalMinutes.HasValue)
-            job.IntervalMinutes = intervalMinutes.Value;
-        if (dailyTime is not null)
-            job.DailyTime = NormalizeOrNull(dailyTime) ?? "08:00";
-        if (daysOfWeek is not null)
-            job.DaysOfWeek = NormalizeOrNull(daysOfWeek) ?? "Mon,Tue,Wed,Thu,Fri";
-        if (monthlyDay.HasValue)
-            job.MonthlyDay = monthlyDay.Value;
-        if (cronExpression is not null)
-            job.CronExpression = NormalizeOrNull(cronExpression) ?? "0 8 * * *";
-        if (scriptContent is not null)
-            job.ScriptContent = NormalizeOrNull(scriptContent) ?? "";
-        if (scriptLanguage is not null)
-            job.ScriptLanguage = NormalizeOrNull(scriptLanguage) ?? BackgroundJobScriptLanguages.DefaultForCurrentOs();
-        if (isTemporary.HasValue)
-            job.IsTemporary = isTemporary.Value;
-        if (isEnabled.HasValue)
-            job.IsEnabled = isEnabled.Value;
+            if (description is not null)
+                candidate.Description = NormalizeOrNull(description) ?? "";
 
-        if (!TrySetRunAt(job, runAt, out var runAtError))
-            return Failure(runAtError!);
+            if (prompt is not null)
+            {
+                var normalizedPrompt = NormalizeOrNull(prompt);
+                if (normalizedPrompt is null)
+                    return Failure("Background job prompt cannot be empty.");
+                candidate.Prompt = normalizedPrompt;
+            }
 
-        if (!TryValidateJobConfiguration(job, out var configurationError))
-            return Failure(configurationError!);
-        BackgroundJobSchedule.Normalize(job);
-        if (job.TriggerType == BackgroundJobTriggerTypes.Script)
-            job.IsTemporary = true;
+            candidate.ChatId = proposedTargetChatId;
+            candidate.TriggerType = proposedTriggerType;
+            if (scheduleType is not null)
+                candidate.ScheduleType = scheduleType;
+            if (intervalMinutes.HasValue)
+                candidate.IntervalMinutes = intervalMinutes.Value;
+            if (dailyTime is not null)
+                candidate.DailyTime = NormalizeOrNull(dailyTime) ?? "08:00";
+            if (daysOfWeek is not null)
+                candidate.DaysOfWeek = NormalizeOrNull(daysOfWeek) ?? "Mon,Tue,Wed,Thu,Fri";
+            if (monthlyDay.HasValue)
+                candidate.MonthlyDay = monthlyDay.Value;
+            if (cronExpression is not null)
+                candidate.CronExpression = NormalizeOrNull(cronExpression) ?? "0 8 * * *";
+            if (scriptContent is not null)
+                candidate.ScriptContent = NormalizeOrNull(scriptContent) ?? "";
+            if (scriptLanguage is not null)
+                candidate.ScriptLanguage = NormalizeOrNull(scriptLanguage) ?? BackgroundJobScriptLanguages.DefaultForCurrentOs();
+            candidate.SourceChatId = proposedSourceChatId;
+            candidate.ChatEventTypes = proposedChatEventTypes;
+            if (isTemporary.HasValue)
+                candidate.IsTemporary = isTemporary.Value;
+            if (isEnabled.HasValue)
+                candidate.IsEnabled = isEnabled.Value;
 
-        var now = DateTimeOffset.Now;
-        job.NextRunAt = job.IsEnabled
-            ? job.TriggerType == BackgroundJobTriggerTypes.Script || runNow == true
-                ? now
-                : BackgroundJobSchedule.ComputeNextRun(job, now, afterRun: false)
-            : null;
-        job.UpdatedAt = now;
+            if (!TrySetRunAt(candidate, runAt, out var runAtError))
+                return Failure(runAtError!);
+
+            if (!TryValidateJobConfiguration(candidate, out var configurationError))
+                return Failure(configurationError!);
+            BackgroundJobSchedule.Normalize(candidate);
+            if (candidate.TriggerType == BackgroundJobTriggerTypes.Script)
+                candidate.IsTemporary = true;
+
+            var now = DateTimeOffset.Now;
+            candidate.NextRunAt = candidate.IsEnabled
+                ? candidate.TriggerType == BackgroundJobTriggerTypes.Script || runNow == true
+                    ? now
+                    : BackgroundJobSchedule.ComputeNextRun(candidate, now, afterRun: false)
+                : null;
+            candidate.UpdatedAt = now;
+            ApplyJobUpdateCandidate(job, candidate);
         }
 
         _dataStore.MarkBackgroundJobsChanged();
 
         return Success($"Background job updated.\n{DescribeJob(job)}");
+    }
+
+    private static BackgroundJob CreateJobUpdateCandidate(BackgroundJob source)
+    {
+        return new BackgroundJob
+        {
+            Id = source.Id,
+            ChatId = source.ChatId,
+            Name = source.Name,
+            Description = source.Description,
+            Prompt = source.Prompt,
+            TriggerType = source.TriggerType,
+            ScheduleType = source.ScheduleType,
+            IntervalMinutes = source.IntervalMinutes,
+            DailyTime = source.DailyTime,
+            DaysOfWeek = source.DaysOfWeek,
+            MonthlyDay = source.MonthlyDay,
+            CronExpression = source.CronExpression,
+            RunAt = source.RunAt,
+            ScriptContent = source.ScriptContent,
+            ScriptLanguage = source.ScriptLanguage,
+            SourceChatId = source.SourceChatId,
+            ChatEventTypes = [.. source.ChatEventTypes],
+            IsEnabled = source.IsEnabled,
+            IsTemporary = source.IsTemporary,
+            CreatedAt = source.CreatedAt,
+            UpdatedAt = source.UpdatedAt,
+            LastRunAt = source.LastRunAt,
+            NextRunAt = source.NextRunAt
+        };
+    }
+
+    private static void ApplyJobUpdateCandidate(BackgroundJob target, BackgroundJob candidate)
+    {
+        target.ChatId = candidate.ChatId;
+        target.Name = candidate.Name;
+        target.Description = candidate.Description;
+        target.Prompt = candidate.Prompt;
+        target.TriggerType = candidate.TriggerType;
+        target.ScheduleType = candidate.ScheduleType;
+        target.IntervalMinutes = candidate.IntervalMinutes;
+        target.DailyTime = candidate.DailyTime;
+        target.DaysOfWeek = candidate.DaysOfWeek;
+        target.MonthlyDay = candidate.MonthlyDay;
+        target.CronExpression = candidate.CronExpression;
+        target.RunAt = candidate.RunAt;
+        target.ScriptContent = candidate.ScriptContent;
+        target.ScriptLanguage = candidate.ScriptLanguage;
+        target.SourceChatId = candidate.SourceChatId;
+        target.ChatEventTypes = [.. candidate.ChatEventTypes];
+        target.IsEnabled = candidate.IsEnabled;
+        target.IsTemporary = candidate.IsTemporary;
+        target.NextRunAt = candidate.NextRunAt;
+        target.UpdatedAt = candidate.UpdatedAt;
+        target.MarkConfigurationChanged();
     }
 
     private static bool TryValidateJobConfiguration(BackgroundJob job, out string? error)
@@ -393,6 +532,33 @@ public sealed class LumiFeatureManager
                 return false;
             }
 
+            return true;
+        }
+
+        if (triggerType == BackgroundJobTriggerTypes.ChatEvent)
+        {
+            if (job.SourceChatId is null)
+            {
+                error = "Chat-event background jobs require sourceChatIdentifier.";
+                return false;
+            }
+
+            if (job.SourceChatId == job.ChatId)
+            {
+                error = "A chat-event job must observe a different chat than the chat it wakes.";
+                return false;
+            }
+
+            if (!ChatLifecycleEventTypes.TryNormalize(
+                    job.ChatEventTypes,
+                    out var normalizedEventTypes,
+                    out error,
+                    defaultToIdle: true))
+            {
+                return false;
+            }
+
+            job.ChatEventTypes = normalizedEventTypes;
             return true;
         }
 
@@ -457,11 +623,24 @@ public sealed class LumiFeatureManager
             return Failure(lookup.Error!);
 
         var job = lookup.Item!;
+        if (enabled
+            && job.TriggerType == BackgroundJobTriggerTypes.ChatEvent
+            && job.SourceChatId is { } sourceChatId
+            && BackgroundJobSchedule.WouldCreateChatEventCycle(
+                _dataStore.SnapshotBackgroundJobs(),
+                sourceChatId,
+                job.ChatId,
+                excludedJobId: job.Id))
+        {
+            return Failure("This chat-event subscription would create a trigger cycle between chats.");
+        }
+
         lock (job.SyncRoot)
         {
             job.IsEnabled = enabled;
             job.NextRunAt = enabled ? BackgroundJobSchedule.ComputeNextRun(job, DateTimeOffset.Now, afterRun: false) : null;
             job.UpdatedAt = DateTimeOffset.Now;
+            job.MarkConfigurationChanged();
         }
 
         _dataStore.MarkBackgroundJobsChanged();
@@ -485,6 +664,7 @@ public sealed class LumiFeatureManager
             job.IsEnabled = true;
             job.NextRunAt = DateTimeOffset.Now;
             job.UpdatedAt = DateTimeOffset.Now;
+            job.MarkConfigurationChanged();
         }
 
         _dataStore.MarkBackgroundJobsChanged();
@@ -499,7 +679,11 @@ public sealed class LumiFeatureManager
                 job => job.Name,
                 job => job.Description,
                 job => job.Prompt,
-                job => job.LastRunSummary)
+                job => job.LastRunSummary,
+                job => string.Join(" ", job.ChatEventTypes),
+                job => job.SourceChatId is { } sourceChatId
+                    ? _dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == sourceChatId)?.Title
+                    : null)
             .OrderBy(job => job.NextRunAt ?? DateTimeOffset.MaxValue)
             .ThenBy(job => job.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -1708,7 +1892,10 @@ public sealed class LumiFeatureManager
             var next = job.NextRunAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "(none)";
             var last = job.LastRunAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "(never)";
             var exit = job.LastScriptExitCode.HasValue ? $" | exit: {job.LastScriptExitCode}" : "";
-            return $"- {job.Id} | {job.Name} | {(job.IsEnabled ? "enabled" : "paused")} | {BackgroundJobSchedule.Describe(job)} | chat: {chatTitle} | temporary: {job.IsTemporary} | next: {next} | last: {last} | status: {job.LastRunStatus}{exit} | {Preview(job.Description)}";
+            var source = job.TriggerType == BackgroundJobTriggerTypes.ChatEvent
+                ? $" | source: {_dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == job.SourceChatId)?.Title ?? "(missing chat)"}"
+                : "";
+            return $"- {job.Id} | {job.Name} | {(job.IsEnabled ? "enabled" : "paused")} | {BackgroundJobSchedule.Describe(job)} | chat: {chatTitle}{source} | temporary: {job.IsTemporary} | next: {next} | last: {last} | status: {job.LastRunStatus}{exit} | {Preview(job.Description)}";
         }
     }
 

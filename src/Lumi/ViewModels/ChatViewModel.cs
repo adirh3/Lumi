@@ -57,6 +57,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly object _mcpOAuthLoginLock = new();
     private readonly object _externalSendReservationLock = new();
     private readonly Dictionary<Guid, ExternalSendReservationState> _externalSendReservations = [];
+    private readonly object _chatLifecycleEventSync = new();
+    private readonly Dictionary<(Guid ChatId, string EventType), long> _publishedTerminalChatEventTurns = [];
 
     /// <summary>
     /// The resolved OAuth chip message per <c>sessionId|serverName</c> once a login attempt has produced
@@ -627,6 +629,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
+    private readonly ChatEventHub _chatEvents;
     private readonly GlobalSearchService? _globalSearchService;
     private readonly MemoryAgentService _memoryAgentService;
     private readonly CodingToolService _codingToolService;
@@ -716,6 +719,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly Dictionary<Guid, List<ChatMessage>> _queuedBusySendPrompts = new();
     /// <summary>Chats with a deferred-send drain in flight, so overlapping drains are coalesced.</summary>
     private readonly HashSet<Guid> _drainingBusySends = [];
+    /// <summary>Chats whose first-turn worktree is still being created. Deferred sends must not
+    /// start a session against the project checkout until this settles.</summary>
+    private readonly HashSet<Guid> _pendingWorktreeCreations = [];
     /// <summary>Tracks the last assistant message ID that already produced suggestions per chat.</summary>
     private readonly Dictionary<Guid, Guid> _lastSuggestedAssistantMessageByChat = new();
     /// <summary>Cached cross-chat user-prompt history for the suggestion "frequent requests" block.
@@ -1312,10 +1318,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         CopilotService copilotService,
         GlobalSearchService? globalSearchService = null,
         Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null,
-        ByokRateLimiter? byokRateLimiter = null)
+        ByokRateLimiter? byokRateLimiter = null,
+        ChatEventHub? chatEvents = null)
     {
         _dataStore = dataStore;
         _copilotService = copilotService;
+        _chatEvents = chatEvents ?? new ChatEventHub();
         _globalSearchService = globalSearchService;
         _secureKeyStore = secureKeyStore;
         _byokRateLimiter = byokRateLimiter ?? new ByokRateLimiter();
@@ -1386,6 +1394,47 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _copilotService.SessionDeletedRemotely += OnSessionDeletedRemotely;
 
         InitializeMvvmUiState();
+    }
+
+    internal ChatEventHub ChatEvents => _chatEvents;
+
+    private void PublishChatLifecycleEvent(Chat chat, string eventType, string? detail = null)
+    {
+        _chatEvents.Publish(new ChatLifecycleEvent(
+            chat.Id,
+            chat.Title,
+            eventType,
+            DateTimeOffset.Now,
+            detail));
+    }
+
+    internal void PublishTerminalChatLifecycleEventOnce(Chat chat, string eventType, string? detail = null)
+    {
+        var runtime = GetOrCreateRuntimeState(chat.Id);
+        long turnSequence;
+        lock (runtime)
+            turnSequence = runtime.LifecycleTurnSequence;
+
+        lock (_chatLifecycleEventSync)
+        {
+            var key = (chat.Id, eventType);
+            if (_publishedTerminalChatEventTurns.TryGetValue(key, out var publishedTurnSequence)
+                && publishedTurnSequence == turnSequence)
+            {
+                return;
+            }
+
+            _publishedTerminalChatEventTurns[key] = turnSequence;
+        }
+
+        PublishChatLifecycleEvent(chat, eventType, detail);
+    }
+
+    internal void BeginChatLifecycleTurn(Chat chat)
+    {
+        var runtime = GetOrCreateRuntimeState(chat.Id);
+        lock (runtime)
+            runtime.LifecycleTurnSequence++;
     }
 
     private void OnTranscriptWindowPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -2977,9 +3026,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public Task SendBackgroundJobMessageAsync(
         BackgroundJob job,
         string triggerContext,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action? validateDelivery = null)
     {
         ArgumentNullException.ThrowIfNull(job);
+        validateDelivery?.Invoke();
 
         var targetChat = _dataStore.Data.Chats.FirstOrDefault(chat => chat.Id == job.ChatId)
             ?? throw new InvalidOperationException($"Background job chat not found: {job.ChatId}");
@@ -2998,7 +3049,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
             var prompt = BuildBackgroundJobPrompt(job, triggerContext);
-            return SendExternalMessageAsync(targetChat, prompt, $"Lumi Job - {job.Name}", cancellationToken);
+            return SendExternalMessageAsync(
+                targetChat,
+                prompt,
+                $"Lumi Job - {job.Name}",
+                cancellationToken,
+                validateBeforeSend: validateDelivery);
             }
 
             /// <summary>
@@ -3070,9 +3126,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             Guid? reservedProjectId = null,
             string? reservedProjectDirectory = null,
             string? remoteDeviceId = null,
-            string? remoteRequestId = null)
+            string? remoteRequestId = null,
+            Action? validateBeforeSend = null)
             {
             ArgumentNullException.ThrowIfNull(targetChat);
+            validateBeforeSend?.Invoke();
 
         if (OwnsLiveChat(targetChat.Id)
             || IsExternalSendReservedByAnother(targetChat.Id, reservationToken))
@@ -3090,6 +3148,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             throw new InvalidOperationException("The chat project changed while its turn was starting.");
 
         await _dataStore.LoadChatMessagesAsync(targetChat, cancellationToken);
+        validateBeforeSend?.Invoke();
 
         // Explicit per-send model / reasoning-effort override (used by manage_chats send). Overwriting the
         // chat's persisted selection makes both a fresh session (applied via EnsureSessionAsync) and an
@@ -3160,6 +3219,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 reservedProjectDirectory))
             throw new InvalidOperationException("The chat project changed while its turn was starting.");
 
+        validateBeforeSend?.Invoke();
         var userMsg = new ChatMessage
         {
             Role = "user",
@@ -3170,6 +3230,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         };
 
         targetChat.Messages.Add(userMsg);
+        BeginChatLifecycleTurn(targetChat);
         if (CurrentChat?.Id == targetChat.Id)
         {
             Messages.Add(new ChatMessageViewModel(userMsg));
@@ -3361,6 +3422,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // consumes a network slot. No-op for non-BYOK models or models without a limit, so
             // existing chats are unaffected. Retries below reuse this turn's slot.
             await AcquireByokRateSlotAsync(targetChat, cts.Token);
+            validateBeforeSend?.Invoke();
             PreparePendingTurnTracking(targetChat, expectedSessionUserMessageCount, localAssistantMessageCount);
             await sendSession.SendAsync(sendOptions, cts.Token);
         }
@@ -3389,8 +3451,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     localUserMessageCount,
                     cts.Token,
                     verifyWithLiveEvents: true);
+                validateBeforeSend?.Invoke();
                 PreparePendingTurnTracking(targetChat, expectedSessionUserMessageCount, localAssistantMessageCount);
                 await sendSession.SendAsync(sendOptions, cts.Token);
+            }
+            catch (BackgroundJobDeliveryInvalidatedException)
+            {
+                RemoveUnsentExternalMessage(targetChat, userMsg);
+                throw;
             }
             catch (Exception retryEx)
             {
@@ -3398,6 +3466,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 HandleSendError(retryEx, cts.IsCancellationRequested, chat: targetChat);
                 throw;
             }
+        }
+        catch (BackgroundJobDeliveryInvalidatedException)
+        {
+            RemoveUnsentExternalMessage(targetChat, userMsg);
+            throw;
         }
         catch (Exception ex) when (sendOptions is not null && IsCopilotTransportError(ex))
         {
@@ -3435,6 +3508,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
             ReconcileInProgressSubagentTools(targetChat, "Failed");
             MarkRuntimeTerminal(runtime, errorText);
+            PublishTerminalChatLifecycleEventOnce(
+                targetChat,
+                ChatLifecycleEventTypes.Error,
+                "Background job session cancelled unexpectedly.");
             if (CurrentChat?.Id == targetChat.Id)
             {
                 StatusText = errorText;
@@ -3452,6 +3529,22 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             HandleSendError(ex, cts.IsCancellationRequested, chat: targetChat);
             throw;
         }
+    }
+
+    private void RemoveUnsentExternalMessage(Chat chat, ChatMessage message)
+    {
+        if (!chat.Messages.Remove(message))
+            return;
+
+        if (CurrentChat?.Id == chat.Id)
+        {
+            var visibleMessage = Messages.FirstOrDefault(item => ReferenceEquals(item.Message, message));
+            if (visibleMessage is not null)
+                Messages.Remove(visibleMessage);
+        }
+
+        QueueSaveChat(chat, saveIndex: true, touchIndex: true);
+        ChatUpdated?.Invoke();
     }
 
     private static string BuildBackgroundJobPrompt(BackgroundJob job, string triggerContext)
@@ -4215,36 +4308,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             UserMessageSent?.Invoke();
         }
 
-        // Lazily create the worktree after the user message is visible.
-        // The typing indicator shows "Creating worktree…" as a typewriter,
-        // then transitions naturally to "Thinking…" when IsBusy is set.
-        if (needsWorktreeCreation)
-        {
-            var worktreeResult = await CreateWorktreeForChatAsync(
-                targetChat,
-                attachments,
-                userMsg,
-                announceProgress: true);
-            var worktreeError = worktreeResult.Error;
-            if (worktreeError is not null)
-                IsWorktreeMode = false;
-        }
-
-        // Rebase attachment paths for existing worktrees (e.g. files dragged from the
-        // project directory while an existing worktree is already selected).
-        // New worktrees are handled inside the creation block above.
-        if (!needsWorktreeCreation && WorktreePath is { Length: > 0 } wtPath && attachments is { Count: > 0 } && userMsg is not null)
-        {
-            var projDir = GetProjectWorkingDirectory();
-            var effectiveWorktreeDir = GitService.ResolveWorktreeWorkingDirectory(wtPath, projDir);
-            RebaseAttachmentPaths(attachments, userMsg, projDir, effectiveWorktreeDir);
-        }
-
-        if (createdChat)
-        {
-            QueueRefreshCodingProjectState();
-            QueueGeneratedChatTitle(targetChat, prompt);
-        }
+        BeginChatLifecycleTurn(targetChat);
 
         CancellationTokenSource? cts = null;
         MessageOptions? sendOptions = null;
@@ -4263,7 +4327,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var localAssistantMessageCount = 0;
         try
         {
-            // Cancel any previous in-flight request for this chat
             var chatId = targetChat.Id;
             var abortedPreviousTurn = ReleasePreviousTurnCancellation(chatId);
             if (abortedPreviousTurn)
@@ -4278,7 +4341,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 }
             }
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
-            MarkRuntimeActive(runtime, Loc.Status_Thinking);
+            MarkRuntimeActive(
+                runtime,
+                needsWorktreeCreation ? Loc.Status_CreatingWorktree : Loc.Status_Thinking);
             if (CurrentChat?.Id == targetChat.Id)
                 ApplyDisplayedRuntimeState(runtime);
 
@@ -4307,10 +4372,59 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (ConsumePendingSessionInvalidation(targetChat))
                 needsSessionSetup = true;
 
-            // Deferred invalidation releases the current chat's session resources, including
-            // any CTS tracked in _ctsSources. Create the new turn CTS only after that work.
             cts = new CancellationTokenSource();
+            var turnToken = cts.Token;
             _ctsSources[chatId] = cts;
+
+            // Lazily create the worktree after the user message is visible. Registering the turn
+            // cancellation first lets Stop prevent the prompt from being sent once creation returns.
+            if (needsWorktreeCreation)
+            {
+                _pendingWorktreeCreations.Add(chatId);
+                ExternalWorktreeCreationResult worktreeResult;
+                try
+                {
+                    worktreeResult = await CreateWorktreeForChatAsync(
+                        targetChat,
+                        attachments,
+                        userMsg,
+                        announceProgress: true);
+                }
+                finally
+                {
+                    _pendingWorktreeCreations.Remove(chatId);
+                }
+
+                if (turnToken.IsCancellationRequested)
+                {
+                    if (userMsg is not null)
+                        RemoveCanceledPreSendMessage(targetChat, userMsg);
+                    ScheduleQueuedBusySendDrain(chatId);
+                    return;
+                }
+
+                var worktreeError = worktreeResult.Error;
+                if (worktreeError is not null)
+                    IsWorktreeMode = false;
+            }
+
+            // Rebase attachment paths for existing worktrees (e.g. files dragged from the
+            // project directory while an existing worktree is already selected).
+            if (!needsWorktreeCreation
+                && WorktreePath is { Length: > 0 } wtPath
+                && attachments is { Count: > 0 }
+                && userMsg is not null)
+            {
+                var projDir = GetProjectWorkingDirectory();
+                var effectiveWorktreeDir = GitService.ResolveWorktreeWorkingDirectory(wtPath, projDir);
+                RebaseAttachmentPaths(attachments, userMsg, projDir, effectiveWorktreeDir);
+            }
+
+            if (createdChat)
+            {
+                QueueRefreshCodingProjectState();
+                QueueGeneratedChatTitle(targetChat, prompt);
+            }
 
             var needsReplayPrompt = false;
             var sessionLostSkillLoads = false;
@@ -4481,6 +4595,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
             ReconcileInProgressSubagentTools(targetChat, "Failed");
             MarkRuntimeTerminal(runtime, errorText);
+            PublishTerminalChatLifecycleEventOnce(
+                targetChat,
+                ChatLifecycleEventTypes.Error,
+                "Session cancelled unexpectedly. MCP servers may have failed to connect.");
             // Terminal failure with no further session events to release the queue.
             FailQueuedBusySends(targetChat.Id);
             ClearPendingTurnTracking(targetChat.Id);
@@ -4505,6 +4623,22 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ClearPendingTurnTracking(targetChat.Id);
             HandleSendError(ex, cts.IsCancellationRequested, chat: targetChat);
         }
+    }
+
+    private void RemoveCanceledPreSendMessage(Chat chat, ChatMessage message)
+    {
+        if (!chat.Messages.Remove(message))
+            return;
+
+        if (CurrentChat?.Id == chat.Id)
+        {
+            var visibleMessage = Messages.FirstOrDefault(item => ReferenceEquals(item.Message, message));
+            if (visibleMessage is not null)
+                Messages.Remove(visibleMessage);
+        }
+
+        QueueSaveChat(chat, saveIndex: true, touchIndex: true);
+        ChatUpdated?.Invoke();
     }
 
     private async Task<bool> TryReconnectCopilotAsync(CancellationToken ct)
@@ -5084,6 +5218,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             && CopilotService.IsTransientServerAuthError(FlattenExceptionMessages(ex)))
         {
             ApplyUnexpectedAbortState(chat, Loc.Status_TransientAuthRetry);
+            PublishTerminalChatLifecycleEventOnce(
+                chat,
+                ChatLifecycleEventTypes.Error,
+                Loc.Status_TransientAuthRetry);
             return;
         }
 
@@ -5108,6 +5246,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var runtime = GetOrCreateRuntimeState(chat.Id);
             ReconcileInProgressSubagentTools(chat, "Failed");
             MarkRuntimeTerminal(runtime, display);
+            PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.Error, message);
             // No session.idle/abort event will follow, so nothing else would ever release the queue.
             FailQueuedBusySends(chat.Id);
 
@@ -5196,6 +5335,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var chatId = chat.Id;
         if (await TryStopManualContextCompactionAsync(chat))
             return null;
+        var wasActiveTurn = IsChatRuntimeActive(chatId) || _ctsSources.ContainsKey(chatId);
 
         // Record intent before cancellation or AbortAsync can synchronously emit Abort/Idle events.
         // Those handlers read this flag to distinguish a user stop from a broken session.
@@ -5231,6 +5371,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var runtime = GetOrCreateRuntimeState(chatId);
         var stoppedTools = MarkInProgressToolsStopped(chat);
         MarkRuntimeTerminal(runtime, Loc.Status_Stopped);
+        if (wasActiveTurn)
+        {
+            PublishTerminalChatLifecycleEventOnce(
+                chat,
+                ChatLifecycleEventTypes.Aborted,
+                "The chat run was stopped by the user.");
+        }
         ClearPendingTurnTracking(chatId);
 
         // Aborting the session kills any background shell it launched, so stop showing them "running".
@@ -6035,6 +6182,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 .ToList()
         };
         CurrentChat.Messages.Add(newUserMsg);
+        BeginChatLifecycleTurn(CurrentChat);
         Messages.Add(new ChatMessageViewModel(newUserMsg));
         QueueSaveChat(CurrentChat, saveIndex: true, touchIndex: true);
         ChatUpdated?.Invoke();
@@ -6055,6 +6203,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     Content = Loc.Status_ConnectionFailedShort
                 };
                 CurrentChat.Messages.Add(connErrorMsg);
+                PublishTerminalChatLifecycleEventOnce(
+                    CurrentChat,
+                    ChatLifecycleEventTypes.Error,
+                    Loc.Status_ConnectionFailedShort);
                 var connVm = new ChatMessageViewModel(connErrorMsg);
                 Messages.Add(connVm);
                 ScrollToEndRequested?.Invoke();
@@ -6191,6 +6343,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         Content = "Session expired. Please start a new chat to continue."
                     };
                     CurrentChat.Messages.Add(errorMsg);
+                    PublishTerminalChatLifecycleEventOnce(
+                        CurrentChat,
+                        ChatLifecycleEventTypes.Error,
+                        errorMsg.Content);
                     var msgVm = new ChatMessageViewModel(errorMsg);
                     Messages.Add(msgVm);
                     ScrollToEndRequested?.Invoke();

@@ -591,6 +591,7 @@ public class AppDataSnapshotFactoryTests
     public void AppDataJsonContext_SerializesBackgroundJobs()
     {
         var chatId = Guid.NewGuid();
+        var sourceChatId = Guid.NewGuid();
         var jobId = Guid.NewGuid();
         var data = new AppData
         {
@@ -602,9 +603,9 @@ public class AppDataSnapshotFactoryTests
                     ChatId = chatId,
                     Name = "Hotel monitor",
                     Prompt = "Watch London hotel prices.",
-                    TriggerType = BackgroundJobTriggerTypes.Time,
-                    ScheduleType = BackgroundJobScheduleTypes.Daily,
-                    DailyTime = "08:00",
+                    TriggerType = BackgroundJobTriggerTypes.ChatEvent,
+                    SourceChatId = sourceChatId,
+                    ChatEventTypes = [ChatLifecycleEventTypes.Idle],
                     IsEnabled = true
                 }
             ]
@@ -616,12 +617,15 @@ public class AppDataSnapshotFactoryTests
         var job = document.RootElement.GetProperty("backgroundJobs")[0];
         Assert.Equal(jobId, job.GetProperty("id").GetGuid());
         Assert.Equal("Hotel monitor", job.GetProperty("name").GetString());
+        Assert.Equal(sourceChatId, job.GetProperty("sourceChatId").GetGuid());
+        Assert.Equal("idle", job.GetProperty("chatEventTypes")[0].GetString());
     }
 
     [Fact]
     public void CreateIndexSnapshot_PreservesBackgroundJobs()
     {
         var chatId = Guid.NewGuid();
+        var sourceChatId = Guid.NewGuid();
         var jobId = Guid.NewGuid();
         var source = new AppData
         {
@@ -637,6 +641,8 @@ public class AppDataSnapshotFactoryTests
                     TriggerType = BackgroundJobTriggerTypes.Script,
                     ScriptContent = "Write-Output done",
                     ScriptLanguage = BackgroundJobScriptLanguages.PowerShell,
+                    SourceChatId = sourceChatId,
+                    ChatEventTypes = [ChatLifecycleEventTypes.TurnEnd, ChatLifecycleEventTypes.Idle],
                     IsEnabled = true,
                     IsTemporary = true,
                     LastRunStatus = BackgroundJobRunStatuses.Watching,
@@ -654,6 +660,8 @@ public class AppDataSnapshotFactoryTests
         Assert.Equal("PR watcher", job.Name);
         Assert.Equal(BackgroundJobTriggerTypes.Script, job.TriggerType);
         Assert.Equal("Write-Output done", job.ScriptContent);
+        Assert.Equal(sourceChatId, job.SourceChatId);
+        Assert.Equal([ChatLifecycleEventTypes.TurnEnd, ChatLifecycleEventTypes.Idle], job.ChatEventTypes);
         Assert.Equal(2, job.RunCount);
     }
 

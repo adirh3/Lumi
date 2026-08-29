@@ -1768,10 +1768,14 @@ public sealed class ChatViewModelLeakTests
     public void HandleSendError_AddsSingleTranscriptErrorItem()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chatEvents = new ChatEventHub();
+        var publishedEvents = new List<ChatLifecycleEvent>();
+        chatEvents.EventPublished += publishedEvents.Add;
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared, chatEvents: chatEvents);
         var chat = new Chat { Title = "error-chat" };
         dataStore.Data.Chats.Add(chat);
         vm.CurrentChat = chat;
+        vm.BeginChatLifecycleTurn(chat);
         vm.IsBusy = true;
         vm.IsStreaming = true;
 
@@ -1789,6 +1793,9 @@ public sealed class ChatViewModelLeakTests
         var turn = Assert.Single(vm.TranscriptTurns);
         var errorItem = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
         Assert.Contains("Copilot request failed", errorItem.Content, StringComparison.Ordinal);
+        var chatEvent = Assert.Single(publishedEvents);
+        Assert.Equal(ChatLifecycleEventTypes.Error, chatEvent.EventType);
+        Assert.Contains("Copilot request failed", chatEvent.Detail, StringComparison.Ordinal);
     }
 
     [Fact]

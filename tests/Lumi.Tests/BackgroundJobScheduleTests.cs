@@ -22,6 +22,49 @@ public sealed class BackgroundJobScheduleTests
     }
 
     [Fact]
+    public void ComputeNextRun_ChatEventTrigger_WaitsForEvent()
+    {
+        var now = new DateTimeOffset(2026, 8, 22, 15, 0, 0, TimeSpan.FromHours(3));
+        var job = new BackgroundJob
+        {
+            TriggerType = "event",
+            ChatEventTypes = ["turn-ended", "finished"]
+        };
+
+        Assert.Null(BackgroundJobSchedule.ComputeNextRun(job, now, afterRun: false));
+        Assert.Equal(BackgroundJobTriggerTypes.ChatEvent, job.TriggerType);
+        Assert.Equal(
+            [ChatLifecycleEventTypes.TurnEnd, ChatLifecycleEventTypes.Idle],
+            job.ChatEventTypes);
+    }
+
+    [Fact]
+    public void WouldCreateChatEventCycle_DetectsMultiChatCycle()
+    {
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var third = Guid.NewGuid();
+        var jobs = new[]
+        {
+            new BackgroundJob
+            {
+                SourceChatId = first,
+                ChatId = second,
+                TriggerType = BackgroundJobTriggerTypes.ChatEvent
+            },
+            new BackgroundJob
+            {
+                SourceChatId = second,
+                ChatId = third,
+                TriggerType = BackgroundJobTriggerTypes.ChatEvent
+            }
+        };
+
+        Assert.True(BackgroundJobSchedule.WouldCreateChatEventCycle(jobs, third, first));
+        Assert.False(BackgroundJobSchedule.WouldCreateChatEventCycle(jobs, first, third));
+    }
+
+    [Fact]
     public void ComputeNextRun_OnceTrigger_CanBeRearmedWithLaterRunAt()
     {
         var lastRun = new DateTimeOffset(2026, 4, 26, 10, 0, 0, TimeSpan.FromHours(3));

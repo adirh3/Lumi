@@ -1019,7 +1019,9 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
                 GetBool(args, "isEnabled"),
                 GetBool(args, "runNow"),
                 GetString(args, "query"),
-                _mainViewModel.ChatVM.CurrentChat?.Id),
+                _mainViewModel.ChatVM.CurrentChat?.Id,
+                GetString(args, "sourceChatIdentifier"),
+                GetStringArrayOrNull(args, "chatEventTypes")),
             _ => throw new InvalidOperationException($"Unknown feature resource '{resource}'.")
         };
 
@@ -1873,7 +1875,9 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             job.Name,
             job.Description,
             job.ChatId,
+            job.SourceChatId,
             job.TriggerType,
+            chatEventTypes = job.ChatEventTypes,
             job.ScheduleType,
             job.IsEnabled,
             job.IsTemporary,

@@ -296,6 +296,8 @@ internal static class AppDataSnapshotFactory
             RunAt = source.RunAt,
             ScriptContent = source.ScriptContent,
             ScriptLanguage = source.ScriptLanguage,
+            SourceChatId = source.SourceChatId,
+            ChatEventTypes = [.. source.ChatEventTypes],
             IsEnabled = source.IsEnabled,
             IsTemporary = source.IsTemporary,
             CreatedAt = source.CreatedAt,

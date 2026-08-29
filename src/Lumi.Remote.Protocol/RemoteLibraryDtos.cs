@@ -60,6 +60,11 @@ public sealed class RemoteJob
     public Guid Id { get; set; }
     public string Name { get; set; } = "";
     public string? Description { get; set; }
+    public Guid ChatId { get; set; }
+    public Guid? SourceChatId { get; set; }
+    public string? SourceChatTitle { get; set; }
+    public string TriggerType { get; set; } = "";
+    public List<string> ChatEventTypes { get; set; } = [];
     public string? ScheduleSummary { get; set; }
     public bool IsEnabled { get; set; }
     public string? LastRunStatus { get; set; }

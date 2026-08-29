@@ -307,7 +307,7 @@
                   </StackPanel>
                 </DockPanel>
 
-                <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10">
                   <RadioButton Classes="trigger-card"
                                GroupName="JobTriggerType"
                                IsChecked="{Binding EditUsesTimeTrigger, Mode=TwoWay}">
@@ -323,6 +323,15 @@
                     <StackPanel Spacing="4">
                       <TextBlock Text="{loc:Str Jobs_TriggerScript}" FontWeight="SemiBold" />
                       <TextBlock Text="{loc:Str Jobs_TriggerScriptDescription}" Classes="caption tertiary" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </RadioButton>
+                  <RadioButton Grid.Column="2"
+                               Classes="trigger-card"
+                               GroupName="JobTriggerType"
+                               IsChecked="{Binding EditUsesChatEventTrigger, Mode=TwoWay}">
+                    <StackPanel Spacing="4">
+                      <TextBlock Text="{loc:Str Jobs_TriggerChatEvent}" FontWeight="SemiBold" />
+                      <TextBlock Text="{loc:Str Jobs_TriggerChatEventDescription}" Classes="caption tertiary" TextWrapping="Wrap" />
                     </StackPanel>
                   </RadioButton>
                 </Grid>
@@ -407,6 +416,41 @@
               </StackPanel>
             </Border>
 
+            <Border x:Name="JobsChatEventSettings" Classes="job-section" IsVisible="{Binding IsChatEventTrigger}">
+              <StackPanel Spacing="12">
+                <DockPanel>
+                  <Border DockPanel.Dock="Left" Classes="step-pill" Margin="0,0,10,0">
+                    <TextBlock Text="3" HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Foreground="{DynamicResource Brush.AccentDefault}" FontWeight="SemiBold" />
+                  </Border>
+                  <StackPanel Spacing="1">
+                    <TextBlock Text="{loc:Str Jobs_SectionChatEvent}" Classes="section-title" />
+                    <TextBlock Text="{loc:Str Jobs_SectionChatEventDescription}" Classes="caption tertiary" TextWrapping="Wrap" />
+                  </StackPanel>
+                </DockPanel>
+
+                <TextBlock Text="{loc:Str Jobs_FieldSourceChat}" Classes="field-label" />
+                <ComboBox x:Name="JobsSourceChatPicker"
+                          ItemsSource="{Binding AvailableChats}"
+                          SelectedItem="{Binding EditSourceChat}"
+                          HorizontalAlignment="Stretch">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:Chat">
+                      <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+
+                <TextBlock Text="{loc:Str Jobs_FieldChatEvents}" Classes="field-label" />
+                <TextBox x:Name="JobsChatEventTypesInput"
+                         Text="{Binding EditChatEventTypes}"
+                         PlaceholderText="{loc:Str Jobs_WatermarkChatEvents}" />
+                <TextBlock Text="{loc:Str Jobs_FieldChatEventsDescription}"
+                           Classes="caption tertiary"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
             <Border Classes="job-section" IsVisible="{Binding IsScriptTrigger}">
               <StackPanel Spacing="12">
                 <DockPanel>
@@ -452,6 +496,8 @@
                            IsVisible="{Binding IsTimeTrigger}" />
                 <TextBlock Text="{loc:Str Jobs_PreviewScript}" Classes="caption tertiary" TextWrapping="Wrap"
                            IsVisible="{Binding IsScriptTrigger}" />
+                <TextBlock Text="{loc:Str Jobs_PreviewChatEvent}" Classes="caption tertiary" TextWrapping="Wrap"
+                           IsVisible="{Binding IsChatEventTrigger}" />
               </StackPanel>
             </Border>
 

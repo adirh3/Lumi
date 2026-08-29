@@ -661,6 +661,73 @@ public static class BackgroundJobTriggerTypes
 {
     public const string Time = "time";
     public const string Script = "script";
+    public const string ChatEvent = "chat_event";
+}
+
+public static class ChatLifecycleEventTypes
+{
+    public const string Any = "*";
+    public const string TurnStart = "turn_start";
+    public const string TurnEnd = "turn_end";
+    public const string Idle = "idle";
+    public const string Error = "error";
+    public const string Aborted = "aborted";
+
+    public static IReadOnlyList<string> Supported { get; } =
+        [TurnStart, TurnEnd, Idle, Error, Aborted, Any];
+
+    public static bool TryNormalize(
+        IEnumerable<string>? values,
+        out List<string> normalized,
+        out string error,
+        bool defaultToIdle = false)
+    {
+        normalized = [];
+        error = "";
+
+        foreach (var value in values ?? [])
+        {
+            foreach (var token in value.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var eventType = token.ToLowerInvariant() switch
+                {
+                    "*" or "all" or "any" => Any,
+                    "turn_start" or "turn-start" or "turn_started" or "turn-started" or "start" => TurnStart,
+                    "turn_end" or "turn-end" or "turn_ended" or "turn-ended"
+                        or "turn_complete" or "turn-complete" or "turn_completed" or "turn-completed" or "end" => TurnEnd,
+                    "idle" or "finished" or "chat_finished" or "chat-finished"
+                        or "chat_complete" or "chat-complete" or "chat_completed" or "chat-completed" => Idle,
+                    "error" or "failed" or "failure" => Error,
+                    "abort" or "aborted" or "stopped" => Aborted,
+                    _ => null
+                };
+
+                if (eventType is null)
+                {
+                    error = $"Unsupported chat event '{token}'. Use turn_start, turn_end, idle, error, aborted, or *.";
+                    normalized = [];
+                    return false;
+                }
+
+                if (!normalized.Contains(eventType, StringComparer.Ordinal))
+                    normalized.Add(eventType);
+            }
+        }
+
+        if (normalized.Count == 0 && defaultToIdle)
+            normalized.Add(Idle);
+
+        return true;
+    }
+
+    public static bool Matches(IEnumerable<string>? filters, string eventType)
+        => filters?.Any(filter => filter == Any || string.Equals(filter, eventType, StringComparison.Ordinal)) == true;
+
+    public static string Describe(IEnumerable<string>? eventTypes)
+    {
+        var values = eventTypes?.ToArray() ?? [];
+        return values.Length == 0 ? Idle : string.Join(", ", values);
+    }
 }
 
 public static class BackgroundJobScheduleTypes
@@ -703,9 +770,16 @@ public static class BackgroundJobRunStatuses
 public class BackgroundJob : INotifyPropertyChanged
 {
     private bool _isRunning;
+    private long _configurationVersion;
 
     [JsonIgnore]
     internal object SyncRoot { get; } = new();
+
+    [JsonIgnore]
+    internal long ConfigurationVersion => System.Threading.Interlocked.Read(ref _configurationVersion);
+
+    internal void MarkConfigurationChanged()
+        => System.Threading.Interlocked.Increment(ref _configurationVersion);
 
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ChatId { get; set; }
@@ -722,6 +796,8 @@ public class BackgroundJob : INotifyPropertyChanged
     public DateTimeOffset? RunAt { get; set; }
     public string ScriptContent { get; set; } = "";
     public string ScriptLanguage { get; set; } = BackgroundJobScriptLanguages.DefaultForCurrentOs();
+    public Guid? SourceChatId { get; set; }
+    public List<string> ChatEventTypes { get; set; } = [];
     public bool IsEnabled { get; set; } = true;
     public bool IsTemporary { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
@@ -736,9 +812,12 @@ public class BackgroundJob : INotifyPropertyChanged
     public int RunCount { get; set; }
 
     [JsonIgnore]
-    public string TriggerDisplay => TriggerType == BackgroundJobTriggerTypes.Script
-        ? Loc.Get("Jobs_TriggerScript")
-        : Loc.Get("Jobs_TriggerTime");
+    public string TriggerDisplay => TriggerType switch
+    {
+        BackgroundJobTriggerTypes.Script => Loc.Get("Jobs_TriggerScript"),
+        BackgroundJobTriggerTypes.ChatEvent => Loc.Get("Jobs_TriggerChatEvent"),
+        _ => Loc.Get("Jobs_TriggerTime")
+    };
 
     [JsonIgnore]
     public string ActivationDisplay => IsEnabled
@@ -803,9 +882,12 @@ public class BackgroundJob : INotifyPropertyChanged
                     nextRunAt.ToLocalTime().ToString("g", Loc.Culture));
             }
 
-            return TriggerType == BackgroundJobTriggerTypes.Script
-                ? Loc.Get("Jobs_RunWhenStarted")
-                : Loc.Get("Jobs_NoUpcomingRun");
+            return TriggerType switch
+            {
+                BackgroundJobTriggerTypes.Script => Loc.Get("Jobs_RunWhenStarted"),
+                BackgroundJobTriggerTypes.ChatEvent => Loc.Get("Jobs_WaitingForChatEvent"),
+                _ => Loc.Get("Jobs_NoUpcomingRun")
+            };
         }
     }
 

@@ -119,7 +119,9 @@ public partial class ChatViewModel
         {
             var runtime = GetOrCreateRuntimeState(chat.Id);
             ReconcileInProgressSubagentTools(chat, "Completed");
+            PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.TurnEnd);
             MarkRuntimeTerminal(runtime);
+            PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.Idle);
             if (CurrentChat?.Id == chat.Id)
                 ApplyDisplayedRuntimeState(runtime);
         });
@@ -633,7 +635,9 @@ public partial class ChatViewModel
             // SessionIdleEvent handler and resolve any still-pending steer as delivered (never stuck).
             ResolvePendingSteersAsDelivered(chat.Id);
             ReconcileInProgressSubagentTools(chat, "Completed");
+            PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.TurnEnd);
             MarkRuntimeTerminal(runtime);
+            PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.Idle);
 
             if (CurrentChat?.Id == chat.Id)
             {
@@ -666,6 +670,7 @@ public partial class ChatViewModel
             ResolvePendingSteersAsFailed(chat.Id);
             ReconcileInProgressSubagentTools(chat, "Failed");
             MarkRuntimeTerminal(runtime, string.Format(Loc.Status_Error, message));
+            PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.Error, message);
             // Mirror the main session.error handler rather than auto-firing into a failed session.
             FailQueuedBusySends(chat.Id);
 
@@ -714,12 +719,20 @@ public partial class ChatViewModel
             {
                 // ApplyUnexpectedAbortState resolves any deferred sends.
                 ApplyUnexpectedAbortState(chat, GetUnexpectedAbortMessage());
+                PublishTerminalChatLifecycleEventOnce(
+                    chat,
+                    ChatLifecycleEventTypes.Aborted,
+                    "The recovered chat run aborted unexpectedly.");
                 return;
             }
 
             var runtime = GetOrCreateRuntimeState(chat.Id);
             MarkInProgressToolsStopped(chat);
             MarkRuntimeTerminal(runtime, Loc.Status_Stopped);
+            PublishTerminalChatLifecycleEventOnce(
+                chat,
+                ChatLifecycleEventTypes.Aborted,
+                "The recovered chat run was stopped by the user.");
 
             if (CurrentChat?.Id == chat.Id)
             {
@@ -748,6 +761,10 @@ public partial class ChatViewModel
             // resolve any pending steer as "Not delivered" now — nothing else will ever run to unstick it.
             ResolvePendingSteersAsFailed(chat.Id);
             ReconcileInProgressSubagentTools(chat, "Stopped");
+            PublishTerminalChatLifecycleEventOnce(
+                chat,
+                ChatLifecycleEventTypes.Aborted,
+                "The recovered Copilot session shut down before completing.");
             DetachSessionAfterRemoteShutdown(
                 chat,
                 wasActive: string.Equals(_activeSession?.SessionId, chat.CopilotSessionId, StringComparison.Ordinal));

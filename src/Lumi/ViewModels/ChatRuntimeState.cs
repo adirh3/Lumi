@@ -81,6 +81,8 @@ internal sealed class ChatRuntimeState
 
     public long PendingTurnSequence { get; set; }
 
+    public long LifecycleTurnSequence { get; set; }
+
     public CancellationTokenSource? PostToolReconciliationCts { get; set; }
 
     /// <summary>True while the SDK has background shells/agents in flight.

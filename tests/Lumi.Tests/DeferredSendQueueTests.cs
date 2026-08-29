@@ -125,6 +125,18 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    public async Task Drain_WhileFirstWorktreeIsPending_KeepsPromptQueued()
+    {
+        using var host = DeferredSendHost.Create();
+        host.QueuePrompt("wait for the worktree");
+        host.MarkWorktreeCreationPending();
+
+        await host.DrainAsync();
+
+        Assert.Equal(["wait for the worktree"], host.QueuedPrompts());
+    }
+
+    [Fact]
     public async Task Drain_WhenChatIsNoLongerCurrent_FlagsTheVisibleMessagesAsUndelivered()
     {
         using var host = DeferredSendHost.Create();
@@ -736,6 +748,9 @@ public sealed class DeferredSendQueueTests
             runtime.IsBusy = true;
             runtime.TurnInProgress = turnInProgress;
         }
+
+        public void MarkWorktreeCreationPending()
+            => GetField<HashSet<Guid>>("_pendingWorktreeCreations").Add(Chat.Id);
 
         public IReadOnlyList<string> QueuedPrompts(Guid? chatId = null)
         {

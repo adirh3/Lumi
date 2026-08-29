@@ -399,6 +399,15 @@ internal static class RemoteProjector
                 Id = job.Id,
                 Name = BoundRequired(job.Name, RemoteProtocol.MobileMetadataTextLimit),
                 Description = BoundOptional(job.Description, RemoteProtocol.MobileMetadataTextLimit),
+                ChatId = job.ChatId,
+                SourceChatId = job.SourceChatId,
+                SourceChatTitle = job.SourceChatId is { } sourceChatId
+                    ? BoundOptional(
+                        data.Chats.FirstOrDefault(chat => chat.Id == sourceChatId)?.Title,
+                        RemoteProtocol.MobileMetadataTextLimit)
+                    : null,
+                TriggerType = BoundRequired(job.TriggerType, RemoteProtocol.MobileMetadataTextLimit),
+                ChatEventTypes = [.. job.ChatEventTypes],
                 ScheduleSummary = BoundOptional(job.UpcomingRunDisplay, RemoteProtocol.MobileMetadataTextLimit),
                 IsEnabled = job.IsEnabled,
                 LastRunStatus = BoundRequired(job.LifecycleDisplay, RemoteProtocol.MobileMetadataTextLimit),

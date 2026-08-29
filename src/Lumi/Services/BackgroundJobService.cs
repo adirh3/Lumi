@@ -13,6 +13,10 @@ using Lumi.ViewModels;
 
 namespace Lumi.Services;
 
+internal sealed class BackgroundJobDeliveryInvalidatedException : Exception
+{
+}
+
 public sealed class BackgroundJobService : IDisposable
 {
     private static readonly TimeSpan MaxWallClockWaitSlice = TimeSpan.FromMinutes(1);
@@ -24,10 +28,16 @@ public sealed class BackgroundJobService : IDisposable
     private readonly bool _ownsChatSurfaceRegistry;
     private readonly ChatViewModel? _fallbackChatViewModel;
     private readonly ChatSessionStore? _chatSessionStore;
+    private readonly ChatEventHub _chatEvents;
+    private readonly Func<BackgroundJob, string, CancellationToken, Task>? _invokeChatOverride;
+    private readonly Func<Guid, bool>? _isChatBusyOverride;
     private readonly CancellationTokenSource _disposeCts = new();
     private readonly SemaphoreSlim _scanLock = new(1, 1);
     private readonly object _chatInvocationLocksSync = new();
     private readonly Dictionary<Guid, SemaphoreSlim> _chatInvocationLocks = [];
+    private readonly object _chatEventQueuesSync = new();
+    private readonly Dictionary<Guid, Queue<ChatEventDelivery>> _chatEventQueues = [];
+    private readonly HashSet<Guid> _activeChatEventQueueTargets = [];
     private readonly object _rescheduleSync = new();
     private CancellationTokenSource _rescheduleCts = new();
     private Task? _runnerTask;
@@ -52,6 +62,8 @@ public sealed class BackgroundJobService : IDisposable
         _dataStore = dataStore;
         _chatSurfaceRegistry = chatSurfaceRegistry;
         _chatSessionStore = chatSessionStore;
+        _chatEvents = chatSessionStore.ChatEvents;
+        _chatEvents.EventPublished += OnChatEventPublished;
     }
 
     public BackgroundJobService(
@@ -62,6 +74,23 @@ public sealed class BackgroundJobService : IDisposable
         _dataStore = dataStore;
         _chatSurfaceRegistry = chatSurfaceRegistry;
         _fallbackChatViewModel = fallbackChatViewModel;
+        _chatEvents = fallbackChatViewModel.ChatEvents;
+        _chatEvents.EventPublished += OnChatEventPublished;
+    }
+
+    internal BackgroundJobService(
+        DataStore dataStore,
+        ChatEventHub chatEvents,
+        Func<BackgroundJob, string, CancellationToken, Task> invokeChatOverride,
+        Func<Guid, bool>? isChatBusyOverride = null)
+    {
+        _dataStore = dataStore;
+        _chatSurfaceRegistry = new ChatSurfaceRegistry();
+        _ownsChatSurfaceRegistry = true;
+        _chatEvents = chatEvents;
+        _invokeChatOverride = invokeChatOverride;
+        _isChatBusyOverride = isChatBusyOverride;
+        _chatEvents.EventPublished += OnChatEventPublished;
     }
 
     private static ChatSurfaceRegistry CreateSingleSurfaceRegistry(ChatViewModel chatViewModel)
@@ -157,6 +186,67 @@ public sealed class BackgroundJobService : IDisposable
         }
     }
 
+    private Task EnqueueChatEventDelivery(ChatEventDelivery delivery)
+    {
+        var startDrain = false;
+        lock (_chatEventQueuesSync)
+        {
+            if (IsStopping)
+            {
+                delivery.Completion.TrySetCanceled();
+                return delivery.Completion.Task;
+            }
+
+            if (!_chatEventQueues.TryGetValue(delivery.TargetChatId, out var queue))
+            {
+                queue = new Queue<ChatEventDelivery>();
+                _chatEventQueues[delivery.TargetChatId] = queue;
+            }
+
+            queue.Enqueue(delivery);
+            startDrain = _activeChatEventQueueTargets.Add(delivery.TargetChatId);
+        }
+
+        if (startDrain)
+            _ = Task.Run(() => DrainChatEventQueueAsync(delivery.TargetChatId), CancellationToken.None);
+
+        return delivery.Completion.Task;
+    }
+
+    private async Task DrainChatEventQueueAsync(Guid targetChatId)
+    {
+        while (true)
+        {
+            ChatEventDelivery? delivery;
+            lock (_chatEventQueuesSync)
+            {
+                if (!_chatEventQueues.TryGetValue(targetChatId, out var queue)
+                    || queue.Count == 0)
+                {
+                    _chatEventQueues.Remove(targetChatId);
+                    _activeChatEventQueueTargets.Remove(targetChatId);
+                    return;
+                }
+
+                delivery = queue.Dequeue();
+            }
+
+            try
+            {
+                await ExecuteChatEventDeliveryAsync(delivery, _disposeCts.Token);
+                delivery.Completion.TrySetResult();
+            }
+            catch (OperationCanceledException) when (IsStopping)
+            {
+                delivery.Completion.TrySetCanceled();
+            }
+            catch (Exception ex)
+            {
+                delivery.Completion.TrySetException(ex);
+            }
+        }
+    }
+
     public void Reschedule()
     {
         if (IsStopping)
@@ -172,6 +262,163 @@ public sealed class BackgroundJobService : IDisposable
             Interlocked.Increment(ref _rescheduleVersion);
             previous.Cancel();
             previous.Dispose();
+        }
+    }
+
+    private void OnChatEventPublished(ChatLifecycleEvent chatEvent)
+        => _ = DispatchChatEventSafelyAsync(chatEvent);
+
+    private async Task DispatchChatEventSafelyAsync(ChatLifecycleEvent chatEvent)
+    {
+        try
+        {
+            await DispatchChatEventAsync(chatEvent, _disposeCts.Token);
+        }
+        catch (OperationCanceledException) when (IsStopping)
+        {
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceError(
+                $"[BackgroundJobs] Chat event dispatch failed for {chatEvent.ChatId}/{chatEvent.EventType}: {FlattenException(ex)}");
+        }
+    }
+
+    internal async Task DispatchChatEventAsync(
+        ChatLifecycleEvent chatEvent,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(chatEvent);
+
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_disposeCts.Token, cancellationToken);
+        var ct = linkedCts.Token;
+        var deliveries = new List<Task>();
+        var changed = false;
+
+        await _scanLock.WaitAsync(ct);
+        try
+        {
+            var jobs = _dataStore.SnapshotBackgroundJobs();
+            foreach (var job in jobs)
+            {
+                ct.ThrowIfCancellationRequested();
+                ChatEventDelivery? delivery = null;
+                lock (job.SyncRoot)
+                {
+                    BackgroundJobSchedule.Normalize(job);
+                    if (job.TriggerType != BackgroundJobTriggerTypes.ChatEvent
+                        || !job.IsEnabled
+                        || job.SourceChatId != chatEvent.ChatId
+                        || !ChatLifecycleEventTypes.Matches(job.ChatEventTypes, chatEvent.EventType))
+                    {
+                        continue;
+                    }
+
+                    if (!JobHasValidChat(job))
+                    {
+                        job.IsEnabled = false;
+                        job.NextRunAt = null;
+                        job.LastRunStatus = BackgroundJobRunStatuses.Failed;
+                        job.LastRunSummary = "Linked source or target chat is unavailable.";
+                        job.UpdatedAt = DateTimeOffset.Now;
+                        changed = true;
+                        continue;
+                    }
+
+                    if (BackgroundJobSchedule.WouldCreateChatEventCycle(
+                            jobs.Where(candidate => candidate.IsEnabled),
+                            chatEvent.ChatId,
+                            job.ChatId,
+                            excludedJobId: job.Id))
+                    {
+                        job.IsEnabled = false;
+                        job.NextRunAt = null;
+                        job.LastRunStatus = BackgroundJobRunStatuses.Failed;
+                        job.LastRunSummary = "Chat-event subscription was paused because it forms a trigger cycle.";
+                        job.UpdatedAt = DateTimeOffset.Now;
+                        changed = true;
+                        continue;
+                    }
+
+                    delivery = CreateChatEventDelivery(job, chatEvent);
+                }
+
+                if (delivery is not null)
+                    deliveries.Add(EnqueueChatEventDelivery(delivery));
+            }
+        }
+        finally
+        {
+            _scanLock.Release();
+        }
+
+        if (changed)
+            await SaveAndNotifyAsync(ct);
+
+        if (deliveries.Count > 0)
+            await Task.WhenAll(deliveries);
+    }
+
+    private static ChatEventDelivery CreateChatEventDelivery(
+        BackgroundJob job,
+        ChatLifecycleEvent sourceEvent)
+    {
+        var invocationJob = new BackgroundJob
+        {
+            Id = job.Id,
+            ChatId = job.ChatId,
+            Name = job.Name,
+            Description = job.Description,
+            Prompt = job.Prompt,
+            TriggerType = BackgroundJobTriggerTypes.ChatEvent,
+            IsEnabled = job.IsEnabled,
+            IsTemporary = job.IsTemporary
+        };
+
+        return new ChatEventDelivery(
+            job,
+            job.ConfigurationVersion,
+            job.ChatId,
+            invocationJob,
+            sourceEvent,
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+    }
+
+    private async Task ExecuteChatEventDeliveryAsync(
+        ChatEventDelivery delivery,
+        CancellationToken ct)
+    {
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!IsChatEventDeliveryStillRunnable(delivery))
+                return;
+
+            var startedAt = default(DateTimeOffset);
+            lock (delivery.Job.SyncRoot)
+            {
+                if (!IsChatEventDeliveryConfigurationCurrent(delivery))
+                    return;
+
+                if (!delivery.Job.IsRunning)
+                {
+                    startedAt = DateTimeOffset.Now;
+                    StartJobRun(delivery.Job, startedAt);
+                }
+            }
+
+            if (startedAt != default)
+            {
+                await ExecuteJobAsync(
+                    delivery.Job,
+                    startedAt,
+                    ct,
+                    BuildChatEventTriggerContext(delivery.SourceEvent),
+                    delivery);
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100), ct);
         }
     }
 
@@ -230,7 +477,7 @@ public sealed class BackgroundJobService : IDisposable
                         job.IsEnabled = false;
                         job.NextRunAt = null;
                         job.LastRunStatus = BackgroundJobRunStatuses.Failed;
-                        job.LastRunSummary = "Linked chat was deleted.";
+                        job.LastRunSummary = "Linked source or target chat is unavailable.";
                         job.UpdatedAt = now;
                         changed = true;
                         continue;
@@ -262,7 +509,7 @@ public sealed class BackgroundJobService : IDisposable
                 }
 
                 if (shouldQueue)
-                    QueueJobExecution(job, now);
+                    _ = QueueJobExecution(job, now);
             }
 
             if (changed)
@@ -323,7 +570,45 @@ public sealed class BackgroundJobService : IDisposable
         => current is null || candidate < current.Value ? candidate : current.Value;
 
     private bool JobHasValidChat(BackgroundJob job)
-        => _dataStore.Data.Chats.Any(chat => chat.Id == job.ChatId);
+    {
+        if (!_dataStore.Data.Chats.Any(chat => chat.Id == job.ChatId))
+            return false;
+
+        return job.TriggerType != BackgroundJobTriggerTypes.ChatEvent
+            || job.SourceChatId is { } sourceChatId
+            && sourceChatId != job.ChatId
+            && _dataStore.Data.Chats.Any(chat => chat.Id == sourceChatId);
+    }
+
+    private bool IsJobStillRunnable(BackgroundJob job)
+    {
+        if (!_dataStore.SnapshotBackgroundJobs().Any(candidate => ReferenceEquals(candidate, job)))
+            return false;
+
+        lock (job.SyncRoot)
+            return job.IsEnabled && JobHasValidChat(job);
+    }
+
+    private bool IsChatEventDeliveryStillRunnable(ChatEventDelivery delivery)
+    {
+        if (!_dataStore.SnapshotBackgroundJobs().Any(candidate => ReferenceEquals(candidate, delivery.Job)))
+            return false;
+
+        lock (delivery.Job.SyncRoot)
+            return IsChatEventDeliveryConfigurationCurrent(delivery);
+    }
+
+    private bool IsChatEventDeliveryConfigurationCurrent(ChatEventDelivery delivery)
+    {
+        var job = delivery.Job;
+        return job.ConfigurationVersion == delivery.ConfigurationVersion
+            && job.IsEnabled
+            && JobHasValidChat(job)
+            && BackgroundJobSchedule.NormalizeTriggerType(job.TriggerType) == BackgroundJobTriggerTypes.ChatEvent
+            && job.ChatId == delivery.TargetChatId
+            && job.SourceChatId == delivery.SourceEvent.ChatId
+            && ChatLifecycleEventTypes.Matches(job.ChatEventTypes, delivery.SourceEvent.EventType);
+    }
 
     internal static bool TryRearmInterruptedRun(BackgroundJob job, DateTimeOffset now)
     {
@@ -352,9 +637,12 @@ public sealed class BackgroundJobService : IDisposable
         job.LastRunStatus = job.TriggerType == BackgroundJobTriggerTypes.Script
             ? BackgroundJobRunStatuses.Watching
             : BackgroundJobRunStatuses.Running;
-        job.LastRunSummary = job.TriggerType == BackgroundJobTriggerTypes.Script
-            ? "Lumi is sleeping until this script exits."
-            : "Running...";
+        job.LastRunSummary = job.TriggerType switch
+        {
+            BackgroundJobTriggerTypes.Script => "Lumi is sleeping until this script exits.",
+            BackgroundJobTriggerTypes.ChatEvent => "Matched chat event; waking the linked chat.",
+            _ => "Running..."
+        };
         job.NextRunAt = null;
         job.LastScriptExitCode = null;
         if (job.TriggerType == BackgroundJobTriggerTypes.Script)
@@ -362,14 +650,18 @@ public sealed class BackgroundJobService : IDisposable
         job.UpdatedAt = startedAt;
     }
 
-    private void QueueJobExecution(BackgroundJob job, DateTimeOffset startedAt)
+    private Task QueueJobExecution(
+        BackgroundJob job,
+        DateTimeOffset startedAt,
+        string? triggerContext = null,
+        ChatEventDelivery? chatEventDelivery = null)
     {
         var disposeToken = _disposeCts.Token;
-        _ = Task.Run(async () =>
+        return Task.Run(async () =>
         {
             try
             {
-                await ExecuteJobAsync(job, startedAt, disposeToken);
+                await ExecuteJobAsync(job, startedAt, disposeToken, triggerContext, chatEventDelivery);
             }
             catch (OperationCanceledException) when (IsStopping)
             {
@@ -382,11 +674,21 @@ public sealed class BackgroundJobService : IDisposable
         }, CancellationToken.None);
     }
 
-    private async Task ExecuteJobAsync(BackgroundJob job, DateTimeOffset startedAt, CancellationToken ct)
+    private async Task ExecuteJobAsync(
+        BackgroundJob job,
+        DateTimeOffset startedAt,
+        CancellationToken ct,
+        string? triggerContext = null,
+        ChatEventDelivery? chatEventDelivery = null)
     {
         try
         {
-            var triggerContext = $"Scheduled background job run at {startedAt:yyyy-MM-dd HH:mm:ss zzz}.";
+            if (chatEventDelivery is not null)
+                await SaveAndNotifyAsync(ct);
+
+            triggerContext ??= job.TriggerType == BackgroundJobTriggerTypes.ChatEvent
+                ? $"Chat-event background job was run manually at {startedAt:yyyy-MM-dd HH:mm:ss zzz}."
+                : $"Scheduled background job run at {startedAt:yyyy-MM-dd HH:mm:ss zzz}.";
             ScriptTriggerResult? scriptResult = null;
 
             if (job.TriggerType == BackgroundJobTriggerTypes.Script)
@@ -407,15 +709,46 @@ public sealed class BackgroundJobService : IDisposable
                 triggerContext = scriptResult.Context;
             }
 
-            if (!JobHasValidChat(job))
+            if (chatEventDelivery is not null
+                && !IsChatEventDeliveryStillRunnable(chatEventDelivery))
+            {
+                CompleteRun(
+                    job,
+                    BackgroundJobRunStatuses.Skipped,
+                    "Job was paused, changed, or deleted before invocation.",
+                    DateTimeOffset.Now,
+                    chatEventDelivery);
+                return;
+            }
+
+            if (chatEventDelivery is null && !JobHasValidChat(job))
                 throw new InvalidOperationException("Linked chat was deleted.");
 
-            var chatInvocationLock = GetChatInvocationLock(job.ChatId);
+            var targetChatId = chatEventDelivery?.TargetChatId ?? job.ChatId;
+            var chatInvocationLock = GetChatInvocationLock(targetChatId);
             await chatInvocationLock.WaitAsync(ct);
             try
             {
-                await WaitForChatAvailableAsync(job, ct);
-                await InvokeChatAsync(job, triggerContext, ct);
+                if (!await WaitForChatAvailableAsync(job, chatEventDelivery, targetChatId, ct))
+                {
+                    CompleteRun(
+                        job,
+                        BackgroundJobRunStatuses.Skipped,
+                        "Job was paused, changed, or deleted before invocation.",
+                        DateTimeOffset.Now,
+                        chatEventDelivery);
+                    return;
+                }
+                if (!await InvokeChatAsync(job, triggerContext, chatEventDelivery, targetChatId, ct))
+                {
+                    CompleteRun(
+                        job,
+                        BackgroundJobRunStatuses.Skipped,
+                        "Job was paused, changed, or deleted before invocation.",
+                        DateTimeOffset.Now,
+                        chatEventDelivery);
+                    return;
+                }
             }
             finally
             {
@@ -425,7 +758,12 @@ public sealed class BackgroundJobService : IDisposable
             var summary = scriptResult is null
                 ? $"Invoked Lumi in chat at {DateTimeOffset.Now:t}."
                 : $"Script exited with code {scriptResult.ExitCode} and woke Lumi at {DateTimeOffset.Now:t}.";
-            CompleteRun(job, BackgroundJobRunStatuses.Completed, summary, DateTimeOffset.Now);
+            CompleteRun(
+                job,
+                BackgroundJobRunStatuses.Completed,
+                summary,
+                DateTimeOffset.Now,
+                chatEventDelivery);
         }
         catch (OperationCanceledException) when (IsStopping)
         {
@@ -440,20 +778,22 @@ public sealed class BackgroundJobService : IDisposable
                 job.RunCount++;
                 job.LastRunStatus = BackgroundJobRunStatuses.Failed;
                 job.LastRunSummary = Preview(FlattenException(ex), 220);
-                job.NextRunAt = job.TriggerType == BackgroundJobTriggerTypes.Script
-                    ? null
-                    : BackgroundJobSchedule.ComputeNextRun(job, finishedAt, afterRun: true);
-                if (job.TriggerType == BackgroundJobTriggerTypes.Script)
-                    job.IsEnabled = false;
+                if (chatEventDelivery is null
+                    || job.ConfigurationVersion == chatEventDelivery.ConfigurationVersion)
+                {
+                    job.NextRunAt = job.TriggerType == BackgroundJobTriggerTypes.Script
+                        ? null
+                        : BackgroundJobSchedule.ComputeNextRun(job, finishedAt, afterRun: true);
+                    if (job.TriggerType == BackgroundJobTriggerTypes.Script)
+                        job.IsEnabled = false;
+                }
                 job.UpdatedAt = finishedAt;
             }
         }
         finally
         {
             lock (job.SyncRoot)
-            {
                 job.IsRunning = false;
-            }
 
             await SaveAndNotifyAsync(CancellationToken.None);
         }
@@ -473,7 +813,12 @@ public sealed class BackgroundJobService : IDisposable
         }
     }
 
-    private void CompleteRun(BackgroundJob job, string status, string summary, DateTimeOffset finishedAt)
+    private void CompleteRun(
+        BackgroundJob job,
+        string status,
+        string summary,
+        DateTimeOffset finishedAt,
+        ChatEventDelivery? chatEventDelivery = null)
     {
         lock (job.SyncRoot)
         {
@@ -481,6 +826,14 @@ public sealed class BackgroundJobService : IDisposable
             job.RunCount++;
             job.LastRunStatus = status;
             job.LastRunSummary = summary;
+
+            var canApplyConfigurationOutcome = chatEventDelivery is null
+                || job.ConfigurationVersion == chatEventDelivery.ConfigurationVersion;
+            if (!canApplyConfigurationOutcome)
+            {
+                job.UpdatedAt = finishedAt;
+                return;
+            }
 
             if (job.TriggerType == BackgroundJobTriggerTypes.Script)
             {
@@ -503,17 +856,52 @@ public sealed class BackgroundJobService : IDisposable
         }
     }
 
-    private async Task InvokeChatAsync(BackgroundJob job, string triggerContext, CancellationToken ct)
+    private async Task<bool> InvokeChatAsync(
+        BackgroundJob job,
+        string triggerContext,
+        ChatEventDelivery? chatEventDelivery,
+        Guid targetChatId,
+        CancellationToken ct)
     {
-        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (chatEventDelivery is null
+            ? !IsJobStillRunnable(job)
+            : !IsChatEventDeliveryStillRunnable(chatEventDelivery))
+            return false;
+
+        if (_invokeChatOverride is not null)
+        {
+            await _invokeChatOverride(chatEventDelivery?.InvocationJob ?? job, triggerContext, ct);
+            return true;
+        }
+
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         Dispatcher.UIThread.Post(async () =>
         {
             try
             {
-                var (executor, releaseWhenDone) = await ResolveChatExecutorForInvocationAsync(job.ChatId);
+                var (executor, releaseWhenDone) = await ResolveChatExecutorForInvocationAsync(targetChatId);
                 try
                 {
-                    await executor.SendBackgroundJobMessageAsync(job, triggerContext, ct);
+                    if (chatEventDelivery is null
+                        ? !IsJobStillRunnable(job)
+                        : !IsChatEventDeliveryStillRunnable(chatEventDelivery))
+                    {
+                        tcs.TrySetResult(false);
+                        return;
+                    }
+
+                    Action? validateDelivery = chatEventDelivery is null
+                        ? null
+                        : () =>
+                        {
+                            if (!IsChatEventDeliveryStillRunnable(chatEventDelivery))
+                                throw new BackgroundJobDeliveryInvalidatedException();
+                        };
+                    await executor.SendBackgroundJobMessageAsync(
+                        chatEventDelivery?.InvocationJob ?? job,
+                        triggerContext,
+                        ct,
+                        validateDelivery);
                 }
                 finally
                 {
@@ -521,7 +909,11 @@ public sealed class BackgroundJobService : IDisposable
                         _chatSessionStore?.Release(executor);
                 }
 
-                tcs.TrySetResult();
+                tcs.TrySetResult(true);
+            }
+            catch (BackgroundJobDeliveryInvalidatedException)
+            {
+                tcs.TrySetResult(false);
             }
             catch (Exception ex)
             {
@@ -529,14 +921,29 @@ public sealed class BackgroundJobService : IDisposable
             }
         });
 
-        await tcs.Task;
+        return await tcs.Task;
     }
 
-    private async Task WaitForChatAvailableAsync(BackgroundJob job, CancellationToken ct)
+    private async Task<bool> WaitForChatAvailableAsync(
+        BackgroundJob job,
+        ChatEventDelivery? chatEventDelivery,
+        Guid targetChatId,
+        CancellationToken ct)
     {
         var savedWaitingState = false;
-        while (await IsChatBusyAsync(job.ChatId, ct))
+        while (true)
         {
+            if (chatEventDelivery is null
+                ? !IsJobStillRunnable(job)
+                : !IsChatEventDeliveryStillRunnable(chatEventDelivery))
+                return false;
+            if (!await IsChatBusyAsync(targetChatId, ct))
+            {
+                return chatEventDelivery is null
+                    ? IsJobStillRunnable(job)
+                    : IsChatEventDeliveryStillRunnable(chatEventDelivery);
+            }
+
             if (!savedWaitingState)
             {
                 lock (job.SyncRoot)
@@ -556,6 +963,11 @@ public sealed class BackgroundJobService : IDisposable
 
     private async Task<bool> IsChatBusyAsync(Guid chatId, CancellationToken ct)
     {
+        if (_isChatBusyOverride is not null)
+            return _isChatBusyOverride(chatId);
+        if (_invokeChatOverride is not null)
+            return false;
+
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         Dispatcher.UIThread.Post(() =>
         {
@@ -880,6 +1292,26 @@ public sealed class BackgroundJobService : IDisposable
         return builder.ToString();
     }
 
+    private static string BuildChatEventTriggerContext(ChatLifecycleEvent chatEvent)
+    {
+        var builder = new StringBuilder()
+            .Append("Chat event '")
+            .Append(chatEvent.EventType)
+            .Append("' occurred in source chat \"")
+            .Append(chatEvent.ChatTitle)
+            .Append("\" (")
+            .Append(chatEvent.ChatId)
+            .Append(") at ")
+            .Append(chatEvent.OccurredAt.ToString("yyyy-MM-dd HH:mm:ss zzz"))
+            .Append('.');
+
+        if (!string.IsNullOrWhiteSpace(chatEvent.Detail))
+            builder.AppendLine().Append(chatEvent.Detail.Trim());
+
+        builder.AppendLine().Append("This trigger was delivered directly from the chat event stream; no timer or polling was used.");
+        return builder.ToString();
+    }
+
     private static string Preview(string? text, int maxLength)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -896,6 +1328,7 @@ public sealed class BackgroundJobService : IDisposable
         if (Interlocked.Exchange(ref _stopping, 1) == 1)
             return;
 
+        _chatEvents.EventPublished -= OnChatEventPublished;
         _disposeCts.Cancel();
         try
         {
@@ -918,11 +1351,28 @@ public sealed class BackgroundJobService : IDisposable
                 chatLock.Dispose();
             _chatInvocationLocks.Clear();
         }
+        List<ChatEventDelivery> pendingDeliveries;
+        lock (_chatEventQueuesSync)
+        {
+            pendingDeliveries = _chatEventQueues.Values.SelectMany(static queue => queue).ToList();
+            _chatEventQueues.Clear();
+            _activeChatEventQueueTargets.Clear();
+        }
+        foreach (var delivery in pendingDeliveries)
+            delivery.Completion.TrySetCanceled();
         if (_ownsChatSurfaceRegistry)
             _chatSurfaceRegistry.Dispose();
     }
 
     private bool IsStopping => Volatile.Read(ref _stopping) == 1;
+
+    private sealed record ChatEventDelivery(
+        BackgroundJob Job,
+        long ConfigurationVersion,
+        Guid TargetChatId,
+        BackgroundJob InvocationJob,
+        ChatLifecycleEvent SourceEvent,
+        TaskCompletionSource Completion);
 
     private sealed record ScriptTriggerResult(
         bool ShouldInvoke,

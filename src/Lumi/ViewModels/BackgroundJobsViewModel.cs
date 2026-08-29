@@ -59,6 +59,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
     [ObservableProperty] private string _editDescription = "";
     [ObservableProperty] private string _editPrompt = "";
     [ObservableProperty] private Chat? _editChat;
+    [ObservableProperty] private Chat? _editSourceChat;
     [ObservableProperty] private int _editTriggerTypeIndex;
     [ObservableProperty] private int _editScheduleTypeIndex;
     [ObservableProperty] private int _editIntervalMinutes = 1440;
@@ -69,6 +70,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
     [ObservableProperty] private string _editRunAt = "";
     [ObservableProperty] private int _editScriptLanguageIndex;
     [ObservableProperty] private string _editScriptContent = "";
+    [ObservableProperty] private string _editChatEventTypes = ChatLifecycleEventTypes.Idle;
     [ObservableProperty] private bool _editIsEnabled = true;
     [ObservableProperty] private bool _editIsTemporary;
 
@@ -77,7 +79,8 @@ public partial class BackgroundJobsViewModel : ObservableObject
 
     public bool IsTimeTrigger => EditTriggerTypeIndex == 0;
     public bool IsScriptTrigger => EditTriggerTypeIndex == 1;
-    public bool CanUseTemporaryToggle => IsTimeTrigger;
+    public bool IsChatEventTrigger => EditTriggerTypeIndex == 2;
+    public bool CanUseTemporaryToggle => !IsScriptTrigger;
     public bool EditUsesTimeTrigger
     {
         get => EditTriggerTypeIndex == 0;
@@ -87,6 +90,11 @@ public partial class BackgroundJobsViewModel : ObservableObject
     {
         get => EditTriggerTypeIndex == 1;
         set { if (value) EditTriggerTypeIndex = 1; }
+    }
+    public bool EditUsesChatEventTrigger
+    {
+        get => EditTriggerTypeIndex == 2;
+        set { if (value) EditTriggerTypeIndex = 2; }
     }
     public bool IsIntervalSchedule => EditScheduleTypeIndex == 0;
     public bool IsDailySchedule => EditScheduleTypeIndex == 1;
@@ -162,11 +170,15 @@ public partial class BackgroundJobsViewModel : ObservableObject
     public void RefreshFromStore(bool preserveEditorBuffer = false)
     {
         var preservedEditChatId = preserveEditorBuffer ? EditChat?.Id : null;
+        var preservedEditSourceChatId = preserveEditorBuffer ? EditSourceChat?.Id : null;
         RefreshChats();
         if (preserveEditorBuffer)
         {
             EditChat = preservedEditChatId is { } chatId
                 ? AvailableChats.FirstOrDefault(chat => chat.Id == chatId)
+                : null;
+            EditSourceChat = preservedEditSourceChatId is { } sourceChatId
+                ? AvailableChats.FirstOrDefault(chat => chat.Id == sourceChatId)
                 : null;
         }
 
@@ -419,9 +431,11 @@ public partial class BackgroundJobsViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(IsTimeTrigger));
         OnPropertyChanged(nameof(IsScriptTrigger));
+        OnPropertyChanged(nameof(IsChatEventTrigger));
         OnPropertyChanged(nameof(CanUseTemporaryToggle));
         OnPropertyChanged(nameof(EditUsesTimeTrigger));
         OnPropertyChanged(nameof(EditUsesScriptTrigger));
+        OnPropertyChanged(nameof(EditUsesChatEventTrigger));
         if (value == 1)
             EditIsTemporary = true;
     }
@@ -493,7 +507,15 @@ public partial class BackgroundJobsViewModel : ObservableObject
         EditDescription = job.Description;
         EditPrompt = job.Prompt;
         EditChat = AvailableChats.FirstOrDefault(chat => chat.Id == job.ChatId);
-        EditTriggerTypeIndex = job.TriggerType == BackgroundJobTriggerTypes.Script ? 1 : 0;
+        EditSourceChat = job.SourceChatId is { } sourceChatId
+            ? AvailableChats.FirstOrDefault(chat => chat.Id == sourceChatId)
+            : null;
+        EditTriggerTypeIndex = job.TriggerType switch
+        {
+            BackgroundJobTriggerTypes.Script => 1,
+            BackgroundJobTriggerTypes.ChatEvent => 2,
+            _ => 0
+        };
         EditScheduleTypeIndex = job.ScheduleType switch
         {
             BackgroundJobScheduleTypes.Daily => 1,
@@ -511,6 +533,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
         EditRunAt = job.RunAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture) ?? "";
         EditScriptLanguageIndex = ScriptLanguageToIndex(job.ScriptLanguage);
         EditScriptContent = job.ScriptContent;
+        EditChatEventTypes = ChatLifecycleEventTypes.Describe(job.ChatEventTypes);
         EditIsEnabled = job.IsEnabled;
         _hydratedIsEnabled = job.IsEnabled;
         EditIsTemporary = job.IsTemporary;
@@ -555,6 +578,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
         EditDescription = "";
         EditPrompt = "";
         EditChat = GetPreferredChat() ?? AvailableChats.FirstOrDefault();
+        EditSourceChat = AvailableChats.FirstOrDefault(chat => chat.Id != EditChat?.Id);
         EditTriggerTypeIndex = 0;
         EditScheduleTypeIndex = 0;
         EditIntervalMinutes = 1440;
@@ -565,6 +589,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
         EditRunAt = DateTimeOffset.Now.AddHours(1).ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture);
         EditScriptLanguageIndex = ScriptLanguageToIndex(BackgroundJobScriptLanguages.DefaultForCurrentOs());
         EditScriptContent = "";
+        EditChatEventTypes = ChatLifecycleEventTypes.Idle;
         EditIsEnabled = true;
         _hydratedIsEnabled = true;
         EditIsTemporary = false;
@@ -573,6 +598,44 @@ public partial class BackgroundJobsViewModel : ObservableObject
 
     private bool ValidateTriggerConfiguration()
     {
+        if (IsChatEventTrigger)
+        {
+            if (EditSourceChat is null)
+            {
+                ValidationMessage = "Choose the source chat to observe.";
+                return false;
+            }
+
+            if (EditSourceChat.Id == EditChat?.Id)
+            {
+                ValidationMessage = "The source chat must differ from the chat this job wakes.";
+                return false;
+            }
+
+            if (EditChat is not null
+                && BackgroundJobSchedule.WouldCreateChatEventCycle(
+                    _dataStore.SnapshotBackgroundJobs(),
+                    EditSourceChat.Id,
+                    EditChat.Id,
+                    excludedJobId: SelectedJob?.Id))
+            {
+                ValidationMessage = "This subscription would create a trigger cycle between chats.";
+                return false;
+            }
+
+            if (!ChatLifecycleEventTypes.TryNormalize(
+                    [EditChatEventTypes],
+                    out _,
+                    out var eventTypesError,
+                    defaultToIdle: true))
+            {
+                ValidationMessage = eventTypesError;
+                return false;
+            }
+
+            return true;
+        }
+
         if (!IsTimeTrigger)
             return true;
 
@@ -640,6 +703,11 @@ public partial class BackgroundJobsViewModel : ObservableObject
         var now = DateTimeOffset.Now;
         var isNewJob = SelectedJob is null;
         var job = SelectedJob ?? new BackgroundJob { CreatedAt = DateTimeOffset.Now };
+        ChatLifecycleEventTypes.TryNormalize(
+            [EditChatEventTypes],
+            out var chatEventTypes,
+            out _,
+            defaultToIdle: true);
         DateTimeOffset? parsedRunAt = null;
         if (IsTimeTrigger && IsOnceSchedule && !TryParseRunAt(EditRunAt, out parsedRunAt))
         {
@@ -654,7 +722,11 @@ public partial class BackgroundJobsViewModel : ObservableObject
             job.Description = EditDescription.Trim();
             job.Prompt = EditPrompt.Trim();
             job.ChatId = EditChat.Id;
-            job.TriggerType = IsScriptTrigger ? BackgroundJobTriggerTypes.Script : BackgroundJobTriggerTypes.Time;
+            job.TriggerType = IsScriptTrigger
+                ? BackgroundJobTriggerTypes.Script
+                : IsChatEventTrigger
+                    ? BackgroundJobTriggerTypes.ChatEvent
+                    : BackgroundJobTriggerTypes.Time;
             job.ScheduleType = EditScheduleTypeIndex switch
             {
                 1 => BackgroundJobScheduleTypes.Daily,
@@ -671,6 +743,8 @@ public partial class BackgroundJobsViewModel : ObservableObject
             job.CronExpression = string.IsNullOrWhiteSpace(EditCronExpression) ? "0 8 * * *" : EditCronExpression.Trim();
             job.ScriptContent = EditScriptContent.Trim();
             job.ScriptLanguage = IndexToScriptLanguage(EditScriptLanguageIndex);
+            job.SourceChatId = IsChatEventTrigger ? EditSourceChat!.Id : null;
+            job.ChatEventTypes = IsChatEventTrigger ? chatEventTypes : [];
             job.IsEnabled = EditIsEnabled;
             job.IsTemporary = IsScriptTrigger || EditIsTemporary;
             job.UpdatedAt = now;
@@ -679,6 +753,8 @@ public partial class BackgroundJobsViewModel : ObservableObject
             BackgroundJobSchedule.Normalize(job);
             job.NextRunAt = job.IsEnabled ? BackgroundJobSchedule.ComputeNextRun(job, now, afterRun: false) : null;
             shouldRunImmediately = job.IsEnabled && job.NextRunAt is not null && job.NextRunAt <= now;
+            if (!isNewJob)
+                job.MarkConfigurationChanged();
         }
 
         if (isNewJob)
@@ -731,6 +807,18 @@ public partial class BackgroundJobsViewModel : ObservableObject
             return;
         if (!job.IsEnabled && !EnsureLinkedChatExists(job))
             return;
+        if (!job.IsEnabled
+            && job.TriggerType == BackgroundJobTriggerTypes.ChatEvent
+            && job.SourceChatId is { } sourceChatId
+            && BackgroundJobSchedule.WouldCreateChatEventCycle(
+                _dataStore.SnapshotBackgroundJobs(),
+                sourceChatId,
+                job.ChatId,
+                excludedJobId: job.Id))
+        {
+            ValidationMessage = "This subscription would create a trigger cycle between chats.";
+            return;
+        }
 
         ValidationMessage = "";
         var now = DateTimeOffset.Now;
@@ -741,6 +829,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
             job.NextRunAt = job.IsEnabled ? BackgroundJobSchedule.ComputeNextRun(job, now, afterRun: false) : null;
             job.UpdatedAt = now;
             shouldRunImmediately = job.IsEnabled && job.NextRunAt is not null && job.NextRunAt <= now;
+            job.MarkConfigurationChanged();
         }
 
         _dataStore.MarkBackgroundJobsChanged();
@@ -772,6 +861,7 @@ public partial class BackgroundJobsViewModel : ObservableObject
             job.IsEnabled = true;
             job.NextRunAt = DateTimeOffset.Now;
             job.UpdatedAt = DateTimeOffset.Now;
+            job.MarkConfigurationChanged();
         }
 
         _dataStore.MarkBackgroundJobsChanged();
@@ -833,11 +923,22 @@ public partial class BackgroundJobsViewModel : ObservableObject
 
     private bool EnsureLinkedChatExists(BackgroundJob job)
     {
-        if (_dataStore.Data.Chats.Any(chat => chat.Id == job.ChatId))
-            return true;
+        if (!_dataStore.Data.Chats.Any(chat => chat.Id == job.ChatId))
+        {
+            ValidationMessage = Loc.Get("Jobs_LinkedChatMissing");
+            return false;
+        }
 
-        ValidationMessage = Loc.Get("Jobs_LinkedChatMissing");
-        return false;
+        if (job.TriggerType == BackgroundJobTriggerTypes.ChatEvent
+            && (job.SourceChatId is not { } sourceChatId
+                || sourceChatId == job.ChatId
+                || !_dataStore.Data.Chats.Any(chat => chat.Id == sourceChatId)))
+        {
+            ValidationMessage = Loc.Get("Jobs_SourceChatMissing");
+            return false;
+        }
+
+        return true;
     }
 
     private static int ScriptLanguageToIndex(string? language)

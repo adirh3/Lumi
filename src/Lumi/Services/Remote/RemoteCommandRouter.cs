@@ -914,7 +914,9 @@ internal sealed class RemoteCommandRouter
                     command.GetBool("isEnabled"),
                     command.GetBool("runNow"),
                     null,
-                    _main.ChatVM.CurrentChat?.Id),
+                    _main.ChatVM.CurrentChat?.Id,
+                    command.Get("sourceChatIdentifier"),
+                    command.GetList("chatEventTypes")),
                 _ => throw new InvalidOperationException($"Unknown feature resource '{resource}'.")
             };
         }

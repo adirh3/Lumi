@@ -296,6 +296,31 @@ public sealed class BackgroundJobsViewModelTests
     }
 
     [Fact]
+    public void ChatEventJob_RoundTripsSourceAndFiltersThroughEditor()
+    {
+        var targetChat = CreateChat("Lead");
+        var sourceChat = CreateChat("Worker");
+        var job = CreateJob(targetChat.Id, "Worker completion");
+        job.TriggerType = BackgroundJobTriggerTypes.ChatEvent;
+        job.SourceChatId = sourceChat.Id;
+        job.ChatEventTypes = [ChatLifecycleEventTypes.Idle];
+        var data = new AppData { Chats = [targetChat, sourceChat], BackgroundJobs = [job] };
+        using var harness = CreateHarness(data);
+
+        Assert.True(harness.ViewModel.IsChatEventTrigger);
+        Assert.Same(sourceChat, harness.ViewModel.EditSourceChat);
+        Assert.Equal(ChatLifecycleEventTypes.Idle, harness.ViewModel.EditChatEventTypes);
+
+        harness.ViewModel.EditChatEventTypes = "turn_started, turn-ended";
+        harness.ViewModel.SaveJobCommand.Execute(null);
+
+        Assert.Equal(
+            [ChatLifecycleEventTypes.TurnStart, ChatLifecycleEventTypes.TurnEnd],
+            job.ChatEventTypes);
+        Assert.Null(job.NextRunAt);
+    }
+
+    [Fact]
     public void OrphanedJobActions_AreBlockedWithFeedbackAndPreserveDraft()
     {
         var job = CreateJob(Guid.NewGuid(), "Orphaned");

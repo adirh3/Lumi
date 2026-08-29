@@ -280,6 +280,9 @@ public partial class ChatViewModel
             return;
         }
 
+        if (_pendingWorktreeCreations.Contains(chatId))
+            return;
+
         if (IsChatRuntimeActive(chatId))
             return;
 

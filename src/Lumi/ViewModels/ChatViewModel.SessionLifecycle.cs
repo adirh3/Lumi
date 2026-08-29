@@ -16,6 +16,32 @@ using ChatMessage = Lumi.Models.ChatMessage;
 
 namespace Lumi.ViewModels;
 
+internal sealed class AssistantTurnBoundaryTracker
+{
+    private readonly object _sync = new();
+    private readonly HashSet<string> _topLevelTurnIds = new(StringComparer.Ordinal);
+
+    public bool Begin(string? turnId, int activeSubagentDepth)
+    {
+        if (string.IsNullOrWhiteSpace(turnId) || !ChatViewModel.IsTopLevelAssistantTurn(activeSubagentDepth))
+            return false;
+
+        lock (_sync)
+            _topLevelTurnIds.Add(turnId);
+
+        return true;
+    }
+
+    public bool End(string? turnId)
+    {
+        if (string.IsNullOrWhiteSpace(turnId))
+            return false;
+
+        lock (_sync)
+            return _topLevelTurnIds.Remove(turnId);
+    }
+}
+
 /// <summary>
 /// Copilot session subscription, runtime restoration, and per-chat session cleanup.
 /// </summary>
@@ -135,6 +161,9 @@ public partial class ChatViewModel
     /// safety net for a run whose event never arrived.
     /// </summary>
     internal static bool ShouldReconcileSubagentToolsOnTurnEnd(int activeSubagentExecutionDepth)
+        => IsTopLevelAssistantTurn(activeSubagentExecutionDepth);
+
+    internal static bool IsTopLevelAssistantTurn(int activeSubagentExecutionDepth)
         => activeSubagentExecutionDepth <= 0;
 
     internal static IReadOnlyList<ChatMessage> SetInProgressSubagentStatuses(
@@ -256,6 +285,7 @@ public partial class ChatViewModel
         var externalToolCallIdByRequestId = new Dictionary<string, string>(StringComparer.Ordinal);
         var completedToolStatusesByCallId = new Dictionary<string, string>(StringComparer.Ordinal);
         var completedToolOutputsByCallId = new Dictionary<string, string>(StringComparer.Ordinal);
+        var assistantTurnBoundaries = new AssistantTurnBoundaryTracker();
         StreamingTextAccumulator? assistantStream = null;
         StreamingTextAccumulator? reasoningStream = null;
         var subagentStateGate = new object();
@@ -359,6 +389,13 @@ public partial class ChatViewModel
                 if (IsAuthoritativeSession())
                     ReconcileInProgressSubagentTools(chat, "Failed");
                 MarkRuntimeTerminal(runtime);
+                if (IsAuthoritativeSession())
+                {
+                    PublishTerminalChatLifecycleEventOnce(
+                        chat,
+                        ChatLifecycleEventTypes.Error,
+                        "Connection to Copilot was lost.");
+                }
                 var wasActive = _activeSession == session;
                 if (shouldUpdateDisplayedChatUi)
                 {
@@ -803,7 +840,10 @@ public partial class ChatViewModel
             {
             switch (evt)
             {
-                case AssistantTurnStartEvent:
+                case AssistantTurnStartEvent turnStart:
+                    var isTopLevelTurnStart = assistantTurnBoundaries.Begin(
+                        turnStart.Data.TurnId,
+                        Volatile.Read(ref runtime.ActiveSubagentExecutionDepth));
                     Dispatcher.UIThread.Post(() =>
                     {
                         // Capture the model once per top-level user turn. Subsequent agentic turns within
@@ -812,6 +852,12 @@ public partial class ChatViewModel
                         // uses the ORIGINAL model, and the label must reflect that, not the new selection.
                         turnModelId = CaptureTurnModelId(turnModelId, ResolveSelectedModelForChat(chat));
                         MarkRuntimeActive(runtime, Loc.Status_Thinking);
+                        if (IsAuthoritativeSession() && isTopLevelTurnStart)
+                        {
+                            PublishTerminalChatLifecycleEventOnce(
+                                chat,
+                                ChatLifecycleEventTypes.TurnStart);
+                        }
                         if (IsDisplayedSession())
                             ApplyDisplayedRuntimeState(runtime);
                         // A message typed in the gap between turns had no live turn to steer into. This
@@ -1440,7 +1486,7 @@ public partial class ChatViewModel
                     });
                     break;
 
-                case AssistantTurnEndEvent:
+                case AssistantTurnEndEvent turnEnd:
                     // The stop intent is NOT cleared here. An aborted turn still ends, and clearing it
                     // at turn end made the AbortEvent handler below classify the user's own stop as a
                     // broken session. PreparePendingTurnTracking resets it when the next turn starts.
@@ -1449,6 +1495,7 @@ public partial class ChatViewModel
                     // turn-end arrived, not what the depth happens to be when the UI callback runs.
                     var activeSubagentDepthAtTurnEnd =
                         Volatile.Read(ref runtime.ActiveSubagentExecutionDepth);
+                    var isTopLevelTurnEnd = assistantTurnBoundaries.End(turnEnd.Data.TurnId);
                     var shouldReconcileSubagentTools =
                         ShouldReconcileSubagentToolsOnTurnEnd(activeSubagentDepthAtTurnEnd);
                     assistantStream.CancelPending();
@@ -1465,6 +1512,12 @@ public partial class ChatViewModel
                         if (IsAuthoritativeSession() && shouldReconcileSubagentTools)
                             ReconcileInProgressSubagentTools(chat, "Completed");
                         FinalizeCompletedTurnStreams(shouldUpdateDisplayedChatUi);
+                        if (IsAuthoritativeSession() && isTopLevelTurnEnd)
+                        {
+                            PublishTerminalChatLifecycleEventOnce(
+                                chat,
+                                ChatLifecycleEventTypes.TurnEnd);
+                        }
                         DropCompletedTurnState(chat.Id, dropCancellation: false);
                         // Fallback: if any steered message never got an explicit consume echo, the turn
                         // ending means it's as delivered as it will ever be — resolve it so it can't stick
@@ -1529,6 +1582,12 @@ public partial class ChatViewModel
                         // In SDK 0.2.2+, session.idle is only emitted once background work is drained.
                         // Clearing IsBusy updates Chat.IsRunning, so keep it on the UI thread.
                         MarkRuntimeTerminal(runtime);
+                        if (IsAuthoritativeSession())
+                        {
+                            // Fallback for abort/recovery paths where no authoritative turn-end arrived.
+                            PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.TurnEnd);
+                            PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.Idle);
+                        }
 
                         // Terminal safety net for sub-agent cards. Turn end deliberately defers this
                         // while an agent is executing, so a run whose authoritative
@@ -1648,7 +1707,13 @@ public partial class ChatViewModel
                                 err.Data.StatusCode, err.Data.ErrorType, err.Data.Message))
                         {
                             if (IsAuthoritativeSession())
+                            {
                                 ApplyUnexpectedAbortState(chat, Loc.Status_TransientAuthRetry, shouldUpdateDisplayedChatUi);
+                                PublishTerminalChatLifecycleEventOnce(
+                                    chat,
+                                    ChatLifecycleEventTypes.Error,
+                                    err.Data.Message);
+                            }
                             return;
                         }
 
@@ -1681,6 +1746,13 @@ public partial class ChatViewModel
                             _pendingSessionInvalidations.Add(chat.Id);
 
                         MarkRuntimeTerminal(runtime, display);
+                        if (IsAuthoritativeSession())
+                        {
+                            PublishTerminalChatLifecycleEventOnce(
+                                chat,
+                                ChatLifecycleEventTypes.Error,
+                                err.Data.Message);
+                        }
                         // The turn errored out before consuming any in-flight steer — report it as not
                         // delivered rather than leaving it pending (a recoverable error rebuilds the session
                         // on the next send, so no idle fallback resolves it for this turn).
@@ -1836,12 +1908,23 @@ public partial class ChatViewModel
                             {
                                 // ApplyUnexpectedAbortState resolves any deferred sends.
                                 ApplyUnexpectedAbortState(chat, GetUnexpectedAbortMessage(), updateDisplayedChatUi: shouldUpdateDisplayedChatUi);
+                                PublishTerminalChatLifecycleEventOnce(
+                                    chat,
+                                    ChatLifecycleEventTypes.Aborted,
+                                    "The chat run aborted unexpectedly.");
                             }
 
                             return;
                         }
 
                         runtime.StatusText = Loc.Status_Stopped;
+                        if (IsAuthoritativeSession())
+                        {
+                            PublishTerminalChatLifecycleEventOnce(
+                                chat,
+                                ChatLifecycleEventTypes.Aborted,
+                                "The chat run was stopped by the user.");
+                        }
                         if (shouldUpdateDisplayedChatUi)
                         {
                             _transcriptBuilder.HideTypingIndicator();
@@ -1903,6 +1986,23 @@ public partial class ChatViewModel
                         }
                         if (IsAuthoritativeSession())
                             ReconcileInProgressSubagentTools(chat, isError ? "Failed" : "Stopped");
+                        if (isError)
+                        {
+                            if (IsAuthoritativeSession())
+                            {
+                                PublishTerminalChatLifecycleEventOnce(
+                                    chat,
+                                    ChatLifecycleEventTypes.Error,
+                                    shutdown.Data.ErrorReason ?? "The Copilot session shut down with an error.");
+                            }
+                        }
+                        else if (IsAuthoritativeSession())
+                        {
+                            PublishTerminalChatLifecycleEventOnce(
+                                chat,
+                                ChatLifecycleEventTypes.Aborted,
+                                "The Copilot session shut down before completing.");
+                        }
                         if (isError && shouldUpdateDisplayedChatUi)
                         {
                             _transcriptBuilder.HideTypingIndicator();
@@ -2547,6 +2647,16 @@ public partial class ChatViewModel
 
         ReleaseSessionResources(chatId, cancelActiveRequest: true, deleteServerSession: true);
         _runtimeStates.Remove(chatId);
+        _pendingWorktreeCreations.Remove(chatId);
+        lock (_chatLifecycleEventSync)
+        {
+            foreach (var key in _publishedTerminalChatEventTurns.Keys
+                         .Where(key => key.ChatId == chatId)
+                         .ToArray())
+            {
+                _publishedTerminalChatEventTurns.Remove(key);
+            }
+        }
         // The chat is gone, so nothing can ever deliver a send that was still deferred for it.
         FailQueuedBusySends(chatId);
         RemoveSuggestionTracking(chatId);

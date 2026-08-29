@@ -30,6 +30,7 @@ public sealed class ChatSessionStore : IDisposable
     private readonly ChatOrchestrationService _orchestrationService;
     private readonly GlobalSearchService? _globalSearchService;
     private readonly Lumi.Services.Byok.ISecureKeyStore? _secureKeyStore;
+    private readonly ChatEventHub _chatEvents;
     private readonly ByokRateLimiter _byokRateLimiter = new();
     private readonly Func<ChatViewModel, Chat, Task> _loadChatAsync;
     private readonly int _maxIdleCachedSurfaces;
@@ -46,8 +47,16 @@ public sealed class ChatSessionStore : IDisposable
         CopilotService copilotService,
         ChatSurfaceRegistry registry,
         GlobalSearchService? globalSearchService = null,
-        Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null)
-        : this(dataStore, copilotService, registry, static (surface, chat) => surface.LoadChatAsync(chat), globalSearchService: globalSearchService, secureKeyStore: secureKeyStore)
+        Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null,
+        ChatEventHub? chatEvents = null)
+        : this(
+            dataStore,
+            copilotService,
+            registry,
+            static (surface, chat) => surface.LoadChatAsync(chat),
+            globalSearchService: globalSearchService,
+            secureKeyStore: secureKeyStore,
+            chatEvents: chatEvents)
     {
     }
 
@@ -59,7 +68,8 @@ public sealed class ChatSessionStore : IDisposable
         int maxIdleCachedSurfaces = DefaultMaxIdleCachedSurfaces,
         int? maxWarmIdleSessions = null,
         GlobalSearchService? globalSearchService = null,
-        Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null)
+        Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null,
+        ChatEventHub? chatEvents = null)
     {
         if (maxIdleCachedSurfaces < 0)
             throw new ArgumentOutOfRangeException(nameof(maxIdleCachedSurfaces));
@@ -72,6 +82,7 @@ public sealed class ChatSessionStore : IDisposable
         _registry = registry;
         _globalSearchService = globalSearchService;
         _secureKeyStore = secureKeyStore;
+        _chatEvents = chatEvents ?? new ChatEventHub();
         _loadChatAsync = loadChatAsync;
         _maxIdleCachedSurfaces = maxIdleCachedSurfaces;
         _maxWarmIdleSessions = warmIdleSessionLimit;
@@ -96,6 +107,7 @@ public sealed class ChatSessionStore : IDisposable
     /// window that happens to share it; tests may replace it with an instrumented instance.
     /// </summary>
     public ChatOrchestrationService OrchestrationService { get; set; }
+    internal ChatEventHub ChatEvents => _chatEvents;
 
     public ChatViewModel AcquireDraft(Guid? projectId, Action<ChatViewModel>? configure = null)
     {
@@ -240,7 +252,8 @@ public sealed class ChatSessionStore : IDisposable
             _copilotService,
             _globalSearchService,
             _secureKeyStore,
-            _byokRateLimiter)
+            _byokRateLimiter,
+            _chatEvents)
         {
             SendWithEnter = _dataStore.Data.Settings.SendWithEnter,
             OrchestrationService = OrchestrationService

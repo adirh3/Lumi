@@ -1175,14 +1175,24 @@ public sealed class RemoteProjectionTests
     public void Library_ProjectsEveryResourceTheLibraryTabsShow()
     {
         var projectId = Guid.NewGuid();
+        var targetChatId = Guid.NewGuid();
+        var sourceChatId = Guid.NewGuid();
         var data = new AppData();
         data.Projects.Add(new Project { Id = projectId, Name = "Lumi", Instructions = "Be great" });
-        data.Chats.Add(new Chat { Id = Guid.NewGuid(), Title = "A", ProjectId = projectId });
-        data.Chats.Add(new Chat { Id = Guid.NewGuid(), Title = "B", ProjectId = projectId });
+        data.Chats.Add(new Chat { Id = targetChatId, Title = "A", ProjectId = projectId });
+        data.Chats.Add(new Chat { Id = sourceChatId, Title = "B", ProjectId = projectId });
         data.Skills.Add(new Skill { Id = Guid.NewGuid(), Name = "Doc", Content = "body", IsBuiltIn = true });
         data.Agents.Add(new LumiAgent { Id = Guid.NewGuid(), Name = "Daily", SkillIds = [Guid.NewGuid()] });
         data.Memories.Add(new Memory { Id = Guid.NewGuid(), Key = "Name", Content = "Adir", Category = "Personal" });
         data.McpServers.Add(new McpServer { Id = Guid.NewGuid(), Name = "github", IsEnabled = true });
+        data.BackgroundJobs.Add(new BackgroundJob
+        {
+            Name = "Worker completion",
+            ChatId = targetChatId,
+            SourceChatId = sourceChatId,
+            TriggerType = BackgroundJobTriggerTypes.ChatEvent,
+            ChatEventTypes = [ChatLifecycleEventTypes.TurnEnd, ChatLifecycleEventTypes.Idle]
+        });
 
         var library = RemoteProjector.BuildLibrary(new DataStore(data));
 
@@ -1191,6 +1201,13 @@ public sealed class RemoteProjectionTests
         Assert.Equal(1, library.Lumis[0].SkillCount);
         Assert.Equal("Personal", library.Memories[0].Category);
         Assert.True(library.McpServers[0].IsEnabled);
+        Assert.Equal(targetChatId, library.Jobs[0].ChatId);
+        Assert.Equal(sourceChatId, library.Jobs[0].SourceChatId);
+        Assert.Equal("B", library.Jobs[0].SourceChatTitle);
+        Assert.Equal(BackgroundJobTriggerTypes.ChatEvent, library.Jobs[0].TriggerType);
+        Assert.Equal(
+            [ChatLifecycleEventTypes.TurnEnd, ChatLifecycleEventTypes.Idle],
+            library.Jobs[0].ChatEventTypes);
     }
 
     [Fact]

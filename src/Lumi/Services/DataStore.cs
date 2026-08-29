@@ -457,7 +457,7 @@ public class DataStore
         int removed;
         lock (_backgroundJobsSync)
         {
-            removed = _data.BackgroundJobs.RemoveAll(job => job.ChatId == chatId);
+            removed = _data.BackgroundJobs.RemoveAll(job => job.ChatId == chatId || job.SourceChatId == chatId);
         }
 
         if (removed > 0)
@@ -2116,7 +2116,7 @@ public class DataStore
                 2. Only mutate Lumi data after the user explicitly asks for that change.
                 3. Use exact names or IDs from list results when there is any ambiguity.
                 4. For skill edits, use `fetch_skill` when you need the full content of an existing skill before changing it.
-                5. For background jobs, link the job to the current chat unless the user names another chat. Time jobs can recur; script jobs are one-shot wake scripts that wait/poll/block and wake the linked chat when the process exits with output.
+                5. For background jobs, link the job to the current chat unless the user names another chat. Time jobs can recur; chat-event jobs wake the linked chat directly when another chat reaches selected lifecycle events; script jobs are one-shot wake scripts that wait/poll/block and wake the linked chat when the process exits with output.
                 6. For memories, prefer normal conversation plus auto-save unless the user explicitly asks to create, edit, or delete a memory.
                 7. After every successful mutation, clearly summarize what changed.
                 """
