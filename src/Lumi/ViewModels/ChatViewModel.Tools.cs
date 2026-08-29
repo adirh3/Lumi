@@ -11,6 +11,7 @@ using GitHub.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Capabilities;
 using Microsoft.Extensions.AI;
 
 namespace Lumi.ViewModels;
@@ -20,7 +21,19 @@ namespace Lumi.ViewModels;
 /// </summary>
 public partial class ChatViewModel
 {
-    private List<CustomAgentConfig> BuildCustomAgents(ProjectContextCatalogSnapshot? projectContextCatalog = null)
+    /// <summary>
+    /// Builds the custom-agent roster handed to the session.
+    /// </summary>
+    /// <param name="activeAgentName">
+    /// The agent the session will activate, if any. Its authored tool/model settings are
+    /// deliberately not forwarded: <see cref="CustomAgentConfig.Tools"/> is an SDK-wide allowlist
+    /// while an agent is active, so applying it would strip Copilot built-ins and every Lumi tool
+    /// from the chat, and its model would silently override the one the user picked. Those settings
+    /// still apply when the same agent is delegated to as a subagent.
+    /// </param>
+    private List<CustomAgentConfig> BuildCustomAgents(
+        CapabilitySnapshot? capabilities = null,
+        string? activeAgentName = null)
     {
         var agents = new List<CustomAgentConfig>();
         var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -39,26 +52,53 @@ public partial class ChatViewModel
             seenNames.Add(agent.Name);
         }
 
-        // Register discovered project-scoped Copilot agents (e.g. .github/agents/*/AGENT.md) as
-        // delegatable subagents, matching the GitHub Copilot CLI which exposes .github/agents in
-        // the Task tool's custom-agent roster. Without this they could only be picked as the active
-        // persona, never delegated to. Lumi's own agents win on a name collision.
-        if (projectContextCatalog is not null)
+        // Register Copilot-discovered agents (project, personal profile, plugins) as delegatable
+        // subagents, matching the GitHub Copilot CLI which exposes them in the Task tool's
+        // custom-agent roster. Without this they could only be picked as the active persona, never
+        // delegated to. Lumi's own agents win on a name collision.
+        if (capabilities is not null)
         {
-            foreach (var external in projectContextCatalog.Agents)
+            foreach (var external in capabilities.Agents)
             {
-                if (string.IsNullOrWhiteSpace(external.Name)
+                if (external.Origin.IsLumi
+                    || string.IsNullOrWhiteSpace(external.Name)
                     || string.IsNullOrWhiteSpace(external.Content)
                     || !seenNames.Add(external.Name))
                     continue;
 
-                agents.Add(new CustomAgentConfig
+                var config = new CustomAgentConfig
                 {
                     Name = external.Name,
-                    DisplayName = external.Name,
+                    DisplayName = external.Label,
                     Description = external.Description,
                     Prompt = external.Content,
-                });
+                };
+
+                // Forward the agent's authored behaviour. Registering only its prompt would drop the
+                // author's tool allowlist, and a missing allowlist means "every tool" — so the agent
+                // would silently run with more tools than it was written to have. An allowlist that
+                // is present but empty means "no tools" and must be forwarded as such.
+                //
+                // Tools and Model are withheld from the agent the session activates: while an agent
+                // is active its allowlist becomes the session's own, which would strip Copilot
+                // built-ins and every Lumi tool, and its model would override the user's choice.
+                // Skills are agent-scoped preload either way, so they always carry.
+                if (external.Behavior is { IsEmpty: false } behavior)
+                {
+                    var isActivePersona = string.Equals(
+                        external.Name,
+                        activeAgentName,
+                        StringComparison.OrdinalIgnoreCase);
+
+                    if (!isActivePersona && behavior.Tools is { } tools)
+                        config.Tools = tools.ToList();
+                    if (!isActivePersona && !string.IsNullOrWhiteSpace(behavior.Model))
+                        config.Model = behavior.Model;
+                    if (behavior.Skills is { Count: > 0 } skills)
+                        config.Skills = skills.ToList();
+                }
+
+                agents.Add(config);
             }
         }
 
@@ -95,10 +135,7 @@ public partial class ChatViewModel
         return CancellationToken.None;
     }
 
-    private List<AIFunction> BuildCustomTools(
-        Guid chatId,
-        LumiAgent? activeAgent,
-        ProjectContextCatalogSnapshot projectContextCatalog)
+    private List<AIFunction> BuildCustomTools(Guid chatId, LumiAgent? activeAgent)
     {
         var tools = new List<AIFunction>();
         tools.AddRange(BuildMemoryTools());
@@ -124,9 +161,9 @@ public partial class ChatViewModel
         return tools.Where(tool => allowedToolNames.Contains(tool.Name)).ToList();
     }
 
-    private Dictionary<string, McpServerConfig> BuildMcpServers(
+    private McpSessionPlan BuildMcpPlan(
         string workDir,
-        ProjectContextCatalogSnapshot projectContextCatalog,
+        CapabilitySnapshot capabilities,
         Chat chat,
         LumiAgent? activeAgent)
     {
@@ -139,7 +176,7 @@ public partial class ChatViewModel
         return McpSessionPlanner.Build(
             _dataStore.Data,
             workDir,
-            projectContextCatalog,
+            capabilities,
             chat,
             selectedServerNames,
             activeAgent,
@@ -728,7 +765,7 @@ public partial class ChatViewModel
                     [Description("Project instructions or custom prompt text.")] string? instructions = null,
                     [Description("Working directory path for the project.")] string? workingDirectory = null,
                     [Description("Set to true to clear the project's working directory during update.")] bool? clearWorkingDirectory = null,
-                    [Description("Optional folders to scan for project-scoped .github skills/agents and .vscode/mcp.json. Pass an empty array to clear on update.")] string[]? additionalContextDirectories = null,
+                    [Description("Optional folders whose project-scoped skills, agents and MCP servers should also be discovered, in addition to the working directory. Pass an empty array to clear on update.")] string[]? additionalContextDirectories = null,
                     [Description("Set to true to clear the project's additional context folders during update.")] bool? clearAdditionalContextDirectories = null,
                     [Description("Optional text query for list filtering.")] string? query = null) =>
                 {
@@ -742,6 +779,8 @@ public partial class ChatViewModel
                         additionalContextDirectories,
                         clearAdditionalContextDirectories,
                         query);
+                    if (result.DataChanged)
+                        result = result with { CapabilityContextChanged = true };
                     return await ApplyFeatureChangeAsync(result, chatId);
                 },
                 "manage_projects",
@@ -1171,7 +1210,7 @@ public partial class ChatViewModel
                 WorktreePath = chat.WorktreePath;
                 IsWorktreeMode = chat.WorktreePath is not null;
                 OnPropertyChanged(nameof(CurrentChat));
-                RefreshComposerCatalogs();
+                RefreshCapabilities();
                 QueueRefreshCodingProjectState();
             }
         }
@@ -1441,7 +1480,10 @@ public partial class ChatViewModel
 
     internal void RefreshFeatureCatalogState(FeatureChangeResult result)
     {
-        RefreshComposerCatalogs(syncProjectContextMcpSelections: false);
+        if (result.CapabilityContextChanged)
+            RefreshCapabilities();
+        else
+            RefreshComposerCatalogs(syncProjectContextMcpSelections: false);
         var chatMetadataChanged = RefreshCurrentChatFeatureState(result);
         if (chatMetadataChanged)
             _ = SaveIndexAsync();
@@ -1468,10 +1510,16 @@ public partial class ChatViewModel
         return chatMetadataChanged;
     }
 
+    public void RefreshCapabilities()
+    {
+        RefreshComposerCatalogs();
+        QueueCapabilityRefresh(BuildCapabilityQuery(), forceRefresh: true);
+    }
+
     private bool RefreshActiveSkillChipsFromState()
     {
         var skillsById = _dataStore.Data.Skills.ToDictionary(skill => skill.Id);
-        var projectContextCatalog = GetProjectContextCatalog();
+        var capabilities = GetCapabilities();
         var filteredIds = new List<Guid>();
         var filteredExternalNames = new List<string>();
         var chips = new List<StrataTheme.Controls.StrataComposerChip>();
@@ -1489,9 +1537,19 @@ public partial class ChatViewModel
                      .Where(static name => !string.IsNullOrWhiteSpace(name))
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            var externalSkill = projectContextCatalog.FindSkill(name);
+            var externalSkill = capabilities.FindSkill(name);
             if (externalSkill is null)
+            {
+                // Only an unresolvable name in a *resolved* snapshot is genuinely dangling. While
+                // Copilot discovery is still in flight every discovered skill looks missing, and
+                // dropping them here would erase the chat's saved selection from disk.
+                if (capabilities.IsComplete)
+                    continue;
+
+                filteredExternalNames.Add(name);
+                chips.Add(new StrataTheme.Controls.StrataComposerChip(name, ExternalSkillGlyph));
                 continue;
+            }
 
             filteredExternalNames.Add(externalSkill.Name);
             chips.Add(new StrataTheme.Controls.StrataComposerChip(externalSkill.Name, ExternalSkillGlyph));
@@ -1549,13 +1607,18 @@ public partial class ChatViewModel
         if (result.DeletedMcpName is { } deletedName)
             activeNames.RemoveAll(name => string.Equals(name, deletedName, StringComparison.Ordinal));
 
-        var availableGlyphs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // Rebuild from the picker's own chips so the source badge survives, and so a rebuilt chip
+        // is still recognisable as discovered by the staleness prune.
+        var availableChips = new Dictionary<string, StrataTheme.Controls.StrataComposerChip>(StringComparer.OrdinalIgnoreCase);
         foreach (var chip in AvailableMcpChips.OfType<StrataTheme.Controls.StrataComposerChip>())
-            availableGlyphs.TryAdd(chip.Name, chip.Glyph);
+            availableChips.TryAdd(chip.Name, chip);
 
+        // Pruning against an unresolved snapshot would drop every discovered server and then mark
+        // the selection explicit, so the loss could never be undone once discovery lands.
+        var capabilities = GetCapabilities();
         activeNames = activeNames
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Where(name => availableGlyphs.ContainsKey(name))
+            .Where(name => !capabilities.IsComplete || availableChips.ContainsKey(name))
             .ToList();
 
         _suppressActiveMcpCollectionSync = true;
@@ -1566,7 +1629,9 @@ public partial class ChatViewModel
             foreach (var name in activeNames)
             {
                 ActiveMcpServerNames.Add(name);
-                ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name, availableGlyphs[name]));
+                ActiveMcpChips.Add(availableChips.TryGetValue(name, out var chip)
+                    ? chip
+                    : ToMcpChip(name, capabilities.FindMcpServer(name)));
             }
         }
         finally

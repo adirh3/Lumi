@@ -16,6 +16,7 @@ using GitHub.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Capabilities;
 using StrataTheme.Controls;
 
 namespace Lumi.ViewModels;
@@ -831,62 +832,68 @@ public partial class ChatViewModel
 
     public void RefreshComposerCatalogs(bool syncProjectContextMcpSelections = true)
     {
-        // Start with Lumi agents
-        var agentChips = _dataStore.Data.Agents
-            .OrderBy(a => a.Name)
-            .Select(a => new StrataComposerChip(
-                a.Name,
-                a.IconGlyph,
-                SecondaryText: BuildChipSearchText(a.Description, a.SystemPrompt),
-                Value: a.Id.ToString()))
-            .ToList();
+        var query = BuildCapabilityQuery();
+        var capabilities = _capabilityCatalog.GetSnapshot(query);
+        RefreshComposerCatalogs(capabilities, syncProjectContextMcpSelections);
+    }
 
-        // Start with Lumi skills
-        var skillChips = _dataStore.Data.Skills
-            .OrderBy(s => s.Name)
-            .Select(s => new StrataComposerChip(
-                s.Name,
-                s.IconGlyph,
-                SecondaryText: BuildChipSearchText(s.Description, s.Content)))
-            .ToList();
+    private void RefreshComposerCatalogs(
+        CapabilitySnapshot capabilities,
+        bool syncProjectContextMcpSelections = true)
+    {
 
-        // Discover project-scoped and user-level Copilot agents/skills. File-based skills remain
-        // SDK-owned for loading; Lumi only surfaces them in the composer catalog.
-        var projectContextCatalog = GetProjectContextCatalog();
-        DiscoverCopilotItems(projectContextCatalog, agentChips, skillChips);
+        ReplaceCollection(AvailableAgentChips, BuildCapabilityChips(capabilities, CapabilityKind.Agent));
+        ReplaceCollection(AvailableSkillChips, BuildCapabilityChips(capabilities, CapabilityKind.Skill));
 
-        ReplaceCollection(AvailableAgentChips, agentChips);
-        ReplaceCollection(AvailableSkillChips, skillChips);
-
-        // Build MCP chips: Lumi-configured MCPs + project-scoped MCPs from .vscode/mcp.json
-        var mcpChips = _dataStore.Data.McpServers
-            .Where(s => s.IsEnabled)
-            .OrderBy(s => s.Name)
-            .Select(s => new StrataComposerChip(s.Name))
-            .ToList();
-        var projectContextMcpNames = AddProjectContextMcpChips(projectContextCatalog.McpServers, mcpChips);
+        var mcpChips = BuildCapabilityChips(capabilities, CapabilityKind.McpServer);
         ReplaceCollection(AvailableMcpChips, mcpChips);
 
-        // Remove stale project-context MCPs from the previous project, then add current ones.
+        var discoveredMcpNames = capabilities
+            .UserInvocable(CapabilityKind.McpServer)
+            .Where(static capability => !capability.Origin.IsLumi)
+            .Select(static capability => capability.Name)
+            .ToList();
+
+        // Drop discovered MCPs that are no longer offered here (a previous project's servers), then
+        // auto-select newly discovered ones. Auto-selection only applies while the selection has no
+        // explicit choice behind it: once the user curates the list — on the chat, or on a draft
+        // that has no chat yet — a later refresh must not resurrect a server they deselected.
+        var autoSelectDiscovered = CurrentChat is { } currentChat
+            ? !currentChat.HasExplicitMcpServerSelection
+            : !_draftMcpSelectionCurated;
         List<StrataComposerChip> staleProjectContextMcps;
         var addedProjectContextMcps = false;
         _suppressActiveMcpCollectionSync = true;
         try
         {
-            staleProjectContextMcps = ActiveMcpChips.OfType<StrataComposerChip>().Where(c => c.Glyph == "🔌").ToList();
+            // Only prune against a complete snapshot: while Copilot discovery is still in flight the
+            // list is empty, and pruning then would wipe (and persist away) the chat's saved servers.
+            // A selection is stale when the resolved catalog no longer offers it at all — including a
+            // saved name that never resolved, which otherwise stays checked forever because it has no
+            // source hint to recognise it by.
+            staleProjectContextMcps = capabilities.IsComplete
+                ? ActiveMcpChips.OfType<StrataComposerChip>()
+                    .Where(chip => capabilities.FindMcpServer(chip.Name) is null
+                                   || (IsDiscoveredMcpChip(chip)
+                                       && !discoveredMcpNames.Contains(chip.Name, NameComparer)))
+                    .ToList()
+                : [];
             foreach (var stale in staleProjectContextMcps)
             {
                 ActiveMcpServerNames.Remove(stale.Name);
                 ActiveMcpChips.Remove(stale);
             }
 
-            foreach (var name in projectContextMcpNames)
+            if (autoSelectDiscovered)
             {
-                if (!ActiveMcpServerNames.Contains(name))
+                foreach (var name in discoveredMcpNames)
                 {
-                    ActiveMcpServerNames.Add(name);
-                    ActiveMcpChips.Add(new StrataComposerChip(name, "🔌"));
-                    addedProjectContextMcps = true;
+                    if (!ActiveMcpServerNames.Contains(name))
+                    {
+                        ActiveMcpServerNames.Add(name);
+                        ActiveMcpChips.Add(mcpChips.First(chip => NameComparer.Equals(chip.Name, name)));
+                        addedProjectContextMcps = true;
+                    }
                 }
             }
         }
@@ -895,11 +902,19 @@ public partial class ChatViewModel
             _suppressActiveMcpCollectionSync = false;
         }
 
-        // Persist project-context MCPs to the chat so they survive reload.
+        // Persist discovered MCPs to the chat so they survive reload. This is auto-population, not
+        // user curation, so it must not stop a later refresh from offering newly discovered servers.
         if (syncProjectContextMcpSelections
             && (addedProjectContextMcps || staleProjectContextMcps.Count > 0)
             && !IsLoadingChat)
-            SyncActiveMcpsToChat();
+            SyncActiveMcpsToChat(userCurated: false);
+
+        // A chat restored before discovery landed holds selections as bare names. Re-resolving them
+        // against the current snapshot upgrades those placeholders to real capabilities — giving
+        // them their source hint and description, and making them eligible for pruning once the
+        // snapshot is complete and the capability is genuinely gone.
+        RefreshActiveSkillChipsFromState();
+        UpgradeActiveMcpChips(capabilities);
 
         ReplaceCollection(AvailableProjectChips,
             _dataStore.Data.Projects
@@ -914,50 +929,104 @@ public partial class ChatViewModel
         RefreshProjectBadge();
     }
 
-    /// <summary>
-    /// Discovers file-based Copilot agents and skills from the workspace and the user's
-    /// <c>~\.copilot</c> directory.
-    /// </summary>
-    /// <remarks>
-    /// Only skills that live under the workspace skill directories handed to the session are offered:
-    /// Lumi pins <c>EnableConfigDiscovery</c> off, so the CLI can only resolve skills from those roots
-    /// and selecting a personal or packaged skill would fail activation on every send.
-    /// </remarks>
-    private static void DiscoverCopilotItems(
-        ProjectContextCatalogSnapshot catalog,
-        List<StrataComposerChip> agentChips,
-        List<StrataComposerChip> skillChips)
+    private void QueueCapabilityRefresh(CapabilityQuery query, bool forceRefresh = false)
     {
-        var existingAgentNames = agentChips.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var existingSkillNames = skillChips.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (_isDisposed)
+            return;
 
-        foreach (var agent in catalog.Agents)
+        _ = LoadCapabilitiesAndRefreshAsync(
+            new WeakReference<ChatViewModel>(this),
+            _capabilityCatalog,
+            query,
+            forceRefresh);
+    }
+
+    private static async Task LoadCapabilitiesAndRefreshAsync(
+        WeakReference<ChatViewModel> target,
+        CapabilityCatalog catalog,
+        CapabilityQuery query,
+        bool forceRefresh)
+    {
+        try
         {
-            if (existingAgentNames.Contains(agent.Name))
-                continue;
-
-            agentChips.Add(new StrataComposerChip(
-                agent.Name,
-                ExternalAgentGlyph,
-                SecondaryText: BuildChipSearchText(agent.Description, agent.Content)));
-            existingAgentNames.Add(agent.Name);
-        }
-
-        foreach (var skill in catalog.Skills)
-        {
-            if (existingSkillNames.Contains(skill.Name)
-                || !CopilotConfigCatalog.IsSessionLoadableSkill(skill, catalog.SkillDirectories))
+            await catalog
+                .LoadAsync(query, forceRefresh)
+                .ConfigureAwait(false);
+            Dispatcher.UIThread.Post(() =>
             {
-                continue;
-            }
+                if (!target.TryGetTarget(out var viewModel)
+                    || viewModel._isDisposed
+                    || !query.Equals(viewModel.BuildCapabilityQuery()))
+                {
+                    return;
+                }
 
-            skillChips.Add(new StrataComposerChip(
-                skill.Name,
-                ExternalSkillGlyph,
-                SecondaryText: BuildChipSearchText(skill.Description, skill.Content)));
-            existingSkillNames.Add(skill.Name);
+                viewModel.RefreshComposerCatalogs(catalog.GetSnapshot(query));
+            });
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Capabilities] Composer refresh failed: {ex.Message}");
         }
     }
+
+    private static readonly StringComparer NameComparer = StringComparer.OrdinalIgnoreCase;
+
+    /// <summary>
+    /// True for an MCP chip Lumi did not configure itself — it was discovered by the Copilot
+    /// runtime (workspace config, user profile or a plugin) and is auto-selected for the chat.
+    /// </summary>
+    private static bool IsDiscoveredMcpChip(StrataComposerChip chip)
+        => chip.SourceLabel is { Length: > 0 }
+           && !string.Equals(chip.SourceLabel, CapabilityOrigin.Lumi.Label, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Replaces active MCP chips that were built from a name alone with the resolved capability, so
+    /// a selection restored before discovery landed ends up indistinguishable from one made after.
+    /// </summary>
+    private void UpgradeActiveMcpChips(CapabilitySnapshot capabilities)
+    {
+        _suppressActiveMcpCollectionSync = true;
+        try
+        {
+            for (var i = 0; i < ActiveMcpChips.Count; i++)
+            {
+                if (ActiveMcpChips[i] is not StrataComposerChip { SourceLabel: null or "" } chip)
+                    continue;
+
+                if (capabilities.FindMcpServer(chip.Name) is { } resolved)
+                    ActiveMcpChips[i] = ToMcpChip(resolved);
+            }
+        }
+        finally
+        {
+            _suppressActiveMcpCollectionSync = false;
+        }
+    }
+
+    /// <summary>
+    /// Projects capabilities onto composer chips. Lumi entries carry their configured glyph and
+    /// Copilot-discovered entries carry a kind glyph; both expose a source hint so the picker can
+    /// tell the user where a capability came from.
+    /// </summary>
+    private static List<StrataComposerChip> BuildCapabilityChips(CapabilitySnapshot capabilities, CapabilityKind kind)
+        => capabilities
+            .UserInvocable(kind)
+            .Select(capability => new StrataComposerChip(
+                capability.Name,
+                string.IsNullOrWhiteSpace(capability.Glyph) ? DefaultGlyph(kind) : capability.Glyph!,
+                SecondaryText: BuildChipSearchText(capability.Description, capability.Content),
+                Value: capability.LumiId?.ToString(),
+                SourceLabel: capability.SourceLabel))
+            .ToList();
+
+    private static string DefaultGlyph(CapabilityKind kind) => kind switch
+    {
+        CapabilityKind.Agent => CopilotSdkCapabilityProvider.AgentGlyph,
+        CapabilityKind.Skill => CopilotSdkCapabilityProvider.SkillGlyph,
+        CapabilityKind.McpServer => CopilotSdkCapabilityProvider.McpGlyph,
+        _ => "✦",
+    };
 
     private static string? BuildChipSearchText(string? summary, string? fallback, int maxLength = 140)
     {
@@ -983,59 +1052,6 @@ public partial class ChatViewModel
             return collapsed;
 
         return collapsed[..(maxLength - 3)] + "...";
-    }
-
-    /// <summary>
-    /// Discovers MCP servers from .vscode/mcp.json in project context directories
-    /// and adds them to the MCP chip list. Returns the names of discovered project MCPs.
-    /// </summary>
-    private static List<string> AddProjectContextMcpChips(
-        IReadOnlyList<ProjectContextMcpServerDefinition> contextMcpServers,
-        List<StrataComposerChip> mcpChips)
-    {
-        var discovered = new List<string>();
-        var existingNames = mcpChips.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var server in contextMcpServers)
-        {
-            if (existingNames.Contains(server.Name))
-                continue;
-
-            mcpChips.Add(new StrataComposerChip(server.Name, "🔌"));
-            discovered.Add(server.Name);
-            existingNames.Add(server.Name);
-        }
-
-        return discovered;
-    }
-
-    /// <summary>
-    /// After a real session is created, queries the SDK to discover additional agents
-    /// and merges them into the composer pickers.
-    /// </summary>
-    private async Task PopulateFromSessionAsync()
-    {
-        if (_activeSession is null) return;
-
-        try
-        {
-            var result = await _activeSession.Rpc.Agent.ListAsync();
-            var agents = result.Agents;
-
-            var lumiAgentNames = _dataStore.Data.Agents.Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var currentChips = AvailableAgentChips.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var sdkOnly = agents.Where(a => !lumiAgentNames.Contains(a.Name) && !currentChips.Contains(a.Name)).ToList();
-
-            if (sdkOnly.Count > 0)
-            {
-                Dispatcher.UIThread.Post(() =>
-                {
-                    foreach (var agent in sdkOnly.OrderBy(a => a.DisplayName ?? a.Name))
-                        AvailableAgentChips.Add(new StrataComposerChip(agent.DisplayName ?? agent.Name, ExternalAgentGlyph));
-                });
-            }
-        }
-        catch { /* best effort */ }
     }
 
     public void HandleFileQueryChanged(string query)
@@ -1188,26 +1204,29 @@ public partial class ChatViewModel
             return;
         }
 
-        // First check Lumi agents
-        var agent = _dataStore.Data.Agents.FirstOrDefault(a => a.Name == value);
-        if (agent is not null)
+        // Resolve against the capability snapshot rather than the composer's chips: a background or
+        // remote-driven surface may not have painted a picker yet, and the snapshot also matches
+        // case- and slug-insensitively so a caller need not know the exact authored spelling.
+        // Only a capability the user may pick counts — an agent marked subagent-only is delegable
+        // but must not become the active persona.
+        var capability = GetCapabilities().FindAgent(value);
+        if (capability is not { IsEnabled: true, IsUserInvocable: true })
+        {
+            SyncComposerAgentSelectionFromState();
+            return;
+        }
+
+        if (capability.LumiId is { } lumiId
+            && _dataStore.Data.Agents.FirstOrDefault(a => a.Id == lumiId) is { } lumiAgent)
         {
             SelectedSdkAgentName = null; // Clear SDK agent when switching to Lumi agent
-            SetActiveAgent(agent);
+            SetActiveAgent(lumiAgent);
             return;
         }
 
-        // Not a Lumi agent — check if it's an SDK/workspace agent
-        // (identified by presence in AvailableAgentChips with the external-agent glyph)
-        var isSdkAgent = AvailableAgentChips.Any(c => c.Name == value && c.Glyph == ExternalAgentGlyph);
-        if (isSdkAgent)
-        {
-            SetActiveAgent(null); // Clear Lumi agent when switching to SDK agent
-            SelectedSdkAgentName = value;
-            return;
-        }
-
-        SyncComposerAgentSelectionFromState();
+        SetActiveAgent(null); // Clear Lumi agent when switching to a Copilot agent
+        // Persist the canonical name so the session and the picker agree on one spelling.
+        SelectedSdkAgentName = capability.Name;
     }
 
     partial void OnSelectedProjectNameChanged(string? value)
@@ -1336,7 +1355,13 @@ public partial class ChatViewModel
             foreach (var item in args.OldItems)
             {
                 if (item is StrataComposerChip chip)
+                {
                     ActiveMcpServerNames.Remove(chip.Name);
+                    // Unchecking in the picker removes the chip directly rather than going through
+                    // RemoveMcpByName, so the live session has to be told here too — a resume cannot
+                    // stop a server that is already running.
+                    _ = SetMcpEnabledOnSessionAsync(chip.Name, enabled: false);
+                }
             }
             SyncActiveMcpsToChat();
             return;
@@ -1344,6 +1369,9 @@ public partial class ChatViewModel
 
         if (args.Action == NotifyCollectionChangedAction.Reset)
         {
+            foreach (var name in ActiveMcpServerNames.ToList())
+                _ = SetMcpEnabledOnSessionAsync(name, enabled: false);
+
             ActiveMcpServerNames.Clear();
             SyncActiveMcpsToChat();
         }
@@ -1544,22 +1572,13 @@ public partial class ChatViewModel
             if (string.Equals(CurrentChat.SdkAgentName, value, StringComparison.Ordinal))
                 return;
 
-            var previousValue = CurrentChat.SdkAgentName;
             CurrentChat.SdkAgentName = value;
             QueueSaveChat(CurrentChat, saveIndex: true);
 
-            var projectContextCatalog = GetProjectContextCatalog();
-            var previousExternalAgent = !string.IsNullOrWhiteSpace(previousValue)
-                && FindExternalAgentByName(projectContextCatalog, previousValue) is not null;
-            var currentExternalAgent = !string.IsNullOrWhiteSpace(value)
-                && FindExternalAgentByName(projectContextCatalog, value) is not null;
-
-            if (CurrentChat.CopilotSessionId is not null && (previousExternalAgent || currentExternalAgent))
-            {
-                InvalidateCurrentSession();
-                _pendingSkillInjections.Clear();
-            }
-            else if (_activeSession is not null)
+            // A Copilot agent is applied by the runtime, not by rewriting the system prompt, so an
+            // agent change is a live session operation. Recreating the session here would discard
+            // the model's real conversation state and replay the transcript back to it as text.
+            if (_activeSession is not null)
             {
                 if (!string.IsNullOrWhiteSpace(value))
                     _ = SelectAgentOnSessionAsync(value);
@@ -1854,7 +1873,15 @@ public partial class ChatViewModel
             WorktreePath = null;
             // Refresh branch display back to the main repo
             var branch = await GitService.GetCurrentBranchAsync(projectDir).ConfigureAwait(false);
-            Dispatcher.UIThread.Post(() => GitBranch = branch);
+            Dispatcher.UIThread.Post(() =>
+            {
+                GitBranch = branch;
+                RefreshCapabilities();
+            });
+        }
+        else
+        {
+            RefreshCapabilities();
         }
     }
 
@@ -2212,7 +2239,11 @@ public partial class ChatViewModel
 
         // Update branch display to reflect the selected worktree
         var branch = await GitService.GetCurrentBranchAsync(path).ConfigureAwait(false);
-        Dispatcher.UIThread.Post(() => GitBranch = branch);
+        Dispatcher.UIThread.Post(() =>
+        {
+            GitBranch = branch;
+            RefreshCapabilities();
+        });
     }
 
     [RelayCommand]

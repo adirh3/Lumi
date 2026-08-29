@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Capabilities;
 
 namespace Lumi.ViewModels;
 
@@ -31,6 +32,8 @@ public sealed class ChatSessionStore : IDisposable
     private readonly GlobalSearchService? _globalSearchService;
     private readonly Lumi.Services.Byok.ISecureKeyStore? _secureKeyStore;
     private readonly ChatEventHub _chatEvents;
+    private readonly CapabilityCatalog _capabilityCatalog;
+    private readonly bool _ownsCapabilityCatalog;
     private readonly ByokRateLimiter _byokRateLimiter = new();
     private readonly Func<ChatViewModel, Chat, Task> _loadChatAsync;
     private readonly int _maxIdleCachedSurfaces;
@@ -48,7 +51,8 @@ public sealed class ChatSessionStore : IDisposable
         ChatSurfaceRegistry registry,
         GlobalSearchService? globalSearchService = null,
         Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null,
-        ChatEventHub? chatEvents = null)
+        ChatEventHub? chatEvents = null,
+        CapabilityCatalog? capabilityCatalog = null)
         : this(
             dataStore,
             copilotService,
@@ -56,7 +60,8 @@ public sealed class ChatSessionStore : IDisposable
             static (surface, chat) => surface.LoadChatAsync(chat),
             globalSearchService: globalSearchService,
             secureKeyStore: secureKeyStore,
-            chatEvents: chatEvents)
+            chatEvents: chatEvents,
+            capabilityCatalog: capabilityCatalog)
     {
     }
 
@@ -69,7 +74,8 @@ public sealed class ChatSessionStore : IDisposable
         int? maxWarmIdleSessions = null,
         GlobalSearchService? globalSearchService = null,
         Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null,
-        ChatEventHub? chatEvents = null)
+        ChatEventHub? chatEvents = null,
+        CapabilityCatalog? capabilityCatalog = null)
     {
         if (maxIdleCachedSurfaces < 0)
             throw new ArgumentOutOfRangeException(nameof(maxIdleCachedSurfaces));
@@ -83,12 +89,15 @@ public sealed class ChatSessionStore : IDisposable
         _globalSearchService = globalSearchService;
         _secureKeyStore = secureKeyStore;
         _chatEvents = chatEvents ?? new ChatEventHub();
+        _ownsCapabilityCatalog = capabilityCatalog is null;
+        _capabilityCatalog = capabilityCatalog ?? CapabilityCatalog.CreateDefault(dataStore, copilotService);
         _loadChatAsync = loadChatAsync;
         _maxIdleCachedSurfaces = maxIdleCachedSurfaces;
         _maxWarmIdleSessions = warmIdleSessionLimit;
         // Pass `this`: the service only stores the reference (it makes no store calls during construction).
         _orchestrationService = new ChatOrchestrationService(dataStore, registry, this);
         OrchestrationService = _orchestrationService;
+        _copilotService.Reconnected += OnCopilotReconnected;
     }
 
     /// <summary>
@@ -211,6 +220,15 @@ public sealed class ChatSessionStore : IDisposable
             action(surface);
     }
 
+    public void RefreshCapabilitiesAfterConnectionChange()
+    {
+        if (_isDisposed)
+            return;
+
+        _capabilityCatalog.Reset();
+        ApplyToSurfaces(static surface => surface.RefreshCapabilities());
+    }
+
     public void ApplyMcpConfigurationChange()
     {
         McpProxyRuntime.Shared.RetireUserRegistrationsExcept(_dataStore.Data.McpServers
@@ -231,6 +249,9 @@ public sealed class ChatSessionStore : IDisposable
             return;
 
         _isDisposed = true;
+        _copilotService.Reconnected -= OnCopilotReconnected;
+        if (_ownsCapabilityCatalog)
+            _capabilityCatalog.Dispose();
         foreach (var surface in _surfaces.ToArray())
             UntrackSurface(surface, dispose: true);
         _orchestrationService.Dispose();
@@ -253,7 +274,8 @@ public sealed class ChatSessionStore : IDisposable
             _globalSearchService,
             _secureKeyStore,
             _byokRateLimiter,
-            _chatEvents)
+            _chatEvents,
+            _capabilityCatalog)
         {
             SendWithEnter = _dataStore.Data.Settings.SendWithEnter,
             OrchestrationService = OrchestrationService
@@ -271,6 +293,8 @@ public sealed class ChatSessionStore : IDisposable
         TrackSurface(surface);
         return surface;
     }
+
+    private void OnCopilotReconnected() => _capabilityCatalog.Reset();
 
     private void TrackSurface(ChatViewModel surface)
     {

@@ -28,8 +28,17 @@ public sealed class LightweightSessionOptions
     {
         private const string ClientName = "lumi";
 
-        /// <summary>Lumi owns MCP and skill selection explicitly; SDK discovery would bypass per-chat toggles.</summary>
-        private const bool EnableSdkConfigDiscovery = false;
+        /// <summary>
+        /// Copilot owns capability discovery. With this on, the runtime finds skills, agents and
+        /// MCP servers from every mechanism it supports — project folders, the signed-in user's
+        /// profile, plugins and built-ins — so Lumi never has to enumerate the file system for
+        /// them. Per-chat opt-outs are expressed with <c>DisabledMcpServers</c> and
+        /// <c>DisabledSkills</c> rather than by withholding configuration.
+        /// </summary>
+        private const bool EnableSdkConfigDiscovery = true;
+
+        /// <summary>Helper sessions stay isolated and cheap: no capability discovery at all.</summary>
+        private const bool EnableLightweightConfigDiscovery = false;
 
         /// <summary>
         /// Lumi is a single-user desktop client (like VS Code), so MCP OAuth tokens must be persisted
@@ -65,17 +74,18 @@ public sealed class LightweightSessionOptions
         string? systemPrompt,
         string? model,
         string? workingDirectory,
+        McpSessionPlan? mcpPlan,
         List<string>? skillDirectories,
         List<CustomAgentConfig>? customAgents,
         List<AIFunction>? tools,
-        Dictionary<string, McpServerConfig>? mcpServers,
         string? reasoningEffort,
         Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>>? userInputHandler,
         Func<PermissionRequest, PermissionInvocation, Task<PermissionDecision>>? onPermission,
         SessionHooks? hooks,
         string? agentName = null,
         string? contextTier = null,
-        GitHub.Copilot.ProviderConfig? provider = null)
+        GitHub.Copilot.ProviderConfig? provider = null,
+        bool enableCapabilityDiscovery = true)
     {
         var config = new SessionConfig
         {
@@ -84,7 +94,7 @@ public sealed class LightweightSessionOptions
             Streaming = true,
             WorkingDirectory = workingDirectory,
             ConfigDirectory = GetDefaultConfigDir(),
-            EnableConfigDiscovery = EnableSdkConfigDiscovery,
+            EnableConfigDiscovery = enableCapabilityDiscovery && EnableSdkConfigDiscovery,
             EnableSessionStore = true,
             ExcludedTools = ExcludedBuiltInTools(),
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
@@ -94,8 +104,8 @@ public sealed class LightweightSessionOptions
             Provider = provider,
         };
 
-        Populate(config, systemPrompt, reasoningEffort, skillDirectories,
-            customAgents, tools, mcpServers, userInputHandler, hooks, agentName);
+        Populate(config, systemPrompt, reasoningEffort, mcpPlan, skillDirectories,
+            customAgents, tools, userInputHandler, hooks, agentName, enableCapabilityDiscovery);
 
         return config;
     }
@@ -107,17 +117,18 @@ public sealed class LightweightSessionOptions
         string? systemPrompt,
         string? model,
         string? workingDirectory,
+        McpSessionPlan? mcpPlan,
         List<string>? skillDirectories,
         List<CustomAgentConfig>? customAgents,
         List<AIFunction>? tools,
-        Dictionary<string, McpServerConfig>? mcpServers,
         string? reasoningEffort,
         Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>>? userInputHandler,
         Func<PermissionRequest, PermissionInvocation, Task<PermissionDecision>>? onPermission,
         SessionHooks? hooks,
         string? agentName = null,
         string? contextTier = null,
-        GitHub.Copilot.ProviderConfig? provider = null)
+        GitHub.Copilot.ProviderConfig? provider = null,
+        bool enableCapabilityDiscovery = true)
     {
         var config = new ResumeSessionConfig
         {
@@ -126,7 +137,7 @@ public sealed class LightweightSessionOptions
             Streaming = true,
             WorkingDirectory = workingDirectory,
             ConfigDirectory = GetDefaultConfigDir(),
-            EnableConfigDiscovery = EnableSdkConfigDiscovery,
+            EnableConfigDiscovery = enableCapabilityDiscovery && EnableSdkConfigDiscovery,
             EnableSessionStore = true,
             ExcludedTools = ExcludedBuiltInTools(),
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
@@ -136,8 +147,8 @@ public sealed class LightweightSessionOptions
             Provider = provider,
         };
 
-        Populate(config, systemPrompt, reasoningEffort, skillDirectories,
-            customAgents, tools, mcpServers, userInputHandler, hooks, agentName);
+        Populate(config, systemPrompt, reasoningEffort, mcpPlan, skillDirectories,
+            customAgents, tools, userInputHandler, hooks, agentName, enableCapabilityDiscovery);
 
         return config;
     }
@@ -156,7 +167,7 @@ public sealed class LightweightSessionOptions
             Streaming = options.Streaming,
             WorkingDirectory = options.WorkingDirectory,
             ConfigDirectory = options.ConfigDir ?? GetDefaultConfigDir(),
-            EnableConfigDiscovery = EnableSdkConfigDiscovery,
+            EnableConfigDiscovery = EnableLightweightConfigDiscovery,
             EnableSessionStore = false,
             InfiniteSessions = new InfiniteSessionConfig { Enabled = false },
             OnPermissionRequest = PermissionHandler.ApproveAll,
@@ -194,6 +205,28 @@ public sealed class LightweightSessionOptions
             .AddBuiltIn("*")
             .AddMcp("*")
             .AddCustom("*");
+
+    /// <summary>
+    /// Hands a session the skill roots its own configuration would not reach.
+    /// </summary>
+    /// <remarks>
+    /// Config discovery resolves a session's "personal" skill scope from its config directory, and
+    /// Lumi points that at its own folder to keep Lumi's Copilot configuration isolated. Without
+    /// this the user's <c>~/.copilot</c> skills are discovered and offered but fail to activate.
+    /// The paths come from the runtime's own discovery-path RPC — Lumi never scans for them — and
+    /// they add to config discovery rather than replacing it, so project, plugin and built-in
+    /// skills keep loading normally.
+    /// </remarks>
+    private static void ApplySessionSkillRoots(
+        SessionConfigBase config,
+        bool enableCapabilityDiscovery,
+        List<string>? skillDirectories)
+    {
+        if (!enableCapabilityDiscovery || skillDirectories is not { Count: > 0 })
+            return;
+
+        config.SkillDirectories = skillDirectories;
+    }
 
     internal static ContextTier? CreateContextTier(string? contextTier)
     {
@@ -270,13 +303,14 @@ public sealed class LightweightSessionOptions
         SessionConfig config,
         string? systemPrompt,
         string? reasoningEffort,
+        McpSessionPlan? mcpPlan,
         List<string>? skillDirectories,
         List<CustomAgentConfig>? customAgents,
         List<AIFunction>? tools,
-        Dictionary<string, McpServerConfig>? mcpServers,
         Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>>? userInputHandler,
         SessionHooks? hooks,
-        string? agentName)
+        string? agentName,
+        bool enableCapabilityDiscovery = true)
     {
         if (!string.IsNullOrWhiteSpace(reasoningEffort))
             config.ReasoningEffort = reasoningEffort;
@@ -286,7 +320,9 @@ public sealed class LightweightSessionOptions
         if (!string.IsNullOrWhiteSpace(systemPrompt))
             config.SystemMessage = BuildSystemMessage(systemPrompt, config.Model);
 
-        ApplySkillDirectories(config, skillDirectories);
+        config.EnableSkills = enableCapabilityDiscovery;
+
+        ApplySessionSkillRoots(config, enableCapabilityDiscovery, skillDirectories);
 
         if (customAgents is { Count: > 0 })
             config.CustomAgents = customAgents;
@@ -294,8 +330,12 @@ public sealed class LightweightSessionOptions
         if (tools is { Count: > 0 })
             config.Tools = tools.Cast<AIFunctionDeclaration>().ToList();
 
-        if (mcpServers is not null)
-            config.McpServers = mcpServers;
+        if (mcpPlan is not null)
+        {
+            config.McpServers = mcpPlan.Servers;
+            if (mcpPlan.DisabledServerNames.Count > 0)
+                config.DisabledMcpServers = mcpPlan.DisabledServerNames.ToList();
+        }
 
         if (userInputHandler is not null)
             config.OnUserInputRequest = userInputHandler;
@@ -307,41 +347,19 @@ public sealed class LightweightSessionOptions
             config.Agent = agentName;
     }
 
-    /// <summary>
-    /// Exposes canonical skill roots to a session and switches the SDK skill subsystem on.
-    /// <para>
-    /// <see cref="SessionConfigBase.SkillDirectories"/> alone is inert: with
-    /// <see cref="SessionConfigBase.EnableSkills"/> unset the server loads no file-based skills at
-    /// all, so <c>session.skills.list</c> reports zero, <c>session.commands.list</c> returns nothing
-    /// of kind "skill", and <c>session.commands.invoke</c> fails with "Unknown slash command".
-    /// </para>
-    /// <para>
-    /// Discovery stays scoped to the directories Lumi passes, because
-    /// <see cref="SessionConfigBase.EnableConfigDiscovery"/> is off — personal, plugin and builtin
-    /// skill roots are not pulled in implicitly.
-    /// </para>
-    /// </summary>
-    private static void ApplySkillDirectories(SessionConfigBase config, List<string>? skillDirectories)
-    {
-        if (skillDirectories is not { Count: > 0 })
-            return;
-
-        config.SkillDirectories = skillDirectories;
-        config.EnableSkills = true;
-    }
-
     /// <summary>Sets the shared optional properties on a <see cref="ResumeSessionConfig"/>.</summary>
     private static void Populate(
         ResumeSessionConfig config,
         string? systemPrompt,
         string? reasoningEffort,
+        McpSessionPlan? mcpPlan,
         List<string>? skillDirectories,
         List<CustomAgentConfig>? customAgents,
         List<AIFunction>? tools,
-        Dictionary<string, McpServerConfig>? mcpServers,
         Func<UserInputRequest, UserInputInvocation, Task<UserInputResponse>>? userInputHandler,
         SessionHooks? hooks,
-        string? agentName)
+        string? agentName,
+        bool enableCapabilityDiscovery = true)
     {
         if (!string.IsNullOrWhiteSpace(reasoningEffort))
             config.ReasoningEffort = reasoningEffort;
@@ -351,7 +369,9 @@ public sealed class LightweightSessionOptions
         if (!string.IsNullOrWhiteSpace(systemPrompt))
             config.SystemMessage = BuildSystemMessage(systemPrompt, config.Model);
 
-        ApplySkillDirectories(config, skillDirectories);
+        config.EnableSkills = enableCapabilityDiscovery;
+
+        ApplySessionSkillRoots(config, enableCapabilityDiscovery, skillDirectories);
 
         if (customAgents is { Count: > 0 })
             config.CustomAgents = customAgents;
@@ -359,8 +379,12 @@ public sealed class LightweightSessionOptions
         if (tools is { Count: > 0 })
             config.Tools = tools.Cast<AIFunctionDeclaration>().ToList();
 
-        if (mcpServers is not null)
-            config.McpServers = mcpServers;
+        if (mcpPlan is not null)
+        {
+            config.McpServers = mcpPlan.Servers;
+            if (mcpPlan.DisabledServerNames.Count > 0)
+                config.DisabledMcpServers = mcpPlan.DisabledServerNames.ToList();
+        }
 
         if (userInputHandler is not null)
             config.OnUserInputRequest = userInputHandler;

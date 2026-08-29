@@ -462,6 +462,7 @@ public partial class App : Application
             , openAgentDebugHarness,
             skipOnboarding
 #endif
+            , initializeCopilotOnStartup: true
         );
     }
 

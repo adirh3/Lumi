@@ -20,6 +20,7 @@ using GitHub.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Capabilities;
 using StrataTheme.Controls;
 
 using ChatMessage = Lumi.Models.ChatMessage;
@@ -630,6 +631,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly DataStore _dataStore;
     private readonly CopilotService _copilotService;
     private readonly ChatEventHub _chatEvents;
+
+    /// <summary>
+    /// The single pipeline every skill, agent and MCP server flows through — Lumi's own store plus
+    /// everything the Copilot runtime discovers. Shared across chat surfaces so discovery runs once.
+    /// </summary>
+    private readonly CapabilityCatalog _capabilityCatalog;
+    private readonly bool _ownsCapabilityCatalog;
+
+
     private readonly GlobalSearchService? _globalSearchService;
     private readonly MemoryAgentService _memoryAgentService;
     private readonly CodingToolService _codingToolService;
@@ -1319,7 +1329,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         GlobalSearchService? globalSearchService = null,
         Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null,
         ByokRateLimiter? byokRateLimiter = null,
-        ChatEventHub? chatEvents = null)
+        ChatEventHub? chatEvents = null,
+        CapabilityCatalog? capabilityCatalog = null)
     {
         _dataStore = dataStore;
         _copilotService = copilotService;
@@ -1327,6 +1338,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _globalSearchService = globalSearchService;
         _secureKeyStore = secureKeyStore;
         _byokRateLimiter = byokRateLimiter ?? new ByokRateLimiter();
+        _ownsCapabilityCatalog = capabilityCatalog is null;
+        _capabilityCatalog = capabilityCatalog ?? CapabilityCatalog.CreateDefault(dataStore, copilotService);
         _memoryAgentService = new MemoryAgentService(dataStore, copilotService);
         _codingToolService = new CodingToolService(copilotService, GetCurrentCancellationToken);
         _selectedModel = dataStore.Data.Settings.PreferredModel;
@@ -1831,13 +1844,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (externalSkillNames.Count == 0)
             return references;
 
-        var projectContextCatalog = GetProjectContextCatalog();
+        var capabilities = GetCapabilities();
         foreach (var name in externalSkillNames
                      .Where(static n => !string.IsNullOrWhiteSpace(n))
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
             references.Add(
-                FindSkillReferenceByName(name, projectContextCatalog)
+                FindSkillReferenceByName(name, capabilities)
                 ?? new SkillReference
                 {
                     Name = name,
@@ -2002,7 +2015,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ? _dataStore.Data.Projects.FirstOrDefault(p => p.Id == chat.ProjectId)
             : null;
         var workDir = GetEffectiveWorkingDirectory(chat);
-        var projectContextCatalog = GetProjectContextCatalog(chat, workDir);
+        // A session must be built from a resolved snapshot. An unresolved one holds only Lumi's own
+        // capabilities, which would silently drop the chat's Copilot agent and — because config
+        // discovery starts anything not named in DisabledMcpServers — start MCP servers the user
+        // deselected.
+        var capabilityQuery = BuildCapabilityQuery(chat, workDir);
+        await _capabilityCatalog
+            .LoadAsync(capabilityQuery, forceRefresh: true, cancellationToken: ct)
+            .ConfigureAwait(true);
+        var capabilities = _capabilityCatalog.GetSnapshot(capabilityQuery);
         var activeAgent = chat.AgentId.HasValue
             ? _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == chat.AgentId.Value)
             : null;
@@ -2016,25 +2037,21 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _dataStore.SnapshotBackgroundJobs());
 
         var sdkAgentName = GetSessionSdkAgentName(chat, CurrentChat, SelectedSdkAgentName);
-        var externalAgent = activeAgent is null
-            ? FindExternalAgentByName(projectContextCatalog, sdkAgentName)
-            : null;
-        var mcpServers = BuildMcpServers(workDir, projectContextCatalog, chat, activeAgent);
+        var mcpPlan = BuildMcpPlan(workDir, capabilities, chat, activeAgent);
+        _sessionMcpPlans[chat.Id] = mcpPlan;
 
-        var customAgents = BuildCustomAgents(projectContextCatalog);
-        var customTools = BuildCustomTools(chat.Id, activeAgent, projectContextCatalog);
-        if (!string.IsNullOrWhiteSpace(externalAgent?.Content))
-            systemPrompt = (systemPrompt ?? "") + "\n\n--- Active Agent: " + externalAgent.Name + " ---\n" + externalAgent.Content;
+        var agentName = ResolveSessionAgentName(
+            activeAgent,
+            ResolveRoutedAgentName(capabilities, sdkAgentName));
 
-        var skillDirs = new List<string>();
-        // Active skills are injected into the system prompt. Inactive Lumi skills are loaded lazily
-        // through fetch_skill, while canonical workspace .github/skills roots are handed to the SDK
-        // for native discovery and invocation.
-        foreach (var nativeSkillDir in projectContextCatalog.SkillDirectories)
-        {
-            if (!skillDirs.Contains(nativeSkillDir, StringComparer.OrdinalIgnoreCase))
-                skillDirs.Add(nativeSkillDir);
-        }
+        var customAgents = BuildCustomAgents(capabilities, agentName);
+        var customTools = BuildCustomTools(chat.Id, activeAgent);
+
+        // Active skills are injected into the system prompt and inactive Lumi skills are loaded
+        // lazily through fetch_skill. Everything the Copilot runtime owns — project, personal,
+        // plugin and built-in skills — is discovered by the SDK itself. The only roots Lumi passes
+        // are the ones the runtime reported that a session's own config directory cannot reach.
+        var skillRoots = capabilities.SessionSkillRoots.ToList();
 
         var selectedModel = ResolveSelectedModelForChat(chat);
         var persistedEffort = ResolvePersistedReasoningEffortForChat(chat, selectedModel);
@@ -2044,11 +2061,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         var effort = persistedEffort;
         var contextTier = ResolveSelectedContextWindowTierForChat(chat, selectedModel);
-        var agentName = ResolveSessionAgentName(
-            activeAgent,
-            externalAgent,
-            sdkAgentName,
-            allowSdkAgentRouting: CanRouteSdkAgentByName(chat, externalAgent, sdkAgentName));
 
         // Native user input handler — wired to the existing question card UI.
         // Capture chat.Id in the closure so questions always target the owning chat,
@@ -2111,7 +2123,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         // When MCP servers are configured, apply a timeout so a broken server
         // doesn't block the UI indefinitely.
-        using var sessionCts = mcpServers is { Count: > 0 }
+        using var sessionCts = mcpPlan.Servers is { Count: > 0 }
             ? CancellationTokenSource.CreateLinkedTokenSource(ct)
             : null;
         sessionCts?.CancelAfter(TimeSpan.FromSeconds(30));
@@ -2166,7 +2178,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         var initialSetupStatus = ResolveInitialSessionSetupStatus(
             hasPersistedSession: chat.CopilotSessionId is not null,
-            hasMcpServers: mcpServers is { Count: > 0 });
+            hasMcpServers: mcpPlan.Servers is { Count: > 0 });
         if (initialSetupStatus is not null)
             SetSessionSetupStatus(chat, initialSetupStatus);
 
@@ -2174,17 +2186,24 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // tooling, MCP, reasoning/context settings, and the resolved BYOK provider) so the three
         // create/resume call sites below don't repeat the long argument list — they stay in sync
         // automatically on future signature changes, and the BYOK provider wiring lives in one place.
+        //
+        // Discovery is enabled only from a resolved snapshot. Config discovery starts every server
+        // not named in DisabledMcpServers, and that list is derived from the snapshot — so building
+        // from an unresolved one would start the very servers the user deselected. Running without
+        // discovery degrades the session; running with it on a partial view is unsafe.
+        var capabilitiesResolved = capabilities.IsComplete;
+
         SessionConfig buildSessionConfig() =>
             SessionConfigBuilder.Build(
-                systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
-                provider: byokProvider);
+                systemPrompt, selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
+                effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
+                provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved);
 
         ResumeSessionConfig buildResumeConfig() =>
             SessionConfigBuilder.BuildForResume(
-                systemPrompt, selectedModel, workDir, skillDirs, customAgents, customTools,
-                mcpServers, effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
-                provider: byokProvider);
+                systemPrompt, selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
+                effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
+                provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved);
 
         if (chat.CopilotSessionId is not null)
             await AwaitPendingSessionReleaseAsync(chat.Id, sessionCt);
@@ -2212,9 +2231,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
                 // Check MCP server status after session creation and surface errors. Sessions with
                 // remote servers wait for them so the first prompt carries their tools.
-                if (mcpServers is { Count: > 0 })
+                if (mcpPlan.Servers is { Count: > 0 })
                 {
-                    await BeginMcpServerStatusCheckAsync(createdSession, chat.Id, mcpServers, ct);
+                    await BeginMcpServerStatusCheckAsync(createdSession, chat.Id, mcpPlan.Servers, ct);
                 }
 
                 _staleBackgroundJobPromptChats.Remove(chat.Id);
@@ -2252,11 +2271,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 RecordSessionProviderSignature(chat, currentByokSignature);
                 _dataStore.MarkChatChanged(chat);
 
-                if (mcpServers is { Count: > 0 })
+                if (mcpPlan.Servers is { Count: > 0 })
                 {
-                    if (HasRemoteMcpServers(mcpServers))
+                    if (HasRemoteMcpServers(mcpPlan.Servers))
                         SetSessionSetupStatus(chat, Loc.Status_ConnectingMcp);
-                    await BeginMcpServerStatusCheckAsync(session, chat.Id, mcpServers, ct);
+                    await BeginMcpServerStatusCheckAsync(session, chat.Id, mcpPlan.Servers, ct);
                 }
 
                 // The SDK does not automatically change the session model on resume —
@@ -2309,7 +2328,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         try
         {
-            if (mcpServers is { Count: > 0 })
+            if (mcpPlan.Servers is { Count: > 0 })
                 SetSessionSetupStatus(chat, Loc.Status_ConnectingMcp);
 
             var createConfig = buildSessionConfig();
@@ -2322,8 +2341,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 return false;
             }
             _activeSession = createdSession;
-            if (mcpServers is { Count: > 0 })
-                await BeginMcpServerStatusCheckAsync(createdSession, chat.Id, mcpServers, ct);
+            if (mcpPlan.Servers is { Count: > 0 })
+                await BeginMcpServerStatusCheckAsync(createdSession, chat.Id, mcpPlan.Servers, ct);
             RecordSessionProviderSignature(chat, currentByokSignature);
             _dataStore.MarkChatChanged(chat);
             await SaveChatAsync(chat, saveIndex: true);
@@ -2506,54 +2525,36 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 _activeExternalSkillNames.Add(skillName);
             RefreshActiveSkillChipsFromState();
 
-            // Restore active MCP servers from chat (default to all enabled for older chats with no saved selection)
+            // Restore active MCP servers from chat (default to all available for older chats with no saved selection)
             ActiveMcpServerNames.Clear();
             ActiveMcpChips.Clear();
-            var enabledServersByName = new Dictionary<string, McpServer>(StringComparer.Ordinal);
-            foreach (var server in _dataStore.Data.McpServers)
-            {
-                if (server.IsEnabled && !enabledServersByName.ContainsKey(server.Name))
-                    enabledServersByName[server.Name] = server;
-            }
+            var capabilitySnapshot = GetCapabilities(chat);
+            var availableMcpByName = new Dictionary<string, CapabilityDescriptor>(StringComparer.OrdinalIgnoreCase);
+            foreach (var server in capabilitySnapshot.UserInvocable(CapabilityKind.McpServer))
+                availableMcpByName.TryAdd(server.Name, server);
 
-            // Restore project-scoped MCPs from the same context catalog used for sessions.
-            var projectContextMcpNames = GetProjectContextCatalog(chat).McpServers
-                .Select(server => server.Name)
-                .ToList();
+            void AddActiveMcp(string name, CapabilityDescriptor? server)
+            {
+                if (ActiveMcpServerNames.Contains(name))
+                    return;
+
+                ActiveMcpServerNames.Add(name);
+                ActiveMcpChips.Add(ToMcpChip(name, server));
+            }
 
             if (chat.HasExplicitMcpServerSelection || chat.ActiveMcpServerNames.Count > 0)
             {
+                // Keep a saved name even when the catalog has not resolved it yet: Copilot discovery
+                // may still be in flight, and dropping it here would silently lose the selection.
                 foreach (var name in chat.ActiveMcpServerNames)
-                {
-                    if (enabledServersByName.ContainsKey(name))
-                    {
-                        ActiveMcpServerNames.Add(name);
-                        ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name));
-                    }
-                    else if (projectContextMcpNames.Contains(name))
-                    {
-                        ActiveMcpServerNames.Add(name);
-                        ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name, "🔌"));
-                    }
-                }
+                    AddActiveMcp(name, availableMcpByName.GetValueOrDefault(name));
             }
             else
             {
-                // Older chats did not store whether an empty list was intentional, so default them to all enabled.
-                foreach (var server in enabledServersByName.Values)
-                {
-                    ActiveMcpServerNames.Add(server.Name);
-                    ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(server.Name));
-                }
-                // Also include project-context MCPs by default.
-                foreach (var name in projectContextMcpNames)
-                {
-                    if (!ActiveMcpServerNames.Contains(name))
-                    {
-                        ActiveMcpServerNames.Add(name);
-                        ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name, "🔌"));
-                    }
-                }
+                // Older chats did not store whether an empty list was intentional, so default them
+                // to every capability the pipeline currently offers.
+                foreach (var server in availableMcpByName.Values)
+                    AddActiveMcp(server.Name, server);
             }
 
             // Restore active agent from chat
@@ -2574,10 +2575,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // loading overlay up after the transcript is already interactive.
             QueueRefreshCodingProjectState();
 
-            // Refresh SDK agents if we have a session
             if (_activeSession is not null)
             {
-                _ = PopulateFromSessionAsync();
                 _ = RefreshPlanAsync(chat);
             }
             else if (!string.IsNullOrWhiteSpace(chat.PlanContent))
@@ -2593,9 +2592,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 PlanContent = null;
             }
 
-            // Refresh composer catalogs for the new chat's project context so workspace
-            // MCPs, agents, and skills from .vscode/mcp.json and .github/ are available.
+            // Paint immediately from live Lumi data and cached discovery, then refresh this context
+            // without making chat opening (or forking) wait on the Copilot runtime.
             RefreshComposerCatalogs();
+            QueueCapabilityRefresh(BuildCapabilityQuery(), forceRefresh: true);
         }
         catch (OperationCanceledException) when (loadToken.IsCancellationRequested)
         {
@@ -2671,9 +2671,20 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (!string.IsNullOrWhiteSpace(skill.Content))
             return skill.Content;
 
-        var externalSkill = GetProjectContextCatalog().FindSkill(skill.Name);
-        if (externalSkill is not null && !string.IsNullOrWhiteSpace(externalSkill.Content))
-            return externalSkill.Content;
+        var externalSkill = GetCapabilities().FindSkill(skill.Name);
+        if (externalSkill is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(externalSkill.Content))
+                return externalSkill.Content;
+
+            // The runtime reports a skill's location but not its body, so render the exact file it
+            // named. This reads one known path for display only — it is not discovery.
+            if (CapabilityContent.TryReadBody(externalSkill, out var body))
+                return body;
+
+            if (!string.IsNullOrWhiteSpace(externalSkill.Description))
+                return externalSkill.Description;
+        }
 
         return string.IsNullOrWhiteSpace(skill.Description)
             ? "_No content is available for this skill._"
@@ -2724,8 +2735,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ContextTokenLimit = 0;
         ActiveSkillIds.Clear();
         ActiveSkillChips.Clear();
-        ActiveMcpServerNames.Clear();
-        ActiveMcpChips.Clear();
+        // Clearing the chips raises Reset, which the collection handler treats as user curation.
+        // Suppress it: this is teardown, not a choice the user made about the next draft.
+        _suppressActiveMcpCollectionSync = true;
+        try
+        {
+            ActiveMcpServerNames.Clear();
+            ActiveMcpChips.Clear();
+        }
+        finally
+        {
+            _suppressActiveMcpCollectionSync = false;
+        }
         PendingAttachments.Clear();
         PendingAttachmentItems.Clear();
         AvailableFileSuggestions = null;
@@ -2733,6 +2754,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _fileSearchCts?.Dispose();
         _fileSearchCts = null;
         PopulateDefaultMcps();
+        // A fresh draft starts uncurated, so newly discovered servers are offered again. Set this
+        // after the collections settle: clearing and repopulating them would otherwise flip it.
+        _draftMcpSelectionCurated = false;
         _pendingProjectId = null;
         _pendingSkillInjections.Clear();
         _pendingExternalSkillInjections.Clear();
@@ -2842,7 +2866,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
-        RefreshComposerCatalogs();
+        RefreshCapabilities();
         RefreshActiveSkillChipsFromState();
         QueueRefreshCodingProjectState();
     }
@@ -3340,8 +3364,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     targetChat.CopilotSessionId,
                     StringComparison.Ordinal);
 
-                if (CurrentChat?.Id == chatId)
-                    _ = PopulateFromSessionAsync();
                 _ = RefreshQuotaAsync();
             }
 
@@ -3815,7 +3837,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var skillIds = new List<Guid>();
         var externalSkillNames = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        ProjectContextCatalogSnapshot? projectContextCatalog = null;
+        CapabilitySnapshot? capabilities = null;
 
         foreach (var skillRef in skillReferences)
         {
@@ -3829,21 +3851,21 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 continue;
             }
 
-            // A name is only a file-based skill if the catalog still resolves it *and* the session
-            // can actually load it. Lumi pins EnableConfigDiscovery off, so only workspace skill
-            // roots reach the session — a personal (~/.copilot) or packaged skill resolves here but
-            // would fail activation as an unknown slash command. Names matching neither store are
-            // dangling references (a Lumi-managed skill deleted after the message was sent, or a
-            // repo skill removed from disk); keeping those would put a stale chip in the composer
-            // and surface a misleading activation error. This mirrors the composer's own filter in
-            // DiscoverCopilotItems so a restored selection can never offer more than the menu does.
-            projectContextCatalog ??= GetProjectContextCatalog();
-            if (projectContextCatalog.FindSkill(skillRef.Name) is { } externalSkill
-                && CopilotConfigCatalog.IsSessionLoadableSkill(
-                    externalSkill,
-                    projectContextCatalog.SkillDirectories))
+            // A name is only a Copilot-owned skill if the capability pipeline still resolves it.
+            // Names matching neither store are dangling references (a Lumi-managed skill deleted
+            // after the message was sent, or a repo skill removed from disk); keeping those would
+            // put a stale chip in the composer and surface a misleading activation error. Only a
+            // resolved snapshot can prove a name is dangling — while discovery is in flight every
+            // discovered skill looks missing, so the reference is kept.
+            capabilities ??= GetCapabilities();
+            if (capabilities.FindSkill(skillRef.Name) is { } externalSkill)
             {
-                externalSkillNames.Add(externalSkill.Name);
+                if (!externalSkill.Origin.IsLumi)
+                    externalSkillNames.Add(externalSkill.Name);
+            }
+            else if (!capabilities.IsComplete)
+            {
+                externalSkillNames.Add(skillRef.Name);
             }
         }
 
@@ -4226,7 +4248,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 ActiveSkillIds = new List<Guid>(ActiveSkillIds),
                 ActiveExternalSkillNames = new List<string>(_activeExternalSkillNames),
                 ActiveMcpServerNames = new List<string>(ActiveMcpServerNames),
-                HasExplicitMcpServerSelection = true,
+                // Carry the draft's curation state rather than asserting it: a draft whose MCP list
+                // was only auto-populated must keep receiving newly discovered servers, while one
+                // the user actually edited must not have their removals added back.
+                HasExplicitMcpServerSelection = _draftMcpSelectionCurated,
                 SdkAgentName = SelectedSdkAgentName,
                 LastModelUsed = SelectedModel,
                 LastReasoningEffortUsed = selectedReasoningEffort,
@@ -4242,6 +4267,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _pendingProjectId = null;
             _dataStore.Data.Chats.Add(chat);
             CurrentChat = chat;
+            // The draft's curation state now lives on the chat.
+            _draftMcpSelectionCurated = false;
             createdChat = true;
             needsWorktreeCreation = IsWorktreeMode && WorktreePath is null;
         }
@@ -4462,8 +4489,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // Agent is pre-selected via SessionConfig.Agent in EnsureSessionAsync.
                 // File-based Copilot agents are handled via system prompt injection.
 
-                // Discover SDK agents in background (non-blocking)
-                _ = PopulateFromSessionAsync();
                 // Refresh quota in background
                 _ = RefreshQuotaAsync();
             }
@@ -4939,6 +4964,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         _sessionProviderSignatures.Remove(chat.Id);
+
+        _sessionMcpPlans.Remove(chat.Id);
         DisposeSessionSubscription(chat.Id);
 
         if (CurrentChat?.Id == chat.Id
@@ -5025,6 +5052,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
         }
         _sessionProviderSignatures.Remove(chat.Id);
+        _sessionMcpPlans.Remove(chat.Id);
         if (!string.IsNullOrWhiteSpace(detachedSessionId)
             && string.Equals(_activeSession?.SessionId, detachedSessionId, StringComparison.Ordinal))
         {
@@ -5105,11 +5133,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return string.Empty;
 
         var builder = new StringBuilder();
+        var commandIds = await ResolveSkillCommandIdsAsync(session, ct).ConfigureAwait(true);
         foreach (var skillName in skillNames)
         {
             try
             {
-                var result = await session.Rpc.Commands.InvokeAsync(skillName, string.Empty, ct);
+                var commandId = ResolveSkillCommandId(commandIds, skillName);
+                var result = await session.Rpc.Commands.InvokeAsync(commandId, string.Empty, ct);
                 if (result is GitHub.Copilot.Rpc.SlashCommandInvocationResultAgentPrompt { Prompt: { Length: > 0 } directive })
                     builder.Append(directive).Append('\n');
             }
@@ -5127,15 +5157,87 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
             catch (Exception ex)
             {
-                // The composer menu is populated from disk, so a skill can be listed but unknown to
-                // the CLI (renamed, deleted, or an unreadable SKILL.md). Report it instead of sending
-                // a turn that silently lacks the skill the user asked for.
+                // A skill can be offered but unknown to this session (renamed, deleted, or an
+                // unreadable definition). Report it instead of sending a turn that silently lacks
+                // the skill the user asked for.
                 Debug.WriteLine($"[Skills] Failed to activate '{skillName}': {ex.Message}");
                 AppendSkillActivationError(chat, skillName);
             }
         }
 
         return builder.Length == 0 ? string.Empty : builder.ToString() + "\n";
+    }
+
+    /// <summary>
+    /// Lists the slash commands this session registered for skills.
+    /// </summary>
+    /// <remarks>
+    /// A skill's invocable command id is not always its name: plugin-supplied skills are namespaced
+    /// as <c>&lt;plugin&gt;:&lt;skill&gt;</c>. Asking the session rather than assuming keeps
+    /// activation working for every source without Lumi encoding the CLI's naming rule.
+    /// </remarks>
+    private static async Task<IReadOnlyList<string>> ResolveSkillCommandIdsAsync(
+        CopilotSession session,
+        CancellationToken ct)
+    {
+        try
+        {
+            var commands = await session.Rpc.Commands.ListAsync(null, ct).ConfigureAwait(true);
+            return commands?.Commands is { Count: > 0 } list
+                ? list.Where(static command => !string.IsNullOrWhiteSpace(command.Name))
+                    .Select(static command => command.Name)
+                    .ToArray()
+                : [];
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Debug.WriteLine($"[Skills] Could not list session commands: {ex.Message}");
+            return [];
+        }
+    }
+
+    /// <summary>Maps a skill name onto the command id this session accepts for it.</summary>
+    internal static string ResolveSkillCommandId(IReadOnlyList<string> commandIds, string skillName)
+    {
+        foreach (var id in commandIds)
+        {
+            if (string.Equals(id, skillName, StringComparison.OrdinalIgnoreCase))
+                return id;
+        }
+
+        // Plugin skills are registered as "<plugin>:<skill>" while the catalog reports the bare
+        // name, and a skill whose front-matter name contains spaces is registered by its slug. Try
+        // both shapes before giving up.
+        return MatchCommandId(commandIds, skillName)
+            ?? MatchCommandId(commandIds, CapabilitySnapshot.Slugify(skillName))
+            ?? skillName;
+    }
+
+    /// <summary>
+    /// Finds the single command id equal to <paramref name="name"/> or ending in
+    /// <c>:&lt;name&gt;</c>. Returns null when nothing matches, or when two plugins both provide it
+    /// — picking arbitrarily could run the wrong skill, so the runtime decides instead.
+    /// </summary>
+    private static string? MatchCommandId(IReadOnlyList<string> commandIds, string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        string? match = null;
+        foreach (var id in commandIds)
+        {
+            var separator = id.LastIndexOf(':');
+            var candidate = separator < 0 ? id : id[(separator + 1)..];
+            if (!string.Equals(candidate, name, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (match is not null)
+                return null;
+
+            match = id;
+        }
+
+        return match;
     }
 
     /// <summary>

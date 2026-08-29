@@ -132,8 +132,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
     private static SessionConfig SimpleConfig(string? systemPrompt = null) =>
         SessionConfigBuilder.Build(
             systemPrompt: systemPrompt,
-            model: null, workingDirectory: null, skillDirectories: null,
-            customAgents: null, tools: null, mcpServers: null,
+            model: null, workingDirectory: null, mcpPlan: null,
+            skillDirectories: null,
+            customAgents: null, tools: null,
             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
 
@@ -369,8 +370,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
         // Resume into a new session object
         var resumeConfig = SessionConfigBuilder.BuildForResume(
             systemPrompt: "You are a helpful assistant. Remember everything.",
-            model: null, workingDirectory: null, skillDirectories: null,
-            customAgents: null, tools: null, mcpServers: null,
+            model: null, workingDirectory: null, mcpPlan: null,
+            skillDirectories: null,
+            customAgents: null, tools: null,
             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
         var session2 = await _service.ResumeSessionAsync(sessionId, resumeConfig);
@@ -617,8 +619,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         var config = SessionConfigBuilder.Build(
             systemPrompt: "You are a weather assistant. You MUST use the get_weather tool whenever a user asks about weather. Do not answer weather questions without calling the tool first.",
-            model: null, workingDirectory: null, skillDirectories: null,
-            customAgents: null, tools: [tool], mcpServers: null,
+            model: null, workingDirectory: null, mcpPlan: null,
+            skillDirectories: null,
+            customAgents: null, tools: [tool],
             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: hooks);
 
@@ -693,8 +696,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         var config = SessionConfigBuilder.Build(
             systemPrompt: "You have get_weather and get_time tools. You MUST use BOTH tools whenever asked. Always call get_weather AND get_time. Never skip a tool.",
-            model: null, workingDirectory: null, skillDirectories: null,
-            customAgents: null, tools: [weatherTool, timeTool], mcpServers: null,
+            model: null, workingDirectory: null, mcpPlan: null,
+            skillDirectories: null,
+            customAgents: null, tools: [weatherTool, timeTool],
             reasoningEffort: null, userInputHandler: null,
             onPermission: null,
             hooks: new SessionHooks
@@ -737,8 +741,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var workDir = Environment.CurrentDirectory;
         var config = SessionConfigBuilder.Build(
             systemPrompt: "You are a coding assistant.",
-            model: null, workingDirectory: workDir, skillDirectories: null,
-            customAgents: null, tools: null, mcpServers: null,
+            model: null, workingDirectory: workDir, mcpPlan: null,
+            skillDirectories: null,
+            customAgents: null, tools: null,
             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
 
@@ -764,8 +769,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         var config = SessionConfigBuilder.Build(
             systemPrompt: "You MUST use web_search whenever the user asks you to search the web. Do not answer web-search requests without using the tool.",
-            model: null, workingDirectory: null, skillDirectories: null,
-            customAgents: null, tools: null, mcpServers: mcpServers,
+            model: null, workingDirectory: null, mcpPlan: new McpSessionPlan(mcpServers, []),
+            skillDirectories: null,
+            customAgents: null, tools: null,
             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
 
@@ -836,8 +842,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         var config = SessionConfigBuilder.Build(
             systemPrompt: "You have access to sub-agents.",
-            model: null, workingDirectory: null, skillDirectories: null,
-            customAgents: agents, tools: null, mcpServers: null,
+            model: null, workingDirectory: null, mcpPlan: null,
+            skillDirectories: null,
+            customAgents: agents, tools: null,
             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
 
@@ -849,24 +856,26 @@ public class CopilotIntegrationTests : IAsyncLifetime
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 10. Skill directories
+    // 10. Capability discovery is owned by the SDK
     // ═══════════════════════════════════════════════════════════════════════
 
     [SkippableFact]
-    public async Task SkillDirectories_PassedToSession()
+    public async Task SkillDiscovery_IsDelegatedToTheRuntime()
     {
         SkipIfDisabled();
 
-        var skillDir = System.IO.Path.GetTempPath();
         var config = SessionConfigBuilder.Build(
             systemPrompt: "You are a helpful assistant with skills.",
             model: null, workingDirectory: null,
-            skillDirectories: [skillDir],
-            customAgents: null, tools: null, mcpServers: null,
+            mcpPlan: null, skillDirectories: null, customAgents: null, tools: null,
             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
 
-        Assert.Contains(skillDir, config.SkillDirectories!);
+        // Lumi hands the runtime no skill roots: config discovery finds project, personal, plugin
+        // and built-in skills on its own.
+        Assert.Null(config.SkillDirectories);
+        Assert.True(config.EnableSkills);
+        Assert.True(config.EnableConfigDiscovery);
 
         var session = await _service.CreateSessionAsync(config);
         Assert.NotEmpty(session.SessionId);
@@ -914,8 +923,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         var config = SessionConfigBuilder.Build(
             systemPrompt: "When asked about preferences, ask the user.",
-            model: null, workingDirectory: null, skillDirectories: null,
-            customAgents: null, tools: null, mcpServers: null,
+            model: null, workingDirectory: null, mcpPlan: null,
+            skillDirectories: null,
+            customAgents: null, tools: null,
             reasoningEffort: null, userInputHandler: handler,
             onPermission: null, hooks: null);
 
@@ -943,8 +953,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         var config = SessionConfigBuilder.Build(
             systemPrompt: "You are a calculator. You MUST use the calculate tool for every math question. Never compute anything yourself — always call the tool.",
-            model: null, workingDirectory: null, skillDirectories: null,
-            customAgents: null, tools: [tool], mcpServers: null,
+            model: null, workingDirectory: null, mcpPlan: null,
+            skillDirectories: null,
+            customAgents: null, tools: [tool],
             reasoningEffort: null, userInputHandler: null,
             onPermission: null,
             hooks: new SessionHooks
@@ -1335,8 +1346,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         var config = SessionConfigBuilder.Build(
             systemPrompt: "You are a helpful assistant.",
-            model: null, workingDirectory: null, skillDirectories: null,
-            customAgents: null, tools: null, mcpServers: null,
+            model: null, workingDirectory: null, mcpPlan: null,
+            skillDirectories: null,
+            customAgents: null, tools: null,
             reasoningEffort: "high",
             userInputHandler: null, onPermission: null, hooks: null);
 
@@ -1465,8 +1477,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         var resumeConfig = SessionConfigBuilder.BuildForResume(
             systemPrompt: "You are a helpful assistant.",
-            model: null, workingDirectory: null, skillDirectories: null,
-            customAgents: null, tools: null, mcpServers: null,
+            model: null, workingDirectory: null, mcpPlan: null,
+            skillDirectories: null,
+            customAgents: null, tools: null,
             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
 
@@ -1511,8 +1524,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         var config = SessionConfigBuilder.Build(
             systemPrompt: "You are a helpful assistant.",
-            model: null, workingDirectory: null, skillDirectories: null,
-            customAgents: customAgents, tools: null, mcpServers: null,
+            model: null, workingDirectory: null, mcpPlan: null,
+            skillDirectories: null,
+            customAgents: customAgents, tools: null,
             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
 
@@ -1541,8 +1555,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         var config = SessionConfigBuilder.Build(
             systemPrompt: "You are a helpful assistant.",
-            model: null, workingDirectory: null, skillDirectories: null,
-            customAgents: customAgents, tools: null, mcpServers: null,
+            model: null, workingDirectory: null, mcpPlan: null,
+            skillDirectories: null,
+            customAgents: customAgents, tools: null,
             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
 
@@ -1597,11 +1612,11 @@ public class CopilotIntegrationTests : IAsyncLifetime
         };
 
         var build = SessionConfigBuilder.Build(
-            "prompt", "gpt-4", "/tmp", ["/skills"], agents, [], null,
+            "prompt", "gpt-4", "/tmp", null, null, agents, [],
             "medium", handler, null, hooks);
 
         var resume = SessionConfigBuilder.BuildForResume(
-            "prompt", "gpt-4", "/tmp", ["/skills"], agents, [], null,
+            "prompt", "gpt-4", "/tmp", null, null, agents, [],
             "medium", handler, null, hooks);
 
         Assert.Equal(build.Model, resume.Model);
@@ -1615,6 +1630,8 @@ public class CopilotIntegrationTests : IAsyncLifetime
         Assert.Equal(build.ExcludedTools, resume.ExcludedTools);
         Assert.Equal(build.CustomAgents, resume.CustomAgents);
         Assert.Equal(build.SkillDirectories, resume.SkillDirectories);
+        Assert.Equal(build.EnableSkills, resume.EnableSkills);
+        Assert.Equal(build.EnableConfigDiscovery, resume.EnableConfigDiscovery);
         Assert.NotNull(resume.OnUserInputRequest);
         Assert.NotNull(resume.Hooks);
     }
@@ -1634,8 +1651,8 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         var config = SessionConfigBuilder.Build(
             systemPrompt: null, model: null, workingDirectory: null,
-            skillDirectories: null, customAgents: null, tools: null,
-            mcpServers: null, reasoningEffort: null, userInputHandler: null,
+            mcpPlan: null, skillDirectories: null, customAgents: null, tools: null,
+             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: hooks);
 
         Assert.NotNull(config.Hooks);
@@ -1651,8 +1668,8 @@ public class CopilotIntegrationTests : IAsyncLifetime
     {
         var config = SessionConfigBuilder.Build(
             systemPrompt: null, model: null, workingDirectory: null,
-            skillDirectories: null, customAgents: null, tools: null,
-            mcpServers: null, reasoningEffort: null, userInputHandler: null,
+            mcpPlan: null, skillDirectories: null, customAgents: null, tools: null,
+             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
 
         Assert.Equal("lumi", config.ClientName);
@@ -1678,10 +1695,10 @@ public class CopilotIntegrationTests : IAsyncLifetime
     {
         var config = SessionConfigBuilder.Build(
             systemPrompt: "test", model: null, workingDirectory: null,
-            skillDirectories: [],
+            mcpPlan: new McpSessionPlan([], []),
+           skillDirectories: null,
             customAgents: [],
             tools: [],
-            mcpServers: new Dictionary<string, McpServerConfig>(),
             reasoningEffort: "", userInputHandler: null,
             onPermission: null, hooks: null);
 
@@ -1711,8 +1728,8 @@ public class CopilotIntegrationTests : IAsyncLifetime
     {
         var config = SessionConfigBuilder.Build(
             systemPrompt: "   ", model: null, workingDirectory: null,
-            skillDirectories: null, customAgents: null, tools: null,
-            mcpServers: null, reasoningEffort: null, userInputHandler: null,
+            mcpPlan: null, skillDirectories: null, customAgents: null, tools: null,
+             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
 
         Assert.Null(config.SystemMessage);
@@ -1813,8 +1830,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         var config = SessionConfigBuilder.Build(
             systemPrompt: null, model: null, workingDirectory: null,
-            skillDirectories: null, customAgents: null, tools: null,
-            mcpServers: mcpServers,
+            mcpPlan: new McpSessionPlan(mcpServers, []), skillDirectories: null, customAgents: null, tools: null,
             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
 
@@ -2022,8 +2038,9 @@ public class CopilotIntegrationTests : IAsyncLifetime
     private static ResumeSessionConfig ResumeConfigFor(string systemPrompt) =>
         SessionConfigBuilder.BuildForResume(
             systemPrompt: systemPrompt,
-            model: null, workingDirectory: null, skillDirectories: null,
-            customAgents: null, tools: null, mcpServers: null,
+            model: null, workingDirectory: null, mcpPlan: null,
+            skillDirectories: null,
+            customAgents: null, tools: null,
             reasoningEffort: null, userInputHandler: null,
             onPermission: null, hooks: null);
 }

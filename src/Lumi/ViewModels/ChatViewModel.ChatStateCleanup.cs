@@ -20,6 +20,8 @@ public partial class ChatViewModel
             return;
 
         _isDisposed = true;
+        if (_ownsCapabilityCatalog)
+            _capabilityCatalog.Dispose();
         _copilotService.Reconnected -= OnCopilotReconnected;
         _copilotService.SessionDeletedRemotely -= OnSessionDeletedRemotely;
         _transcriptWindow.PropertyChanged -= OnTranscriptWindowPropertyChanged;

@@ -17,10 +17,10 @@ public sealed class SessionConfigBuilderTests
             systemPrompt: "prompt",
             model: "gpt-5.4",
             workingDirectory: workDir,
-            skillDirectories: [],
+            mcpPlan: new McpSessionPlan([], []),
+           skillDirectories: null,
             customAgents: [],
             tools: [],
-            mcpServers: new Dictionary<string, McpServerConfig>(),
             reasoningEffort: null,
             userInputHandler: null,
             onPermission: null,
@@ -29,13 +29,63 @@ public sealed class SessionConfigBuilderTests
         Assert.Equal(workDir, config.WorkingDirectory);
         Assert.Equal(DataStore.CopilotConfigDir, config.ConfigDirectory);
         Assert.NotEqual(workDir, config.ConfigDirectory);
-        Assert.False(config.EnableConfigDiscovery);
+        // Capability discovery is delegated to the Copilot runtime.
+        Assert.True(config.EnableConfigDiscovery);
+        Assert.True(config.EnableSkills);
+        Assert.Null(config.SkillDirectories);
         Assert.NotNull(config.McpServers);
         Assert.Empty(config.McpServers!);
         Assert.Contains("builtin:web_fetch", config.ExcludedTools!);
         Assert.Contains("builtin:browser", config.ExcludedTools!);
         Assert.Contains("builtin:ask_user", config.ExcludedTools!);
         Assert.DoesNotContain("builtin:web_search", config.ExcludedTools!);
+    }
+
+    [Fact]
+    public void Build_WithUnresolvedCapabilities_DisablesRuntimeDiscovery()
+    {
+        // Config discovery starts every MCP server not named in DisabledMcpServers, and that list
+        // is derived from the capability snapshot. Building from an unresolved snapshot would
+        // therefore start the servers the user deselected, so discovery must fail closed.
+        var config = SessionConfigBuilder.Build(
+            systemPrompt: "prompt",
+            model: "gpt-5.4",
+            workingDirectory: @"C:\Repo",
+            mcpPlan: new McpSessionPlan([], []),
+            skillDirectories: [@"C:\Users\me\.copilot\skills"],
+            customAgents: [],
+            tools: [],
+            reasoningEffort: null,
+            userInputHandler: null,
+            onPermission: null,
+            hooks: null,
+            enableCapabilityDiscovery: false);
+
+        Assert.False(config.EnableConfigDiscovery);
+        Assert.False(config.EnableSkills);
+        Assert.Null(config.SkillDirectories);
+    }
+
+    [Fact]
+    public void BuildForResume_WithUnresolvedCapabilities_DisablesRuntimeDiscovery()
+    {
+        var config = SessionConfigBuilder.BuildForResume(
+            systemPrompt: "prompt",
+            model: "gpt-5.4",
+            workingDirectory: @"C:\Repo",
+            mcpPlan: new McpSessionPlan([], []),
+            skillDirectories: [@"C:\Users\me\.copilot\skills"],
+            customAgents: [],
+            tools: [],
+            reasoningEffort: null,
+            userInputHandler: null,
+            onPermission: null,
+            hooks: null,
+            enableCapabilityDiscovery: false);
+
+        Assert.False(config.EnableConfigDiscovery);
+        Assert.False(config.EnableSkills);
+        Assert.Null(config.SkillDirectories);
     }
 
     [Fact]
@@ -47,10 +97,10 @@ public sealed class SessionConfigBuilderTests
             systemPrompt: "prompt",
             model: "gpt-5.4",
             workingDirectory: workDir,
-            skillDirectories: [],
+            mcpPlan: new McpSessionPlan([], []),
+           skillDirectories: null,
             customAgents: [],
             tools: [],
-            mcpServers: new Dictionary<string, McpServerConfig>(),
             reasoningEffort: null,
             userInputHandler: null,
             onPermission: null,
@@ -59,7 +109,10 @@ public sealed class SessionConfigBuilderTests
         Assert.Equal(workDir, config.WorkingDirectory);
         Assert.Equal(DataStore.CopilotConfigDir, config.ConfigDirectory);
         Assert.NotEqual(workDir, config.ConfigDirectory);
-        Assert.False(config.EnableConfigDiscovery);
+        // Capability discovery is delegated to the Copilot runtime.
+        Assert.True(config.EnableConfigDiscovery);
+        Assert.True(config.EnableSkills);
+        Assert.Null(config.SkillDirectories);
         Assert.NotNull(config.McpServers);
         Assert.Empty(config.McpServers!);
         Assert.Contains("builtin:web_fetch", config.ExcludedTools!);
@@ -75,10 +128,10 @@ public sealed class SessionConfigBuilderTests
             systemPrompt: "prompt",
             model: "gpt-5.4",
             workingDirectory: @"C:\Repo",
-            skillDirectories: [],
+            mcpPlan: new McpSessionPlan([], []),
+           skillDirectories: null,
             customAgents: [],
             tools: [],
-            mcpServers: new Dictionary<string, McpServerConfig>(),
             reasoningEffort: null,
             userInputHandler: null,
             onPermission: null,
@@ -98,10 +151,10 @@ public sealed class SessionConfigBuilderTests
             systemPrompt: "prompt",
             model: "gpt-5.4",
             workingDirectory: @"C:\Repo",
-            skillDirectories: [],
+            mcpPlan: new McpSessionPlan([], []),
+           skillDirectories: null,
             customAgents: [],
             tools: [],
-            mcpServers: new Dictionary<string, McpServerConfig>(),
             reasoningEffort: null,
             userInputHandler: null,
             onPermission: null,
@@ -117,10 +170,10 @@ public sealed class SessionConfigBuilderTests
             systemPrompt: "prompt",
             model: "gpt-5.5",
             workingDirectory: @"C:\Repo",
-            skillDirectories: [],
+            mcpPlan: new McpSessionPlan([], []),
+           skillDirectories: null,
             customAgents: [],
             tools: [],
-            mcpServers: new Dictionary<string, McpServerConfig>(),
             reasoningEffort: "high",
             userInputHandler: null,
             onPermission: null,
@@ -136,10 +189,10 @@ public sealed class SessionConfigBuilderTests
             systemPrompt: "prompt",
             model: "gpt-5.6-sol",
             workingDirectory: @"C:\Repo",
-            skillDirectories: [],
+            mcpPlan: new McpSessionPlan([], []),
+           skillDirectories: null,
             customAgents: [],
             tools: [],
-            mcpServers: new Dictionary<string, McpServerConfig>(),
             reasoningEffort: "high",
             userInputHandler: null,
             onPermission: null,
@@ -168,10 +221,10 @@ public sealed class SessionConfigBuilderTests
             systemPrompt: "prompt",
             model: "gpt-5.5",
             workingDirectory: @"C:\Repo",
-            skillDirectories: [],
+            mcpPlan: new McpSessionPlan([], []),
+           skillDirectories: null,
             customAgents: [],
             tools: [],
-            mcpServers: new Dictionary<string, McpServerConfig>(),
             reasoningEffort: "high",
             userInputHandler: null,
             onPermission: null,
@@ -188,10 +241,10 @@ public sealed class SessionConfigBuilderTests
             systemPrompt: "prompt",
             model: "gpt-5.5",
             workingDirectory: @"C:\Repo",
-            skillDirectories: [],
+            mcpPlan: new McpSessionPlan([], []),
+           skillDirectories: null,
             customAgents: [],
             tools: [],
-            mcpServers: new Dictionary<string, McpServerConfig>(),
             reasoningEffort: "high",
             userInputHandler: null,
             onPermission: null,
@@ -207,10 +260,10 @@ public sealed class SessionConfigBuilderTests
             systemPrompt: "prompt",
             model: "gpt-5.5",
             workingDirectory: @"C:\Repo",
-            skillDirectories: [],
+            mcpPlan: new McpSessionPlan([], []),
+           skillDirectories: null,
             customAgents: [],
             tools: [],
-            mcpServers: new Dictionary<string, McpServerConfig>(),
             reasoningEffort: "high",
             userInputHandler: null,
             onPermission: null,
@@ -229,6 +282,7 @@ public sealed class SessionConfigBuilderTests
         });
 
         Assert.Equal(DataStore.CopilotConfigDir, config.ConfigDirectory);
+        // Helper sessions stay isolated: no capability discovery at all.
         Assert.False(config.EnableConfigDiscovery);
     }
 

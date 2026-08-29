@@ -1,6 +1,7 @@
 using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Capabilities;
 using Lumi.ViewModels;
 using Microsoft.Extensions.AI;
 using System.Reflection;
@@ -54,21 +55,16 @@ public sealed class ChatViewModelAgentRoutingTests
     }
 
     [Fact]
-    public void ResolveSessionAgentName_DoesNotRouteFileBasedExternalAgentThroughSessionConfig()
+    public void ResolveSessionAgentName_RoutesDiscoveredAgentThroughSessionConfig()
     {
-        var externalAgent = new CopilotAgentDefinition(
-            "Workspace Agent",
-            "Workspace-specific agent",
-            "Use workspace context.",
-            "AGENT.md");
-
+        // A discovered agent is registered with the runtime as a custom agent, so it is applied by
+        // name rather than by concatenating its body onto Lumi's system prompt — which would make
+        // every agent switch require a brand-new session.
         var agentName = ChatViewModel.ResolveSessionAgentName(
             activeAgent: null,
-            externalAgent,
-            sdkAgentName: "Workspace Agent",
-            allowSdkAgentRouting: true);
+            routedAgentName: "Workspace Agent");
 
-        Assert.Null(agentName);
+        Assert.Equal("Workspace Agent", agentName);
     }
 
     [Fact]
@@ -76,9 +72,7 @@ public sealed class ChatViewModelAgentRoutingTests
     {
         var agentName = ChatViewModel.ResolveSessionAgentName(
             activeAgent: null,
-            externalAgent: null,
-            sdkAgentName: "Project B Agent",
-            allowSdkAgentRouting: false);
+            routedAgentName: null);
 
         Assert.Null(agentName);
     }
@@ -88,13 +82,74 @@ public sealed class ChatViewModelAgentRoutingTests
     {
         var lumiAgent = new LumiAgent { Name = "Coding Lumi" };
 
-        var agentName = ChatViewModel.ResolveSessionAgentName(
-            lumiAgent,
-            externalAgent: null,
-            sdkAgentName: "Project B Agent",
-            allowSdkAgentRouting: false);
+        var agentName = ChatViewModel.ResolveSessionAgentName(lumiAgent, routedAgentName: null);
 
         Assert.Equal("Coding Lumi", agentName);
+    }
+
+    [Theory]
+    [InlineData("Lumi QA")]
+    [InlineData("lumi-qa")]
+    [InlineData("LUMI_QA")]
+    public void ResolveRoutedAgentName_ReturnsTheCanonicalNameTheSessionRegistered(string savedName)
+    {
+        // The runtime matches config.Agent against a registered agent's name exactly, but a saved
+        // selection can hold an older or slugged spelling — routing it verbatim would activate
+        // nothing at all.
+        var routed = InvokeResolveRoutedAgentName(SnapshotWithAgent("Lumi QA"), savedName);
+
+        Assert.Equal("Lumi QA", routed);
+    }
+
+    [Fact]
+    public void ResolveRoutedAgentName_RejectsASubagentOnlyAgent()
+    {
+        // UserInvocable=false means the agent may be delegated to but never becomes the persona.
+        var snapshot = SnapshotWithAgent("Delegate Only", isUserInvocable: false);
+
+        Assert.Null(InvokeResolveRoutedAgentName(snapshot, "Delegate Only"));
+    }
+
+    [Fact]
+    public void ResolveRoutedAgentName_RejectsALumiAgent()
+    {
+        var snapshot = new CapabilitySnapshot(
+            CapabilityQuery.Empty,
+            [
+                new CapabilityDescriptor
+                {
+                    Kind = CapabilityKind.Agent,
+                    Name = "Coding Lumi",
+                    Origin = CapabilityOrigin.Lumi,
+                    LumiId = Guid.NewGuid(),
+                },
+            ],
+            isComplete: true);
+
+        Assert.Null(InvokeResolveRoutedAgentName(snapshot, "Coding Lumi"));
+    }
+
+    private static CapabilitySnapshot SnapshotWithAgent(string name, bool isUserInvocable = true)
+        => new(
+            CapabilityQuery.Empty,
+            [
+                new CapabilityDescriptor
+                {
+                    Kind = CapabilityKind.Agent,
+                    Name = name,
+                    Origin = CapabilityOrigin.Personal,
+                    IsUserInvocable = isUserInvocable,
+                },
+            ],
+            isComplete: true);
+
+    private static string? InvokeResolveRoutedAgentName(CapabilitySnapshot capabilities, string? name)
+    {
+        var method = typeof(ChatViewModel).GetMethod(
+            "ResolveRoutedAgentName",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return (string?)method!.Invoke(null, [capabilities, name]);
     }
 
     [Fact]
@@ -737,6 +792,118 @@ public sealed class ChatViewModelAgentRoutingTests
     }
 
     [Fact]
+    public void BuildCustomAgents_ForwardsADiscoveredAgentsAuthoredRestrictions()
+    {
+        // Regression: only the prompt was forwarded, so an agent authored with a restricted tool
+        // list was registered with none — and an empty allowlist means "no restriction", silently
+        // granting it every tool.
+        using var harness = CreateHarness(new AppData());
+        var snapshot = new CapabilitySnapshot(
+            CapabilityQuery.Empty,
+            [
+                new CapabilityDescriptor
+                {
+                    Kind = CapabilityKind.Agent,
+                    Name = "Auditor",
+                    Origin = CapabilityOrigin.Personal,
+                    Content = "You audit code.",
+                    Behavior = new AgentBehavior(["read_file", "grep"], "claude-opus-5", ["Code Helper"]),
+                },
+            ],
+            isComplete: true);
+
+        var config = Assert.Single(InvokeBuildCustomAgents(harness.ViewModel, snapshot));
+
+        Assert.Equal("Auditor", config.Name);
+        Assert.Equal(["read_file", "grep"], config.Tools);
+        Assert.Equal("claude-opus-5", config.Model);
+        Assert.Equal(["Code Helper"], config.Skills);
+    }
+
+    [Fact]
+    public void BuildCustomAgents_DoesNotApplyAuthoredToolsToTheActivePersona()
+    {
+        // Regression: CustomAgentConfig.Tools is an SDK-wide allowlist while an agent is active, so
+        // forwarding an author's `tools:` for the persona stripped Copilot built-ins and every Lumi
+        // tool from the chat. Those settings belong to delegation only.
+        using var harness = CreateHarness(new AppData());
+        var snapshot = new CapabilitySnapshot(
+            CapabilityQuery.Empty,
+            [
+                new CapabilityDescriptor
+                {
+                    Kind = CapabilityKind.Agent,
+                    Name = "Auditor",
+                    Origin = CapabilityOrigin.Project,
+                    Content = "You audit code.",
+                    Behavior = new AgentBehavior(["read_file"], "claude-opus-5", null),
+                },
+            ],
+            isComplete: true);
+
+        var asPersona = Assert.Single(InvokeBuildCustomAgents(harness.ViewModel, snapshot, "Auditor"));
+        Assert.Null(asPersona.Tools);
+        Assert.Null(asPersona.Model);
+        Assert.Equal("You audit code.", asPersona.Prompt);
+
+        // The same agent keeps its authored restrictions when it is only a delegation target.
+        var asSubagent = Assert.Single(InvokeBuildCustomAgents(harness.ViewModel, snapshot, "Someone Else"));
+        Assert.Equal(["read_file"], asSubagent.Tools);
+        Assert.Equal("claude-opus-5", asSubagent.Model);
+    }
+
+    [Fact]
+    public void BuildCustomAgents_ForwardsAnAuthoredEmptyToolAllowlistAsEmpty()
+    {
+        // The two SDK contracts are inverted: AgentInfo.Tools == [] means "no tools", while
+        // CustomAgentConfig.Tools == null means "every tool". Collapsing one into the other would
+        // hand an agent authored to use nothing the entire toolset.
+        using var harness = CreateHarness(new AppData());
+        var snapshot = new CapabilitySnapshot(
+            CapabilityQuery.Empty,
+            [
+                new CapabilityDescriptor
+                {
+                    Kind = CapabilityKind.Agent,
+                    Name = "Talker",
+                    Origin = CapabilityOrigin.Personal,
+                    Content = "You only talk.",
+                    Behavior = new AgentBehavior([], null, null),
+                },
+            ],
+            isComplete: true);
+
+        var config = Assert.Single(InvokeBuildCustomAgents(harness.ViewModel, snapshot));
+
+        Assert.NotNull(config.Tools);
+        Assert.Empty(config.Tools!);
+    }
+
+    [Fact]
+    public void BuildCustomAgents_LeavesAnUnrestrictedDiscoveredAgentUnrestricted()
+    {
+        using var harness = CreateHarness(new AppData());
+        var snapshot = new CapabilitySnapshot(
+            CapabilityQuery.Empty,
+            [
+                new CapabilityDescriptor
+                {
+                    Kind = CapabilityKind.Agent,
+                    Name = "Helper",
+                    Origin = CapabilityOrigin.Project,
+                    Content = "You help.",
+                    Behavior = new AgentBehavior(null, null, null),
+                },
+            ],
+            isComplete: true);
+
+        var config = Assert.Single(InvokeBuildCustomAgents(harness.ViewModel, snapshot));
+
+        Assert.Null(config.Tools);
+        Assert.Null(config.Model);
+    }
+
+    [Fact]
     public void BuildCustomAgents_DoesNotSetSdkToolAllowlist()
     {
         var agent = new LumiAgent
@@ -864,14 +1031,18 @@ public sealed class ChatViewModelAgentRoutingTests
             DefaultReasoningEffort = efforts.Length > 0 ? "high" : null
         };
 
-    private static List<CustomAgentConfig> InvokeBuildCustomAgents(ChatViewModel viewModel)
+    private static List<CustomAgentConfig> InvokeBuildCustomAgents(
+        ChatViewModel viewModel,
+        CapabilitySnapshot? capabilities = null,
+        string? activeAgentName = null)
     {
         var method = typeof(ChatViewModel).GetMethod(
             "BuildCustomAgents",
             BindingFlags.Instance | BindingFlags.NonPublic);
 
         Assert.NotNull(method);
-        return Assert.IsType<List<CustomAgentConfig>>(method!.Invoke(viewModel, [null]));
+        return Assert.IsType<List<CustomAgentConfig>>(
+            method!.Invoke(viewModel, [capabilities, activeAgentName]));
     }
 
     private static List<AIFunction> InvokeBuildCustomTools(ChatViewModel viewModel, LumiAgent? agent = null)
@@ -880,19 +1051,11 @@ public sealed class ChatViewModelAgentRoutingTests
             "BuildCustomTools",
             BindingFlags.Instance | BindingFlags.NonPublic,
             binder: null,
-            types:
-            [
-                typeof(Guid),
-                typeof(LumiAgent),
-                typeof(ProjectContextCatalogSnapshot)
-            ],
+            types: [typeof(Guid), typeof(LumiAgent)],
             modifiers: null);
 
         Assert.NotNull(method);
-        var catalog = new ProjectContextCatalogSnapshot([], [], []);
-        return Assert.IsType<List<AIFunction>>(method!.Invoke(
-            viewModel,
-            [Guid.NewGuid(), agent, catalog]));
+        return Assert.IsType<List<AIFunction>>(method!.Invoke(viewModel, [Guid.NewGuid(), agent]));
     }
 
     private static T GetPrivateField<T>(ChatViewModel viewModel, string fieldName)
@@ -920,7 +1083,9 @@ public sealed class ChatViewModelAgentRoutingTests
             BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         var result = method!.Invoke(viewModel, [chat, ct, allowCreateFallback]);
-        return await Assert.IsType<Task<bool>>(result);
+        // Not IsType: .NET 11 may hand back a runtime-async task subtype rather than a plain
+        // Task<bool>, and which one appears depends on JIT tiering — an implementation detail.
+        return await Assert.IsAssignableFrom<Task<bool>>(result);
     }
 
     private static async Task InvokeSendMessageCoreAsync(

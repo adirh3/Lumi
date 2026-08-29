@@ -15,6 +15,7 @@ using Avalonia.Platform;
 using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Capabilities;
 using Lumi.ViewModels;
 using Microsoft.Extensions.AI;
 using LumiChatMessage = Lumi.Models.ChatMessage;
@@ -868,15 +869,15 @@ public static class DebugAgentHarness
             var chat = new Chat { ActiveMcpServerNames = [serverName] };
             if (useProxy)
                 proxyRuntime = new McpProxyRuntime();
-            var mcpServers = McpSessionPlanner.Build(data, root, new ProjectContextCatalogSnapshot([], [], []), chat, [serverName], null, proxyRuntime);
-            if (!mcpServers.ContainsKey(serverName))
+            var mcpPlan = McpSessionPlanner.Build(data, root, CapabilitySnapshot.Empty, chat, [serverName], null, proxyRuntime);
+            if (!mcpPlan.Servers.ContainsKey(serverName))
             {
                 Console.Error.WriteLine($"FAIL: {serverName} MCP server was not included in the SDK config.");
                 return 1;
             }
             if (useProxy)
             {
-                if (mcpServers[serverName] is not McpHttpServerConfig { Url: var proxyUrl }
+                if (mcpPlan.Servers[serverName] is not McpHttpServerConfig { Url: var proxyUrl }
                     || !proxyUrl.StartsWith("http://127.0.0.1:", StringComparison.Ordinal))
                 {
                     Console.Error.WriteLine("FAIL: local MCP server was not routed through the loopback proxy.");
@@ -896,10 +897,10 @@ public static class DebugAgentHarness
                     """,
                 model: model,
                 workingDirectory: root,
+                mcpPlan: mcpPlan,
                 skillDirectories: null,
                 customAgents: null,
                 tools: null,
-                mcpServers: mcpServers,
                 reasoningEffort: null,
                 userInputHandler: null,
                 onPermission: null,
@@ -968,10 +969,10 @@ public static class DebugAgentHarness
                         systemPrompt: $"You are seeding Lumi's {harnessName} MCP resume validation. Reply normally.",
                         model: model,
                         workingDirectory: root,
+                        mcpPlan: null,
                         skillDirectories: null,
                         customAgents: null,
                         tools: null,
-                        mcpServers: [],
                         reasoningEffort: null,
                         userInputHandler: null,
                         onPermission: null,
@@ -994,10 +995,10 @@ public static class DebugAgentHarness
                             """,
                         model: model,
                         workingDirectory: root,
+                        mcpPlan: mcpPlan,
                         skillDirectories: null,
                         customAgents: null,
                         tools: null,
-                        mcpServers: mcpServers,
                         reasoningEffort: null,
                         userInputHandler: null,
                         onPermission: null,
@@ -1164,8 +1165,8 @@ public static class DebugAgentHarness
             };
             var data = new AppData { McpServers = [server] };
             var chat = new Chat { ActiveMcpServerNames = [serverName] };
-            var mcpServers = McpSessionPlanner.Build(data, root, new ProjectContextCatalogSnapshot([], [], []), chat, [serverName], null, null);
-            if (!mcpServers.ContainsKey(serverName))
+            var mcpPlan = McpSessionPlanner.Build(data, root, CapabilitySnapshot.Empty, chat, [serverName], null, null);
+            if (!mcpPlan.Servers.ContainsKey(serverName))
             {
                 Console.Error.WriteLine($"FAIL: {serverName} MCP server was not included in the SDK config.");
                 return 1;
@@ -1244,14 +1245,14 @@ public static class DebugAgentHarness
 
             SessionConfig BuildCreateConfig() => SessionConfigBuilder.Build(
                 systemPrompt: sysPrompt,
-                model: model, workingDirectory: root, skillDirectories: null, customAgents: null,
-                tools: null, mcpServers: mcpServers, reasoningEffort: null, userInputHandler: null,
+                model: model, workingDirectory: root, mcpPlan: mcpPlan, skillDirectories: null, customAgents: null,
+                tools: null, reasoningEffort: null, userInputHandler: null,
                 onPermission: null, hooks: null);
 
             ResumeSessionConfig BuildResumeConfig() => SessionConfigBuilder.BuildForResume(
                 systemPrompt: sysPrompt,
-                model: model, workingDirectory: root, skillDirectories: null, customAgents: null,
-                tools: null, mcpServers: mcpServers, reasoningEffort: null, userInputHandler: null,
+                model: model, workingDirectory: root, mcpPlan: mcpPlan, skillDirectories: null, customAgents: null,
+                tools: null, reasoningEffort: null, userInputHandler: null,
                 onPermission: null, hooks: null);
 
             // ---------- Part A: ReleaseSessionAsync reaps the live MCP subprocess ----------

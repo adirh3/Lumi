@@ -407,7 +407,8 @@ public sealed class ChatWorkspaceViewTests
                 dataStore,
                 TestCopilot.Shared,
                 new UpdateService(),
-                startBackgroundJobs: false);
+                startBackgroundJobs: false,
+                initializeCopilotOnStartup: false);
             DetachedChatWindowRequest? request = null;
             viewModel.OpenChatWindowRequested += requested => request = requested;
 

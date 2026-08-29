@@ -444,7 +444,7 @@
   "Project_Browse": "עיון",
   "Project_AddFolders": "הוספת תיקיות",
   "Project_CodingProjectDetected": "זוהה פרויקט קוד \u2014 הנחיות המאגר פעילות",
-  "Project_AdditionalContextFoldersHint": "תיקיות אופציונליות לסריקת skills/agents תחת .github ו-mcp.json תחת .vscode בנוסף לספריית העבודה.",
+  "Project_AdditionalContextFoldersHint": "תיקיות אופציונליות שגם מהן ייטענו כישורים, סוכנים ושרתי MCP, בנוסף לספריית העבודה.",
   "Project_WorkingDirHint": "דורס את ספריית העבודה של לומי לצ׳אטים בפרויקט הזה",
   "Project_CodingWorkflow": "זרימת עבודה ב-Git",
   "Project_AutoSyncMainBranch": "שמירה על ענף ברירת המחדל מעודכן",

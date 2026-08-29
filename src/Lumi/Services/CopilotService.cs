@@ -845,10 +845,14 @@ public class CopilotService : IAsyncDisposable
         if (_client is null || string.IsNullOrWhiteSpace(sessionId) || !SessionStateExists(sessionId))
             return default;
 
+        // A bare read-only resume must stay cheap (it runs under a short fork budget), so capability
+        // discovery stays off: it would otherwise start every discovered MCP server for a handle
+        // that is thrown away immediately.
         var config = SessionConfigBuilder.BuildForResume(
-            systemPrompt: null, model: null, workingDirectory: null, skillDirectories: null,
-            customAgents: null, tools: null, mcpServers: null, reasoningEffort: null,
-            userInputHandler: null, onPermission: null, hooks: null);
+            systemPrompt: null, model: null, workingDirectory: null, mcpPlan: null,
+            skillDirectories: null, customAgents: null, tools: null, reasoningEffort: null,
+            userInputHandler: null, onPermission: null, hooks: null,
+            enableCapabilityDiscovery: false);
 
         // Deliberately NOT ConfigureAwait(false): the release in the finally must run on the same
         // (UI) thread as the resume, or it publishes into the pending-release registry off-thread

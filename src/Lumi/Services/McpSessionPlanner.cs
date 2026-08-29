@@ -3,8 +3,43 @@ using System.Collections.Generic;
 using System.Linq;
 using GitHub.Copilot;
 using Lumi.Models;
+using Lumi.Services.Capabilities;
 
 namespace Lumi.Services;
+
+/// <summary>
+/// The MCP half of a session: the servers Lumi configures itself, plus the names of
+/// runtime-discovered servers that must stay switched off for this chat.
+/// </summary>
+/// <param name="Servers">Lumi-owned servers passed to the session as explicit configuration.</param>
+/// <param name="DisabledServerNames">
+/// Servers the Copilot runtime discovered (workspace config, user profile, plugins) that the user
+/// has not selected. Lumi no longer parses those configs, so deselection is expressed by disabling
+/// them on the session rather than by omitting them.
+/// </param>
+/// <param name="Servers">Servers Lumi supplies to the session, keyed by CAPI-safe namespace.</param>
+/// <param name="DisabledServerNames">Discovered servers the session must not start.</param>
+/// <param name="RuntimeKeysByName">
+/// Maps a Lumi server's display name to the namespace the session actually registered it under.
+/// Live enable/disable calls must use that key: the display name may contain characters the
+/// namespace cannot, so calling with the raw name silently targets a server that does not exist.
+/// </param>
+public sealed record McpSessionPlan(
+    Dictionary<string, McpServerConfig> Servers,
+    IReadOnlyList<string> DisabledServerNames,
+    IReadOnlyDictionary<string, string>? RuntimeKeysByName = null)
+{
+    public static McpSessionPlan Empty { get; } = new([], []);
+
+    /// <summary>
+    /// The name the running session knows a server by. Discovered servers are registered by the
+    /// runtime under their own name, so they pass through unchanged.
+    /// </summary>
+    public string ResolveRuntimeKey(string serverName)
+        => RuntimeKeysByName is not null && RuntimeKeysByName.TryGetValue(serverName, out var key)
+            ? key
+            : serverName;
+}
 
 public static class McpSessionPlanner
 {
@@ -22,35 +57,49 @@ public static class McpSessionPlanner
         return settings.UseMcpProxy ? sharedRuntime : null;
     }
 
-    public static Dictionary<string, McpServerConfig> Build(
+    public static McpSessionPlan Build(
         AppData data,
         string workDir,
-        ProjectContextCatalogSnapshot projectContextCatalog,
+        CapabilitySnapshot capabilities,
         Chat chat,
         IReadOnlyCollection<string>? currentActiveServerNames,
         LumiAgent? activeAgent,
         McpProxyRuntime? proxyRuntime = null)
     {
         ArgumentNullException.ThrowIfNull(data);
-        ArgumentNullException.ThrowIfNull(projectContextCatalog);
+        ArgumentNullException.ThrowIfNull(capabilities);
         ArgumentNullException.ThrowIfNull(chat);
 
-        var selectedNames = ResolveSelectedNames(data, projectContextCatalog, chat, currentActiveServerNames);
+        var selectedNames = ResolveSelectedNames(data, capabilities, chat, currentActiveServerNames);
 
         var configuredServers = data.McpServers
             .Where(server => server.IsEnabled)
             .Where(server => selectedNames.Contains(server.Name))
             .ToList();
 
-        if (activeAgent is { McpServerIds.Count: > 0 })
+        var agentRestrictsMcp = activeAgent is { McpServerIds.Count: > 0 };
+
+        if (agentRestrictsMcp)
         {
-            var allowedIds = activeAgent.McpServerIds.ToHashSet();
+            var allowedIds = activeAgent!.McpServerIds.ToHashSet();
             configuredServers = configuredServers.Where(server => allowedIds.Contains(server.Id)).ToList();
+        }
+        else
+        {
+            // Servers the runtime does not own must be supplied as configuration or they never
+            // start. A Lumi server of the same name already won the merge, so this only adds ones
+            // nothing else provides. Skipped entirely when an agent restricts MCP access by Lumi id,
+            // since a workspace server has no id to appear in that allowlist.
+            configuredServers.AddRange(capabilities.McpServers
+                .Where(capability => capability is { IsEnabled: true, McpDefinition: not null })
+                .Where(capability => selectedNames.Contains(capability.Name))
+                .Where(capability => !configuredServers.Any(
+                    existing => NameComparer.Equals(existing.Name, capability.Name)))
+                .Select(capability => capability.McpDefinition!));
         }
 
         // Phase 1: select servers keyed by their raw name so the original precedence is preserved —
-        // a configured server wins over an identically named project-context server, and duplicate
-        // names collapse to a single entry (configured: last wins; context: first wins).
+        // duplicate names collapse to a single entry with the last configured server winning.
         var selected = new Dictionary<string, McpServerConfig>(NameComparer);
         var order = new List<string>();
 
@@ -58,31 +107,78 @@ public static class McpSessionPlanner
         {
             if (!selected.ContainsKey(server.Name))
                 order.Add(server.Name);
-            selected[server.Name] = ToSdkConfig(server, workDir, proxyRuntime);
-        }
-
-        foreach (var contextServer in projectContextCatalog.McpServers)
-        {
-            if (selectedNames.Contains(contextServer.Name) && !selected.ContainsKey(contextServer.Name))
-            {
-                order.Add(contextServer.Name);
-                selected[contextServer.Name] = CloneContextConfig(contextServer, proxyRuntime);
-            }
+            selected[server.Name] = ToSdkConfig(
+                server,
+                ResolveWorkingDirectory(server, capabilities, workDir),
+                proxyRuntime,
+                ResolveProxyKey(server, capabilities));
         }
 
         // Phase 2: project each distinct server onto a CAPI-safe, collision-free namespace. The
         // dictionary key is sent to the backend as the tool namespace and must match ^[a-zA-Z0-9_-]+$.
         var result = new Dictionary<string, McpServerConfig>(NameComparer);
+        var runtimeKeysByName = new Dictionary<string, string>(NameComparer);
         foreach (var rawName in order)
-            result[ToNamespace(rawName, result)] = selected[rawName];
+        {
+            var key = ToNamespace(rawName, result);
+            result[key] = selected[rawName];
+            runtimeKeysByName[rawName] = key;
+        }
 
         GitHubMcpWebSearchBootstrap.Ensure(result, CopilotService.TryGetGitHubTokenForMcp());
-        return result;
+
+        // Servers the runtime discovered are loaded by the SDK itself, so deselection is expressed
+        // by disabling them on the session. A name is disabled when Lumi is not supplying a config
+        // for it and either the user did not select it, or Lumi owns that name — otherwise a Lumi
+        // server the user turned off would be silently replaced by an identically named discovered
+        // one that config discovery starts anyway. An agent that declares its own MCP allowlist
+        // disables everything it did not name: that allowlist holds Lumi ids, so a server the
+        // runtime discovered can never appear in it and must not be started by config discovery.
+        //
+        // Only raw catalog names go in here. The namespaced keys are what the session registers a
+        // supplied server under, and treating one as a catalog name would exempt a discovered
+        // server that happens to be called what another server sanitized to.
+        var supplied = new HashSet<string>(selected.Keys, NameComparer);
+
+        var disabled = capabilities.McpServers
+            .Where(server => !supplied.Contains(server.Name))
+            .Where(server => agentRestrictsMcp
+                             || server.Origin.IsLumi
+                             || !selectedNames.Contains(server.Name))
+            .Select(server => server.Name)
+            .Distinct(NameComparer)
+            .ToArray();
+
+        return new McpSessionPlan(result, disabled, runtimeKeysByName);
     }
+
+    /// <summary>
+    /// The key a proxied server is registered under. Lumi's own servers are keyed by their store id,
+    /// which <see cref="McpProxyRuntime"/> also uses to retire registrations that no longer exist.
+    /// A server from anywhere else has no store entry and a fresh id on every discovery, so keying
+    /// it the same way would register a new route each load and leak the previous one's child
+    /// process — and expose it to retirement meant for deleted Lumi servers.
+    /// </summary>
+    private static string ResolveProxyKey(McpServer server, CapabilitySnapshot capabilities)
+    {
+        if (capabilities.FindMcpServer(server.Name) is { Origin.IsLumi: false, SourcePath: var source })
+            return $"external:{source ?? string.Empty}:{server.Name}";
+
+        return $"lumi:{server.Id}";
+    }
+
+    private static string ResolveWorkingDirectory(
+        McpServer server,
+        CapabilitySnapshot capabilities,
+        string fallback)
+        => capabilities.FindMcpServer(server.Name) is
+            { Origin.IsLumi: false, McpDefinition: not null, SourcePath: { Length: > 0 } source }
+                ? source
+                : fallback;
 
     private static HashSet<string> ResolveSelectedNames(
         AppData data,
-        ProjectContextCatalogSnapshot projectContextCatalog,
+        CapabilitySnapshot capabilities,
         Chat chat,
         IReadOnlyCollection<string>? currentActiveServerNames)
     {
@@ -97,13 +193,17 @@ public static class McpSessionPlanner
             .Select(server => server.Name)
             .ToHashSet(NameComparer);
 
-        foreach (var server in projectContextCatalog.McpServers)
+        foreach (var server in capabilities.McpServers.Where(static server => !server.Origin.IsLumi))
             names.Add(server.Name);
 
         return names;
     }
 
-    private static McpServerConfig ToSdkConfig(McpServer server, string workDir, McpProxyRuntime? proxyRuntime)
+    private static McpServerConfig ToSdkConfig(
+        McpServer server,
+        string workDir,
+        McpProxyRuntime? proxyRuntime,
+        string proxyKey)
     {
         if (string.Equals(server.ServerType, "remote", StringComparison.OrdinalIgnoreCase))
         {
@@ -137,59 +237,12 @@ public static class McpSessionPlanner
         if (proxyRuntime is not null)
         {
             return proxyRuntime.Register(new McpProxyServerDefinition(
-                $"lumi:{server.Id}",
+                proxyKey,
                 server.Name,
                 local));
         }
 
         return local;
-    }
-
-    private static McpServerConfig CloneContextConfig(ProjectContextMcpServerDefinition contextServer, McpProxyRuntime? proxyRuntime)
-    {
-        switch (contextServer.Config)
-        {
-            case McpStdioServerConfig local:
-            {
-                var clone = new McpStdioServerConfig
-                {
-                    Command = local.Command,
-                    Args = local.Args?.ToList() ?? new List<string>(),
-                    WorkingDirectory = string.IsNullOrWhiteSpace(local.WorkingDirectory) ? contextServer.SourceDirectory : local.WorkingDirectory,
-                    Tools = NormalizeTools(local.Tools),
-                    Timeout = local.Timeout
-                };
-
-                if (local.Env is not null)
-                    clone.Env = new Dictionary<string, string>(local.Env, StringComparer.OrdinalIgnoreCase);
-
-                if (proxyRuntime is not null)
-                {
-                    return proxyRuntime.Register(new McpProxyServerDefinition(
-                        $"project:{contextServer.SourcePath}:{contextServer.Name}",
-                        contextServer.Name,
-                        clone));
-                }
-
-                return clone;
-            }
-            case McpHttpServerConfig remote:
-            {
-                var clone = new McpHttpServerConfig
-                {
-                    Url = remote.Url,
-                    Tools = NormalizeTools(remote.Tools),
-                    Timeout = remote.Timeout
-                };
-
-                if (remote.Headers is not null)
-                    clone.Headers = new Dictionary<string, string>(remote.Headers, StringComparer.OrdinalIgnoreCase);
-
-                return clone;
-            }
-            default:
-                return contextServer.Config;
-        }
     }
 
     private static List<string> NormalizeTools(IEnumerable<string>? tools)

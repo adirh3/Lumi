@@ -12,6 +12,7 @@ using GitHub.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Capabilities;
 using Lumi.ViewModels;
 using Xunit;
 
@@ -2376,7 +2377,12 @@ public sealed class ChatViewModelLeakTests
     public void RefreshActiveMcpSelections_RebuildsFromRenameAndDeleteWithoutStaleEntries()
     {
         var dataStore = CreateDataStore();
-        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        // Pruning only runs against a resolved snapshot, so give this surface a catalog with no
+        // pending asynchronous discovery — the test is about rename/delete, not about discovery.
+        var vm = new ChatViewModel(
+            dataStore,
+            TestCopilot.Shared,
+            capabilityCatalog: new CapabilityCatalog(new LumiCapabilityProvider(dataStore)));
         var chat = new Chat
         {
             Title = "mcp-chat",
@@ -2566,19 +2572,26 @@ public sealed class ChatViewModelLeakTests
 
         var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
 
-        var catalog = new ProjectContextCatalogSnapshot(
-            new[] { new CopilotSkillDefinition("SomeSkill", "desc", "content", @"C:\repo\.github\skills\some\SKILL.md") },
-            new[]
-            {
-                new CopilotAgentDefinition("WebReviewer", "Reviews web app code", "You review TypeScript code.", @"C:\repo\.github\agents\reviewer\AGENT.md"),
-                new CopilotAgentDefinition("Lumi agent", "External duplicate", "External duplicate body.", @"C:\repo\.github\agents\dup\AGENT.md"),
-                new CopilotAgentDefinition("Blank", "No body", "   ", @"C:\repo\.github\agents\blank\AGENT.md"),
-            },
-            Array.Empty<ProjectContextMcpServerDefinition>());
+        var catalog = new CapabilitySnapshot(
+            CapabilityQuery.Empty,
+            [
+                new CapabilityDescriptor
+                {
+                    Kind = CapabilityKind.Skill,
+                    Name = "SomeSkill",
+                    Origin = CapabilityOrigin.Project,
+                    Description = "desc",
+                    Content = "content",
+                },
+                ExternalAgent("WebReviewer", "Reviews web app code", "You review TypeScript code."),
+                ExternalAgent("Lumi agent", "External duplicate", "External duplicate body."),
+                ExternalAgent("Blank", "No body", "   "),
+            ],
+            isComplete: true);
 
         var configs = InvokePrivate<List<CustomAgentConfig>>(vm, "BuildCustomAgents", new object[] { catalog });
 
-        // External .github/agents agent becomes a delegatable subagent using its AGENT.md body as the prompt.
+        // A Copilot-discovered agent becomes a delegatable subagent using its prompt body.
         var webReviewer = configs.Single(cfg => cfg.Name == "WebReviewer");
         Assert.Equal("You review TypeScript code.", webReviewer.Prompt);
         Assert.Equal("Reviews web app code", webReviewer.Description);
@@ -2591,6 +2604,16 @@ public sealed class ChatViewModelLeakTests
         // External agents with blank content are skipped.
         Assert.DoesNotContain(configs, cfg => cfg.Name == "Blank");
     }
+
+    private static CapabilityDescriptor ExternalAgent(string name, string description, string content)
+        => new()
+        {
+            Kind = CapabilityKind.Agent,
+            Name = name,
+            Origin = CapabilityOrigin.Project,
+            Description = description,
+            Content = content,
+        };
 
     [Fact]
     public void ApplyUnexpectedAbortState_ResetsRuntimeAndDetachesCachedSession()

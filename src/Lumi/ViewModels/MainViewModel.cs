@@ -226,7 +226,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         , bool openAgentDebugHarness = false,
         bool skipOnboarding = false
 #endif
-        , bool initializeCopilotOnStartup = true
+        , bool initializeCopilotOnStartup = false
         )
     {
         _dataStore = dataStore;
@@ -411,7 +411,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             _chatSessionStore.ApplyToSurfaces(surface =>
             {
                 surface.InvalidateProjectSession();
-                surface.RefreshComposerCatalogs();
+                surface.RefreshCapabilities();
             });
             RefreshFeatureManagementUi();
         };
@@ -504,6 +504,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         surface.AddDisplayHost();
         previous.RemoveDisplayHost();
         ActiveChatId = surface.CurrentChat?.Id;
+        surface.RefreshComposerCatalogs();
         // Cached surfaces are reused without re-running LoadChatAsync, so re-establish the browser panel
         // here (after ActiveChatId is set) to keep the toggle button working after switching chats.
         surface.RestoreBrowserPanelForActiveChat();
@@ -786,6 +787,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
             var models = await _copilotService.GetModelsAsync();
             var contextWindowCatalog = await _copilotService.GetContextWindowCatalogAsync();
 
+            if (_isDisposed)
+                return;
+
             IsConnected = true;
             ConnectionStatus = Loc.Status_Connected;
 
@@ -797,8 +801,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
             // Refresh account quota in background
             _ = ChatVM.RefreshQuotaAsync();
 
-            // Refresh catalogs now that connection is established (discovers workspace/user Copilot agents)
-            _chatSessionStore.ApplyToSurfaces(surface => surface.RefreshComposerCatalogs());
+            // The runtime is now available, so start one new capability generation and refresh every
+            // surface against it.
+            _chatSessionStore.RefreshCapabilitiesAfterConnectionChange();
         }
         catch (Exception ex)
         {

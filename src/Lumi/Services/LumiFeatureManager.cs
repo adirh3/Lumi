@@ -20,7 +20,8 @@ public sealed record FeatureChangeResult(
     int? SkillContentBytes = null,
     string? SkillContentHash = null,
     bool McpCatalogChanged = false,
-    bool BackgroundJobsChanged = false);
+    bool BackgroundJobsChanged = false,
+    bool CapabilityContextChanged = false);
 
 public sealed class LumiFeatureManager
 {

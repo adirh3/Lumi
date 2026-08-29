@@ -5,6 +5,7 @@ using System.Linq;
 using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
+using Lumi.Services.Capabilities;
 using StrataTheme.Controls;
 
 namespace Lumi.ViewModels;
@@ -55,6 +56,33 @@ public partial class ChatViewModel
         catch { /* best effort */ }
     }
 
+    /// <summary>
+    /// Applies an MCP selection change to the live session. Without this the picker only edits what
+    /// the *next* session would be built with, so a server the user deselected mid-chat keeps
+    /// offering its tools for the rest of the conversation.
+    /// </summary>
+    private async Task SetMcpEnabledOnSessionAsync(string serverName, bool enabled)
+    {
+        if (_activeSession is null || string.IsNullOrWhiteSpace(serverName)) return;
+
+        // Lumi supplies its servers under a CAPI-safe namespace, so a display name like
+        // "Avalonia MCP" is registered as "Avalonia_MCP". Calling with the display name would
+        // silently target a server the session never registered, so use the plan this chat's own
+        // session was built from.
+        var runtimeKey = CurrentChat is { } chat && _sessionMcpPlans.TryGetValue(chat.Id, out var plan)
+            ? plan.ResolveRuntimeKey(serverName)
+            : serverName;
+
+        try
+        {
+            if (enabled)
+                await _activeSession.Rpc.Mcp.EnableAsync(runtimeKey);
+            else
+                await _activeSession.Rpc.Mcp.DisableAsync(runtimeKey);
+        }
+        catch { /* best effort — the next session is still built from the persisted selection */ }
+    }
+
     /// <summary>Assigns a project to the current (or next) chat. Called when a project filter is active.</summary>
     public void SetProjectId(Guid projectId)
     {
@@ -90,7 +118,7 @@ public partial class ChatViewModel
 
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
-        RefreshComposerCatalogs(); // Re-scan project-context and user Copilot agents/skills for the new project
+        RefreshCapabilities();
         RefreshActiveSkillChipsFromState();
         QueueRefreshCodingProjectState();
     }
@@ -111,7 +139,7 @@ public partial class ChatViewModel
                 return;
 
             _activeProjectFilterId = value;
-            RefreshComposerCatalogs();
+            RefreshCapabilities();
             RefreshActiveSkillChipsFromState();
             QueueRefreshCodingProjectState();
         }
@@ -149,7 +177,7 @@ public partial class ChatViewModel
 
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
-        RefreshComposerCatalogs(); // Re-scan to remove project-context and user Copilot agents/skills
+        RefreshCapabilities();
         RefreshActiveSkillChipsFromState();
         QueueRefreshCodingProjectState();
     }
@@ -217,6 +245,20 @@ public partial class ChatViewModel
     /// <summary>File-based Copilot skill names currently selected for this chat.</summary>
     private readonly List<string> _activeExternalSkillNames = new();
 
+    /// <summary>
+    /// True once the user has curated the draft composer's MCP selection. A draft has no chat to
+    /// record this on, so it is held here until the first send creates one.
+    /// </summary>
+    private bool _draftMcpSelectionCurated;
+
+    /// <summary>
+    /// The MCP plan each live session was built from, keyed by its chat. Used to translate a
+    /// display name into the namespace that session registered it under. Switching chats adopts a
+    /// cached session without rebuilding a plan, so this has to be keyed the same way the session
+    /// cache is rather than tracking only the most recently built one.
+    /// </summary>
+    private readonly Dictionary<Guid, McpSessionPlan> _sessionMcpPlans = new();
+
     /// <summary>Registers a skill selection without adding a chip (composer already added it).</summary>
     public void RegisterSkillIdByName(string name)
     {
@@ -232,8 +274,9 @@ public partial class ChatViewModel
             return;
         }
 
-        var externalSkill = GetProjectContextCatalog().FindSkill(name);
+        var externalSkill = GetCapabilities().FindSkill(name);
         if (externalSkill is null
+            || externalSkill.Origin.IsLumi
             || _activeExternalSkillNames.Any(existing =>
                 existing.Equals(externalSkill.Name, StringComparison.OrdinalIgnoreCase)))
             return;
@@ -286,25 +329,24 @@ public partial class ChatViewModel
     public void AddMcpServer(string name)
     {
         if (ActiveMcpServerNames.Contains(name)) return;
-        // Accept both Lumi-configured and project-context MCPs (project-context MCPs aren't in the data store)
-        var isKnown = _dataStore.Data.McpServers.Any(s => s.Name == name)
-                      || AvailableMcpChips.OfType<StrataTheme.Controls.StrataComposerChip>().Any(c => c.Name == name);
-        if (!isKnown) return;
+        // Accept any capability the pipeline offers — Lumi's own servers and runtime-discovered ones.
+        var capability = GetCapabilities().FindMcpServer(name);
+        if (capability is null || !capability.IsEnabled) return;
         ActiveMcpServerNames.Add(name);
-        ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(name));
+        ActiveMcpChips.Add(ToMcpChip(capability));
         SyncActiveMcpsToChat();
+        _ = SetMcpEnabledOnSessionAsync(name, enabled: true);
     }
 
     /// <summary>Registers an MCP server name without adding a chip (composer already added it).</summary>
     public void RegisterMcpByName(string name)
     {
         if (ActiveMcpServerNames.Contains(name)) return;
-        // Accept both Lumi-configured and project-context MCPs (project-context MCPs aren't in the data store)
-        var isKnown = _dataStore.Data.McpServers.Any(s => s.Name == name)
-                      || AvailableMcpChips.OfType<StrataTheme.Controls.StrataComposerChip>().Any(c => c.Name == name);
-        if (!isKnown) return;
+        var capability = GetCapabilities().FindMcpServer(name);
+        if (capability is null || !capability.IsEnabled) return;
         ActiveMcpServerNames.Add(name);
         SyncActiveMcpsToChat();
+        _ = SetMcpEnabledOnSessionAsync(name, enabled: true);
     }
 
     public void RemoveMcpByName(string name)
@@ -314,17 +356,38 @@ public partial class ChatViewModel
             .FirstOrDefault(c => c.Name == name);
         if (chip is not null) ActiveMcpChips.Remove(chip);
         SyncActiveMcpsToChat();
+        _ = SetMcpEnabledOnSessionAsync(name, enabled: false);
     }
 
-    public void SyncActiveMcpsToChat()
+    /// <summary>
+    /// Persists the chat's MCP selection.
+    /// </summary>
+    /// <param name="userCurated">
+    /// True when the user changed the selection. Only then is the chat marked as explicitly
+    /// curated, which stops newly discovered servers from being auto-selected later — a chat that
+    /// merely inherited auto-selected servers must keep receiving new ones.
+    /// </param>
+    public void SyncActiveMcpsToChat(bool userCurated = true)
     {
-        if (!IsEditingMessage && CurrentChat is not null)
+        if (IsEditingMessage)
+            return;
+
+        if (CurrentChat is null)
         {
-            CurrentChat.ActiveMcpServerNames = new List<string>(ActiveMcpServerNames);
-            CurrentChat.HasExplicitMcpServerSelection = true;
-            // MCP changes are applied at the next SDK create/resume boundary, not by rebuilding a live chat session.
-            QueueSaveChat(CurrentChat, saveIndex: true);
+            // No chat exists yet, so there is nothing to persist to — but the user's choice still
+            // has to survive until the first send creates one, or a later refresh re-adds the
+            // server they just removed from the draft.
+            if (userCurated)
+                _draftMcpSelectionCurated = true;
+            return;
         }
+
+        CurrentChat.ActiveMcpServerNames = new List<string>(ActiveMcpServerNames);
+        if (userCurated)
+            CurrentChat.HasExplicitMcpServerSelection = true;
+        // The live session is updated by the add/remove callers through the runtime's own
+        // enable/disable API; this only persists what the next session is built from.
+        QueueSaveChat(CurrentChat, saveIndex: true);
     }
 
     /// <summary>Populate ActiveMcpChips and ActiveMcpServerNames with all enabled MCP servers (default state).</summary>
@@ -335,10 +398,10 @@ public partial class ChatViewModel
         {
             ActiveMcpServerNames.Clear();
             ActiveMcpChips.Clear();
-            foreach (var server in _dataStore.Data.McpServers.Where(s => s.IsEnabled))
+            foreach (var server in GetCapabilities().UserInvocable(CapabilityKind.McpServer))
             {
                 ActiveMcpServerNames.Add(server.Name);
-                ActiveMcpChips.Add(new StrataTheme.Controls.StrataComposerChip(server.Name));
+                ActiveMcpChips.Add(ToMcpChip(server));
             }
         }
         finally
@@ -347,47 +410,16 @@ public partial class ChatViewModel
         }
     }
 
-    /// <summary>Returns StrataComposerChip items for all agents (for composer autocomplete).</summary>
-    public List<StrataTheme.Controls.StrataComposerChip> GetAgentChips()
-    {
-        return _dataStore.Data.Agents
-            .Select(a => new StrataTheme.Controls.StrataComposerChip(
-                a.Name,
-                a.IconGlyph,
-                SecondaryText: BuildChipSearchText(a.Description, a.SystemPrompt)))
-            .ToList();
-    }
+    private static StrataTheme.Controls.StrataComposerChip ToMcpChip(CapabilityDescriptor server)
+        => ToMcpChip(server.Name, server);
 
-    /// <summary>Returns StrataComposerChip items for all skills (for composer autocomplete).</summary>
-    public List<StrataTheme.Controls.StrataComposerChip> GetSkillChips()
-    {
-        return _dataStore.Data.Skills
-            .Select(s => new StrataTheme.Controls.StrataComposerChip(
-                s.Name,
-                s.IconGlyph,
-                SecondaryText: BuildChipSearchText(s.Description, s.Content)))
-            .ToList();
-    }
-
-    /// <summary>Returns StrataComposerChip items for all enabled MCP servers (for composer autocomplete).</summary>
-    public List<StrataTheme.Controls.StrataComposerChip> GetMcpChips()
-    {
-        return _dataStore.Data.McpServers
-            .Where(s => s.IsEnabled)
-            .Select(s => new StrataTheme.Controls.StrataComposerChip(s.Name))
-            .ToList();
-    }
-
-    /// <summary>Returns StrataComposerChip items for all projects (for composer autocomplete).</summary>
-    public List<StrataTheme.Controls.StrataComposerChip> GetProjectChips()
-    {
-        return _dataStore.Data.Projects
-            .Select(p => new StrataTheme.Controls.StrataComposerChip(
-                p.Name,
-                "📁",
-                SecondaryText: BuildProjectInlineCompletionSecondaryText(p)))
-            .ToList();
-    }
+    /// <summary>Builds an MCP chip, carrying the source hint whenever the capability is known.</summary>
+    private static StrataTheme.Controls.StrataComposerChip ToMcpChip(string name, CapabilityDescriptor? server)
+        => new(
+            name,
+            string.IsNullOrWhiteSpace(server?.Glyph) ? CopilotSdkCapabilityProvider.McpGlyph : server!.Glyph!,
+            SecondaryText: server?.Description,
+            SourceLabel: server?.SourceLabel);
 
     /// <summary>Selects a project by name (called from composer autocomplete).</summary>
     public void SelectProjectByName(string name)
@@ -414,7 +446,7 @@ public partial class ChatViewModel
     /// <summary>Adds a skill by name (called from composer autocomplete).</summary>
     public void AddSkillByName(string name)
     {
-        var skillReference = FindSkillReferenceByName(name, GetProjectContextCatalog());
+        var skillReference = FindSkillReferenceByName(name, GetCapabilities());
         if (skillReference is null)
             return;
 
@@ -435,14 +467,14 @@ public partial class ChatViewModel
     }
 
     public SkillReference? FindSkillReferenceByName(string name)
-        => FindSkillReferenceByName(name, GetProjectContextCatalog());
+        => FindSkillReferenceByName(name, GetCapabilities());
 
     public SkillReference? FindSkillReferenceByName(string name, string? workDir)
         => FindSkillReferenceByName(
             name,
-            workDir is { Length: > 0 } ? GetProjectContextCatalog(workDir) : GetProjectContextCatalog());
+            workDir is { Length: > 0 } ? GetCapabilities(workDir) : GetCapabilities());
 
-    private SkillReference? FindSkillReferenceByName(string name, ProjectContextCatalogSnapshot projectContextCatalog)
+    private SkillReference? FindSkillReferenceByName(string name, CapabilitySnapshot capabilities)
     {
         var skill = FindSkillByName(name);
         if (skill is not null)
@@ -455,7 +487,7 @@ public partial class ChatViewModel
             };
         }
 
-        var externalSkill = projectContextCatalog.FindSkill(name);
+        var externalSkill = capabilities.FindSkill(name);
         if (externalSkill is null)
             return null;
 

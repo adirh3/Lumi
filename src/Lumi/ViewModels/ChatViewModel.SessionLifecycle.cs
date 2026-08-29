@@ -279,7 +279,7 @@ public partial class ChatViewModel
             ? _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == chat.AgentId.Value)?.Name ?? Loc.Author_Lumi
             : Loc.Author_Lumi;
         var runtime = GetOrCreateRuntimeState(chat.Id);
-        var projectContextCatalog = GetProjectContextCatalog(chat, workDir);
+        var capabilities = GetCapabilities(chat, workDir);
         var toolParentById = new Dictionary<string, string?>(StringComparer.Ordinal);
         var terminalRootByToolCallId = new Dictionary<string, string>(StringComparer.Ordinal);
         var externalToolCallIdByRequestId = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -2247,7 +2247,7 @@ public partial class ChatViewModel
                     {
                     if (!string.IsNullOrWhiteSpace(skillInvoked.Data.Name))
                     {
-                        var skill = FindSkillReferenceByName(skillInvoked.Data.Name, projectContextCatalog);
+                        var skill = FindSkillReferenceByName(skillInvoked.Data.Name, capabilities);
                         pendingFetchedSkillRefs.Add(new SkillReference
                         {
                             Name = skill?.Name ?? skillInvoked.Data.Name,
@@ -2725,6 +2725,9 @@ public partial class ChatViewModel
 
     private void ResetAfterCopilotReconnect()
     {
+        // ChatSessionStore reset the shared catalog before surfaces receive this reconnect event.
+        RefreshCapabilities();
+
         // Dispose all event subscriptions
         foreach (var sub in _sessionSubs.Values)
             sub.Dispose();

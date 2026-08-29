@@ -444,7 +444,7 @@
   "Project_Browse": "Browse",
   "Project_AddFolders": "Add folders",
   "Project_CodingProjectDetected": "Coding project detected \u2014 repository instructions are active",
-  "Project_AdditionalContextFoldersHint": "Optional folders to scan for .github skills/agents and .vscode/mcp.json in addition to the working directory.",
+  "Project_AdditionalContextFoldersHint": "Optional folders whose skills, agents and MCP servers are also discovered, in addition to the working directory.",
   "Project_WorkingDirHint": "Overrides Lumi's default working directory for chats in this project",
   "Project_CodingWorkflow": "Git workflow",
   "Project_AutoSyncMainBranch": "Keep the default branch updated",

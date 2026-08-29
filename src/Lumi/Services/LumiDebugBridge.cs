@@ -231,6 +231,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             "load_background_shell" => InvokeUiAsync(LoadBackgroundShellFixture),
             "list_features" => InvokeUiAsync(() => ListFeatures(arguments)),
             "configure_feature" => InvokeUiAsync(() => ConfigureFeatureAsync(arguments)),
+            "select_capabilities" => InvokeUiAsync(() => SelectCapabilities(arguments)),
             _ => throw new InvalidOperationException($"Unknown Lumi debug bridge action '{action}'.")
         };
     }
@@ -424,6 +425,51 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
         {
             chat = ChatDetails(chat),
             opened = open
+        };
+    }
+
+    /// <summary>
+    /// Drives the current chat's capability selection through the same ViewModel entry points the
+    /// composer's autocomplete and MCP dropdown call, so an end-to-end run exercises the real
+    /// selection path for any source — Lumi's own, project, personal profile or plugin.
+    /// </summary>
+    private object SelectCapabilities(JsonElement? arguments)
+    {
+        var args = arguments ?? default;
+        var chatVm = _mainViewModel.ChatVM;
+        if (chatVm.CurrentChat is null)
+            throw new InvalidOperationException("No chat is open; open one before selecting capabilities.");
+
+        foreach (var name in GetStringArray(args, "removeSkills"))
+            chatVm.RemoveSkillByName(name);
+
+        foreach (var name in GetStringArray(args, "skills"))
+            chatVm.AddSkillByName(name);
+
+        foreach (var name in GetStringArray(args, "removeMcpServers"))
+            chatVm.RemoveMcpByName(name);
+
+        foreach (var name in GetStringArray(args, "mcpServers"))
+            chatVm.AddMcpServer(name);
+
+        if (GetString(args, "sdkAgent") is { Length: > 0 } sdkAgent)
+            chatVm.SelectAgentByName(sdkAgent);
+        else if (GetBool(args, "clearAgent") == true)
+            chatVm.SelectedAgentName = null;
+
+        return new
+        {
+            chat = ChatDetails(chatVm.CurrentChat),
+            activeSkills = chatVm.ActiveSkillChips
+                .OfType<StrataTheme.Controls.StrataComposerChip>()
+                .Select(chip => new { chip.Name, chip.SourceLabel })
+                .ToList(),
+            activeMcpServers = chatVm.ActiveMcpServerNames.ToList(),
+            selectedAgentName = chatVm.SelectedAgentName,
+            selectedSdkAgentName = chatVm.SelectedSdkAgentName,
+            availableSkills = chatVm.AvailableSkillChips
+                .Select(chip => new { chip.Name, chip.SourceLabel })
+                .ToList()
         };
     }
 
@@ -1025,6 +1071,9 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             _ => throw new InvalidOperationException($"Unknown feature resource '{resource}'.")
         };
 
+        if (result.DataChanged && resource is "projects" or "project")
+            result = result with { CapabilityContextChanged = true };
+
         if (result.DataChanged)
             await ApplyFeatureChangeAsync(result).ConfigureAwait(true);
 
@@ -1204,7 +1253,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
         _mainViewModel.McpServersVM.RefreshFromStore();
         _mainViewModel.MemoriesVM.RefreshFromStore();
         _mainViewModel.JobsVM.RefreshFromStore();
-        _mainViewModel.ChatVM.RefreshComposerCatalogs(syncProjectContextMcpSelections: false);
+        _mainViewModel.ChatVM.RefreshFeatureCatalogState(result);
         _mainViewModel.ChatVM.RaiseFeatureManagementStateChangedForTest();
     }
 
