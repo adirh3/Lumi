@@ -536,6 +536,7 @@ public sealed class ChatViewModelProjectSkillComposerTests
         using var session = HeadlessTestSession.Start();
         var tempRoot = CreateProjectRoot();
         var remainingChips = new List<string>();
+        var remainingLumiSkills = new List<Guid>();
         var remainingProjectSkills = new List<string>();
 
         try
@@ -570,18 +571,141 @@ public sealed class ChatViewModelProjectSkillComposerTests
                     .OfType<StrataComposerChip>()
                     .Select(chip => chip.Name)
                     .ToList();
+                remainingLumiSkills = GetPrivateField<List<Guid>>(
+                    viewModel,
+                    "_pendingSkillInjections").ToList();
                 remainingProjectSkills = GetPrivateField<List<string>>(
                     viewModel,
                     "_pendingExternalSkillInjections").ToList();
                 viewModel.Dispose();
             }, CancellationToken.None);
 
-            // Scope note: this asserts only the runtime-owned side, which is what SDK activation
-            // covers. The Lumi-managed queue is deliberately not asserted here because
-            // RemoveSkillByName does not prune _pendingSkillInjections — a pre-existing leak that
-            // predates this change and is tracked separately.
+            // Removing one skill system's selection must not disturb the other's, and the removed
+            // skill's own queued delivery must go with it.
             Assert.Equal([ProjectSkillName], remainingChips);
+            Assert.Empty(remainingLumiSkills);
             Assert.Equal([ProjectSkillName], remainingProjectSkills);
+        }
+        finally
+        {
+            Cleanup(tempRoot);
+        }
+    }
+
+    [Fact]
+    public async Task DeselectedLumiSkill_IsNotInjectedIntoTheNextSend()
+    {
+        using var session = HeadlessTestSession.Start();
+        var tempRoot = CreateProjectRoot();
+        var queuedAfterSelection = new List<Guid>();
+        var queuedAfterRemoval = new List<Guid>();
+        var promptAdditions = string.Empty;
+        var lumiSkillId = Guid.Empty;
+
+        try
+        {
+            await session.Dispatch(() =>
+            {
+                var lumiSkill = new Skill
+                {
+                    Name = "Web Researcher",
+                    Description = "Searches the web.",
+                    Content = "DESELECTED_SKILL_BODY_MARKER"
+                };
+                lumiSkillId = lumiSkill.Id;
+
+                var project = new Project { Name = "Sherlock", WorkingDirectory = tempRoot };
+                var chat = new Chat
+                {
+                    Title = "Sherlock chat",
+                    ProjectId = project.Id,
+                    // A live session is what makes selection queue a one-shot prompt injection
+                    // instead of waiting to be baked into the next system prompt.
+                    CopilotSessionId = "session-1"
+                };
+                var store = new DataStore(new AppData
+                {
+                    Skills = [lumiSkill],
+                    Projects = [project],
+                    Chats = [chat]
+                });
+                var viewModel = CreateViewModel(store, tempRoot, chat);
+                viewModel.RefreshComposerCatalogs();
+
+                var pendingLumi = GetPrivateField<List<Guid>>(viewModel, "_pendingSkillInjections");
+
+                // Select from the "/" menu, then remove the chip before sending.
+                viewModel.ActiveSkillChips.Add(viewModel.AvailableSkillChips.Single(
+                    chip => chip.Name == "Web Researcher"));
+                queuedAfterSelection = pendingLumi.ToList();
+
+                viewModel.RemoveSkillByName("Web Researcher");
+                queuedAfterRemoval = pendingLumi.ToList();
+
+                promptAdditions = (string)typeof(ChatViewModel)
+                    .GetMethod("BuildSendPromptAdditions", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(viewModel, [true, null])!;
+                viewModel.Dispose();
+            }, CancellationToken.None);
+
+            // Selection genuinely queued the injection, so the removal below is exercising it.
+            Assert.Equal([lumiSkillId], queuedAfterSelection);
+
+            // Deselecting retracts the queued delivery, so the next send does not inline the body
+            // of a skill the user already removed from the composer.
+            Assert.Empty(queuedAfterRemoval);
+            Assert.DoesNotContain("DESELECTED_SKILL_BODY_MARKER", promptAdditions);
+        }
+        finally
+        {
+            Cleanup(tempRoot);
+        }
+    }
+
+    [Fact]
+    public async Task DeselectedProjectSkill_IsNotReactivatedWhenTheSessionIsRecreated()
+    {
+        using var session = HeadlessTestSession.Start();
+        var tempRoot = CreateProjectRoot();
+        var queuedAfterRemoval = new List<string>();
+        var activeAfterRemoval = new List<string>();
+        var persistedAfterRemoval = new List<string>();
+
+        try
+        {
+            await session.Dispatch(() =>
+            {
+                var project = new Project { Name = "Sherlock", WorkingDirectory = tempRoot };
+                var chat = new Chat
+                {
+                    Title = "Sherlock chat",
+                    ProjectId = project.Id,
+                    CopilotSessionId = "session-1"
+                };
+                var store = new DataStore(new AppData { Projects = [project], Chats = [chat] });
+                var viewModel = CreateViewModel(store, tempRoot, chat);
+                viewModel.RefreshComposerCatalogs();
+
+                viewModel.ActiveSkillChips.Add(viewModel.AvailableSkillChips.Single(
+                    chip => chip.Name == ProjectSkillName));
+                viewModel.RemoveSkillByName(ProjectSkillName);
+
+                queuedAfterRemoval = GetPrivateField<List<string>>(
+                    viewModel,
+                    "_pendingExternalSkillInjections").ToList();
+                activeAfterRemoval = GetPrivateField<List<string>>(
+                    viewModel,
+                    "_activeExternalSkillNames").ToList();
+                persistedAfterRemoval = chat.ActiveExternalSkillNames.ToList();
+                viewModel.Dispose();
+            }, CancellationToken.None);
+
+            // A recreated session re-activates the FULL selection rather than just the queue, so a
+            // deselected skill has to be gone from the selection and its persisted copy too —
+            // otherwise a session rebuild would silently resurrect it.
+            Assert.Empty(queuedAfterRemoval);
+            Assert.Empty(activeAfterRemoval);
+            Assert.Empty(persistedAfterRemoval);
         }
         finally
         {

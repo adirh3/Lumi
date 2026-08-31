@@ -306,15 +306,11 @@ public partial class ChatViewModel
     {
         var skill = _dataStore.Data.Skills.FirstOrDefault(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
         var changed = false;
-        var externalSkillChanged = false;
 
         if (skill is not null)
             changed = ActiveSkillIds.Remove(skill.Id);
         else if (_activeExternalSkillNames.RemoveAll(existing => existing.Equals(name, StringComparison.OrdinalIgnoreCase)) > 0)
-        {
             changed = true;
-            externalSkillChanged = true;
-        }
 
         if (!changed)
             return;
@@ -325,8 +321,12 @@ public partial class ChatViewModel
             ActiveSkillChips.Remove(chip);
 
         SyncActiveSkillsToChat();
-        if (externalSkillChanged)
-            _pendingExternalSkillInjections.RemoveAll(pending => pending.Equals(name, StringComparison.OrdinalIgnoreCase));
+        // Deselecting has to retract the skill's queued one-shot delivery, not just the selection.
+        // Both queues hold work for the NEXT send only: a Lumi-managed id waiting to be inlined into
+        // the prompt, or a file-based name waiting for SDK activation. Leaving an entry behind would
+        // apply a skill the user just removed. Restoring the pending-subset-of-active invariant here
+        // covers both queues from one place, so the two skill systems cannot drift apart again.
+        PrunePendingSkillInjections();
     }
 
     public void AddMcpServer(string name)
