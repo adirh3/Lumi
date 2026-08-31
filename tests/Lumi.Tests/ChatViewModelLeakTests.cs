@@ -845,6 +845,50 @@ public sealed class ChatViewModelLeakTests
         Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume").ContainsKey(chat.Id));
     }
 
+    [Fact]
+    public async Task Dispose_ReleasesProxyLeaseOwnedByCachedCopilotSession()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "proxy-lease", CopilotSessionId = "sid-proxy-lease" };
+        dataStore.Data.Chats.Add(chat);
+
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+
+        var releaseCount = 0;
+        var registrationLease = new McpProxyRuntime.SessionRegistrationLease(
+            () => Interlocked.Increment(ref releaseCount),
+            new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/test" });
+        var proxyLease = new McpProxySessionLease([registrationLease]);
+        GetField<Dictionary<CopilotSession, McpProxySessionLease>>(vm, "_mcpProxyLeasesBySession")[session] =
+            proxyLease;
+
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        Assert.Equal(1, releaseCount);
+        Assert.Empty(GetField<Dictionary<CopilotSession, McpProxySessionLease>>(vm, "_mcpProxyLeasesBySession"));
+    }
+
+    [Fact]
+    public async Task ProxyLeaseRelease_IsBoundedWhenCopilotSessionDestroyHangs()
+    {
+        var releaseCount = 0;
+        var registrationLease = new McpProxyRuntime.SessionRegistrationLease(
+            () => Interlocked.Increment(ref releaseCount),
+            new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/test" });
+        var proxyLease = new McpProxySessionLease([registrationLease]);
+        var hungSessionRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await ChatViewModel.CompleteMcpProxyLeaseReleaseAsync(
+            hungSessionRelease.Task,
+            proxyLease,
+            TimeSpan.FromMilliseconds(25));
+
+        Assert.Equal(1, releaseCount);
+    }
+
     // --- Cross-surface (cross-ChatViewModel) destroy-before-resume sequencing ---
     // Every ChatViewModel surface shares ONE CopilotService (ChatSessionStore hands the same instance
     // to each surface it creates). A session destroy started by a disposed/evicted surface leaves the

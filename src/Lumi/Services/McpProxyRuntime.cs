@@ -27,7 +27,8 @@ public sealed class McpProxyRuntime : IAsyncDisposable
     public static McpProxyRuntime Shared { get; } = new();
 
     private readonly object _gate = new();
-    private readonly Dictionary<string, McpProxyRegistration> _registrationsByKey = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, McpProxyRegistration> _registrationsByIdentity = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _persistentIdentityByKey = new(StringComparer.Ordinal);
     private readonly Dictionary<string, McpProxyRegistration> _registrationsByRoute = new(StringComparer.Ordinal);
     private readonly string _routeToken = Guid.NewGuid().ToString("N");
 
@@ -54,36 +55,59 @@ public sealed class McpProxyRuntime : IAsyncDisposable
             EnsureListenerStartedLocked();
 
             var fingerprint = ComputeFingerprint(definition.Config);
-            if (!_registrationsByKey.TryGetValue(definition.Key, out var currentRegistration)
-                || !string.Equals(currentRegistration.Fingerprint, fingerprint, StringComparison.Ordinal))
+            var identity = ComputeRegistrationIdentity(definition.Key, fingerprint);
+            if (_persistentIdentityByKey.TryGetValue(definition.Key, out var previousIdentity)
+                && !string.Equals(previousIdentity, identity, StringComparison.Ordinal)
+                && _registrationsByIdentity.TryGetValue(previousIdentity, out var previousRegistration))
             {
-                if (currentRegistration is not null)
+                previousRegistration.HasPersistentOwner = false;
+                if (previousRegistration.SessionLeaseCount == 0)
                 {
-                    _registrationsByRoute.Remove(currentRegistration.RouteId);
-                    staleRegistration = currentRegistration;
+                    RemoveRegistrationLocked(previousRegistration);
+                    staleRegistration = previousRegistration;
                 }
-
-                currentRegistration = new McpProxyRegistration(
-                    definition,
-                    RouteId: Hash(definition.Key)[..24],
-                    Fingerprint: fingerprint);
-                _registrationsByKey[definition.Key] = currentRegistration;
-                _registrationsByRoute[currentRegistration.RouteId] = currentRegistration;
             }
 
-            activeRegistration = currentRegistration;
+            var legacyRouteId = Hash(definition.Key)[..24];
+            activeRegistration = GetOrCreateRegistrationLocked(
+                definition,
+                identity,
+                fingerprint,
+                preferredRouteId: _registrationsByRoute.ContainsKey(legacyRouteId)
+                    ? null
+                    : legacyRouteId);
+            activeRegistration.HasPersistentOwner = true;
+            _persistentIdentityByKey[definition.Key] = identity;
             port = _port;
         }
 
         if (staleRegistration is not null)
             RetireRegistrationInBackground(staleRegistration);
 
-        return new McpHttpServerConfig
-            {
-                Url = $"http://127.0.0.1:{port}/mcp/{_routeToken}/{activeRegistration.RouteId}",
-                Tools = definition.Config.Tools?.ToList() ?? ["*"],
-                Timeout = definition.Config.Timeout
-            };
+        return BuildServerConfig(definition, activeRegistration, port);
+    }
+
+    public SessionRegistrationLease AcquireSessionRegistration(McpProxyServerDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (string.IsNullOrWhiteSpace(definition.Key))
+            throw new ArgumentException("MCP proxy definition key cannot be empty.", nameof(definition));
+
+        lock (_gate)
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(McpProxyRuntime));
+
+            EnsureListenerStartedLocked();
+
+            var fingerprint = ComputeFingerprint(definition.Config);
+            var identity = ComputeRegistrationIdentity(definition.Key, fingerprint);
+            var registration = GetOrCreateRegistrationLocked(definition, identity, fingerprint);
+            registration.SessionLeaseCount++;
+            return new SessionRegistrationLease(
+                () => ReleaseSessionRegistration(registration),
+                BuildServerConfig(definition, registration, _port));
+        }
     }
 
     public void RetireUserRegistrationsExcept(IEnumerable<Guid> activeLocalServerIds)
@@ -99,14 +123,21 @@ public sealed class McpProxyRuntime : IAsyncDisposable
             if (_disposed)
                 return;
 
-            foreach (var (key, registration) in _registrationsByKey.ToArray())
+            foreach (var (key, identity) in _persistentIdentityByKey.ToArray())
             {
                 if (!key.StartsWith("lumi:", StringComparison.Ordinal) || retainedKeys.Contains(key))
                     continue;
 
-                _registrationsByKey.Remove(key);
-                _registrationsByRoute.Remove(registration.RouteId);
-                staleRegistrations.Add(registration);
+                _persistentIdentityByKey.Remove(key);
+                if (!_registrationsByIdentity.TryGetValue(identity, out var registration))
+                    continue;
+
+                registration.HasPersistentOwner = false;
+                if (registration.SessionLeaseCount == 0)
+                {
+                    RemoveRegistrationLocked(registration);
+                    staleRegistrations.Add(registration);
+                }
             }
         }
 
@@ -127,8 +158,9 @@ public sealed class McpProxyRuntime : IAsyncDisposable
             listener = _listener;
             cts = _listenerCts;
             listenerTask = _listenerTask;
-            registrations = _registrationsByKey.Values.ToList();
-            _registrationsByKey.Clear();
+            registrations = _registrationsByIdentity.Values.ToList();
+            _registrationsByIdentity.Clear();
+            _persistentIdentityByKey.Clear();
             _registrationsByRoute.Clear();
             _listener = null;
             _listenerCts = null;
@@ -185,6 +217,58 @@ public sealed class McpProxyRuntime : IAsyncDisposable
         }
 
         throw new InvalidOperationException("Failed to start the local MCP proxy listener.", lastError);
+    }
+
+    private McpProxyRegistration GetOrCreateRegistrationLocked(
+        McpProxyServerDefinition definition,
+        string identity,
+        string fingerprint,
+        string? preferredRouteId = null)
+    {
+        if (_registrationsByIdentity.TryGetValue(identity, out var registration))
+            return registration;
+
+        registration = new McpProxyRegistration(
+            definition,
+            Identity: identity,
+            RouteId: preferredRouteId ?? Hash(identity)[..24],
+            Fingerprint: fingerprint);
+        _registrationsByIdentity[identity] = registration;
+        _registrationsByRoute[registration.RouteId] = registration;
+        return registration;
+    }
+
+    private void ReleaseSessionRegistration(McpProxyRegistration registration)
+    {
+        McpProxyRegistration? staleRegistration = null;
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+
+            registration.SessionLeaseCount--;
+            if (registration.SessionLeaseCount < 0)
+                throw new InvalidOperationException("MCP proxy session registration was released more than once.");
+
+            if (registration.SessionLeaseCount == 0 && !registration.HasPersistentOwner)
+            {
+                RemoveRegistrationLocked(registration);
+                staleRegistration = registration;
+            }
+        }
+
+        if (staleRegistration is not null)
+            RetireRegistrationInBackground(staleRegistration);
+    }
+
+    private void RemoveRegistrationLocked(McpProxyRegistration registration)
+    {
+        _registrationsByIdentity.Remove(registration.Identity);
+        if (_registrationsByRoute.TryGetValue(registration.RouteId, out var routed)
+            && ReferenceEquals(routed, registration))
+        {
+            _registrationsByRoute.Remove(registration.RouteId);
+        }
     }
 
     private async Task ListenAsync(HttpListener listener, CancellationToken cancellationToken)
@@ -338,22 +422,101 @@ public sealed class McpProxyRuntime : IAsyncDisposable
     private static string ComputeFingerprint(McpStdioServerConfig config)
     {
         var builder = new StringBuilder();
-        builder.AppendLine(config.Command);
-        builder.AppendLine(config.WorkingDirectory);
-        builder.AppendLine(config.Timeout?.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        AppendFingerprintField(builder, "command", config.Command);
+        AppendFingerprintField(builder, "working-directory", NormalizeWorkingDirectory(config.WorkingDirectory));
+        AppendFingerprintField(
+            builder,
+            "timeout",
+            config.Timeout?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         foreach (var arg in config.Args ?? [])
-            builder.Append("arg:").AppendLine(arg);
+            AppendFingerprintField(builder, "arg", arg);
         foreach (var tool in config.Tools ?? [])
-            builder.Append("tool:").AppendLine(tool);
-        foreach (var pair in (config.Env ?? new Dictionary<string, string>()).OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
-            builder.Append("env:").Append(pair.Key).Append('=').AppendLine(pair.Value);
+            AppendFingerprintField(builder, "tool", tool);
+        foreach (var pair in (config.Env ?? new Dictionary<string, string>())
+                     .OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            AppendFingerprintField(builder, "env-key", pair.Key);
+            AppendFingerprintField(builder, "env-value", pair.Value);
+        }
+
         return Hash(builder.ToString());
     }
+
+    private static void AppendFingerprintField(StringBuilder builder, string name, string? value)
+    {
+        builder.Append(name).Append('=');
+        if (value is null)
+            builder.Append("-1:");
+        else
+            builder.Append(value.Length).Append(':').Append(value);
+        builder.Append(';');
+    }
+
+    private static string ComputeRegistrationIdentity(string key, string fingerprint)
+        => key + "\n" + fingerprint;
+
+    private static string NormalizeWorkingDirectory(string? workingDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(workingDirectory))
+            return string.Empty;
+
+        var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(workingDirectory));
+        return OperatingSystem.IsWindows() && Directory.Exists(fullPath)
+            ? NormalizeExistingWindowsPathCasing(fullPath)
+            : fullPath;
+    }
+
+    private static string NormalizeExistingWindowsPathCasing(string fullPath)
+    {
+        var root = Path.GetPathRoot(fullPath);
+        if (string.IsNullOrEmpty(root))
+            return fullPath;
+
+        var current = root.ToUpperInvariant();
+        foreach (var segment in fullPath[root.Length..]
+                     .Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            try
+            {
+                var matches = Directory.EnumerateFileSystemEntries(current)
+                    .Where(entry => string.Equals(
+                        Path.GetFileName(entry),
+                        segment,
+                        StringComparison.OrdinalIgnoreCase))
+                    .Take(2)
+                    .ToArray();
+                current = Path.Combine(
+                    current,
+                    matches.Length == 1 ? Path.GetFileName(matches[0]) : segment);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return fullPath;
+            }
+        }
+
+        return Path.TrimEndingDirectorySeparator(current);
+    }
+
+    private McpHttpServerConfig BuildServerConfig(
+        McpProxyServerDefinition definition,
+        McpProxyRegistration registration,
+        int port)
+        => new()
+        {
+            Url = $"http://127.0.0.1:{port}/mcp/{_routeToken}/{registration.RouteId}",
+            Tools = definition.Config.Tools?.ToList() ?? ["*"],
+            Timeout = definition.Config.Timeout
+        };
 
     private static string Hash(string value)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 
-    private sealed class McpProxyRegistration(McpProxyServerDefinition definition, string RouteId, string Fingerprint) : IAsyncDisposable
+    private sealed class McpProxyRegistration(
+        McpProxyServerDefinition definition,
+        string Identity,
+        string RouteId,
+        string Fingerprint) : IAsyncDisposable
     {
         private readonly object _leaseGate = new();
         private int _activeLeases;
@@ -361,9 +524,15 @@ public sealed class McpProxyRuntime : IAsyncDisposable
         private Task? _disposeTask;
         private TaskCompletionSource<object?>? _disposeCompletion;
 
+        public string Identity { get; } = Identity;
+
         public string RouteId { get; } = RouteId;
 
         public string Fingerprint { get; } = Fingerprint;
+
+        public int SessionLeaseCount { get; set; }
+
+        public bool HasPersistentOwner { get; set; }
 
         public McpStdioServerConnection Connection { get; } = new(definition);
 
@@ -454,10 +623,29 @@ public sealed class McpProxyRuntime : IAsyncDisposable
                 ? Registration.ReleaseLeaseAsync()
                 : ValueTask.CompletedTask;
     }
+
+    public sealed class SessionRegistrationLease : IDisposable
+    {
+        private Action? _release;
+
+        internal SessionRegistrationLease(
+            Action release,
+            McpHttpServerConfig serverConfig)
+        {
+            _release = release;
+            ServerConfig = serverConfig;
+        }
+
+        public McpHttpServerConfig ServerConfig { get; }
+
+        public void Dispose()
+            => Interlocked.Exchange(ref _release, null)?.Invoke();
+    }
 }
 
 internal sealed class McpStdioServerConnection : IAsyncDisposable
 {
+    private const int InitializeTimeoutMilliseconds = 45_000;
     private const int DiagnosticLineLimit = 8;
     private const int DiagnosticLineMaxLength = 500;
     private const int DiagnosticTextMaxLength = 2_000;
@@ -504,6 +692,16 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
     {
         _definition = definition;
         _timeoutMilliseconds = definition.Config.Timeout is > 0 ? definition.Config.Timeout.Value : 60_000;
+    }
+
+    internal static int GetInitializeTimeoutMilliseconds(int requestTimeoutMilliseconds)
+        => Math.Min(requestTimeoutMilliseconds, InitializeTimeoutMilliseconds);
+
+    private CancellationTokenSource CreateInitializeTimeoutSource(CancellationToken cancellationToken)
+    {
+        var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(GetInitializeTimeoutMilliseconds(_timeoutMilliseconds));
+        return timeoutCts;
     }
 
     public async Task<string?> HandleClientMessageAsync(string body, CancellationToken cancellationToken)
@@ -627,10 +825,12 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         if (_initializeResult is { } existing && IsProcessRunning(_process))
             return existing;
 
-        await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var initializeCts = CreateInitializeTimeoutSource(cancellationToken);
+        var initializeCt = initializeCts.Token;
+        await _lifecycleLock.WaitAsync(initializeCt).ConfigureAwait(false);
         try
         {
-            return await EnsureInitializedUnderLockAsync(clientParams, cancellationToken).ConfigureAwait(false);
+            return await EnsureInitializedUnderLockAsync(clientParams, initializeCt).ConfigureAwait(false);
         }
         finally
         {
@@ -711,7 +911,9 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
 
     private async Task RecoverExpiredServerSessionAsync(int observedGeneration, CancellationToken cancellationToken)
     {
-        await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var initializeCts = CreateInitializeTimeoutSource(cancellationToken);
+        var initializeCt = initializeCts.Token;
+        await _lifecycleLock.WaitAsync(initializeCt).ConfigureAwait(false);
         try
         {
             ThrowIfDisposed();
@@ -738,8 +940,8 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
                 StartProcess();
 
                 var initParams = _initializeParams ?? JsonRpc.DefaultInitializeParams();
-                var initializedResult = await SendInitializeWithRetryAsync(initParams, cancellationToken).ConfigureAwait(false);
-                await SendNotificationAsync("notifications/initialized", null, cancellationToken).ConfigureAwait(false);
+                var initializedResult = await SendInitializeWithRetryAsync(initParams, initializeCt).ConfigureAwait(false);
+                await SendNotificationAsync("notifications/initialized", null, initializeCt).ConfigureAwait(false);
                 _initializeResult = initializedResult;
                 _sessionRecoveryOutcomes[observedGeneration] = null;
                 var successes = Interlocked.Increment(ref _sessionRecoverySuccesses);
@@ -1104,10 +1306,12 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         var processGeneration = 0;
         var pendingRegistered = false;
 
-        await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var initializeCts = CreateInitializeTimeoutSource(cancellationToken);
+        var initializeCt = initializeCts.Token;
+        await _lifecycleLock.WaitAsync(initializeCt).ConfigureAwait(false);
         try
         {
-            await EnsureInitializedUnderLockAsync(null, cancellationToken).ConfigureAwait(false);
+            await EnsureInitializedUnderLockAsync(null, initializeCt).ConfigureAwait(false);
             processGeneration = Volatile.Read(ref _processGeneration);
             lock (_pending)
                 _pending[key] = new PendingRequest(processGeneration, tcs);

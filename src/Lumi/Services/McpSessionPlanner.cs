@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services.Capabilities;
@@ -27,8 +28,11 @@ namespace Lumi.Services;
 public sealed record McpSessionPlan(
     Dictionary<string, McpServerConfig> Servers,
     IReadOnlyList<string> DisabledServerNames,
-    IReadOnlyDictionary<string, string>? RuntimeKeysByName = null)
+    IReadOnlyDictionary<string, string>? RuntimeKeysByName = null) : IDisposable
 {
+    private McpProxySessionLease? _proxyLease;
+    private bool _usesProxy;
+
     public static McpSessionPlan Empty { get; } = new([], []);
 
     /// <summary>
@@ -39,6 +43,36 @@ public sealed record McpSessionPlan(
         => RuntimeKeysByName is not null && RuntimeKeysByName.TryGetValue(serverName, out var key)
             ? key
             : serverName;
+
+    internal bool UsesProxy => _usesProxy;
+
+    internal void AttachProxyLease(McpProxySessionLease proxyLease)
+    {
+        _proxyLease = proxyLease;
+        _usesProxy = true;
+    }
+
+    internal McpProxySessionLease? DetachProxyLease()
+        => Interlocked.Exchange(ref _proxyLease, null);
+
+    public void Dispose()
+        => DetachProxyLease()?.Dispose();
+}
+
+internal sealed class McpProxySessionLease(
+    IReadOnlyList<McpProxyRuntime.SessionRegistrationLease> registrations) : IDisposable
+{
+    private IReadOnlyList<McpProxyRuntime.SessionRegistrationLease>? _registrations = registrations;
+
+    public void Dispose()
+    {
+        var ownedRegistrations = Interlocked.Exchange(ref _registrations, null);
+        if (ownedRegistrations is null)
+            return;
+
+        for (var i = ownedRegistrations.Count - 1; i >= 0; i--)
+            ownedRegistrations[i].Dispose();
+    }
 }
 
 public static class McpSessionPlanner
@@ -102,54 +136,74 @@ public static class McpSessionPlanner
         // duplicate names collapse to a single entry with the last configured server winning.
         var selected = new Dictionary<string, McpServerConfig>(NameComparer);
         var order = new List<string>();
-
-        foreach (var server in configuredServers)
+        List<McpProxyRuntime.SessionRegistrationLease>? proxyRegistrations =
+            proxyRuntime is null ? null : [];
+        try
         {
-            if (!selected.ContainsKey(server.Name))
-                order.Add(server.Name);
-            selected[server.Name] = ToSdkConfig(
-                server,
-                ResolveWorkingDirectory(server, capabilities, workDir),
-                proxyRuntime,
-                ResolveProxyKey(server, capabilities));
-        }
+            foreach (var server in configuredServers)
+            {
+                if (!selected.ContainsKey(server.Name))
+                    order.Add(server.Name);
+                selected[server.Name] = ToSdkConfig(
+                    server,
+                    ResolveWorkingDirectory(server, capabilities, workDir),
+                    proxyRuntime,
+                    ResolveProxyKey(server, capabilities),
+                    proxyRegistrations);
+            }
 
-        // Phase 2: project each distinct server onto a CAPI-safe, collision-free namespace. The
-        // dictionary key is sent to the backend as the tool namespace and must match ^[a-zA-Z0-9_-]+$.
-        var result = new Dictionary<string, McpServerConfig>(NameComparer);
-        var runtimeKeysByName = new Dictionary<string, string>(NameComparer);
-        foreach (var rawName in order)
+            // Phase 2: project each distinct server onto a CAPI-safe, collision-free namespace. The
+            // dictionary key is sent to the backend as the tool namespace and must match ^[a-zA-Z0-9_-]+$.
+            var result = new Dictionary<string, McpServerConfig>(NameComparer);
+            var runtimeKeysByName = new Dictionary<string, string>(NameComparer);
+            foreach (var rawName in order)
+            {
+                var key = ToNamespace(rawName, result);
+                result[key] = selected[rawName];
+                runtimeKeysByName[rawName] = key;
+            }
+
+            GitHubMcpWebSearchBootstrap.Ensure(result, CopilotService.TryGetGitHubTokenForMcp());
+
+            // Servers the runtime discovered are loaded by the SDK itself, so deselection is expressed
+            // by disabling them on the session. A name is disabled when Lumi is not supplying a config
+            // for it and either the user did not select it, or Lumi owns that name — otherwise a Lumi
+            // server the user turned off would be silently replaced by an identically named discovered
+            // one that config discovery starts anyway. An agent that declares its own MCP allowlist
+            // disables everything it did not name: that allowlist holds Lumi ids, so a server the
+            // runtime discovered can never appear in it and must not be started by config discovery.
+            //
+            // Only raw catalog names go in here. The namespaced keys are what the session registers a
+            // supplied server under, and treating one as a catalog name would exempt a discovered
+            // server that happens to be called what another server sanitized to.
+            var supplied = new HashSet<string>(selected.Keys, NameComparer);
+
+            var disabled = capabilities.McpServers
+                .Where(server => !supplied.Contains(server.Name))
+                .Where(server => agentRestrictsMcp
+                                 || server.Origin.IsLumi
+                                 || !selectedNames.Contains(server.Name))
+                .Select(server => server.Name)
+                .Distinct(NameComparer)
+                .ToArray();
+
+            var plan = new McpSessionPlan(result, disabled, runtimeKeysByName);
+            if (proxyRegistrations is { Count: > 0 })
+            {
+                plan.AttachProxyLease(new McpProxySessionLease(proxyRegistrations));
+                proxyRegistrations = null;
+            }
+
+            return plan;
+        }
+        finally
         {
-            var key = ToNamespace(rawName, result);
-            result[key] = selected[rawName];
-            runtimeKeysByName[rawName] = key;
+            if (proxyRegistrations is not null)
+            {
+                for (var i = proxyRegistrations.Count - 1; i >= 0; i--)
+                    proxyRegistrations[i].Dispose();
+            }
         }
-
-        GitHubMcpWebSearchBootstrap.Ensure(result, CopilotService.TryGetGitHubTokenForMcp());
-
-        // Servers the runtime discovered are loaded by the SDK itself, so deselection is expressed
-        // by disabling them on the session. A name is disabled when Lumi is not supplying a config
-        // for it and either the user did not select it, or Lumi owns that name — otherwise a Lumi
-        // server the user turned off would be silently replaced by an identically named discovered
-        // one that config discovery starts anyway. An agent that declares its own MCP allowlist
-        // disables everything it did not name: that allowlist holds Lumi ids, so a server the
-        // runtime discovered can never appear in it and must not be started by config discovery.
-        //
-        // Only raw catalog names go in here. The namespaced keys are what the session registers a
-        // supplied server under, and treating one as a catalog name would exempt a discovered
-        // server that happens to be called what another server sanitized to.
-        var supplied = new HashSet<string>(selected.Keys, NameComparer);
-
-        var disabled = capabilities.McpServers
-            .Where(server => !supplied.Contains(server.Name))
-            .Where(server => agentRestrictsMcp
-                             || server.Origin.IsLumi
-                             || !selectedNames.Contains(server.Name))
-            .Select(server => server.Name)
-            .Distinct(NameComparer)
-            .ToArray();
-
-        return new McpSessionPlan(result, disabled, runtimeKeysByName);
     }
 
     /// <summary>
@@ -203,7 +257,8 @@ public static class McpSessionPlanner
         McpServer server,
         string workDir,
         McpProxyRuntime? proxyRuntime,
-        string proxyKey)
+        string proxyKey,
+        ICollection<McpProxyRuntime.SessionRegistrationLease>? proxyRegistrations)
     {
         if (string.Equals(server.ServerType, "remote", StringComparison.OrdinalIgnoreCase))
         {
@@ -236,10 +291,12 @@ public static class McpSessionPlanner
 
         if (proxyRuntime is not null)
         {
-            return proxyRuntime.Register(new McpProxyServerDefinition(
+            var registration = proxyRuntime.AcquireSessionRegistration(new McpProxyServerDefinition(
                 proxyKey,
                 server.Name,
                 local));
+            proxyRegistrations!.Add(registration);
+            return registration.ServerConfig;
         }
 
         return local;

@@ -7,11 +7,13 @@ using Avalonia.Threading;
 using GitHub.Copilot;
 using Lumi.Localization;
 using Lumi.Models;
+using Lumi.Services;
 
 namespace Lumi.ViewModels;
 
 public partial class ChatViewModel
 {
+    private static readonly TimeSpan McpProxyLeaseReleaseGracePeriod = TimeSpan.FromSeconds(30);
     private bool _isDisposed;
 
     public void Dispose()
@@ -470,6 +472,8 @@ public partial class ChatViewModel
             _sessionSubs.Remove(chatId);
         }
         _activeMcpConfigs.TryRemove(chatId, out _);
+        _activeMcpStatuses.TryRemove(chatId, out _);
+        _activeMcpDisplayNames.TryRemove(chatId, out _);
         ForgetMcpOAuthState(chatId);
     }
 
@@ -638,7 +642,8 @@ public partial class ChatViewModel
     /// </summary>
     private void TrackSessionRelease(Guid chatId, CopilotSession session, bool deleteServerSession)
     {
-        var releaseTask = DisposeReleasedSessionAsync(session, deleteServerSession);
+        var proxyLease = DetachMcpProxyLease(session);
+        var releaseTask = DisposeReleasedSessionAsync(session, deleteServerSession, proxyLease);
         _sessionReleaseTasks[chatId] = releaseTask;
         _ = releaseTask.ContinueWith(
             _ => Dispatcher.UIThread.Post(() =>
@@ -656,8 +661,73 @@ public partial class ChatViewModel
     // session id — this is what lets a concurrent resume of the same id on ANOTHER surface wait for
     // the destroy to finish. The service owns fault-swallowing, so this best-effort call never
     // faults its caller.
-    private Task DisposeReleasedSessionAsync(CopilotSession session, bool deleteServerSession)
-        => _copilotService.ReleaseSessionAsync(session, deleteServerSession);
+    private async Task DisposeReleasedSessionAsync(
+        CopilotSession session,
+        bool deleteServerSession,
+        McpProxySessionLease? proxyLease)
+    {
+        var releaseTask = _copilotService.ReleaseSessionAsync(session, deleteServerSession);
+        if (proxyLease is null)
+        {
+            await releaseTask.ConfigureAwait(false);
+            return;
+        }
+
+        await CompleteMcpProxyLeaseReleaseAsync(
+            releaseTask,
+            proxyLease,
+            McpProxyLeaseReleaseGracePeriod).ConfigureAwait(false);
+    }
+
+    internal static async Task CompleteMcpProxyLeaseReleaseAsync(
+        Task sessionRelease,
+        McpProxySessionLease proxyLease,
+        TimeSpan gracePeriod)
+    {
+        try
+        {
+            await sessionRelease.WaitAsync(gracePeriod).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            Debug.WriteLine("[Lumi] Copilot session release exceeded the MCP proxy lease grace period.");
+        }
+        finally
+        {
+            proxyLease.Dispose();
+        }
+    }
+
+    private void AttachMcpProxyLease(CopilotSession session, McpSessionPlan plan)
+    {
+        var proxyLease = plan.DetachProxyLease();
+        if (proxyLease is null)
+            return;
+
+        if (_mcpProxyLeasesBySession.Remove(session, out var previousLease))
+            previousLease.Dispose();
+        _mcpProxyLeasesBySession[session] = proxyLease;
+    }
+
+    private McpProxySessionLease? DetachMcpProxyLease(CopilotSession session)
+        => _mcpProxyLeasesBySession.Remove(session, out var proxyLease)
+            ? proxyLease
+            : null;
+
+    private void ReleaseMcpProxyLease(CopilotSession session)
+        => DetachMcpProxyLease(session)?.Dispose();
+
+    private void AdoptMcpProxyLease(CopilotSession previousSession, CopilotSession session)
+    {
+        var previousLease = DetachMcpProxyLease(previousSession);
+        if (previousLease is null)
+            return;
+
+        if (_mcpProxyLeasesBySession.ContainsKey(session))
+            previousLease.Dispose();
+        else
+            _mcpProxyLeasesBySession[session] = previousLease;
+    }
 
     private async Task AwaitPendingSessionReleaseAsync(Guid chatId, CancellationToken ct)
     {
