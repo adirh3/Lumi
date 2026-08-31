@@ -2629,6 +2629,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
             chat.CopilotSessionId = createdSession.SessionId;
             AttachMcpProxyLease(createdSession, mcpPlan);
+            if (_sessionsPendingResume.TryGetValue(chat.Id, out var pendingSession))
+                AdoptMcpProxyLeaseIfMissing(pendingSession, createdSession);
             if (!SubscribeToSession(createdSession, chat, workDir))
             {
                 // Surface disposed mid-create; the session was released. Abort cleanly.

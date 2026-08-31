@@ -892,6 +892,77 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public async Task CatalogFallback_AdoptsConsumedPlanLeaseFromPendingSession()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chatId = Guid.NewGuid();
+        var pendingSession = CreateDetachedSession("sid-catalog-retry");
+        var fallbackSession = CreateDetachedSession("sid-catalog-fallback");
+        var releaseCount = 0;
+        var registrationLease = new McpProxyRuntime.SessionRegistrationLease(
+            () => Interlocked.Increment(ref releaseCount),
+            new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/catalog-retry" });
+        var proxyLease = new McpProxySessionLease([registrationLease]);
+        var leases = GetField<Dictionary<CopilotSession, McpProxySessionLease>>(
+            vm,
+            "_mcpProxyLeasesBySession");
+        leases[pendingSession] = proxyLease;
+
+        InvokePrivate(vm, "AdoptMcpProxyLeaseIfMissing", pendingSession, fallbackSession);
+
+        Assert.False(leases.ContainsKey(pendingSession));
+        Assert.Same(proxyLease, leases[fallbackSession]);
+        Assert.Equal(0, releaseCount);
+
+        InvokePrivate(vm, "ReleaseMcpProxyLease", chatId, fallbackSession);
+        await vm.AwaitPendingMcpProxyReleaseAsync(chatId);
+        Assert.Equal(1, releaseCount);
+        vm.Dispose();
+    }
+
+    [Fact]
+    public async Task CatalogFallback_KeepsFreshPlanLeaseAndPendingLeaseSeparate()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chatId = Guid.NewGuid();
+        var pendingSession = CreateDetachedSession("sid-old-config");
+        var fallbackSession = CreateDetachedSession("sid-new-config");
+        var oldReleaseCount = 0;
+        var newReleaseCount = 0;
+        var oldLease = new McpProxySessionLease(
+        [
+            new McpProxyRuntime.SessionRegistrationLease(
+                () => Interlocked.Increment(ref oldReleaseCount),
+                new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/old-config" })
+        ]);
+        var newLease = new McpProxySessionLease(
+        [
+            new McpProxyRuntime.SessionRegistrationLease(
+                () => Interlocked.Increment(ref newReleaseCount),
+                new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/new-config" })
+        ]);
+        var leases = GetField<Dictionary<CopilotSession, McpProxySessionLease>>(
+            vm,
+            "_mcpProxyLeasesBySession");
+        leases[pendingSession] = oldLease;
+        leases[fallbackSession] = newLease;
+
+        InvokePrivate(vm, "AdoptMcpProxyLeaseIfMissing", pendingSession, fallbackSession);
+
+        Assert.Same(oldLease, leases[pendingSession]);
+        Assert.Same(newLease, leases[fallbackSession]);
+        Assert.Equal(0, oldReleaseCount);
+        Assert.Equal(0, newReleaseCount);
+
+        InvokePrivate(vm, "ReleaseMcpProxyLease", chatId, pendingSession);
+        InvokePrivate(vm, "ReleaseMcpProxyLease", chatId, fallbackSession);
+        await vm.AwaitPendingMcpProxyReleaseAsync(chatId);
+        Assert.Equal(1, oldReleaseCount);
+        Assert.Equal(1, newReleaseCount);
+        vm.Dispose();
+    }
+
+    [Fact]
     public async Task ProxyCleanupBarrier_AggregatesEveryProxyBackedSessionRelease()
     {
         var dataStore = CreateDataStore();

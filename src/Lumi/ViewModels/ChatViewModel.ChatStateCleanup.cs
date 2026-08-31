@@ -854,6 +854,16 @@ public partial class ChatViewModel
             _mcpProxyLeasesBySession[session] = previousLease;
     }
 
+    private void AdoptMcpProxyLeaseIfMissing(CopilotSession previousSession, CopilotSession session)
+    {
+        if (_mcpProxyLeasesBySession.ContainsKey(session))
+            return;
+
+        var previousLease = DetachMcpProxyLease(previousSession);
+        if (previousLease is not null)
+            _mcpProxyLeasesBySession[session] = previousLease;
+    }
+
     internal bool TryBeginMcpProxyCleanup(Guid chatId, out Task releaseCompletion)
     {
         if (_pendingMcpProxyPlanTrackers.TryGetValue(chatId, out var pendingPlans))
