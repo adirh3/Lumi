@@ -2671,7 +2671,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     workDir,
                     mcpPlan,
                     pendingMcpProxyPlan,
-                    beforeAttach: () => chat.CopilotSessionId = createdSession.SessionId))
+                    beforeAttach: () => chat.CopilotSessionId = createdSession.SessionId,
+                    afterAttach: () =>
+                    {
+                        if (_sessionsPendingResume.TryGetValue(chat.Id, out var pendingSession))
+                            AdoptMcpProxyLeaseIfMissing(pendingSession, createdSession);
+                    }))
                 return false;
             if (mcpPlan.Servers is { Count: > 0 })
                 await BeginMcpServerStatusCheckAsync(
