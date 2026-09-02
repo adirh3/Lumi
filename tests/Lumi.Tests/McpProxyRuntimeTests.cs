@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -590,6 +591,13 @@ public sealed class McpProxyRuntimeTests
             var starts = await File.ReadAllLinesAsync(logPath);
             Assert.Equal(2, starts.Length);
             Assert.NotEqual(starts[0], starts[1]);
+
+            await runtime.DisposeAsync();
+            foreach (var start in starts)
+            {
+                var processId = int.Parse(start, System.Globalization.CultureInfo.InvariantCulture);
+                Assert.Throws<ArgumentException>(() => Process.GetProcessById(processId));
+            }
         }
         finally
         {
@@ -660,6 +668,13 @@ public sealed class McpProxyRuntimeTests
             var starts = await File.ReadAllLinesAsync(logPath);
             Assert.Equal(2, starts.Length);
             Assert.NotEqual(starts[0], starts[1]);
+
+            await runtime.DisposeAsync();
+            foreach (var start in starts)
+            {
+                var processId = int.Parse(start, System.Globalization.CultureInfo.InvariantCulture);
+                Assert.Throws<ArgumentException>(() => Process.GetProcessById(processId));
+            }
         }
         finally
         {
@@ -1195,7 +1210,7 @@ public sealed class McpProxyRuntimeTests
                 """);
 
             var definition = CreateBasicDefinition("test:dispose", "dispose-test", scriptPath, root, logPath);
-            var runtime = new McpProxyRuntime();
+            await using var runtime = new McpProxyRuntime();
             var remote = runtime.Register(definition);
 
             using var http = new HttpClient();
@@ -1207,7 +1222,7 @@ public sealed class McpProxyRuntimeTests
             var pid = int.Parse(Assert.Single(await File.ReadAllLinesAsync(logPath)), System.Globalization.CultureInfo.InvariantCulture);
             await runtime.DisposeAsync();
 
-            await WaitForProcessExitAsync(pid);
+            Assert.Throws<ArgumentException>(() => Process.GetProcessById(pid));
             Assert.Throws<ObjectDisposedException>(() => runtime.Register(definition));
         }
         finally

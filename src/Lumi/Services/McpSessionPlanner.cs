@@ -45,6 +45,7 @@ public sealed record McpSessionPlan(
             : serverName;
 
     internal bool UsesProxy => _usesProxy;
+    internal McpProxySessionLease? ProxyLease => Volatile.Read(ref _proxyLease);
 
     internal void AttachProxyLease(McpProxySessionLease proxyLease)
     {
@@ -60,18 +61,41 @@ public sealed record McpSessionPlan(
 }
 
 internal sealed class McpProxySessionLease(
-    IReadOnlyList<McpProxyRuntime.SessionRegistrationLease> registrations) : IDisposable
+    IReadOnlyList<McpProxyRuntime.SessionRegistrationLease> registrations) : IDisposable, IAsyncDisposable
 {
+    private readonly object _releaseGate = new();
     private IReadOnlyList<McpProxyRuntime.SessionRegistrationLease>? _registrations = registrations;
+    private Task? _releaseTask;
 
     public void Dispose()
     {
-        var ownedRegistrations = Interlocked.Exchange(ref _registrations, null);
-        if (ownedRegistrations is null)
-            return;
+        var releaseTask = ReleaseAsync();
+        if (!releaseTask.IsCompletedSuccessfully)
+        {
+            _ = releaseTask.ContinueWith(
+                static task => System.Diagnostics.Trace.TraceWarning(
+                    "MCP proxy session cleanup failed: {0}",
+                    task.Exception),
+                TaskContinuationOptions.OnlyOnFaulted);
+        }
+    }
 
-        for (var i = ownedRegistrations.Count - 1; i >= 0; i--)
-            ownedRegistrations[i].Dispose();
+    public ValueTask DisposeAsync() => new(ReleaseAsync());
+
+    internal Task ReleaseAsync()
+    {
+        lock (_releaseGate)
+        {
+            if (_releaseTask is not null)
+                return _releaseTask;
+
+            var ownedRegistrations = _registrations;
+            _registrations = null;
+            _releaseTask = ownedRegistrations is null
+                ? Task.CompletedTask
+                : Task.WhenAll(ownedRegistrations.Reverse().Select(registration => registration.ReleaseAsync()));
+            return _releaseTask;
+        }
     }
 }
 

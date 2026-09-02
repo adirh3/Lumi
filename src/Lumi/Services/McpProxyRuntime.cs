@@ -105,7 +105,7 @@ public sealed class McpProxyRuntime : IAsyncDisposable
             var registration = GetOrCreateRegistrationLocked(definition, identity, fingerprint);
             registration.SessionLeaseCount++;
             return new SessionRegistrationLease(
-                () => ReleaseSessionRegistration(registration),
+                () => ReleaseSessionRegistrationAsync(registration),
                 BuildServerConfig(definition, registration, _port));
         }
     }
@@ -238,13 +238,13 @@ public sealed class McpProxyRuntime : IAsyncDisposable
         return registration;
     }
 
-    private void ReleaseSessionRegistration(McpProxyRegistration registration)
+    private Task ReleaseSessionRegistrationAsync(McpProxyRegistration registration)
     {
         McpProxyRegistration? staleRegistration = null;
         lock (_gate)
         {
             if (_disposed)
-                return;
+                return Task.CompletedTask;
 
             registration.SessionLeaseCount--;
             if (registration.SessionLeaseCount < 0)
@@ -257,8 +257,9 @@ public sealed class McpProxyRuntime : IAsyncDisposable
             }
         }
 
-        if (staleRegistration is not null)
-            RetireRegistrationInBackground(staleRegistration);
+        return staleRegistration is null
+            ? Task.CompletedTask
+            : staleRegistration.RetireAsync().AsTask();
     }
 
     private void RemoveRegistrationLocked(McpProxyRegistration registration)
@@ -626,20 +627,59 @@ public sealed class McpProxyRuntime : IAsyncDisposable
 
     public sealed class SessionRegistrationLease : IDisposable
     {
-        private Action? _release;
+        private readonly object _releaseGate = new();
+        private Func<Task>? _releaseAsync;
+        private Task? _releaseTask;
 
         internal SessionRegistrationLease(
             Action release,
             McpHttpServerConfig serverConfig)
+            : this(
+                () =>
+                {
+                    release();
+                    return Task.CompletedTask;
+                },
+                serverConfig)
         {
-            _release = release;
+        }
+
+        internal SessionRegistrationLease(
+            Func<Task> releaseAsync,
+            McpHttpServerConfig serverConfig)
+        {
+            _releaseAsync = releaseAsync;
             ServerConfig = serverConfig;
         }
 
         public McpHttpServerConfig ServerConfig { get; }
 
+        public Task ReleaseAsync()
+        {
+            lock (_releaseGate)
+            {
+                if (_releaseTask is not null)
+                    return _releaseTask;
+
+                var releaseAsync = _releaseAsync;
+                _releaseAsync = null;
+                _releaseTask = releaseAsync?.Invoke() ?? Task.CompletedTask;
+                return _releaseTask;
+            }
+        }
+
         public void Dispose()
-            => Interlocked.Exchange(ref _release, null)?.Invoke();
+        {
+            var releaseTask = ReleaseAsync();
+            if (!releaseTask.IsCompletedSuccessfully)
+            {
+                _ = releaseTask.ContinueWith(
+                    static task => Trace.TraceWarning(
+                        "MCP proxy session registration cleanup failed: {0}",
+                        task.Exception),
+                    TaskContinuationOptions.OnlyOnFaulted);
+            }
+        }
     }
 }
 
@@ -668,7 +708,7 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly Dictionary<string, PendingRequest> _pending = new(StringComparer.Ordinal);
     private readonly Dictionary<int, string?> _sessionRecoveryOutcomes = [];
-    private readonly List<Task> _retiredIoTasks = [];
+    private readonly List<Task> _retiredProcessTasks = [];
     private readonly object _diagnosticOutputLock = new();
     private readonly Queue<string> _recentStdout = new();
     private readonly Queue<string> _recentStderr = new();
@@ -774,7 +814,7 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         Process? process;
         Task? stdoutTask;
         Task? stderrTask;
-        Task[] retiredIoTasks;
+        Task[] retiredProcessTasks;
 
         await _lifecycleLock.WaitAsync().ConfigureAwait(false);
         try
@@ -782,8 +822,8 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
             process = _process;
             stdoutTask = _stdoutTask;
             stderrTask = _stderrTask;
-            retiredIoTasks = _retiredIoTasks.ToArray();
-            _retiredIoTasks.Clear();
+            retiredProcessTasks = _retiredProcessTasks.ToArray();
+            _retiredProcessTasks.Clear();
             _process = null;
             _stdin = null;
             _stdoutTask = null;
@@ -803,18 +843,18 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         {
             try
             {
-                if (!process.HasExited)
-                    process.Kill(entireProcessTree: true);
+                await TerminateProcessTreeAndWaitAsync(process).ConfigureAwait(false);
             }
-            catch { }
-
-            process.Dispose();
+            finally
+            {
+                process.Dispose();
+            }
         }
 
         await IgnoreAsync(stdoutTask).ConfigureAwait(false);
         await IgnoreAsync(stderrTask).ConfigureAwait(false);
-        foreach (var retiredIoTask in retiredIoTasks)
-            await IgnoreAsync(retiredIoTask).ConfigureAwait(false);
+        foreach (var retiredProcessTask in retiredProcessTasks)
+            await retiredProcessTask.ConfigureAwait(false);
         _lifecycleLock.Dispose();
         _writeLock.Dispose();
         _ioCts.Dispose();
@@ -1004,19 +1044,7 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         CompletePendingWithErrorForGeneration(retiredGeneration, pendingError);
 
         oldIoCts.Cancel();
-        if (process is not null)
-        {
-            try
-            {
-                if (!process.HasExited)
-                    process.Kill(entireProcessTree: true);
-            }
-            catch { }
-
-            process.Dispose();
-        }
-
-        TrackRetiredIoTasks(oldIoCts, oldStdoutTask, oldStderrTask);
+        TrackRetiredProcess(process, terminate: true, oldIoCts, oldStdoutTask, oldStderrTask);
     }
 
     internal static bool IsRecoverableSessionLossResponse(JsonElement response)
@@ -1244,34 +1272,58 @@ internal sealed class McpStdioServerConnection : IAsyncDisposable
         CompletePendingWithErrorForGeneration(
             retiredGeneration,
             new IOException($"MCP server '{_definition.Name}' stopped."));
-
         oldIoCts.Cancel();
-        TrackRetiredIoTasks(oldIoCts, oldStdoutTask, oldStderrTask);
-
-        if (process is not null)
-        {
-            try { process.Dispose(); }
-            catch { }
-        }
+        TrackRetiredProcess(process, terminate: false, oldIoCts, oldStdoutTask, oldStderrTask);
     }
 
-    private void TrackRetiredIoTasks(CancellationTokenSource ioCts, Task? stdoutTask, Task? stderrTask)
+    private void TrackRetiredProcess(
+        Process? process,
+        bool terminate,
+        CancellationTokenSource ioCts,
+        Task? stdoutTask,
+        Task? stderrTask)
     {
-        _retiredIoTasks.RemoveAll(static task => task.IsCompleted);
-        _retiredIoTasks.Add(DisposeRetiredIoAsync(ioCts, stdoutTask, stderrTask));
+        _retiredProcessTasks.RemoveAll(static task => task.IsCompletedSuccessfully);
+        _retiredProcessTasks.Add(DisposeRetiredProcessAsync(
+            process,
+            terminate,
+            ioCts,
+            stdoutTask,
+            stderrTask));
     }
 
-    private static async Task DisposeRetiredIoAsync(CancellationTokenSource ioCts, Task? stdoutTask, Task? stderrTask)
+    private static async Task DisposeRetiredProcessAsync(
+        Process? process,
+        bool terminate,
+        CancellationTokenSource ioCts,
+        Task? stdoutTask,
+        Task? stderrTask)
     {
         try
         {
+            if (process is not null)
+            {
+                if (terminate)
+                    await TerminateProcessTreeAndWaitAsync(process).ConfigureAwait(false);
+                else
+                    await process.WaitForExitAsync().ConfigureAwait(false);
+            }
+
             await IgnoreAsync(stdoutTask).ConfigureAwait(false);
             await IgnoreAsync(stderrTask).ConfigureAwait(false);
         }
         finally
         {
+            process?.Dispose();
             ioCts.Dispose();
         }
+    }
+
+    private static async Task TerminateProcessTreeAndWaitAsync(Process process)
+    {
+        if (!process.HasExited)
+            process.Kill(entireProcessTree: true);
+        await process.WaitForExitAsync().ConfigureAwait(false);
     }
 
     private void ThrowIfDisposed()

@@ -1427,7 +1427,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
             _pendingDeleteChat = null;
             IsWorktreeDeleteDialogOpen = false;
-            if (!await PerformDeleteChatAsync(chat))
+            if (!await PerformDeleteChatAsync(chat, awaitMcpProxyRelease: true))
                 return;
 
             // Clean up worktree + branch in background
@@ -1475,12 +1475,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
             .SnapshotSurfaces()
             .Any(surface => surface.IsExternalSendReserved(chatId));
 
-    private async Task<bool> PerformDeleteChatAsync(Chat chat)
+    private async Task<bool> PerformDeleteChatAsync(Chat chat, bool awaitMcpProxyRelease = false)
     {
         if (IsChatFirstTurnReserved(chat.Id) || !_dataStore.Data.Chats.Contains(chat))
             return false;
 
         var deletedActiveChat = ChatVM.CurrentChat?.Id == chat.Id;
+        var proxyReleaseTask = awaitMcpProxyRelease
+            ? _chatSessionStore.BeginMcpProxyCleanupAsync(chat.Id)
+            : Task.CompletedTask;
 
         _chatSessionStore.ApplyToSurfaces(surface =>
         {
@@ -1489,6 +1492,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         });
 
         _chatSessionStore.CleanupChat(chat.Id);
+        await proxyReleaseTask;
         if (deletedActiveChat)
             ClearMainChatSurface();
         _dataStore.Data.Chats.Remove(chat);

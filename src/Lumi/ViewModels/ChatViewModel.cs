@@ -812,6 +812,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly Dictionary<Guid, CopilotSession> _sessionsPendingResume = new();
     /// <summary>Tracks SDK session disposal in progress so resume waits until the prior handle is released.</summary>
     private readonly Dictionary<Guid, Task> _sessionReleaseTasks = new();
+    /// <summary>Tracks proxy-backed releases until their child processes have fully retired.</summary>
+    private readonly Dictionary<Guid, Task> _mcpProxyReleaseTasks = new();
     /// <summary>Maps chat ID → live event subscriptions for locally attached sessions.</summary>
     private readonly Dictionary<Guid, IDisposable> _sessionSubs = new();
     /// <summary>Maps chat ID → in-progress streaming message not yet committed to Chat.Messages.</summary>
@@ -2153,6 +2155,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         var sdkAgentName = GetSessionSdkAgentName(chat, CurrentChat, SelectedSdkAgentName);
         using var mcpPlan = BuildMcpPlan(workDir, capabilities, chat, activeAgent);
+        using var pendingMcpProxyPlan = TrackPendingMcpProxyPlan(chat.Id, mcpPlan);
         _sessionMcpPlans[chat.Id] = mcpPlan;
         if (mcpPlan.Servers.Count > 0)
         {

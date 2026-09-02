@@ -248,7 +248,7 @@ public partial class ChatViewModel
             }
             else
             {
-                AdoptMcpProxyLease(previousSession, session);
+                AdoptMcpProxyLease(chat.Id, previousSession, session);
             }
         }
 
@@ -262,7 +262,7 @@ public partial class ChatViewModel
             if (!string.Equals(pendingSession.SessionId, session.SessionId, StringComparison.Ordinal))
                 TrackSessionRelease(chat.Id, pendingSession, deleteServerSession: false);
             else
-                AdoptMcpProxyLease(pendingSession, session);
+                AdoptMcpProxyLease(chat.Id, pendingSession, session);
         }
 
         // This surface may have been disposed while the session was being created/resumed (the user
@@ -2679,7 +2679,7 @@ public partial class ChatViewModel
         // would just fail. The persisted CopilotSessionId is intentionally kept so a later send can
         // resume once the CLI/server recovers.
         if (_sessionCache.Remove(chat.Id, out var detachedSession))
-            ReleaseMcpProxyLease(detachedSession);
+            ReleaseMcpProxyLease(chat.Id, detachedSession);
         if (wasActive)
             _activeSession = null;
 
@@ -2742,13 +2742,24 @@ public partial class ChatViewModel
             sub.Dispose();
         _sessionSubs.Clear();
 
-        // Clear session cache: every cached session belongs to the OLD CLI process, which has died
-        // (that is why we are reconnecting). Its child MCP subprocesses died with it, and a destroy
-        // RPC can't be delivered over the dead connection anyway, so there is nothing to reap here —
-        // dropping the handles is correct. Persisted CopilotSessionIds remain resumable on the new client.
-        foreach (var proxyLease in _mcpProxyLeasesBySession.Values)
-            proxyLease.Dispose();
-        _mcpProxyLeasesBySession.Clear();
+        // Clear session cache: every cached session belongs to the old CLI process, so a destroy RPC
+        // cannot be delivered. Proxy children are owned by Lumi rather than that CLI process, however,
+        // so publish their retirement tasks before dropping the dead session handles.
+        foreach (var (chatId, session) in _sessionCache.ToList())
+            ReleaseMcpProxyLease(chatId, session);
+        foreach (var (chatId, session) in _sessionsPendingResume.ToList())
+            ReleaseMcpProxyLease(chatId, session);
+        if (CurrentChat is { } activeChat && _activeSession is not null)
+            ReleaseMcpProxyLease(activeChat.Id, _activeSession);
+        foreach (var session in _mcpProxyLeasesBySession.Keys.ToList())
+        {
+            var owner = _dataStore.Data.Chats.FirstOrDefault(chat =>
+                string.Equals(chat.CopilotSessionId, session.SessionId, StringComparison.Ordinal));
+            if (owner is not null)
+                ReleaseMcpProxyLease(owner.Id, session);
+            else
+                DetachMcpProxyLease(session)?.Dispose();
+        }
         _sessionCache.Clear();
         _sessionsPendingResume.Clear();
         _activeSession = null;
