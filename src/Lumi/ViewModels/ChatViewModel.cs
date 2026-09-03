@@ -708,7 +708,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>Maps chat ID → live event subscriptions for locally attached sessions.</summary>
     private readonly Dictionary<Guid, IDisposable> _sessionSubs = new();
     /// <summary>Awaiters used by abort-and-replace paths that must not send until session.idle.</summary>
-    private readonly Dictionary<Guid, TaskCompletionSource<bool>> _sessionIdleWaiters = new();
+    private readonly Dictionary<Guid, List<TaskCompletionSource<bool>>> _sessionIdleWaiters = new();
+    private readonly object _sessionIdleWaitersLock = new();
     /// <summary>Maps chat ID → in-progress streaming message not yet committed to Chat.Messages.</summary>
     private readonly Dictionary<Guid, ChatMessage> _inProgressMessages = new();
     /// <summary>Per-chat runtime state sourced from live session events.</summary>
@@ -3329,7 +3330,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var chatId = targetChat.Id;
             var abortedPreviousTurn = ReleasePreviousTurnCancellation(chatId);
             if (abortedPreviousTurn)
-                await AbortCachedTurnAsync(chatId, waitForIdle: true, cancellationToken);
+                await AbortCachedTurnAsync(targetChat, waitForIdle: true, cancellationToken);
 
             var runtime = GetOrCreateRuntimeState(chatId);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
@@ -4158,6 +4159,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         QueueBusySendPrompt(chatId, prompt);
         PromptText = "";
         _chatDrafts.Remove(chatId);
+
+        if (!CanInterruptQueuedSendNowImmediately(chatId))
+        {
+            GetOrCreateRuntimeState(chatId).SendQueuedNowWhenTurnStarts = true;
+            return;
+        }
+
         await StopGeneration();
     }
 
@@ -4370,7 +4378,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // end up on the same session, corrupting SDK state.
                 try
                 {
-                    await AbortCachedTurnAsync(chatId, waitForIdle: true);
+                    await AbortCachedTurnAsync(targetChat, waitForIdle: true);
                 }
                 catch (Exception ex)
                 {
@@ -4886,12 +4894,26 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// to its existing idle-event queue drain.
     /// </summary>
     private async Task<bool> AbortCachedTurnAsync(
-        Guid chatId,
+        Chat chat,
         bool waitForIdle,
         CancellationToken cancellationToken = default)
     {
+        var chatId = chat.Id;
         if (!_sessionCache.TryGetValue(chatId, out var session))
-            return false;
+        {
+            if (string.IsNullOrWhiteSpace(chat.CopilotSessionId))
+                return false;
+
+            var resumed = await EnsureSessionAsync(
+                chat,
+                cancellationToken,
+                allowCreateFallback: false);
+            if (!resumed || !_sessionCache.TryGetValue(chatId, out session))
+            {
+                throw new InvalidOperationException(
+                    Loc.Status_OriginalSessionUnavailable);
+            }
+        }
 
         SetManualStopRequested(chatId, true);
         var runtime = GetOrCreateRuntimeState(chatId);
@@ -4901,20 +4923,63 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         try
         {
             await session.AbortAsync(cancellationToken);
-            if (idleWaiter is not null)
-            {
-                await idleWaiter.Task.WaitAsync(
-                    TimeSpan.FromSeconds(15),
-                    cancellationToken);
-            }
-
-            return true;
         }
         catch
         {
             runtime.AwaitingStopIdle = false;
             if (idleWaiter is not null)
                 CancelSessionIdleWait(chatId, idleWaiter);
+            throw;
+        }
+
+        if (idleWaiter is not null)
+        {
+            try
+            {
+                var reachedIdle = await idleWaiter.Task.WaitAsync(
+                    TimeSpan.FromSeconds(15),
+                    cancellationToken);
+                if (!reachedIdle)
+                {
+                    throw new InvalidOperationException(
+                        "The Copilot session ended before the aborted turn reached idle.");
+                }
+            }
+            catch
+            {
+                CancelSessionIdleWait(chatId, idleWaiter);
+                throw;
+            }
+        }
+
+        return true;
+    }
+
+    private async Task WaitForPendingStopIdleAsync(
+        Guid chatId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_runtimeStates.TryGetValue(chatId, out var runtime)
+            || !runtime.AwaitingStopIdle)
+        {
+            return;
+        }
+
+        var idleWaiter = BeginSessionIdleWait(chatId);
+        try
+        {
+            var reachedIdle = await idleWaiter.Task.WaitAsync(
+                TimeSpan.FromSeconds(15),
+                cancellationToken);
+            if (!reachedIdle)
+            {
+                throw new InvalidOperationException(
+                    "The Copilot session ended before the aborted turn reached idle.");
+            }
+        }
+        catch
+        {
+            CancelSessionIdleWait(chatId, idleWaiter);
             throw;
         }
     }
@@ -5474,24 +5539,38 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     public Task<string?> TryStopGenerationAsync(bool resolvePendingSteersAsFailed = true) =>
-        StopGenerationInternal(resolvePendingSteersAsFailed);
+        CurrentChat is { } chat
+            ? StopGenerationInternal(chat, resolvePendingSteersAsFailed)
+            : Task.FromResult<string?>("No active chat to stop.");
 
     /// <summary>Core stop/abort path shared by the Stop button and the inline "Send now" steer action.</summary>
     /// <param name="resolvePendingSteersAsFailed">
     /// When true, any still-pending SDK steers are marked "Not delivered" before the abort. "Send now"
     /// first reclaims its selected steer into Lumi's local queue, so it also uses this safe cleanup mode.
     /// </param>
-    private async Task<string?> StopGenerationInternal(bool resolvePendingSteersAsFailed)
+    private async Task<string?> StopGenerationInternal(
+        Chat chat,
+        bool resolvePendingSteersAsFailed,
+        bool waitForIdle = false)
     {
-        if (CurrentChat is null)
-            return "No active chat to stop.";
-
-        var chat = CurrentChat;
         var chatId = chat.Id;
         if (await TryStopManualContextCompactionAsync(chat))
             return null;
         var wasActiveTurn = IsChatRuntimeActive(chatId) || _ctsSources.ContainsKey(chatId);
         var runtime = GetOrCreateRuntimeState(chatId);
+
+        if (waitForIdle && runtime.AwaitingStopIdle)
+        {
+            try
+            {
+                await WaitForPendingStopIdleAsync(chatId);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return $"Could not finish stopping this turn: {ex.Message}";
+            }
+        }
 
         // Record intent before cancellation or AbortAsync can synchronously emit Abort/Idle events.
         // Those handlers read this flag to distinguish a user stop from a broken session.
@@ -5514,7 +5593,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var abortRequested = false;
         try
         {
-            abortRequested = await AbortCachedTurnAsync(chatId, waitForIdle: false);
+            abortRequested = await AbortCachedTurnAsync(chat, waitForIdle);
         }
         catch (Exception ex)
         {
@@ -6266,9 +6345,20 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // Stop any active generation first
-        if (IsBusy)
-            await StopGeneration();
+        // Stop any active generation first. Regenerate/edit continues immediately afterward, so unlike
+        // the queued Send-now path it must await the SDK's session.idle acknowledgement here.
+        if (IsChatRuntimeActive(CurrentChat.Id))
+        {
+            var stopError = await StopGenerationInternal(
+                CurrentChat,
+                resolvePendingSteersAsFailed: true,
+                waitForIdle: true);
+            if (stopError is not null)
+            {
+                ApplyStopError(CurrentChat.Id, stopError);
+                return;
+            }
+        }
 
         var idx = CurrentChat.Messages.IndexOf(userMessage);
         if (idx < 0) return;
@@ -6388,11 +6478,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             // Cancel any previous in-flight request for this chat
             var chatId = CurrentChat.Id;
+            var resendChat = CurrentChat;
             var abortedPreviousTurn = ReleasePreviousTurnCancellation(chatId);
             if (abortedPreviousTurn)
-                await AbortCachedTurnAsync(chatId, waitForIdle: true);
+                await AbortCachedTurnAsync(resendChat, waitForIdle: true);
 
-            if (CurrentChat is not { } resendChat)
+            if (CurrentChat?.Id != resendChat.Id)
                 return;
 
             var needsSessionSetup = NeedsSessionSetup(resendChat);

@@ -202,7 +202,7 @@ public partial class ChatViewModel
         }
     }
 
-    private void QueueSteerPrompt(
+    private ChatMessage? QueueSteerPrompt(
         Guid chatId,
         string prompt,
         ChatMessage? queuedMessage,
@@ -211,8 +211,7 @@ public partial class ChatViewModel
     {
         if (queuedMessage is not null || explicitAttachmentPaths is null)
         {
-            QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride);
-            return;
+            return QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride);
         }
 
         // QueueBusySendPrompt intentionally snapshots the desktop composer. Present only the
@@ -223,7 +222,7 @@ public partial class ChatViewModel
         try
         {
             ReplacePendingAttachments(explicitAttachmentPaths);
-            QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride);
+            return QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride);
         }
         finally
         {
@@ -258,18 +257,55 @@ public partial class ChatViewModel
     internal async Task<bool> StopAndSendExternalMessageAsync(
         Chat targetChat,
         string prompt,
-        string author)
+        string author,
+        string? remoteDeviceId = null,
+        string? remoteRequestId = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(targetChat);
         if (CurrentChat?.Id != targetChat.Id)
             throw new InvalidOperationException("The target chat must be active before it can be stopped.");
 
-        QueueSteerPrompt(
+        var previousDeviceId = targetChat.LastRemoteDeviceId;
+        var previousRequestId = targetChat.LastRemoteRequestId;
+        if (!string.IsNullOrWhiteSpace(remoteDeviceId)
+            && !string.IsNullOrWhiteSpace(remoteRequestId))
+        {
+            targetChat.LastRemoteDeviceId = remoteDeviceId;
+            targetChat.LastRemoteRequestId = remoteRequestId;
+        }
+
+        var queuedMessage = QueueSteerPrompt(
             targetChat.Id,
             prompt,
             queuedMessage: null,
             authorOverride: author,
             explicitAttachmentPaths: []);
+        if (queuedMessage is null)
+        {
+            targetChat.LastRemoteDeviceId = previousDeviceId;
+            targetChat.LastRemoteRequestId = previousRequestId;
+            return false;
+        }
+
+        queuedMessage.RemoteRequestId = remoteRequestId;
+        if (!string.IsNullOrWhiteSpace(remoteDeviceId)
+            && !string.IsNullOrWhiteSpace(remoteRequestId))
+        {
+            try
+            {
+                _dataStore.MarkChatChanged(targetChat);
+                await _dataStore.SaveChatAsync(targetChat, cancellationToken).ConfigureAwait(true);
+                await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(true);
+            }
+            catch
+            {
+                targetChat.LastRemoteDeviceId = previousDeviceId;
+                targetChat.LastRemoteRequestId = previousRequestId;
+                RemoveQueuedBusySend(targetChat.Id, queuedMessage);
+                throw;
+            }
+        }
 
         if (!CanInterruptQueuedSendNowImmediately(targetChat.Id))
         {
@@ -277,7 +313,7 @@ public partial class ChatViewModel
             return true;
         }
 
-        var error = await StopGenerationInternal(resolvePendingSteersAsFailed: true);
+        var error = await StopGenerationInternal(targetChat, resolvePendingSteersAsFailed: true);
         return error is null;
     }
 
@@ -416,10 +452,14 @@ public partial class ChatViewModel
         }
 
         runtime.SendQueuedNowWhenTurnStarts = false;
-        if (CurrentChat?.Id != chatId || !_queuedBusySendPrompts.ContainsKey(chatId))
+        if (CurrentChat is not { } chat
+            || chat.Id != chatId
+            || !_queuedBusySendPrompts.ContainsKey(chatId))
+        {
             return;
+        }
 
-        await StopGenerationInternal(resolvePendingSteersAsFailed: true);
+        await StopGenerationInternal(chat, resolvePendingSteersAsFailed: true);
     }
 
     /// <summary>
@@ -471,6 +511,6 @@ public partial class ChatViewModel
         // Any OTHER steer the SDK was still holding dies with this abort, so mark those "Not delivered"
         // rather than leaving them pending against a turn that no longer exists. The reclaimed message
         // is already out of that set, and the drain scheduled by the stop starts its fresh turn.
-        await StopGenerationInternal(resolvePendingSteersAsFailed: true);
+        await StopGenerationInternal(chat, resolvePendingSteersAsFailed: true);
     }
 }

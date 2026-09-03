@@ -491,6 +491,9 @@ public sealed class DeferredSendQueueTests
         host.ViewModel.PromptText = "actually do Y";
         await host.StopAndSendAsync();
 
+        Assert.True(host.Runtime.SendQueuedNowWhenTurnStarts);
+        Assert.True(host.Runtime.IsBusy);
+
         // The abort finalizes the partial answer; it must land before the follow-up.
         host.FinalizeStreamingAssistantMessage();
 
@@ -764,7 +767,7 @@ public sealed class DeferredSendQueueTests
             => (Task)Invoke("StopAndSendMessage")!;
 
         public Task StopGenerationAsync()
-            => (Task)Invoke("StopGenerationInternal", true)!;
+            => (Task)Invoke("StopGenerationInternal", Chat, true, false)!;
 
         public Task<bool> TryStopManualCompactionAsync()
             => (Task<bool>)Invoke("TryStopManualContextCompactionAsync", Chat)!;

@@ -309,7 +309,13 @@ internal sealed class RemoteCommandRouter
                 if (command.GetBool("stopAndSend") == true)
                 {
                     var stopAndSendAccepted = await owner
-                        .StopAndSendExternalMessageAsync(chat, message, "Lumi Mobile")
+                        .StopAndSendExternalMessageAsync(
+                            chat,
+                            message,
+                            "Lumi Mobile",
+                            command.AuthenticatedDeviceId,
+                            command.RequestId,
+                            cancellationToken)
                         .ConfigureAwait(true);
                     return stopAndSendAccepted
                         ? Success("Current turn stopped and message queued.", chat.Id)

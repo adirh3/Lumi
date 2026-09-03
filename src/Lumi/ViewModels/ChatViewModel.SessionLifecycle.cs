@@ -2745,7 +2745,10 @@ public partial class ChatViewModel
         // ChatSessionStore reset the shared catalog before surfaces receive this reconnect event.
         RefreshCapabilities();
 
-        foreach (var chatId in _sessionIdleWaiters.Keys.ToList())
+        List<Guid> idleWaiterChatIds;
+        lock (_sessionIdleWaitersLock)
+            idleWaiterChatIds = _sessionIdleWaiters.Keys.ToList();
+        foreach (var chatId in idleWaiterChatIds)
             AbandonSessionIdleWait(chatId);
 
         // Dispose all event subscriptions

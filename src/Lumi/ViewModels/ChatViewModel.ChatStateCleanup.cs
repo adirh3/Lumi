@@ -59,9 +59,14 @@ public partial class ChatViewModel
         }
 
         _runtimeStates.Clear();
-        foreach (var waiter in _sessionIdleWaiters.Values)
+        List<TaskCompletionSource<bool>> idleWaiters;
+        lock (_sessionIdleWaitersLock)
+        {
+            idleWaiters = _sessionIdleWaiters.Values.SelectMany(static waiters => waiters).ToList();
+            _sessionIdleWaiters.Clear();
+        }
+        foreach (var waiter in idleWaiters)
             waiter.TrySetCanceled();
-        _sessionIdleWaiters.Clear();
         ClearPendingQuestionTracking();
         _queuedBusySendPrompts.Clear();
         _inProgressMessages.Clear();
@@ -172,18 +177,18 @@ public partial class ChatViewModel
     /// cannot overwrite the first. Pass <paramref name="existing"/> to re-defer an already-shown
     /// message; that is always the head a delivery path just dequeued, so it goes back to the front.
     /// </summary>
-    private void QueueBusySendPrompt(
+    private ChatMessage? QueueBusySendPrompt(
         Guid chatId,
         string prompt,
         ChatMessage? existing = null,
         string? authorOverride = null)
     {
         if (existing is null && string.IsNullOrWhiteSpace(prompt))
-            return;
+            return null;
 
         var message = existing ?? CreateQueuedBusySend(chatId, prompt, authorOverride);
         if (message is null)
-            return;
+            return null;
 
         if (existing is not null)
         {
@@ -203,6 +208,8 @@ public partial class ChatViewModel
             pending.Add(message);
         else
             pending.Insert(0, message);
+
+        return message;
     }
 
     /// <summary>
@@ -441,6 +448,25 @@ public partial class ChatViewModel
         return true;
     }
 
+    private void RemoveQueuedBusySend(Guid chatId, ChatMessage message)
+    {
+        if (_queuedBusySendPrompts.TryGetValue(chatId, out var pending))
+        {
+            pending.Remove(message);
+            if (pending.Count == 0)
+                _queuedBusySendPrompts.Remove(chatId);
+        }
+
+        var chat = CurrentChat?.Id == chatId
+            ? CurrentChat
+            : _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+        chat?.Messages.Remove(message);
+
+        var viewModel = ResolveQueuedViewModel(message);
+        if (viewModel is not null)
+            Messages.Remove(viewModel);
+    }
+
     private void ReleaseChatCancellation(Guid chatId, bool cancel)
     {
         if (!_ctsSources.Remove(chatId, out var cts))
@@ -483,36 +509,61 @@ public partial class ChatViewModel
 
     private TaskCompletionSource<bool> BeginSessionIdleWait(Guid chatId)
     {
-        if (_sessionIdleWaiters.Remove(chatId, out var previous))
-            previous.TrySetException(new InvalidOperationException("A newer abort replaced this idle wait."));
-
         var waiter = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _sessionIdleWaiters[chatId] = waiter;
+        lock (_sessionIdleWaitersLock)
+        {
+            if (!_sessionIdleWaiters.TryGetValue(chatId, out var waiters))
+            {
+                waiters = [];
+                _sessionIdleWaiters[chatId] = waiters;
+            }
+
+            waiters.Add(waiter);
+        }
         return waiter;
     }
 
     private void CompleteSessionIdleWait(Guid chatId)
     {
-        if (_sessionIdleWaiters.Remove(chatId, out var waiter))
+        foreach (var waiter in TakeSessionIdleWaiters(chatId))
             waiter.TrySetResult(true);
     }
 
     private void CancelSessionIdleWait(Guid chatId, TaskCompletionSource<bool> expected)
     {
-        if (!_sessionIdleWaiters.TryGetValue(chatId, out var current)
-            || !ReferenceEquals(current, expected))
+        lock (_sessionIdleWaitersLock)
         {
-            return;
+            if (!_sessionIdleWaiters.TryGetValue(chatId, out var waiters)
+                || !waiters.Remove(expected))
+            {
+                return;
+            }
+
+            if (waiters.Count == 0)
+                _sessionIdleWaiters.Remove(chatId);
         }
 
-        _sessionIdleWaiters.Remove(chatId);
         expected.TrySetCanceled();
     }
 
     private void AbandonSessionIdleWait(Guid chatId)
     {
-        if (_sessionIdleWaiters.Remove(chatId, out var waiter))
+        if (_runtimeStates.TryGetValue(chatId, out var runtime))
+            runtime.AwaitingStopIdle = false;
+
+        foreach (var waiter in TakeSessionIdleWaiters(chatId))
             waiter.TrySetResult(false);
+    }
+
+    private List<TaskCompletionSource<bool>> TakeSessionIdleWaiters(Guid chatId)
+    {
+        lock (_sessionIdleWaitersLock)
+        {
+            if (!_sessionIdleWaiters.Remove(chatId, out var waiters))
+                return [];
+
+            return waiters;
+        }
     }
 
     private void DropCompletedTurnState(Guid chatId, bool dropCancellation)

@@ -654,6 +654,7 @@ public partial class ChatViewModel
 
             QueueChatCompletionFollowUps(chat);
             QueueSaveChat(chat, saveIndex: false, releaseIfInactive: CurrentChat?.Id != chat.Id);
+            CompleteSessionIdleWait(chat.Id);
         });
 
         // Mirror the main SessionIdleEvent handler: the chat is free again.
