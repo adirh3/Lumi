@@ -204,6 +204,8 @@ public partial class ChatViewModel
             runtime.PendingSessionUserMessageCount = expectedSessionUserMessageCount;
             runtime.PendingAssistantMessageCount = localAssistantMessageCount;
             runtime.ActiveToolCount = 0;
+            Volatile.Write(ref runtime.DeferSteersUntilNextTurn, false);
+            Volatile.Write(ref runtime.AssistantTurnStarted, false);
             runtime.ManualStopRequested = false;
         }
 

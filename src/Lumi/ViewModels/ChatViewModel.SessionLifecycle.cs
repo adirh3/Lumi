@@ -842,6 +842,7 @@ public partial class ChatViewModel
             switch (evt)
             {
                 case AssistantTurnStartEvent turnStart:
+                    Volatile.Write(ref runtime.AssistantTurnStarted, true);
                     var isTopLevelTurnStart = assistantTurnBoundaries.Begin(
                         turnStart.Data.TurnId,
                         Volatile.Read(ref runtime.ActiveSubagentExecutionDepth));
@@ -861,9 +862,19 @@ public partial class ChatViewModel
                         }
                         if (IsDisplayedSession())
                             ApplyDisplayedRuntimeState(runtime);
-                        // A message typed in the gap between turns had no live turn to steer into. This
-                        // turn is steerable, so deliver it now rather than making the user press Stop.
-                        _ = FlushQueuedBusySendsAsSteerAsync(chat.Id);
+                        if (runtime.SendQueuedNowWhenTurnStarts)
+                        {
+                            // "Send now" was clicked while session/MCP setup was still in progress.
+                            // Setup is complete and a real SDK turn now exists, so interrupt it without
+                            // recreating the session and let the normal queued-send drain run.
+                            _ = SendQueuedNowAfterTurnStartAsync(chat.Id);
+                        }
+                        else
+                        {
+                            // A message typed in the gap between turns had no live turn to steer into.
+                            // This turn is steerable, so deliver it now rather than making the user wait.
+                            _ = FlushQueuedBusySendsAsSteerAsync(chat.Id);
+                        }
                     });
                     break;
 
@@ -1646,6 +1657,8 @@ public partial class ChatViewModel
                         else
                             QueueSaveChat(chat, saveIndex: false);
 
+                        CompleteSessionIdleWait(chat.Id);
+
                         // The chat is free again. This is the authoritative "chat is idle" signal —
                         // without it a deferred send only ever left the queue via Stop.
                         ScheduleQueuedBusySendDrain(chat.Id);
@@ -1671,6 +1684,7 @@ public partial class ChatViewModel
                         if (!IsAuthoritativeSession())
                             return;
 
+                        AbandonSessionIdleWait(chat.Id);
                         var shouldUpdateDisplayedChatUi = IsDisplayedSession();
                         // Skip if CLI crash handler already claimed cleanup
                         if (Volatile.Read(ref cliExitHandled) == 1)
@@ -1878,7 +1892,10 @@ public partial class ChatViewModel
                         reasoningStream.Clear();
                         if (wasUserStopRequested && IsAuthoritativeSession())
                             ReconcileInProgressSubagentTools(chat, "Stopped");
-                        MarkRuntimeTerminal(runtime);
+                        if (wasUserStopRequested && runtime.AwaitingStopIdle)
+                            MarkRuntimeTerminalPreservingStopIdle(runtime);
+                        else
+                            MarkRuntimeTerminal(runtime);
 
                         if (!wasUserStopRequested)
                         {
@@ -2042,6 +2059,10 @@ public partial class ChatViewModel
                     break;
 
                 case SubagentStartedEvent subStart:
+                    // SDK immediate-mode sends target the next LLM request in the session. Once a nested
+                    // agent starts, that request can belong to the sub-agent and MessageOptions exposes no
+                    // way to target the root agent. Keep later user messages local until a fresh root turn.
+                    Volatile.Write(ref runtime.DeferSteersUntilNextTurn, true);
                     Interlocked.Increment(ref runtime.ActiveSubagentExecutionDepth);
                     RegisterActiveSubagent(subStart.Data.ToolCallId);
                     var subagentStartedAt = DateTimeOffset.UtcNow;
@@ -2488,10 +2509,23 @@ public partial class ChatViewModel
         runtime.IsBusy = false;
         runtime.IsStreaming = false;
         runtime.TurnInProgress = false;
+        runtime.AwaitingStopIdle = false;
         runtime.HasPendingBackgroundWork = false;
         runtime.ActiveSubagentExecutionDepth = 0;
+        Volatile.Write(ref runtime.DeferSteersUntilNextTurn, false);
+        Volatile.Write(ref runtime.AssistantTurnStarted, false);
+        runtime.SendQueuedNowWhenTurnStarts = false;
         runtime.ExpectTurnStartUserEcho = false;
         runtime.StatusText = statusText ?? string.Empty;
+    }
+
+    private static void MarkRuntimeTerminalPreservingStopIdle(
+        ChatRuntimeState runtime,
+        string? statusText = null)
+    {
+        var awaitingStopIdle = runtime.AwaitingStopIdle;
+        MarkRuntimeTerminal(runtime, statusText);
+        runtime.AwaitingStopIdle = awaitingStopIdle;
     }
 
     internal static void MarkRuntimeCompacting(ChatRuntimeState runtime)
@@ -2536,9 +2570,10 @@ public partial class ChatViewModel
         // actively streaming turn), which makes it a strict superset of the old IsStreaming steer signal.
         // But — unlike IsStreaming — it is only cleared at turn end / terminal. Mid-turn updates
         // (compaction, sub-agent, background-task drain) and the post-turn keep-busy path all call this
-        // with isStreaming:false, so they must NOT touch TurnInProgress: mid-turn it stays true (keeping
-        // the turn steerable), and post-turn it stays false (already cleared by
-        // MarkRuntimeWaitingForSessionIdle, so steering correctly falls back to the queue).
+        // with isStreaming:false, so they must NOT touch TurnInProgress: mid-turn it stays true (with
+        // CanSteerImmediately applying the separate sub-agent barrier), and post-turn it stays false
+        // (already cleared by MarkRuntimeWaitingForSessionIdle, so steering correctly falls back to the
+        // queue).
         if (isStreaming)
             runtime.TurnInProgress = true;
         if (hasPendingBackgroundWork)
@@ -2556,6 +2591,7 @@ public partial class ChatViewModel
     private static void MarkRuntimeWaitingForSessionIdle(ChatRuntimeState runtime)
     {
         runtime.IsStreaming = false;
+        Volatile.Write(ref runtime.AssistantTurnStarted, false);
         // The assistant turn has ended; only background/idle draining may remain. Immediate steering
         // cannot inject into a turn that already ended, so drop the "turn running" signal here.
         runtime.TurnInProgress = false;
@@ -2645,6 +2681,7 @@ public partial class ChatViewModel
 
     private void DetachSessionAfterRemoteShutdown(Chat chat, bool wasActive)
     {
+        AbandonSessionIdleWait(chat.Id);
         DisposeSessionSubscription(chat.Id);
         // The session already ended server-side (SessionShutdownEvent), so its host runtime and MCP
         // subprocesses are already reaped — dropping the handle here leaks nothing, and a destroy RPC
@@ -2707,6 +2744,9 @@ public partial class ChatViewModel
     {
         // ChatSessionStore reset the shared catalog before surfaces receive this reconnect event.
         RefreshCapabilities();
+
+        foreach (var chatId in _sessionIdleWaiters.Keys.ToList())
+            AbandonSessionIdleWait(chatId);
 
         // Dispose all event subscriptions
         foreach (var sub in _sessionSubs.Values)

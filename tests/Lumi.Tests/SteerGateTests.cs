@@ -12,24 +12,26 @@ namespace Lumi.Tests;
 /// <see cref="ChatRuntimeState.IsStreaming"/>, which is set only at AssistantTurnStart and force-cleared
 /// mid-turn by compaction / sub-agent / background-task events (and never re-armed). That left long
 /// windows where a mid-turn steer silently fell back to the post-turn queue: the user's message rendered
-/// no bubble and was only delivered at turn end. The authoritative signal is
-/// <see cref="ChatRuntimeState.TurnInProgress"/>, which stays true for the whole turn.
+/// no bubble and was only delivered at turn end. Steering now requires both a submitted SDK turn and
+/// <see cref="ChatRuntimeState.TurnInProgress"/>, except after nested sub-agent delegation: Copilot
+/// immediate mode has no root-agent target, so those messages must wait for a fresh parent turn.
 /// </summary>
 public sealed class SteerGateTests
 {
     [Fact]
     public void CanSteerImmediately_TrueInPostCompactionDeadZone()
     {
-        // The exact reported window: a live turn is running (TurnInProgress) but compaction (or a
-        // completed sub-agent / background-task drain) has force-cleared IsStreaming and there is no
-        // active tool. The old gate returned false here → invisible, deferred message. It must be true.
+        // The exact reported window: a live turn is running (TurnInProgress) but compaction or a
+        // background-task drain has force-cleared IsStreaming and there is no active tool. The old gate
+        // returned false here → invisible, deferred message. It must be true.
         var runtime = new ChatRuntimeState
         {
             Chat = new Chat { Title = "deadzone" },
             TurnInProgress = true,
             IsStreaming = false,
             ActiveToolCount = 0,
-            ActiveSubagentExecutionDepth = 0
+            ActiveSubagentExecutionDepth = 0,
+            PendingSessionUserMessageCount = 1
         };
 
         Assert.True(InvokeCanSteerImmediately(runtime));
@@ -52,10 +54,10 @@ public sealed class SteerGateTests
     }
 
     [Fact]
-    public void CanSteerImmediately_TrueWhileSubagentExecuting()
+    public void CanSteerImmediately_FalseWhileSubagentExecuting()
     {
-        // Defensive OR: a sub-agent completes its wrapping task tool immediately but keeps streaming;
-        // depth > 0 must still count as a live, steerable turn.
+        // SDK immediate mode targets the next LLM request, which belongs to the active nested agent here.
+        // Lumi must queue for a fresh root turn rather than injecting the user's steer into the sub-agent.
         var runtime = new ChatRuntimeState
         {
             Chat = new Chat { Title = "subagent" },
@@ -65,7 +67,26 @@ public sealed class SteerGateTests
             ActiveSubagentExecutionDepth = 1
         };
 
-        Assert.True(InvokeCanSteerImmediately(runtime));
+        Assert.False(InvokeCanSteerImmediately(runtime));
+    }
+
+    [Fact]
+    public void CanSteerImmediately_FalseAfterSubagentCompletesInTheSameTurn()
+    {
+        // The next LLM request could be another sibling sub-agent. Keep the barrier until a fresh user
+        // turn starts because the SDK cannot target the parent trajectory explicitly.
+        var runtime = new ChatRuntimeState
+        {
+            Chat = new Chat { Title = "post-subagent" },
+            TurnInProgress = true,
+            IsStreaming = true,
+            ActiveToolCount = 0,
+            ActiveSubagentExecutionDepth = 0,
+            PendingSessionUserMessageCount = 1,
+            DeferSteersUntilNextTurn = true
+        };
+
+        Assert.False(InvokeCanSteerImmediately(runtime));
     }
 
     [Fact]
@@ -101,6 +122,7 @@ public sealed class SteerGateTests
 
         Assert.False(runtime.TurnInProgress);
         Assert.False(runtime.IsStreaming);
+        Assert.False(runtime.AssistantTurnStarted);
         Assert.False(InvokeCanSteerImmediately(runtime));
     }
 
@@ -114,26 +136,69 @@ public sealed class SteerGateTests
             TurnInProgress = true,
             IsBusy = true,
             IsStreaming = true,
-            ActiveSubagentExecutionDepth = 2
+            ActiveSubagentExecutionDepth = 2,
+            DeferSteersUntilNextTurn = true,
+            AssistantTurnStarted = true,
+            SendQueuedNowWhenTurnStarts = true
         };
 
         InvokePrivateStatic(typeof(ChatViewModel), "MarkRuntimeTerminal", runtime, null);
 
         Assert.False(runtime.TurnInProgress);
+        Assert.False(runtime.DeferSteersUntilNextTurn);
+        Assert.False(runtime.AssistantTurnStarted);
+        Assert.False(runtime.SendQueuedNowWhenTurnStarts);
         Assert.False(InvokeCanSteerImmediately(runtime));
     }
 
     [Fact]
-    public void MarkRuntimeActive_WhenStreaming_SetsTurnInProgress()
+    public void MarkRuntimeTerminal_CanPreserveAbortSettlementUntilSessionIdle()
     {
-        // Turn initiation (send / resend / AssistantTurnStart) marks the runtime actively streaming. This
-        // must set TurnInProgress so a rapid second message sent in the window BEFORE the server's
-        // AssistantTurnStart still steers immediately (renders a bubble) instead of falling to the queue.
         var runtime = new ChatRuntimeState
         {
-            Chat = new Chat { Title = "send" },
+            Chat = new Chat { Title = "stopping" },
+            IsBusy = true,
+            AwaitingStopIdle = true
+        };
+
+        InvokePrivateStatic(typeof(ChatViewModel), "MarkRuntimeTerminalPreservingStopIdle", runtime, "Stopped");
+
+        Assert.True(runtime.AwaitingStopIdle);
+        Assert.True(runtime.HasActiveWork);
+
+        InvokePrivateStatic(typeof(ChatViewModel), "MarkRuntimeTerminal", runtime, null);
+
+        Assert.False(runtime.AwaitingStopIdle);
+        Assert.False(runtime.HasActiveWork);
+    }
+
+    [Fact]
+    public void MarkRuntimeActive_BeforeTurnSubmission_IsNotSteerable()
+    {
+        // Lumi becomes busy before worktree/session/MCP setup finishes. TurnInProgress alone must not
+        // make that setup window steerable because no prompt has reached the SDK yet.
+        var runtime = new ChatRuntimeState
+        {
+            Chat = new Chat { Title = "setup" },
             TurnInProgress = false,
             IsStreaming = false
+        };
+
+        InvokePrivateStatic(typeof(ChatViewModel), "MarkRuntimeActive", runtime, "Thinking", true, false);
+
+        Assert.True(runtime.TurnInProgress);
+        Assert.False(InvokeCanSteerImmediately(runtime));
+    }
+
+    [Fact]
+    public void MarkRuntimeActive_AfterTurnSubmission_IsSteerableBeforeServerEcho()
+    {
+        // PreparePendingTurnTracking runs immediately before SendAsync. A rapid second message in the
+        // narrow window before AssistantTurnStart must still take the immediate path.
+        var runtime = new ChatRuntimeState
+        {
+            Chat = new Chat { Title = "submitted" },
+            PendingSessionUserMessageCount = 1
         };
 
         InvokePrivateStatic(typeof(ChatViewModel), "MarkRuntimeActive", runtime, "Thinking", true, false);
@@ -145,14 +210,15 @@ public sealed class SteerGateTests
     [Fact]
     public void MarkRuntimeActive_MidTurnNonStreamingUpdate_PreservesTurnInProgress()
     {
-        // The crux of the fix: compaction / sub-agent / background-task events update the runtime with
-        // isStreaming:false while the turn is still live. They must NOT clear TurnInProgress, or the
-        // original dead-zone bug (invisible, turn-end-deferred steer) returns.
+        // Compaction / background-task events update the runtime with isStreaming:false while the turn
+        // is still live. They must NOT clear TurnInProgress, or the original dead-zone bug
+        // (invisible, turn-end-deferred steer) returns. Sub-agents use their separate barrier.
         var runtime = new ChatRuntimeState
         {
             Chat = new Chat { Title = "compacting" },
             TurnInProgress = true,
-            IsStreaming = true
+            IsStreaming = true,
+            PendingSessionUserMessageCount = 1
         };
 
         InvokePrivateStatic(typeof(ChatViewModel), "MarkRuntimeActive", runtime, "Compacting", false, false);

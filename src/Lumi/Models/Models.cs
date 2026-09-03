@@ -10,8 +10,9 @@ namespace Lumi.Models;
 /// Transient delivery status for a user message sent while a turn is running. Session-only
 /// (never persisted) — it exists so the transcript can confirm whether a mid-turn message actually
 /// landed in the live turn (<see cref="Steered"/>) versus a normal turn-start message.
-/// <see cref="Queued"/> covers a message that could not be injected yet (the turn is between tool
-/// calls, or the session is still starting up) and is waiting to be delivered.
+/// <see cref="Queued"/> covers a message that could not be injected safely yet (for example, the
+/// session is still starting up or a nested sub-agent owns the active trajectory) and is waiting to
+/// be delivered.
 /// </summary>
 public enum MessageSteerState
 {
@@ -85,6 +86,14 @@ public class ChatMessage
     /// into a running turn so the badge survives transcript/VM rebuilds within the session.</summary>
     [JsonIgnore]
     public MessageSteerState SteerDelivery { get; set; }
+
+    /// <summary>
+    /// Session-only availability for requesting immediate delivery of a locally queued message.
+    /// A setup-time request waits for the first SDK turn to start before aborting it, so session/MCP
+    /// setup is preserved.
+    /// </summary>
+    [JsonIgnore]
+    public bool CanSendNowWhenQueued { get; set; }
 
     /// <summary>
     /// Deep-copies this message, including its mutable collections, so the copy can be mutated or

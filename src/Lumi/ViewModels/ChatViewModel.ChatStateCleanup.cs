@@ -59,6 +59,9 @@ public partial class ChatViewModel
         }
 
         _runtimeStates.Clear();
+        foreach (var waiter in _sessionIdleWaiters.Values)
+            waiter.TrySetCanceled();
+        _sessionIdleWaiters.Clear();
         ClearPendingQuestionTracking();
         _queuedBusySendPrompts.Clear();
         _inProgressMessages.Clear();
@@ -182,6 +185,14 @@ public partial class ChatViewModel
         if (message is null)
             return;
 
+        if (existing is not null)
+        {
+            var canSendNow = IsChatRuntimeActive(chatId);
+            message.CanSendNowWhenQueued = canSendNow;
+            if (ResolveQueuedViewModel(message) is { } viewModel)
+                viewModel.CanSendNowWhenQueued = canSendNow;
+        }
+
         if (!_queuedBusySendPrompts.TryGetValue(chatId, out var pending))
         {
             pending = [];
@@ -221,7 +232,8 @@ public partial class ChatViewModel
                 ? PendingAttachments.ToList()
                 : [],
             ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
-            SteerDelivery = MessageSteerState.Queued
+            SteerDelivery = MessageSteerState.Queued,
+            CanSendNowWhenQueued = IsChatRuntimeActive(chatId)
         };
 
         if (CurrentChat?.Id == chatId)
@@ -369,6 +381,7 @@ public partial class ChatViewModel
             && _queuedBusySendPrompts.ContainsKey(chatId)
             && _runtimeStates.TryGetValue(chatId, out var runtime)
             && !runtime.ManualStopRequested
+            && !runtime.SendQueuedNowWhenTurnStarts
             && !WasCancelledByUser(chatId)
             && CanSteerImmediately(runtime);
 
@@ -410,6 +423,24 @@ public partial class ChatViewModel
     private bool IsQueuedBusySend(Guid chatId, ChatMessage message)
         => _queuedBusySendPrompts.TryGetValue(chatId, out var pending) && pending.Contains(message);
 
+    private bool MoveQueuedBusySendToFront(Guid chatId, ChatMessage message)
+    {
+        if (!_queuedBusySendPrompts.TryGetValue(chatId, out var pending))
+            return false;
+
+        var index = pending.IndexOf(message);
+        if (index < 0)
+            return false;
+
+        if (index > 0)
+        {
+            pending.RemoveAt(index);
+            pending.Insert(0, message);
+        }
+
+        return true;
+    }
+
     private void ReleaseChatCancellation(Guid chatId, bool cancel)
     {
         if (!_ctsSources.Remove(chatId, out var cts))
@@ -448,6 +479,40 @@ public partial class ChatViewModel
         // reference, but don't cancel/dispose it while the session is being reused.
         _ctsSources.Remove(chatId);
         return false;
+    }
+
+    private TaskCompletionSource<bool> BeginSessionIdleWait(Guid chatId)
+    {
+        if (_sessionIdleWaiters.Remove(chatId, out var previous))
+            previous.TrySetException(new InvalidOperationException("A newer abort replaced this idle wait."));
+
+        var waiter = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _sessionIdleWaiters[chatId] = waiter;
+        return waiter;
+    }
+
+    private void CompleteSessionIdleWait(Guid chatId)
+    {
+        if (_sessionIdleWaiters.Remove(chatId, out var waiter))
+            waiter.TrySetResult(true);
+    }
+
+    private void CancelSessionIdleWait(Guid chatId, TaskCompletionSource<bool> expected)
+    {
+        if (!_sessionIdleWaiters.TryGetValue(chatId, out var current)
+            || !ReferenceEquals(current, expected))
+        {
+            return;
+        }
+
+        _sessionIdleWaiters.Remove(chatId);
+        expected.TrySetCanceled();
+    }
+
+    private void AbandonSessionIdleWait(Guid chatId)
+    {
+        if (_sessionIdleWaiters.Remove(chatId, out var waiter))
+            waiter.TrySetResult(false);
     }
 
     private void DropCompletedTurnState(Guid chatId, bool dropCancellation)
@@ -585,6 +650,7 @@ public partial class ChatViewModel
 
     private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest)
     {
+        AbandonSessionIdleWait(chatId);
         // Drop any still-pending steer confirmations for this chat. Without this a chat deleted / released
         // while a steer is in flight leaks its entry (and the referenced ChatMessageViewModel), and — because
         // a remote-shutdown keeps CopilotSessionId for resume — a later Retry's turn-start echo could pop the

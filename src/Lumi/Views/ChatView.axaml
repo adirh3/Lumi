@@ -318,9 +318,9 @@
       <Setter Property="StrokeLineCap" Value="Round" />
       <Setter Property="StrokeJoin" Value="Round" />
     </Style>
-    <!-- Inline "Send now" action beside an in-flight steering pill: forces the still-pending steered
-         message through to the running turn immediately (aborts the current turn so the session
-         reprocesses it). Only shown while steering; auto-hides once the badge resolves. -->
+    <!-- Inline "Send now" action beside a pending steering pill. During session/MCP setup the click is
+         latched until the first SDK turn starts; only then is that turn aborted, preserving the ready
+         session and avoiding an MCP reconnect. -->
     <Style Selector="Button.steer-send-now">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
@@ -801,7 +801,7 @@
           <Button Classes="steer-send-now"
                   VerticalAlignment="Center"
                   Command="{Binding SendNowCommand}"
-                  IsVisible="{Binding Source.IsSteerInProgress}"
+                  IsVisible="{Binding Source.CanSendNow}"
                   Content="{loc:Str Steer_SendNow}"
                   ToolTip.Tip="{loc:Str Steer_SendNowTooltip}" />
         </StackPanel>

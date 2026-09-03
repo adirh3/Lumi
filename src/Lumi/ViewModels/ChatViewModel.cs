@@ -707,6 +707,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly Dictionary<Guid, Task> _sessionReleaseTasks = new();
     /// <summary>Maps chat ID → live event subscriptions for locally attached sessions.</summary>
     private readonly Dictionary<Guid, IDisposable> _sessionSubs = new();
+    /// <summary>Awaiters used by abort-and-replace paths that must not send until session.idle.</summary>
+    private readonly Dictionary<Guid, TaskCompletionSource<bool>> _sessionIdleWaiters = new();
     /// <summary>Maps chat ID → in-progress streaming message not yet committed to Chat.Messages.</summary>
     private readonly Dictionary<Guid, ChatMessage> _inProgressMessages = new();
     /// <summary>Per-chat runtime state sourced from live session events.</summary>
@@ -3326,12 +3328,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             var chatId = targetChat.Id;
             var abortedPreviousTurn = ReleasePreviousTurnCancellation(chatId);
-            if (abortedPreviousTurn
-                && _sessionCache.TryGetValue(chatId, out var abortSession))
-            {
-                try { await abortSession.AbortAsync(); }
-                catch { /* best-effort */ }
-            }
+            if (abortedPreviousTurn)
+                await AbortCachedTurnAsync(chatId, waitForIdle: true, cancellationToken);
 
             var runtime = GetOrCreateRuntimeState(chatId);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
@@ -3344,9 +3342,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 ApplyDisplayedRuntimeState(runtime);
             onAccepted?.Invoke();
 
-            var needsSessionSetup = targetChat.CopilotSessionId is null
-                                    || !_sessionCache.TryGetValue(chatId, out var cachedSession)
-                                    || cachedSession.SessionId != targetChat.CopilotSessionId;
+            var needsSessionSetup = NeedsSessionSetup(targetChat);
             if (ConsumePendingSessionInvalidation(targetChat))
                 needsSessionSetup = true;
 
@@ -3383,7 +3379,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 : _activeSession;
             if (sendSession is null)
                 throw new InvalidOperationException(Loc.Status_OriginalSessionUnavailable);
-            RestoreActiveSessionIfSwitched(targetChat);
+            RestoreDisplayedSessionFromCache();
 
             // EnsureSessionAsync re-resolves the effort via ResolvePersistedReasoningEffortForChat, which for a
             // currently-displayed target chat returns the live UI selection and overwrites an explicit per-send
@@ -3471,7 +3467,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 sendSession = _sessionCache.TryGetValue(targetChat.Id, out var sessionForChat)
                     ? sessionForChat
                     : _activeSession!;
-                RestoreActiveSessionIfSwitched(targetChat);
+                RestoreDisplayedSessionFromCache();
                 // The replacement session starts empty, so re-activate the chat's skill selection.
                 skillDirectives = await ActivateExternalSkillsAsync(
                     sendSession,
@@ -3508,7 +3504,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         catch (Exception ex) when (sendOptions is not null && IsCopilotTransportError(ex))
         {
             var recovery = await TryRecoverTransportSendAsync(targetChat, sendOptions);
-            RestoreActiveSessionIfSwitched(targetChat);
+            RestoreDisplayedSessionFromCache();
             if (recovery.Recovered)
                 return;
 
@@ -4372,10 +4368,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // Abort the session so the SDK fully stops the old turn before
                 // we send a new one. Without this, two concurrent SendAsync calls
                 // end up on the same session, corrupting SDK state.
-                if (_sessionCache.TryGetValue(chatId, out var cachedSession))
+                try
                 {
-                    try { await cachedSession.AbortAsync(); }
-                    catch { /* best-effort */ }
+                    await AbortCachedTurnAsync(chatId, waitForIdle: true);
+                }
+                catch (Exception ex)
+                {
+                    HandleSendError(ex, wasCancelledByUser: false, chat: targetChat);
+                    return;
                 }
             }
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
@@ -4385,28 +4385,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (CurrentChat?.Id == targetChat.Id)
                 ApplyDisplayedRuntimeState(runtime);
 
-            // A cached _activeSession can become unusable between chat load and this send: the CLI
-            // process may die and reconnect (replacing the client), tearing down every CopilotSession
-            // it owned, but _activeSession only gets nulled on the Reconnected callback — which can
-            // race with this send. Probe the handle defensively: accessing SessionId on a disposed
-            // CopilotSession throws ObjectDisposedException, and a null/unmatched id means we must set
-            // up a fresh session. This is the last-resort guard that turns a hard
-            // "Cannot access a disposed object" into a clean session rebuild.
-            string? activeSessionId;
-            try
-            {
-                activeSessionId = _activeSession?.SessionId;
-            }
-            catch (ObjectDisposedException)
-            {
-                activeSessionId = null;
-                if (CurrentChat is not null)
-                    InvalidateLocalSessionCache(CurrentChat);
-                ClearActiveSessionState();
-            }
-
-            var needsSessionSetup = activeSessionId != targetChat.CopilotSessionId
-                                    || targetChat.CopilotSessionId is null;
+            // The per-chat cache owns session identity. _activeSession is only the displayed-session
+            // pointer and can be temporarily null or point elsewhere while the cached session is still
+            // valid. Using it here unnecessarily resumed healthy sessions and reconnected their MCPs.
+            var needsSessionSetup = NeedsSessionSetup(targetChat);
             if (ConsumePendingSessionInvalidation(targetChat))
                 needsSessionSetup = true;
 
@@ -4511,7 +4493,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             sendSession = _sessionCache.TryGetValue(targetChat.Id, out var sessionForTargetChat)
                 ? sessionForTargetChat
                 : _activeSession!;
-            RestoreActiveSessionIfSwitched(targetChat);
+            RestoreDisplayedSessionFromCache();
 
             skillDirectives = await ActivateTurnExternalSkillsAsync(
                 sendSession,
@@ -4567,7 +4549,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 sendSession = _sessionCache.TryGetValue(targetChat.Id, out var recoveredSessionForChat)
                     ? recoveredSessionForChat
                     : _activeSession!;
-                RestoreActiveSessionIfSwitched(targetChat);
+                RestoreDisplayedSessionFromCache();
                 // The replacement session holds none of this chat's earlier skill loads, so
                 // re-activate every still-selected skill instead of reusing the directives that
                 // were built for the dead session.
@@ -4597,7 +4579,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 if (IsCopilotTransportError(retryEx))
                 {
                     var recovery = await TryRecoverTransportSendAsync(targetChat, sendOptions);
-                    RestoreActiveSessionIfSwitched(targetChat);
+                    RestoreDisplayedSessionFromCache();
                     if (recovery.Recovered)
                         return;
 
@@ -4617,7 +4599,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         catch (Exception ex) when (sendOptions is not null && IsCopilotTransportError(ex))
         {
             var recovery = await TryRecoverTransportSendAsync(targetChat, sendOptions);
-            RestoreActiveSessionIfSwitched(targetChat);
+            RestoreDisplayedSessionFromCache();
             if (recovery.Recovered)
                     return;
 
@@ -4760,7 +4742,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // Use the session from cache — _activeSession may have been restored to the displayed chat
         if (recoveredTurnCts is null || !_sessionCache.TryGetValue(chat.Id, out var recoveredSession))
             return (false, failureMessage ?? Loc.Status_ConnectionRecoveryFailed);
-        RestoreActiveSessionIfSwitched(chat);
+        RestoreDisplayedSessionFromCache();
 
         var recoveredAnalysis = await AnalyzePendingTurnRecoveryAsync(
             recoveredSession,
@@ -4809,17 +4791,19 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return (recoveredByWaiting, recoveredByWaiting ? null : Loc.Status_ConnectionRecoveryFailed);
     }
 
-    /// <summary>If the user switched away from <paramref name="sendChat"/>, restores
-    /// <see cref="_activeSession"/> to the displayed chat's cached session so streaming
-    /// events for the background send don't pollute the visible UI.</summary>
-    private void RestoreActiveSessionIfSwitched(Chat sendChat)
+    /// <summary>Restores <see cref="_activeSession"/> from the displayed chat's authoritative cache
+    /// entry. This also repairs a temporarily cleared display pointer without resuming the session.</summary>
+    private void RestoreDisplayedSessionFromCache()
     {
-        if (CurrentChat?.Id == sendChat.Id)
-            return;
         if (CurrentChat is not null && _sessionCache.TryGetValue(CurrentChat.Id, out var displayedSession))
+        {
             _activeSession = displayedSession;
+            _activeSessionProviderSignature = _sessionProviderSignatures.GetValueOrDefault(CurrentChat.Id);
+        }
         else
-            _activeSession = null;
+        {
+            ClearActiveSessionState();
+        }
     }
 
     private static int CountCompletedAssistantMessages(Chat chat)
@@ -4868,6 +4852,72 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private bool WasCancelledByUser(Guid? chatId)
         => chatId.HasValue && _ctsSources.GetValueOrDefault(chatId.Value)?.IsCancellationRequested == true;
+
+    /// <summary>
+    /// The per-chat cache, not <see cref="_activeSession"/>, determines whether a session must be
+    /// created or resumed. The active pointer is presentation state and may be temporarily cleared
+    /// even while the chat still owns a valid cached session.
+    /// </summary>
+    private bool NeedsSessionSetup(Chat chat)
+    {
+        if (string.IsNullOrWhiteSpace(chat.CopilotSessionId)
+            || !_sessionCache.TryGetValue(chat.Id, out var cachedSession))
+        {
+            return true;
+        }
+
+        try
+        {
+            return !string.Equals(
+                cachedSession.SessionId,
+                chat.CopilotSessionId,
+                StringComparison.Ordinal);
+        }
+        catch (ObjectDisposedException)
+        {
+            InvalidateLocalSessionCache(chat);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// The single turn-abort primitive. Abort-and-replace callers wait for the authoritative
+    /// <c>session.idle</c> acknowledgement before sending again; the Stop/Send-now path leaves delivery
+    /// to its existing idle-event queue drain.
+    /// </summary>
+    private async Task<bool> AbortCachedTurnAsync(
+        Guid chatId,
+        bool waitForIdle,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_sessionCache.TryGetValue(chatId, out var session))
+            return false;
+
+        SetManualStopRequested(chatId, true);
+        var runtime = GetOrCreateRuntimeState(chatId);
+        runtime.AwaitingStopIdle = true;
+        var idleWaiter = waitForIdle ? BeginSessionIdleWait(chatId) : null;
+
+        try
+        {
+            await session.AbortAsync(cancellationToken);
+            if (idleWaiter is not null)
+            {
+                await idleWaiter.Task.WaitAsync(
+                    TimeSpan.FromSeconds(15),
+                    cancellationToken);
+            }
+
+            return true;
+        }
+        catch
+        {
+            runtime.AwaitingStopIdle = false;
+            if (idleWaiter is not null)
+                CancelSessionIdleWait(chatId, idleWaiter);
+            throw;
+        }
+    }
 
     /// <summary>Returns a cached session only when it is still usable on the current CLI connection.</summary>
     private async Task<CopilotSession?> TryGetReusableCachedSessionAsync(Chat chat, CancellationToken ct)
@@ -4966,6 +5016,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// re-establish it via ResumeSessionAsync, preserving server-side context.</summary>
     private void InvalidateLocalSessionCache(Chat chat)
     {
+        AbandonSessionIdleWait(chat.Id);
         _sessionCache.TryGetValue(chat.Id, out var invalidatedSession);
         if (invalidatedSession is not null
             && !_copilotService.TryDetachSessionFromSdkRegistry(invalidatedSession))
@@ -5034,6 +5085,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void DetachPersistedSession(Chat chat, string? sessionId = null)
     {
+        AbandonSessionIdleWait(chat.Id);
         var detachedSessionId = sessionId ?? chat.CopilotSessionId;
         DisposeSessionSubscription(chat.Id);
 
@@ -5426,10 +5478,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     /// <summary>Core stop/abort path shared by the Stop button and the inline "Send now" steer action.</summary>
     /// <param name="resolvePendingSteersAsFailed">
-    /// When true (a plain Stop), any still-pending steers are marked "Not delivered" before the abort.
-    /// When false (the inline "Send now" action), the steer is intentionally kept registered so the SDK's
-    /// post-abort autopilot continuation can reprocess it and the turn-end/idle fallback resolves it to
-    /// "Steered into response" instead of a false "Not delivered".
+    /// When true, any still-pending SDK steers are marked "Not delivered" before the abort. "Send now"
+    /// first reclaims its selected steer into Lumi's local queue, so it also uses this safe cleanup mode.
     /// </param>
     private async Task<string?> StopGenerationInternal(bool resolvePendingSteersAsFailed)
     {
@@ -5441,6 +5491,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (await TryStopManualContextCompactionAsync(chat))
             return null;
         var wasActiveTurn = IsChatRuntimeActive(chatId) || _ctsSources.ContainsKey(chatId);
+        var runtime = GetOrCreateRuntimeState(chatId);
 
         // Record intent before cancellation or AbortAsync can synchronously emit Abort/Idle events.
         // Those handlers read this flag to distinguish a user stop from a broken session.
@@ -5460,22 +5511,22 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ReleaseChatCancellation(chatId, cancel: true);
 
         string? abortError = null;
-        if (_sessionCache.TryGetValue(chatId, out var session))
+        var abortRequested = false;
+        try
         {
-            try
-            {
-                await session.AbortAsync();
-            }
-            catch (Exception ex)
-            {
-                Trace.TraceWarning($"[Chat] Abort failed for {chatId}: {ex}");
-                abortError = $"Could not stop this turn cleanly: {ex.Message}";
-            }
+            abortRequested = await AbortCachedTurnAsync(chatId, waitForIdle: false);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"[Chat] Abort failed for {chatId}: {ex}");
+            abortError = $"Could not stop this turn cleanly: {ex.Message}";
         }
 
-        var runtime = GetOrCreateRuntimeState(chatId);
         var stoppedTools = MarkInProgressToolsStopped(chat);
-        MarkRuntimeTerminal(runtime, Loc.Status_Stopped);
+        if (runtime.AwaitingStopIdle)
+            MarkRuntimeTerminalPreservingStopIdle(runtime, Loc.Status_Stopped);
+        else
+            MarkRuntimeTerminal(runtime, Loc.Status_Stopped);
         if (wasActiveTurn)
         {
             PublishTerminalChatLifecycleEventOnce(
@@ -5503,10 +5554,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (stoppedTools || canceledQuestions)
             QueueSaveChat(chat, saveIndex: false);
 
-        // Scheduled rather than awaited: the follow-up send owns a full turn setup, and awaiting it here
-        // would keep StopGenerationCommand "running" (AsyncRelayCommand disallows concurrent executions),
-        // leaving the Stop button dead exactly while the new turn starts.
-        ScheduleQueuedBusySendDrain(chatId);
+        // Copilot's abort contract does not make the session reusable until session.idle. That handler
+        // owns the drain for a real session. Sending here raced the abort tail and intermittently forced
+        // a same-ID resume, which restarted MCP connections. If Stop itself failed, the message cannot
+        // be sent safely and is surfaced as undelivered rather than hanging in the queue indefinitely.
+        if (abortError is not null)
+            FailQueuedBusySends(chatId);
+        else if (!abortRequested)
+            ScheduleQueuedBusySendDrain(chatId);
         return abortError;
     }
 
@@ -6335,36 +6390,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var chatId = CurrentChat.Id;
             var abortedPreviousTurn = ReleasePreviousTurnCancellation(chatId);
             if (abortedPreviousTurn)
-            {
-                if (_sessionCache.TryGetValue(chatId, out var cachedSession))
-                {
-                    try { await cachedSession.AbortAsync(); }
-                    catch { /* best-effort */ }
-                }
-            }
-
-            // Defensive disposed-session probe (see SendMessageCore for rationale): the cached
-            // _activeSession may have been torn down by a reconnect that hasn't fired Reconnected
-            // yet. Accessing SessionId on a disposed CopilotSession throws ObjectDisposedException,
-            // so probe safely and invalidate the stale handle instead of faulting the edit-resend.
-            string? activeSessionId;
-            try
-            {
-                activeSessionId = _activeSession?.SessionId;
-            }
-            catch (ObjectDisposedException)
-            {
-                activeSessionId = null;
-                if (CurrentChat is not null)
-                    InvalidateLocalSessionCache(CurrentChat);
-                ClearActiveSessionState();
-            }
+                await AbortCachedTurnAsync(chatId, waitForIdle: true);
 
             if (CurrentChat is not { } resendChat)
                 return;
 
-            var needsSessionSetup = activeSessionId != resendChat.CopilotSessionId
-                                    || resendChat.CopilotSessionId is null;
+            var needsSessionSetup = NeedsSessionSetup(resendChat);
             if (ConsumePendingSessionInvalidation(resendChat))
                 needsSessionSetup = true;
 
@@ -6468,6 +6499,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 }
             }
 
+            RestoreDisplayedSessionFromCache();
             var runtime = GetOrCreateRuntimeState(CurrentChat.Id);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
             ApplyDisplayedRuntimeState(runtime);
@@ -6778,7 +6810,12 @@ public partial class ChatMessageViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsSteerFailed))]
     [NotifyPropertyChangedFor(nameof(ShowSteerDot))]
     [NotifyPropertyChangedFor(nameof(SteerBadgeText))]
+    [NotifyPropertyChangedFor(nameof(CanSendNow))]
     private MessageSteerState _steerState;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSendNow))]
+    private bool _canSendNowWhenQueued;
 
     /// <summary>True when this message carries a delivery badge (queued / steering / steered / failed).</summary>
     public bool HasSteerBadge => SteerState is not MessageSteerState.None;
@@ -6786,9 +6823,16 @@ public partial class ChatMessageViewModel : ObservableObject
     /// <summary>
     /// True while the message still has to reach the running turn — waiting for a steerable turn
     /// (<see cref="MessageSteerState.Queued"/>) or already being injected
-    /// (<see cref="MessageSteerState.Steering"/>). Both show the pending pill and "Send now".
+    /// (<see cref="MessageSteerState.Steering"/>). Both show the pending pill.
     /// </summary>
     public bool IsSteerInProgress => SteerState is MessageSteerState.Steering or MessageSteerState.Queued;
+
+    /// <summary>
+    /// True while "Send now" can be requested. During session/MCP setup the click is latched and this
+    /// hides until the first SDK turn starts, when Lumi can interrupt without recreating the session.
+    /// </summary>
+    public bool CanSendNow => SteerState is MessageSteerState.Steering
+                              || (SteerState is MessageSteerState.Queued && CanSendNowWhenQueued);
 
     /// <summary>True once the agent has actually consumed the steered message into the running turn.</summary>
     public bool IsSteerDelivered => SteerState is MessageSteerState.Steered;
@@ -6811,6 +6855,7 @@ public partial class ChatMessageViewModel : ObservableObject
     // Mirror the transient steer state onto the model so the badge survives transcript/VM rebuilds
     // (reconciliation, stall recovery, remount) within the session — VMs are recreated from the model.
     partial void OnSteerStateChanged(MessageSteerState value) => Message.SteerDelivery = value;
+    partial void OnCanSendNowWhenQueuedChanged(bool value) => Message.CanSendNowWhenQueued = value;
     partial void OnContentChanged(string value) => PresentationRevision++;
     partial void OnToolStatusChanged(string? value) => PresentationRevision++;
 
@@ -6829,6 +6874,7 @@ public partial class ChatMessageViewModel : ObservableObject
         _linkedChatId = message.LinkedChatId;
         _linkedChatTitle = message.LinkedChatTitle;
         _steerState = message.SteerDelivery;
+        _canSendNowWhenQueued = message.CanSendNowWhenQueued;
     }
 
     public void NotifyContentChanged()
