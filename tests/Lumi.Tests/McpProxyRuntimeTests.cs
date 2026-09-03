@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -55,6 +56,14 @@ public sealed class McpProxyRuntimeTests
 
         Assert.Equal(expected, McpStdioServerConnection.IsRetryableInitializeErrorResponse(response));
     }
+
+    [Theory]
+    [InlineData(5_000, 5_000)]
+    [InlineData(45_000, 45_000)]
+    [InlineData(60_000, 45_000)]
+    [InlineData(300_000, 45_000)]
+    public void InitializeTimeoutIsCappedWithoutShorteningSmallerConfiguredTimeouts(int configured, int expected)
+        => Assert.Equal(expected, McpStdioServerConnection.GetInitializeTimeoutMilliseconds(configured));
 
     [SkippableFact]
     public async Task Proxy_RetriesTransientServerErrorDuringInitialHandshake()
@@ -582,6 +591,13 @@ public sealed class McpProxyRuntimeTests
             var starts = await File.ReadAllLinesAsync(logPath);
             Assert.Equal(2, starts.Length);
             Assert.NotEqual(starts[0], starts[1]);
+
+            await runtime.DisposeAsync();
+            foreach (var start in starts)
+            {
+                var processId = int.Parse(start, System.Globalization.CultureInfo.InvariantCulture);
+                Assert.Throws<ArgumentException>(() => Process.GetProcessById(processId));
+            }
         }
         finally
         {
@@ -652,6 +668,13 @@ public sealed class McpProxyRuntimeTests
             var starts = await File.ReadAllLinesAsync(logPath);
             Assert.Equal(2, starts.Length);
             Assert.NotEqual(starts[0], starts[1]);
+
+            await runtime.DisposeAsync();
+            foreach (var start in starts)
+            {
+                var processId = int.Parse(start, System.Globalization.CultureInfo.InvariantCulture);
+                Assert.Throws<ArgumentException>(() => Process.GetProcessById(processId));
+            }
         }
         finally
         {
@@ -1187,7 +1210,7 @@ public sealed class McpProxyRuntimeTests
                 """);
 
             var definition = CreateBasicDefinition("test:dispose", "dispose-test", scriptPath, root, logPath);
-            var runtime = new McpProxyRuntime();
+            await using var runtime = new McpProxyRuntime();
             var remote = runtime.Register(definition);
 
             using var http = new HttpClient();
@@ -1199,7 +1222,7 @@ public sealed class McpProxyRuntimeTests
             var pid = int.Parse(Assert.Single(await File.ReadAllLinesAsync(logPath)), System.Globalization.CultureInfo.InvariantCulture);
             await runtime.DisposeAsync();
 
-            await WaitForProcessExitAsync(pid);
+            Assert.Throws<ArgumentException>(() => Process.GetProcessById(pid));
             Assert.Throws<ObjectDisposedException>(() => runtime.Register(definition));
         }
         finally
@@ -1408,6 +1431,382 @@ public sealed class McpProxyRuntimeTests
             var starts = await File.ReadAllLinesAsync(logPath);
             Assert.Contains(starts, line => line.StartsWith("FIRST|", StringComparison.Ordinal));
             Assert.Contains(starts, line => line.StartsWith("SECOND|", StringComparison.Ordinal));
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+        }
+    }
+
+    [SkippableFact]
+    public async Task SessionLeases_ShareProcessUntilFinalLeaseIsReleased()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "PowerShell fake MCP server is Windows-only.");
+
+        var root = Path.Combine(Path.GetTempPath(), "lumi-mcp-proxy-session-lease-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var scriptPath = Path.Combine(root, "fake-mcp.ps1");
+            var logPath = Path.Combine(root, "starts.log");
+            await File.WriteAllTextAsync(scriptPath, """
+                [System.IO.File]::AppendAllText($env:MCP_TEST_LOG, "$PID`n")
+                function Write-Json($obj) {
+                    [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 30))
+                    [Console]::Out.Flush()
+                }
+                while ($null -ne ($line = [Console]::In.ReadLine())) {
+                    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                    $msg = $line | ConvertFrom-Json
+                    if ($msg.method -eq "initialize") {
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ protocolVersion = "2025-06-18"; capabilities = @{ tools = @{ listChanged = $false } }; serverInfo = @{ name = "session-lease-test-mcp"; version = "1" } } }
+                    } elseif ($msg.method -eq "tools/list") {
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ tools = @() } }
+                    }
+                }
+                """);
+
+            await using var runtime = new McpProxyRuntime();
+            var definition = CreateBasicDefinition("test:session-lease", "session-lease-test", scriptPath, root, logPath);
+            using var firstLease = runtime.AcquireSessionRegistration(definition);
+            using var secondLease = runtime.AcquireSessionRegistration(definition with
+            {
+                Config = new McpStdioServerConfig
+                {
+                    Command = definition.Config.Command,
+                    Args = definition.Config.Args,
+                    WorkingDirectory = root + Path.DirectorySeparatorChar,
+                    Env = definition.Config.Env,
+                    Tools = definition.Config.Tools
+                }
+            });
+
+            Assert.Equal(firstLease.ServerConfig.Url, secondLease.ServerConfig.Url);
+
+            using var http = new HttpClient();
+            using var initialize = await PostJsonAsync(http, firstLease.ServerConfig.Url, """
+                {"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+                """);
+            Assert.True(initialize.RootElement.TryGetProperty("result", out _));
+
+            var pid = int.Parse(
+                Assert.Single(await File.ReadAllLinesAsync(logPath)),
+                System.Globalization.CultureInfo.InvariantCulture);
+            firstLease.Dispose();
+
+            using (var process = System.Diagnostics.Process.GetProcessById(pid))
+                Assert.False(process.HasExited);
+
+            using var list = await PostJsonAsync(http, secondLease.ServerConfig.Url, """
+                {"jsonrpc":"2.0","id":"list","method":"tools/list","params":{}}
+                """);
+            Assert.True(list.RootElement.TryGetProperty("result", out _));
+
+            secondLease.Dispose();
+            await WaitForProcessExitAsync(pid);
+
+            using var retiredResponse = await http.PostAsync(
+                secondLease.ServerConfig.Url,
+                new StringContent("""{"jsonrpc":"2.0","id":"retired","method":"tools/list","params":{}}""", Encoding.UTF8, "application/json"));
+            Assert.Equal(HttpStatusCode.NotFound, retiredResponse.StatusCode);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+        }
+    }
+
+    [SkippableFact]
+    public async Task SessionLeases_IsolateConcurrentWorkingDirectories()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "PowerShell fake MCP server is Windows-only.");
+
+        var root = Path.Combine(Path.GetTempPath(), "lumi-mcp-proxy-directory-lease-test-" + Guid.NewGuid().ToString("N"));
+        var firstDirectory = Path.Combine(root, "first");
+        var secondDirectory = Path.Combine(root, "second");
+        Directory.CreateDirectory(firstDirectory);
+        Directory.CreateDirectory(secondDirectory);
+        try
+        {
+            var scriptPath = Path.Combine(root, "fake-mcp.ps1");
+            var logPath = Path.Combine(root, "starts.log");
+            await File.WriteAllTextAsync(scriptPath, """
+                [System.IO.File]::AppendAllText($env:MCP_TEST_LOG, "$PID|$PWD`n")
+                function Write-Json($obj) {
+                    [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 30))
+                    [Console]::Out.Flush()
+                }
+                while ($null -ne ($line = [Console]::In.ReadLine())) {
+                    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                    $msg = $line | ConvertFrom-Json
+                    if ($msg.method -eq "initialize") {
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ protocolVersion = "2025-06-18"; capabilities = @{ tools = @{ listChanged = $false } }; serverInfo = @{ name = "directory-lease-test-mcp"; version = "1" } } }
+                    }
+                }
+                """);
+
+            McpProxyServerDefinition Definition(string workDir) => new(
+                "test:directory-lease",
+                "directory-lease-test",
+                new McpStdioServerConfig
+                {
+                    Command = GetPowerShellPath(),
+                    Args = ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
+                    WorkingDirectory = workDir,
+                    Env = new Dictionary<string, string> { ["MCP_TEST_LOG"] = logPath },
+                    Tools = ["*"]
+                });
+
+            await using var runtime = new McpProxyRuntime();
+            using var firstLease = runtime.AcquireSessionRegistration(Definition(firstDirectory));
+            using var secondLease = runtime.AcquireSessionRegistration(Definition(secondDirectory));
+            Assert.NotEqual(firstLease.ServerConfig.Url, secondLease.ServerConfig.Url);
+
+            using var http = new HttpClient();
+            using var firstInitialize = await PostJsonAsync(http, firstLease.ServerConfig.Url, """
+                {"jsonrpc":"2.0","id":"first","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+                """);
+            using var secondInitialize = await PostJsonAsync(http, secondLease.ServerConfig.Url, """
+                {"jsonrpc":"2.0","id":"second","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+                """);
+
+            var starts = await File.ReadAllLinesAsync(logPath);
+            Assert.Equal(2, starts.Length);
+            var firstStart = Assert.Single(starts, line => line.Contains(firstDirectory, StringComparison.OrdinalIgnoreCase));
+            var secondStart = Assert.Single(starts, line => line.Contains(secondDirectory, StringComparison.OrdinalIgnoreCase));
+            var firstPid = int.Parse(firstStart.Split('|')[0], System.Globalization.CultureInfo.InvariantCulture);
+            var secondPid = int.Parse(secondStart.Split('|')[0], System.Globalization.CultureInfo.InvariantCulture);
+
+            firstLease.Dispose();
+            await WaitForProcessExitAsync(firstPid);
+            using (var process = System.Diagnostics.Process.GetProcessById(secondPid))
+                Assert.False(process.HasExited);
+
+            secondLease.Dispose();
+            await WaitForProcessExitAsync(secondPid);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+        }
+    }
+
+    [SkippableFact]
+    public async Task SessionLeaseIdentity_IncludesOperationalConfiguration()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows path identity is exercised by this test.");
+
+        var root = Path.Combine(Path.GetTempPath(), "lumi-mcp-proxy-identity-test-" + Guid.NewGuid().ToString("N"));
+        var otherDirectory = Path.Combine(root, "other");
+        Directory.CreateDirectory(otherDirectory);
+        try
+        {
+            var baseConfig = new McpStdioServerConfig
+            {
+                Command = GetPowerShellPath(),
+                Args = ["-NoLogo"],
+                WorkingDirectory = root,
+                Env = new Dictionary<string, string> { ["MCP_MARKER"] = "base" },
+                Tools = ["*"]
+            };
+
+            McpProxyServerDefinition Definition(McpStdioServerConfig config) =>
+                new("test:identity", "identity-test", config);
+
+            await using var runtime = new McpProxyRuntime();
+            using var baseline = runtime.AcquireSessionRegistration(Definition(baseConfig));
+            using var normalizedPath = runtime.AcquireSessionRegistration(Definition(new McpStdioServerConfig
+            {
+                Command = baseConfig.Command,
+                Args = baseConfig.Args,
+                WorkingDirectory = root + Path.DirectorySeparatorChar,
+                Env = baseConfig.Env,
+                Tools = baseConfig.Tools
+            }));
+            using var normalizedCase = runtime.AcquireSessionRegistration(Definition(new McpStdioServerConfig
+            {
+                Command = baseConfig.Command,
+                Args = baseConfig.Args,
+                WorkingDirectory = root.ToUpperInvariant(),
+                Env = baseConfig.Env,
+                Tools = baseConfig.Tools
+            }));
+            using var changedCommand = runtime.AcquireSessionRegistration(Definition(new McpStdioServerConfig
+            {
+                Command = baseConfig.Command + ".different",
+                Args = baseConfig.Args,
+                WorkingDirectory = root,
+                Env = baseConfig.Env,
+                Tools = baseConfig.Tools
+            }));
+            using var changedArgs = runtime.AcquireSessionRegistration(Definition(new McpStdioServerConfig
+            {
+                Command = baseConfig.Command,
+                Args = ["-NoLogo", "-NoProfile"],
+                WorkingDirectory = root,
+                Env = baseConfig.Env,
+                Tools = baseConfig.Tools
+            }));
+            using var changedEnvironment = runtime.AcquireSessionRegistration(Definition(new McpStdioServerConfig
+            {
+                Command = baseConfig.Command,
+                Args = baseConfig.Args,
+                WorkingDirectory = root,
+                Env = new Dictionary<string, string> { ["MCP_MARKER"] = "changed" },
+                Tools = baseConfig.Tools
+            }));
+            using var changedDirectory = runtime.AcquireSessionRegistration(Definition(new McpStdioServerConfig
+            {
+                Command = baseConfig.Command,
+                Args = baseConfig.Args,
+                WorkingDirectory = otherDirectory,
+                Env = baseConfig.Env,
+                Tools = baseConfig.Tools
+            }));
+            using var embeddedArgumentDelimiter = runtime.AcquireSessionRegistration(Definition(new McpStdioServerConfig
+            {
+                Command = baseConfig.Command,
+                Args = ["first\narg:second"],
+                WorkingDirectory = root,
+                Env = baseConfig.Env,
+                Tools = baseConfig.Tools
+            }));
+            using var splitArguments = runtime.AcquireSessionRegistration(Definition(new McpStdioServerConfig
+            {
+                Command = baseConfig.Command,
+                Args = ["first", "second"],
+                WorkingDirectory = root,
+                Env = baseConfig.Env,
+                Tools = baseConfig.Tools
+            }));
+            using var embeddedEnvironmentDelimiter = runtime.AcquireSessionRegistration(Definition(new McpStdioServerConfig
+            {
+                Command = baseConfig.Command,
+                Args = baseConfig.Args,
+                WorkingDirectory = root,
+                Env = new Dictionary<string, string> { ["A"] = "x\nenv:B=y" },
+                Tools = baseConfig.Tools
+            }));
+            using var splitEnvironment = runtime.AcquireSessionRegistration(Definition(new McpStdioServerConfig
+            {
+                Command = baseConfig.Command,
+                Args = baseConfig.Args,
+                WorkingDirectory = root,
+                Env = new Dictionary<string, string> { ["A"] = "x", ["B"] = "y" },
+                Tools = baseConfig.Tools
+            }));
+
+            Assert.Equal(baseline.ServerConfig.Url, normalizedPath.ServerConfig.Url);
+            Assert.Equal(baseline.ServerConfig.Url, normalizedCase.ServerConfig.Url);
+            Assert.NotEqual(embeddedArgumentDelimiter.ServerConfig.Url, splitArguments.ServerConfig.Url);
+            Assert.NotEqual(embeddedEnvironmentDelimiter.ServerConfig.Url, splitEnvironment.ServerConfig.Url);
+            Assert.Equal(5, new[]
+            {
+                baseline.ServerConfig.Url,
+                changedCommand.ServerConfig.Url,
+                changedArgs.ServerConfig.Url,
+                changedEnvironment.ServerConfig.Url,
+                changedDirectory.ServerConfig.Url
+            }.Distinct(StringComparer.Ordinal).Count());
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+        }
+    }
+
+    [SkippableFact]
+    public async Task SessionLeases_KeepChangedConfigurationOnSeparateLiveProcesses()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "PowerShell fake MCP server is Windows-only.");
+
+        var root = Path.Combine(Path.GetTempPath(), "lumi-mcp-proxy-config-lease-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var scriptPath = Path.Combine(root, "fake-mcp.ps1");
+            var logPath = Path.Combine(root, "starts.log");
+            var callStartedPath = Path.Combine(root, "calls.log");
+            await File.WriteAllTextAsync(scriptPath, """
+                [System.IO.File]::AppendAllText($env:MCP_TEST_LOG, "$($env:MCP_MARKER)|$PID`n")
+                function Write-Json($obj) {
+                    [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 30))
+                    [Console]::Out.Flush()
+                }
+                while ($null -ne ($line = [Console]::In.ReadLine())) {
+                    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                    $msg = $line | ConvertFrom-Json
+                    if ($msg.method -eq "initialize") {
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ protocolVersion = "2025-06-18"; capabilities = @{ tools = @{ listChanged = $false } }; serverInfo = @{ name = "config-lease-test-mcp"; version = "1" } } }
+                    } elseif ($msg.method -eq "tools/call") {
+                        $value = [string]$msg.params.arguments.value
+                        Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ content = @(@{ type = "text"; text = "$($env:MCP_MARKER):$value" }) } }
+                    }
+                }
+                """);
+
+            await using var runtime = new McpProxyRuntime();
+            using var firstLease = runtime.AcquireSessionRegistration(
+                CreateReplaceDefinition(
+                    "test:config-lease",
+                    "config-lease-test",
+                    scriptPath,
+                    root,
+                    logPath,
+                    callStartedPath,
+                    "FIRST"));
+            using var secondLease = runtime.AcquireSessionRegistration(
+                CreateReplaceDefinition(
+                    "test:config-lease",
+                    "config-lease-test",
+                    scriptPath,
+                    root,
+                    logPath,
+                    callStartedPath,
+                    "SECOND"));
+
+            Assert.NotEqual(firstLease.ServerConfig.Url, secondLease.ServerConfig.Url);
+
+            using var http = new HttpClient();
+            using var firstInitialize = await PostJsonAsync(http, firstLease.ServerConfig.Url, """
+                {"jsonrpc":"2.0","id":"first-init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+                """);
+            using var secondInitialize = await PostJsonAsync(http, secondLease.ServerConfig.Url, """
+                {"jsonrpc":"2.0","id":"second-init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+                """);
+            using var firstCall = await PostJsonAsync(http, firstLease.ServerConfig.Url, """
+                {"jsonrpc":"2.0","id":"first-call","method":"tools/call","params":{"name":"emit_marker","arguments":{"value":"ONE"}}}
+                """);
+            using var secondCall = await PostJsonAsync(http, secondLease.ServerConfig.Url, """
+                {"jsonrpc":"2.0","id":"second-call","method":"tools/call","params":{"name":"emit_marker","arguments":{"value":"TWO"}}}
+                """);
+
+            Assert.Equal(
+                "FIRST:ONE",
+                firstCall.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString());
+            Assert.Equal(
+                "SECOND:TWO",
+                secondCall.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString());
+
+            var starts = await File.ReadAllLinesAsync(logPath);
+            var firstPid = int.Parse(
+                Assert.Single(starts, line => line.StartsWith("FIRST|", StringComparison.Ordinal)).Split('|')[1],
+                System.Globalization.CultureInfo.InvariantCulture);
+            var secondPid = int.Parse(
+                Assert.Single(starts, line => line.StartsWith("SECOND|", StringComparison.Ordinal)).Split('|')[1],
+                System.Globalization.CultureInfo.InvariantCulture);
+
+            firstLease.Dispose();
+            await WaitForProcessExitAsync(firstPid);
+            using (var process = System.Diagnostics.Process.GetProcessById(secondPid))
+                Assert.False(process.HasExited);
+
+            secondLease.Dispose();
+            await WaitForProcessExitAsync(secondPid);
         }
         finally
         {

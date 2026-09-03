@@ -49,6 +49,7 @@ public sealed class McpSettleTests
     // terminal is exactly what let the first prompt go out with no remote tools.
     [InlineData("not_configured")]
     [InlineData("pending")]
+    [InlineData("starting")]
     public void IsMcpStatusSettling_TreatsUninitializedStatusesAsStillSettling(string status)
     {
         Assert.True(ChatViewModel.IsMcpStatusSettling(new McpServerStatus(status)));
@@ -96,6 +97,22 @@ public sealed class McpSettleTests
         Assert.False(ChatViewModel.HasRemoteMcpServers(null));
         Assert.False(ChatViewModel.HasRemoteMcpServers(new Dictionary<string, McpServerConfig>()));
     }
+
+    [Theory]
+    [InlineData(false, 180)]
+    [InlineData(true, 60)]
+    public void ResolveMcpSessionSetupTimeout_ExtendsOnlyProxyMode(bool usesProxy, int expectedSeconds)
+        => Assert.Equal(
+            TimeSpan.FromSeconds(expectedSeconds),
+            ChatViewModel.ResolveMcpSessionSetupTimeout(usesProxy));
+
+    [Theory]
+    [InlineData(false, 10)]
+    [InlineData(true, 60)]
+    public void ResolveMcpSettleBudget_ExtendsOnlyProxyMode(bool usesProxy, int expectedSeconds)
+        => Assert.Equal(
+            TimeSpan.FromSeconds(expectedSeconds),
+            ChatViewModel.ResolveMcpSettleBudget(usesProxy));
 
     private static ChatViewModel.McpSettleEvaluation Evaluate(
         IEnumerable<RpcMcpServer> servers,
@@ -201,6 +218,34 @@ public sealed class McpSettleTests
     }
 
     [Fact]
+    public void RecordMcpStatusHandlingResult_RetriesNeedsAuthUntilConcurrentOAuthResolves()
+    {
+        var server = Server("azure-arm", "needs-auth");
+        var handled = new Dictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase);
+        var handedOff = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        ChatViewModel.RecordMcpStatusHandlingResult(
+            server,
+            stopWaiting: false,
+            handled,
+            handedOff);
+
+        var stillPending = Evaluate([server], handled, handedOff);
+        Assert.Single(stillPending.ToHandle);
+        Assert.True(stillPending.KeepWaiting);
+
+        ChatViewModel.RecordMcpStatusHandlingResult(
+            server,
+            stopWaiting: true,
+            handled,
+            handedOff);
+
+        var resolved = Evaluate([server], handled, handedOff);
+        Assert.Empty(resolved.ToHandle);
+        Assert.False(resolved.KeepWaiting);
+    }
+
+    [Fact]
     public void EvaluateMcpSettle_KeepsWaitingForAHealthyServerWhileAnotherAwaitsConsent()
     {
         var handedOff = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "azure-arm" };
@@ -244,5 +289,24 @@ public sealed class McpSettleTests
 
         Assert.False(evaluation.KeepWaiting);
         Assert.Empty(evaluation.ToHandle);
+    }
+
+    [Fact]
+    public void GetUnsettledMcpServerNames_ReturnsOnlyServersStillStartingOrUnreported()
+    {
+        var observed = new Dictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["connected"] = McpServerStatus.Connected,
+            ["failed"] = McpServerStatus.Failed,
+            ["needs-auth"] = McpServerStatus.NeedsAuth,
+            ["starting"] = new McpServerStatus("starting"),
+            ["pending"] = McpServerStatus.Pending
+        };
+
+        var unsettled = ChatViewModel.GetUnsettledMcpServerNames(
+            ["connected", "failed", "needs-auth", "starting", "pending", "unreported"],
+            observed);
+
+        Assert.Equal(["starting", "pending", "unreported"], unsettled);
     }
 }

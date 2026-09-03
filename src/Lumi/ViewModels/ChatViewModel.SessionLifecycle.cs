@@ -224,7 +224,11 @@ public partial class ChatViewModel
     /// Returns <c>false</c> when this surface was disposed while the session was being
     /// created/resumed: the incoming session is released (not subscribed) and callers must NOT
     /// publish it as <c>_activeSession</c> or send on it.</summary>
-    private bool SubscribeToSession(CopilotSession session, Chat chat, string workDir)
+    private bool SubscribeToSession(
+        CopilotSession session,
+        Chat chat,
+        string workDir,
+        Action<Task>? rejectedReleaseStarted = null)
     {
         // Dispose previous subscription for this chat (e.g., session was resumed)
         if (_sessionSubs.TryGetValue(chat.Id, out var oldSub))
@@ -239,11 +243,17 @@ public partial class ChatViewModel
         // the server id: a same-id handle shares the one server session (and its MCP) with the
         // incoming one, so destroying it would tear down the session we are about to use.
         if (_sessionCache.TryGetValue(chat.Id, out var previousSession)
-            && !ReferenceEquals(previousSession, session)
-            && !string.Equals(previousSession.SessionId, session.SessionId, StringComparison.Ordinal))
+            && !ReferenceEquals(previousSession, session))
         {
-            _sessionCache.Remove(chat.Id);
-            TrackSessionRelease(chat.Id, previousSession);
+            if (!string.Equals(previousSession.SessionId, session.SessionId, StringComparison.Ordinal))
+            {
+                _sessionCache.Remove(chat.Id);
+                TrackSessionRelease(chat.Id, previousSession);
+            }
+            else
+            {
+                AdoptMcpProxyLease(chat.Id, previousSession, session);
+            }
         }
 
         // Invalidation detached the old handle from the SDK registry but retained it here so an
@@ -251,10 +261,12 @@ public partial class ChatViewModel
         // server session, so the old handle can now be dropped without destroy. A different-ID
         // replacement abandons the old server session and must release it to reap its MCP processes.
         if (_sessionsPendingResume.Remove(chat.Id, out var pendingSession)
-            && !ReferenceEquals(pendingSession, session)
-            && !string.Equals(pendingSession.SessionId, session.SessionId, StringComparison.Ordinal))
+            && !ReferenceEquals(pendingSession, session))
         {
-            TrackSessionRelease(chat.Id, pendingSession);
+            if (!string.Equals(pendingSession.SessionId, session.SessionId, StringComparison.Ordinal))
+                TrackSessionRelease(chat.Id, pendingSession);
+            else
+                AdoptMcpProxyLease(chat.Id, pendingSession, session);
         }
 
         // This surface may have been disposed while the session was being created/resumed (the user
@@ -263,7 +275,8 @@ public partial class ChatViewModel
         // subprocesses. Release it immediately instead of subscribing.
         if (_isDisposed)
         {
-            TrackSessionRelease(chat.Id, session);
+            var releaseTask = TrackSessionRelease(chat.Id, session);
+            rejectedReleaseStarted?.Invoke(releaseTask);
             return false;
         }
 
@@ -2687,7 +2700,8 @@ public partial class ChatViewModel
         // subprocesses are already reaped — dropping the handle here leaks nothing, and a destroy RPC
         // would just fail. The persisted CopilotSessionId is intentionally kept so a later send can
         // resume once the CLI/server recovers.
-        _sessionCache.Remove(chat.Id);
+        if (_sessionCache.Remove(chat.Id, out var detachedSession))
+            ReleaseMcpProxyLease(chat.Id, detachedSession);
         if (wasActive)
             _activeSession = null;
 
@@ -2756,10 +2770,24 @@ public partial class ChatViewModel
             sub.Dispose();
         _sessionSubs.Clear();
 
-        // Clear session cache: every cached session belongs to the OLD CLI process, which has died
-        // (that is why we are reconnecting). Its child MCP subprocesses died with it, and a destroy
-        // RPC can't be delivered over the dead connection anyway, so there is nothing to reap here —
-        // dropping the handles is correct. Persisted CopilotSessionIds remain resumable on the new client.
+        // Clear session cache: every cached session belongs to the old CLI process, so a destroy RPC
+        // cannot be delivered. Proxy children are owned by Lumi rather than that CLI process, however,
+        // so publish their retirement tasks before dropping the dead session handles.
+        foreach (var (chatId, session) in _sessionCache.ToList())
+            ReleaseMcpProxyLease(chatId, session);
+        foreach (var (chatId, session) in _sessionsPendingResume.ToList())
+            ReleaseMcpProxyLease(chatId, session);
+        if (CurrentChat is { } activeChat && _activeSession is not null)
+            ReleaseMcpProxyLease(activeChat.Id, _activeSession);
+        foreach (var session in _mcpProxyLeasesBySession.Keys.ToList())
+        {
+            var owner = _dataStore.Data.Chats.FirstOrDefault(chat =>
+                string.Equals(chat.CopilotSessionId, session.SessionId, StringComparison.Ordinal));
+            if (owner is not null)
+                ReleaseMcpProxyLease(owner.Id, session);
+            else
+                DetachMcpProxyLease(session)?.Dispose();
+        }
         _sessionCache.Clear();
         _sessionsPendingResume.Clear();
         _activeSession = null;

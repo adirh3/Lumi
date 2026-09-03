@@ -39,6 +39,8 @@ public sealed class ChatSessionStore : IDisposable
     private readonly int _maxIdleCachedSurfaces;
     private readonly int _maxWarmIdleSessions;
     private readonly Dictionary<Guid, ChatViewModel> _sessionsByChatId = [];
+    private readonly object _mcpProxyReleaseGate = new();
+    private readonly Dictionary<Guid, Task> _mcpProxyReleaseTasks = [];
     private readonly Dictionary<ChatViewModel, int> _hostCounts = [];
     private readonly HashSet<ChatViewModel> _surfaces = [];
     private readonly LinkedList<ChatViewModel> _idleSurfacesLru = new();
@@ -212,6 +214,19 @@ public sealed class ChatSessionStore : IDisposable
         }
     }
 
+    public Task BeginMcpProxyCleanupAsync(Guid chatId)
+    {
+        foreach (var surface in _surfaces.ToArray())
+            surface.TryBeginMcpProxyCleanup(chatId, out _);
+
+        lock (_mcpProxyReleaseGate)
+        {
+            return _mcpProxyReleaseTasks.TryGetValue(chatId, out var releaseTask)
+                ? releaseTask
+                : Task.CompletedTask;
+        }
+    }
+
     public IReadOnlyList<ChatViewModel> SnapshotSurfaces() => _surfaces.ToArray();
 
     public void ApplyToSurfaces(Action<ChatViewModel> action)
@@ -254,6 +269,8 @@ public sealed class ChatSessionStore : IDisposable
             _capabilityCatalog.Dispose();
         foreach (var surface in _surfaces.ToArray())
             UntrackSurface(surface, dispose: true);
+        lock (_mcpProxyReleaseGate)
+            _mcpProxyReleaseTasks.Clear();
         _orchestrationService.Dispose();
         _acquireChatLock.Dispose();
     }
@@ -306,6 +323,7 @@ public sealed class ChatSessionStore : IDisposable
         surface.PropertyChanged += OnSurfacePropertyChanged;
         surface.FeatureManagementStateChanged += OnSurfaceFeatureManagementStateChanged;
         surface.FeatureCatalogChanged += OnSurfaceFeatureCatalogChanged;
+        surface.McpProxyReleaseStarted += OnMcpProxyReleaseStarted;
         if (surface.CurrentChat is { } chat)
             RegisterChatOwner(surface, chat.Id);
     }
@@ -324,9 +342,39 @@ public sealed class ChatSessionStore : IDisposable
 
         if (dispose)
             surface.Dispose();
+        surface.McpProxyReleaseStarted -= OnMcpProxyReleaseStarted;
     }
 
     private void OnSurfaceFeatureManagementStateChanged() => SurfaceFeatureManagementStateChanged?.Invoke();
+
+    private void OnMcpProxyReleaseStarted(Guid chatId, Task releaseTask)
+    {
+        Task barrierTask;
+        lock (_mcpProxyReleaseGate)
+        {
+            barrierTask = _mcpProxyReleaseTasks.TryGetValue(chatId, out var pendingTask)
+                ? Task.WhenAll(pendingTask, releaseTask)
+                : releaseTask;
+            _mcpProxyReleaseTasks[chatId] = barrierTask;
+        }
+
+        _ = barrierTask.ContinueWith(
+            completedTask =>
+            {
+                if (!completedTask.IsCompletedSuccessfully)
+                    return;
+
+                lock (_mcpProxyReleaseGate)
+                {
+                    if (_mcpProxyReleaseTasks.TryGetValue(chatId, out var trackedTask)
+                        && ReferenceEquals(trackedTask, barrierTask))
+                    {
+                        _mcpProxyReleaseTasks.Remove(chatId);
+                    }
+                }
+            },
+            TaskScheduler.Default);
+    }
 
     private void OnSurfaceFeatureCatalogChanged(ChatViewModel source, FeatureChangeResult result)
     {
