@@ -39,14 +39,16 @@ public sealed record ModelContextWindowCatalog(
     IReadOnlyDictionary<string, ModelContextWindowLimits> Limits);
 
 /// <summary>
-/// The outcome of classifying a failed send: whether it is <see cref="Recoverable"/> (abandon the
-/// poisoned session and rebuild from the transcript as text, offering Retry) and, when it is,
-/// whether the recovery copy should name an <see cref="IsImageError"/> (an image the backend could
-/// not process). Produced by <see cref="CopilotService.ClassifySendFailure"/> so BOTH failure entry
-/// points — the exception path (<c>HandleSendError</c>) and the structured <c>session.error</c> path
-/// (<c>SessionErrorEvent</c>) — reach an identical verdict from a single place.
+/// How Lumi should recover from a failed send. Retryable failures keep the existing session unless
+/// its history is known to be poisoned or the session is confirmed missing.
 /// </summary>
-internal readonly record struct SendFailureClassification(bool Recoverable, bool IsImageError);
+internal readonly record struct SendFailureClassification(
+    SessionFailureDisposition Disposition,
+    bool IsImageError)
+{
+    public bool Recoverable => Disposition != SessionFailureDisposition.Fatal;
+    public bool RequiresSessionRebuild => Disposition == SessionFailureDisposition.RebuildSession;
+}
 
 /// <summary>
 /// Thrown when a session creation is attempted without a BYOK provider while the user has enabled
@@ -865,7 +867,7 @@ public class CopilotService : IAsyncDisposable
         }
         finally
         {
-            await ReleaseSessionAsync(session, deleteServerSession: false);
+            await ReleaseSessionAsync(session);
         }
     }
 
@@ -922,8 +924,9 @@ public class CopilotService : IAsyncDisposable
     /// subprocesses) while registering the in-flight release by server session id so a concurrent
     /// <see cref="ResumeSessionAsync"/> of the same id — potentially from a different ChatViewModel
     /// surface — waits for the destroy to finish first. Exceptions are swallowed so best-effort
-    /// fire-and-forget releases can never fault their caller. When <paramref name="deleteServerSession"/>
-    /// is true the on-disk session data is also deleted (not just destroyed/resumable).
+    /// fire-and-forget releases can never fault their caller. Release never deletes persisted session
+    /// data. Irreversible cleanup remains explicit through <see cref="DeleteSessionAsync"/> and
+    /// <see cref="DisposeAndDeleteSessionAsync"/>, which are reserved for short-lived internal sessions.
     /// </summary>
     /// <remarks>
     /// THREADING INVARIANT: expected to run on the same (UI) thread that drives
@@ -943,12 +946,12 @@ public class CopilotService : IAsyncDisposable
     /// unresponsive CLI to occur (a dead transport faults fast and self-cleans), so it is a rare
     /// degradation of that one id, not an app deadlock.
     /// </remarks>
-    public Task ReleaseSessionAsync(CopilotSession session, bool deleteServerSession)
+    public Task ReleaseSessionAsync(CopilotSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
 
         var sessionId = session.SessionId;
-        var releaseTask = ReleaseSessionCoreAsync(session, deleteServerSession);
+        var releaseTask = ReleaseSessionCoreAsync(session);
 
         if (string.IsNullOrWhiteSpace(sessionId))
             return releaseTask;
@@ -970,14 +973,11 @@ public class CopilotService : IAsyncDisposable
         return releaseTask;
     }
 
-    private async Task ReleaseSessionCoreAsync(CopilotSession session, bool deleteServerSession)
+    private async Task ReleaseSessionCoreAsync(CopilotSession session)
     {
         try
         {
-            if (deleteServerSession)
-                await DisposeAndDeleteSessionAsync(session).ConfigureAwait(false);
-            else
-                await session.DisposeAsync().ConfigureAwait(false);
+            await session.DisposeAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -1506,8 +1506,8 @@ public class CopilotService : IAsyncDisposable
     /// credential / capacity / policy limit rather than a recoverable session or transport glitch:
     /// a genuine logout, an exhausted quota or rate limit, an exceeded context window, or a content
     /// policy rejection. Callers use this as the single "should we even offer Retry?" gate — EVERY
-    /// other terminal error is treated as recoverable by rebuilding the session from the transcript
-    /// as text (which safely drops any poisoned history such as an unprocessable image).
+    /// other terminal error remains retryable; <see cref="ClassifySendFailure"/> separately decides
+    /// whether retrying should reuse the session or rebuild known-poisoned history.
     /// </summary>
     internal static bool IsFatalNonRetryableError(int? statusCode, string? errorType, string? message)
     {
@@ -1564,6 +1564,20 @@ public class CopilotService : IAsyncDisposable
             || text.Contains("logged out") || text.Contains("re-authenticate");
     }
 
+    internal static bool IsMissingSessionError(string? errorType, string? message)
+    {
+        var type = errorType?.ToLowerInvariant();
+        if (type is "session_not_found" or "session_missing")
+            return true;
+
+        if (string.IsNullOrWhiteSpace(message))
+            return false;
+
+        return message.Contains("session not found", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("session file not found", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("no persisted or in-memory events found", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// The message thrown by <c>ChatViewModel.EnsureSessionAsync</c> when session setup
     /// (create/resume + MCP initialization) exceeds its bound because the chat has MCP servers.
@@ -1576,7 +1590,7 @@ public class CopilotService : IAsyncDisposable
     /// True when an error is the client-side MCP session-SETUP timeout (a slow create/resume + MCP
     /// init), as opposed to a backend/session failure. Such a timeout means setup was slow — NOT that
     /// the session is poisoned — so the session must be kept resumable and simply retried, never
-    /// deleted + cold-recreated (which is strictly slower and cascades into further timeouts).
+    /// rebuilt from a cold session (which is strictly slower and cascades into further timeouts).
     /// </summary>
     internal static bool IsMcpSetupTimeoutError(string? errorText)
         => !string.IsNullOrWhiteSpace(errorText)
@@ -1586,8 +1600,8 @@ public class CopilotService : IAsyncDisposable
     /// The single send-failure decision shared by both handlers. Given whatever the failure exposed
     /// — an HTTP <paramref name="statusCode"/> and <paramref name="errorType"/> from a structured
     /// <c>session.error</c>, or just a flattened <paramref name="message"/> from a thrown exception —
-    /// it decides whether the turn is <see cref="SendFailureClassification.Recoverable"/> and, if so,
-    /// whether to show the unprocessable-<see cref="SendFailureClassification.IsImageError"/> copy.
+    /// it decides whether the turn is fatal, retryable on the same session, or requires rebuilding a
+    /// known-poisoned/missing session. It also decides whether to show the unprocessable-image copy.
     /// <para>
     /// The exception path passes <c>(null, null, flattenedMessage, …)</c>; the structured classifiers
     /// degrade gracefully to the message heuristic when status/type are null, so that path gets
@@ -1598,20 +1612,26 @@ public class CopilotService : IAsyncDisposable
     /// <param name="hasTerminalOverride">True when the caller supplied a synthetic TERMINAL message
     /// (e.g. "start a new chat" / "restart Lumi") that its call site already deemed unrecoverable. Such
     /// a state is never reclassified and never offered Retry, so this short-circuits to
-    /// non-recoverable / non-image.</param>
+    /// fatal / non-image.</param>
     internal static SendFailureClassification ClassifySendFailure(
         int? statusCode, string? errorType, string? message, bool hasTerminalOverride)
     {
         if (hasTerminalOverride)
-            return new SendFailureClassification(Recoverable: false, IsImageError: false);
+            return new SendFailureClassification(SessionFailureDisposition.Fatal, IsImageError: false);
 
-        // Recoverable = anything that is NOT a hard auth / quota / context / policy limit; those are
-        // rebuilt from the transcript as text (safely dropping any poisoned history). An image
-        // rejection can ALSO be fatal (e.g. a content-policy image block), so the fatal verdict wins
-        // and gates the image flag — the "click Retry" copy is only used when Retry is actually shown.
         var recoverable = !IsFatalNonRetryableError(statusCode, errorType, message);
-        var isImageError = recoverable && IsUnprocessableImageError(statusCode, errorType, message);
-        return new SendFailureClassification(recoverable, isImageError);
+        if (!recoverable)
+            return new SendFailureClassification(SessionFailureDisposition.Fatal, IsImageError: false);
+
+        // Rebuilding loses native turn/tool history, so it is allow-listed to the cases where reusing
+        // the session cannot work: a known image poison or a session that no longer exists. Every
+        // other recoverable failure, including local persistence and lifecycle errors, retries the
+        // same resumable session.
+        var isImageError = IsUnprocessableImageError(statusCode, errorType, message);
+        var disposition = isImageError || IsMissingSessionError(errorType, message)
+            ? SessionFailureDisposition.RebuildSession
+            : SessionFailureDisposition.RetrySameSession;
+        return new SendFailureClassification(disposition, isImageError);
     }
 
     internal static string? TryGetGitHubTokenForMcp()
@@ -2003,6 +2023,10 @@ public class CopilotService : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Permanently deletes an explicitly transient session. Persistent chat sessions must use
+    /// <see cref="ReleaseSessionAsync"/> so their event history remains resumable.
+    /// </summary>
     public async Task DeleteSessionAsync(string sessionId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(sessionId))
@@ -2078,6 +2102,10 @@ public class CopilotService : IAsyncDisposable
         return sessionDirectory;
     }
 
+    /// <summary>
+    /// Disposes and permanently deletes an explicitly transient session. Persistent chat sessions
+    /// must use <see cref="ReleaseSessionAsync"/>.
+    /// </summary>
     public async Task DisposeAndDeleteSessionAsync(CopilotSession? session)
     {
         if (session is null)

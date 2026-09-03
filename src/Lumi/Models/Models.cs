@@ -10,8 +10,9 @@ namespace Lumi.Models;
 /// Transient delivery status for a user message sent while a turn is running. Session-only
 /// (never persisted) — it exists so the transcript can confirm whether a mid-turn message actually
 /// landed in the live turn (<see cref="Steered"/>) versus a normal turn-start message.
-/// <see cref="Queued"/> covers a message that could not be injected yet (the turn is between tool
-/// calls, or the session is still starting up) and is waiting to be delivered.
+/// <see cref="Queued"/> covers a message that could not be injected safely yet (for example, the
+/// session is still starting up or a nested sub-agent owns the active trajectory) and is waiting to
+/// be delivered.
 /// </summary>
 public enum MessageSteerState
 {
@@ -20,6 +21,13 @@ public enum MessageSteerState
     Steering,
     Steered,
     Failed
+}
+
+public enum SessionFailureDisposition
+{
+    Fatal,
+    RetrySameSession,
+    RebuildSession
 }
 
 public class ChatMessage
@@ -68,11 +76,24 @@ public class ChatMessage
     public List<string> Attachments { get; set; } = [];
     public List<SearchSource> Sources { get; set; } = [];
     public List<SkillReference> ActiveSkills { get; set; } = [];
+    /// <summary>
+    /// Recovery decision captured from a structured session error. Persisted so reopening a chat
+    /// does not have to infer behavior from localized display text.
+    /// </summary>
+    public SessionFailureDisposition? FailureDisposition { get; set; }
 
     /// <summary>Session-only steer delivery status (not serialized). Set when this message is steered
     /// into a running turn so the badge survives transcript/VM rebuilds within the session.</summary>
     [JsonIgnore]
     public MessageSteerState SteerDelivery { get; set; }
+
+    /// <summary>
+    /// Session-only availability for requesting immediate delivery of a locally queued message.
+    /// A setup-time request waits for the first SDK turn to start before aborting it, so session/MCP
+    /// setup is preserved.
+    /// </summary>
+    [JsonIgnore]
+    public bool CanSendNowWhenQueued { get; set; }
 
     /// <summary>
     /// Deep-copies this message, including its mutable collections, so the copy can be mutated or
@@ -115,6 +136,7 @@ public class ChatMessage
         ActiveMcpServerNames = [..ActiveMcpServerNames],
         HasMcpSelection = HasMcpSelection,
         Attachments = [..Attachments],
+        FailureDisposition = FailureDisposition,
         ActiveSkills = [..ActiveSkills.Select(static s => new SkillReference
         {
             Name = s.Name,

@@ -18,16 +18,25 @@ public partial class ChatViewModel
     internal event Action<Guid, Task>? McpProxyReleaseStarted;
     private readonly Dictionary<Guid, HashSet<PendingMcpProxyPlanTracker>> _pendingMcpProxyPlanTrackers = [];
 
-    private sealed class PendingMcpProxyPlanTracker(
+    internal sealed class PendingMcpProxyPlanTracker(
         McpSessionPlan plan,
         McpProxySessionLease proxyLease,
-        Func<bool> mustReleaseTransferredLease) : IDisposable
+        Func<bool> mustReleaseTransferredLease,
+        Action<PendingMcpProxyPlanTracker> onDisposed) : IDisposable
     {
+        private enum LeaseDisposition
+        {
+            Pending,
+            Published,
+            Rejected
+        }
+
         private readonly object _gate = new();
         private readonly TaskCompletionSource _completion =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private bool _cleanupRequested;
         private bool _disposed;
+        private LeaseDisposition _leaseDisposition;
 
         internal Task Completion => _completion.Task;
 
@@ -40,23 +49,90 @@ public partial class ChatViewModel
             }
         }
 
+        internal bool TryPublish(Func<bool> publish, out bool releaseRequired)
+        {
+            lock (_gate)
+            {
+                if (_disposed || _cleanupRequested)
+                {
+                    releaseRequired = true;
+                    return false;
+                }
+
+                var published = publish();
+                _leaseDisposition = published
+                    ? LeaseDisposition.Published
+                    : LeaseDisposition.Pending;
+                releaseRequired = !published;
+                return published;
+            }
+        }
+
+        internal void ReleaseRejectedSession(Task sessionRelease, TimeSpan gracePeriod)
+        {
+            McpProxySessionLease leaseToRelease;
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (_leaseDisposition != LeaseDisposition.Pending)
+                    throw new InvalidOperationException("The pending MCP proxy plan has already been resolved.");
+
+                _leaseDisposition = LeaseDisposition.Rejected;
+                leaseToRelease = plan.DetachProxyLease() ?? proxyLease;
+            }
+
+            _ = CompleteRejectedMcpProxySessionReleaseAsync(
+                sessionRelease,
+                leaseToRelease,
+                gracePeriod,
+                _completion);
+        }
+
+        internal void TrackFailedPublication(Task releaseTask)
+        {
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (_leaseDisposition != LeaseDisposition.Pending)
+                    throw new InvalidOperationException("The pending MCP proxy plan has already been resolved.");
+
+                _leaseDisposition = LeaseDisposition.Rejected;
+            }
+
+            _ = CompleteTrackedMcpProxyReleaseAsync(releaseTask, _completion);
+        }
+
         public void Dispose()
         {
-            McpProxySessionLease? leaseToRelease;
+            McpProxySessionLease? leaseToRelease = null;
+            var completeImmediately = false;
             lock (_gate)
             {
                 if (_disposed)
                     return;
 
                 _disposed = true;
-                leaseToRelease = plan.DetachProxyLease();
-                if (leaseToRelease is null && (_cleanupRequested || mustReleaseTransferredLease()))
-                    leaseToRelease = proxyLease;
+                switch (_leaseDisposition)
+                {
+                    case LeaseDisposition.Published:
+                        completeImmediately = true;
+                        break;
+                    case LeaseDisposition.Rejected:
+                        break;
+                    default:
+                        leaseToRelease = plan.DetachProxyLease();
+                        if (leaseToRelease is null && (_cleanupRequested || mustReleaseTransferredLease()))
+                            leaseToRelease = proxyLease;
+                        completeImmediately = leaseToRelease is null;
+                        break;
+                }
             }
 
+            onDisposed(this);
             if (leaseToRelease is null)
             {
-                _completion.TrySetResult();
+                if (completeImmediately)
+                    _completion.TrySetResult();
                 return;
             }
 
@@ -103,12 +179,20 @@ public partial class ChatViewModel
                      .Distinct()
                      .ToList())
         {
-            ReleaseSessionResources(chatId, cancelActiveRequest: true, deleteServerSession: false);
+            ReleaseSessionResources(chatId, cancelActiveRequest: true);
             RemoveSuggestionTracking(chatId);
             DisposeBrowserService(chatId);
         }
 
         _runtimeStates.Clear();
+        List<TaskCompletionSource<bool>> idleWaiters;
+        lock (_sessionIdleWaitersLock)
+        {
+            idleWaiters = _sessionIdleWaiters.Values.SelectMany(static waiters => waiters).ToList();
+            _sessionIdleWaiters.Clear();
+        }
+        foreach (var waiter in idleWaiters)
+            waiter.TrySetCanceled();
         ClearPendingQuestionTracking();
         _queuedBusySendPrompts.Clear();
         _inProgressMessages.Clear();
@@ -219,18 +303,26 @@ public partial class ChatViewModel
     /// cannot overwrite the first. Pass <paramref name="existing"/> to re-defer an already-shown
     /// message; that is always the head a delivery path just dequeued, so it goes back to the front.
     /// </summary>
-    private void QueueBusySendPrompt(
+    private ChatMessage? QueueBusySendPrompt(
         Guid chatId,
         string prompt,
         ChatMessage? existing = null,
         string? authorOverride = null)
     {
         if (existing is null && string.IsNullOrWhiteSpace(prompt))
-            return;
+            return null;
 
         var message = existing ?? CreateQueuedBusySend(chatId, prompt, authorOverride);
         if (message is null)
-            return;
+            return null;
+
+        if (existing is not null)
+        {
+            var canSendNow = IsChatRuntimeActive(chatId);
+            message.CanSendNowWhenQueued = canSendNow;
+            if (ResolveQueuedViewModel(message) is { } viewModel)
+                viewModel.CanSendNowWhenQueued = canSendNow;
+        }
 
         if (!_queuedBusySendPrompts.TryGetValue(chatId, out var pending))
         {
@@ -242,6 +334,8 @@ public partial class ChatViewModel
             pending.Add(message);
         else
             pending.Insert(0, message);
+
+        return message;
     }
 
     /// <summary>
@@ -271,7 +365,8 @@ public partial class ChatViewModel
                 ? PendingAttachments.ToList()
                 : [],
             ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
-            SteerDelivery = MessageSteerState.Queued
+            SteerDelivery = MessageSteerState.Queued,
+            CanSendNowWhenQueued = IsChatRuntimeActive(chatId)
         };
 
         if (CurrentChat?.Id == chatId)
@@ -441,6 +536,7 @@ public partial class ChatViewModel
             && _queuedBusySendPrompts.ContainsKey(chatId)
             && _runtimeStates.TryGetValue(chatId, out var runtime)
             && !runtime.ManualStopRequested
+            && !runtime.SendQueuedNowWhenTurnStarts
             && !WasCancelledByUser(chatId)
             && CanSteerImmediately(runtime);
 
@@ -482,6 +578,43 @@ public partial class ChatViewModel
     private bool IsQueuedBusySend(Guid chatId, ChatMessage message)
         => _queuedBusySendPrompts.TryGetValue(chatId, out var pending) && pending.Contains(message);
 
+    private bool MoveQueuedBusySendToFront(Guid chatId, ChatMessage message)
+    {
+        if (!_queuedBusySendPrompts.TryGetValue(chatId, out var pending))
+            return false;
+
+        var index = pending.IndexOf(message);
+        if (index < 0)
+            return false;
+
+        if (index > 0)
+        {
+            pending.RemoveAt(index);
+            pending.Insert(0, message);
+        }
+
+        return true;
+    }
+
+    private void RemoveQueuedBusySend(Guid chatId, ChatMessage message)
+    {
+        if (_queuedBusySendPrompts.TryGetValue(chatId, out var pending))
+        {
+            pending.Remove(message);
+            if (pending.Count == 0)
+                _queuedBusySendPrompts.Remove(chatId);
+        }
+
+        var chat = CurrentChat?.Id == chatId
+            ? CurrentChat
+            : _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+        chat?.Messages.Remove(message);
+
+        var viewModel = ResolveQueuedViewModel(message);
+        if (viewModel is not null)
+            Messages.Remove(viewModel);
+    }
+
     private void ReleaseChatCancellation(Guid chatId, bool cancel)
     {
         if (!_ctsSources.Remove(chatId, out var cts))
@@ -520,6 +653,65 @@ public partial class ChatViewModel
         // reference, but don't cancel/dispose it while the session is being reused.
         _ctsSources.Remove(chatId);
         return false;
+    }
+
+    private TaskCompletionSource<bool> BeginSessionIdleWait(Guid chatId)
+    {
+        var waiter = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_sessionIdleWaitersLock)
+        {
+            if (!_sessionIdleWaiters.TryGetValue(chatId, out var waiters))
+            {
+                waiters = [];
+                _sessionIdleWaiters[chatId] = waiters;
+            }
+
+            waiters.Add(waiter);
+        }
+        return waiter;
+    }
+
+    private void CompleteSessionIdleWait(Guid chatId)
+    {
+        foreach (var waiter in TakeSessionIdleWaiters(chatId))
+            waiter.TrySetResult(true);
+    }
+
+    private void CancelSessionIdleWait(Guid chatId, TaskCompletionSource<bool> expected)
+    {
+        lock (_sessionIdleWaitersLock)
+        {
+            if (!_sessionIdleWaiters.TryGetValue(chatId, out var waiters)
+                || !waiters.Remove(expected))
+            {
+                return;
+            }
+
+            if (waiters.Count == 0)
+                _sessionIdleWaiters.Remove(chatId);
+        }
+
+        expected.TrySetCanceled();
+    }
+
+    private void AbandonSessionIdleWait(Guid chatId)
+    {
+        if (_runtimeStates.TryGetValue(chatId, out var runtime))
+            runtime.AwaitingStopIdle = false;
+
+        foreach (var waiter in TakeSessionIdleWaiters(chatId))
+            waiter.TrySetResult(false);
+    }
+
+    private List<TaskCompletionSource<bool>> TakeSessionIdleWaiters(Guid chatId)
+    {
+        lock (_sessionIdleWaitersLock)
+        {
+            if (!_sessionIdleWaiters.Remove(chatId, out var waiters))
+                return [];
+
+            return waiters;
+        }
     }
 
     private void DropCompletedTurnState(Guid chatId, bool dropCancellation)
@@ -657,8 +849,9 @@ public partial class ChatViewModel
         }
     }
 
-    private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest, bool deleteServerSession)
+    private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest)
     {
+        AbandonSessionIdleWait(chatId);
         // Drop any still-pending steer confirmations for this chat. Without this a chat deleted / released
         // while a steer is in flight leaks its entry (and the referenced ChatMessageViewModel), and — because
         // a remote-shutdown keeps CopilotSessionId for resume — a later Retry's turn-start echo could pop the
@@ -675,7 +868,7 @@ public partial class ChatViewModel
             {
                 _activeSession = null;
             }
-            TrackSessionRelease(chatId, session, deleteServerSession);
+            TrackSessionRelease(chatId, session);
         }
 
         if (_sessionsPendingResume.Remove(chatId, out var pendingSession)
@@ -691,7 +884,7 @@ public partial class ChatViewModel
             {
                 _activeSession = null;
             }
-            TrackSessionRelease(chatId, pendingSession, deleteServerSession);
+            TrackSessionRelease(chatId, pendingSession);
         }
 
         _inProgressMessages.Remove(chatId);
@@ -710,10 +903,10 @@ public partial class ChatViewModel
     /// registers the release by session id (<see cref="Services.CopilotService.ReleaseSessionAsync"/>)
     /// and awaits it inside <see cref="Services.CopilotService.ResumeSessionAsync"/>.
     /// </summary>
-    private void TrackSessionRelease(Guid chatId, CopilotSession session, bool deleteServerSession)
+    private Task TrackSessionRelease(Guid chatId, CopilotSession session)
     {
         var proxyLease = DetachMcpProxyLease(session);
-        var releaseTask = DisposeReleasedSessionAsync(session, deleteServerSession, proxyLease);
+        var releaseTask = DisposeReleasedSessionAsync(session, proxyLease);
         if (proxyLease is not null)
             TrackMcpProxyRelease(chatId, releaseTask);
         _sessionReleaseTasks[chatId] = releaseTask;
@@ -727,6 +920,7 @@ public partial class ChatViewModel
                 }
             }),
             TaskScheduler.Default);
+        return releaseTask;
     }
 
     // Routes every dropped session through CopilotService so the release is registered by server
@@ -735,10 +929,9 @@ public partial class ChatViewModel
     // faults its caller.
     private async Task DisposeReleasedSessionAsync(
         CopilotSession session,
-        bool deleteServerSession,
         McpProxySessionLease? proxyLease)
     {
-        var releaseTask = _copilotService.ReleaseSessionAsync(session, deleteServerSession);
+        var releaseTask = _copilotService.ReleaseSessionAsync(session);
         if (proxyLease is null)
         {
             await releaseTask.ConfigureAwait(false);
@@ -770,6 +963,49 @@ public partial class ChatViewModel
         }
     }
 
+    private static async Task CompleteRejectedMcpProxySessionReleaseAsync(
+        Task sessionRelease,
+        McpProxySessionLease proxyLease,
+        TimeSpan gracePeriod,
+        TaskCompletionSource completion)
+    {
+        try
+        {
+            await CompleteMcpProxyLeaseReleaseAsync(
+                sessionRelease,
+                proxyLease,
+                gracePeriod).ConfigureAwait(false);
+            completion.TrySetResult();
+        }
+        catch (OperationCanceledException ex)
+        {
+            completion.TrySetCanceled(ex.CancellationToken);
+        }
+        catch (Exception ex)
+        {
+            completion.TrySetException(ex);
+        }
+    }
+
+    private static async Task CompleteTrackedMcpProxyReleaseAsync(
+        Task releaseTask,
+        TaskCompletionSource completion)
+    {
+        try
+        {
+            await releaseTask.ConfigureAwait(false);
+            completion.TrySetResult();
+        }
+        catch (OperationCanceledException ex)
+        {
+            completion.TrySetCanceled(ex.CancellationToken);
+        }
+        catch (Exception ex)
+        {
+            completion.TrySetException(ex);
+        }
+    }
+
     private void AttachMcpProxyLease(CopilotSession session, McpSessionPlan plan)
     {
         var proxyLease = plan.DetachProxyLease();
@@ -781,30 +1017,84 @@ public partial class ChatViewModel
         _mcpProxyLeasesBySession[session] = proxyLease;
     }
 
-    internal IDisposable? TrackPendingMcpProxyPlan(Guid chatId, McpSessionPlan plan)
+    internal PendingMcpProxyPlanTracker? TrackPendingMcpProxyPlan(Guid chatId, McpSessionPlan plan)
     {
         if (plan.ProxyLease is not { } proxyLease)
             return null;
 
-        var tracker = new PendingMcpProxyPlanTracker(plan, proxyLease, () => _isDisposed);
         if (!_pendingMcpProxyPlanTrackers.TryGetValue(chatId, out var trackers))
         {
             trackers = [];
             _pendingMcpProxyPlanTrackers[chatId] = trackers;
         }
+
+        var tracker = new PendingMcpProxyPlanTracker(
+            plan,
+            proxyLease,
+            () => _isDisposed,
+            completedTracker =>
+            {
+                trackers.Remove(completedTracker);
+                if (trackers.Count == 0
+                    && _pendingMcpProxyPlanTrackers.TryGetValue(chatId, out var current)
+                    && ReferenceEquals(current, trackers))
+                {
+                    _pendingMcpProxyPlanTrackers.Remove(chatId);
+                }
+            });
         trackers.Add(tracker);
         TrackMcpProxyRelease(chatId, tracker.Completion);
-        return new ActionDisposable(() =>
+        return tracker;
+    }
+
+    internal bool TryPublishSession(
+        CopilotSession session,
+        Chat chat,
+        string workDir,
+        McpSessionPlan plan,
+        PendingMcpProxyPlanTracker? pendingPlan,
+        Action? beforeAttach = null,
+        Action? afterSubscribe = null)
+    {
+        Task? failedPublicationRelease = null;
+
+        bool Publish()
         {
-            tracker.Dispose();
-            trackers.Remove(tracker);
-            if (trackers.Count == 0
-                && _pendingMcpProxyPlanTrackers.TryGetValue(chatId, out var current)
-                && ReferenceEquals(current, trackers))
+            beforeAttach?.Invoke();
+            AttachMcpProxyLease(session, plan);
+            if (!SubscribeToSession(
+                    session,
+                    chat,
+                    workDir,
+                    releaseTask => failedPublicationRelease = releaseTask))
             {
-                _pendingMcpProxyPlanTrackers.Remove(chatId);
+                _activeSession = null;
+                return false;
             }
-        });
+
+            _activeSession = session;
+            afterSubscribe?.Invoke();
+            return true;
+        }
+        if (pendingPlan is null)
+        if (pendingPlan is null)
+            return Publish();
+
+        if (pendingPlan.TryPublish(Publish, out var releaseRequired))
+            return true;
+        if (failedPublicationRelease is not null)
+        {
+            pendingPlan.TrackFailedPublication(failedPublicationRelease);
+            return false;
+        }
+        if (!releaseRequired)
+            return false;
+
+        DetachMcpProxyLease(session);
+        pendingPlan.ReleaseRejectedSession(
+            _copilotService.ReleaseSessionAsync(session),
+            McpProxyLeaseReleaseGracePeriod);
+        return false;
     }
 
     private static async Task CompletePendingMcpProxyPlanReleaseAsync(
@@ -937,7 +1227,7 @@ public partial class ChatViewModel
         var mutatedPersistedMessages = CancelPendingQuestions(chat);
         // The chat is neither displayed nor running, so nothing is left to deliver a deferred send.
         FailQueuedBusySends(chat.Id);
-        ReleaseSessionResources(chat.Id, cancelActiveRequest: false, deleteServerSession: false);
+        ReleaseSessionResources(chat.Id, cancelActiveRequest: false);
         RemoveSuggestionTracking(chat.Id);
         // Intentionally keep the chat's BrowserService alive. A browser session belongs to the
         // chat, not its transient runtime state, so switching away and back restores the page
@@ -1006,7 +1296,7 @@ public partial class ChatViewModel
             else
             {
                 // Chat was deleted but runtime state lingered — clean up directly
-                ReleaseSessionResources(chatId, cancelActiveRequest: false, deleteServerSession: false);
+                ReleaseSessionResources(chatId, cancelActiveRequest: false);
                 RemoveSuggestionTracking(chatId);
                 DisposeBrowserService(chatId);
                 _runtimeStates.Remove(chatId);

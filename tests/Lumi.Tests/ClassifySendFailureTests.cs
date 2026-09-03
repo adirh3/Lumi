@@ -1,4 +1,9 @@
+using System;
+using System.Collections.Generic;
+using System.Text.Json;
+using Lumi.Models;
 using Lumi.Services;
+using Lumi.ViewModels;
 using Xunit;
 
 namespace Lumi.Tests;
@@ -19,11 +24,12 @@ public sealed class ClassifySendFailureTests
     [InlineData(null, null, "Could not process image")]
     [InlineData(500, "query", "internal server error")]
     [InlineData(null, null, "Please start a new chat")]
-    public void TerminalOverride_IsNeverRecoverableOrImage(int? status, string? type, string? message)
+    public void TerminalOverride_IsFatal(int? status, string? type, string? message)
     {
         var result = CopilotService.ClassifySendFailure(status, type, message, hasTerminalOverride: true);
         Assert.False(result.Recoverable);
         Assert.False(result.IsImageError);
+        Assert.Equal(SessionFailureDisposition.Fatal, result.Disposition);
     }
 
     // ── Recoverable unprocessable-image (the feature's whole point) ─────────────────────────────
@@ -39,6 +45,8 @@ public sealed class ClassifySendFailureTests
         var result = CopilotService.ClassifySendFailure(status, type, message, hasTerminalOverride: false);
         Assert.True(result.Recoverable);
         Assert.True(result.IsImageError);
+        Assert.True(result.RequiresSessionRebuild);
+        Assert.Equal(SessionFailureDisposition.RebuildSession, result.Disposition);
     }
 
     // ── Fatal errors: no Retry and no image copy ────────────────────────────────────────────────
@@ -54,6 +62,7 @@ public sealed class ClassifySendFailureTests
         var result = CopilotService.ClassifySendFailure(status, type, message, hasTerminalOverride: false);
         Assert.False(result.Recoverable);
         Assert.False(result.IsImageError);
+        Assert.Equal(SessionFailureDisposition.Fatal, result.Disposition);
     }
 
     [Fact]
@@ -67,20 +76,75 @@ public sealed class ClassifySendFailureTests
             hasTerminalOverride: false);
         Assert.False(result.Recoverable);
         Assert.False(result.IsImageError);
+        Assert.False(result.RequiresSessionRebuild);
+        Assert.Equal(SessionFailureDisposition.Fatal, result.Disposition);
     }
 
     [Theory]
-    // A generic recoverable failure (server blip, lost connection, session gone) is retryable but is
-    // NOT an image error, so it shows the plain "Error: …" copy rather than the image-reset copy.
-    [InlineData(500, "query", "internal server error")]
     [InlineData(404, "query", "Session not found")]
-    [InlineData(null, null, "The JSON-RPC connection with the remote party was lost")]
-    [InlineData(null, "query", "The request is too large to send through CAPI Responses. (5.5 MB request; 5.0 MB limit)")]
-    public void GenericRecoverable_IsRecoverableButNotImage(int? status, string? type, string? message)
+    [InlineData(null, "session_not_found", "missing")]
+    [InlineData(null, null, "Session file not found")]
+    [InlineData(null, null, "no persisted or in-memory events found")]
+    public void MissingSession_RebuildsWithoutImageCopy(int? status, string? type, string? message)
     {
         var result = CopilotService.ClassifySendFailure(status, type, message, hasTerminalOverride: false);
         Assert.True(result.Recoverable);
         Assert.False(result.IsImageError);
+        Assert.True(result.RequiresSessionRebuild);
+        Assert.Equal(SessionFailureDisposition.RebuildSession, result.Disposition);
+    }
+
+    [Theory]
+    [InlineData(500, "query", "internal server error")]
+    [InlineData(null, null, "The JSON-RPC connection with the remote party was lost")]
+    [InlineData(null, "query", "The request is too large to send through CAPI Responses. (5.5 MB request; 5.0 MB limit)")]
+    [InlineData(null, null, "Failed to persist session events: There is not enough space on the disk. (os error 112)")]
+    [InlineData(null, null, "The CancellationTokenSource has been disposed.")]
+    public void NonPoisoningRecoverableError_RetriesSameSession(int? status, string? type, string? message)
+    {
+        var result = CopilotService.ClassifySendFailure(status, type, message, hasTerminalOverride: false);
+        Assert.True(result.Recoverable);
+        Assert.False(result.IsImageError);
+        Assert.False(result.RequiresSessionRebuild);
+        Assert.Equal(SessionFailureDisposition.RetrySameSession, result.Disposition);
+    }
+
+    [Theory]
+    [InlineData("Session not found", true)]
+    [InlineData("Session file not found", true)]
+    [InlineData("There is not enough space on the disk", false)]
+    [InlineData("The CancellationTokenSource has been disposed", false)]
+    [InlineData("500 internal server error", false)]
+    public void ResumeFallback_OnlyCreatesReplacementForMissingSession(string message, bool expected)
+    {
+        var error = new InvalidOperationException(
+            "resume failed",
+            new InvalidOperationException(message));
+
+        Assert.Equal(
+            expected,
+            ChatViewModel.ShouldCreateSessionFallbackAfterResumeFailure(error));
+    }
+
+    [Fact]
+    public void FailureDisposition_RoundTripsThroughChatPersistenceAndClone()
+    {
+        var original = new ChatMessage
+        {
+            Role = "error",
+            Content = "Localized recovery text",
+            FailureDisposition = SessionFailureDisposition.RebuildSession
+        };
+
+        var json = JsonSerializer.Serialize(
+            new List<ChatMessage> { original },
+            AppDataJsonContext.Default.ListChatMessage);
+        var restored = Assert.Single(JsonSerializer.Deserialize(
+            json,
+            AppDataJsonContext.Default.ListChatMessage)!);
+
+        Assert.Equal(SessionFailureDisposition.RebuildSession, restored.FailureDisposition);
+        Assert.Equal(SessionFailureDisposition.RebuildSession, restored.Clone().FailureDisposition);
     }
 
     [Theory]
@@ -102,6 +166,7 @@ public sealed class ClassifySendFailureTests
 
         Assert.Equal(expectedRecoverable, result.Recoverable);
         Assert.Equal(expectedImage, result.IsImageError);
+        Assert.Equal(ExpectedDisposition(expectedRecoverable, expectedImage, null, message), result.Disposition);
     }
 
     [Theory]
@@ -120,5 +185,17 @@ public sealed class ClassifySendFailureTests
 
         Assert.Equal(expectedRecoverable, result.Recoverable);
         Assert.Equal(expectedImage, result.IsImageError);
+        Assert.Equal(ExpectedDisposition(expectedRecoverable, expectedImage, type, message), result.Disposition);
     }
+
+    private static SessionFailureDisposition ExpectedDisposition(
+        bool recoverable,
+        bool isImage,
+        string? errorType,
+        string? message)
+        => !recoverable
+            ? SessionFailureDisposition.Fatal
+            : isImage || CopilotService.IsMissingSessionError(errorType, message)
+                ? SessionFailureDisposition.RebuildSession
+                : SessionFailureDisposition.RetrySameSession;
 }

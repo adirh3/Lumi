@@ -536,7 +536,7 @@ public class RemoteClientEndToEndTests
         shell.ChatList.OpenChatCommand.Execute(shell.ChatList.Groups[0].Chats[0]);
         await WaitAsync(() => !shell.Chat.IsLoading, "the chat to open");
 
-        // A quiet chat must not ask to steer — steering aborts whatever is running.
+        // A quiet chat must not ask to steer.
         shell.Chat.PromptText = "first";
         await shell.Chat.SendCommand.ExecuteAsync(null);
         Assert.NotEqual(true, LastSend(desktop)!.GetBool("steer"));
@@ -563,6 +563,42 @@ public class RemoteClientEndToEndTests
             lock (desktop.ReceivedCommands)
                 return desktop.ReceivedCommands.LastOrDefault(c => c.Action == RemoteProtocol.Actions.SendMessage);
         }
+    }
+
+    [Fact]
+    public async Task ExplicitStopAndSend_AsksDesktopToAbortAndReplace()
+    {
+        await using var desktop = new FakeLumiDesktop();
+        var chatId = Guid.NewGuid();
+        desktop.Snapshot = new RemoteSnapshot
+        {
+            Chats = OneChatPage(new RemoteChat { Id = chatId, Title = "Stop and send" })
+        };
+        desktop.Transcript = new RemoteTranscript
+        {
+            ChatId = chatId,
+            Title = "Stop and send",
+            Revision = 1
+        };
+        desktop.Start();
+
+        await using var shell = CreateShell();
+        await PairAsync(shell, desktop);
+        shell.ChatList.OpenChatCommand.Execute(shell.ChatList.Groups[0].Chats[0]);
+        await WaitAsync(() => !shell.Chat.IsLoading, "the chat to open");
+        shell.Chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsBusy = true });
+
+        shell.Chat.PromptText = "replace the current turn";
+        await shell.Chat.StopAndSendCommand.ExecuteAsync(null);
+
+        RemoteCommand? sent;
+        lock (desktop.ReceivedCommands)
+            sent = desktop.ReceivedCommands.LastOrDefault(c => c.Action == RemoteProtocol.Actions.SendMessage);
+
+        Assert.NotNull(sent);
+        Assert.Equal("replace the current turn", sent!.Get("message"));
+        Assert.Equal(true, sent.GetBool("stopAndSend"));
+        Assert.NotEqual(true, sent.GetBool("steer"));
     }
 
     /// <summary>

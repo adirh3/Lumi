@@ -1371,6 +1371,36 @@ public sealed class RemoteCommandRouterSurfaceTests
     });
 
     [Fact]
+    public Task StopAndSendUsesTheDetachedRuntimeWithoutChangingTheMainSurface() => RunAsync(async () =>
+    {
+        using var rig = await DetachedRig.CreateAsync();
+        var runtime = MarkBusy(rig.DetachedSurface, rig.DetachedChat);
+        var router = new RemoteCommandRouter(rig.DataStore, rig.Main);
+
+        var result = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+            {
+                AuthenticatedDeviceId = "phone-stop-send",
+                RequestId = "request-stop-send"
+            }
+                .With("chatId", rig.DetachedChat.Id.ToString())
+                .With("message", "replace the running turn")
+                .With("stopAndSend", "true"),
+            CancellationToken.None);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Contains(
+            rig.DetachedChat.Messages,
+            message => message.Content == "replace the running turn" && message.Author == "Lumi Mobile");
+        Assert.True(runtime.SendQueuedNowWhenTurnStarts);
+        Assert.True(runtime.IsBusy);
+        Assert.Equal("phone-stop-send", rig.DetachedChat.LastRemoteDeviceId);
+        Assert.Equal("request-stop-send", rig.DetachedChat.LastRemoteRequestId);
+        Assert.DoesNotContain(rig.MainChat.Messages, message => message.Content == "replace the running turn");
+        Assert.Same(rig.MainChat, rig.Main.ChatVM.CurrentChat);
+    });
+
+    [Fact]
     public Task StopUsesTheDetachedRuntimeWithoutChangingTheMainSurface() => RunAsync(async () =>
     {
         using var rig = await DetachedRig.CreateAsync();

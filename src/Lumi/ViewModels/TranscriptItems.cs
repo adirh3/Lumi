@@ -82,8 +82,8 @@ public partial class UserMessageItem : TranscriptItem
     /// <summary>Command invoked when user clicks Regenerate/Retry on the message.</summary>
     public ICommand ResendCommand { get; }
 
-    /// <summary>Command invoked from the inline "Send now" affordance beside an in-flight steering
-    /// badge — forces the still-pending steered message through to the running turn immediately.</summary>
+    /// <summary>Command invoked from the inline "Send now" affordance beside an interruptible in-flight
+    /// steering badge — forces the still-pending message through as a fresh turn.</summary>
     public IAsyncRelayCommand SendNowCommand { get; }
 
     public UserMessageItem(

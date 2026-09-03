@@ -125,6 +125,19 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    public async Task Drain_WhileAbortIsWaitingForSessionIdle_KeepsPromptQueued()
+    {
+        using var host = DeferredSendHost.Create();
+        host.QueuePrompt("wait for abort idle");
+        host.Runtime.AwaitingStopIdle = true;
+
+        await host.DrainAsync();
+
+        Assert.Equal(["wait for abort idle"], host.QueuedPrompts());
+        Assert.True(host.IsChatRuntimeActive());
+    }
+
+    [Fact]
     public async Task Drain_WhileFirstWorktreeIsPending_KeepsPromptQueued()
     {
         using var host = DeferredSendHost.Create();
@@ -211,6 +224,21 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    public void QueuedSendNowAvailability_SurvivesATranscriptRebuild()
+    {
+        using var host = DeferredSendHost.Create();
+        host.MarkRuntimeBusy();
+        host.Runtime.PendingSessionUserMessageCount = 1;
+        host.QueuePrompt("interruptible");
+
+        Assert.True(Assert.Single(host.ViewModel.Messages).CanSendNow);
+
+        host.RebuildTranscript();
+
+        Assert.True(Assert.Single(host.ViewModel.Messages).CanSendNow);
+    }
+
+    [Fact]
     public void FailQueued_ForAVisibleMessage_LeavesTheComposerAlone()
     {
         using var host = DeferredSendHost.Create();
@@ -248,6 +276,63 @@ public sealed class DeferredSendQueueTests
         await host.TryFlushAsSteer();
 
         Assert.Equal(["deferred"], host.QueuedPrompts());
+    }
+
+    [Fact]
+    public async Task SendWhileSubagentRuns_QueuesForTheParentTurn()
+    {
+        using var host = DeferredSendHost.Create();
+        host.MarkRuntimeBusy(turnInProgress: true);
+        host.Runtime.ActiveSubagentExecutionDepth = 1;
+        host.Runtime.DeferSteersUntilNextTurn = true;
+
+        await host.SendCoreAsync("tell the parent instead");
+
+        Assert.Equal(["tell the parent instead"], host.QueuedPrompts());
+        var message = Assert.Single(host.ViewModel.Messages);
+        Assert.Equal(MessageSteerState.Queued, message.SteerState);
+        Assert.True(message.CanSendNow);
+    }
+
+    [Fact]
+    public async Task FlushAsSteer_IsSkipped_AfterSubagentDelegationInTheCurrentTurn()
+    {
+        using var host = DeferredSendHost.Create();
+        host.QueuePrompt("keep this for the parent");
+        host.MarkRuntimeBusy(turnInProgress: true);
+        host.Runtime.DeferSteersUntilNextTurn = true;
+
+        await host.TryFlushAsSteer();
+
+        Assert.Equal(["keep this for the parent"], host.QueuedPrompts());
+        Assert.Equal(MessageSteerState.Queued, Assert.Single(host.ViewModel.Messages).SteerState);
+    }
+
+    [Fact]
+    public async Task FlushAsSteer_IsSkipped_WhileSetupTimeSendNowWaitsForTurnStart()
+    {
+        using var host = DeferredSendHost.Create();
+        host.QueuePrompt("send me first");
+        host.MarkRuntimeBusy(turnInProgress: true);
+        host.Runtime.PendingSessionUserMessageCount = 1;
+        host.Runtime.SendQueuedNowWhenTurnStarts = true;
+
+        await host.TryFlushAsSteer();
+
+        Assert.Equal(["send me first"], host.QueuedPrompts());
+    }
+
+    [Fact]
+    public void PreparingAFreshUserTurn_ClearsTheSubagentSteeringBarrier()
+    {
+        using var host = DeferredSendHost.Create();
+        host.Runtime.DeferSteersUntilNextTurn = true;
+        host.Runtime.AssistantTurnStarted = true;
+
+        host.PrepareFreshTurn();
+
+        Assert.False(host.Runtime.DeferSteersUntilNextTurn);
+        Assert.False(host.Runtime.AssistantTurnStarted);
     }
 
     [Fact]
@@ -406,6 +491,9 @@ public sealed class DeferredSendQueueTests
         host.ViewModel.PromptText = "actually do Y";
         await host.StopAndSendAsync();
 
+        Assert.True(host.Runtime.SendQueuedNowWhenTurnStarts);
+        Assert.True(host.Runtime.IsBusy);
+
         // The abort finalizes the partial answer; it must land before the follow-up.
         host.FinalizeStreamingAssistantMessage();
 
@@ -482,11 +570,12 @@ public sealed class DeferredSendQueueTests
     }
 
     /// <summary>
-    /// A message that is only queued locally was never handed to the SDK, so there is nothing to reclaim —
-    /// it must keep its place in the queue and simply survive the stop that releases it.
+    /// A setup-time queued message cannot abort immediately because the first prompt has not reached the
+    /// SDK yet. The request must wait for AssistantTurnStart, preserving session/MCP setup, and only then
+    /// interrupt the first turn so the selected queued message can run through the ready session.
     /// </summary>
     [Fact]
-    public async Task SendNow_OnQueuedMessage_KeepsItQueuedForTheDrain()
+    public async Task SendNow_OnSetupTimeQueuedMessage_WaitsForTurnStartWithoutCancellingSetup()
     {
         using var host = DeferredSendHost.Create();
         host.MarkRuntimeBusy();
@@ -494,10 +583,58 @@ public sealed class DeferredSendQueueTests
         var message = host.ViewModel.Messages.Single(item => item.Content == "answer me now");
         message.SteerState = MessageSteerState.Queued;
 
+        Assert.True(message.CanSendNow);
+
         await host.SendNowAsync(message);
 
+        Assert.True(host.Runtime.IsBusy);
+        Assert.False(host.Runtime.ManualStopRequested);
+        Assert.True(host.Runtime.SendQueuedNowWhenTurnStarts);
+        Assert.False(message.CanSendNow);
         Assert.Equal(MessageSteerState.Queued, message.SteerState);
         Assert.Contains("answer me now", host.QueuedPrompts());
+
+        host.Runtime.PendingSessionUserMessageCount = 1;
+        host.Runtime.AssistantTurnStarted = true;
+        await host.SendQueuedNowAfterTurnStartAsync();
+
+        Assert.False(host.Runtime.IsBusy);
+        Assert.False(host.Runtime.SendQueuedNowWhenTurnStarts);
+        Assert.Contains("answer me now", host.QueuedPrompts());
+    }
+
+    [Fact]
+    public async Task SendNow_OnQueuedMessageWithSubmittedTurn_InterruptsTheTurn()
+    {
+        using var host = DeferredSendHost.Create();
+        host.MarkRuntimeBusy();
+        host.Runtime.PendingSessionUserMessageCount = 1;
+        host.Runtime.AssistantTurnStarted = true;
+        host.QueuePrompt("answer me now");
+        var message = host.ViewModel.Messages.Single(item => item.Content == "answer me now");
+
+        Assert.True(message.CanSendNow);
+
+        await host.SendNowAsync(message);
+
+        Assert.False(host.Runtime.IsBusy);
+        Assert.Equal(MessageSteerState.Queued, message.SteerState);
+        Assert.Contains("answer me now", host.QueuedPrompts());
+    }
+
+    [Fact]
+    public async Task SendNow_OnLaterQueuedMessage_MovesTheSelectedMessageToTheFront()
+    {
+        using var host = DeferredSendHost.Create();
+        host.MarkRuntimeBusy();
+        host.Runtime.AssistantTurnStarted = true;
+        host.QueuePrompt("first");
+        host.QueuePrompt("selected");
+        var selected = host.ViewModel.Messages.Single(item => item.Content == "selected");
+
+        await host.SendNowAsync(selected);
+
+        Assert.Equal(["selected", "first"], host.QueuedPrompts());
     }
 
     /// <summary>
@@ -630,7 +767,7 @@ public sealed class DeferredSendQueueTests
             => (Task)Invoke("StopAndSendMessage")!;
 
         public Task StopGenerationAsync()
-            => (Task)Invoke("StopGenerationInternal", true)!;
+            => (Task)Invoke("StopGenerationInternal", Chat, true, false)!;
 
         public Task<bool> TryStopManualCompactionAsync()
             => (Task<bool>)Invoke("TryStopManualContextCompactionAsync", Chat)!;
@@ -703,8 +840,14 @@ public sealed class DeferredSendQueueTests
         public Task TryFlushAsSteer()
             => (Task)Invoke("FlushQueuedBusySendsAsSteerAsync", Chat.Id)!;
 
+        public void PrepareFreshTurn()
+            => Invoke("PreparePendingTurnTracking", Chat, 1, 0);
+
         public Task SendNowAsync(ChatMessageViewModel message)
             => (Task)Invoke("SendSteeredNowAsync", message)!;
+
+        public Task SendQueuedNowAfterTurnStartAsync()
+            => (Task)Invoke("SendQueuedNowAfterTurnStartAsync", Chat.Id)!;
 
         public TaskCompletionSource<string> TrackPendingQuestion()
         {
@@ -737,7 +880,7 @@ public sealed class DeferredSendQueueTests
             => Invoke("ReleaseInactiveChatState", Chat, false, -1);
 
         public void ReleaseSessionResources()
-            => Invoke("ReleaseSessionResources", Chat.Id, false, false);
+            => Invoke("ReleaseSessionResources", Chat.Id, false);
 
         public void ApplyUnexpectedAbort()
             => Invoke("ApplyUnexpectedAbortState", Chat, "Connection to Copilot was lost.", true);

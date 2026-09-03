@@ -2287,14 +2287,14 @@ public sealed partial class MobileChatViewModel : ObservableObject
         && (PromptText.Trim().Length > 0 || HasAttachments);
 
     [RelayCommand(CanExecute = nameof(CanSend))]
-    private Task SendAsync() => SendAsync(steer: IsBusy || IsStreaming);
+    private Task SendAsync() => SendAsync(steer: IsBusy || IsStreaming, stopAndSend: false);
 
-    private async Task SendAsync(bool steer)
+    private async Task SendAsync(bool steer, bool stopAndSend = false)
     {
         await _configurationGate.WaitAsync();
         try
         {
-            await SendCoreAsync(steer);
+            await SendCoreAsync(steer, stopAndSend);
         }
         finally
         {
@@ -2304,7 +2304,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
     }
 
-    private async Task SendCoreAsync(bool steer)
+    private async Task SendCoreAsync(bool steer, bool stopAndSend)
     {
         var hostGeneration = Volatile.Read(ref _hostGeneration);
         var surface = CurrentSurface;
@@ -2341,6 +2341,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         var pendingConfiguration = matchingRetry?.Configuration.Clone() ??
                                    _pendingConfiguration.Clone();
         var effectiveSteer = matchingRetry?.Steer ?? steer;
+        var effectiveStopAndSend = matchingRetry?.StopAndSend ?? stopAndSend;
 
         PromptText = "";
         ErrorText = null;
@@ -2364,7 +2365,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // unchanged screen after tapping send is the single most damaging kind of latency, because
         // the user cannot tell whether the tap registered. The echo is replaced by the server's own
         // copy on the next transcript, so nothing here can drift.
-        var echo = AddPendingEcho(text.Length > 0 ? text : attached[0].FileName, effectiveSteer);
+        var echo = AddPendingEcho(
+            text.Length > 0 ? text : attached[0].FileName,
+            effectiveSteer || effectiveStopAndSend);
         if (surface.ChatId != Guid.Empty)
             ChatActivitySubmitted?.Invoke(surface.ChatId, echo?.Items.OfType<UserTurnItemViewModel>().FirstOrDefault()?.Text ?? text);
 
@@ -2388,6 +2391,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         if (effectiveSteer)
             command.With("steer", "true");
+        if (effectiveStopAndSend)
+            command.With("stopAndSend", "true");
 
         RemoteCommandResult result;
         try
@@ -2409,6 +2414,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 requestId,
                 false,
                 effectiveSteer,
+                effectiveStopAndSend,
                 "Lumi could not send that message.",
                 echo);
             if (!surface.IsBlank)
@@ -2450,6 +2456,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 result.RequestId ?? requestId,
                 IsAmbiguousFailure(result),
                 effectiveSteer,
+                effectiveStopAndSend,
                 result.Error ?? "Lumi could not send that message.",
                 echo);
             if (!surface.IsBlank)
@@ -2481,6 +2488,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         string requestId,
         bool preserveRequestIdentity,
         bool steer,
+        bool stopAndSend,
         string error,
         TranscriptTurnViewModel? echo)
     {
@@ -2510,6 +2518,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 sentPayload,
                 sentConfiguration.Clone(),
                 steer,
+                stopAndSend,
                 _now(),
                 ReplayAllowed: true)
             : null;
@@ -2896,9 +2905,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Steering: replace the running turn with what the user just typed. The composer raises this
-    /// when Send is pressed mid-turn, and without it the keystrokes went nowhere — the user could
-    /// type while busy but never get the message in.
+    /// Explicit Stop &amp; Send: abort the running desktop turn and submit this draft as a fresh turn.
+    /// Ordinary mid-turn Send remains steering.
     /// </summary>
     [RelayCommand]
     private async Task StopAndSendAsync()
@@ -2912,7 +2920,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             return;
         }
 
-        await SendAsync(steer: true);
+        await SendAsync(steer: false, stopAndSend: true);
     }
 
     [RelayCommand]
@@ -3067,6 +3075,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         SendPayload Payload,
         PendingChatConfiguration Configuration,
         bool Steer,
+        bool StopAndSend,
         DateTimeOffset CreatedAtUtc,
         bool ReplayAllowed)
     {

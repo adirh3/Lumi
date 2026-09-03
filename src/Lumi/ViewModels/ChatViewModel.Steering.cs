@@ -165,6 +165,15 @@ public partial class ChatViewModel
             // SendAsync confirms queue acceptance; the event stream confirms actual consumption.
             await AcquireByokRateSlotAsync(activeChat, token);
 
+            // A sub-agent may have started while skills or rate limiting were awaited. Re-check the
+            // delivery gate immediately before handing the message to the SDK; otherwise immediate mode
+            // can inject it into the nested agent even though the send began on the parent trajectory.
+            if (!CanSteerImmediately(runtime))
+            {
+                RequeueMaterializedSteer(chatId, prompt, userMsg, messageViewModel);
+                return true;
+            }
+
             // Revalidate the route/session consistency after the rate-limit await: the user (or a
             // configuration change) could have flipped the model/provider while we were waiting for a
             // slot. If so, do NOT inject into the now-stale session — unregister the pending steer,
@@ -193,7 +202,7 @@ public partial class ChatViewModel
         }
     }
 
-    private void QueueSteerPrompt(
+    private ChatMessage? QueueSteerPrompt(
         Guid chatId,
         string prompt,
         ChatMessage? queuedMessage,
@@ -202,8 +211,7 @@ public partial class ChatViewModel
     {
         if (queuedMessage is not null || explicitAttachmentPaths is null)
         {
-            QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride);
-            return;
+            return QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride);
         }
 
         // QueueBusySendPrompt intentionally snapshots the desktop composer. Present only the
@@ -214,7 +222,7 @@ public partial class ChatViewModel
         try
         {
             ReplacePendingAttachments(explicitAttachmentPaths);
-            QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride);
+            return QueueBusySendPrompt(chatId, prompt, queuedMessage, authorOverride);
         }
         finally
         {
@@ -246,6 +254,69 @@ public partial class ChatViewModel
             explicitAttachmentPaths: []);
     }
 
+    internal async Task<bool> StopAndSendExternalMessageAsync(
+        Chat targetChat,
+        string prompt,
+        string author,
+        string? remoteDeviceId = null,
+        string? remoteRequestId = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(targetChat);
+        if (CurrentChat?.Id != targetChat.Id)
+            throw new InvalidOperationException("The target chat must be active before it can be stopped.");
+
+        var previousDeviceId = targetChat.LastRemoteDeviceId;
+        var previousRequestId = targetChat.LastRemoteRequestId;
+        if (!string.IsNullOrWhiteSpace(remoteDeviceId)
+            && !string.IsNullOrWhiteSpace(remoteRequestId))
+        {
+            targetChat.LastRemoteDeviceId = remoteDeviceId;
+            targetChat.LastRemoteRequestId = remoteRequestId;
+        }
+
+        var queuedMessage = QueueSteerPrompt(
+            targetChat.Id,
+            prompt,
+            queuedMessage: null,
+            authorOverride: author,
+            explicitAttachmentPaths: []);
+        if (queuedMessage is null)
+        {
+            targetChat.LastRemoteDeviceId = previousDeviceId;
+            targetChat.LastRemoteRequestId = previousRequestId;
+            return false;
+        }
+
+        queuedMessage.RemoteRequestId = remoteRequestId;
+        if (!string.IsNullOrWhiteSpace(remoteDeviceId)
+            && !string.IsNullOrWhiteSpace(remoteRequestId))
+        {
+            try
+            {
+                _dataStore.MarkChatChanged(targetChat);
+                await _dataStore.SaveChatAsync(targetChat, cancellationToken).ConfigureAwait(true);
+                await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(true);
+            }
+            catch
+            {
+                targetChat.LastRemoteDeviceId = previousDeviceId;
+                targetChat.LastRemoteRequestId = previousRequestId;
+                RemoveQueuedBusySend(targetChat.Id, queuedMessage);
+                throw;
+            }
+        }
+
+        if (!CanInterruptQueuedSendNowImmediately(targetChat.Id))
+        {
+            GetOrCreateRuntimeState(targetChat.Id).SendQueuedNowWhenTurnStarts = true;
+            return true;
+        }
+
+        var error = await StopGenerationInternal(targetChat, resolvePendingSteersAsFailed: true);
+        return error is null;
+    }
+
     private void RequeueMaterializedSteer(
         Guid chatId,
         string prompt,
@@ -255,6 +326,7 @@ public partial class ChatViewModel
         UnregisterPendingSteer(chatId, messageViewModel);
         if (messageViewModel.SteerState == MessageSteerState.Steering)
             messageViewModel.SteerState = MessageSteerState.Queued;
+        messageViewModel.CanSendNowWhenQueued = true;
 
         // The message has already been inserted into the transcript and owns the consumed attachment
         // payload. Passing it as `existing` preserves that instance and restores it to the queue front.
@@ -354,9 +426,41 @@ public partial class ChatViewModel
     }
 
     private static bool CanSteerImmediately(ChatRuntimeState runtime)
-        => runtime.TurnInProgress
+        => Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) == 0
+           && !Volatile.Read(ref runtime.DeferSteersUntilNextTurn)
+           && HasSubmittedCopilotTurn(runtime)
+           && (runtime.TurnInProgress || runtime.ActiveToolCount > 0);
+
+    private static bool HasSubmittedCopilotTurn(ChatRuntimeState runtime)
+        => runtime.PendingSessionUserMessageCount > 0
            || runtime.ActiveToolCount > 0
-           || runtime.ActiveSubagentExecutionDepth > 0;
+           || Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0;
+
+    private bool CanInterruptQueuedSendNowImmediately(Guid chatId)
+        => _runtimeStates.TryGetValue(chatId, out var runtime)
+           && (Volatile.Read(ref runtime.AssistantTurnStarted)
+               || runtime.ActiveToolCount > 0
+               || Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0
+               || runtime.HasPendingBackgroundWork);
+
+    private async Task SendQueuedNowAfterTurnStartAsync(Guid chatId)
+    {
+        if (!_runtimeStates.TryGetValue(chatId, out var runtime)
+            || !runtime.SendQueuedNowWhenTurnStarts)
+        {
+            return;
+        }
+
+        runtime.SendQueuedNowWhenTurnStarts = false;
+        if (CurrentChat is not { } chat
+            || chat.Id != chatId
+            || !_queuedBusySendPrompts.ContainsKey(chatId))
+        {
+            return;
+        }
+
+        await StopGenerationInternal(chat, resolvePendingSteersAsFailed: true);
+    }
 
     /// <summary>
     /// Delivers a still-pending message now instead of letting it wait for the running work to finish.
@@ -382,6 +486,23 @@ public partial class ChatViewModel
             return;
         }
 
+        if (message.SteerState is MessageSteerState.Queued)
+        {
+            if (!MoveQueuedBusySendToFront(chat.Id, message.Message))
+                return;
+
+            // Session/MCP setup cannot be skipped, but it also must not be cancelled: that destroys the
+            // half-ready session and starts the same setup again. Latch the request instead. The first
+            // AssistantTurnStart interrupts the original prompt immediately and drains this selected
+            // message through the already-ready session.
+            if (!CanInterruptQueuedSendNowImmediately(chat.Id))
+            {
+                GetOrCreateRuntimeState(chat.Id).SendQueuedNowWhenTurnStarts = true;
+                message.CanSendNowWhenQueued = false;
+                return;
+            }
+        }
+
         // A queued message is already safe in the local queue; only a materialized steer is held by the
         // SDK and has to be taken back.
         if (message.SteerState is MessageSteerState.Steering)
@@ -390,6 +511,6 @@ public partial class ChatViewModel
         // Any OTHER steer the SDK was still holding dies with this abort, so mark those "Not delivered"
         // rather than leaving them pending against a turn that no longer exists. The reclaimed message
         // is already out of that set, and the drain scheduled by the stop starts its fresh turn.
-        await StopGenerationInternal(resolvePendingSteersAsFailed: true);
+        await StopGenerationInternal(chat, resolvePendingSteersAsFailed: true);
     }
 }
