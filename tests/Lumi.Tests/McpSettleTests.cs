@@ -18,6 +18,10 @@ namespace Lumi.Tests;
 /// </summary>
 public sealed class McpSettleTests
 {
+    [Fact]
+    public void McpSessionSetupTimeout_AllowsThreeMinutesForColdStarts()
+        => Assert.Equal(TimeSpan.FromSeconds(180), ChatViewModel.McpSessionSetupTimeout);
+
     [Theory]
     [InlineData(true, true, "resume")]
     [InlineData(true, false, "resume")]

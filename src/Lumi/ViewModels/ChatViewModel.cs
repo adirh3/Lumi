@@ -87,6 +87,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private static readonly TimeSpan McpSettlePollInterval = TimeSpan.FromMilliseconds(200);
 
     /// <summary>
+    /// How long an MCP-backed session create/resume may run before Lumi requests cancellation.
+    /// StreamJsonRpc cancellation is cooperative, so this is a cancellation threshold rather than
+    /// a guaranteed wall-clock bound.
+    /// </summary>
+    internal static readonly TimeSpan McpSessionSetupTimeout = TimeSpan.FromSeconds(180);
+
+    /// <summary>
     /// True for statuses a server can still leave on its own. <c>NotConfigured</c> is what a remote
     /// server reports before its transport is up; treating it as final is what let the first prompt
     /// go out with no remote tools.
@@ -2121,7 +2128,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         using var sessionCts = mcpPlan.Servers is { Count: > 0 }
             ? CancellationTokenSource.CreateLinkedTokenSource(ct)
             : null;
-        sessionCts?.CancelAfter(TimeSpan.FromSeconds(30));
+        sessionCts?.CancelAfter(McpSessionSetupTimeout);
         var sessionCt = sessionCts?.Token ?? ct;
 
         // Resolve the BYOK provider for the selected model (if any). When the user has a BYOK
