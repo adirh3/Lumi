@@ -63,6 +63,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly Dictionary<(Guid ChatId, string EventType), long> _publishedTerminalChatEventTurns = [];
     private readonly object _mcpToolCatalogRefreshLock = new();
     private readonly Dictionary<Guid, CancellationTokenSource> _mcpToolCatalogRefreshCts = [];
+    private readonly Dictionary<Guid, Task> _mcpToolCatalogRefreshTasks = [];
 
     /// <summary>
     /// The resolved OAuth chip message per <c>sessionId|serverName</c> once a login attempt has produced
@@ -250,34 +251,47 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task RefreshMcpToolCatalogAsync(
+    private void StartMcpToolCatalogRefresh(
         CopilotSession session,
         Guid chatId,
         string serverName)
     {
-        CancellationTokenSource? refreshCts = null;
-        CancellationTokenSource? previous = null;
-        await Dispatcher.UIThread.InvokeAsync(() =>
+        if (!Dispatcher.UIThread.CheckAccess())
         {
-            if (!IsCurrentSession(chatId, session))
-                return;
-
-            lock (_mcpToolCatalogRefreshLock)
-            {
-                _mcpToolCatalogRefreshCts.Remove(chatId, out previous);
-                refreshCts = new CancellationTokenSource(McpToolCatalogRefreshBudget);
-                _mcpToolCatalogRefreshCts[chatId] = refreshCts;
-            }
-        });
-
-        if (refreshCts is null)
+            Dispatcher.UIThread.Post(() => StartMcpToolCatalogRefresh(session, chatId, serverName));
+            return;
+        }
+        if (!IsCurrentSession(chatId, session))
             return;
 
-        var activeRefreshCts = refreshCts;
-        TryCancelMcpToolCatalogRefresh(previous);
+        var refreshCts = new CancellationTokenSource(McpToolCatalogRefreshBudget);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationTokenSource? previous;
+        lock (_mcpToolCatalogRefreshLock)
+        {
+            _mcpToolCatalogRefreshCts.Remove(chatId, out previous);
+            _mcpToolCatalogRefreshCts[chatId] = refreshCts;
+            _mcpToolCatalogRefreshTasks[chatId] = completion.Task;
+        }
 
+        TryCancelMcpToolCatalogRefresh(previous);
+        _ = RefreshMcpToolCatalogAsync(session, chatId, serverName, refreshCts, completion);
+    }
+
+    private async Task RefreshMcpToolCatalogAsync(
+        CopilotSession session,
+        Guid chatId,
+        string serverName,
+        CancellationTokenSource activeRefreshCts,
+        TaskCompletionSource completion)
+    {
         try
         {
+            var isCurrentSession = await Dispatcher.UIThread.InvokeAsync(() =>
+                IsCurrentSession(chatId, session));
+            if (!isCurrentSession)
+                return;
+
             await session.Rpc.Tools.InitializeAndValidateAsync(activeRefreshCts.Token).ConfigureAwait(false);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -299,12 +313,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
         finally
         {
+            completion.TrySetResult();
             lock (_mcpToolCatalogRefreshLock)
             {
                 if (_mcpToolCatalogRefreshCts.TryGetValue(chatId, out var current)
                     && ReferenceEquals(current, activeRefreshCts))
                 {
                     _mcpToolCatalogRefreshCts.Remove(chatId);
+                }
+                if (_mcpToolCatalogRefreshTasks.TryGetValue(chatId, out var currentTask)
+                    && ReferenceEquals(currentTask, completion.Task))
+                {
+                    _mcpToolCatalogRefreshTasks.Remove(chatId);
                 }
             }
             activeRefreshCts.Dispose();
@@ -345,7 +365,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         CancellationTokenSource? refreshCts;
         lock (_mcpToolCatalogRefreshLock)
+        {
             _mcpToolCatalogRefreshCts.Remove(chatId, out refreshCts);
+            _mcpToolCatalogRefreshTasks.Remove(chatId);
+        }
         TryCancelMcpToolCatalogRefresh(refreshCts);
     }
 
@@ -356,10 +379,34 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         {
             refreshSources = _mcpToolCatalogRefreshCts.Values.ToArray();
             _mcpToolCatalogRefreshCts.Clear();
+            _mcpToolCatalogRefreshTasks.Clear();
         }
 
         foreach (var refreshCts in refreshSources)
             TryCancelMcpToolCatalogRefresh(refreshCts);
+    }
+
+    private async Task AwaitMcpToolCatalogRefreshAsync(Guid chatId, CancellationToken ct)
+    {
+        while (true)
+        {
+            Task? refreshTask;
+            lock (_mcpToolCatalogRefreshLock)
+                _mcpToolCatalogRefreshTasks.TryGetValue(chatId, out refreshTask);
+
+            if (refreshTask is null)
+                return;
+            await refreshTask.WaitAsync(ct).ConfigureAwait(false);
+
+            lock (_mcpToolCatalogRefreshLock)
+            {
+                if (!_mcpToolCatalogRefreshTasks.TryGetValue(chatId, out var currentTask)
+                    || ReferenceEquals(currentTask, refreshTask))
+                {
+                    return;
+                }
+            }
+        }
     }
 
     private static void TryCancelMcpToolCatalogRefresh(CancellationTokenSource? refreshCts)
@@ -3840,6 +3887,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // existing chats are unaffected. Retries below reuse this turn's slot.
             await AcquireByokRateSlotAsync(targetChat, cts.Token);
             validateBeforeSend?.Invoke();
+            await AwaitMcpToolCatalogRefreshAsync(targetChat.Id, cts.Token);
             PreparePendingTurnTracking(targetChat, expectedSessionUserMessageCount, localAssistantMessageCount);
             await sendSession.SendAsync(sendOptions, cts.Token);
         }
@@ -3869,6 +3917,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     cts.Token,
                     verifyWithLiveEvents: true);
                 validateBeforeSend?.Invoke();
+                await AwaitMcpToolCatalogRefreshAsync(targetChat.Id, cts.Token);
                 PreparePendingTurnTracking(targetChat, expectedSessionUserMessageCount, localAssistantMessageCount);
                 await sendSession.SendAsync(sendOptions, cts.Token);
             }
@@ -4916,6 +4965,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // Apply the BYOK model's per-minute request limit (if configured) before this turn
             // consumes a network slot. No-op for non-BYOK models or models without a limit.
             await AcquireByokRateSlotAsync(targetChat, cts.Token);
+            await AwaitMcpToolCatalogRefreshAsync(targetChat.Id, cts.Token);
             PreparePendingTurnTracking(
                 targetChat,
                 expectedSessionUserMessageCount,
@@ -4963,6 +5013,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     localUserMessageCount,
                     cts.Token,
                     verifyWithLiveEvents: true);
+                await AwaitMcpToolCatalogRefreshAsync(targetChat.Id, cts.Token);
                 PreparePendingTurnTracking(
                     targetChat,
                     expectedSessionUserMessageCount,
@@ -5159,6 +5210,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 recoveredTurnCts.Token,
                 verifyWithLiveEvents: true);
             SetPendingSessionUserMessageCount(chat.Id, expectedSessionUserMessageCount);
+            await AwaitMcpToolCatalogRefreshAsync(chat.Id, recoveredTurnCts.Token);
             await recoveredSession.SendAsync(sendOptions.Clone(), recoveredTurnCts.Token);
             return (true, null);
         }
@@ -7014,6 +7066,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 cts.Token,
                 verifyWithLiveEvents: abortedPreviousTurn);
             await AcquireByokRateSlotAsync(CurrentChat, cts.Token);
+            await AwaitMcpToolCatalogRefreshAsync(CurrentChat.Id, cts.Token);
             PreparePendingTurnTracking(
                 CurrentChat,
                 expectedSessionUserMessageCount,
@@ -7062,6 +7115,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     localUserMessageCount,
                     cts.Token,
                     verifyWithLiveEvents: true);
+                await AwaitMcpToolCatalogRefreshAsync(CurrentChat.Id, cts.Token);
                 PreparePendingTurnTracking(
                     CurrentChat,
                     expectedSessionUserMessageCount,
