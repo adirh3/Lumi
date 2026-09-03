@@ -854,19 +854,35 @@ public sealed class ChatViewModelLeakTests
     // for a matching in-flight release. These tests pin that mechanism.
 
     [Fact]
-    public async Task ReleaseSessionAsync_DisposesSessionAndSelfCleansRegistry()
+    public async Task ReleaseSessionAsync_DestroysRuntimeWithoutDeletingPersistedState()
     {
         var service = TestCopilot.Shared;
-        var session = CreateDetachedSession("sid-reap");
+        var sessionId = "test-release-preserves-" + Guid.NewGuid().ToString("N");
+        var sessionDirectory = Path.Combine(DataStore.CopilotConfigDir, "session-state", sessionId);
+        var eventLog = Path.Combine(sessionDirectory, "events.jsonl");
+        Directory.CreateDirectory(sessionDirectory);
+        await File.WriteAllTextAsync(eventLog, "{}");
 
-        await service.ReleaseSessionAsync(session, deleteServerSession: false);
+        try
+        {
+            var session = CreateDetachedSession(sessionId);
 
-        // The dropped session was actually disposed (destroy → reaps its host + MCP subprocesses)...
-        Assert.True(SessionWasDisposed(session));
-        // ...and the id-keyed registry cleaned its own entry, so it neither leaks nor falsely blocks a
-        // future resume of that id once the destroy has completed.
-        var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
-        Assert.False(registry.ContainsKey("sid-reap"));
+            await service.ReleaseSessionAsync(session);
+
+            // The dropped runtime is disposed (destroy reaps its host + MCP subprocesses), while its
+            // authoritative event log remains available for a later resume.
+            Assert.True(SessionWasDisposed(session));
+            Assert.True(File.Exists(eventLog));
+
+            // The id-keyed registry self-cleans so it neither leaks nor falsely blocks a later resume.
+            var registry = GetField<ConcurrentDictionary<string, Task>>(service, "_pendingReleasesBySessionId");
+            Assert.False(registry.ContainsKey(sessionId));
+        }
+        finally
+        {
+            if (Directory.Exists(sessionDirectory))
+                Directory.Delete(sessionDirectory, recursive: true);
+        }
     }
 
     [Fact]
@@ -1835,15 +1851,18 @@ public sealed class ChatViewModelLeakTests
         // The raw CAPI wording is replaced by the friendly recovery message.
         Assert.DoesNotContain("does not represent", errorItem.Content, StringComparison.OrdinalIgnoreCase);
 
-        // The error is PERSISTED (as an error-role message) so the affordance survives a reload:
-        // reopening the chat re-derives Retry from this tail via UpdateStuckChatRetryAffordance.
+        // The error and its rebuild disposition are persisted so the affordance survives a reload.
         var persisted = Assert.IsType<ChatMessage>(chat.Messages[^1]);
         Assert.Equal("error", persisted.Role);
         Assert.Equal(Loc.Status_ImageRejectedReset, persisted.Content);
+        Assert.Equal(SessionFailureDisposition.RebuildSession, persisted.FailureDisposition);
     }
 
-    [Fact]
-    public void HandleSendError_GenericRecoverableError_SchedulesResetAndOffersRetry()
+    [Theory]
+    [InlineData("Copilot request failed")]
+    [InlineData("Failed to persist session events: There is not enough space on the disk. (os error 112)")]
+    [InlineData("The CancellationTokenSource has been disposed.")]
+    public void HandleSendError_NonPoisoningRecoverableError_OffersRetryWithoutSessionReset(string error)
     {
         var dataStore = CreateDataStore();
         var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
@@ -1854,22 +1873,49 @@ public sealed class ChatViewModelLeakTests
         InvokePrivate(
             vm,
             "HandleSendError",
-            new InvalidOperationException("Copilot request failed"),
+            new InvalidOperationException(error),
             false,
             null!,
             chat);
 
-        // Round 2: EVERY non-fatal terminal error is recoverable by rebuilding the session from the
-        // transcript as text, so a generic failure now arms a reset and offers a one-click Retry
-        // (previously it was a dead end).
-        Assert.Contains(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+        Assert.DoesNotContain(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
 
         var turn = Assert.Single(vm.TranscriptTurns);
         var errorItem = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
         Assert.True(errorItem.ShowRetryButton);
         Assert.NotNull(errorItem.RetryCommand);
         // The raw message is surfaced (no friendly image copy) for a non-image error.
-        Assert.Contains("Copilot request failed", errorItem.Content, StringComparison.Ordinal);
+        Assert.Contains(error, errorItem.Content, StringComparison.Ordinal);
+        Assert.Equal(
+            SessionFailureDisposition.RetrySameSession,
+            Assert.IsType<ChatMessage>(chat.Messages[^1]).FailureDisposition);
+    }
+
+    [Fact]
+    public void HandleSendError_TransientServerFailure_PersistsSameSessionRetry()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "transient-server", CopilotSessionId = "live-session" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+
+        InvokePrivate(
+            vm,
+            "HandleSendError",
+            new InvalidOperationException("503 service unavailable: 401 unauthorized"),
+            false,
+            null!,
+            chat);
+
+        Assert.DoesNotContain(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+        var persisted = Assert.IsType<ChatMessage>(chat.Messages[^1]);
+        Assert.Equal(Loc.Status_TransientAuthRetry, persisted.Content);
+        Assert.Equal(SessionFailureDisposition.RetrySameSession, persisted.FailureDisposition);
+
+        var errorItem = Assert.IsType<ErrorMessageItem>(Assert.Single(Assert.Single(vm.TranscriptTurns).Items));
+        Assert.True(errorItem.ShowRetryButton);
+        Assert.NotNull(errorItem.RetryCommand);
     }
 
     [Fact]
@@ -1897,6 +1943,9 @@ public sealed class ChatViewModelLeakTests
         var errorItem = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
         Assert.False(errorItem.ShowRetryButton);
         Assert.Null(errorItem.RetryCommand);
+        Assert.Equal(
+            SessionFailureDisposition.Fatal,
+            Assert.IsType<ChatMessage>(chat.Messages[^1]).FailureDisposition);
     }
 
     [Fact]
@@ -1999,7 +2048,7 @@ public sealed class ChatViewModelLeakTests
         // error card it just appended is persisted — otherwise a restart before the next send drops it
         // and, for a recoverable error, the reopen path can't re-arm recovery from the missing card.
         Assert.True(after > before, $"expected a dirty-version bump; before={before} after={after}");
-        Assert.Contains(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations")); // recoverable → armed
+        Assert.Contains(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations")); // image poison → rebuild
     }
 
     private static long DirtyChatVersion(DataStore store, Guid chatId)
@@ -2027,9 +2076,11 @@ public sealed class ChatViewModelLeakTests
         vm.Messages.Add(new ChatMessageViewModel(err)); // renders the trailing ErrorMessageItem
         Assert.False(CopilotService.IsFatalNonRetryableError(err.Content)); // text heuristic == "recoverable"
 
-        // The live handler passes its authoritative (structured) decision — fatal — so no false Retry
-        // and no needless session reset are armed, even though the persisted text looks recoverable.
-        InvokePrivate(vm, "UpdateStuckChatRetryAffordance", false);
+        err.FailureDisposition = SessionFailureDisposition.Fatal;
+
+        // Reopening restores the persisted structured decision, so no false Retry or reset is armed
+        // even though the localized display text looks recoverable.
+        InvokePrivate(vm, "UpdateStuckChatRetryAffordance");
 
         Assert.DoesNotContain(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
         var turn = Assert.Single(vm.TranscriptTurns);
@@ -2039,7 +2090,7 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
-    public void UpdateStuckChatRetryAffordance_RecoverableDecision_ArmsResetAndOffersRetry()
+    public void UpdateStuckChatRetryAffordance_GenericRecoverableDecision_OffersRetryWithoutReset()
     {
         var dataStore = CreateDataStore();
         var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
@@ -2047,15 +2098,48 @@ public sealed class ChatViewModelLeakTests
         dataStore.Data.Chats.Add(chat);
         vm.CurrentChat = chat;
 
-        var err = new ChatMessage { Role = "error", Author = "Lumi", Content = "Error: something odd happened" };
+        var err = new ChatMessage
+        {
+            Role = "error",
+            Author = "Lumi",
+            Content = "Error: something odd happened",
+            FailureDisposition = SessionFailureDisposition.RetrySameSession
+        };
         chat.Messages.Add(err);
         vm.Messages.Add(new ChatMessageViewModel(err));
 
-        InvokePrivate(vm, "UpdateStuckChatRetryAffordance", true);
+        InvokePrivate(vm, "UpdateStuckChatRetryAffordance");
 
-        Assert.Contains(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+        Assert.DoesNotContain(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
         var turn = Assert.Single(vm.TranscriptTurns);
         var item = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
+        Assert.True(item.ShowRetryButton);
+        Assert.NotNull(item.RetryCommand);
+    }
+
+    [Fact]
+    public void UpdateStuckChatRetryAffordance_PersistedRebuildDecisionSurvivesLocalizedText()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "localized-image-error", CopilotSessionId = "poisoned" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+
+        var err = new ChatMessage
+        {
+            Role = "error",
+            Author = "Lumi",
+            Content = "Localized image recovery message",
+            FailureDisposition = SessionFailureDisposition.RebuildSession
+        };
+        chat.Messages.Add(err);
+        vm.Messages.Add(new ChatMessageViewModel(err));
+
+        InvokePrivate(vm, "UpdateStuckChatRetryAffordance");
+
+        Assert.Contains(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+        var item = Assert.IsType<ErrorMessageItem>(Assert.Single(Assert.Single(vm.TranscriptTurns).Items));
         Assert.True(item.ShowRetryButton);
         Assert.NotNull(item.RetryCommand);
     }
@@ -2070,8 +2154,8 @@ public sealed class ChatViewModelLeakTests
         vm.CurrentChat = chat;
 
         // The MCP session-SETUP timeout is recoverable (Retry is offered) but means setup was slow, not
-        // that the session is poisoned — so it must NOT arm a delete + cold-recreate, which is strictly
-        // slower and cascades into further timeouts. Its persisted card carries the setup-timeout phrase.
+        // that the session is poisoned — so it must NOT arm a cold rebuild, which is strictly slower
+        // and cascades into further timeouts. Its persisted card carries the setup-timeout phrase.
         var err = new ChatMessage
         {
             Role = "error",
@@ -2081,14 +2165,14 @@ public sealed class ChatViewModelLeakTests
         chat.Messages.Add(err);
         vm.Messages.Add(new ChatMessageViewModel(err));
 
-        InvokePrivate(vm, "UpdateStuckChatRetryAffordance", true);
+        InvokePrivate(vm, "UpdateStuckChatRetryAffordance");
 
         // Retry is shown so the user (or the next send) can resume the SAME session cheaply...
         var turn = Assert.Single(vm.TranscriptTurns);
         var item = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
         Assert.True(item.ShowRetryButton);
         Assert.NotNull(item.RetryCommand);
-        // ...but NO session reset is armed, so the retry RESUMES instead of deleting + cold-creating.
+        // ...but NO session reset is armed, so the retry resumes instead of cold-creating.
         Assert.DoesNotContain(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
     }
 

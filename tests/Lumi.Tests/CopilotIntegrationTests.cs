@@ -2020,7 +2020,7 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var (_, sub) = await SendAndWait(original, "Remember the word Orbit. Reply only: OK");
         sub.Dispose();
 
-        await _service.ReleaseSessionAsync(original, deleteServerSession: false);
+        await _service.ReleaseSessionAsync(original);
 
         Assert.Null(await _service.ForkSessionAsync(sessionId));
     }

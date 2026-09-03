@@ -1266,7 +1266,7 @@ public static class DebugAgentHarness
             Console.WriteLine($"Part A tool ok: {turnA.toolOk}, contract ok: {turnA.contractOk}");
             Console.WriteLine($"Part A MCP subprocess PID: {pidA}, alive before release: {mcpAliveBeforeRelease}");
 
-            await copilotService.ReleaseSessionAsync(sessionA, deleteServerSession: false).WaitAsync(ct).ConfigureAwait(false);
+            await copilotService.ReleaseSessionAsync(sessionA).WaitAsync(ct).ConfigureAwait(false);
             var mcpReaped = pidA > 0 && WaitForProcessExit(pidA, TimeSpan.FromSeconds(20));
             Console.WriteLine($"Part A MCP subprocess exited after ReleaseSessionAsync: {mcpReaped}");
             var reapPassed = turnA.toolOk && turnA.contractOk && mcpAliveBeforeRelease && mcpReaped;
@@ -1290,7 +1290,7 @@ public static class DebugAgentHarness
             // to end against real sessions + real MCP subprocesses under realistic timing. We record
             // whether the release was still in flight when resume began so a run shows when the gate
             // actually had to wait (informational only — real destroy timing is not deterministic).
-            var releaseTaskB = copilotService.ReleaseSessionAsync(sessionB, deleteServerSession: false);
+            var releaseTaskB = copilotService.ReleaseSessionAsync(sessionB);
             var releaseStillInFlightAtResume = !releaseTaskB.IsCompleted;
             Console.WriteLine($"Part B release still in-flight when resume began: {releaseStillInFlightAtResume}");
 

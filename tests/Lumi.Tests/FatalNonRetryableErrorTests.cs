@@ -6,10 +6,8 @@ namespace Lumi.Tests;
 /// <summary>
 /// Guards <see cref="CopilotService.IsFatalNonRetryableError(string?)"/> and its structured overload.
 /// This is the single gate that decides whether Lumi even offers Retry on a terminal error: only a
-/// hard credential / capacity / policy limit is fatal. EVERY other terminal error is treated as
-/// recoverable by rebuilding the session from the transcript as text (which safely drops any poisoned
-/// history, such as an image the backend can't process), so misclassifying here either hides a valid
-/// Retry or dangles false hope on an unrecoverable error.
+/// hard credential / capacity / policy limit is fatal. Other errors remain retryable; the separate
+/// failure disposition decides whether to reuse or rebuild the session.
 /// </summary>
 public sealed class FatalNonRetryableErrorTests
 {
@@ -48,8 +46,8 @@ public sealed class FatalNonRetryableErrorTests
         => Assert.True(CopilotService.IsFatalNonRetryableError(error));
 
     [Theory]
-    // Everything else is recoverable via session-rebuild-as-text and must stay retryable —
-    // crucially including the unprocessable-image failure, which is the whole point of the feature.
+    // Everything else remains retryable. ClassifySendFailure separately limits text-replay rebuilds
+    // to known image poison and missing sessions.
     [InlineData("Could not process image")]
     [InlineData("The image data you provided does not represent a valid image.")]
     [InlineData("Copilot request failed")]

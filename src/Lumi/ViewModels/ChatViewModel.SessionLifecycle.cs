@@ -243,7 +243,7 @@ public partial class ChatViewModel
             && !string.Equals(previousSession.SessionId, session.SessionId, StringComparison.Ordinal))
         {
             _sessionCache.Remove(chat.Id);
-            TrackSessionRelease(chat.Id, previousSession, deleteServerSession: false);
+            TrackSessionRelease(chat.Id, previousSession);
         }
 
         // Invalidation detached the old handle from the SDK registry but retained it here so an
@@ -254,7 +254,7 @@ public partial class ChatViewModel
             && !ReferenceEquals(pendingSession, session)
             && !string.Equals(pendingSession.SessionId, session.SessionId, StringComparison.Ordinal))
         {
-            TrackSessionRelease(chat.Id, pendingSession, deleteServerSession: false);
+            TrackSessionRelease(chat.Id, pendingSession);
         }
 
         // This surface may have been disposed while the session was being created/resumed (the user
@@ -263,7 +263,7 @@ public partial class ChatViewModel
         // subprocesses. Release it immediately instead of subscribing.
         if (_isDisposed)
         {
-            TrackSessionRelease(chat.Id, session, deleteServerSession: false);
+            TrackSessionRelease(chat.Id, session);
             return false;
         }
 
@@ -326,8 +326,9 @@ public partial class ChatViewModel
         bool IsDisplayedSession() => CurrentChat?.Id == chat.Id && _activeSession == session;
 
         bool IsAuthoritativeSession()
-            => !_sessionCache.TryGetValue(chat.Id, out var cachedSession)
-               || ReferenceEquals(cachedSession, session);
+            => _dataStore.Data.Chats.Contains(chat)
+               && _sessionCache.TryGetValue(chat.Id, out var cachedSession)
+               && ReferenceEquals(cachedSession, session);
 
         // Subscribe to CLI process exit — fires instantly when the process is killed,
         // unlike SDK events which go silent on crash.
@@ -1665,9 +1666,12 @@ public partial class ChatViewModel
                     ResetSubagentOutputState();
                     Dispatcher.UIThread.Post(() =>
                     {
-                        var shouldUpdateDisplayedChatUi = CurrentChat?.Id == chat.Id
-                            && (!_sessionCache.TryGetValue(chat.Id, out var cachedSession)
-                                || ReferenceEquals(cachedSession, session));
+                        // The callback may already be queued when the session is replaced or the chat
+                        // is deleted. Never let that stale event invalidate or recreate persisted data.
+                        if (!IsAuthoritativeSession())
+                            return;
+
+                        var shouldUpdateDisplayedChatUi = IsDisplayedSession();
                         // Skip if CLI crash handler already claimed cleanup
                         if (Volatile.Read(ref cliExitHandled) == 1)
                         {
@@ -1698,69 +1702,57 @@ public partial class ChatViewModel
                         }
                         reasoningStream.Clear();
 
-                        // A PROVABLY transient backend-internal failure (twirp/usersd, or a 5xx
-                        // "unavailable") is not a real logout: the credential is still valid and a
-                        // plain resend recovers. Surface it as a one-click retry affordance instead
-                        // of a terminal error. A bare/ambiguous 401/403 is NOT matched, so a genuine
-                        // logout falls through to the terminal error path below and routes to re-auth.
-                        if (CopilotService.IsTransientServerAuthError(
-                                err.Data.StatusCode, err.Data.ErrorType, err.Data.Message))
-                        {
-                            if (IsAuthoritativeSession())
-                            {
-                                ApplyUnexpectedAbortState(chat, Loc.Status_TransientAuthRetry, shouldUpdateDisplayedChatUi);
-                                PublishTerminalChatLifecycleEventOnce(
-                                    chat,
-                                    ChatLifecycleEventTypes.Error,
-                                    err.Data.Message);
-                            }
-                            return;
-                        }
+                        var isTransientServerError = CopilotService.IsTransientServerAuthError(
+                            err.Data.StatusCode,
+                            err.Data.ErrorType,
+                            err.Data.Message);
+                        if (isTransientServerError)
+                            InvalidateLocalSessionCache(chat);
 
-                        if (IsAuthoritativeSession())
-                            ReconcileInProgressSubagentTools(chat, "Failed");
+                        ReconcileInProgressSubagentTools(chat, "Failed");
 
-                        // Classify the terminal error. Anything that is NOT a hard auth / quota /
-                        // context / policy limit is recoverable by rebuilding the session from the
-                        // transcript AS TEXT, which safely drops any poisoned server-side history —
-                        // e.g. an image the backend refuses to process (a tool-result screenshot, an
-                        // attachment, …) re-sent on every turn that would otherwise brick the chat
-                        // forever, since there is no SDK API to remove a single asset. Arm a reset so
-                        // the next send (a new message OR the Retry button) rebuilds a fresh session;
-                        // arming here (not only in the displayed branch) recovers a background chat too.
-                        // Shared decision (identical logic to HandleSendError's). A structured
-                        // session.error carries HTTP status + errorType, so a fatal-by-type failure —
-                        // a genuine logout, or a content-policy image block whose message also says
-                        // "could not process image" — is correctly NOT recoverable and NOT shown the
-                        // image copy: the fatal verdict gates the image flag inside ClassifySendFailure.
-                        // Without that gate the recovery-implying copy (which carries no fatal keyword)
-                        // would be re-read as recoverable on reopen and dangle a false Retry.
-                        var (recoverable, isImageError) = CopilotService.ClassifySendFailure(
-                            err.Data.StatusCode, err.Data.ErrorType, err.Data.Message,
-                            hasTerminalOverride: false);
-                        var display = isImageError
-                            ? Loc.Status_ImageRejectedReset
-                            : string.Format(Loc.Status_Error, err.Data.Message);
+                        // Retry on the same session unless structured evidence proves its history is
+                        // poisoned or the session no longer exists.
+                        var classification = isTransientServerError
+                            ? new SendFailureClassification(
+                                SessionFailureDisposition.RetrySameSession,
+                                IsImageError: false)
+                            : CopilotService.ClassifySendFailure(
+                                err.Data.StatusCode,
+                                err.Data.ErrorType,
+                                err.Data.Message,
+                                hasTerminalOverride: false);
+                        var isImageError = classification.IsImageError;
+                        var display = isTransientServerError
+                            ? Loc.Status_TransientAuthRetry
+                            : isImageError
+                                ? Loc.Status_ImageRejectedReset
+                                : string.Format(Loc.Status_Error, err.Data.Message);
 
-                        if (recoverable)
+                        if (classification.RequiresSessionRebuild)
                             _pendingSessionInvalidations.Add(chat.Id);
 
                         MarkRuntimeTerminal(runtime, display);
-                        if (IsAuthoritativeSession())
-                        {
-                            PublishTerminalChatLifecycleEventOnce(
-                                chat,
-                                ChatLifecycleEventTypes.Error,
-                                err.Data.Message);
-                        }
+                        PublishTerminalChatLifecycleEventOnce(
+                            chat,
+                            ChatLifecycleEventTypes.Error,
+                            err.Data.Message);
                         // The turn errored out before consuming any in-flight steer — report it as not
-                        // delivered rather than leaving it pending (a recoverable error rebuilds the session
-                        // on the next send, so no idle fallback resolves it for this turn).
+                        // delivered rather than leaving it pending with no idle fallback to resolve it.
                         ResolvePendingSteersAsFailed(chat.Id);
                         // The user is being shown an error + retry, so flag their deferred sends rather
                         // than auto-firing them into a session that just failed.
-                        if (IsAuthoritativeSession())
-                            FailQueuedBusySends(chat.Id);
+                        FailQueuedBusySends(chat.Id);
+
+                        var errorMsg = new ChatMessage
+                        {
+                            Role = "error",
+                            Author = Loc.Author_Lumi,
+                            Content = display,
+                            FailureDisposition = classification.Disposition
+                        };
+                        chat.Messages.Add(errorMsg);
+
                         if (shouldUpdateDisplayedChatUi)
                         {
                             // Clean up typing indicator and tool groups
@@ -1773,22 +1765,8 @@ public partial class ChatViewModel
                             IsBusy = runtime.IsBusy;
                             IsStreaming = runtime.IsStreaming;
 
-                            // Surface the error as a visible chat message. Adding to Messages renders
-                            // it via the CollectionChanged handler (no explicit ProcessMessageToTranscript
-                            // — a second call here would render a duplicate error card).
-                            var errorMsg = new ChatMessage
-                            {
-                                Role = "error",
-                                Author = Loc.Author_Lumi,
-                                Content = display
-                            };
-                            chat.Messages.Add(errorMsg);
                             Messages.Add(new ChatMessageViewModel(errorMsg));
-                            // Pass the authoritative (structured) recoverability decision: a
-                            // fatal-by-ErrorType error (e.g. a genuine logout) loses its type once
-                            // persisted as plain "Error: {message}", so the affordance must not
-                            // re-derive it from that lossy text and offer a false Retry.
-                            UpdateStuckChatRetryAffordance(recoverable);
+                            UpdateStuckChatRetryAffordance(classification);
                             ScrollToEndRequested?.Invoke();
                         }
                         QueueSaveChat(chat, saveIndex: false, releaseIfInactive: CurrentChat?.Id != chat.Id);
@@ -2635,7 +2613,9 @@ public partial class ChatViewModel
         return System.Text.Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    /// <summary>Cleans up session resources for a chat (e.g., on delete).</summary>
+    /// <summary>
+    /// Cleans up live runtime resources for a chat while preserving its resumable Copilot session data.
+    /// </summary>
     public void CleanupSession(Guid chatId)
     {
         _pendingSessionInvalidations.Remove(chatId);
@@ -2645,7 +2625,7 @@ public partial class ChatViewModel
         if (chat is not null)
             CancelPendingQuestions(chat);
 
-        ReleaseSessionResources(chatId, cancelActiveRequest: true, deleteServerSession: true);
+        ReleaseSessionResources(chatId, cancelActiveRequest: true);
         _runtimeStates.Remove(chatId);
         _pendingWorktreeCreations.Remove(chatId);
         lock (_chatLifecycleEventSync)

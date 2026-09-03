@@ -53,7 +53,7 @@ public partial class ChatViewModel
                      .Distinct()
                      .ToList())
         {
-            ReleaseSessionResources(chatId, cancelActiveRequest: true, deleteServerSession: false);
+            ReleaseSessionResources(chatId, cancelActiveRequest: true);
             RemoveSuggestionTracking(chatId);
             DisposeBrowserService(chatId);
         }
@@ -583,7 +583,7 @@ public partial class ChatViewModel
         }
     }
 
-    private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest, bool deleteServerSession)
+    private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest)
     {
         // Drop any still-pending steer confirmations for this chat. Without this a chat deleted / released
         // while a steer is in flight leaks its entry (and the referenced ChatMessageViewModel), and — because
@@ -601,7 +601,7 @@ public partial class ChatViewModel
             {
                 _activeSession = null;
             }
-            TrackSessionRelease(chatId, session, deleteServerSession);
+            TrackSessionRelease(chatId, session);
         }
 
         if (_sessionsPendingResume.Remove(chatId, out var pendingSession)
@@ -617,7 +617,7 @@ public partial class ChatViewModel
             {
                 _activeSession = null;
             }
-            TrackSessionRelease(chatId, pendingSession, deleteServerSession);
+            TrackSessionRelease(chatId, pendingSession);
         }
 
         _inProgressMessages.Remove(chatId);
@@ -636,9 +636,9 @@ public partial class ChatViewModel
     /// registers the release by session id (<see cref="Services.CopilotService.ReleaseSessionAsync"/>)
     /// and awaits it inside <see cref="Services.CopilotService.ResumeSessionAsync"/>.
     /// </summary>
-    private void TrackSessionRelease(Guid chatId, CopilotSession session, bool deleteServerSession)
+    private void TrackSessionRelease(Guid chatId, CopilotSession session)
     {
-        var releaseTask = DisposeReleasedSessionAsync(session, deleteServerSession);
+        var releaseTask = DisposeReleasedSessionAsync(session);
         _sessionReleaseTasks[chatId] = releaseTask;
         _ = releaseTask.ContinueWith(
             _ => Dispatcher.UIThread.Post(() =>
@@ -652,12 +652,11 @@ public partial class ChatViewModel
             TaskScheduler.Default);
     }
 
-    // Routes every dropped session through CopilotService so the release is registered by server
-    // session id — this is what lets a concurrent resume of the same id on ANOTHER surface wait for
-    // the destroy to finish. The service owns fault-swallowing, so this best-effort call never
-    // faults its caller.
-    private Task DisposeReleasedSessionAsync(CopilotSession session, bool deleteServerSession)
-        => _copilotService.ReleaseSessionAsync(session, deleteServerSession);
+    // Routes every dropped session through CopilotService so the runtime and MCP subprocesses are
+    // reaped without deleting resumable session state. The service registers the release by server
+    // session id, letting another surface safely resume the same id after destroy finishes.
+    private Task DisposeReleasedSessionAsync(CopilotSession session)
+        => _copilotService.ReleaseSessionAsync(session);
 
     private async Task AwaitPendingSessionReleaseAsync(Guid chatId, CancellationToken ct)
     {
@@ -711,7 +710,7 @@ public partial class ChatViewModel
         var mutatedPersistedMessages = CancelPendingQuestions(chat);
         // The chat is neither displayed nor running, so nothing is left to deliver a deferred send.
         FailQueuedBusySends(chat.Id);
-        ReleaseSessionResources(chat.Id, cancelActiveRequest: false, deleteServerSession: false);
+        ReleaseSessionResources(chat.Id, cancelActiveRequest: false);
         RemoveSuggestionTracking(chat.Id);
         // Intentionally keep the chat's BrowserService alive. A browser session belongs to the
         // chat, not its transient runtime state, so switching away and back restores the page
@@ -780,7 +779,7 @@ public partial class ChatViewModel
             else
             {
                 // Chat was deleted but runtime state lingered — clean up directly
-                ReleaseSessionResources(chatId, cancelActiveRequest: false, deleteServerSession: false);
+                ReleaseSessionResources(chatId, cancelActiveRequest: false);
                 RemoveSuggestionTracking(chatId);
                 DisposeBrowserService(chatId);
                 _runtimeStates.Remove(chatId);

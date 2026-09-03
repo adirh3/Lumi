@@ -22,6 +22,13 @@ public enum MessageSteerState
     Failed
 }
 
+public enum SessionFailureDisposition
+{
+    Fatal,
+    RetrySameSession,
+    RebuildSession
+}
+
 public class ChatMessage
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -68,6 +75,11 @@ public class ChatMessage
     public List<string> Attachments { get; set; } = [];
     public List<SearchSource> Sources { get; set; } = [];
     public List<SkillReference> ActiveSkills { get; set; } = [];
+    /// <summary>
+    /// Recovery decision captured from a structured session error. Persisted so reopening a chat
+    /// does not have to infer behavior from localized display text.
+    /// </summary>
+    public SessionFailureDisposition? FailureDisposition { get; set; }
 
     /// <summary>Session-only steer delivery status (not serialized). Set when this message is steered
     /// into a running turn so the badge survives transcript/VM rebuilds within the session.</summary>
@@ -115,6 +127,7 @@ public class ChatMessage
         ActiveMcpServerNames = [..ActiveMcpServerNames],
         HasMcpSelection = HasMcpSelection,
         Attachments = [..Attachments],
+        FailureDisposition = FailureDisposition,
         ActiveSkills = [..ActiveSkills.Select(static s => new SkillReference
         {
             Name = s.Name,

@@ -737,7 +737,7 @@ public sealed class DeferredSendQueueTests
             => Invoke("ReleaseInactiveChatState", Chat, false, -1);
 
         public void ReleaseSessionResources()
-            => Invoke("ReleaseSessionResources", Chat.Id, false, false);
+            => Invoke("ReleaseSessionResources", Chat.Id, false);
 
         public void ApplyUnexpectedAbort()
             => Invoke("ApplyUnexpectedAbortState", Chat, "Connection to Copilot was lost.", true);
