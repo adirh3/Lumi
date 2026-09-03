@@ -2440,7 +2440,7 @@ public partial class ChatViewModel
                     // A recovered or dynamically updated MCP can change its tools after the session's
                     // initial catalog was built. Rebuild the model-facing catalog so the new tools become
                     // available in the next turn instead of remaining selected-but-invisible.
-                    _ = RefreshMcpToolCatalogAsync(
+                    StartMcpToolCatalogRefresh(
                         session,
                         chat.Id,
                         mcpToolsChanged.Data.ServerName);

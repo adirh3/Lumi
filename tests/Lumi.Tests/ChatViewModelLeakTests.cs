@@ -963,6 +963,34 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public async Task McpToolCatalogRefreshBarrier_WaitsForActiveRefresh()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chatId = Guid.NewGuid();
+        var firstRefresh = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondRefresh = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var refreshTasks = GetField<Dictionary<Guid, Task>>(vm, "_mcpToolCatalogRefreshTasks");
+        refreshTasks[chatId] = firstRefresh.Task;
+
+        var wait = InvokePrivate<Task>(
+            vm,
+            "AwaitMcpToolCatalogRefreshAsync",
+            chatId,
+            CancellationToken.None);
+
+        Assert.False(wait.IsCompleted);
+        refreshTasks[chatId] = secondRefresh.Task;
+        firstRefresh.TrySetResult();
+        await Task.Delay(25);
+        Assert.False(wait.IsCompleted);
+
+        secondRefresh.TrySetResult();
+        await wait.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(wait.IsCompletedSuccessfully);
+        vm.Dispose();
+    }
+
+    [Fact]
     public async Task ProxyCleanupBarrier_AggregatesEveryProxyBackedSessionRelease()
     {
         var dataStore = CreateDataStore();
