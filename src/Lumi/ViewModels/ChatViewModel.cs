@@ -60,6 +60,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly Dictionary<Guid, ExternalSendReservationState> _externalSendReservations = [];
     private readonly object _chatLifecycleEventSync = new();
     private readonly Dictionary<(Guid ChatId, string EventType), long> _publishedTerminalChatEventTurns = [];
+    private readonly object _mcpToolCatalogRefreshLock = new();
+    private readonly Dictionary<Guid, CancellationTokenSource> _mcpToolCatalogRefreshCts = [];
+    private readonly Dictionary<Guid, Task> _mcpToolCatalogRefreshTasks = [];
 
     /// <summary>
     /// The resolved OAuth chip message per <c>sessionId|serverName</c> once a login attempt has produced
@@ -75,14 +78,20 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// server's transport apart (stdio servers never use OAuth).
     /// </summary>
     private readonly ConcurrentDictionary<Guid, IReadOnlyDictionary<string, McpServerConfig>> _activeMcpConfigs = new();
+    /// <summary>Latest runtime status reported for each MCP server in each chat.</summary>
+    private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, McpServerStatus>> _activeMcpStatuses = new();
+    /// <summary>Maps CAPI-safe runtime namespaces back to user-visible MCP server names.</summary>
+    private readonly ConcurrentDictionary<Guid, IReadOnlyDictionary<string, string>> _activeMcpDisplayNames = new();
 
     /// <summary>
     /// How long the first prompt waits for remote MCP servers to connect. Without it the first turn is
     /// dispatched while they are still <c>not_configured</c> and the model gets none of their tools.
-    /// Measured settle times are ~1.2s connected and ~4.2s with an OAuth exchange; the cap only bites
-    /// when a server is genuinely stuck, since failed and consent-pending servers exit immediately.
+    /// Warm proxy connections normally settle immediately, while a legitimate cold start such as a
+    /// project MCP launched through <c>dotnet run</c> can take around 40 seconds.
     /// </summary>
-    private static readonly TimeSpan McpSettleBudget = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan NativeMcpSettleBudget = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ProxyMcpSettleBudget = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan McpToolCatalogRefreshBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan McpSettlePollInterval = TimeSpan.FromMilliseconds(200);
 
     /// <summary>
@@ -91,7 +100,22 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// go out with no remote tools.
     /// </summary>
     internal static bool IsMcpStatusSettling(McpServerStatus status)
-        => status == McpServerStatus.Pending || status == McpServerStatus.NotConfigured;
+        => status == McpServerStatus.Pending
+           || status == McpServerStatus.NotConfigured
+           || string.Equals(status.Value, "starting", StringComparison.OrdinalIgnoreCase);
+
+    internal static IReadOnlyList<string> GetUnsettledMcpServerNames(
+        IEnumerable<string> configuredServerNames,
+        IReadOnlyDictionary<string, McpServerStatus> observedStatuses)
+    {
+        ArgumentNullException.ThrowIfNull(configuredServerNames);
+        ArgumentNullException.ThrowIfNull(observedStatuses);
+
+        return configuredServerNames
+            .Where(serverName => !observedStatuses.TryGetValue(serverName, out var status)
+                                 || IsMcpStatusSettling(status))
+            .ToList();
+    }
 
     /// <summary>
     /// True when any configured server is remote. Only remote servers connect asynchronously over the
@@ -102,6 +126,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     internal static bool HasRemoteMcpServers(IReadOnlyDictionary<string, McpServerConfig>? configuredServers)
         => configuredServers is not null
             && configuredServers.Values.Any(config => config is McpHttpServerConfig);
+
+    internal static TimeSpan ResolveMcpSessionSetupTimeout(bool usesProxy)
+        => usesProxy ? TimeSpan.FromSeconds(60) : TimeSpan.FromSeconds(30);
+
+    internal static TimeSpan ResolveMcpSettleBudget(bool usesProxy)
+        => usesProxy ? ProxyMcpSettleBudget : NativeMcpSettleBudget;
 
     /// <summary>One poll's decision: which servers changed status, and whether to keep waiting.</summary>
     internal readonly record struct McpSettleEvaluation(
@@ -148,19 +178,238 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return new McpSettleEvaluation(toHandle, keepWaiting);
     }
 
+    internal static void RecordMcpStatusHandlingResult(
+        RpcMcpServer server,
+        bool stopWaiting,
+        IDictionary<string, McpServerStatus> handledStatuses,
+        ISet<string> handedOff)
+    {
+        if (stopWaiting)
+            handedOff.Add(server.Name);
+
+        if (server.Status == McpServerStatus.NeedsAuth && !stopWaiting)
+            handledStatuses.Remove(server.Name);
+        else
+            handledStatuses[server.Name] = server.Status;
+    }
+
     /// <summary>
     /// Starts the post-creation MCP status check. Sessions with remote servers await it so the first
     /// prompt is dispatched only once those servers have signed in and registered their tools; stdio-only
     /// sessions keep the previous fire-and-forget behaviour.
     /// </summary>
-    private Task BeginMcpServerStatusCheckAsync(
+    private async Task BeginMcpServerStatusCheckAsync(
         CopilotSession session,
-        Guid chatId,
+        Chat chat,
         IReadOnlyDictionary<string, McpServerConfig> configuredServers,
+        bool usesProxy,
         CancellationToken ct)
     {
-        var check = CheckMcpServerStatusAsync(session, chatId, configuredServers, ct);
-        return HasRemoteMcpServers(configuredServers) ? check : Task.CompletedTask;
+        try
+        {
+            var statusCheck = CheckMcpServerStatusAsync(
+                session,
+                chat.Id,
+                configuredServers,
+                usesProxy,
+                ct);
+            if (HasRemoteMcpServers(configuredServers))
+                await statusCheck.ConfigureAwait(false);
+
+            // The SDK can resume a persisted session whose MCP server is connected while its effective
+            // model-facing tool catalog still reflects an earlier tools/list failure. Explicitly rebuild
+            // that catalog before the first prompt so selected-and-healthy servers actually appear.
+            using var catalogCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            catalogCts.CancelAfter(McpToolCatalogRefreshBudget);
+            try
+            {
+                await session.Rpc.Tools.InitializeAndValidateAsync(catalogCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                throw new TimeoutException(CopilotService.McpSetupTimeoutMessage);
+            }
+        }
+        catch
+        {
+            // A failed/cancelled catalog rebuild must not leave this handle reusable: the next send
+            // should resume the persisted server session and retry initialization before prompting.
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (IsCurrentSession(chat.Id, session))
+                    InvalidateLocalSessionCache(chat);
+            });
+            throw;
+        }
+    }
+
+    private void StartMcpToolCatalogRefresh(
+        CopilotSession session,
+        Guid chatId,
+        string serverName)
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => StartMcpToolCatalogRefresh(session, chatId, serverName));
+            return;
+        }
+        if (!IsCurrentSession(chatId, session))
+            return;
+
+        var refreshCts = new CancellationTokenSource(McpToolCatalogRefreshBudget);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationTokenSource? previous;
+        lock (_mcpToolCatalogRefreshLock)
+        {
+            _mcpToolCatalogRefreshCts.Remove(chatId, out previous);
+            _mcpToolCatalogRefreshCts[chatId] = refreshCts;
+            _mcpToolCatalogRefreshTasks[chatId] = completion.Task;
+        }
+
+        TryCancelMcpToolCatalogRefresh(previous);
+        _ = RefreshMcpToolCatalogAsync(session, chatId, serverName, refreshCts, completion);
+    }
+
+    private async Task RefreshMcpToolCatalogAsync(
+        CopilotSession session,
+        Guid chatId,
+        string serverName,
+        CancellationTokenSource activeRefreshCts,
+        TaskCompletionSource completion)
+    {
+        try
+        {
+            var isCurrentSession = await Dispatcher.UIThread.InvokeAsync(() =>
+                IsCurrentSession(chatId, session));
+            if (!isCurrentSession)
+                return;
+
+            await session.Rpc.Tools.InitializeAndValidateAsync(activeRefreshCts.Token).ConfigureAwait(false);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (IsCurrentSession(chatId, session))
+                    ClearMcpChipError(chatId, serverName);
+            });
+        }
+        catch (OperationCanceledException ex)
+        {
+            var shouldReport = await Dispatcher.UIThread.InvokeAsync(() =>
+                IsCurrentSession(chatId, session)
+                && IsCurrentMcpToolCatalogRefresh(chatId, activeRefreshCts));
+            if (shouldReport)
+                await ReportFailureAsync(ex);
+        }
+        catch (Exception ex)
+        {
+            await ReportFailureAsync(ex);
+        }
+        finally
+        {
+            completion.TrySetResult();
+            lock (_mcpToolCatalogRefreshLock)
+            {
+                if (_mcpToolCatalogRefreshCts.TryGetValue(chatId, out var current)
+                    && ReferenceEquals(current, activeRefreshCts))
+                {
+                    _mcpToolCatalogRefreshCts.Remove(chatId);
+                }
+                if (_mcpToolCatalogRefreshTasks.TryGetValue(chatId, out var currentTask)
+                    && ReferenceEquals(currentTask, completion.Task))
+                {
+                    _mcpToolCatalogRefreshTasks.Remove(chatId);
+                }
+            }
+            activeRefreshCts.Dispose();
+        }
+
+        async Task ReportFailureAsync(Exception ex)
+        {
+            Debug.WriteLine(
+                $"[MCP] Tool catalog refresh failed for chat {chatId}, server '{serverName}': {ex.Message}");
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (!IsCurrentSession(chatId, session))
+                    return;
+
+                var displayName = ResolveMcpDisplayName(chatId, serverName);
+                SetMcpChipError(
+                    chatId,
+                    serverName,
+                    $"MCP server '{displayName}' changed its tools, but Lumi could not refresh them ({ex.Message}).");
+            });
+        }
+    }
+
+    private bool IsCurrentSession(Guid chatId, CopilotSession session)
+        => _sessionCache.TryGetValue(chatId, out var current)
+           && ReferenceEquals(current, session);
+
+    private bool IsCurrentMcpToolCatalogRefresh(Guid chatId, CancellationTokenSource refreshCts)
+    {
+        lock (_mcpToolCatalogRefreshLock)
+        {
+            return _mcpToolCatalogRefreshCts.TryGetValue(chatId, out var current)
+                   && ReferenceEquals(current, refreshCts);
+        }
+    }
+
+    private void CancelMcpToolCatalogRefresh(Guid chatId)
+    {
+        CancellationTokenSource? refreshCts;
+        lock (_mcpToolCatalogRefreshLock)
+        {
+            _mcpToolCatalogRefreshCts.Remove(chatId, out refreshCts);
+            _mcpToolCatalogRefreshTasks.Remove(chatId);
+        }
+        TryCancelMcpToolCatalogRefresh(refreshCts);
+    }
+
+    private void CancelAllMcpToolCatalogRefreshes()
+    {
+        CancellationTokenSource[] refreshSources;
+        lock (_mcpToolCatalogRefreshLock)
+        {
+            refreshSources = _mcpToolCatalogRefreshCts.Values.ToArray();
+            _mcpToolCatalogRefreshCts.Clear();
+            _mcpToolCatalogRefreshTasks.Clear();
+        }
+
+        foreach (var refreshCts in refreshSources)
+            TryCancelMcpToolCatalogRefresh(refreshCts);
+    }
+
+    private async Task AwaitMcpToolCatalogRefreshAsync(Guid chatId, CancellationToken ct)
+    {
+        while (true)
+        {
+            Task? refreshTask;
+            lock (_mcpToolCatalogRefreshLock)
+                _mcpToolCatalogRefreshTasks.TryGetValue(chatId, out refreshTask);
+
+            if (refreshTask is null)
+                return;
+            await refreshTask.WaitAsync(ct).ConfigureAwait(false);
+
+            lock (_mcpToolCatalogRefreshLock)
+            {
+                if (!_mcpToolCatalogRefreshTasks.TryGetValue(chatId, out var currentTask)
+                    || ReferenceEquals(currentTask, refreshTask))
+                {
+                    return;
+                }
+            }
+        }
+    }
+
+    private static void TryCancelMcpToolCatalogRefresh(CancellationTokenSource? refreshCts)
+    {
+        try
+        {
+            refreshCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
     /// <summary>
@@ -175,16 +424,20 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         CopilotSession session,
         Guid chatId,
         IReadOnlyDictionary<string, McpServerConfig> configuredServers,
+        bool usesProxy,
         CancellationToken ct)
     {
-        _activeMcpConfigs[chatId] = configuredServers;
+        var observedStatuses = _activeMcpStatuses.GetOrAdd(
+            chatId,
+            static _ => new ConcurrentDictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase));
         var handledStatuses = new Dictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase);
         var handedOff = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // The budget has to cap the whole check, not just the sleeps: a status handler can probe a failed
         // HTTP endpoint and ListAsync can stall, and this now runs before the user's first message.
         using var settleCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        settleCts.CancelAfter(McpSettleBudget);
+        var settleBudget = ResolveMcpSettleBudget(usesProxy);
+        settleCts.CancelAfter(settleBudget);
         var settleCt = settleCts.Token;
 
         try
@@ -196,17 +449,21 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // An empty list means the runtime hasn't registered the servers we configured yet —
                 // the same "not ready" state as not_configured, so keep waiting.
                 var servers = mcpList?.Servers is { Count: > 0 } reported ? reported : null;
+                if (servers is not null)
+                {
+                    foreach (var server in servers)
+                        observedStatuses[server.Name] = server.Status;
+                }
+
                 var evaluation = servers is not null
                     ? EvaluateMcpSettle(servers, handledStatuses, handedOff)
                     : new McpSettleEvaluation([], KeepWaiting: true);
 
                 foreach (var server in evaluation.ToHandle)
                 {
-                    handledStatuses[server.Name] = server.Status;
                     var stopWaiting = await HandleMcpServerStatusAsync(
                         session, chatId, server.Name, server.Status, server.Error, settleCt).ConfigureAwait(false);
-                    if (stopWaiting)
-                        handedOff.Add(server.Name);
+                    RecordMcpStatusHandlingResult(server, stopWaiting, handledStatuses, handedOff);
                 }
 
                 // Handing a server off changes who we're still waiting for, so settle the wait decision
@@ -220,7 +477,49 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 await Task.Delay(McpSettlePollInterval, settleCt).ConfigureAwait(false);
             }
         }
-        catch { /* best effort — don't let MCP status checks break the chat flow */ }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            var timedOutServers = GetUnsettledMcpServerNames(configuredServers.Keys, observedStatuses);
+            Debug.WriteLine(
+                $"[MCP] Startup settle timed out for chat {chatId}: {string.Join(", ", timedOutServers)}");
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!_sessionCache.TryGetValue(chatId, out var currentSession)
+                    || !ReferenceEquals(currentSession, session))
+                {
+                    return;
+                }
+
+                foreach (var serverName in timedOutServers)
+                {
+                    if (observedStatuses.TryGetValue(serverName, out var latestStatus)
+                        && !IsMcpStatusSettling(latestStatus))
+                    {
+                        continue;
+                    }
+
+                    var displayName = ResolveMcpDisplayName(chatId, serverName);
+                    SetMcpChipError(
+                        chatId,
+                        serverName,
+                        $"MCP server '{displayName}' did not finish connecting within {settleBudget.TotalSeconds:0} seconds. Its tools may appear after startup completes.");
+                }
+            });
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex) when (ex is IOException or HttpRequestException or TimeoutException)
+        {
+            Debug.WriteLine($"[MCP] Startup status check failed for chat {chatId}: {ex.Message}");
+        }
+        catch (Exception ex) when (string.Equals(
+                                      ex.GetType().FullName,
+                                      "GitHub.Copilot.RemoteRpcException",
+                                      StringComparison.Ordinal))
+        {
+            Debug.WriteLine($"[MCP] Startup status RPC failed for chat {chatId}: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -240,9 +539,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (string.IsNullOrWhiteSpace(serverName))
             return false;
 
+        var observedStatuses = _activeMcpStatuses.GetOrAdd(
+            chatId,
+            static _ => new ConcurrentDictionary<string, McpServerStatus>(StringComparer.OrdinalIgnoreCase));
+        observedStatuses[serverName] = status;
+
         McpServerConfig? config = null;
         if (_activeMcpConfigs.TryGetValue(chatId, out var configured))
             configured.TryGetValue(serverName, out config);
+        var displayName = ResolveMcpDisplayName(chatId, serverName);
 
         if (status == McpServerStatus.Connected)
         {
@@ -262,7 +567,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return false;
 
         var errorMessage = await BuildMcpStatusErrorMessageAsync(
-            serverName, status, error ?? "", config, ct).ConfigureAwait(false);
+            displayName, status, error ?? "", config, ct).ConfigureAwait(false);
 
         if (status == McpServerStatus.NeedsAuth)
         {
@@ -311,6 +616,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat?.Id != chatId || _activeSession != session)
             return true;
 
+        var displayName = ResolveMcpDisplayName(chatId, serverName);
         var key = McpOAuthKey(session, serverName);
         lock (_mcpOAuthLoginLock)
         {
@@ -333,9 +639,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // An empty URL means a cached token is being reused; a later Connected event clears the chip.
             if (!string.IsNullOrWhiteSpace(authorizationUrl))
             {
-                var openedMessage =
-                    $"Lumi opened your browser to sign in to MCP server '{serverName}'. " +
-                    "Finish signing in and it reconnects automatically.";
+                var openedMessage = BuildMcpOAuthOpenedMessage(displayName);
                 ResolveMcpOAuthChip(chatId, serverName, key, openedMessage);
                 return true;
             }
@@ -356,9 +660,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // Sign-in couldn't be started — e.g. the server's identity provider doesn't support
             // dynamic client registration. Report it honestly and keep the attempt recorded so we
             // don't hammer a failing endpoint on every status event; a later session retries cleanly.
-            var failedMessage =
-                $"Lumi couldn't start sign-in for MCP server '{serverName}' automatically " +
-                $"({DescribeMcpOAuthLoginFailure(ex)}). Open it from the MCP servers page to sign in.";
+            var failedMessage = BuildMcpOAuthFailureMessage(
+                displayName,
+                DescribeMcpOAuthLoginFailure(ex));
             ResolveMcpOAuthChip(chatId, serverName, key, failedMessage);
             return true;
         }
@@ -366,6 +670,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // Empty URL: a cached token is being reused and the server reconnects shortly on its own.
         return false;
     }
+
+    internal static string BuildMcpOAuthOpenedMessage(string displayName)
+        => $"Lumi opened your browser to sign in to MCP server '{displayName}'. " +
+           "Finish signing in and it reconnects automatically.";
+
+    internal static string BuildMcpOAuthFailureMessage(string displayName, string failure)
+        => $"Lumi couldn't start sign-in for MCP server '{displayName}' automatically " +
+           $"({failure}). Open it from the MCP servers page to sign in.";
 
     /// <summary>
     /// Records the final OAuth chip message for a session+server and shows it, so later repeated
@@ -424,7 +736,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat?.Id != chatId)
             return;
 
-        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>().FirstOrDefault(c => c.Name == serverName);
+        var displayName = ResolveMcpDisplayName(chatId, serverName);
+        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>()
+            .FirstOrDefault(c => string.Equals(c.Name, displayName, StringComparison.OrdinalIgnoreCase));
         if (existingChip is null)
             return;
 
@@ -437,12 +751,20 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat?.Id != chatId)
             return;
 
-        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>().FirstOrDefault(c => c.Name == serverName);
+        var displayName = ResolveMcpDisplayName(chatId, serverName);
+        var existingChip = ActiveMcpChips.OfType<StrataComposerChip>()
+            .FirstOrDefault(c => string.Equals(c.Name, displayName, StringComparison.OrdinalIgnoreCase));
         if (existingChip is null || !existingChip.HasError)
             return;
 
         ActiveMcpChips[ActiveMcpChips.IndexOf(existingChip)] = existingChip with { ErrorMessage = null };
     }
+
+    private string ResolveMcpDisplayName(Guid chatId, string serverName)
+        => _activeMcpDisplayNames.TryGetValue(chatId, out var displayNames)
+           && displayNames.TryGetValue(serverName, out var displayName)
+            ? displayName
+            : serverName;
 
     internal static async Task<string> BuildMcpStatusErrorMessageAsync(
         string serverName,
@@ -697,6 +1019,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly Dictionary<Guid, CopilotSession> _sessionsPendingResume = new();
     /// <summary>Tracks SDK session disposal in progress so resume waits until the prior handle is released.</summary>
     private readonly Dictionary<Guid, Task> _sessionReleaseTasks = new();
+    /// <summary>Tracks proxy-backed releases until their child processes have fully retired.</summary>
+    private readonly Dictionary<Guid, Task> _mcpProxyReleaseTasks = new();
     /// <summary>Maps chat ID → live event subscriptions for locally attached sessions.</summary>
     private readonly Dictionary<Guid, IDisposable> _sessionSubs = new();
     /// <summary>Maps chat ID → in-progress streaming message not yet committed to Chat.Messages.</summary>
@@ -2037,8 +2361,21 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             _dataStore.SnapshotBackgroundJobs());
 
         var sdkAgentName = GetSessionSdkAgentName(chat, CurrentChat, SelectedSdkAgentName);
-        var mcpPlan = BuildMcpPlan(workDir, capabilities, chat, activeAgent);
+        using var mcpPlan = BuildMcpPlan(workDir, capabilities, chat, activeAgent);
+        using var pendingMcpProxyPlan = TrackPendingMcpProxyPlan(chat.Id, mcpPlan);
         _sessionMcpPlans[chat.Id] = mcpPlan;
+        if (mcpPlan.Servers.Count > 0)
+        {
+            _activeMcpConfigs[chat.Id] = mcpPlan.Servers;
+            _activeMcpStatuses[chat.Id] = new ConcurrentDictionary<string, McpServerStatus>(
+                StringComparer.OrdinalIgnoreCase);
+            _activeMcpDisplayNames[chat.Id] = mcpPlan.RuntimeKeysByName?
+                .ToDictionary(
+                    pair => pair.Value,
+                    pair => pair.Key,
+                    StringComparer.OrdinalIgnoreCase)
+                ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
 
         var agentName = ResolveSessionAgentName(
             activeAgent,
@@ -2126,7 +2463,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         using var sessionCts = mcpPlan.Servers is { Count: > 0 }
             ? CancellationTokenSource.CreateLinkedTokenSource(ct)
             : null;
-        sessionCts?.CancelAfter(TimeSpan.FromSeconds(30));
+        sessionCts?.CancelAfter(ResolveMcpSessionSetupTimeout(mcpPlan.UsesProxy));
         var sessionCt = sessionCts?.Token ?? ct;
 
         // Resolve the BYOK provider for the selected model (if any). When the user has a BYOK
@@ -2220,6 +2557,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 chat.CopilotSessionId = createdSession.SessionId;
                 RecordSessionProviderSignature(chat, currentByokSignature);
                 _dataStore.MarkChatChanged(chat);
+                AttachMcpProxyLease(createdSession, mcpPlan);
                 if (!SubscribeToSession(createdSession, chat, workDir))
                 {
                     // This surface was disposed while the session was being created; the session
@@ -2233,7 +2571,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // remote servers wait for them so the first prompt carries their tools.
                 if (mcpPlan.Servers is { Count: > 0 })
                 {
-                    await BeginMcpServerStatusCheckAsync(createdSession, chat.Id, mcpPlan.Servers, ct);
+                    await BeginMcpServerStatusCheckAsync(
+                        createdSession, chat, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
                 }
 
                 _staleBackgroundJobPromptChats.Remove(chat.Id);
@@ -2257,6 +2596,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var resumeConfig = buildResumeConfig();
                 var session = await _copilotService.ResumeSessionAsync(
                     chat.CopilotSessionId, resumeConfig, sessionCt);
+                AttachMcpProxyLease(session, mcpPlan);
                 if (!SubscribeToSession(session, chat, workDir))
                 {
                     // Surface disposed mid-resume; the session was released. Abort cleanly.
@@ -2275,7 +2615,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 {
                     if (HasRemoteMcpServers(mcpPlan.Servers))
                         SetSessionSetupStatus(chat, Loc.Status_ConnectingMcp);
-                    await BeginMcpServerStatusCheckAsync(session, chat.Id, mcpPlan.Servers, ct);
+                    await BeginMcpServerStatusCheckAsync(
+                        session, chat, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
                 }
 
                 // The SDK does not automatically change the session model on resume —
@@ -2334,6 +2675,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var createConfig = buildSessionConfig();
             var createdSession = await _copilotService.CreateSessionAsync(createConfig, sessionCt);
             chat.CopilotSessionId = createdSession.SessionId;
+            AttachMcpProxyLease(createdSession, mcpPlan);
+            if (_sessionsPendingResume.TryGetValue(chat.Id, out var pendingSession))
+                AdoptMcpProxyLeaseIfMissing(pendingSession, createdSession);
             if (!SubscribeToSession(createdSession, chat, workDir))
             {
                 // Surface disposed mid-create; the session was released. Abort cleanly.
@@ -2342,7 +2686,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             }
             _activeSession = createdSession;
             if (mcpPlan.Servers is { Count: > 0 })
-                await BeginMcpServerStatusCheckAsync(createdSession, chat.Id, mcpPlan.Servers, ct);
+                await BeginMcpServerStatusCheckAsync(
+                    createdSession, chat, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
             RecordSessionProviderSignature(chat, currentByokSignature);
             _dataStore.MarkChatChanged(chat);
             await SaveChatAsync(chat, saveIndex: true);
@@ -3445,6 +3790,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // existing chats are unaffected. Retries below reuse this turn's slot.
             await AcquireByokRateSlotAsync(targetChat, cts.Token);
             validateBeforeSend?.Invoke();
+            await AwaitMcpToolCatalogRefreshAsync(targetChat.Id, cts.Token);
             PreparePendingTurnTracking(targetChat, expectedSessionUserMessageCount, localAssistantMessageCount);
             await sendSession.SendAsync(sendOptions, cts.Token);
         }
@@ -3474,6 +3820,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     cts.Token,
                     verifyWithLiveEvents: true);
                 validateBeforeSend?.Invoke();
+                await AwaitMcpToolCatalogRefreshAsync(targetChat.Id, cts.Token);
                 PreparePendingTurnTracking(targetChat, expectedSessionUserMessageCount, localAssistantMessageCount);
                 await sendSession.SendAsync(sendOptions, cts.Token);
             }
@@ -4524,6 +4871,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // Apply the BYOK model's per-minute request limit (if configured) before this turn
             // consumes a network slot. No-op for non-BYOK models or models without a limit.
             await AcquireByokRateSlotAsync(targetChat, cts.Token);
+            await AwaitMcpToolCatalogRefreshAsync(targetChat.Id, cts.Token);
             PreparePendingTurnTracking(
                 targetChat,
                 expectedSessionUserMessageCount,
@@ -4571,6 +4919,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     localUserMessageCount,
                     cts.Token,
                     verifyWithLiveEvents: true);
+                await AwaitMcpToolCatalogRefreshAsync(targetChat.Id, cts.Token);
                 PreparePendingTurnTracking(
                     targetChat,
                     expectedSessionUserMessageCount,
@@ -4767,6 +5116,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 recoveredTurnCts.Token,
                 verifyWithLiveEvents: true);
             SetPendingSessionUserMessageCount(chat.Id, expectedSessionUserMessageCount);
+            await AwaitMcpToolCatalogRefreshAsync(chat.Id, recoveredTurnCts.Token);
             await recoveredSession.SendAsync(sendOptions.Clone(), recoveredTurnCts.Token);
             return (true, null);
         }
@@ -4983,6 +5333,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return;
 
         _sessionCache.Remove(chat.Id);
+        CancelMcpToolCatalogRefresh(chat.Id);
         if (_sessionsPendingResume.Remove(chat.Id, out var previousCandidate)
             && !ReferenceEquals(previousCandidate, invalidatedSession)
             && !string.Equals(
@@ -5032,6 +5383,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 || string.Equals(cachedSession.SessionId, detachedSessionId, StringComparison.Ordinal)))
         {
             _sessionCache.Remove(chat.Id);
+            CancelMcpToolCatalogRefresh(chat.Id);
             TrackSessionRelease(chat.Id, cachedSession, deleteServerSession: false);
             releasedSession = cachedSession;
         }
@@ -6523,6 +6875,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 cts.Token,
                 verifyWithLiveEvents: abortedPreviousTurn);
             await AcquireByokRateSlotAsync(CurrentChat, cts.Token);
+            await AwaitMcpToolCatalogRefreshAsync(CurrentChat.Id, cts.Token);
             PreparePendingTurnTracking(
                 CurrentChat,
                 expectedSessionUserMessageCount,
@@ -6571,6 +6924,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     localUserMessageCount,
                     cts.Token,
                     verifyWithLiveEvents: true);
+                await AwaitMcpToolCatalogRefreshAsync(CurrentChat.Id, cts.Token);
                 PreparePendingTurnTracking(
                     CurrentChat,
                     expectedSessionUserMessageCount,

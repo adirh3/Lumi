@@ -779,6 +779,14 @@ public class CopilotIntegrationTests : IAsyncLifetime
         var mcpList = await Timeout(session.Rpc.Mcp.ListAsync(), 30);
         var mcpSummary = string.Join(", ", mcpList.Servers.Select(server => $"{server.Name}:{server.Status}:{server.Error}"));
         Assert.Contains(mcpList.Servers, server => server.Name == GitHubMcpWebSearchBootstrap.ServerName);
+        await Timeout(session.Rpc.Tools.InitializeAndValidateAsync(), 30);
+        var currentTools = await Timeout(session.Rpc.Tools.GetCurrentMetadataAsync(), 30);
+        Assert.Contains(
+            currentTools.Tools ?? [],
+            tool => string.Equals(
+                tool.McpServerName,
+                GitHubMcpWebSearchBootstrap.ServerName,
+                StringComparison.OrdinalIgnoreCase));
 
         var toolNames = new List<string>();
         var assistantResponse = "";

@@ -62,6 +62,20 @@ public sealed class McpStatusDiagnosticsTests
         Assert.DoesNotContain("user:password", message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void McpOAuthMessagesUseOriginalDisplayName()
+    {
+        var opened = ChatViewModel.BuildMcpOAuthOpenedMessage("Azure ARM MCP");
+        var failed = ChatViewModel.BuildMcpOAuthFailureMessage(
+            "Azure ARM MCP",
+            "dynamic registration unavailable");
+
+        Assert.Contains("'Azure ARM MCP'", opened, StringComparison.Ordinal);
+        Assert.Contains("'Azure ARM MCP'", failed, StringComparison.Ordinal);
+        Assert.DoesNotContain("Azure_ARM_MCP", opened, StringComparison.Ordinal);
+        Assert.DoesNotContain("Azure_ARM_MCP", failed, StringComparison.Ordinal);
+    }
+
     private static int GetFreeLoopbackPort()
     {
         var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);

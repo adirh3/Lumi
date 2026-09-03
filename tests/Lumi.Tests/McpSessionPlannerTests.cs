@@ -55,10 +55,12 @@ public sealed class McpSessionPlannerTests
             ActiveMcpServerNames = ["filesystem", "jira"]
         };
 
-        var servers = McpSessionPlanner.Build(data, "C:\\repo", EmptyCatalog(), chat, null, null).Servers;
+        using var plan = McpSessionPlanner.Build(data, "C:\\repo", EmptyCatalog(), chat, null, null);
+        var servers = plan.Servers;
 
         Assert.IsType<McpStdioServerConfig>(servers["filesystem"]);
         Assert.IsType<McpHttpServerConfig>(servers["jira"]);
+        Assert.Null(plan.DetachProxyLease());
     }
 
     [Fact]
@@ -88,13 +90,16 @@ public sealed class McpSessionPlannerTests
             ActiveMcpServerNames = ["filesystem", "jira"]
         };
 
-        var servers = McpSessionPlanner.Build(data, "C:\\repo", EmptyCatalog(), chat, null, null, proxyRuntime).Servers;
+        using var plan = McpSessionPlanner.Build(data, "C:\\repo", EmptyCatalog(), chat, null, null, proxyRuntime);
+        var servers = plan.Servers;
 
         var proxiedLocal = Assert.IsType<McpHttpServerConfig>(servers["filesystem"]);
         Assert.StartsWith("http://127.0.0.1:", proxiedLocal.Url, StringComparison.Ordinal);
         Assert.Equal(["read_file"], proxiedLocal.Tools);
         var nativeRemote = Assert.IsType<McpHttpServerConfig>(servers["jira"]);
         Assert.Equal("https://example.test/mcp", nativeRemote.Url);
+        using var proxyLease = plan.DetachProxyLease();
+        Assert.NotNull(proxyLease);
     }
 
     [Fact]

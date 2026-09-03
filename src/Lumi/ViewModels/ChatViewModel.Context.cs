@@ -258,6 +258,9 @@ public partial class ChatViewModel
     /// cache is rather than tracking only the most recently built one.
     /// </summary>
     private readonly Dictionary<Guid, McpSessionPlan> _sessionMcpPlans = new();
+    /// <summary>Proxy registrations owned by each locally attached Copilot session handle.</summary>
+    private readonly Dictionary<CopilotSession, McpProxySessionLease> _mcpProxyLeasesBySession =
+        new(ReferenceEqualityComparer.Instance);
 
     /// <summary>Registers a skill selection without adding a chip (composer already added it).</summary>
     public void RegisterSkillIdByName(string name)

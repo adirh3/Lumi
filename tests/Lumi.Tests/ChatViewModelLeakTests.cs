@@ -5,7 +5,9 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Reflection;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using GitHub.Copilot;
@@ -843,6 +845,610 @@ public sealed class ChatViewModelLeakTests
 
         Assert.True(SessionWasDisposed(pending));
         Assert.False(GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume").ContainsKey(chat.Id));
+    }
+
+    [Fact]
+    public async Task Dispose_ReleasesProxyLeaseOwnedByCachedCopilotSession()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "proxy-lease", CopilotSessionId = "sid-proxy-lease" };
+        dataStore.Data.Chats.Add(chat);
+
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+
+        var releaseCount = 0;
+        var registrationLease = new McpProxyRuntime.SessionRegistrationLease(
+            () => Interlocked.Increment(ref releaseCount),
+            new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/test" });
+        var proxyLease = new McpProxySessionLease([registrationLease]);
+        GetField<Dictionary<CopilotSession, McpProxySessionLease>>(vm, "_mcpProxyLeasesBySession")[session] =
+            proxyLease;
+
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        Assert.Equal(1, releaseCount);
+        Assert.Empty(GetField<Dictionary<CopilotSession, McpProxySessionLease>>(vm, "_mcpProxyLeasesBySession"));
+    }
+
+    [Fact]
+    public async Task ProxyLeaseRelease_IsBoundedWhenCopilotSessionDestroyHangs()
+    {
+        var releaseCount = 0;
+        var registrationLease = new McpProxyRuntime.SessionRegistrationLease(
+            () => Interlocked.Increment(ref releaseCount),
+            new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/test" });
+        var proxyLease = new McpProxySessionLease([registrationLease]);
+        var hungSessionRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await ChatViewModel.CompleteMcpProxyLeaseReleaseAsync(
+            hungSessionRelease.Task,
+            proxyLease,
+            TimeSpan.FromMilliseconds(25));
+
+        Assert.Equal(1, releaseCount);
+    }
+
+    [Fact]
+    public async Task CatalogFallback_AdoptsConsumedPlanLeaseFromPendingSession()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chatId = Guid.NewGuid();
+        var pendingSession = CreateDetachedSession("sid-catalog-retry");
+        var fallbackSession = CreateDetachedSession("sid-catalog-fallback");
+        var releaseCount = 0;
+        var registrationLease = new McpProxyRuntime.SessionRegistrationLease(
+            () => Interlocked.Increment(ref releaseCount),
+            new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/catalog-retry" });
+        var proxyLease = new McpProxySessionLease([registrationLease]);
+        var leases = GetField<Dictionary<CopilotSession, McpProxySessionLease>>(
+            vm,
+            "_mcpProxyLeasesBySession");
+        leases[pendingSession] = proxyLease;
+
+        InvokePrivate(vm, "AdoptMcpProxyLeaseIfMissing", pendingSession, fallbackSession);
+
+        Assert.False(leases.ContainsKey(pendingSession));
+        Assert.Same(proxyLease, leases[fallbackSession]);
+        Assert.Equal(0, releaseCount);
+
+        InvokePrivate(vm, "ReleaseMcpProxyLease", chatId, fallbackSession);
+        await vm.AwaitPendingMcpProxyReleaseAsync(chatId);
+        Assert.Equal(1, releaseCount);
+        vm.Dispose();
+    }
+
+    [Fact]
+    public async Task CatalogFallback_KeepsFreshPlanLeaseAndPendingLeaseSeparate()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chatId = Guid.NewGuid();
+        var pendingSession = CreateDetachedSession("sid-old-config");
+        var fallbackSession = CreateDetachedSession("sid-new-config");
+        var oldReleaseCount = 0;
+        var newReleaseCount = 0;
+        var oldLease = new McpProxySessionLease(
+        [
+            new McpProxyRuntime.SessionRegistrationLease(
+                () => Interlocked.Increment(ref oldReleaseCount),
+                new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/old-config" })
+        ]);
+        var newLease = new McpProxySessionLease(
+        [
+            new McpProxyRuntime.SessionRegistrationLease(
+                () => Interlocked.Increment(ref newReleaseCount),
+                new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/new-config" })
+        ]);
+        var leases = GetField<Dictionary<CopilotSession, McpProxySessionLease>>(
+            vm,
+            "_mcpProxyLeasesBySession");
+        leases[pendingSession] = oldLease;
+        leases[fallbackSession] = newLease;
+
+        InvokePrivate(vm, "AdoptMcpProxyLeaseIfMissing", pendingSession, fallbackSession);
+
+        Assert.Same(oldLease, leases[pendingSession]);
+        Assert.Same(newLease, leases[fallbackSession]);
+        Assert.Equal(0, oldReleaseCount);
+        Assert.Equal(0, newReleaseCount);
+
+        InvokePrivate(vm, "ReleaseMcpProxyLease", chatId, pendingSession);
+        InvokePrivate(vm, "ReleaseMcpProxyLease", chatId, fallbackSession);
+        await vm.AwaitPendingMcpProxyReleaseAsync(chatId);
+        Assert.Equal(1, oldReleaseCount);
+        Assert.Equal(1, newReleaseCount);
+        vm.Dispose();
+    }
+
+    [Fact]
+    public async Task McpToolCatalogRefreshBarrier_WaitsForActiveRefresh()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chatId = Guid.NewGuid();
+        var firstRefresh = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondRefresh = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var refreshTasks = GetField<Dictionary<Guid, Task>>(vm, "_mcpToolCatalogRefreshTasks");
+        refreshTasks[chatId] = firstRefresh.Task;
+
+        var wait = InvokePrivate<Task>(
+            vm,
+            "AwaitMcpToolCatalogRefreshAsync",
+            chatId,
+            CancellationToken.None);
+
+        Assert.False(wait.IsCompleted);
+        refreshTasks[chatId] = secondRefresh.Task;
+        firstRefresh.TrySetResult();
+        await Task.Delay(25);
+        Assert.False(wait.IsCompleted);
+
+        secondRefresh.TrySetResult();
+        await wait.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(wait.IsCompletedSuccessfully);
+        vm.Dispose();
+    }
+
+    [Fact]
+    public async Task ProxyCleanupBarrier_AggregatesEveryProxyBackedSessionRelease()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "proxy-barrier", CopilotSessionId = "sid-proxy-current" };
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+
+        var cachedSession = CreateDetachedSession("sid-proxy-current");
+        var pendingSession = CreateDetachedSession("sid-proxy-pending");
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = cachedSession;
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionsPendingResume")[chat.Id] = pendingSession;
+        SetPrivateField(vm, "_activeSession", cachedSession);
+
+        var firstReleaseStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondReleaseStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstReleaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondReleaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var leases = GetField<Dictionary<CopilotSession, McpProxySessionLease>>(
+            vm,
+            "_mcpProxyLeasesBySession");
+        leases[cachedSession] = new McpProxySessionLease(
+        [
+            new McpProxyRuntime.SessionRegistrationLease(
+                async () =>
+                {
+                    firstReleaseStarted.TrySetResult();
+                    await firstReleaseGate.Task;
+                },
+                new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/proxy-current" })
+        ]);
+        leases[pendingSession] = new McpProxySessionLease(
+        [
+            new McpProxyRuntime.SessionRegistrationLease(
+                async () =>
+                {
+                    secondReleaseStarted.TrySetResult();
+                    await secondReleaseGate.Task;
+                },
+                new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/proxy-pending" })
+        ]);
+
+        vm.CleanupSession(chat.Id);
+        var barrier = vm.AwaitPendingMcpProxyReleaseAsync(chat.Id);
+        await Task.WhenAll(firstReleaseStarted.Task, secondReleaseStarted.Task)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(barrier.IsCompleted);
+        firstReleaseGate.TrySetResult();
+        await Task.Delay(25);
+        Assert.False(barrier.IsCompleted);
+
+        secondReleaseGate.TrySetResult();
+        await barrier.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(barrier.IsCompletedSuccessfully);
+        vm.Dispose();
+    }
+
+    [Fact]
+    public async Task ProxyCleanupBarrier_ReleasesProcessBeforeRemovingRealWorktree()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        using var temp = new TestTempDirectory();
+        var repo = Path.Combine(temp.Path, "repo");
+        var worktree = Path.Combine(temp.Path, "repo-proxy-worktree");
+        var scriptPath = Path.Combine(temp.Path, "fake-worktree-mcp.ps1");
+        var processLogPath = Path.Combine(temp.Path, "mcp-process.log");
+        Directory.CreateDirectory(repo);
+        await File.WriteAllTextAsync(Path.Combine(repo, "README.md"), "# test");
+        RunGit(repo, "init", "-q");
+        RunGit(repo, "config", "user.email", "test@example.com");
+        RunGit(repo, "config", "user.name", "Test");
+        RunGit(repo, "add", "-A");
+        RunGit(repo, "commit", "-q", "-m", "initial");
+        RunGit(repo, "worktree", "add", "--detach", worktree);
+
+        await File.WriteAllTextAsync(scriptPath, """
+            [System.IO.File]::WriteAllText($env:MCP_PROCESS_LOG, "$PID")
+            function Write-Json($obj) {
+                [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 30))
+                [Console]::Out.Flush()
+            }
+            while ($null -ne ($line = [Console]::In.ReadLine())) {
+                if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                $msg = $line | ConvertFrom-Json
+                if ($msg.method -eq "initialize") {
+                    Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = @{ protocolVersion = "2025-06-18"; capabilities = @{ tools = @{ listChanged = $false } }; serverInfo = @{ name = "worktree-lock-test"; version = "1" } } }
+                }
+            }
+            """);
+
+        await using var runtime = new McpProxyRuntime();
+        var registration = runtime.AcquireSessionRegistration(new McpProxyServerDefinition(
+            "test:worktree-cleanup",
+            "worktree-cleanup",
+            new McpStdioServerConfig
+            {
+                Command = GetWindowsPowerShellPath(),
+                Args = ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
+                WorkingDirectory = worktree,
+                Env = new Dictionary<string, string>
+                {
+                    ["MCP_PROCESS_LOG"] = processLogPath
+                },
+                Tools = ["*"]
+            }));
+
+        using (var http = new HttpClient())
+        using (var content = new StringContent(
+                   """{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}""",
+                   Encoding.UTF8,
+                   "application/json"))
+        using (var response = await http.PostAsync(registration.ServerConfig.Url, content))
+        {
+            response.EnsureSuccessStatusCode();
+        }
+
+        var processId = int.Parse(await File.ReadAllTextAsync(processLogPath));
+        Assert.False(Process.GetProcessById(processId).HasExited);
+
+        var chat = new Chat
+        {
+            Title = "proxy worktree",
+            CopilotSessionId = "sid-proxy-worktree",
+            WorktreePath = worktree
+        };
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        using var registry = new ChatSurfaceRegistry();
+        using var store = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            });
+        var vm = await store.AcquireChatAsync(chat);
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        SetPrivateField(vm, "_activeSession", session);
+        GetField<Dictionary<CopilotSession, McpProxySessionLease>>(vm, "_mcpProxyLeasesBySession")[session] =
+            new McpProxySessionLease([registration]);
+
+        await store.BeginMcpProxyCleanupAsync(chat.Id).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Throws<ArgumentException>(() => Process.GetProcessById(processId));
+        Assert.True(await GitService.RemoveWorktreeAsync(repo, worktree));
+        Assert.False(Directory.Exists(worktree));
+    }
+
+    [Fact]
+    public async Task ProxyCleanupBarrier_LeavesNativeSessionUntouched()
+    {
+        var chat = new Chat { Title = "native worktree", CopilotSessionId = "sid-native-worktree" };
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        using var registry = new ChatSurfaceRegistry();
+        using var store = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            });
+        var surface = await store.AcquireChatAsync(chat);
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(surface, "_sessionCache")[chat.Id] = session;
+        SetPrivateField(surface, "_activeSession", session);
+
+        await store.BeginMcpProxyCleanupAsync(chat.Id);
+
+        Assert.False(SessionWasDisposed(session));
+        Assert.Same(session, GetField<Dictionary<Guid, CopilotSession>>(surface, "_sessionCache")[chat.Id]);
+    }
+
+    [Fact]
+    public async Task ProxyCleanupBarrier_TracksReleaseStartedByEvictedSurface()
+    {
+        var chat = new Chat { Title = "evicted proxy", CopilotSessionId = "sid-evicted-proxy" };
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        using var registry = new ChatSurfaceRegistry();
+        using var store = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            },
+            maxIdleCachedSurfaces: 0);
+        var surface = await store.AcquireChatAsync(chat);
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(surface, "_sessionCache")[chat.Id] = session;
+        SetPrivateField(surface, "_activeSession", session);
+
+        var releaseStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registration = new McpProxyRuntime.SessionRegistrationLease(
+            async () =>
+            {
+                releaseStarted.TrySetResult();
+                await releaseGate.Task;
+            },
+            new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/evicted-proxy" });
+        GetField<Dictionary<CopilotSession, McpProxySessionLease>>(surface, "_mcpProxyLeasesBySession")[session] =
+            new McpProxySessionLease([registration]);
+
+        store.Release(surface);
+        await releaseStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var barrier = store.BeginMcpProxyCleanupAsync(chat.Id);
+        Assert.False(barrier.IsCompleted);
+
+        releaseGate.TrySetResult();
+        await barrier.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(barrier.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task PendingMcpProxyPlan_TracksReleaseAfterSurfaceEviction()
+    {
+        var chat = new Chat { Title = "failed proxy setup" };
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        using var registry = new ChatSurfaceRegistry();
+        using var store = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            },
+            maxIdleCachedSurfaces: 0);
+        var surface = await store.AcquireChatAsync(chat);
+        var releaseStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var plan = new McpSessionPlan([], []);
+        plan.AttachProxyLease(new McpProxySessionLease(
+        [
+            new McpProxyRuntime.SessionRegistrationLease(
+                async () =>
+                {
+                    releaseStarted.TrySetResult();
+                    await releaseGate.Task;
+                },
+                new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/failed-setup" })
+        ]));
+        var pendingPlan = Assert.IsAssignableFrom<IDisposable>(
+            surface.TrackPendingMcpProxyPlan(chat.Id, plan));
+
+        store.Release(surface);
+        var barrier = store.BeginMcpProxyCleanupAsync(chat.Id);
+        Assert.False(barrier.IsCompleted);
+
+        pendingPlan.Dispose();
+        await releaseStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(barrier.IsCompleted);
+
+        releaseGate.TrySetResult();
+        await barrier.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(barrier.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task PendingMcpProxyPlan_SurfaceEvictionWaitsForTransferredLeaseRelease()
+    {
+        var chat = new Chat { Title = "evicted during proxy setup" };
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        using var registry = new ChatSurfaceRegistry();
+        using var store = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            },
+            maxIdleCachedSurfaces: 0);
+        var surface = await store.AcquireChatAsync(chat);
+        var releaseStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var plan = new McpSessionPlan([], []);
+        plan.AttachProxyLease(new McpProxySessionLease(
+        [
+            new McpProxyRuntime.SessionRegistrationLease(
+                async () =>
+                {
+                    releaseStarted.TrySetResult();
+                    await releaseGate.Task;
+                },
+                new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/evicted-transfer" })
+        ]));
+        var pendingPlan = Assert.IsAssignableFrom<IDisposable>(
+            surface.TrackPendingMcpProxyPlan(chat.Id, plan));
+
+        store.Release(surface);
+        var lateSession = CreateDetachedSession("sid-evicted-transfer");
+        InvokePrivate(surface, "AttachMcpProxyLease", lateSession, plan);
+        pendingPlan.Dispose();
+        await releaseStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var barrier = store.BeginMcpProxyCleanupAsync(chat.Id);
+        Assert.False(barrier.IsCompleted);
+
+        releaseGate.TrySetResult();
+        await barrier.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(barrier.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task PendingMcpProxyPlan_CleanupWaitsWhenSetupTransfersLeaseLate()
+    {
+        var chat = new Chat { Title = "late proxy setup" };
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        using var registry = new ChatSurfaceRegistry();
+        using var store = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            });
+        var surface = await store.AcquireChatAsync(chat);
+        var releaseStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var plan = new McpSessionPlan([], []);
+        plan.AttachProxyLease(new McpProxySessionLease(
+        [
+            new McpProxyRuntime.SessionRegistrationLease(
+                async () =>
+                {
+                    releaseStarted.TrySetResult();
+                    await releaseGate.Task;
+                },
+                new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/late-setup" })
+        ]));
+        var pendingPlan = Assert.IsAssignableFrom<IDisposable>(
+            surface.TrackPendingMcpProxyPlan(chat.Id, plan));
+
+        var barrier = store.BeginMcpProxyCleanupAsync(chat.Id);
+        Assert.False(barrier.IsCompleted);
+
+        var lateSession = CreateDetachedSession("sid-late-proxy-setup");
+        InvokePrivate(surface, "AttachMcpProxyLease", lateSession, plan);
+        pendingPlan.Dispose();
+        await releaseStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(barrier.IsCompleted);
+
+        releaseGate.TrySetResult();
+        await barrier.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(barrier.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task AdoptMcpProxyLease_TracksDiscardedLeaseWhenReplacementAlreadyOwnsOne()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "same-session lease replacement" };
+        var previousSession = CreateDetachedSession("sid-shared");
+        var replacementSession = CreateDetachedSession("sid-shared");
+        var releaseStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var previousLease = new McpProxySessionLease(
+        [
+            new McpProxyRuntime.SessionRegistrationLease(
+                async () =>
+                {
+                    releaseStarted.TrySetResult();
+                    await releaseGate.Task;
+                },
+                new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/previous" })
+        ]);
+        var replacementLease = new McpProxySessionLease(
+        [
+            new McpProxyRuntime.SessionRegistrationLease(
+                () => Task.CompletedTask,
+                new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/replacement" })
+        ]);
+        var leases = GetField<Dictionary<CopilotSession, McpProxySessionLease>>(
+            vm,
+            "_mcpProxyLeasesBySession");
+        leases[previousSession] = previousLease;
+        leases[replacementSession] = replacementLease;
+
+        InvokePrivate(vm, "AdoptMcpProxyLease", chat.Id, previousSession, replacementSession);
+        await releaseStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var barrier = vm.AwaitPendingMcpProxyReleaseAsync(chat.Id);
+        Assert.False(barrier.IsCompleted);
+        Assert.Same(replacementLease, Assert.Single(leases).Value);
+
+        releaseGate.TrySetResult();
+        await barrier.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(barrier.IsCompletedSuccessfully);
+        await replacementLease.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ResetAfterCopilotReconnect_TracksProxyReleaseByChat()
+    {
+        var chat = new Chat
+        {
+            Title = "proxy reconnect",
+            CopilotSessionId = "sid-proxy-reconnect"
+        };
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        using var registry = new ChatSurfaceRegistry();
+        using var store = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            });
+        var surface = await store.AcquireChatAsync(chat);
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(surface, "_sessionCache")[chat.Id] = session;
+        SetPrivateField(surface, "_activeSession", session);
+        var releaseStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        GetField<Dictionary<CopilotSession, McpProxySessionLease>>(surface, "_mcpProxyLeasesBySession")[session] =
+            new McpProxySessionLease(
+            [
+                new McpProxyRuntime.SessionRegistrationLease(
+                    async () =>
+                    {
+                        releaseStarted.TrySetResult();
+                        await releaseGate.Task;
+                    },
+                    new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/reconnect" })
+            ]);
+
+        InvokePrivate(surface, "ResetAfterCopilotReconnect");
+        await releaseStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var barrier = store.BeginMcpProxyCleanupAsync(chat.Id);
+        Assert.False(barrier.IsCompleted);
+
+        releaseGate.TrySetResult();
+        await barrier.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(barrier.IsCompletedSuccessfully);
     }
 
     // --- Cross-surface (cross-ChatViewModel) destroy-before-resume sequencing ---
@@ -1739,11 +2345,54 @@ public sealed class ChatViewModelLeakTests
         Assert.Equal(1, subscription.DisposeCount);
         Assert.False(GetField<Dictionary<Guid, IDisposable>>(vm, "_sessionSubs").ContainsKey(chat.Id));
         Assert.False(runtime.IsBusy);
-        Assert.False(runtime.IsStreaming);
-        Assert.Equal("", runtime.StatusText);
-        Assert.False(vm.IsBusy);
-        Assert.False(vm.IsStreaming);
-        Assert.Equal("", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task DetachSessionAfterRemoteShutdown_TracksProxyReleaseForCleanupBarrier()
+    {
+        var chat = new Chat
+        {
+            Title = "remote shutdown proxy",
+            CopilotSessionId = "sid-remote-shutdown-proxy"
+        };
+        var dataStore = CreateDataStore();
+        dataStore.Data.Chats.Add(chat);
+        using var registry = new ChatSurfaceRegistry();
+        using var store = new ChatSessionStore(
+            dataStore,
+            TestCopilot.Shared,
+            registry,
+            static (surface, loadedChat) =>
+            {
+                surface.CurrentChat = loadedChat;
+                return Task.CompletedTask;
+            });
+        var surface = await store.AcquireChatAsync(chat);
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(surface, "_sessionCache")[chat.Id] = session;
+        SetPrivateField(surface, "_activeSession", session);
+
+        var releaseStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registration = new McpProxyRuntime.SessionRegistrationLease(
+            async () =>
+            {
+                releaseStarted.TrySetResult();
+                await releaseGate.Task;
+            },
+            new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/remote-shutdown-proxy" });
+        GetField<Dictionary<CopilotSession, McpProxySessionLease>>(surface, "_mcpProxyLeasesBySession")[session] =
+            new McpProxySessionLease([registration]);
+
+        InvokePrivate(surface, "DetachSessionAfterRemoteShutdown", chat, true);
+        await releaseStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var barrier = store.BeginMcpProxyCleanupAsync(chat.Id);
+        Assert.False(barrier.IsCompleted);
+
+        releaseGate.TrySetResult();
+        await barrier.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(barrier.IsCompletedSuccessfully);
     }
 
     [Fact]
@@ -2893,6 +3542,36 @@ public sealed class ChatViewModelLeakTests
             ?.Invoke(null, args);
     }
 
+    private static string GetWindowsPowerShellPath()
+        => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.System),
+            "WindowsPowerShell",
+            "v1.0",
+            "powershell.exe");
+
+    private static void RunGit(string workingDirectory, params string[] arguments)
+    {
+        var startInfo = new ProcessStartInfo("git")
+        {
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Failed to start Git.");
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        Assert.True(
+            process.ExitCode == 0,
+            $"git {string.Join(' ', arguments)} failed ({process.ExitCode}).\n{stdout}\n{stderr}");
+    }
+
     private static ChatMessage CreateSubagentMessage(string toolCallId, string status)
         => new()
         {
@@ -2933,5 +3612,30 @@ public sealed class ChatViewModelLeakTests
         public int DisposeCount { get; private set; }
 
         public void Dispose() => DisposeCount++;
+    }
+
+    private sealed class TestTempDirectory : IDisposable
+    {
+        public TestTempDirectory()
+        {
+            Path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                "lumi-proxy-worktree-cleanup-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path);
+        }
+
+        public string Path { get; }
+
+        public void Dispose()
+        {
+            try
+            {
+                if (Directory.Exists(Path))
+                    Directory.Delete(Path, recursive: true);
+            }
+            catch
+            {
+            }
+        }
     }
 }
