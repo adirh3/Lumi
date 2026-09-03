@@ -53,7 +53,7 @@
   </Target>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia.Android" Version="12.1.0" />
+    <PackageReference Include="Avalonia.Android" Version="$(AvaloniaVersion)" />
     <PackageReference Include="Xamarin.AndroidX.Window.WindowJava" Version="1.5.1.2" />
   </ItemGroup>
 
