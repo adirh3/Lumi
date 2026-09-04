@@ -2942,16 +2942,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Called when project settings change so the next message recreates the session
+    /// Called when project settings change so the next message resumes the existing session
     /// with updated project instructions, context folders, file-based skills/agents, and MCPs.
     /// </summary>
     public void InvalidateProjectSession()
     {
-        if (CurrentChat is not null)
-        {
-            InvalidateCurrentSession();
-            _pendingSkillInjections.Clear();
-        }
+        if (CurrentChat is null)
+            return;
+
+        InvalidateSessionConfiguration();
+        _pendingSkillInjections.Clear();
     }
 
     /// <summary>
@@ -2971,6 +2971,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat is not { } chat)
             return;
 
+        InvalidateSessionConfiguration(chat);
+    }
+
+    private void InvalidateSessionConfiguration(Chat chat)
+    {
         if (OwnsLiveChat(chat.Id))
         {
             _pendingSessionReconfigurations.Add(chat.Id);
@@ -2987,7 +2992,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// Called when the current chat's project assignment was changed from outside the composer
     /// (e.g. moved between projects via the sidebar context menu). Mirrors the refresh performed by
     /// <see cref="SetProjectId"/>/<see cref="ClearProjectId"/> so the live surface stays in sync:
-    /// rebuilds the session so the next turn uses the new project's system prompt and working
+    /// reconfigures the session so the next turn uses the new project's system prompt and working
     /// directory, updates the composer project chip/selection, and rescans project-scoped catalogs.
     /// </summary>
     public void OnCurrentChatProjectChangedExternally()
@@ -2995,21 +3000,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (CurrentChat is null)
             return;
 
-        if (OwnsLiveChat(CurrentChat.Id))
-        {
-            // A turn is in flight for this chat. Tearing the session down now would cancel the
-            // in-flight response the user never asked to stop (and, mid-session-setup, could leave a
-            // fresh session built from the OLD project). Defer instead: the current turn finishes on
-            // its existing session, and the NEXT send consumes this and rebuilds with the new project
-            // (same mechanism used for busy MCP/project changes elsewhere).
-            _pendingSessionInvalidations.Add(CurrentChat.Id);
-        }
-        else if (CurrentChat.CopilotSessionId is not null)
-        {
-            // Idle with an established session: rebuild eagerly so the next turn uses the new project.
-            InvalidateProjectSession();
-        }
-        // Idle with no session: nothing to invalidate — EnsureSessionAsync builds fresh on first send.
+        // A busy turn finishes on its current configuration. The next send resumes the same server
+        // session with the new project context; an idle session is released immediately for that
+        // same-ID resume. No-session chats simply build from the new project on first send.
+        InvalidateProjectSession();
 
         SyncComposerProjectSelectionFromState();
         RefreshProjectBadge();
@@ -3065,8 +3059,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         return true;
     }
 
+    private bool HasPendingSessionRefresh(Guid chatId)
+        => _pendingSessionInvalidations.Contains(chatId)
+           || _pendingSessionReconfigurations.Contains(chatId);
+
     private void ReconfigureSession(Chat chat)
     {
+        _pendingSessionReconfigurations.Remove(chat.Id);
         CancelPendingQuestions(chat);
         ReleaseSessionResources(chat.Id, cancelActiveRequest: true);
         RemoveSuggestionTracking(chat.Id);
@@ -3488,7 +3487,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (needsSessionSetup)
             {
                 var previousSessionId = targetChat.CopilotSessionId;
-                var ok = await EnsureSessionAsync(targetChat, cts.Token, allowCreateFallback: true);
+                var ok = await EnsureSessionAsync(
+                    targetChat,
+                    cts.Token,
+                    allowCreateFallback: true);
                 if (!ok)
                     throw new InvalidOperationException(Loc.Status_OriginalSessionUnavailable);
 
@@ -3796,10 +3798,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>
     /// True when the composer's CURRENT selection (agent, MCP servers, or active skills) differs from
     /// the pre-edit snapshot — i.e. from what the live Copilot session was built with. Those settings
-    /// are baked into the session at create/resume (system prompt + registered tools) and cannot be
-    /// reconfigured on a reused session, so a divergence means the history-rewind fast-path must be
-    /// replaced by a full recreate. Compared against the snapshot (not CurrentChat), because by send
-    /// time the composer selection has already been copied onto the chat and message.
+    /// are supplied at create/resume (system prompt + registered tools), so a divergence means the
+    /// rewound server session must be resumed with updated configuration before the edit is resent.
+    /// Compared against the snapshot (not CurrentChat), because by send time the composer selection
+    /// has already been copied onto the chat and message.
     /// </summary>
     private bool ComposerSelectionDivergesFromSnapshot(ComposerEditSnapshot? snapshot)
     {
@@ -3817,12 +3819,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (!new HashSet<Guid>(snapshot.ActiveSkillIds).SetEquals(ActiveSkillIds))
             return true;
 
-        // File-based Copilot skills are deliberately not compared here: they are never baked into the
-        // session, they are activated per-turn on the resend, so changing them needs no recreate.
+        // File-based Copilot skills are deliberately not compared here: they are activated per-turn on
+        // the resend, so changing them needs no session reconfiguration.
 
         // A skill selected before editing can already be active in the composer/chat while still
-        // waiting for next-turn prompt injection because the live session predates it. Recreate so
-        // the edited turn's session is built with that skill instead of skipping the pending injection.
+        // waiting for next-turn prompt injection because the live session predates it. Resume with the
+        // updated system prompt so the edited turn receives that skill without replaying the transcript.
         if (snapshot.PendingSkillInjections.Any(snapshot.ActiveSkillIds.Contains))
             return true;
 
@@ -3945,7 +3947,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // NOW, while the snapshot still exists and before it's cleared below. Comparing against the
         // snapshot rather than the chat/message is essential: the two Apply* calls above have already
         // copied the composer selection onto both, so a chat-vs-message comparison would always match.
-        var requiresSessionRebuild = ComposerSelectionDivergesFromSnapshot(_preEditComposerSnapshot);
+        var requiresSessionReconfiguration = ComposerSelectionDivergesFromSnapshot(_preEditComposerSnapshot);
 
         _editingUserMessage = null;
         _preEditComposerSnapshot = null;
@@ -3954,7 +3956,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         PromptText = string.Empty;
         _chatDrafts.Remove(CurrentChat.Id);
 
-        await ResendFromMessageAsync(userMessage, wasEdited: true, attachments, requiresSessionRebuild);
+        await ResendFromMessageAsync(
+            userMessage,
+            wasEdited: true,
+            attachments,
+            requiresSessionReconfiguration);
     }
 
     private void ReplacePendingAttachments(IEnumerable<string> paths)
@@ -4592,10 +4598,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (needsSessionSetup)
             {
                 var previousSessionId = targetChat.CopilotSessionId;
-                var ok = await EnsureSessionAsync(
-                    targetChat,
-                    cts.Token,
-                    allowCreateFallback: true);
+                var ok = await EnsureSessionAsync(targetChat, cts.Token, allowCreateFallback: true);
                 if (!ok)
                 {
                     HandleSendError(
@@ -6465,7 +6468,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ChatMessage userMessage,
         bool wasEdited,
         List<Attachment>? attachmentsOverride,
-        bool requiresSessionRebuild = false)
+        bool requiresSessionReconfiguration = false)
     {
         if (CurrentChat is null) return;
 
@@ -6505,10 +6508,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // Whether the edited turn's agent/MCP/skills diverge from what the live session was built with.
         // The caller (SendEditedMessage) computes this against the pre-edit composer snapshot, because
         // by now the edited selection has already been copied onto both the chat and the message, so a
-        // local chat-vs-message comparison would always match. When they diverge we must recreate the
-        // session (those settings only apply at create/resume) rather than take the history-rewind
-        // fast-path, otherwise the replacement turn would run with stale agent/MCP/skills.
-        var editRequiresSessionRebuild = wasEdited && requiresSessionRebuild;
+        // local chat-vs-message comparison would always match. When they diverge, the rewound session
+        // must be resumed with updated configuration before the replacement turn is sent.
+        var editRequiresSessionReconfiguration = wasEdited && requiresSessionReconfiguration;
 
         ApplyMessageSelectionsToChat(CurrentChat, userMessage, selectedReasoningEffort);
 
@@ -6638,51 +6640,30 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var cts = new CancellationTokenSource();
 
             var historyRewound = false;
-            if (wasEdited && !editRequiresSessionRebuild)
+            if (wasEdited)
             {
                 historyRewound = await TryRewindEditedHistoryAsync(CurrentChat, retainedContext, cts.Token);
                 if (historyRewound)
                 {
-                    // Live session preserved with history rewound to before the edited turn.
                     shouldReplayPrompt = false;
-                    needsSessionSetup = false;
+                    if (editRequiresSessionReconfiguration)
+                    {
+                        ReconfigureSession(CurrentChat);
+                        _pendingSkillInjections.Clear();
+                        needsSessionSetup = true;
+                    }
+                    else
+                    {
+                        needsSessionSetup = false;
+                    }
                 }
                 else
                 {
                     // Rewind unavailable — recreate the session and replay the retained
                     // transcript as text so no pre-edit server context leaks into the reply.
                     InvalidateCurrentSession();
-                    needsSessionSetup = true;
-                }
-            }
-            else if (wasEdited)
-            {
-                // The edited turn changed agent/MCP/skills, which only apply at session create/resume.
-                // Recreate the session (and replay the retained transcript) so it is rebuilt from the
-                // edited selection now persisted on the chat, instead of reusing a stale session.
-                InvalidateCurrentSession();
-                _pendingSkillInjections.Clear();
-                needsSessionSetup = true;
-            }
-
-            if (historyRewound)
-            {
-                // On the reused (rewound) session, model/effort/context aren't re-applied by session
-                // setup and the begin-edit hydration was side-effect-suppressed. Reconcile them here,
-                // awaited, so the replacement turn runs on the model/effort/context recorded in the
-                // edited ChatMessage. If the reused session can't adopt them (SetModelAsync failed),
-                // recreate + replay so the turn never silently runs on the session's stale model.
-                CancelPendingMidSessionModelSync();
-                var reconciled = await SwitchModelMidSessionAsync(
-                    userMessage.Model,
-                    selectedReasoningEffort,
-                    selectedContextWindowTier);
-                if (!reconciled)
-                {
-                    ClearPendingSessionInvalidation(chatId);
-                    InvalidateCurrentSession();
-                    historyRewound = false;
-                    shouldReplayPrompt = true;
+                    if (editRequiresSessionReconfiguration)
+                        _pendingSkillInjections.Clear();
                     needsSessionSetup = true;
                 }
             }
@@ -6695,31 +6676,48 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
                 if (!ok)
                 {
-                    StatusText = "Session expired. Please start a new chat.";
-                    var errorMsg = new ChatMessage
-                    {
-                        Role = "error",
-                        Author = Loc.Author_Lumi,
-                        Content = "Session expired. Please start a new chat to continue."
-                    };
-                    CurrentChat.Messages.Add(errorMsg);
-                    PublishTerminalChatLifecycleEventOnce(
-                        CurrentChat,
-                        ChatLifecycleEventTypes.Error,
-                        errorMsg.Content);
-                    var msgVm = new ChatMessageViewModel(errorMsg);
-                    Messages.Add(msgVm);
-                    ScrollToEndRequested?.Invoke();
+                    AppendResendSessionUnavailable(CurrentChat);
                     return;
                 }
 
-                if (!wasEdited)
+                var sessionWasReplaced = !string.Equals(
+                    previousSessionId,
+                    CurrentChat.CopilotSessionId,
+                    StringComparison.Ordinal);
+                if (sessionWasReplaced)
                 {
                     shouldReplayPrompt = ShouldReplayTranscriptAfterSessionReset(
                         chatWasCreatedThisTurn: false,
                         previousSessionId,
                         CurrentChat.CopilotSessionId,
                         retainedContext.Count);
+                    if (wasEdited)
+                        historyRewound = false;
+                }
+            }
+
+            if (historyRewound)
+            {
+                CancelPendingMidSessionModelSync();
+                var reconciled = await SwitchModelMidSessionAsync(
+                    userMessage.Model,
+                    selectedReasoningEffort,
+                    selectedContextWindowTier);
+                if (!reconciled)
+                {
+                    ClearPendingSessionInvalidation(chatId);
+                    _ctsSources.Remove(chatId);
+                    InvalidateCurrentSession();
+                    _ctsSources[chatId] = cts;
+                    historyRewound = false;
+                    shouldReplayPrompt = true;
+
+                    var ok = await EnsureSessionAsync(CurrentChat, cts.Token, allowCreateFallback: true);
+                    if (!ok)
+                    {
+                        AppendResendSessionUnavailable(CurrentChat);
+                        return;
+                    }
                 }
             }
 
@@ -6875,6 +6873,24 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 ClearPendingTurnTracking(CurrentChat.Id);
             HandleSendError(ex, WasCancelledByUser(CurrentChat?.Id));
         }
+    }
+
+    private void AppendResendSessionUnavailable(Chat chat)
+    {
+        StatusText = "Session expired. Please start a new chat.";
+        var errorMsg = new ChatMessage
+        {
+            Role = "error",
+            Author = Loc.Author_Lumi,
+            Content = "Session expired. Please start a new chat to continue."
+        };
+        chat.Messages.Add(errorMsg);
+        PublishTerminalChatLifecycleEventOnce(
+            chat,
+            ChatLifecycleEventTypes.Error,
+            errorMsg.Content);
+        Messages.Add(new ChatMessageViewModel(errorMsg));
+        ScrollToEndRequested?.Invoke();
     }
 
     /// <summary>

@@ -175,7 +175,7 @@ public partial class ChatViewModel
     public bool CanRefreshContextDetails
         => CurrentChat is { } chat
            && !string.IsNullOrWhiteSpace(chat.CopilotSessionId)
-           && !_pendingSessionInvalidations.Contains(CurrentChat.Id)
+           && !HasPendingSessionRefresh(CurrentChat.Id)
            && !IsBusy
            && !IsContextDetailsLoading
            && !IsContextOperationRunning
@@ -184,6 +184,7 @@ public partial class ChatViewModel
     public bool CanCompactContext
         => CurrentChat is { } chat
            && !string.IsNullOrWhiteSpace(chat.CopilotSessionId)
+           && !HasPendingSessionRefresh(CurrentChat.Id)
            && HasContextUsage
            && !IsBusy
            && !IsContextDetailsLoading
@@ -438,7 +439,7 @@ public partial class ChatViewModel
         SeedContextIdentity(chat);
         if (string.IsNullOrWhiteSpace(chat.CopilotSessionId))
             return;
-        if (_pendingSessionInvalidations.Contains(chat.Id))
+        if (HasPendingSessionRefresh(chat.Id))
             return;
 
         if (_usesSyntheticContextDetails)

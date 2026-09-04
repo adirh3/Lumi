@@ -552,7 +552,7 @@ public sealed class ChatTokenUsageDisplayTests
     }
 
     [Fact]
-    public void PendingSessionInvalidation_DisablesRefreshAndImmediateRebuildClearsTheMarker()
+    public void PendingSessionRefresh_DisablesContextActionsUntilTheMarkerIsCleared()
     {
         var chat = new Chat
         {
@@ -575,14 +575,18 @@ public sealed class ChatTokenUsageDisplayTests
         {
             CurrentChat = chat
         };
+        viewModel.ContextCurrentTokens = chat.ContextCurrentTokens;
+        viewModel.ContextTokenLimit = chat.ContextTokenLimit;
         Assert.True(viewModel.CanRefreshContextDetails);
+        Assert.True(viewModel.CanCompactContext);
 
-        var invalidate = typeof(ChatViewModel).GetMethod(
-            "InvalidateCurrentSessionForModelSwitch",
-            BindingFlags.Instance | BindingFlags.NonPublic)!;
-        invalidate.Invoke(viewModel, null);
+        var pendingReconfigurations = (HashSet<Guid>)typeof(ChatViewModel).GetField(
+            "_pendingSessionReconfigurations",
+            BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(viewModel)!;
+        pendingReconfigurations.Add(chat.Id);
 
         Assert.False(viewModel.CanRefreshContextDetails);
+        Assert.False(viewModel.CanCompactContext);
 
         var clear = typeof(ChatViewModel).GetMethod(
             "ClearPendingSessionInvalidation",
@@ -590,6 +594,7 @@ public sealed class ChatTokenUsageDisplayTests
         clear.Invoke(viewModel, [chat.Id]);
 
         Assert.True(viewModel.CanRefreshContextDetails);
+        Assert.True(viewModel.CanCompactContext);
     }
 
     [Fact]

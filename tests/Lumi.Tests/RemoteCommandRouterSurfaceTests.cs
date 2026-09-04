@@ -1489,7 +1489,7 @@ public sealed class RemoteCommandRouterSurfaceTests
     });
 
     [Fact]
-    public Task ProjectFeatureRefreshInvalidatesOnlyAffectedBusyChats() => RunAsync(async () =>
+    public Task ProjectFeatureRefreshReconfiguresOnlyAffectedBusyChats() => RunAsync(async () =>
     {
         using var rig = await DetachedRig.CreateAsync(includeProject: true);
         rig.DetachedChat.ProjectId = rig.ProjectId;
@@ -1501,10 +1501,13 @@ public sealed class RemoteCommandRouterSurfaceTests
             RemoteProtocol.Resources.Projects,
             new HashSet<Guid> { rig.DetachedChat.Id });
 
-        var mainPending = GetPrivateField<HashSet<Guid>>(rig.Main.ChatVM, "_pendingSessionInvalidations");
-        var detachedPending = GetPrivateField<HashSet<Guid>>(rig.DetachedSurface, "_pendingSessionInvalidations");
+        var mainPending = GetPrivateField<HashSet<Guid>>(rig.Main.ChatVM, "_pendingSessionReconfigurations");
+        var detachedPending = GetPrivateField<HashSet<Guid>>(rig.DetachedSurface, "_pendingSessionReconfigurations");
         Assert.DoesNotContain(rig.MainChat.Id, mainPending);
         Assert.Contains(rig.DetachedChat.Id, detachedPending);
+        Assert.DoesNotContain(
+            rig.DetachedChat.Id,
+            GetPrivateField<HashSet<Guid>>(rig.DetachedSurface, "_pendingSessionInvalidations"));
     });
 
     [Fact]

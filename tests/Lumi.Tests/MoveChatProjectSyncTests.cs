@@ -14,8 +14,8 @@ namespace Lumi.Tests;
 /// <summary>
 /// Regression coverage for moving a chat between projects from the sidebar while that chat is the
 /// live/active surface. Moving must propagate to the open surface: the composer project chip updates,
-/// and an established Copilot session is dropped so the next turn rebuilds the system prompt and
-/// working directory from the new project (otherwise the model keeps answering with the old project).
+/// and an established Copilot session is resumed with the new system prompt and working directory
+/// without losing native history or replaying the transcript.
 /// </summary>
 [Collection("Headless UI")]
 public sealed class MoveChatProjectSyncTests
@@ -72,7 +72,7 @@ public sealed class MoveChatProjectSyncTests
     }
 
     [Fact]
-    public async Task AssignChatToProject_ForActiveChatWithSession_DropsSessionSoNextTurnRebuildsContext()
+    public async Task AssignChatToProject_ForActiveChatWithSession_PreservesSessionForContextRefresh()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -97,9 +97,42 @@ public sealed class MoveChatProjectSyncTests
             viewModel.AssignChatToProjectCommand.Execute(new object[] { chat, work });
 
             Assert.Equal(work.Id, chat.ProjectId);
-            // The live session is discarded so EnsureSessionAsync rebuilds the system prompt AND the
-            // working directory from the new project on the next send.
-            Assert.Null(chat.CopilotSessionId);
+            Assert.Equal("session-abc", chat.CopilotSessionId);
+            Assert.DoesNotContain(
+                chat.Id,
+                GetPrivateField<HashSet<Guid>>(viewModel.ChatVM, "_pendingSessionInvalidations"));
+
+            viewModel.Dispose();
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ComposerProjectChanges_PreserveExistingSessionId()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            Loc.Load("en");
+            var work = new Project { Name = "Work" };
+            var personal = new Project { Name = "Personal" };
+            var chat = new Chat
+            {
+                Title = "Active chat",
+                ProjectId = personal.Id,
+                CopilotSessionId = "session-composer"
+            };
+            var viewModel = CreateViewModel([work, personal], chat);
+            viewModel.ChatVM.CurrentChat = chat;
+
+            viewModel.ChatVM.SetProjectId(work.Id);
+            Assert.Equal("session-composer", chat.CopilotSessionId);
+
+            viewModel.ChatVM.ClearProjectId();
+            Assert.Equal("session-composer", chat.CopilotSessionId);
+            Assert.DoesNotContain(
+                chat.Id,
+                GetPrivateField<HashSet<Guid>>(viewModel.ChatVM, "_pendingSessionInvalidations"));
 
             viewModel.Dispose();
         }, CancellationToken.None);
@@ -132,7 +165,7 @@ public sealed class MoveChatProjectSyncTests
     }
 
     [Fact]
-    public async Task AssignChatToProject_ForActiveBusyChat_DefersRebuildInsteadOfAbortingTurn()
+    public async Task AssignChatToProject_ForActiveBusyChat_DefersSameSessionReconfiguration()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -160,10 +193,15 @@ public sealed class MoveChatProjectSyncTests
             viewModel.AssignChatToProjectCommand.Execute(new object[] { chat, work });
 
             Assert.Equal(work.Id, chat.ProjectId);
-            // The in-flight turn must NOT be torn down: session preserved, rebuild deferred to next send.
+            // The in-flight turn must not be torn down. The next send resumes the same session with
+            // the new project configuration instead of replaying the transcript into a replacement.
             Assert.Equal("session-live", chat.CopilotSessionId);
-            var pending = GetPrivateField<HashSet<Guid>>(chatVm, "_pendingSessionInvalidations");
-            Assert.Contains(chat.Id, pending);
+            Assert.Contains(
+                chat.Id,
+                GetPrivateField<HashSet<Guid>>(chatVm, "_pendingSessionReconfigurations"));
+            Assert.DoesNotContain(
+                chat.Id,
+                GetPrivateField<HashSet<Guid>>(chatVm, "_pendingSessionInvalidations"));
             // The composer chip still updates immediately even while busy.
             Assert.Equal("Work", chatVm.ProjectBadgeText);
             Assert.Equal("Work", chatVm.SelectedProjectName);

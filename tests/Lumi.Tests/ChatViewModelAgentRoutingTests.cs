@@ -445,6 +445,34 @@ public sealed class ChatViewModelAgentRoutingTests
     }
 
     [Fact]
+    public void PendingSessionReconfiguration_MakesCachedSessionNonSteerable()
+    {
+        var currentChat = CreateChatWithMessage("Current chat");
+        currentChat.LastModelUsed = "gpt-4o";
+        currentChat.CopilotSessionId = "session-1";
+        using var harness = CreateHarness(new AppData
+        {
+            Chats = [currentChat],
+            Settings = new UserSettings { PreferredModel = "gpt-4o" }
+        });
+        harness.ViewModel.CurrentChat = currentChat;
+        GetPrivateField<HashSet<Guid>>(
+            harness.ViewModel,
+            "_pendingSessionReconfigurations").Add(currentChat.Id);
+        var session = CreateDetachedSession(currentChat.CopilotSessionId!);
+
+        var method = typeof(ChatViewModel).GetMethod(
+            "IsCachedSessionProviderConsistentWithSelection",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        var consistent = Assert.IsType<bool>(method!.Invoke(
+            harness.ViewModel,
+            [currentChat.Id, session]));
+
+        Assert.False(consistent);
+    }
+
+    [Fact]
     public void RequeueMaterializedSteer_PreservesMessageAttachmentsStateAndFrontOrder()
     {
         var chat = CreateChatWithMessage("Active chat");
@@ -1020,6 +1048,17 @@ public sealed class ChatViewModelAgentRoutingTests
             Title = title,
             Messages = [new Lumi.Models.ChatMessage { Role = "user", Content = "hello" }]
         };
+    }
+
+    private static CopilotSession CreateDetachedSession(string sessionId)
+    {
+        var session = (CopilotSession)System.Runtime.CompilerServices.RuntimeHelpers
+            .GetUninitializedObject(typeof(CopilotSession));
+        typeof(CopilotSession)
+            .GetField("<SessionId>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(session, sessionId);
+        GC.SuppressFinalize(session);
+        return session;
     }
 
     private static GitHub.Copilot.ModelInfo CreateModel(string id, params string[] efforts)

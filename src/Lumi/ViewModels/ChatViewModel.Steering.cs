@@ -46,12 +46,11 @@ public partial class ChatViewModel
             && queued.Count > 0;
 
         // Privacy/routing guard: an immediate steer sends through the ALREADY-CACHED session, which was
-        // built for whatever provider the chat used when the turn started. If the user has since changed
-        // the model (or the session was invalidated for any reason), the cached session's provider no
-        // longer matches the selected route, and steering would deliver the prompt to the WRONG backend
-        // — exactly the UseBYOKOnly bypass. Treat such a state as non-steerable: queue a fresh turn that
-        // will rebuild the session against the new provider. This must run before any attachment/transcript
-        // mutation so a deferred prompt is neither consumed nor rendered as "steering".
+        // built for whatever provider/configuration the chat used when the turn started. If the user has
+        // since changed the provider, project, workspace, agent, or another resume-time option, steering
+        // would use stale configuration. Treat such a state as non-steerable and queue a fresh turn.
+        // This must run before any attachment/transcript mutation so a deferred prompt is neither
+        // consumed nor rendered as "steering".
         var sessionProviderMismatch =
             session is not null
             && !hasQueuedSends
@@ -338,14 +337,14 @@ public partial class ChatViewModel
     /// provider of the currently selected model route. Used by <see cref="SteerActiveTurnAsync"/> to
     /// ensure a prompt is never steered through a session built for a different backend (the
     /// UseBYOKOnly privacy hole: selecting a BYOK model does not rebuild the active GitHub session, so
-    /// an immediate steer would otherwise deliver the prompt to GitHub). A pending session invalidation
-    /// always counts as inconsistent — the cached session is known-stale regardless of signatures.
+    /// an immediate steer would otherwise deliver the prompt to GitHub). Any pending hard replacement
+    /// or same-ID reconfiguration counts as inconsistent because the cached handle is known-stale.
     /// </summary>
     private bool IsCachedSessionProviderConsistentWithSelection(Guid chatId, CopilotSession session)
     {
-        // A pending invalidation means the session is already known to be stale and will be rebuilt on
-        // the next EnsureSessionAsync — never steer through it.
-        if (_pendingSessionInvalidations.Contains(chatId))
+        // A pending refresh means the session is already known to be stale and will be recreated or
+        // resumed on the next EnsureSessionAsync. Never steer through the old handle.
+        if (HasPendingSessionRefresh(chatId))
             return false;
 
         // Resolve the chat for this session, preferring the current chat for the active session.

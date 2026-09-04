@@ -270,7 +270,7 @@ public sealed class ChatViewModelEditTests
         // No composer change since the snapshot → the rewound session is still valid.
         Assert.False(InvokeDiverges(viewModel, snapshot));
 
-        // Activating an MCP server diverges from the snapshot → must recreate the session.
+        // The rewound session must resume with the changed MCP selection.
         viewModel.ActiveMcpServerNames.Add("different-mcp");
         Assert.True(InvokeDiverges(viewModel, snapshot));
     }
@@ -288,8 +288,7 @@ public sealed class ChatViewModelEditTests
         var appData = new AppData { Chats = [chat], Skills = [skill] };
         var viewModel = new ChatViewModel(new DataStore(appData), TestCopilot.Shared) { CurrentChat = chat };
 
-        // AddSkill on an existing session marks the skill for next-turn injection. Even if the edit
-        // leaves the visible skill selection unchanged, the reused session is stale and must rebuild.
+        // A pending skill must be included when the rewound session resumes.
         viewModel.AddSkill(skill);
         var snapshot = CaptureSnapshot(viewModel);
 

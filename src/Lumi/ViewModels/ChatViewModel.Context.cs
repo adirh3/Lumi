@@ -100,12 +100,11 @@ public partial class ChatViewModel
             if (changed)
                 OnPropertyChanged(nameof(CurrentChat));
 
-            // If project context changed on an existing chat, force a fresh Copilot session
-            // so the next turn uses the updated project system prompt.
-            if (changed && CurrentChat.CopilotSessionId is not null)
+            // A project change is applied through same-ID resume so native conversation history is
+            // retained while the next turn receives the updated system prompt and working directory.
+            if (changed)
             {
-                InvalidateCurrentSession();
-                _pendingSkillInjections.Clear();
+                InvalidateProjectSession();
             }
         }
         else
@@ -162,10 +161,9 @@ public partial class ChatViewModel
             if (changed)
                 OnPropertyChanged(nameof(CurrentChat));
 
-            if (changed && CurrentChat.CopilotSessionId is not null)
+            if (changed)
             {
-                InvalidateCurrentSession();
-                _pendingSkillInjections.Clear();
+                InvalidateProjectSession();
             }
         }
         else

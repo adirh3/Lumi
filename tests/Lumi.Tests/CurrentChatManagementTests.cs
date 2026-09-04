@@ -74,7 +74,7 @@ public sealed class CurrentChatManagementTests
     }
 
     [Fact]
-    public async Task Update_WorkspaceAcceptsNestedFolderAndDefersSessionInvalidation()
+    public async Task Update_WorkspaceAcceptsNestedFolderAndDefersSameSessionReconfiguration()
     {
         using var git = GitFixture.Create();
         var project = new Project
@@ -96,6 +96,7 @@ public sealed class CurrentChatManagementTests
             Chats = [chat]
         });
         harness.ViewModel.CurrentChat = chat;
+        MarkBusy(harness.ViewModel, chat);
 
         var validation = await ChatViewModel.ValidateManagedWorkspaceAsync(
             git.WorktreeProjectDirectory,
@@ -113,12 +114,13 @@ public sealed class CurrentChatManagementTests
         Assert.Equal(git.WorktreeDirectory, harness.ViewModel.WorktreePath);
         Assert.True(harness.ViewModel.IsWorktreeMode);
         Assert.Equal("session-1", chat.CopilotSessionId);
-        Assert.Contains(chat.Id, GetPendingSessionInvalidations(harness.ViewModel));
+        Assert.Contains(chat.Id, GetPendingSessionReconfigurations(harness.ViewModel));
+        Assert.DoesNotContain(chat.Id, GetPendingSessionInvalidations(harness.ViewModel));
         Assert.Contains($"workspace: {git.WorktreeProjectDirectory}", changes);
     }
 
     [Fact]
-    public async Task Update_WorkspaceWithoutPersistedSessionStillQueuesNextTurnInvalidation()
+    public async Task Update_WorkspaceDuringFirstTurnQueuesNextTurnReconfiguration()
     {
         using var git = GitFixture.Create();
         var chat = new Chat { Id = Guid.NewGuid(), Title = "First turn" };
@@ -128,6 +130,8 @@ public sealed class CurrentChatManagementTests
             git.WorktreeDirectory,
             projectDirectory: null);
         Assert.Null(validation.Error);
+        harness.ViewModel.CurrentChat = chat;
+        MarkBusy(harness.ViewModel, chat);
         harness.ViewModel.ApplyManagedCurrentChatUpdate(
             chat,
             normalizedTitle: null,
@@ -135,7 +139,8 @@ public sealed class CurrentChatManagementTests
             workspaceRequested: true,
             clearWorkspace: false);
 
-        Assert.Contains(chat.Id, GetPendingSessionInvalidations(harness.ViewModel));
+        Assert.Contains(chat.Id, GetPendingSessionReconfigurations(harness.ViewModel));
+        Assert.DoesNotContain(chat.Id, GetPendingSessionInvalidations(harness.ViewModel));
         Assert.Null(chat.CopilotSessionId);
     }
 
@@ -163,6 +168,7 @@ public sealed class CurrentChatManagementTests
             Chats = [chat]
         });
         harness.ViewModel.CurrentChat = chat;
+        MarkBusy(harness.ViewModel, chat);
 
         var changes = harness.ViewModel.ApplyManagedCurrentChatUpdate(
             chat,
@@ -175,7 +181,8 @@ public sealed class CurrentChatManagementTests
         Assert.Null(harness.ViewModel.WorktreePath);
         Assert.False(harness.ViewModel.IsWorktreeMode);
         Assert.Equal("session-1", chat.CopilotSessionId);
-        Assert.Contains(chat.Id, GetPendingSessionInvalidations(harness.ViewModel));
+        Assert.Contains(chat.Id, GetPendingSessionReconfigurations(harness.ViewModel));
+        Assert.DoesNotContain(chat.Id, GetPendingSessionInvalidations(harness.ViewModel));
         Assert.Contains("workspace: local/project directory", changes);
         Assert.Contains($"workspace: {git.ProjectDirectory}", harness.ViewModel.DescribeManagedCurrentChat(chat));
     }
@@ -311,12 +318,33 @@ public sealed class CurrentChatManagementTests
         => new(new ChatViewModel(new DataStore(data), TestCopilot.Shared));
 
     private static HashSet<Guid> GetPendingSessionInvalidations(ChatViewModel viewModel)
+        => GetPendingSessionSet(viewModel, "_pendingSessionInvalidations");
+
+    private static HashSet<Guid> GetPendingSessionReconfigurations(ChatViewModel viewModel)
+        => GetPendingSessionSet(viewModel, "_pendingSessionReconfigurations");
+
+    private static HashSet<Guid> GetPendingSessionSet(ChatViewModel viewModel, string fieldName)
     {
         var field = typeof(ChatViewModel).GetField(
-            "_pendingSessionInvalidations",
+            fieldName,
             BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         return Assert.IsType<HashSet<Guid>>(field!.GetValue(viewModel));
+    }
+
+    private static void MarkBusy(ChatViewModel viewModel, Chat chat)
+    {
+        var runtimes = typeof(ChatViewModel).GetField(
+            "_runtimeStates",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(runtimes);
+        var states = Assert.IsType<Dictionary<Guid, ChatRuntimeState>>(runtimes!.GetValue(viewModel));
+        states[chat.Id] = new ChatRuntimeState
+        {
+            Chat = chat,
+            IsBusy = true,
+            TurnInProgress = true
+        };
     }
 
     private sealed record TestHarness(ChatViewModel ViewModel) : IDisposable

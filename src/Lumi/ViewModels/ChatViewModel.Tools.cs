@@ -1119,7 +1119,7 @@ public partial class ChatViewModel
         var result = $"Updated current chat:\n- {string.Join("\n- ", mutation.Changes)}\n\n{state}";
         if (workspace is not null || clearWorkspace)
         {
-            result += "\n\nLumi is synchronized to the new workspace now. The current Copilot turn still uses its original working directory; the next turn will rebuild in the updated workspace.";
+            result += "\n\nLumi is synchronized to the new workspace now. The current Copilot turn still uses its original working directory; the next turn will resume in the updated workspace.";
         }
 
         return result;
@@ -1203,7 +1203,7 @@ public partial class ChatViewModel
 
         if (mutation.WorkspaceChanged)
         {
-            _pendingSessionInvalidations.Add(chat.Id);
+            InvalidateSessionConfiguration(chat);
 
             if (CurrentChat?.Id == chat.Id)
             {
