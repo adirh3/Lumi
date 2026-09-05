@@ -10,6 +10,87 @@ namespace Lumi.Tests;
 
 public sealed class McpSessionPlannerTests
 {
+    [Theory]
+    [InlineData(180, null, 180_000)]
+    [InlineData(600, null, 600_000)]
+    [InlineData(600, 30_000, 30_000)]
+    [InlineData(600, 900_000, 900_000)]
+    public void Build_AppliesDefaultToolTimeoutWithoutOverwritingServerOverrides(
+        int defaultSeconds, int? serverMilliseconds, int expectedMilliseconds)
+    {
+        var local = new McpServer { Name = "local", Command = "node", Timeout = serverMilliseconds };
+        var remote = new McpServer
+        {
+            Name = "remote",
+            ServerType = "remote",
+            Url = "https://example.test/mcp",
+            Timeout = serverMilliseconds
+        };
+        var data = new AppData
+        {
+            Settings = new UserSettings { McpToolTimeoutSeconds = defaultSeconds },
+            McpServers = [local, remote]
+        };
+
+        using var plan = McpSessionPlanner.Build(data, @"C:\repo", EmptyCatalog(), new Chat(), null, null);
+
+        Assert.Equal(expectedMilliseconds, plan.Servers["local"].Timeout);
+        Assert.Equal(expectedMilliseconds, plan.Servers["remote"].Timeout);
+        Assert.Equal(defaultSeconds * 1000, plan.Servers[GitHubMcpWebSearchBootstrap.ServerName].Timeout);
+        Assert.Equal(serverMilliseconds, local.Timeout);
+        Assert.Equal(serverMilliseconds, remote.Timeout);
+    }
+
+    [Theory]
+    [InlineData(null, 600_000)]
+    [InlineData(30_000, 30_000)]
+    public async Task Build_PassesEffectiveTimeoutToProxyRegistration(int? serverMilliseconds, int expectedMilliseconds)
+    {
+        await using var runtime = new McpProxyRuntime();
+        var server = new McpServer { Name = "local", Command = "node", Timeout = serverMilliseconds };
+        var data = new AppData
+        {
+            Settings = new UserSettings { McpToolTimeoutSeconds = 600 },
+            McpServers = [server]
+        };
+
+        using var plan = McpSessionPlanner.Build(data, @"C:\repo", EmptyCatalog(), new Chat(), null, null, runtime);
+        var proxied = Assert.IsType<McpHttpServerConfig>(plan.Servers["local"]);
+        var expectedRegistration = runtime.Register(new McpProxyServerDefinition(
+            $"lumi:{server.Id}",
+            server.Name,
+            new McpStdioServerConfig
+            {
+                Command = server.Command,
+                Args = [],
+                WorkingDirectory = @"C:\repo",
+                Tools = ["*"],
+                Timeout = expectedMilliseconds
+            }));
+
+        // Reusing the same route proves the underlying stdio config, not just the outward
+        // HTTP config, has the effective timeout (it is part of the registration fingerprint).
+        Assert.Equal(expectedRegistration.Url, proxied.Url);
+        Assert.Equal(expectedMilliseconds, proxied.Timeout);
+    }
+
+    [Fact]
+    public async Task Build_ChangedTimeoutCreatesNewProxyConfigurationWithoutMutatingExistingPlan()
+    {
+        await using var runtime = new McpProxyRuntime();
+        var data = new AppData { McpServers = [new McpServer { Name = "local", Command = "node" }] };
+        using var original = McpSessionPlanner.Build(data, @"C:\repo", EmptyCatalog(), new Chat(), null, null, runtime);
+
+        data.Settings.McpToolTimeoutSeconds = 600;
+        using var updated = McpSessionPlanner.Build(data, @"C:\repo", EmptyCatalog(), new Chat(), null, null, runtime);
+
+        Assert.Equal(180_000, original.Servers["local"].Timeout);
+        Assert.Equal(600_000, updated.Servers["local"].Timeout);
+        Assert.NotEqual(
+            Assert.IsType<McpHttpServerConfig>(original.Servers["local"]).Url,
+            Assert.IsType<McpHttpServerConfig>(updated.Servers["local"]).Url);
+    }
+
     [Fact]
     public async Task SelectProxyRuntime_ReturnsNull_WhenSettingDisabledByDefault()
     {

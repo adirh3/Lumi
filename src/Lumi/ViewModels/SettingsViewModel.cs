@@ -185,6 +185,33 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     // ── MCP ──
     [ObservableProperty] private bool _useMcpProxy;
+    private decimal? _mcpToolTimeoutSeconds;
+
+    // Match NumericUpDown's nullable decimal value and validate before persisting integer seconds.
+    public decimal? McpToolTimeoutSeconds
+    {
+        get => _mcpToolTimeoutSeconds;
+        set
+        {
+            if (value is not { } seconds
+                || seconds < UserSettings.MinMcpToolTimeoutSeconds
+                || seconds > UserSettings.MaxMcpToolTimeoutSeconds
+                || decimal.Truncate(seconds) != seconds)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), string.Format(
+                    Loc.SettingValidation_McpToolTimeout,
+                    UserSettings.MinMcpToolTimeoutSeconds,
+                    UserSettings.MaxMcpToolTimeoutSeconds));
+            }
+
+            if (SetProperty(ref _mcpToolTimeoutSeconds, value))
+            {
+                _dataStore.Data.Settings.McpToolTimeoutSeconds = (int)seconds;
+                Save();
+                NotifyModified();
+            }
+        }
+    }
 
     // ── GitHub Account ──
     [ObservableProperty] private bool _isAuthenticated;
@@ -556,6 +583,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
         // MCP
         _useMcpProxy = s.UseMcpProxy;
+        _mcpToolTimeoutSeconds = s.McpToolTimeoutSeconds;
 
         // Privacy
         _enableMemoryAutoSave = s.EnableMemoryAutoSave;
@@ -1677,6 +1705,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsReasoningEffortModified => ReasoningEffort != _defaults.ReasoningEffort;
     public bool IsGlobalCustomInstructionsModified => GlobalCustomInstructions != _defaults.GlobalCustomInstructions;
     public bool IsUseMcpProxyModified => UseMcpProxy != _defaults.UseMcpProxy;
+    public bool IsMcpToolTimeoutModified => McpToolTimeoutSeconds != _defaults.McpToolTimeoutSeconds;
     public bool IsContextWindowTierModified => ContextWindowTier != _defaults.ContextWindowTier;
     public bool IsEnableMemoryAutoSaveModified => EnableMemoryAutoSave != _defaults.EnableMemoryAutoSave;
     public bool IsEnableMemoryAutoMaintenanceModified => EnableMemoryAutoMaintenance != _defaults.EnableMemoryAutoMaintenance;
@@ -1706,6 +1735,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsReasoningEffortModified));
         OnPropertyChanged(nameof(IsGlobalCustomInstructionsModified));
         OnPropertyChanged(nameof(IsUseMcpProxyModified));
+        OnPropertyChanged(nameof(IsMcpToolTimeoutModified));
         OnPropertyChanged(nameof(IsContextWindowTierModified));
         OnPropertyChanged(nameof(IsEnableMemoryAutoSaveModified));
         OnPropertyChanged(nameof(IsEnableMemoryAutoMaintenanceModified));
@@ -1756,6 +1786,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     }
     [RelayCommand] private void RevertGlobalCustomInstructions() => GlobalCustomInstructions = _defaults.GlobalCustomInstructions;
     [RelayCommand] private void RevertUseMcpProxy() => UseMcpProxy = _defaults.UseMcpProxy;
+    [RelayCommand] private void RevertMcpToolTimeout() => McpToolTimeoutSeconds = _defaults.McpToolTimeoutSeconds;
     [RelayCommand] private void RevertEnableMemoryAutoSave() => EnableMemoryAutoSave = _defaults.EnableMemoryAutoSave;
     [RelayCommand] private void RevertEnableMemoryAutoMaintenance() => EnableMemoryAutoMaintenance = _defaults.EnableMemoryAutoMaintenance;
     [RelayCommand] private void RevertAutoSaveChats() => AutoSaveChats = _defaults.AutoSaveChats;
@@ -1891,6 +1922,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         PreferredModel = defaults.PreferredModel;
         ReasoningEffort = defaults.ReasoningEffort;
         UseMcpProxy = defaults.UseMcpProxy;
+        McpToolTimeoutSeconds = defaults.McpToolTimeoutSeconds;
         ContextWindowTier = defaults.ContextWindowTier;
         EnableMemoryAutoSave = defaults.EnableMemoryAutoSave;
         EnableMemoryAutoMaintenance = defaults.EnableMemoryAutoMaintenance;

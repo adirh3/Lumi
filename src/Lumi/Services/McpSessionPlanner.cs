@@ -128,6 +128,11 @@ public static class McpSessionPlanner
         ArgumentNullException.ThrowIfNull(capabilities);
         ArgumentNullException.ThrowIfNull(chat);
 
+        var timeoutSeconds = data.Settings.McpToolTimeoutSeconds;
+        ArgumentOutOfRangeException.ThrowIfLessThan(timeoutSeconds, UserSettings.MinMcpToolTimeoutSeconds);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(timeoutSeconds, UserSettings.MaxMcpToolTimeoutSeconds);
+        var defaultTimeoutMilliseconds = checked(timeoutSeconds * 1000);
+
         var selectedNames = ResolveSelectedNames(data, capabilities, chat, currentActiveServerNames);
 
         var configuredServers = data.McpServers
@@ -171,6 +176,7 @@ public static class McpSessionPlanner
                 selected[server.Name] = ToSdkConfig(
                     server,
                     ResolveWorkingDirectory(server, capabilities, workDir),
+                    defaultTimeoutMilliseconds,
                     proxyRuntime,
                     ResolveProxyKey(server, capabilities),
                     proxyRegistrations);
@@ -188,6 +194,11 @@ public static class McpSessionPlanner
             }
 
             GitHubMcpWebSearchBootstrap.Ensure(result, CopilotService.TryGetGitHubTokenForMcp());
+
+            // Also cover bootstrap-provided servers. Local configs already carry the timeout
+            // before proxy registration so the proxy's underlying request uses the same limit.
+            foreach (var config in result.Values)
+                config.Timeout ??= defaultTimeoutMilliseconds;
 
             // Servers the runtime discovered are loaded by the SDK itself, so deselection is expressed
             // by disabling them on the session. A name is disabled when Lumi is not supplying a config
@@ -280,6 +291,7 @@ public static class McpSessionPlanner
     private static McpServerConfig ToSdkConfig(
         McpServer server,
         string workDir,
+        int defaultTimeoutMilliseconds,
         McpProxyRuntime? proxyRuntime,
         string proxyKey,
         ICollection<McpProxyRuntime.SessionRegistrationLease>? proxyRegistrations)
@@ -289,14 +301,12 @@ public static class McpSessionPlanner
             var remote = new McpHttpServerConfig
             {
                 Url = server.Url,
-                Tools = NormalizeTools(server.Tools)
+                Tools = NormalizeTools(server.Tools),
+                Timeout = server.Timeout ?? defaultTimeoutMilliseconds
             };
 
             if (server.Headers.Count > 0)
                 remote.Headers = new Dictionary<string, string>(server.Headers, StringComparer.OrdinalIgnoreCase);
-            if (server.Timeout.HasValue)
-                remote.Timeout = server.Timeout.Value;
-
             return remote;
         }
 
@@ -305,14 +315,12 @@ public static class McpSessionPlanner
             Command = server.Command,
             Args = server.Args.ToList(),
             WorkingDirectory = workDir,
-            Tools = NormalizeTools(server.Tools)
+            Tools = NormalizeTools(server.Tools),
+            Timeout = server.Timeout ?? defaultTimeoutMilliseconds
         };
 
         if (server.Env.Count > 0)
             local.Env = new Dictionary<string, string>(server.Env, StringComparer.OrdinalIgnoreCase);
-        if (server.Timeout.HasValue)
-            local.Timeout = server.Timeout.Value;
-
         if (proxyRuntime is not null)
         {
             var registration = proxyRuntime.AcquireSessionRegistration(new McpProxyServerDefinition(

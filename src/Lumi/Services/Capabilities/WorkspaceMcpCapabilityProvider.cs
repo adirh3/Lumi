@@ -148,6 +148,7 @@ public sealed class WorkspaceMcpCapabilityProvider : ICapabilityProvider
                 ServerType = "remote",
                 Url = url,
                 Headers = ReadStringMap(element, "headers", contextDirectory),
+                Timeout = ReadTimeout(element, name, contextDirectory),
                 IsEnabled = true,
             };
         }
@@ -162,12 +163,25 @@ public sealed class WorkspaceMcpCapabilityProvider : ICapabilityProvider
             Command = command,
             Args = ReadStringArray(element, "args", contextDirectory),
             Env = ReadStringMap(element, "env", contextDirectory),
+            Timeout = ReadTimeout(element, name, contextDirectory),
             IsEnabled = true,
         };
     }
 
     private static bool TryGetObject(JsonElement parent, string name, out JsonElement value)
         => parent.TryGetProperty(name, out value) && value.ValueKind == JsonValueKind.Object;
+
+    private static int? ReadTimeout(JsonElement element, string serverName, string contextDirectory)
+    {
+        if (!element.TryGetProperty("timeout", out var value) || value.ValueKind == JsonValueKind.Null)
+            return null;
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var milliseconds) && milliseconds > 0)
+            return milliseconds;
+
+        Debug.WriteLine($"[Capabilities] Workspace MCP server '{serverName}' in '{contextDirectory}' has an invalid timeout; expected positive integer milliseconds. Using Lumi's default.");
+        return null;
+    }
 
     private static string? GetString(JsonElement parent, string name)
         => parent.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String

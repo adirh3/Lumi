@@ -743,6 +743,16 @@
                             IsModified="{Binding IsUseMcpProxyModified}">
             <ToggleSwitch IsChecked="{Binding UseMcpProxy}" />
           </sc:StrataSetting>
+          <sc:StrataSetting x:Name="McpToolTimeoutSetting"
+                            Header="{loc:Str Setting_McpToolTimeout}"
+                            Description="{loc:Str SettingDesc_McpToolTimeout}"
+                            IsModified="{Binding IsMcpToolTimeoutModified}">
+            <NumericUpDown x:Name="McpToolTimeoutInput"
+                           Value="{Binding McpToolTimeoutSeconds, Mode=TwoWay}"
+                           Minimum="1" Maximum="86400"
+                           Increment="1" FormatString="0" ParsingNumberStyle="Integer"
+                           Width="140" />
+          </sc:StrataSetting>
         </sc:StrataSettingGroup>
       </StackPanel>
 

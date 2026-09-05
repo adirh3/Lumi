@@ -1180,6 +1180,13 @@ public class UserSettings
     // passed directly to Copilot and initialized per session.
     public bool UseMcpProxy { get; set; }
 
+    public const int DefaultMcpToolTimeoutSeconds = 180;
+    public const int MinMcpToolTimeoutSeconds = 1;
+    public const int MaxMcpToolTimeoutSeconds = 86_400;
+
+    // Applied to session configurations only; explicit server timeouts still take precedence.
+    public int McpToolTimeoutSeconds { get; set; } = DefaultMcpToolTimeoutSeconds;
+
     // ── Privacy & Data ──
     public bool EnableMemoryAutoSave { get; set; } = true;
     public bool EnableMemoryAutoMaintenance { get; set; } = true;

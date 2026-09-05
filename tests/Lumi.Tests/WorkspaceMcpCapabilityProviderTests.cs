@@ -17,6 +17,53 @@ namespace Lumi.Tests;
 /// </summary>
 public sealed class WorkspaceMcpCapabilityProviderTests
 {
+    [Theory]
+    [InlineData("", 600_000)]
+    [InlineData(", \"timeout\": 30000", 30_000)]
+    [InlineData(", \"timeout\": 900000", 900_000)]
+    public async Task PlannerAppliesDefaultOrExplicitWorkspaceTimeoutWithoutChangingFiles(
+        string timeoutProperty, int expectedMilliseconds)
+    {
+        using var root = new TempWorkspace();
+        var json = $$"""
+            {
+              "servers": {
+                "local": { "command": "node" {{timeoutProperty}} },
+                "remote": { "url": "https://example.test/mcp" {{timeoutProperty}} }
+              }
+            }
+            """;
+        root.WriteVsCodeConfig(json);
+        var capabilities = await LoadAsync(root.Path);
+        var snapshot = new CapabilitySnapshot(new CapabilityQuery([root.Path]), capabilities, isComplete: true);
+        var data = new AppData { Settings = new UserSettings { McpToolTimeoutSeconds = 600 } };
+
+        using var plan = McpSessionPlanner.Build(data, root.Path, snapshot, new Chat(), null, null);
+
+        Assert.Equal(expectedMilliseconds, plan.Servers["local"].Timeout);
+        Assert.Equal(expectedMilliseconds, plan.Servers["remote"].Timeout);
+        Assert.Equal(json, await File.ReadAllTextAsync(Path.Combine(root.Path, ".vscode", "mcp.json")));
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("\"bad\"")]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("1.5")]
+    [InlineData("2147483648")]
+    public async Task InvalidOrNullWorkspaceTimeoutDoesNotHideTheServer(string timeout)
+    {
+        using var root = new TempWorkspace();
+        root.WriteRootConfig($$"""
+            { "mcpServers": { "local": { "command": "node", "timeout": {{timeout}} } } }
+            """);
+
+        var capability = Assert.Single(await LoadAsync(root.Path));
+
+        Assert.Null(Assert.IsType<McpServer>(capability.McpDefinition).Timeout);
+    }
+
     [Fact]
     public async Task ReadsVsCodeStdioServers()
     {

@@ -10,6 +10,29 @@ namespace Lumi.Tests;
 public class AppDataSnapshotFactoryTests
 {
     [Fact]
+    public void McpToolTimeout_DefaultsToThreeMinutesForExistingSettings()
+    {
+        var settings = JsonSerializer.Deserialize("{}", AppDataJsonContext.Default.UserSettings);
+
+        Assert.Equal(180, new UserSettings().McpToolTimeoutSeconds);
+        Assert.NotNull(settings);
+        Assert.Equal(180, settings.McpToolTimeoutSeconds);
+    }
+
+    [Fact]
+    public void McpToolTimeout_SurvivesSnapshotAndJsonRoundTrip()
+    {
+        var data = new AppData { Settings = new UserSettings { McpToolTimeoutSeconds = 600 } };
+        var snapshot = InvokeCreateIndexSnapshot(data);
+        var json = JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData);
+        var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData);
+
+        Assert.Equal(600, snapshot.Settings.McpToolTimeoutSeconds);
+        Assert.NotNull(restored);
+        Assert.Equal(600, restored.Settings.McpToolTimeoutSeconds);
+    }
+
+    [Fact]
     public void RemoteSecuritySnapshotReplacesEveryOwnerControlledField()
     {
         var store = new DataStore(new AppData

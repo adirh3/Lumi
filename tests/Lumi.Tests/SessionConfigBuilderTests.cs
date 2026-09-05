@@ -9,6 +9,30 @@ namespace Lumi.Tests;
 public sealed class SessionConfigBuilderTests
 {
     [Fact]
+    public void McpToolTimeout_ReachesBothCreateAndResumeConfigurations()
+    {
+        var data = new AppData
+        {
+            Settings = new UserSettings { McpToolTimeoutSeconds = 600 },
+            McpServers = [new McpServer { Name = "local", Command = "node" }]
+        };
+        using var plan = McpSessionPlanner.Build(
+            data, @"C:\repo", Lumi.Services.Capabilities.CapabilitySnapshot.Empty, new Chat(), null, null);
+
+        var created = SessionConfigBuilder.Build(
+            systemPrompt: "prompt", model: null, workingDirectory: @"C:\repo", mcpPlan: plan,
+            skillDirectories: null, customAgents: [], tools: [], reasoningEffort: null,
+            userInputHandler: null, onPermission: null, hooks: null);
+        var resumed = SessionConfigBuilder.BuildForResume(
+            systemPrompt: "prompt", model: null, workingDirectory: @"C:\repo", mcpPlan: plan,
+            skillDirectories: null, customAgents: [], tools: [], reasoningEffort: null,
+            userInputHandler: null, onPermission: null, hooks: null);
+
+        Assert.Equal(600_000, created.McpServers!["local"].Timeout);
+        Assert.Equal(600_000, resumed.McpServers!["local"].Timeout);
+    }
+
+    [Fact]
     public void Build_UsesLumiCopilotConfigDir()
     {
         const string workDir = @"C:\Repo";

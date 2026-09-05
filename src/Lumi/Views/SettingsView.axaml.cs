@@ -296,6 +296,7 @@ public partial class SettingsView : UserControl
         [Loc.Setting_GlobalCustomInstructions] = vm => vm.RevertGlobalCustomInstructionsCommand.Execute(null),
         [Loc.Setting_PreferredModel] = vm => vm.RevertDefaultModelSelectionCommand.Execute(null),
         [Loc.Setting_UseMcpProxy] = vm => vm.RevertUseMcpProxyCommand.Execute(null),
+        [Loc.Setting_McpToolTimeout] = vm => vm.RevertMcpToolTimeoutCommand.Execute(null),
         [Loc.Setting_AutoSaveMemories] = vm => vm.RevertEnableMemoryAutoSaveCommand.Execute(null),
         [Loc.Setting_AutoMaintainMemories] = vm => vm.RevertEnableMemoryAutoMaintenanceCommand.Execute(null),
         [Loc.Setting_AutoSaveChats] = vm => vm.RevertAutoSaveChatsCommand.Execute(null),
