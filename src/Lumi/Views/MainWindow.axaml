@@ -1205,11 +1205,13 @@
                                       <MenuItem.Icon>
                                         <PathIcon Data="{StaticResource Icon.Tag}" Width="14" Height="14" />
                                       </MenuItem.Icon>
+                                      <MenuItem IsVisible="False" IsEnabled="False" />
                                     </MenuItem>
                                     <MenuItem x:Name="MoveToProjectMenu" Header="{loc:Str Menu_MoveToProject}">
                                        <MenuItem.Icon>
                                          <PathIcon Data="{StaticResource Icon.Folder}" Width="14" Height="14" />
                                        </MenuItem.Icon>
+                                       <MenuItem IsVisible="False" IsEnabled="False" />
                                      </MenuItem>
                                     <Separator />
                                     <MenuItem Header="{loc:Str Menu_Delete}"

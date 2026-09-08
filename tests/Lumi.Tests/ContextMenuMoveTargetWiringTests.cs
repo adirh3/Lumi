@@ -12,30 +12,36 @@ using Xunit;
 namespace Lumi.Tests;
 
 /// <summary>
-/// Diagnostic for the "Move to Project does nothing" bug. Reproduces the exact per-row wiring
-/// (a Panel whose <see cref="Control.ContextMenu"/> hosts a named submenu, populated on the
-/// ContextMenu's Opening event) and inspects whether the ContextMenu's DataContext is the row's
-/// Chat at Opening time — the moment the submenu must be populated so it renders with a flyout arrow.
+/// Reproduces the per-row context-menu wiring and verifies that dynamic submenus remain cheap
+/// placeholders until the menu opens, when the row's <see cref="Chat"/> is resolved from Tag.
 /// </summary>
 [Collection("Headless UI")]
 public sealed class ContextMenuMoveTargetWiringTests
 {
     [Fact]
-    public async Task Opening_ResolvesRowChatFromTag_AndPopulatesSubmenu()
+    public async Task Opening_ResolvesRowChatFromTag_AndLazilyPopulatesSubmenus()
     {
         using var session = HeadlessTestSession.Start();
 
         bool openingFired = false;
         string dcTypeAtOpening = "(handler never ran)";
-        int itemsAfterOpen = -1;
+        int tagItemsBeforeOpen = -1;
+        int moveItemsBeforeOpen = -1;
+        int tagItemsAfterOpen = -1;
+        int moveItemsAfterOpen = -1;
 
         await session.Dispatch(() =>
         {
             var chat = new Chat { Title = "Row chat", ProjectId = null };
 
+            var placeholder = new MenuItem { IsVisible = false, IsEnabled = false };
+            var tagMenu = new MenuItem { Name = "ChatTagMenu", Header = "Tag" };
+            tagMenu.Items.Add(placeholder);
             var moveMenu = new MenuItem { Name = "MoveToProjectMenu", Header = "Move to Project" };
+            moveMenu.Items.Add(new MenuItem { IsVisible = false, IsEnabled = false });
             var menu = new ContextMenu();
             menu.Items.Add(new MenuItem { Header = "Rename" });
+            menu.Items.Add(tagMenu);
             menu.Items.Add(moveMenu);
 
             var panel = new Panel { Background = Avalonia.Media.Brushes.Transparent, ContextMenu = menu };
@@ -45,6 +51,9 @@ public sealed class ContextMenuMoveTargetWiringTests
             panel.DataContextChanged += (_, _) => menu.Tag = panel.DataContext as Chat;
             panel.DataContext = chat;
 
+            tagItemsBeforeOpen = tagMenu.Items.Count;
+            moveItemsBeforeOpen = moveMenu.Items.Count;
+
             menu.Opening += (_, _) =>
             {
                 openingFired = true;
@@ -53,6 +62,8 @@ public sealed class ContextMenuMoveTargetWiringTests
 
                 if (resolved is not null)
                 {
+                    tagMenu.Items.Clear();
+                    tagMenu.Items.Add(new MenuItem { Header = "Work" });
                     moveMenu.Items.Clear();
                     moveMenu.Items.Add(new MenuItem { Header = "All projects" });
                 }
@@ -67,13 +78,17 @@ public sealed class ContextMenuMoveTargetWiringTests
             panel.RaiseEvent(new ContextRequestedEventArgs());
             Dispatcher.UIThread.RunJobs();
 
-            itemsAfterOpen = moveMenu.Items.Count;
+            tagItemsAfterOpen = tagMenu.Items.Count;
+            moveItemsAfterOpen = moveMenu.Items.Count;
 
             window.Close();
         }, CancellationToken.None);
 
         Assert.True(openingFired, "ContextMenu.Opening should fire when the menu is requested.");
         Assert.Equal("Chat", dcTypeAtOpening); // Tag carries the row's Chat even though DataContext is null
-        Assert.True(itemsAfterOpen > 0, $"Submenu should be populated on open (was {itemsAfterOpen}).");
+        Assert.Equal(1, tagItemsBeforeOpen);
+        Assert.Equal(1, moveItemsBeforeOpen);
+        Assert.True(tagItemsAfterOpen > 0, $"Tag submenu should be populated on open (was {tagItemsAfterOpen}).");
+        Assert.True(moveItemsAfterOpen > 0, $"Move submenu should be populated on open (was {moveItemsAfterOpen}).");
     }
 }

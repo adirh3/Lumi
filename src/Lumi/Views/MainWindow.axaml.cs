@@ -73,6 +73,7 @@ public partial class MainWindow : Window
     private Border? _unreadPanel;
     private ScrollViewer? _chatListScroller;
     private readonly List<(Project Project, PropertyChangedEventHandler Handler)> _projectFilterHandlers = [];
+    private int _projectSwitcherRefreshQueued;
     private ChatWorkspaceView? _chatWorkspace;
     private ChatView? _chatView;
     private ContentControl? _jobsHost;
@@ -1125,7 +1126,7 @@ public partial class MainWindow : Window
             vm.UnreadStateChanged += () =>
             {
                 if (_isProjectSwitcherOpen)
-                    RefreshProjectSwitcher(vm);
+                    QueueProjectSwitcherRefresh(vm);
             };
 
             // When chat groups are rebuilt, re-attach ListBox handlers, sync selection, and set project labels
@@ -2412,9 +2413,6 @@ public partial class MainWindow : Window
         if (_projectSwitchRevealHost is null || _projectSwitchPanel is null)
             return;
 
-        if (isOpen && DataContext is MainViewModel vm)
-            RefreshProjectSwitcher(vm);
-
         // Only one sidebar drawer at a time — see SetUnreadPanelOpen.
         if (isOpen && _isUnreadPanelOpen && DataContext is MainViewModel unreadVm)
             unreadVm.CloseUnreadPanelCommand.Execute(null);
@@ -2422,11 +2420,18 @@ public partial class MainWindow : Window
         if (_isProjectSwitcherOpen == isOpen && _projectSwitchRevealHost.IsVisible == isOpen)
         {
             if (isOpen)
+            {
+                if (DataContext is MainViewModel currentVm)
+                    RefreshProjectSwitcher(currentVm);
                 FocusProjectSwitcherSearch();
+            }
             return;
         }
 
         _isProjectSwitcherOpen = isOpen;
+
+        if (isOpen && DataContext is MainViewModel vm)
+            RefreshProjectSwitcher(vm);
 
         if (_projectSwitchButton is not null)
         {
@@ -2571,6 +2576,7 @@ public partial class MainWindow : Window
     private void OnProjectSwitcherClosed()
     {
         _projectSwitchButton?.Classes.Remove("open");
+        Interlocked.Exchange(ref _projectSwitcherRefreshQueued, 0);
 
         foreach (var (project, handler) in _projectFilterHandlers)
             project.PropertyChanged -= handler;
@@ -2703,6 +2709,9 @@ public partial class MainWindow : Window
             project.PropertyChanged -= handler;
         _projectFilterHandlers.Clear();
 
+        if (!_isProjectSwitcherOpen)
+            return;
+
         _projectFilterResults.Children.Clear();
 
         var query = _projectFilterSearchBox?.Text;
@@ -2755,13 +2764,10 @@ public partial class MainWindow : Window
                 if (args.PropertyName != nameof(Project.IsRunning))
                     return;
 
-                Dispatcher.UIThread.Post(() =>
-                {
-                    if (DataContext is MainViewModel currentVm)
-                        RefreshProjectSwitcher(currentVm);
-                    else
-                        capturedRow.IsVisible = true;
-                });
+                if (DataContext is MainViewModel currentVm)
+                    QueueProjectSwitcherRefresh(currentVm);
+                else
+                    Dispatcher.UIThread.Post(() => capturedRow.IsVisible = true);
             };
             project.PropertyChanged += handler;
             _projectFilterHandlers.Add((project, handler));
@@ -2778,6 +2784,19 @@ public partial class MainWindow : Window
                 ? string.Format(Loc.ProjectSwitcher_MoreResults, hiddenCount)
                 : "";
         }
+    }
+
+    private void QueueProjectSwitcherRefresh(MainViewModel vm)
+    {
+        if (!_isProjectSwitcherOpen || Interlocked.Exchange(ref _projectSwitcherRefreshQueued, 1) != 0)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            Interlocked.Exchange(ref _projectSwitcherRefreshQueued, 0);
+            if (_isProjectSwitcherOpen && ReferenceEquals(DataContext, vm))
+                RefreshProjectSwitcher(vm);
+        }, DispatcherPriority.Loaded);
     }
 
     private void UpdateProjectSwitcherSummary(MainViewModel vm)
@@ -3084,10 +3103,8 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Keeps the chat's context menu associated with its row's <see cref="Chat"/> and prepares its
-    /// chat-specific actions. A ContextMenu does not inherit its owner's DataContext until it opens,
-    /// so we stash the Chat on the menu's Tag (fired when the row is realized or recycled), read it back
-    /// when the menu opens, and eagerly populate the submenu now so it always has items — and its flyout
-    /// arrow — regardless of when (or whether) the Opening event fires.
+    /// lightweight chat-specific actions. Dynamic submenus are populated only when the context menu
+    /// opens so startup does not materialize every tag and project target for every realized chat row.
     /// </summary>
     private void OnChatRowDataContextChanged(object? sender, EventArgs e)
     {
@@ -3096,11 +3113,7 @@ public partial class MainWindow : Window
         var chat = row.DataContext as Chat;
         menu.Tag = chat;
         if (chat is not null)
-        {
             UpdateChatPinMenuItem(menu, chat);
-            TryPopulateChatTagSubmenu(menu, chat);
-            TryPopulateMoveToProjectSubmenu(menu, chat);
-        }
     }
 
     /// <summary>
