@@ -61,9 +61,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly Dictionary<Guid, ExternalSendReservationState> _externalSendReservations = [];
     private readonly object _chatLifecycleEventSync = new();
     private readonly Dictionary<(Guid ChatId, string EventType), long> _publishedTerminalChatEventTurns = [];
-    private readonly object _mcpToolCatalogRefreshLock = new();
-    private readonly Dictionary<Guid, CancellationTokenSource> _mcpToolCatalogRefreshCts = [];
-    private readonly Dictionary<Guid, Task> _mcpToolCatalogRefreshTasks = [];
 
     /// <summary>
     /// The resolved OAuth chip message per <c>sessionId|serverName</c> once a login attempt has produced
@@ -92,7 +89,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// </summary>
     private static readonly TimeSpan NativeMcpSettleBudget = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan ProxyMcpSettleBudget = TimeSpan.FromSeconds(60);
-    private static readonly TimeSpan McpToolCatalogRefreshBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan McpSettlePollInterval = TimeSpan.FromMilliseconds(200);
 
     /// <summary>
@@ -206,218 +202,15 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// prompt is dispatched only once those servers have signed in and registered their tools; stdio-only
     /// sessions keep the previous fire-and-forget behaviour.
     /// </summary>
-    private async Task BeginMcpServerStatusCheckAsync(
+    private Task BeginMcpServerStatusCheckAsync(
         CopilotSession session,
-        Chat chat,
+        Guid chatId,
         IReadOnlyDictionary<string, McpServerConfig> configuredServers,
         bool usesProxy,
         CancellationToken ct)
     {
-        try
-        {
-            var statusCheck = CheckMcpServerStatusAsync(
-                session,
-                chat.Id,
-                configuredServers,
-                usesProxy,
-                ct);
-            if (HasRemoteMcpServers(configuredServers))
-                await statusCheck.ConfigureAwait(false);
-
-            // The SDK can resume a persisted session whose MCP server is connected while its effective
-            // model-facing tool catalog still reflects an earlier tools/list failure. Explicitly rebuild
-            // that catalog before the first prompt so selected-and-healthy servers actually appear.
-            using var catalogCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            catalogCts.CancelAfter(McpToolCatalogRefreshBudget);
-            try
-            {
-                await session.Rpc.Tools.InitializeAndValidateAsync(catalogCts.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            {
-                throw new TimeoutException(CopilotService.McpSetupTimeoutMessage);
-            }
-        }
-        catch
-        {
-            // A failed/cancelled catalog rebuild must not leave this handle reusable: the next send
-            // should resume the persisted server session and retry initialization before prompting.
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                if (IsCurrentSession(chat.Id, session))
-                    InvalidateLocalSessionCache(chat);
-            });
-            throw;
-        }
-    }
-
-    private void StartMcpToolCatalogRefresh(
-        CopilotSession session,
-        Guid chatId,
-        string serverName)
-    {
-        if (!Dispatcher.UIThread.CheckAccess())
-        {
-            Dispatcher.UIThread.Post(() => StartMcpToolCatalogRefresh(session, chatId, serverName));
-            return;
-        }
-        if (!IsCurrentSession(chatId, session))
-            return;
-
-        var refreshCts = new CancellationTokenSource(McpToolCatalogRefreshBudget);
-        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        CancellationTokenSource? previous;
-        lock (_mcpToolCatalogRefreshLock)
-        {
-            _mcpToolCatalogRefreshCts.Remove(chatId, out previous);
-            _mcpToolCatalogRefreshCts[chatId] = refreshCts;
-            _mcpToolCatalogRefreshTasks[chatId] = completion.Task;
-        }
-
-        TryCancelMcpToolCatalogRefresh(previous);
-        _ = RefreshMcpToolCatalogAsync(session, chatId, serverName, refreshCts, completion);
-    }
-
-    private async Task RefreshMcpToolCatalogAsync(
-        CopilotSession session,
-        Guid chatId,
-        string serverName,
-        CancellationTokenSource activeRefreshCts,
-        TaskCompletionSource completion)
-    {
-        try
-        {
-            var isCurrentSession = await Dispatcher.UIThread.InvokeAsync(() =>
-                IsCurrentSession(chatId, session));
-            if (!isCurrentSession)
-                return;
-
-            await session.Rpc.Tools.InitializeAndValidateAsync(activeRefreshCts.Token).ConfigureAwait(false);
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                if (IsCurrentSession(chatId, session))
-                    ClearMcpChipError(chatId, serverName);
-            });
-        }
-        catch (OperationCanceledException ex)
-        {
-            var shouldReport = await Dispatcher.UIThread.InvokeAsync(() =>
-                IsCurrentSession(chatId, session)
-                && IsCurrentMcpToolCatalogRefresh(chatId, activeRefreshCts));
-            if (shouldReport)
-                await ReportFailureAsync(ex);
-        }
-        catch (Exception ex)
-        {
-            await ReportFailureAsync(ex);
-        }
-        finally
-        {
-            completion.TrySetResult();
-            lock (_mcpToolCatalogRefreshLock)
-            {
-                if (_mcpToolCatalogRefreshCts.TryGetValue(chatId, out var current)
-                    && ReferenceEquals(current, activeRefreshCts))
-                {
-                    _mcpToolCatalogRefreshCts.Remove(chatId);
-                }
-                if (_mcpToolCatalogRefreshTasks.TryGetValue(chatId, out var currentTask)
-                    && ReferenceEquals(currentTask, completion.Task))
-                {
-                    _mcpToolCatalogRefreshTasks.Remove(chatId);
-                }
-            }
-            activeRefreshCts.Dispose();
-        }
-
-        async Task ReportFailureAsync(Exception ex)
-        {
-            Debug.WriteLine(
-                $"[MCP] Tool catalog refresh failed for chat {chatId}, server '{serverName}': {ex.Message}");
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                if (!IsCurrentSession(chatId, session))
-                    return;
-
-                var displayName = ResolveMcpDisplayName(chatId, serverName);
-                SetMcpChipError(
-                    chatId,
-                    serverName,
-                    $"MCP server '{displayName}' changed its tools, but Lumi could not refresh them ({ex.Message}).");
-            });
-        }
-    }
-
-    private bool IsCurrentSession(Guid chatId, CopilotSession session)
-        => _sessionCache.TryGetValue(chatId, out var current)
-           && ReferenceEquals(current, session);
-
-    private bool IsCurrentMcpToolCatalogRefresh(Guid chatId, CancellationTokenSource refreshCts)
-    {
-        lock (_mcpToolCatalogRefreshLock)
-        {
-            return _mcpToolCatalogRefreshCts.TryGetValue(chatId, out var current)
-                   && ReferenceEquals(current, refreshCts);
-        }
-    }
-
-    private void CancelMcpToolCatalogRefresh(Guid chatId)
-    {
-        CancellationTokenSource? refreshCts;
-        lock (_mcpToolCatalogRefreshLock)
-        {
-            _mcpToolCatalogRefreshCts.Remove(chatId, out refreshCts);
-            _mcpToolCatalogRefreshTasks.Remove(chatId);
-        }
-        TryCancelMcpToolCatalogRefresh(refreshCts);
-    }
-
-    private void CancelAllMcpToolCatalogRefreshes()
-    {
-        CancellationTokenSource[] refreshSources;
-        lock (_mcpToolCatalogRefreshLock)
-        {
-            refreshSources = _mcpToolCatalogRefreshCts.Values.ToArray();
-            _mcpToolCatalogRefreshCts.Clear();
-            _mcpToolCatalogRefreshTasks.Clear();
-        }
-
-        foreach (var refreshCts in refreshSources)
-            TryCancelMcpToolCatalogRefresh(refreshCts);
-    }
-
-    private async Task AwaitMcpToolCatalogRefreshAsync(Guid chatId, CancellationToken ct)
-    {
-        while (true)
-        {
-            Task? refreshTask;
-            lock (_mcpToolCatalogRefreshLock)
-                _mcpToolCatalogRefreshTasks.TryGetValue(chatId, out refreshTask);
-
-            if (refreshTask is null)
-                return;
-            await refreshTask.WaitAsync(ct).ConfigureAwait(false);
-
-            lock (_mcpToolCatalogRefreshLock)
-            {
-                if (!_mcpToolCatalogRefreshTasks.TryGetValue(chatId, out var currentTask)
-                    || ReferenceEquals(currentTask, refreshTask))
-                {
-                    return;
-                }
-            }
-        }
-    }
-
-    private static void TryCancelMcpToolCatalogRefresh(CancellationTokenSource? refreshCts)
-    {
-        try
-        {
-            refreshCts?.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-        }
+        var check = CheckMcpServerStatusAsync(session, chatId, configuredServers, usesProxy, ct);
+        return HasRemoteMcpServers(configuredServers) ? check : Task.CompletedTask;
     }
 
     /// <summary>
@@ -2604,8 +2397,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 if (mcpPlan.Servers is { Count: > 0 })
                 {
                     await BeginMcpServerStatusCheckAsync(
-                        createdSession, chat, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
+                        createdSession, chat.Id, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
                 }
+                await ObserveMcpCatalogAfterSessionCreationAsync(chat, createdSession, ct);
 
                 _staleBackgroundJobPromptChats.Remove(chat.Id);
                 return true;
@@ -2646,7 +2440,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     if (HasRemoteMcpServers(mcpPlan.Servers))
                         SetSessionSetupStatus(chat, Loc.Status_ConnectingMcp);
                     await BeginMcpServerStatusCheckAsync(
-                        session, chat, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
+                        session, chat.Id, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
                 }
 
                 // The SDK does not automatically change the session model on resume —
@@ -2669,6 +2463,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                             sessionCt);
                     }
                     catch { /* best-effort — session works with original model if this fails */ }
+                }
+
+                if (TryScheduleMcpCatalogReconciliation(
+                        chat,
+                        session,
+                        McpCatalogRecoverySignal.SessionResumed))
+                {
+                    await AwaitMcpCatalogRecoveryAsync(chat.Id, sessionCt);
+                    if (!IsCurrentSession(chat.Id, session))
+                        return true;
                 }
 
                 _staleBackgroundJobPromptChats.Remove(chat.Id);
@@ -2718,16 +2522,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     workDir,
                     mcpPlan,
                     pendingMcpProxyPlan,
-                    beforeAttach: () => chat.CopilotSessionId = createdSession.SessionId,
-                    afterAttach: () =>
-                    {
-                        if (_sessionsPendingResume.TryGetValue(chat.Id, out var pendingSession))
-                            AdoptMcpProxyLeaseIfMissing(pendingSession, createdSession);
-                    }))
+                    beforeAttach: () => chat.CopilotSessionId = createdSession.SessionId))
                 return false;
             if (mcpPlan.Servers is { Count: > 0 })
                 await BeginMcpServerStatusCheckAsync(
-                    createdSession, chat, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
+                    createdSession, chat.Id, mcpPlan.Servers, mcpPlan.UsesProxy, ct);
+            await ObserveMcpCatalogAfterSessionCreationAsync(chat, createdSession, ct);
             RecordSessionProviderSignature(chat, currentByokSignature);
             _dataStore.MarkChatChanged(chat);
             await SaveChatAsync(chat, saveIndex: true);
@@ -3741,6 +3541,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // preparation awaits; enqueue the new prompt without cancelling that session's work.
             _ctsSources.Remove(chatId);
 
+            await AwaitMcpCatalogRecoveryBeforeSendAsync(targetChat, cancellationToken);
+            var recoveredFromMcpSessionLoss = HasPendingMcpCatalogRecoveryReplay(chatId);
             var runtime = GetOrCreateRuntimeState(chatId);
             BeginChatLifecycleTurn(targetChat);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
@@ -3760,8 +3562,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _ctsSources[chatId] = cts;
 
-            var needsReplayPrompt = false;
-            var sessionLostSkillLoads = false;
+            var needsReplayPrompt = recoveredFromMcpSessionLoss && retainedContext.Count > 0;
+            var sessionLostSkillLoads = recoveredFromMcpSessionLoss;
             if (needsSessionSetup)
             {
                 var previousSessionId = targetChat.CopilotSessionId;
@@ -3772,18 +3574,21 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 if (!ok)
                     throw new InvalidOperationException(Loc.Status_OriginalSessionUnavailable);
 
+                await AwaitMcpCatalogRecoveryBeforeSendAsync(targetChat, cts.Token);
                 needsReplayPrompt = ShouldReplayTranscriptAfterSessionReset(
                     chatWasCreatedThisTurn: false,
                     previousSessionId,
                     targetChat.CopilotSessionId,
-                    retainedContext.Count);
+                    retainedContext.Count,
+                    replayRequired: recoveredFromMcpSessionLoss);
 
                 // A replacement session holds none of this chat's earlier skill loads, so the
                 // selection persisted on the chat has to be activated again for this turn.
-                sessionLostSkillLoads = !string.Equals(
-                    previousSessionId,
-                    targetChat.CopilotSessionId,
-                    StringComparison.Ordinal);
+                sessionLostSkillLoads = recoveredFromMcpSessionLoss
+                    || !string.Equals(
+                        previousSessionId,
+                        targetChat.CopilotSessionId,
+                        StringComparison.Ordinal);
 
                 _ = RefreshQuotaAsync();
             }
@@ -3866,9 +3671,30 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // existing chats are unaffected. Retries below reuse this turn's slot.
             await AcquireByokRateSlotAsync(targetChat, cts.Token);
             validateBeforeSend?.Invoke();
-            await AwaitMcpToolCatalogRefreshAsync(targetChat.Id, cts.Token);
+            await AwaitMcpCatalogRecoveryBeforeSendAsync(targetChat, cts.Token);
+            if (_sessionCache.TryGetValue(chatId, out var readySession)
+                && !ReferenceEquals(readySession, sendSession))
+            {
+                sendSession = readySession;
+                skillDirectives = await ActivateExternalSkillsAsync(
+                    sendSession,
+                    targetChat,
+                    targetChat.ActiveExternalSkillNames,
+                    cts.Token);
+                sendOptions.Prompt =
+                    skillDirectives
+                    + BuildSessionRecoveryReplayPrompt(retainedContext, prompt)
+                    + promptAdditions;
+                expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
+                    sendSession,
+                    localUserMessageCount,
+                    cts.Token,
+                    verifyWithLiveEvents: true);
+            }
             PreparePendingTurnTracking(targetChat, expectedSessionUserMessageCount, localAssistantMessageCount);
             await sendSession.SendAsync(sendOptions, cts.Token);
+            ObserveMcpCatalogAfterSuccessfulSend(targetChat, sendSession);
+            CompleteMcpCatalogRecoveryReplay(chatId);
         }
         catch (Exception ex) when (IsSessionNotFoundError(ex) && cts is not null && sendOptions is not null)
         {
@@ -3879,6 +3705,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 if (!ok)
                     throw new InvalidOperationException(Loc.Status_OriginalSessionUnavailable);
 
+                await AwaitMcpCatalogRecoveryBeforeSendAsync(targetChat, cts.Token);
                 sendSession = _sessionCache.TryGetValue(targetChat.Id, out var sessionForChat)
                     ? sessionForChat
                     : _activeSession!;
@@ -3896,9 +3723,30 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     cts.Token,
                     verifyWithLiveEvents: true);
                 validateBeforeSend?.Invoke();
-                await AwaitMcpToolCatalogRefreshAsync(targetChat.Id, cts.Token);
+                await AwaitMcpCatalogRecoveryBeforeSendAsync(targetChat, cts.Token);
+                if (_sessionCache.TryGetValue(targetChat.Id, out var readySession)
+                    && !ReferenceEquals(readySession, sendSession))
+                {
+                    sendSession = readySession;
+                    skillDirectives = await ActivateExternalSkillsAsync(
+                        sendSession,
+                        targetChat,
+                        targetChat.ActiveExternalSkillNames,
+                        cts.Token);
+                    sendOptions.Prompt =
+                        skillDirectives
+                        + BuildSessionRecoveryReplayPrompt(retainedContext, prompt)
+                        + promptAdditions;
+                    expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
+                        sendSession,
+                        localUserMessageCount,
+                        cts.Token,
+                        verifyWithLiveEvents: true);
+                }
                 PreparePendingTurnTracking(targetChat, expectedSessionUserMessageCount, localAssistantMessageCount);
                 await sendSession.SendAsync(sendOptions, cts.Token);
+                ObserveMcpCatalogAfterSuccessfulSend(targetChat, sendSession);
+                CompleteMcpCatalogRecoveryReplay(targetChat.Id);
             }
             catch (BackgroundJobDeliveryInvalidatedException)
             {
@@ -3919,7 +3767,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex) when (sendOptions is not null && IsCopilotTransportError(ex))
         {
-            var recovery = await TryRecoverTransportSendAsync(targetChat, sendOptions);
+            var recovery = await TryRecoverTransportSendAsync(
+                targetChat,
+                sendOptions,
+                prompt,
+                promptAdditions);
             RestoreDisplayedSessionFromCache();
             if (recovery.Recovered)
                 return;
@@ -4808,6 +4660,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     return;
                 }
             }
+
+            await AwaitMcpCatalogRecoveryBeforeSendAsync(targetChat, CancellationToken.None);
+            var recoveredFromMcpSessionLoss = HasPendingMcpCatalogRecoveryReplay(chatId);
             var runtime = GetOrCreateRuntimeState(targetChat.Id);
             MarkRuntimeActive(
                 runtime,
@@ -4876,8 +4731,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 QueueGeneratedChatTitle(targetChat, prompt);
             }
 
-            var needsReplayPrompt = false;
-            var sessionLostSkillLoads = false;
+            var needsReplayPrompt = recoveredFromMcpSessionLoss && retainedContext.Count > 0;
+            var sessionLostSkillLoads = recoveredFromMcpSessionLoss;
             if (needsSessionSetup)
             {
                 var previousSessionId = targetChat.CopilotSessionId;
@@ -4892,19 +4747,22 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     return;
                 }
 
+                await AwaitMcpCatalogRecoveryBeforeSendAsync(targetChat, cts.Token);
                 needsReplayPrompt = ShouldReplayTranscriptAfterSessionReset(
                     createdChat,
                     previousSessionId,
                     targetChat.CopilotSessionId,
-                    retainedContext.Count);
+                    retainedContext.Count,
+                    replayRequired: recoveredFromMcpSessionLoss);
 
                 // Skills are one-shot per session: a replacement session carries none of the loads
                 // from earlier turns, so every still-selected skill has to be activated again rather
                 // than only the ones queued since the last send.
-                sessionLostSkillLoads = !string.Equals(
-                    previousSessionId,
-                    targetChat.CopilotSessionId,
-                    StringComparison.Ordinal);
+                sessionLostSkillLoads = recoveredFromMcpSessionLoss
+                    || !string.Equals(
+                        previousSessionId,
+                        targetChat.CopilotSessionId,
+                        StringComparison.Ordinal);
 
                 // Agent is pre-selected via SessionConfig.Agent in EnsureSessionAsync.
                 // File-based Copilot agents are handled via system prompt injection.
@@ -4944,7 +4802,26 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // Apply the BYOK model's per-minute request limit (if configured) before this turn
             // consumes a network slot. No-op for non-BYOK models or models without a limit.
             await AcquireByokRateSlotAsync(targetChat, cts.Token);
-            await AwaitMcpToolCatalogRefreshAsync(targetChat.Id, cts.Token);
+            await AwaitMcpCatalogRecoveryBeforeSendAsync(targetChat, cts.Token);
+            if (_sessionCache.TryGetValue(chatId, out var readySession)
+                && !ReferenceEquals(readySession, sendSession))
+            {
+                sendSession = readySession;
+                skillDirectives = await ActivateExternalSkillsAsync(
+                    sendSession,
+                    targetChat,
+                    targetChat.ActiveExternalSkillNames,
+                    cts.Token);
+                sendOptions.Prompt =
+                    skillDirectives
+                    + BuildSessionRecoveryReplayPrompt(retainedContext, prompt)
+                    + promptAdditions;
+                expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
+                    sendSession,
+                    localUserMessageCount,
+                    cts.Token,
+                    verifyWithLiveEvents: true);
+            }
             PreparePendingTurnTracking(
                 targetChat,
                 expectedSessionUserMessageCount,
@@ -4954,6 +4831,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // for a steer being consumed (steers are only injected once the turn is already running).
             runtime.ExpectTurnStartUserEcho = true;
             await sendSession.SendAsync(sendOptions, cts.Token);
+            ObserveMcpCatalogAfterSuccessfulSend(targetChat, sendSession);
+            CompleteMcpCatalogRecoveryReplay(chatId);
             ClearPendingExternalSkillInjections();
         }
         catch (Exception ex) when (IsSessionNotFoundError(ex) && cts is not null && sendOptions is not null)
@@ -4974,6 +4853,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         chat: targetChat);
                     return;
                 }
+                await AwaitMcpCatalogRecoveryBeforeSendAsync(targetChat, cts.Token);
                 sendSession = _sessionCache.TryGetValue(targetChat.Id, out var recoveredSessionForChat)
                     ? recoveredSessionForChat
                     : _activeSession!;
@@ -4992,7 +4872,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     localUserMessageCount,
                     cts.Token,
                     verifyWithLiveEvents: true);
-                await AwaitMcpToolCatalogRefreshAsync(targetChat.Id, cts.Token);
                 PreparePendingTurnTracking(
                     targetChat,
                     expectedSessionUserMessageCount,
@@ -5000,14 +4879,44 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // Recovery replay is also a turn-start send: expect (and skip) its one turn-start echo.
                 // `runtime` is scoped to the try above, so re-fetch the same cached per-chat state here.
                 GetOrCreateRuntimeState(targetChat.Id).ExpectTurnStartUserEcho = true;
+                await AwaitMcpCatalogRecoveryBeforeSendAsync(targetChat, cts.Token);
+                if (_sessionCache.TryGetValue(targetChat.Id, out var readySession)
+                    && !ReferenceEquals(readySession, sendSession))
+                {
+                    sendSession = readySession;
+                    skillDirectives = await ActivateTurnExternalSkillsAsync(
+                        sendSession,
+                        targetChat,
+                        sessionLostHistory: true,
+                        cts.Token);
+                    sendOptions.Prompt =
+                        skillDirectives
+                        + BuildSessionRecoveryReplayPrompt(retainedContext, prompt)
+                        + promptAdditions;
+                    expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
+                        sendSession,
+                        localUserMessageCount,
+                        cts.Token,
+                        verifyWithLiveEvents: true);
+                    PreparePendingTurnTracking(
+                        targetChat,
+                        expectedSessionUserMessageCount,
+                        localAssistantMessageCount);
+                }
                 await sendSession.SendAsync(sendOptions, cts.Token);
+                ObserveMcpCatalogAfterSuccessfulSend(targetChat, sendSession);
+                CompleteMcpCatalogRecoveryReplay(targetChat.Id);
                 ClearPendingExternalSkillInjections();
             }
             catch (Exception retryEx)
             {
                 if (IsCopilotTransportError(retryEx))
                 {
-                    var recovery = await TryRecoverTransportSendAsync(targetChat, sendOptions);
+                    var recovery = await TryRecoverTransportSendAsync(
+                        targetChat,
+                        sendOptions,
+                        prompt,
+                        promptAdditions);
                     RestoreDisplayedSessionFromCache();
                     if (recovery.Recovered)
                         return;
@@ -5027,7 +4936,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex) when (sendOptions is not null && IsCopilotTransportError(ex))
         {
-            var recovery = await TryRecoverTransportSendAsync(targetChat, sendOptions);
+            var recovery = await TryRecoverTransportSendAsync(
+                targetChat,
+                sendOptions,
+                prompt,
+                promptAdditions);
             RestoreDisplayedSessionFromCache();
             if (recovery.Recovered)
                     return;
@@ -5156,7 +5069,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private async Task<(bool Recovered, string? FailureMessage)> TryRecoverTransportSendAsync(
         Chat chat,
-        MessageOptions sendOptions)
+        MessageOptions sendOptions,
+        string originalUserPrompt,
+        string promptAdditions)
     {
         var pendingRuntime = GetOrCreateRuntimeState(chat.Id);
         int pendingSessionUserMessageCount;
@@ -5172,6 +5087,26 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (recoveredTurnCts is null || !_sessionCache.TryGetValue(chat.Id, out var recoveredSession))
             return (false, failureMessage ?? Loc.Status_ConnectionRecoveryFailed);
         RestoreDisplayedSessionFromCache();
+        var replayRecoveredSession = HasPendingMcpCatalogRecoveryReplay(chat.Id);
+        if (replayRecoveredSession)
+        {
+            var latestUserIndex = chat.Messages.FindLastIndex(
+                static message => string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase));
+            var retainedContext = latestUserIndex > 0
+                ? chat.Messages.Take(latestUserIndex).ToList()
+                : [];
+            var skillDirectives = await ActivateExternalSkillsAsync(
+                recoveredSession,
+                chat,
+                chat.ActiveExternalSkillNames,
+                recoveredTurnCts.Token);
+            sendOptions = BuildTransportRecoverySendOptions(
+                sendOptions,
+                retainedContext,
+                originalUserPrompt,
+                skillDirectives,
+                promptAdditions);
+        }
 
         var recoveredAnalysis = await AnalyzePendingTurnRecoveryAsync(
             recoveredSession,
@@ -5189,19 +5124,28 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 recoveredTurnCts.Token,
                 verifyWithLiveEvents: true);
             SetPendingSessionUserMessageCount(chat.Id, expectedSessionUserMessageCount);
-            await AwaitMcpToolCatalogRefreshAsync(chat.Id, recoveredTurnCts.Token);
+            await AwaitMcpCatalogRecoveryBeforeSendAsync(chat, recoveredTurnCts.Token);
+            if (!_sessionCache.TryGetValue(chat.Id, out var readyRecoveredSession)
+                || !ReferenceEquals(readyRecoveredSession, recoveredSession))
+            {
+                return (false, Loc.Status_ConnectionRecoveryFailed);
+            }
             await recoveredSession.SendAsync(sendOptions.Clone(), recoveredTurnCts.Token);
+            ObserveMcpCatalogAfterSuccessfulSend(chat, recoveredSession);
+            CompleteMcpCatalogRecoveryReplay(chat.Id);
             return (true, null);
         }
 
         if (await ApplyRecoveredTurnStateAsync(chat, recoveredAnalysis))
         {
+            CompleteMcpCatalogRecoveryReplay(chat.Id);
             return (true, null);
         }
 
         if (recoveredAnalysis.ActiveToolCount > 0)
         {
             SchedulePostToolReconciliation(chat.Id, treatCompletedTurnAsIdle: true);
+            CompleteMcpCatalogRecoveryReplay(chat.Id);
             return (true, null);
         }
 
@@ -5209,6 +5153,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             && CountCompletedAssistantMessages(chat) > pendingAssistantCount)
         {
             await FinalizeRecoveredAssistantMessagesAsync(chat);
+            CompleteMcpCatalogRecoveryReplay(chat.Id);
             return (true, null);
         }
 
@@ -5218,6 +5163,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             pendingSessionUserMessageCount,
             pendingAssistantCount,
             recoveredTurnCts.Token);
+        if (recoveredByWaiting)
+            CompleteMcpCatalogRecoveryReplay(chat.Id);
         return (recoveredByWaiting, recoveredByWaiting ? null : Loc.Status_ConnectionRecoveryFailed);
     }
 
@@ -5490,7 +5437,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return;
 
         _sessionCache.Remove(chat.Id);
-        CancelMcpToolCatalogRefresh(chat.Id);
         if (_sessionsPendingResume.Remove(chat.Id, out var previousCandidate)
             && !ReferenceEquals(previousCandidate, invalidatedSession)
             && !string.Equals(
@@ -5523,8 +5469,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private void RecordSessionProviderSignature(Chat chat, string? signature)
     {
         chat.SessionProviderSignature = signature;
-        _activeSessionProviderSignature = signature;
         _sessionProviderSignatures[chat.Id] = signature;
+        if (CurrentChat?.Id == chat.Id)
+            _activeSessionProviderSignature = signature;
     }
 
     private void DetachPersistedSession(Chat chat, string? sessionId = null)
@@ -5540,7 +5487,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 || string.Equals(cachedSession.SessionId, detachedSessionId, StringComparison.Ordinal)))
         {
             _sessionCache.Remove(chat.Id);
-            CancelMcpToolCatalogRefresh(chat.Id);
             TrackSessionRelease(chat.Id, cachedSession);
             releasedSession = cachedSession;
         }
@@ -5803,9 +5749,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         bool chatWasCreatedThisTurn,
         string? previousSessionId,
         string? currentSessionId,
-        int retainedContextCount)
+        int retainedContextCount,
+        bool replayRequired = false)
     {
-        if (chatWasCreatedThisTurn || retainedContextCount == 0)
+        if (retainedContextCount == 0)
+            return false;
+        if (replayRequired)
+            return true;
+        if (chatWasCreatedThisTurn)
             return false;
 
         return string.IsNullOrWhiteSpace(previousSessionId)
@@ -6886,6 +6837,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (CurrentChat?.Id != resendChat.Id)
                 return;
 
+            await AwaitMcpCatalogRecoveryBeforeSendAsync(resendChat, CancellationToken.None);
+            var recoveredFromMcpSessionLoss = HasPendingMcpCatalogRecoveryReplay(chatId);
             var needsSessionSetup = NeedsSessionSetup(resendChat);
             if (ConsumePendingSessionInvalidation(resendChat))
                 needsSessionSetup = true;
@@ -6899,13 +6852,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // The rewind attempt runs BEFORE the new CTS is registered in _ctsSources, so the
             // fallback InvalidateCurrentSession() (which disposes any CTS still tracked in
             // _ctsSources) can never dispose this turn's CTS.
-            var shouldReplayPrompt = wasEdited;
+            var shouldReplayPrompt = wasEdited
+                || (recoveredFromMcpSessionLoss && retainedContext.Count > 0);
             var previousSessionId = CurrentChat.CopilotSessionId;
 
             var cts = new CancellationTokenSource();
 
             var historyRewound = false;
-            if (wasEdited)
+            if (wasEdited && !recoveredFromMcpSessionLoss)
             {
                 historyRewound = await TryRewindEditedHistoryAsync(CurrentChat, retainedContext, cts.Token);
                 if (historyRewound)
@@ -6945,6 +6899,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     return;
                 }
 
+                await AwaitMcpCatalogRecoveryBeforeSendAsync(CurrentChat, cts.Token);
                 var sessionWasReplaced = !string.Equals(
                     previousSessionId,
                     CurrentChat.CopilotSessionId,
@@ -6955,7 +6910,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         chatWasCreatedThisTurn: false,
                         previousSessionId,
                         CurrentChat.CopilotSessionId,
-                        retainedContext.Count);
+                        retainedContext.Count,
+                        replayRequired: recoveredFromMcpSessionLoss);
                     if (wasEdited)
                         historyRewound = false;
                 }
@@ -6983,6 +6939,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         AppendResendSessionUnavailable(CurrentChat);
                         return;
                     }
+                    await AwaitMcpCatalogRecoveryBeforeSendAsync(CurrentChat, cts.Token);
                 }
             }
 
@@ -7010,7 +6967,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // skills activated again, resolved from the message being resent rather than from the live
             // composer selection, which may have moved on. A plain regenerate keeps the session and its
             // history intact, so the original load still applies and only newly queued skills are sent.
-            var sessionLostSkillLoads = historyRewound
+            var sessionLostSkillLoads = recoveredFromMcpSessionLoss
+                || historyRewound
                 || !string.Equals(previousSessionId, CurrentChat.CopilotSessionId, StringComparison.Ordinal);
             skillDirectives = sessionLostSkillLoads
                 ? await ActivateExternalSkillsAsync(
@@ -7045,12 +7003,33 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 cts.Token,
                 verifyWithLiveEvents: abortedPreviousTurn);
             await AcquireByokRateSlotAsync(CurrentChat, cts.Token);
-            await AwaitMcpToolCatalogRefreshAsync(CurrentChat.Id, cts.Token);
+            await AwaitMcpCatalogRecoveryBeforeSendAsync(CurrentChat, cts.Token);
+            if (_sessionCache.TryGetValue(chatId, out var readyResendSession)
+                && !ReferenceEquals(readyResendSession, resendSession))
+            {
+                resendSession = readyResendSession;
+                skillDirectives = await ActivateExternalSkillsAsync(
+                    resendSession,
+                    CurrentChat,
+                    ResolveSkillSelectionsFromReferences(newUserMsg.ActiveSkills).ExternalSkillNames,
+                    cts.Token);
+                resendOptions.Prompt =
+                    skillDirectives
+                    + BuildSessionRecoveryReplayPrompt(retainedContext, prompt)
+                    + promptAdditions;
+                expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
+                    resendSession,
+                    localUserMessageCount,
+                    cts.Token,
+                    verifyWithLiveEvents: true);
+            }
             PreparePendingTurnTracking(
                 CurrentChat,
                 expectedSessionUserMessageCount,
                 localAssistantMessageCount);
             await resendSession.SendAsync(resendOptions, cts.Token);
+            ObserveMcpCatalogAfterSuccessfulSend(CurrentChat, resendSession);
+            CompleteMcpCatalogRecoveryReplay(chatId);
             ClearPendingExternalSkillInjections();
         }
         catch (Exception ex) when (IsSessionNotFoundError(ex) && CurrentChat is not null)
@@ -7072,6 +7051,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         overrideMessage: Loc.Status_OriginalSessionUnavailable);
                     return;
                 }
+                await AwaitMcpCatalogRecoveryBeforeSendAsync(CurrentChat, cts.Token);
                 var resendPrompt2 = BuildResendPrompt(
                     retainedContext,
                     prompt,
@@ -7094,19 +7074,46 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     localUserMessageCount,
                     cts.Token,
                     verifyWithLiveEvents: true);
-                await AwaitMcpToolCatalogRefreshAsync(CurrentChat.Id, cts.Token);
                 PreparePendingTurnTracking(
                     CurrentChat,
                     expectedSessionUserMessageCount,
                     localAssistantMessageCount);
-                await _activeSession!.SendAsync(resendOptions, cts.Token);
+                await AwaitMcpCatalogRecoveryBeforeSendAsync(CurrentChat, cts.Token);
+                var readyResendSession = _sessionCache.TryGetValue(CurrentChat.Id, out var cachedReadySession)
+                    ? cachedReadySession
+                    : _activeSession!;
+                if (!ReferenceEquals(readyResendSession, _activeSession))
+                {
+                    skillDirectives = await ActivateExternalSkillsAsync(
+                        readyResendSession,
+                        CurrentChat,
+                        ResolveSkillSelectionsFromReferences(userMessage.ActiveSkills).ExternalSkillNames,
+                        cts.Token);
+                    resendOptions.Prompt = skillDirectives + resendPrompt2;
+                    expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
+                        readyResendSession,
+                        localUserMessageCount,
+                        cts.Token,
+                        verifyWithLiveEvents: true);
+                    PreparePendingTurnTracking(
+                        CurrentChat,
+                        expectedSessionUserMessageCount,
+                        localAssistantMessageCount);
+                }
+                await readyResendSession.SendAsync(resendOptions, cts.Token);
+                ObserveMcpCatalogAfterSuccessfulSend(CurrentChat, readyResendSession);
+                CompleteMcpCatalogRecoveryReplay(CurrentChat.Id);
                 ClearPendingExternalSkillInjections();
             }
             catch (Exception retryEx)
             {
                 if (CurrentChat is not null && resendOptions is not null && IsCopilotTransportError(retryEx))
                 {
-                    var recovery = await TryRecoverTransportSendAsync(CurrentChat, resendOptions);
+                    var recovery = await TryRecoverTransportSendAsync(
+                        CurrentChat,
+                        resendOptions,
+                        prompt,
+                        promptAdditions);
                     if (recovery.Recovered)
                         return;
 
@@ -7121,7 +7128,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex) when (CurrentChat is not null && resendOptions is not null && IsCopilotTransportError(ex))
         {
-            var recovery = await TryRecoverTransportSendAsync(CurrentChat, resendOptions);
+            var recovery = await TryRecoverTransportSendAsync(
+                CurrentChat,
+                resendOptions,
+                prompt,
+                promptAdditions);
             if (recovery.Recovered)
                 return;
 
@@ -7231,6 +7242,21 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             "The previous backend chat session is unavailable. Continue using ONLY the conversation context below.",
             "Treat the transcript as the complete conversation history so far.",
             "Latest user message:");
+
+    internal static MessageOptions BuildTransportRecoverySendOptions(
+        MessageOptions failedSendOptions,
+        List<ChatMessage> retainedContext,
+        string originalUserPrompt,
+        string skillDirectives,
+        string promptAdditions)
+    {
+        var recoveredSendOptions = failedSendOptions.Clone();
+        recoveredSendOptions.Prompt =
+            skillDirectives
+            + BuildSessionRecoveryReplayPrompt(retainedContext, originalUserPrompt)
+            + promptAdditions;
+        return recoveredSendOptions;
+    }
 
     private static string BuildResendPrompt(
         List<ChatMessage> retainedContext,

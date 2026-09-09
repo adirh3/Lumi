@@ -28,7 +28,8 @@ namespace Lumi.Services;
 public sealed record McpSessionPlan(
     Dictionary<string, McpServerConfig> Servers,
     IReadOnlyList<string> DisabledServerNames,
-    IReadOnlyDictionary<string, string>? RuntimeKeysByName = null) : IDisposable
+    IReadOnlyDictionary<string, string>? RuntimeKeysByName = null,
+    IReadOnlySet<string>? SelectedRuntimeServerNames = null) : IDisposable
 {
     private McpProxySessionLease? _proxyLease;
     private bool _usesProxy;
@@ -43,6 +44,10 @@ public sealed record McpSessionPlan(
         => RuntimeKeysByName is not null && RuntimeKeysByName.TryGetValue(serverName, out var key)
             ? key
             : serverName;
+
+    public IReadOnlySet<string> GetSelectedRuntimeServerNames()
+        => SelectedRuntimeServerNames
+           ?? (IReadOnlySet<string>)Servers.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     internal bool UsesProxy => _usesProxy;
     internal McpProxySessionLease? ProxyLease => Volatile.Read(ref _proxyLease);
@@ -223,7 +228,23 @@ public static class McpSessionPlanner
                 .Distinct(NameComparer)
                 .ToArray();
 
-            var plan = new McpSessionPlan(result, disabled, runtimeKeysByName);
+            var selectedRuntimeServerNames = result.Keys.ToHashSet(NameComparer);
+            if (!agentRestrictsMcp)
+            {
+                foreach (var discovered in capabilities.McpServers
+                             .Where(server => !server.Origin.IsLumi)
+                             .Where(server => selectedNames.Contains(server.Name))
+                             .Where(server => !supplied.Contains(server.Name)))
+                {
+                    selectedRuntimeServerNames.Add(discovered.Name);
+                }
+            }
+
+            var plan = new McpSessionPlan(
+                result,
+                disabled,
+                runtimeKeysByName,
+                selectedRuntimeServerNames);
             if (proxyRegistrations is { Count: > 0 })
             {
                 plan.AttachProxyLease(new McpProxySessionLease(proxyRegistrations));
