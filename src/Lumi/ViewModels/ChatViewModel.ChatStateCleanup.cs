@@ -437,10 +437,10 @@ public partial class ChatViewModel
     /// handler. A single Stop schedules two drains (the stop and the session.idle it causes), so drains
     /// are coalesced per chat — two overlapping sends would fight over the same cancellation token.
     /// </summary>
-    private void ScheduleQueuedBusySendDrain(Guid chatId)
+    private bool ScheduleQueuedBusySendDrain(Guid chatId)
     {
         if (_isDisposed)
-            return;
+            return false;
 
         Dispatcher.UIThread.Post(() =>
         {
@@ -453,6 +453,7 @@ public partial class ChatViewModel
 
             _ = DrainQueuedBusySendSafeAsync(chatId);
         });
+        return true;
     }
 
     private async Task DrainQueuedBusySendSafeAsync(Guid chatId)
@@ -792,6 +793,8 @@ public partial class ChatViewModel
 
     private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest)
     {
+        CancelMcpCatalogRecovery(chatId);
+        AbandonSessionIdleWait(chatId);
         // Drop any still-pending steer confirmations for this chat. Without this a chat deleted / released
         // while a steer is in flight leaks its entry (and the referenced ChatMessageViewModel), and — because
         // a remote-shutdown keeps CopilotSessionId for resume — a later Retry's turn-start echo could pop the
@@ -801,9 +804,7 @@ public partial class ChatViewModel
         ClearPendingTurnTracking(chatId);
         DisposeSessionSubscription(chatId);
 
-        var removedSession = _sessionCache.Remove(chatId, out var session);
-        CancelMcpToolCatalogRefresh(chatId);
-        if (removedSession && session is not null)
+        if (_sessionCache.Remove(chatId, out var session))
         {
             if (ReferenceEquals(_activeSession, session)
                 || string.Equals(_activeSession?.SessionId, session.SessionId, StringComparison.Ordinal))
@@ -996,7 +997,6 @@ public partial class ChatViewModel
         McpSessionPlan plan,
         PendingMcpProxyPlanTracker? pendingPlan,
         Action? beforeAttach = null,
-        Action? afterAttach = null,
         Action? afterSubscribe = null)
     {
         Task? failedPublicationRelease = null;
@@ -1005,22 +1005,22 @@ public partial class ChatViewModel
         {
             beforeAttach?.Invoke();
             AttachMcpProxyLease(session, plan);
-            afterAttach?.Invoke();
             if (!SubscribeToSession(
                     session,
                     chat,
                     workDir,
                     releaseTask => failedPublicationRelease = releaseTask))
             {
-                _activeSession = null;
+                RestoreDisplayedSessionFromCache();
                 return false;
             }
 
-            _activeSession = session;
+            // The cache owns this chat's session. The active pointer is presentation state and must
+            // continue to represent whichever chat is displayed while background work publishes.
+            RestoreDisplayedSessionFromCache();
             afterSubscribe?.Invoke();
             return true;
         }
-        if (pendingPlan is null)
         if (pendingPlan is null)
             return Publish();
 
@@ -1083,16 +1083,6 @@ public partial class ChatViewModel
         if (_mcpProxyLeasesBySession.ContainsKey(session))
             TrackMcpProxyRelease(chatId, previousLease.ReleaseAsync());
         else
-            _mcpProxyLeasesBySession[session] = previousLease;
-    }
-
-    private void AdoptMcpProxyLeaseIfMissing(CopilotSession previousSession, CopilotSession session)
-    {
-        if (_mcpProxyLeasesBySession.ContainsKey(session))
-            return;
-
-        var previousLease = DetachMcpProxyLease(previousSession);
-        if (previousLease is not null)
             _mcpProxyLeasesBySession[session] = previousLease;
     }
 
