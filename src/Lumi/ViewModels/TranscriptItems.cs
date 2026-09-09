@@ -367,10 +367,14 @@ public partial class AssistantMessageItem : TranscriptItem
     [ObservableProperty] private bool _hasSources;
     [ObservableProperty] private string _sourcesLabel = "";
 
-    partial void OnContentChanged(string value) => IsItemVisible = !string.IsNullOrWhiteSpace(value);
+    partial void OnContentChanged(string value) => IsItemVisible = HasFileAttachments || !string.IsNullOrWhiteSpace(value);
 
     partial void OnHasSkillsChanged(bool value) => OnPropertyChanged(nameof(DisplaySkills));
-    partial void OnHasFileAttachmentsChanged(bool value) => OnPropertyChanged(nameof(DisplayFileAttachments));
+    partial void OnHasFileAttachmentsChanged(bool value)
+    {
+        IsItemVisible = value || !string.IsNullOrWhiteSpace(Content);
+        OnPropertyChanged(nameof(DisplayFileAttachments));
+    }
     partial void OnHasSourcesChanged(bool value) => OnPropertyChanged(nameof(DisplaySourcesSection));
 
     public string? Author => _source.Author;
@@ -446,11 +450,7 @@ public partial class AssistantMessageItem : TranscriptItem
 
         // File attachments
         if (fileChips is { Count: > 0 })
-        {
-            foreach (var fc in fileChips)
-                FileAttachments.Add(fc);
-        }
-        HasFileAttachments = FileAttachments.Count > 0;
+            AddFileAttachments(fileChips);
 
         // Sources come from the persisted model
         Sources.Clear();
@@ -458,6 +458,13 @@ public partial class AssistantMessageItem : TranscriptItem
             Sources.Add(new SourceItem(src));
         HasSources = Sources.Count > 0;
         SourcesLabel = Sources.Count == 1 ? Loc.Sources_One : string.Format(Loc.Sources_N, Sources.Count);
+    }
+
+    internal void AddFileAttachments(IEnumerable<FileAttachmentItem> files)
+    {
+        foreach (var file in files)
+            FileAttachments.Add(file);
+        HasFileAttachments = FileAttachments.Count > 0;
     }
 
     /// <summary>
@@ -1159,11 +1166,21 @@ public partial class FileAttachmentItem : ObservableObject
     public bool IsRemovable { get; }
     public Avalonia.Media.Imaging.Bitmap? IconImage { get; }
 
-    public FileAttachmentItem(string filePath, bool isRemovable = false, Action<string>? removeAction = null)
+    [ObservableProperty] private bool _isPreviewable;
+    [ObservableProperty] private bool _isEdited;
+
+    public FileAttachmentItem(
+        string filePath,
+        bool isRemovable = false,
+        Action<string>? removeAction = null,
+        bool isPreviewable = false,
+        bool isEdited = false)
     {
         FilePath = filePath;
         FileName = ToolDisplayHelper.GetDisplayFileName(filePath);
         IsRemovable = isRemovable;
+        _isPreviewable = isPreviewable;
+        _isEdited = isEdited;
         _removeAction = removeAction;
 
         try

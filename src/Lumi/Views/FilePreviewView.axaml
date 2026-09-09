@@ -1,0 +1,39 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.FilePreviewView"
+             x:DataType="vm:ChatViewModel"
+             x:CompileBindings="True">
+  <Grid RowDefinitions="Auto,Auto,*">
+    <Border BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="0,0,0,1" Padding="16,12">
+      <Grid ColumnDefinitions="*,Auto" MinHeight="32">
+        <StackPanel Spacing="2" VerticalAlignment="Center">
+          <TextBlock Text="{loc:Str Preview_Title}" FontSize="10.5" Foreground="{DynamicResource Brush.TextTertiary}" />
+          <TextBlock x:Name="PreviewFileName" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" Margin="8,0,0,0">
+          <Button x:Name="RefreshPreviewButton" Classes="subtle" Padding="6" MinWidth="0" MinHeight="0"
+                  Click="OnRefreshClick" ToolTip.Tip="{loc:Str Preview_Refresh}" AutomationProperties.Name="{loc:Str Preview_Refresh}">
+            <PathIcon Width="14" Height="14" Data="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 8 8h-2a6 6 0 1 1-1.76-4.24L14 10h7V3l-3.35 3.35z" />
+          </Button>
+          <Button x:Name="OpenPreviewFileButton" Classes="subtle" Padding="6" MinWidth="0" MinHeight="0"
+                  Click="OnOpenClick" ToolTip.Tip="{loc:Str FileMenu_Open}" AutomationProperties.Name="{loc:Str FileMenu_Open}">
+            <PathIcon Width="14" Height="14" Data="M14 3h7v7h-2V6.41l-8.29 8.3-1.42-1.42L17.59 5H14V3zM5 5h5v2H5v12h12v-5h2v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
+          </Button>
+          <Button x:Name="CloseFilePreviewButton" Classes="subtle" Padding="6" MinWidth="0" MinHeight="0"
+                  Command="{Binding CloseFilePreviewCommand}"
+                  ToolTip.Tip="{loc:Str Preview_Close}" AutomationProperties.Name="{loc:Str Preview_Close}">
+            <PathIcon Width="14" Height="14" Data="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+          </Button>
+        </StackPanel>
+      </Grid>
+    </Border>
+    <Border x:Name="PreviewTruncationNotice" Grid.Row="1" IsVisible="False" Padding="16,8"
+            Background="{DynamicResource Brush.AccentSubtle}">
+      <TextBlock Text="{loc:Str Preview_Truncated}" FontSize="11" TextWrapping="Wrap" />
+    </Border>
+    <ContentControl x:Name="FilePreviewContentHost" Grid.Row="2"
+                    HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+  </Grid>
+</UserControl>

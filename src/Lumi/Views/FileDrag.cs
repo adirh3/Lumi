@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 
 namespace Lumi.Views;
 
@@ -80,6 +81,10 @@ public static class FileDrag
         CancelPendingPress();
 
         if (sender is not Control control || _isDragging)
+            return;
+        // An attachment's embedded action buttons are not file drag handles.
+        if (e.Source is Visual source && source.GetSelfAndVisualAncestors()
+                .TakeWhile(ancestor => !ReferenceEquals(ancestor, control)).Any(ancestor => ancestor is Button))
             return;
         // Mouse only: touch/pen presses belong to the scroll gesture recognizers that drive the
         // transcript and workspace lists.

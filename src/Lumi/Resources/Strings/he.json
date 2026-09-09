@@ -1,5 +1,16 @@
 {
   "App_Name": "לומי",
+  "Preview_Title": "תצוגה מקדימה",
+  "Preview_Open": "פתח תצוגה מקדימה",
+  "Preview_Close": "סגור תצוגה מקדימה",
+  "Preview_Edited": "נערך",
+  "Preview_Refresh": "רענן תצוגה מקדימה",
+  "Preview_Loading": "טוען תצוגה מקדימה...",
+  "Preview_Unavailable": "התצוגה המקדימה אינה זמינה",
+  "Preview_NativeUnavailable": "לא מותקן ב-Windows רכיב תצוגה מקדימה מתאים לקובץ הזה. אפשר לפתוח אותו באפליקציה שלו.",
+  "Preview_PlatformUnavailable": "לתצוגה מקדימה של הקובץ הזה נדרש רכיב של Windows. אפשר לפתוח אותו באפליקציה שלו.",
+  "Preview_Truncated": "מוצגת תחילת הקובץ הגדול. כדי לראות את כולו, פתח אותו באפליקציה שלו.",
+  "Preview_Empty": "הקובץ הזה ריק.",
 
   "Onboarding_Hello": "!שלום! אני לומי",
   "Onboarding_Subtitle": "העוזר האישי שלך. איך לקרוא לך?",

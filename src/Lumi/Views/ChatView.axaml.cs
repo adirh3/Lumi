@@ -178,6 +178,7 @@ public partial class ChatView : UserControl
         AddHandler(DragDrop.DragLeaveEvent, OnDragLeave);
         AddHandler(DragDrop.DropEvent, OnDrop);
         AddHandler(StrataFileAttachment.OpenRequestedEvent, OnFileAttachmentOpenRequested);
+        AddHandler(StrataFileAttachment.PreviewRequestedEvent, OnFileAttachmentPreviewRequested);
         AddHandler(StrataChatMessage.CopyRequestedEvent, OnCopyMessageRequested);
         AddHandler(StrataChatMessage.CopyTurnRequestedEvent, OnCopyTurnRequested);
         AddHandler(StrataChatMessage.ForkRequestedEvent, OnForkRequested);
@@ -1846,6 +1847,16 @@ public partial class ChatView : UserControl
     {
         if (e.Source is StrataFileAttachment { DataContext: FileAttachmentItem item })
             item.OpenCommand.Execute(null);
+    }
+
+    private void OnFileAttachmentPreviewRequested(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (e.Source is StrataFileAttachment { DataContext: FileAttachmentItem item }
+            && DataContext is ChatViewModel viewModel)
+        {
+            viewModel.OpenFilePreview(item.FilePath);
+            e.Handled = true;
+        }
     }
 
     private static bool HasFiles(DragEventArgs e)

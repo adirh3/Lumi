@@ -30,6 +30,10 @@
                                FileSize="{Binding FileSize}"
                                IconImage="{Binding IconImage}"
                                Status="Completed"
+                               CanPreview="{Binding IsPreviewable}"
+                               IsEdited="{Binding IsEdited}"
+                               PreviewLabel="{loc:Str Preview_Open}"
+                               EditedLabel="{loc:Str Preview_Edited}"
                                views:FileDrag.FilePath="{Binding FilePath}"
                                IsRemovable="False">
         <sc:StrataFileAttachment.ContextMenu>

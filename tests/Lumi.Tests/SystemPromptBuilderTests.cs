@@ -6,6 +6,24 @@ namespace Lumi.Tests;
 
 public sealed class SystemPromptBuilderTests
 {
+    [Theory]
+    [InlineData("Windows")]
+    [InlineData("MacOS")]
+    [InlineData("Linux")]
+    public void FileDeliverables_ExplainOptionalAndManualPreviewAndAutomaticEdits(string platformName)
+    {
+        var platform = System.Enum.Parse<SystemPromptBuilder.PromptPlatform>(platformName);
+        var prompt = SystemPromptBuilder.Build(new UserSettings { Language = "en" },
+            agent: null, project: null, allSkills: [], activeSkills: [], memories: [], platform: platform);
+
+        Assert.Contains("`preview` boolean defaults to false", prompt);
+        Assert.Contains("Preview action on its chip", prompt);
+        Assert.Contains("Subsequent user-turn edits", prompt);
+        Assert.Contains("Edited indicator", prompt);
+        Assert.Equal(platform == SystemPromptBuilder.PromptPlatform.Windows,
+            prompt.Contains("Windows preview handlers"));
+    }
+
     [Fact]
     public void Build_IncludesConfiguredGlobalCustomInstructions()
     {

@@ -4,6 +4,8 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using Lumi.Localization;
 using Lumi.Models;
@@ -26,6 +28,12 @@ public class TranscriptBuilder
     private readonly Func<ChatMessageViewModel, Task>? _sendSteeredNowAsync;
     private readonly Action<SubagentToolCallItem>? _openSubagentRunAction;
     private readonly Action? _subagentRunsChanged;
+    private readonly Func<string, string>? _resolveFilePath;
+    private static readonly StringComparer FilePathComparer = OperatingSystem.IsWindows()
+        ? StringComparer.OrdinalIgnoreCase
+        : StringComparer.Ordinal;
+    private readonly Dictionary<string, int> _announcedFileTurns = new(FilePathComparer);
+    private FileChipTurn _fileChipTurn = new(0, Guid.Empty);
 
     /// <summary>
     /// Every sub-agent run in the current transcript, in the order it started. Backs the chat's
@@ -55,7 +63,7 @@ public class TranscriptBuilder
     private readonly Dictionary<string, List<string>> _trackedFileEditFilesByToolCall = new(StringComparer.Ordinal);
     private readonly HashSet<string> _deferredFileEditSubscriptions = new(StringComparer.Ordinal);
     private readonly List<(ChatMessageViewModel Vm, PropertyChangedEventHandler Handler)> _pendingToolHandlers = [];
-    public List<FileAttachmentItem> PendingToolFileChips { get; } = [];
+    public List<FileAttachmentItem> PendingToolFileChips => _fileChipTurn.Pending;
     public List<(string FilePath, string ToolName, string? OldText, string? NewText)> PendingFileEdits { get; } = [];
     private readonly Dictionary<string, string?> _pendingFileOriginalContents = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, bool> _pendingWorkspaceFileChanges = new(StringComparer.OrdinalIgnoreCase);
@@ -69,7 +77,7 @@ public class TranscriptBuilder
     /// </summary>
     public bool CollapseCompletedTurns { get; init; } = true;
 
-    public HashSet<string> ShownFileChips { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> ShownFileChips { get; } = new(FilePathComparer);
     private readonly HashSet<Guid> _processedMessageIds = [];
     private readonly HashSet<string> _shownSkillNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _shownLinkedChatKeys = new(StringComparer.Ordinal);
@@ -88,6 +96,18 @@ public class TranscriptBuilder
         public int Failed { get; set; }
     }
 
+    private sealed class FileChipTurn(int index, Guid messageId)
+    {
+        public int Index { get; } = index;
+        public Guid MessageId { get; } = messageId;
+        public Dictionary<string, FileAttachmentItem> Chips { get; } = new(FilePathComparer);
+        public List<FileAttachmentItem> Pending { get; } = [];
+        public AssistantMessageItem? LastAssistant { get; set; }
+        public TranscriptTurn? TranscriptTurn { get; set; }
+        public TranscriptTurn? UserTurn { get; set; }
+        public bool HasEnded { get; set; }
+    }
+
     public TranscriptBuilder(
         DataStore dataStore,
         Action<FileChangeItem> showDiffAction,
@@ -100,7 +120,8 @@ public class TranscriptBuilder
         Action<Guid>? openChatAction = null,
         Func<ChatMessageViewModel, Task>? sendSteeredNowAsync = null,
         Action<SubagentToolCallItem>? openSubagentRunAction = null,
-        Action? subagentRunsChanged = null)
+        Action? subagentRunsChanged = null,
+        Func<string, string>? resolveFilePath = null)
     {
         _dataStore = dataStore;
         _showDiffAction = showDiffAction;
@@ -114,6 +135,7 @@ public class TranscriptBuilder
         _sendSteeredNowAsync = sendSteeredNowAsync;
         _openSubagentRunAction = openSubagentRunAction;
         _subagentRunsChanged = subagentRunsChanged;
+        _resolveFilePath = resolveFilePath;
     }
 
     /// <summary>
@@ -161,6 +183,8 @@ public class TranscriptBuilder
         FlushPendingFileEdits();
         FlushPendingPlanCard();
         FlushPendingModelLabel();
+        FlushPendingFileChips(_fileChipTurn);
+        _fileChipTurn.HasEnded = true;
         CollapseAllCompletedTurns();
         FinalizeCurrentTurn();
 
@@ -252,6 +276,8 @@ public class TranscriptBuilder
         _pendingFileOriginalContents.Clear();
         _pendingWorkspaceFileChanges.Clear();
         ShownFileChips.Clear();
+        _announcedFileTurns.Clear();
+        _fileChipTurn = new FileChipTurn(0, Guid.Empty);
         _processedMessageIds.Clear();
         _shownSkillNames.Clear();
         _shownLinkedChatKeys.Clear();
@@ -363,9 +389,9 @@ public class TranscriptBuilder
 
         if (toolName == "announce_file")
         {
-            var filePath = ToolDisplayHelper.ExtractJsonField(msgVm.Content, "filePath");
-            if (filePath is not null && File.Exists(filePath) && ShownFileChips.Add(filePath))
-                PendingToolFileChips.Add(new FileAttachmentItem(filePath));
+            var chipTurn = _fileChipTurn;
+            ObserveSuccessfulFileTool(msgVm, () => AnnounceFile(
+                ToolDisplayHelper.ExtractJsonField(msgVm.Content, "filePath"), chipTurn));
             return;
         }
 
@@ -388,6 +414,8 @@ public class TranscriptBuilder
 
         if (toolName == ToolDisplayHelper.WorkspaceFileChangedToolName)
         {
+            if (msgVm.ToolStatus is "Failed" or "Stopped")
+                return;
             var filePath = ToolDisplayHelper.ExtractJsonField(msgVm.Content, "filePath")
                 ?? ToolDisplayHelper.ExtractJsonField(msgVm.Content, "path");
             var operation = ToolDisplayHelper.ExtractJsonField(msgVm.Content, "operation");
@@ -488,6 +516,15 @@ public class TranscriptBuilder
         }
 
         var shouldFlushLateFileEdit = IsCurrentTurnAlreadyEnded();
+        if (ToolDisplayHelper.IsFileEditTool(toolName))
+        {
+            var chipTurn = _fileChipTurn;
+            ObserveSuccessfulFileTool(msgVm, () =>
+            {
+                foreach (var diff in ToolDisplayHelper.ExtractAllDiffs(toolName, msgVm.Content))
+                    QueueEditedFileChip(diff.FilePath, chipTurn);
+            });
+        }
         var captureLiveSnapshot = !IsRebuildingTranscript && initialStatus == StrataAiToolCallStatus.InProgress;
         var diffs = TrackFileEditToolDiffs(msgVm, toolName, initialStatus);
         if (diffs.Count == 0 || (!showToolCalls && initialStatus == StrataAiToolCallStatus.InProgress))
@@ -720,6 +757,148 @@ public class TranscriptBuilder
         };
         msgVm.PropertyChanged += handler;
         _pendingToolHandlers.Add((msgVm, handler));
+    }
+
+    // Tool arguments may arrive after the start event. Only successful completion may
+    // announce a file or re-show an edited deliverable; a started/failed edit is not a change.
+    private void ObserveSuccessfulFileTool(ChatMessageViewModel message, Action onSuccess)
+    {
+        if (message.ToolStatus == "Completed" && !string.IsNullOrWhiteSpace(message.Content))
+        {
+            onSuccess();
+            return;
+        }
+        if (message.ToolStatus is "Failed" or "Stopped")
+            return;
+
+        PropertyChangedEventHandler? handler = null;
+        handler = (_, args) =>
+        {
+            if (args.PropertyName is not (nameof(ChatMessageViewModel.ToolStatus) or nameof(ChatMessageViewModel.Content)))
+                return;
+            var succeeded = message.ToolStatus == "Completed" && !string.IsNullOrWhiteSpace(message.Content);
+            if (!succeeded && message.ToolStatus is not ("Failed" or "Stopped"))
+                return;
+
+            message.PropertyChanged -= handler;
+            RemovePendingHandler(message, handler);
+            if (succeeded)
+                onSuccess();
+        };
+        message.PropertyChanged += handler;
+        _pendingToolHandlers.Add((message, handler));
+    }
+
+    private string? NormalizeFileChipPath(string? filePath, bool requireAbsolute = false)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+            return null;
+        try
+        {
+            if (requireAbsolute && !Path.IsPathFullyQualified(filePath))
+                return null;
+            if (!Path.IsPathFullyQualified(filePath))
+                filePath = _resolveFilePath?.Invoke(filePath) ?? filePath;
+            return Path.IsPathFullyQualified(filePath) ? Path.GetFullPath(filePath) : null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException)
+        {
+            return null;
+        }
+    }
+
+    private void AnnounceFile(string? filePath, FileChipTurn turn)
+    {
+        var path = NormalizeFileChipPath(filePath, requireAbsolute: true);
+        if (path is null)
+            return;
+
+        // Retain the announcement even if an old deliverable is currently missing.
+        // A subsequent successful edit/recreation can make it available again.
+        if (!_announcedFileTurns.TryGetValue(path, out var firstTurn) || turn.Index < firstTurn)
+            _announcedFileTurns[path] = turn.Index;
+        ShownFileChips.Add(path);
+        QueueFileChip(path, turn, isPreviewable: true, isEdited: false);
+    }
+
+    private void QueueEditedFileChip(string? filePath, FileChipTurn turn)
+    {
+        var path = NormalizeFileChipPath(filePath);
+        if (path is null
+            || !_announcedFileTurns.TryGetValue(path, out var announcedTurn)
+            || announcedTurn >= turn.Index
+            || turn.Chips.ContainsKey(path))
+        {
+            return;
+        }
+
+        QueueFileChip(path, turn, isPreviewable: true, isEdited: true);
+    }
+
+    /// <summary>Preserves the existing once-per-chat, user-facing new-file discovery behavior.</summary>
+    public void AddDetectedFileChip(string? filePath)
+    {
+        var path = NormalizeFileChipPath(filePath);
+        if (path is null || !File.Exists(path) || !ToolDisplayHelper.IsUserFacingFile(path)
+            || _announcedFileTurns.ContainsKey(path) || !ShownFileChips.Add(path))
+        {
+            return;
+        }
+
+        QueueFileChip(path, _fileChipTurn, isPreviewable: false, isEdited: false);
+    }
+
+    private void QueueFileChip(string path, FileChipTurn turn, bool isPreviewable, bool isEdited)
+    {
+        if (turn.Chips.TryGetValue(path, out var existing))
+        {
+            // An explicit announcement upgrades the already mounted auto chip in place.
+            existing.IsPreviewable |= isPreviewable;
+            if (!isEdited)
+                existing.IsEdited = false;
+            return;
+        }
+        if (!File.Exists(path))
+            return;
+
+        var chip = new FileAttachmentItem(path, isPreviewable: isPreviewable, isEdited: isEdited);
+        turn.Chips.Add(path, chip);
+        turn.Pending.Add(chip);
+        if (turn.HasEnded || (ReferenceEquals(turn, _fileChipTurn) && IsCurrentTurnAlreadyEnded()))
+            FlushPendingFileChips(turn);
+    }
+
+    private void FlushPendingFileChips(FileChipTurn turn)
+    {
+        if (turn.Pending.Count == 0)
+            return;
+
+        if (turn.LastAssistant is null)
+        {
+            // Tool-only/aborted turns still deliver their files. Reuse the normal assistant
+            // attachment surface rather than leaving pending chips to leak into the next turn.
+            turn.LastAssistant = new AssistantMessageItem(new ChatMessageViewModel(new ChatMessage
+            {
+                Id = new Guid(MD5.HashData(Encoding.UTF8.GetBytes($"file-deliverables:{turn.MessageId}"))),
+                Role = "assistant",
+                Author = Loc.Author_Lumi,
+            }), showTimestamps: false);
+            if (turn.TranscriptTurn is { } transcriptTurn)
+                transcriptTurn.Items.Add(turn.LastAssistant);
+            else if (!ReferenceEquals(turn, _fileChipTurn) && GetTurnTarget() is { } turns)
+            {
+                var fileTurn = new TranscriptTurn(TurnStableIdFor($"file-deliverables:{turn.MessageId}"));
+                fileTurn.Items.Add(turn.LastAssistant);
+                var userIndex = turn.UserTurn is null ? -1 : turns.IndexOf(turn.UserTurn);
+                turns.Insert(userIndex + 1, fileTurn);
+                turn.TranscriptTurn = fileTurn;
+            }
+            else
+                turn.TranscriptTurn = AppendAssistantMessageToCurrentTurn(
+                    turn.LastAssistant, TurnStableIdFor($"file-deliverables:{turn.MessageId}"));
+        }
+        turn.LastAssistant.AddFileAttachments(turn.Pending);
+        turn.Pending.Clear();
     }
 
     private static string? BuildToolCallMoreInfo(
@@ -1196,6 +1375,7 @@ public class TranscriptBuilder
             FinalizeCurrentTurn();
 
             AppendToCurrentTurn(new JobWakeItem(msgVm, showTimestamps), TurnStableIdFor($"job-wake:{msgVm.Message.Id}"));
+            BeginFileChipTurn(msgVm.Message.Id);
             FinalizeCurrentTurn();
             return;
         }
@@ -1220,6 +1400,7 @@ public class TranscriptBuilder
                 _openSkillAction,
                 _sendSteeredNowAsync);
             AppendToCurrentTurn(userItem, TurnStableIdFor($"message:{msgVm.Message.Id}"));
+            BeginFileChipTurn(msgVm.Message.Id);
             FinalizeCurrentTurn();
             return;
         }
@@ -1231,6 +1412,8 @@ public class TranscriptBuilder
         }
 
         var assistantItem = new AssistantMessageItem(msgVm, showTimestamps, _openSkillAction);
+        var chipTurn = _fileChipTurn;
+        chipTurn.LastAssistant = assistantItem;
         _pendingModelName = ChatViewModel.FormatModelDisplay(msgVm.Message.Model);
         if (!msgVm.IsStreaming && (PendingToolFileChips.Count > 0 || msgVm.Message.Sources.Count > 0 || msgVm.Message.ActiveSkills.Count > 0))
         {
@@ -1249,8 +1432,8 @@ public class TranscriptBuilder
             {
                 if (args.PropertyName == nameof(ChatMessageViewModel.IsStreaming) && !msgVm.IsStreaming)
                 {
-                    capturedItem.ApplyExtras(PendingToolFileChips.Count > 0 ? PendingToolFileChips.ToList() : null, _shownSkillNames);
-                    PendingToolFileChips.Clear();
+                    capturedItem.ApplyExtras(chipTurn.Pending.Count > 0 ? chipTurn.Pending.ToList() : null, _shownSkillNames);
+                    chipTurn.Pending.Clear();
 
                     CollapseCompletedTurnBlocks(capturedTurn, capturedItem);
                     FlushPendingPlanCard();
@@ -1270,7 +1453,10 @@ public class TranscriptBuilder
     public void FlushPendingFileEdits()
     {
         if (PendingFileEdits.Count == 0 && _pendingWorkspaceFileChanges.Count == 0)
+        {
+            FlushPendingFileChips(_fileChipTurn);
             return;
+        }
 
         var fileChanges = GroupFileEdits();
         if (fileChanges.Count > 0)
@@ -1290,6 +1476,16 @@ public class TranscriptBuilder
         PendingFileEdits.Clear();
         _pendingFileOriginalContents.Clear();
         _pendingWorkspaceFileChanges.Clear();
+        FlushPendingFileChips(_fileChipTurn);
+    }
+
+    private void BeginFileChipTurn(Guid userMessageId)
+    {
+        _fileChipTurn.HasEnded = true;
+        _fileChipTurn = new FileChipTurn(_fileChipTurn.Index + 1, userMessageId)
+        {
+            UserTurn = _currentTurn,
+        };
     }
 
     private bool IsCurrentTurnAlreadyEnded()
@@ -1301,6 +1497,7 @@ public class TranscriptBuilder
             return;
 
         var normalizedPath = filePath.Trim();
+        QueueEditedFileChip(normalizedPath, _fileChipTurn);
         if (_pendingWorkspaceFileChanges.TryGetValue(normalizedPath, out var existingIsCreate))
             _pendingWorkspaceFileChanges[normalizedPath] = existingIsCreate || isCreate;
         else
@@ -1363,6 +1560,8 @@ public class TranscriptBuilder
         }
 
         AppendToCurrentTurn(new TurnModelItem(_pendingModelName), TurnStableIdFor("turn-model"));
+        _fileChipTurn.HasEnded = true;
+        FlushPendingFileChips(_fileChipTurn);
         _pendingModelName = null;
     }
 
@@ -1378,6 +1577,8 @@ public class TranscriptBuilder
             return;
 
         AppendToCurrentTurn(new TurnModelItem(displayName), TurnStableIdFor("turn-model"));
+        _fileChipTurn.HasEnded = true;
+        FlushPendingFileChips(_fileChipTurn);
     }
 
     private List<FileChangeItem> GroupFileEdits()
@@ -2205,6 +2406,8 @@ public class TranscriptBuilder
         if (_currentTurn is not null)
         {
             _currentTurn.Items.Add(item);
+            if (item is not (UserMessageItem or JobWakeItem))
+                _fileChipTurn.TranscriptTurn = _currentTurn;
             return _currentTurn;
         }
 
@@ -2213,6 +2416,8 @@ public class TranscriptBuilder
         var turn = new TranscriptTurn(turnStableId);
         turn.Items.Add(item);
         _currentTurn = turn;
+        if (item is not (UserMessageItem or JobWakeItem))
+            _fileChipTurn.TranscriptTurn = turn;
         InsertTurnBeforeTypingIndicator(turn);
         return turn;
     }

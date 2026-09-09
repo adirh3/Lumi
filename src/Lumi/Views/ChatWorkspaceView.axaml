@@ -205,6 +205,21 @@
                   Background="Transparent"
                   ResizeDirection="Columns" />
 
+    <Border x:Name="FilePreviewIsland"
+            Grid.Column="2"
+            IsVisible="False"
+            MinWidth="{StaticResource ChatWorkspace.SplitPaneMinWidth}"
+            MaxWidth="{Binding Bounds.Width, RelativeSource={RelativeSource AncestorType=Grid}}"
+            Margin="{Binding PreviewIslandMargin, RelativeSource={RelativeSource AncestorType=views:ChatWorkspaceView}}"
+            CornerRadius="{DynamicResource Radius.Overlay}"
+            Background="{DynamicResource Brush.Surface1Glass}"
+            BorderBrush="{DynamicResource Brush.BorderSubtle}"
+            BorderThickness="1"
+            BoxShadow="0 0 24 0 #1A000000, 0 0 4 0 #08000000"
+            ClipToBounds="True">
+      <ContentControl x:Name="FilePreviewHost" />
+    </Border>
+
     <Border x:Name="BrowserIsland"
             Grid.Column="2"
             IsVisible="False"
@@ -580,6 +595,7 @@
                   </ItemsControl.ItemsPanel>
                   <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="vm:FileAttachmentItem">
+                      <Grid ColumnDefinitions="*,Auto,Auto">
                       <Button Classes="rail-row" Command="{Binding OpenCommand}" ToolTip.Tip="{Binding FilePath}"
                               views:FileDrag.FilePath="{Binding FilePath}">
                         <Button.ContextMenu>
@@ -629,6 +645,23 @@
                                     Data="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z" />
                         </Grid>
                       </Button>
+                      <Border Grid.Column="1" Width="1" Height="20" Margin="4,0,3,0"
+                              VerticalAlignment="Center" Background="{DynamicResource Brush.BorderDefault}"
+                              Opacity="0.6" IsHitTestVisible="False" />
+                      <Button Grid.Column="2" Classes="file-preview-action" Padding="6" Margin="0,0,4,0"
+                              Width="30" Height="28"
+                              VerticalAlignment="Center" MinWidth="0" MinHeight="0"
+                              Click="OnDeliverablePreviewClick"
+                              ToolTip.Tip="{loc:Str Preview_Open}" AutomationProperties.Name="{loc:Str Preview_Open}">
+                        <Viewbox Width="16" Height="16">
+                          <Canvas Width="16" Height="16" IsHitTestVisible="False">
+                            <Path Data="{DynamicResource Icon.FilePreview}"
+                                 StrokeThickness="1.4" StrokeLineCap="Round"
+                                 Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                          </Canvas>
+                        </Viewbox>
+                      </Button>
+                      </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>

@@ -1,5 +1,16 @@
 {
   "App_Name": "Lumi",
+  "Preview_Title": "Preview",
+  "Preview_Open": "Open preview",
+  "Preview_Close": "Close preview",
+  "Preview_Edited": "Edited",
+  "Preview_Refresh": "Refresh preview",
+  "Preview_Loading": "Loading preview...",
+  "Preview_Unavailable": "Preview isn't available",
+  "Preview_NativeUnavailable": "No compatible Windows preview handler is installed for this file. You can still open it in its app.",
+  "Preview_PlatformUnavailable": "This file needs a Windows preview handler. You can still open it in its app.",
+  "Preview_Truncated": "Showing the beginning of this large file. Open it in its app to see everything.",
+  "Preview_Empty": "This file is empty.",
 
   "Onboarding_Hello": "Hello! I'm Lumi",
   "Onboarding_Subtitle": "Your personal assistant. What should I call you?",

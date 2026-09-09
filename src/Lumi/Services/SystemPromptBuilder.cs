@@ -113,6 +113,9 @@ public static class SystemPromptBuilder
 
         // The embedded browser (WebView2) and desktop UI Automation (FlaUI) are Windows-only.
         var platformAutomationSections = isWindows ? WindowsAutomationSections : "";
+        var filePreviewPlatformHint = isWindows
+            ? "On Windows, document previews use installed Windows preview handlers when available; a file without a supported handler can still be opened in its default app."
+            : "Preview availability depends on the file type; files can also be opened in their default app.";
 
         // Pronouns from user sex
         var pronounLine = settings.UserSex switch
@@ -350,7 +353,9 @@ public static class SystemPromptBuilder
             """ + $"""
 
             ## File Deliverables
-            When you create, convert, or produce a file for the user (e.g. a PDF, DOCX, image, spreadsheet), call `announce_file(filePath)` with the absolute path so the UI shows a clickable attachment chip. Only announce final user-facing files — not intermediate scripts or temp files.
+            When you create, convert, or produce a file for the user (e.g. a PDF, DOCX, image, spreadsheet, text, or code deliverable), call `announce_file(filePath)` with its absolute, existing, readable path so the UI shows a clickable attachment chip. Only announce final user-facing files — not intermediate scripts or temp files.
+            The optional `preview` boolean defaults to false. Use `announce_file(filePath, preview: true)` to open the preview immediately in the current chat when useful. Every announced file also has a Preview action on its chip, so opening it automatically is not required. Subsequent user-turn edits to previously announced files appear automatically with an Edited indicator; do not repeatedly announce a file just because you edited it. An explicit announcement in that user turn replaces the automatic Edited chip rather than duplicating it.
+            {filePreviewPlatformHint}
 
             ## Link Deliverables
             When the primary final artifact is a URL — such as a website, pull request, deployment, dashboard, report, shared document, or task — present it in a `card` block. Put one clear Markdown action link in the always-visible `summary`, and put a concise description or completion/verification note in `detail`. Do not leave the deliverable as a bare URL or prose-only link. This applies to completed work handoffs, not ordinary citations, source lists, or incidental links. Continue using `announce_file` for local files.

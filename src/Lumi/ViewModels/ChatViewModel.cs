@@ -1484,7 +1484,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             getSelectedModel: () => SelectedModel,
             sendSteeredNowAsync: SendSteeredNowAsync,
             openSubagentRunAction: OpenSubagentRun,
-            subagentRunsChanged: RefreshSubagentRunState);
+            subagentRunsChanged: RefreshSubagentRunState,
+            resolveFilePath: path => CurrentChat is { } chat
+                ? ResolveWorkspaceFileChangedPath(chat, path)
+                : path);
         _transcriptBuilder.SetLiveTarget(_transcriptTurns);
         _transcriptWindow.BindTranscript(_transcriptTurns, "ctor");
         _transcriptWindow.PropertyChanged += OnTranscriptWindowPropertyChanged;
@@ -2555,6 +2558,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             BrowserHideRequested?.Invoke();
             DiffHideRequested?.Invoke();
+            CloseFilePreview();
             ClearSuggestions();
         }
 
@@ -2862,6 +2866,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         PlanHideRequested?.Invoke();
         SkillHideRequested?.Invoke();
         SubagentRunHideRequested?.Invoke();
+        CloseFilePreview();
         HasUsedBrowser = false;
 
         // Detach from the visible chat; inactive chat state is released later when it is safe.

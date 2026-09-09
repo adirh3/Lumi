@@ -42,6 +42,10 @@ internal sealed class ChatPreviewPanelController : IDisposable
     private readonly Border _planPanel;
     private readonly Border _skillPanel;
     private readonly Border _subagentPanel;
+    private readonly Border _filePanel;
+    private readonly ContentControl _fileHost;
+    private FilePreviewView? _fileView;
+    private CancellationTokenSource? _fileAnimCts;
     private readonly Action? _ensureChatVisible;
     private readonly Func<Guid, bool>? _canShowBrowserPanel;
     private BrowserView? _browserView;
@@ -68,6 +72,8 @@ internal sealed class ChatPreviewPanelController : IDisposable
         Border planPanel,
         Border skillPanel,
         Border subagentPanel,
+        Border filePanel,
+        ContentControl fileHost,
         Action? ensureChatVisible = null,
         Func<Guid, bool>? canShowBrowserPanel = null,
         Button? diffBackButton = null)
@@ -87,6 +93,8 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _planPanel = planPanel;
         _skillPanel = skillPanel;
         _subagentPanel = subagentPanel;
+        _filePanel = filePanel;
+        _fileHost = fileHost;
         _ensureChatVisible = ensureChatVisible;
         _canShowBrowserPanel = canShowBrowserPanel;
 
@@ -109,6 +117,10 @@ internal sealed class ChatPreviewPanelController : IDisposable
 
         _isDisposed = true;
         UnwireViewModel();
+        HideFilePreviewPanel();
+        _fileView?.Dispose();
+        _fileView = null;
+        _fileHost.Content = null;
         if (_diffBackButton is not null)
             _diffBackButton.Click -= OnDiffBackClick;
         _diffTitleText.PointerPressed -= OnDiffBreadcrumbClick;
@@ -134,6 +146,8 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _viewModel.SkillHideRequested += OnSkillHideRequested;
         _viewModel.SubagentRunShowRequested += OnSubagentRunShowRequested;
         _viewModel.SubagentRunHideRequested += OnSubagentRunHideRequested;
+        _viewModel.FilePreviewShowRequested += OnFilePreviewShowRequested;
+        _viewModel.FilePreviewHideRequested += OnFilePreviewHideRequested;
     }
 
     private void UnwireViewModel()
@@ -149,6 +163,8 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _viewModel.SkillHideRequested -= OnSkillHideRequested;
         _viewModel.SubagentRunShowRequested -= OnSubagentRunShowRequested;
         _viewModel.SubagentRunHideRequested -= OnSubagentRunHideRequested;
+        _viewModel.FilePreviewShowRequested -= OnFilePreviewShowRequested;
+        _viewModel.FilePreviewHideRequested -= OnFilePreviewHideRequested;
     }
 
     private void PostIfActive(Action action)
@@ -176,6 +192,68 @@ internal sealed class ChatPreviewPanelController : IDisposable
     private void OnSkillHideRequested() => PostIfActive(HideSkillPanel);
     private void OnSubagentRunShowRequested() => PostIfActive(ShowSubagentPanel);
     private void OnSubagentRunHideRequested() => PostIfActive(HideSubagentPanel);
+
+    private void OnFilePreviewShowRequested(string filePath)
+    {
+        var chatId = _viewModel.CurrentChat?.Id;
+        PostIfActive(() =>
+        {
+            if (_viewModel.IsFilePreviewOpen && _viewModel.PreviewFilePath == filePath
+                && _viewModel.CurrentChat?.Id == chatId)
+                _ = ShowFilePreviewPanelAsync(filePath);
+        });
+    }
+
+    private void OnFilePreviewHideRequested()
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+            HideFilePreviewPanel();
+        else
+            PostIfActive(HideFilePreviewPanel);
+    }
+
+    private async Task ShowFilePreviewPanelAsync(string filePath)
+    {
+        var wasOpen = _filePanel.IsVisible;
+        HidePreviewPanelsExcept(_filePanel);
+        _ensureChatVisible?.Invoke();
+        EnsureSplitLayout(_filePanel);
+        _fileView ??= new FilePreviewView();
+        _fileHost.Content = _fileView;
+        _filePanel.IsVisible = true;
+        _viewModel.IsFilePreviewOpen = true;
+        if (_splitter is not null)
+            _splitter.IsVisible = true;
+
+        var ct = ReplaceCancellationTokenSource(ref _fileAnimCts).Token;
+        if (!wasOpen)
+        {
+            _filePanel.RenderTransform = new TranslateTransform(PreviewOffsetX, 0);
+            _filePanel.Opacity = 0;
+            try
+            {
+                await CreatePreviewAnimation(PreviewOffsetX, 0, 0, 1, ShowDuration, new CubicEaseOut())
+                    .RunAsync(_filePanel, ct);
+            }
+            catch (OperationCanceledException) { return; }
+        }
+        if (ct.IsCancellationRequested)
+            return;
+        _filePanel.Opacity = 1;
+        _filePanel.RenderTransform = null;
+        // Native child windows cannot participate in Avalonia transforms; attach after the slide.
+        await _fileView.ShowFileAsync(filePath);
+    }
+
+    public void HideFilePreviewPanel()
+    {
+        DisposeCancellationTokenSource(ref _fileAnimCts);
+        _fileView?.Clear();
+        HideImmediately(_filePanel);
+        _viewModel.IsFilePreviewOpen = false;
+        _viewModel.PreviewFilePath = null;
+        CollapseSplitLayoutIfIdle();
+    }
 
     public void ShowCurrentBrowserController()
     {
@@ -362,6 +440,8 @@ internal sealed class ChatPreviewPanelController : IDisposable
 
         if (_browserPanel.IsVisible)
         {
+            _browserPanel.Opacity = 1;
+            _browserPanel.RenderTransform = null;
             _viewModel.IsBrowserOpen = true;
             _browserView?.RefreshBounds();
             browserService.SetControllerVisible(true);
@@ -416,7 +496,11 @@ internal sealed class ChatPreviewPanelController : IDisposable
         }
         catch (OperationCanceledException)
         {
+            return;
         }
+
+        if (ct.IsCancellationRequested)
+            return;
 
         _browserPanel.IsVisible = false;
         _browserPanel.Opacity = 1;
@@ -529,6 +613,8 @@ internal sealed class ChatPreviewPanelController : IDisposable
         // scroll reset — it knows whether the run actually changed.
         if (wasOpen)
         {
+            _subagentPanel.Opacity = 1;
+            _subagentPanel.RenderTransform = null;
             _viewModel.IsSubagentRunOpen = true;
             return;
         }
@@ -572,7 +658,11 @@ internal sealed class ChatPreviewPanelController : IDisposable
         }
         catch (OperationCanceledException)
         {
+            return;
         }
+
+        if (ct.IsCancellationRequested)
+            return;
 
         panel.IsVisible = false;
         panel.Opacity = 1;
@@ -597,7 +687,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
     private void CollapseSplitLayoutIfIdle()
     {
         if (_browserPanel.IsVisible || _diffPanel.IsVisible || _planPanel.IsVisible
-            || _skillPanel.IsVisible || _subagentPanel.IsVisible)
+            || _skillPanel.IsVisible || _subagentPanel.IsVisible || _filePanel.IsVisible)
         {
             return;
         }
@@ -616,6 +706,11 @@ internal sealed class ChatPreviewPanelController : IDisposable
 
     private void HidePreviewPanelsExcept(Border keep)
     {
+        DisposeCancellationTokenSource(ref _browserAnimCts);
+        DisposeCancellationTokenSource(ref _previewAnimCts);
+        if (!ReferenceEquals(keep, _filePanel))
+            HideFilePreviewPanel();
+
         if (!ReferenceEquals(keep, _browserPanel))
         {
             _browserView?.ClearBrowserService();

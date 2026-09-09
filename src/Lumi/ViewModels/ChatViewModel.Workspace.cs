@@ -212,7 +212,7 @@ public partial class ChatViewModel
                     && File.Exists(filePath)
                     && seenFiles.Add(filePath))
                 {
-                    deliverables.Add(new FileAttachmentItem(filePath));
+                    deliverables.Add(new FileAttachmentItem(filePath, isPreviewable: true));
                 }
             }
 

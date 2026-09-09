@@ -35,6 +35,10 @@
     <TargetFramework>net11.0</TargetFramework>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$([MSBuild]::GetTargetPlatformIdentifier($(TargetFramework)))' == 'windows'">
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
   <ItemGroup>
     <AvaloniaResource Include="Assets\lumi-icon.png" />
   </ItemGroup>

@@ -583,20 +583,38 @@ public partial class ChatViewModel
     private AIFunction BuildAnnounceFileTool(Guid chatId)
     {
         return AIFunctionFactory.Create(
-            ([Description("Absolute path of the file that was created, converted, or produced for the user")] string filePath) =>
+            ([Description("Absolute path of an existing readable file produced for the user")] string filePath,
+             [Description("Open the file preview immediately in the current chat. Default: false; the user can also use the chip's Preview action.")] bool preview = false) =>
             {
-                if (File.Exists(filePath) && ToolDisplayHelper.IsUserFacingFile(filePath))
+                var normalizedPath = ValidateAnnouncedFilePath(filePath);
+                if (preview)
                 {
                     Dispatcher.UIThread.Post(() =>
                     {
                         if (CurrentChat?.Id != chatId) return;
-                        _transcriptBuilder.ShownFileChips.Add(filePath);
+                        OpenFilePreview(normalizedPath);
                     });
                 }
-                return $"File announced: {filePath}";
+                // The persisted tool completion owns the chip, both live and on replay.
+                // Pre-marking it here races the transcript's announcement handler.
+                return $"File announced: {normalizedPath}";
             },
             "announce_file",
-            "Show a file attachment chip to the user for a file you created or produced. Call this ONCE for each final deliverable file (e.g. the PDF, DOCX, PPTX, image, etc.). Do NOT call for intermediate/temporary files like scripts.");
+            "Show a file attachment chip for a final user-facing deliverable, including documents, images, text, or code. Optional preview=true opens its preview now in the current chat; otherwise the user can use the chip's Preview action. Announce each file once per user turn. Later edits to announced files reappear automatically with an Edited indicator. Do NOT announce intermediate/temporary files.");
+    }
+
+    internal static string ValidateAnnouncedFilePath(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || !Path.IsPathFullyQualified(filePath))
+            throw new ArgumentException("announce_file requires an absolute file path.", nameof(filePath));
+
+        var normalizedPath = Path.GetFullPath(filePath);
+        if (!File.Exists(normalizedPath))
+            throw new FileNotFoundException("The announced file does not exist or is not accessible.", normalizedPath);
+
+        using var stream = new FileStream(normalizedPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        _ = stream.ReadByte();
+        return normalizedPath;
     }
 
     private AIFunction BuildFetchSkillTool()

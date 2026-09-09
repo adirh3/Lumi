@@ -133,7 +133,7 @@ public partial class AgentsViewModel : ObservableObject
         ("ui_type", "Type Text", "Desktop", "Type or set text in a UI element."),
         ("ui_press_keys", "Press Keys", "Desktop", "Send keyboard shortcuts or key presses."),
         ("ui_read", "Read Element", "Desktop", "Read detailed information about a UI element."),
-        ("announce_file", "Announce File", "Utility", "Show a file attachment chip for a produced file."),
+        ("announce_file", "Announce File", "Utility", "Announce a produced file, optionally opening its preview."),
         ("fetch_skill", "Fetch Skill", "Utility", "Retrieve the full content of a skill by name."),
         ("ask_question", "Ask Question", "Utility", "Ask the user a question with predefined options."),
         ("recall_memory", "Recall Memory", "Utility", "Search and recall stored memories about the user."),

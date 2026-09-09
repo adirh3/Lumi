@@ -136,6 +136,8 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
 
     public void HideSkillPanel() => _previewPanel?.HideSkillPanel();
 
+    public void HideFilePreviewPanel() => _previewPanel?.HideFilePreviewPanel();
+
     public bool IsSubagentRunOpen => _previewPanel?.IsSubagentRunOpen == true;
 
     public void ShowSubagentPanel() => _previewPanel?.ShowSubagentPanel();
@@ -220,6 +222,12 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
             _chatIslandHighlight.IsVisible = UseChatIslandChrome;
     }
 
+    private void OnDeliverablePreviewClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: FileAttachmentItem item } && DataContext is ChatViewModel viewModel)
+            viewModel.OpenFilePreview(item.FilePath);
+    }
+
     private void ReconnectPreviewPanel()
     {
         var chatViewModel = DataContext as ChatViewModel;
@@ -257,6 +265,10 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
             ?? throw new InvalidOperationException("Chat workspace is missing SkillIsland.");
         var subagentPanel = this.FindControl<Border>("SubagentIsland")
             ?? throw new InvalidOperationException("Chat workspace is missing SubagentIsland.");
+        var filePanel = this.FindControl<Border>("FilePreviewIsland")
+            ?? throw new InvalidOperationException("Chat workspace is missing FilePreviewIsland.");
+        var fileHost = this.FindControl<ContentControl>("FilePreviewHost")
+            ?? throw new InvalidOperationException("Chat workspace is missing FilePreviewHost.");
 
         _previewPanel = new ChatPreviewPanelController(
             this,
@@ -273,6 +285,8 @@ public partial class ChatWorkspaceView : UserControl, IDisposable
             planPanel,
             skillPanel,
             subagentPanel,
+            filePanel,
+            fileHost,
             ensureChatVisible: () => EnsureChatVisible?.Invoke(),
             canShowBrowserPanel: chatId => CanShowBrowserPanel?.Invoke(chatId) != false,
             diffBackButton: diffBackButton);

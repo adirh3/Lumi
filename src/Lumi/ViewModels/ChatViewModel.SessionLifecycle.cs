@@ -1341,10 +1341,7 @@ public partial class ChatViewModel
                                         && !string.IsNullOrEmpty(rl.Uri))
                                     {
                                         var fp = ToolDisplayHelper.UriToLocalPath(rl.Uri);
-                                        if (fp is not null && File.Exists(fp) && ToolDisplayHelper.IsUserFacingFile(fp) && _transcriptBuilder.ShownFileChips.Add(fp))
-                                        {
-                                            _transcriptBuilder.PendingToolFileChips.Add(new FileAttachmentItem(fp));
-                                        }
+                                        _transcriptBuilder.AddDetectedFileChip(fp);
                                     }
                                 }
                             }

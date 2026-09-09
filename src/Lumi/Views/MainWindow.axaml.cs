@@ -970,6 +970,7 @@ public partial class MainWindow : Window
         HideDiffPanel();
         HidePlanPanel();
         HideSkillPanel();
+        _chatWorkspace?.HideFilePreviewPanel();
         HideSubagentPanel();
     }
 
@@ -1076,6 +1077,7 @@ public partial class MainWindow : Window
                     HideDiffPanel();
                     HidePlanPanel();
                     HideSkillPanel();
+                    _chatWorkspace?.HideFilePreviewPanel();
                     HideSubagentPanel();
                     Dispatcher.UIThread.Post(() => SyncListBoxSelection(vm.ActiveChatId),
                         DispatcherPriority.Loaded);
@@ -1191,6 +1193,7 @@ public partial class MainWindow : Window
             HideDiffPanel();
             HidePlanPanel();
             HideSkillPanel();
+            _chatWorkspace?.HideFilePreviewPanel();
             HideSubagentPanel();
         }
         else if (_chatWorkspace?.IsBrowserOpen == true)

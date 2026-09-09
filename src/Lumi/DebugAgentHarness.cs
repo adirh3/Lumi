@@ -615,6 +615,22 @@ public static class DebugAgentHarness
 
         chat.Messages.Add(Message("error", "Debug fixture error bubble: simulated recoverable Copilot error with retry styling."));
 
+        chat.Messages.Add(Message("user", "Update the generated notes, and let me preview the files."));
+        File.WriteAllText(createdPath, "# Preview\n\nYour files, right beside the conversation.\n\n"
+            + "## What's included\n\n- Native Markdown and syntax-highlighted code\n- Images that fit the island\n"
+            + "- Windows document preview handlers\n\n> This announced file was edited in a later turn.\n");
+        chat.Messages.Add(Tool("edit", JsonObject(
+            JsonProperty("filePath", JsonString(createdPath)),
+            JsonProperty("oldString", JsonString("# Generated fixture output")),
+            JsonProperty("newString", JsonString("# Preview"))), "Completed", output: "Updated the notes."));
+        chat.Messages.Add(Tool("announce_file", JsonObject(
+            JsonProperty("filePath", JsonString(editedPath))), "Completed", output: editedPath));
+        chat.Messages.Add(Tool("announce_file", JsonObject(
+            JsonProperty("filePath", JsonString(fixtureImagePath))), "Completed", output: fixtureImagePath));
+        chat.Messages.Add(Message("assistant",
+            "The notes are updated. Use the **preview icon** after the divider on a file below to open it beside this conversation. "
+            + "The updated notes should appear automatically with an **Edited** label."));
+
         return chat;
 
         void AddStandaloneSubagentFixture(
@@ -1470,10 +1486,7 @@ public static class DebugAgentHarness
 
     private static string EnsureFixtureDirectory()
     {
-        var path = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Lumi",
-            "debug-fixtures");
+        var path = Path.Combine(DataStore.AppDirectory, "debug-fixtures");
         Directory.CreateDirectory(path);
         return path;
     }
