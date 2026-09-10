@@ -573,7 +573,7 @@ public class CopilotService : IAsyncDisposable
         try
         {
 #pragma warning disable GHCP001
-            var rawModels = await client.Rpc.Models.ListAsync(null, ct).ConfigureAwait(false);
+            var rawModels = await client.Rpc.Models.ListAsync(cancellationToken: ct).ConfigureAwait(false);
 #pragma warning restore GHCP001
             var longContextModelIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var limits = new Dictionary<string, ModelContextWindowLimits>(StringComparer.OrdinalIgnoreCase);

@@ -314,7 +314,7 @@ public partial class ChatViewModel
         try
         {
             var progress = await session.Rpc.Tasks.GetProgressAsync(shell.Id, CancellationToken.None);
-            if (progress.Progress is TasksGetProgressResultProgressShell shellProgress
+            if (progress.Progress is TaskProgressShell shellProgress
                 && !string.IsNullOrWhiteSpace(shellProgress.RecentOutput))
             {
                 var output = shellProgress.RecentOutput.TrimEnd();

@@ -54,7 +54,7 @@
     <PackageReference Include="Avalonia.Controls.DataGrid" Version="$(AvaloniaVersion)" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <!-- Let the SDK select its protocol-compatible CLI so transport fixes are not held back by a stale override. -->
-    <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.9" />
+    <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.13" />
     <PackageReference Include="StreamJsonRpc" Version="2.25.29" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.5" />
     <!-- Override the transitive SQLitePCLRaw.bundle_e_sqlite3 2.1.10 (vulnerable SQLite < 3.50.2, CVE-2025-6965 / GHSA-2m69-gcr7-jv3q).

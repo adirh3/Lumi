@@ -41,6 +41,13 @@ public sealed class LightweightSessionOptions
         private const bool EnableLightweightConfigDiscovery = false;
 
         /// <summary>
+        /// Lumi does not host standalone extension processes. Copilot CLI defaults began requesting
+        /// them in SDK 1.0.13, which makes session creation fail when no launch provider is registered.
+        /// Skills, agents, plugins, MCP servers, and Lumi's host tools remain enabled separately.
+        /// </summary>
+        private const bool EnableStandaloneExtensions = false;
+
+        /// <summary>
         /// Lumi is a single-user desktop client (like VS Code), so MCP OAuth tokens must be persisted
         /// in the OS keychain and shared across sessions. The SDK default (<c>null</c>) maps to
         /// <see cref="McpOAuthTokenStorageMode.InMemory"/>, which discards tokens when a session ends —
@@ -102,6 +109,7 @@ public sealed class LightweightSessionOptions
             ContextTier = CreateContextTier(contextTier),
             McpOAuthTokenStorage = McpOAuthTokenStorage,
             Provider = provider,
+            RequestExtensions = EnableStandaloneExtensions,
         };
 
         Populate(config, systemPrompt, reasoningEffort, mcpPlan, skillDirectories,
@@ -145,6 +153,7 @@ public sealed class LightweightSessionOptions
             ContextTier = CreateContextTier(contextTier),
             McpOAuthTokenStorage = McpOAuthTokenStorage,
             Provider = provider,
+            RequestExtensions = EnableStandaloneExtensions,
         };
 
         Populate(config, systemPrompt, reasoningEffort, mcpPlan, skillDirectories,

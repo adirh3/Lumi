@@ -56,6 +56,9 @@ public sealed class SessionConfigBuilderTests
         // Capability discovery is delegated to the Copilot runtime.
         Assert.True(config.EnableConfigDiscovery);
         Assert.True(config.EnableSkills);
+#pragma warning disable GHCP001
+        Assert.False(config.RequestExtensions);
+#pragma warning restore GHCP001
         Assert.Null(config.SkillDirectories);
         Assert.NotNull(config.McpServers);
         Assert.Empty(config.McpServers!);
@@ -136,6 +139,9 @@ public sealed class SessionConfigBuilderTests
         // Capability discovery is delegated to the Copilot runtime.
         Assert.True(config.EnableConfigDiscovery);
         Assert.True(config.EnableSkills);
+#pragma warning disable GHCP001
+        Assert.False(config.RequestExtensions);
+#pragma warning restore GHCP001
         Assert.Null(config.SkillDirectories);
         Assert.NotNull(config.McpServers);
         Assert.Empty(config.McpServers!);

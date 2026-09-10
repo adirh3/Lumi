@@ -5410,7 +5410,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             try
             {
                 var commandId = ResolveSkillCommandId(commandIds, skillName);
-                var result = await session.Rpc.Commands.InvokeAsync(commandId, string.Empty, ct);
+                var result = await session.Rpc.Commands.InvokeAsync(
+                    commandId,
+                    string.Empty,
+                    cancellationToken: ct);
                 if (result is GitHub.Copilot.Rpc.SlashCommandInvocationResultAgentPrompt { Prompt: { Length: > 0 } directive })
                     builder.Append(directive).Append('\n');
             }
