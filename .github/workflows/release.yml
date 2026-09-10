@@ -346,7 +346,7 @@ jobs:
         run: >
           dotnet build src/Lumi.Mobile.Android/Lumi.Mobile.Android.csproj
           -t:InstallAndroidDependencies
-          -f net11.0-android
+          -f net10.0-android
           -p:AndroidSdkDirectory="$env:ANDROID_HOME"
           -p:JavaSdkDirectory="$env:JAVA_HOME"
           -p:AcceptAndroidSDKLicenses=True
@@ -363,7 +363,7 @@ jobs:
             -alias $alias -keypass $password -keyalg RSA -keysize 3072 `
             -validity 2 -dname "CN=Lumi Dry Run"
           dotnet publish src/Lumi.Mobile.Android/Lumi.Mobile.Android.csproj `
-            -c Release -f net11.0-android -r android-arm64 `
+            -c Release -f net10.0-android -r android-arm64 `
             -p:Version="$env:RELEASE_VERSION" `
             -p:ApplicationDisplayVersion="$env:RELEASE_VERSION" `
             -p:ApplicationVersion="$env:ANDROID_VERSION_CODE" `
@@ -407,7 +407,7 @@ jobs:
           Set-Content (Join-Path $env:RUNNER_TEMP "android-expected-fingerprint.txt") $expectedFingerprint
 
           dotnet publish src/Lumi.Mobile.Android/Lumi.Mobile.Android.csproj `
-            -c Release -f net11.0-android -r android-arm64 `
+            -c Release -f net10.0-android -r android-arm64 `
             -p:Version="$env:RELEASE_VERSION" `
             -p:ApplicationDisplayVersion="$env:RELEASE_VERSION" `
             -p:ApplicationVersion="$env:ANDROID_VERSION_CODE" `

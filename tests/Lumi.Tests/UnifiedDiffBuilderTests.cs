@@ -1,4 +1,4 @@
-using Lumi.Services;
+using StrataTheme.Diff;
 using Xunit;
 
 namespace Lumi.Tests;

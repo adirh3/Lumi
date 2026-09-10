@@ -121,6 +121,10 @@ public static class RemoteProtocol
     public const int MaxLibraryJsonBytes = 4 * 1024 * 1024;
     public const int MaxLibraryItemJsonBytes = 2 * 1024 * 1024;
     public const int MaxFileSuggestionsJsonBytes = 128 * 1024;
+    public const int MaxGitJsonBytes = 768 * 1024;
+    public const int GitFileLimit = 200;
+    public const int GitDiffCharacterLimit = 96 * 1024;
+    public const int GitDiffLineLimit = 2000;
     public const int MaxActivityJsonBytes = 768 * 1024;
     public const long MaxMarkdownImageBytes = 20L * 1024 * 1024;
     // Snapshot/library payloads are compact single-line JSON. The SSE reader and queue must accept
@@ -196,6 +200,8 @@ public static class RemoteProtocol
 
         /// <summary>Authenticated bounded file autocomplete for an explicit chat or project.</summary>
         public const string FileSuggestions = "/lumi/file-suggestions";
+        public const string GitChanges = "/lumi/git-changes";
+        public const string GitDiff = "/lumi/git-diff";
 
         /// <summary>Authenticated transcript read: <c>/lumi/transcript?chatId=...</c></summary>
         public const string Transcript = "/lumi/transcript";
@@ -231,10 +237,11 @@ public static class RemoteProtocol
         public const string ScopedEventsV1 = "scoped-events-v1";
         public const string CompactTranscriptV1 = "compact-transcript-v1";
         public const string FileSuggestionsV1 = "file-suggestions-v1";
+        public const string GitChangesV1 = "git-changes-v1";
 
         public static IReadOnlyList<string> Required { get; } = [ScopedEventsV1];
         public static IReadOnlyList<string> Server { get; } =
-            [ScopedEventsV1, CompactTranscriptV1, FileSuggestionsV1];
+            [ScopedEventsV1, CompactTranscriptV1, FileSuggestionsV1, GitChangesV1];
     }
 
     /// <summary>Largest upload the desktop will accept, so a phone cannot exhaust its disk.</summary>

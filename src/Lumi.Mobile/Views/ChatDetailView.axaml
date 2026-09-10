@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.Mobile.ViewModels"
+             xmlns:views="using:Lumi.Mobile.Views"
              xmlns:proto="using:Lumi.Remote.Protocol"
              xmlns:behaviors="using:Lumi.Mobile.Behaviors"
              xmlns:sc="using:StrataTheme.Controls"
@@ -175,7 +176,26 @@
       </StackPanel>
     </DataTemplate>
 
-    <!-- One compact activity disclosure per assistant turn. Commands and raw output stay off the
+    <DataTemplate DataType="vm:WorkSummaryItemViewModel">
+      <StackPanel Margin="0,4,0,6">
+        <Button Classes="activity-card"
+                Command="{Binding ToggleCommand}"
+                AutomationProperties.Name="{Binding Label}">
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <PathIcon Data="{Binding DisclosurePath}" Width="12" Height="12"
+                      Foreground="{DynamicResource Brush.TextTertiary}" />
+            <TextBlock Text="{Binding Label}" FontWeight="SemiBold" />
+          </StackPanel>
+        </Button>
+        <Border IsVisible="{Binding IsExpanded}"
+                BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                BorderThickness="2,0,0,0" Margin="8,6,0,0" Padding="12,0,0,2">
+          <ItemsControl x:Name="WorkItems" ItemsSource="{Binding Items}" />
+        </Border>
+      </StackPanel>
+    </DataTemplate>
+
+    <!-- One compact activity disclosure per contiguous work segment. Commands and raw output stay off the
          conversation surface; tapping loads them on demand in a bottom sheet. -->
     <DataTemplate DataType="vm:ActivitySummaryItemViewModel">
       <Button Classes="activity-card"
@@ -330,6 +350,7 @@
     -->
 
     <sc:StrataChatShell x:Name="ChatShell"
+                       IsVisible="{Binding !Chat.IsGitChangesOpen}"
                         IsOnline="{Binding IsLive}"
                         IsStreaming="{Binding Chat.IsStreaming}">
 
@@ -360,6 +381,14 @@
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
 
           <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
+            <Button x:Name="GitChangesButton" Classes="subtle touch icon"
+                    IsVisible="{Binding Chat.HasChat}"
+                    ToolTip.Tip="Git changes (read-only)"
+                    AutomationProperties.Name="Git changes"
+                    Command="{Binding Chat.OpenGitChangesCommand}">
+              <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
+                        Data="M7 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm10 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zM6 7v9a3 3 0 1 0 2 0v-2h4a6 6 0 0 0 6-6h-2a4 4 0 0 1-4 4H8V7H6zm1 11a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" />
+            </Button>
             <!-- Plan: chat-level state, so it lives in the bar and opens on demand. Pinning it to
                  the bottom of the transcript pushed the conversation up on every refresh. -->
             <Button x:Name="PlanButton" Classes="subtle touch icon"
@@ -440,7 +469,7 @@
           <ItemsControl x:Name="Transcript" ItemsSource="{Binding Chat.Turns}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:TranscriptTurnViewModel">
-                <ItemsControl ItemsSource="{Binding Items}" Margin="0,0,0,10" />
+                <ItemsControl ItemsSource="{Binding DisplayItems}" Margin="0,0,0,10" />
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
@@ -1069,5 +1098,9 @@
         </ContentControl>
       </Border>
     </sc:StrataBottomSheet>
+    <Border x:Name="GitChangesOverlay" IsVisible="{Binding Chat.IsGitChangesOpen}"
+            Background="{DynamicResource Brush.Surface0}" Padding="{Binding SafeArea}">
+      <views:GitChangesView DataContext="{Binding Chat}" />
+    </Border>
   </Panel>
 </UserControl>

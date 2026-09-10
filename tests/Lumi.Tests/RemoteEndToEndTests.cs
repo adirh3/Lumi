@@ -2123,6 +2123,65 @@ public sealed class RemoteEndToEndTests
         await WaitAsync(() => rig.Shell.IsLive, "the phone to go live once the desktop is ready");
     });
 
+    [Fact]
+    public Task GitReadRoutes_RequireAuthExplicitChatAndGet_AndRejectStaleScope() => RunAsync(async rig =>
+    {
+        var chat = new Chat { Title = "Git scope without project" };
+        rig.DataStore.Data.Chats.Add(chat);
+        using var http = new HttpClient();
+        using (var unauthorized = await http.GetAsync(rig.BaseUrl + RemoteProtocol.Routes.GitChanges))
+            Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
+        await PairAsync(rig);
+        Assert.True(rig.Client.SupportsGitChanges);
+        http.DefaultRequestHeaders.Add(RemoteProtocol.DeviceTokenHeader, rig.Client.Token);
+        http.DefaultRequestHeaders.Add(RemoteProtocol.DeviceIdHeader, rig.Client.DeviceId);
+        using (var missing = await http.GetAsync(rig.BaseUrl + RemoteProtocol.Routes.GitChanges))
+            Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
+        using (var unknown = await http.GetAsync(rig.BaseUrl + RemoteProtocol.Routes.GitChanges + "?chatId=" + Guid.NewGuid()))
+            Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+        using (var post = await http.PostAsync(rig.BaseUrl + RemoteProtocol.Routes.GitChanges + "?chatId=" + chat.Id, null))
+            Assert.Equal(HttpStatusCode.MethodNotAllowed, post.StatusCode);
+        var changes = await rig.Client.GetGitChangesAsync(chat.Id, CancellationToken.None);
+        Assert.NotNull(changes);
+        Assert.Equal(chat.Id, changes.ChatId);
+        Assert.False(changes.IsRepository);
+        using (var stale = await http.GetAsync(rig.BaseUrl + RemoteProtocol.Routes.GitDiff
+            + $"?chatId={chat.Id}&scopeId=stale&path=file.txt"))
+            Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+    });
+
+    [Fact]
+    public Task GitReadRoutes_ReturnRealDiffAndValidateListedPaths() => RunAsync(async rig =>
+    {
+        using var repo = new RemoteGitChangesTests.Repository();
+        await repo.Git("init");
+        File.WriteAllText(repo.File("phone file.txt"), "actual file contents\n");
+        var project = new Project { Name = "Read-only test", WorkingDirectory = repo.Path };
+        var chat = new Chat { Title = "Repository chat", ProjectId = project.Id };
+        rig.DataStore.Data.Projects.Add(project);
+        rig.DataStore.Data.Chats.Add(chat);
+        await PairAsync(rig);
+        var changes = await rig.Client.GetGitChangesAsync(chat.Id, CancellationToken.None);
+        Assert.NotNull(changes);
+        Assert.Equal("phone file.txt", Assert.Single(changes.Files).Path);
+        var diff = await rig.Client.GetGitDiffAsync(
+            chat.Id, changes.ScopeId, "phone file.txt", CancellationToken.None);
+        Assert.NotNull(diff);
+        Assert.Contains("+actual file contents", diff.UnifiedDiff);
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Add(RemoteProtocol.DeviceTokenHeader, rig.Client.Token);
+        http.DefaultRequestHeaders.Add(RemoteProtocol.DeviceIdHeader, rig.Client.DeviceId);
+        var route = rig.BaseUrl + RemoteProtocol.Routes.GitDiff
+            + $"?chatId={chat.Id}&scopeId={changes.ScopeId}&path=";
+        using (var unsafePath = await http.GetAsync(route + Uri.EscapeDataString("../outside.txt")))
+            Assert.Equal(HttpStatusCode.BadRequest, unsafePath.StatusCode);
+        using (var missing = await http.GetAsync(route + "not-listed.txt"))
+            Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        File.Delete(repo.File("phone file.txt"));
+        using (var removed = await http.GetAsync(route + Uri.EscapeDataString("phone file.txt")))
+            Assert.Equal(HttpStatusCode.NotFound, removed.StatusCode);
+    });
+
     private static async Task SendAndAbandonTrackedCommandAsync(Rig rig, RemoteCommand command)
     {
         Assert.NotNull(rig.Client.Token);

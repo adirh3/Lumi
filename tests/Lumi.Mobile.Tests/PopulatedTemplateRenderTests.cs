@@ -180,6 +180,56 @@ public sealed class PopulatedTemplateRenderTests
     }
 
     [Fact]
+    public async Task RecordedQaWorkDisclosureContainsExpandedPreamblesAndKeepsTheFinalOutside()
+    {
+        await Run(
+            shell =>
+            {
+                shell.IsPaired = true;
+                shell.Chat.Reset(Guid.NewGuid(), "Work timeline");
+                shell.Chat.ApplyTranscript(WorkTimelineTests.RecordedQaTranscript(shell.Chat.ChatId));
+            },
+            shell => new ChatDetailView { DataContext = shell },
+            (window, shell) =>
+            {
+                const string finalId = "43a1dc625cd643d689fd7646ac2d1ce2";
+                var preambleIds = new[] { "88b852c448e7447d854bb511ed8c9529", "7341167d7b874750aec8e2b7bc1093ec" };
+                var turn = shell.Chat.Turns[0];
+                var work = Assert.IsType<WorkSummaryItemViewModel>(turn.DisplayItems[1]);
+                var button = Assert.Single(window.GetVisualDescendants().OfType<Button>(),
+                    button => ReferenceEquals(button.DataContext, work));
+                Assert.Same(work.ToggleCommand, button.Command);
+                Assert.Equal("Work 58s", work.Label);
+                Assert.Equal(new[] { finalId }, VisibleAnswers());
+
+                button.Command!.Execute(null);
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal(preambleIds.Append(finalId), VisibleAnswers());
+                Assert.True(work.IsExpanded);
+                var workItems = Assert.Single(window.GetVisualDescendants().OfType<ItemsControl>(),
+                    control => control.Name == "WorkItems");
+                Assert.Same(work.Items, workItems.ItemsSource);
+                Assert.Equal(preambleIds,
+                    workItems.GetVisualDescendants().OfType<StrataTheme.Controls.StrataMarkdown>()
+                        .Select(control => ((AssistantItemViewModel)control.DataContext!).Id));
+                Assert.Equal(3, turn.DisplayItems.Count);
+                Assert.Equal(finalId, turn.DisplayItems[^1].Id);
+                Assert.Contains(window.GetVisualDescendants().OfType<Button>(),
+                    control => control.DataContext is ActivitySummaryItemViewModel && control.IsEffectivelyVisible);
+
+                button.Command.Execute(null);
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal(new[] { finalId }, VisibleAnswers());
+
+                string[] VisibleAnswers() => window.GetVisualDescendants()
+                    .OfType<StrataTheme.Controls.StrataMarkdown>()
+                    .Where(control => control.IsEffectivelyVisible && control.DataContext is AssistantItemViewModel)
+                    .Select(control => ((AssistantItemViewModel)control.DataContext!).Id)
+                    .ToArray();
+            });
+    }
+
+    [Fact]
     public async Task TranscriptTurnsAndNestedToolCallsRender()
     {
         await Run(

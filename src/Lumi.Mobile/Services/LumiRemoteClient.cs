@@ -301,6 +301,22 @@ public sealed class LumiRemoteClient : IAsyncDisposable
             RemoteJsonContext.Default.RemoteLibraryItem,
             cancellationToken);
 
+    public bool SupportsGitChanges => _capabilities.Contains(RemoteProtocol.Capabilities.GitChangesV1);
+
+    public Task<RemoteGitChanges?> GetGitChangesAsync(Guid chatId, CancellationToken cancellationToken) =>
+        SupportsGitChanges
+            ? GetAsync($"{RemoteProtocol.Routes.GitChanges}?chatId={chatId}",
+                RemoteJsonContext.Default.RemoteGitChanges, cancellationToken)
+            : Task.FromResult<RemoteGitChanges?>(null);
+
+    public Task<RemoteGitDiff?> GetGitDiffAsync(
+        Guid chatId, string scopeId, string path, CancellationToken cancellationToken) =>
+        SupportsGitChanges
+            ? GetAsync($"{RemoteProtocol.Routes.GitDiff}?chatId={chatId}" +
+                $"&scopeId={Uri.EscapeDataString(scopeId)}&path={Uri.EscapeDataString(path)}",
+                RemoteJsonContext.Default.RemoteGitDiff, cancellationToken)
+            : Task.FromResult<RemoteGitDiff?>(null);
+
     public Task<RemoteFileSuggestions?> GetFileSuggestionsAsync(
         Guid? chatId,
         Guid? projectId,
@@ -1542,6 +1558,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         RemoteProtocol.Routes.Chats => RemoteProtocol.MaxChatsJsonBytes,
         RemoteProtocol.Routes.LibraryItem => RemoteProtocol.MaxLibraryItemJsonBytes,
         RemoteProtocol.Routes.FileSuggestions => RemoteProtocol.MaxFileSuggestionsJsonBytes,
+        RemoteProtocol.Routes.GitChanges or RemoteProtocol.Routes.GitDiff => RemoteProtocol.MaxGitJsonBytes,
         RemoteProtocol.Routes.Transcript => RemoteProtocol.MobileTranscriptJsonByteLimit + 64 * 1024,
         RemoteProtocol.Routes.Activity => RemoteProtocol.MaxActivityJsonBytes,
         _ => RemoteProtocol.MaxCommandResponseJsonBytes

@@ -11,7 +11,7 @@ namespace Lumi.Services;
 /// <summary>
 /// Lightweight git operations helper. All methods are static and shell out to git CLI.
 /// </summary>
-public static class GitService
+public static partial class GitService
 {
     private static readonly TimeSpan DefaultGitCommandTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan WorktreeGitCommandTimeout = TimeSpan.FromMinutes(2);
@@ -987,6 +987,10 @@ public class GitFileChange
     /// <summary>Path relative to <see cref="RepoRoot"/> (no submodule prefix).</summary>
     public required string RepoRelativePath { get; init; }
 
+    /// <summary>Source path of a rename/copy, relative to <see cref="RepoRoot"/>. Like
+    /// <see cref="RepoRelativePath"/>, this never includes the outer submodule prefix.</summary>
+    public string? OriginalRepoRelativePath { get; init; }
+
     /// <summary>Repo-relative path of the submodule that owns this change, or null for the outer
     /// repository. Nested submodules are joined with '/'.</summary>
     public string? SubmodulePath { get; init; }
@@ -1045,6 +1049,7 @@ public class GitFileChange
             StatusCode = StatusCode,
             RepoRoot = RepoRoot,
             RepoRelativePath = RepoRelativePath,
+            OriginalRepoRelativePath = OriginalRepoRelativePath,
             SubmodulePath = string.IsNullOrEmpty(SubmodulePath) ? prefix : $"{prefix}/{SubmodulePath}",
             LinesAdded = LinesAdded,
             LinesRemoved = LinesRemoved,
@@ -1061,6 +1066,7 @@ public class GitFileChange
         StatusCode = StatusCode,
         RepoRoot = RepoRoot,
         RepoRelativePath = RepoRelativePath,
+        OriginalRepoRelativePath = OriginalRepoRelativePath,
         SubmodulePath = RepoRelativePath.Replace('\\', '/').Trim('/'),
     };
 }

@@ -425,8 +425,7 @@ public sealed class ActivityFileChangeViewModel
 }
 
 /// <summary>
-/// One conversation-level disclosure for all technical work in a turn. The normal transcript stays
-/// conversational; raw tool input/output is loaded only when the user opens this row.
+/// One contiguous segment of technical work. Raw tool input/output is loaded only when opened.
 /// </summary>
 public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewModel
 {
@@ -582,25 +581,23 @@ public sealed partial class ActivitySummaryItemViewModel : TranscriptItemViewMod
     public void ApplyDetails(RemoteActivityDetails details)
     {
         Sections.Clear();
-        foreach (var category in new[] { "research", "work", "verify", "other" })
+        var sections = new List<ActivitySectionViewModel>();
+        foreach (var tool in details.Tools)
         {
-            var steps = details.Tools
-                .Where(tool => string.Equals(
-                    string.IsNullOrWhiteSpace(tool.Category) ? "other" : tool.Category,
-                    category,
-                    StringComparison.Ordinal))
-                .Select(tool =>
-                {
-                    var step = new ActivityStepViewModel(tool)
-                    {
-                        ShowTechnicalDetails = IsTechnicalDetailsVisible
-                    };
-                    return step;
-                })
-                .ToList();
-            if (steps.Count > 0)
-                Sections.Add(new ActivitySectionViewModel(category, steps));
+            var category = string.IsNullOrWhiteSpace(tool.Category) ? "other" : tool.Category;
+            var step = new ActivityStepViewModel(tool)
+            {
+                ShowTechnicalDetails = IsTechnicalDetailsVisible
+            };
+            // Categories are headings, not a sort order: reviewing work must not move a later
+            // research action ahead of the edit or verification that preceded it.
+            if (sections.Count > 0 && sections[^1].Category == category)
+                sections[^1].Steps.Add(step);
+            else
+                sections.Add(new ActivitySectionViewModel(category, [step]));
         }
+        foreach (var section in sections)
+            Sections.Add(section);
 
         DetailsError = null;
         DetailsLoaded = true;
@@ -777,6 +774,34 @@ public static class TranscriptItemFactory
         existing.Id == item.Id && existing.Kind == item.Kind;
 }
 
+/// <summary>A local disclosure; the wire and canonical items remain flat for streaming and paging.</summary>
+public sealed partial class WorkSummaryItemViewModel : TranscriptItemViewModel
+{
+    private readonly Action _toggle;
+    [ObservableProperty] private string _label = "Work";
+    [ObservableProperty] private bool _isExpanded;
+
+    public ObservableCollection<TranscriptItemViewModel> Items { get; } = [];
+    public string DisclosurePath => IsExpanded ? "M1 3 L6 8 L11 3 Z" : "M3 1 L8 6 L3 11 Z";
+
+    public WorkSummaryItemViewModel(RemoteTranscriptItem item, Action toggle) : base(item)
+    {
+        _toggle = toggle;
+        Update(item);
+    }
+
+    public override void Update(RemoteTranscriptItem item)
+    {
+        var duration = ActivityStepViewModel.FormatDuration(item.DurationMs);
+        Label = duration.Length > 0 ? $"Work {duration}" : item.DurationMs is null ? "Work" : "Work 0s";
+    }
+
+    partial void OnIsExpandedChanged(bool value) => OnPropertyChanged(nameof(DisclosurePath));
+
+    [RelayCommand]
+    private void Toggle() => _toggle();
+}
+
 /// <summary>One user turn plus everything the assistant produced in response.</summary>
 public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposable
 {
@@ -789,6 +814,8 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
         CancellationToken,
         Task<string>>? _resolveInlineImages;
     private readonly Action<string, IReadOnlyList<RemoteInlineImage>>? _releaseInlineImages;
+    private WorkSummaryItemViewModel? _workSummary;
+    private readonly HashSet<string> _workItemIds = new(StringComparer.Ordinal);
 
     public TranscriptTurnViewModel(
         string id,
@@ -807,14 +834,23 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
         _openSources = openSources;
         _resolveInlineImages = resolveInlineImages;
         _releaseInlineImages = releaseInlineImages;
+        Items.CollectionChanged += (_, _) =>
+        {
+            if (!_applying)
+                RefreshDisplayItems();
+        };
     }
 
     public string Id { get; }
 
     public ObservableCollection<TranscriptItemViewModel> Items { get; } = [];
 
+    public ObservableCollection<TranscriptItemViewModel> DisplayItems { get; } = [];
+    private bool _applying;
+
     public void Apply(RemoteTranscriptTurn turn)
     {
+        _applying = true;
         for (var i = 0; i < turn.Items.Count; i++)
         {
             var incoming = turn.Items[i];
@@ -847,6 +883,108 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
             Items.RemoveAt(Items.Count - 1);
             removed.Dispose();
         }
+
+        _applying = false;
+        _workItemIds.Clear();
+        var finalAnswerIndex = turn.FinalAnswerId is { } finalId
+            ? turn.Items.FindIndex(item => item.Id == finalId
+                && item.Kind == RemoteProtocol.ItemKinds.Assistant && !item.IsStreaming)
+            : -1;
+        for (var index = 0; index < finalAnswerIndex; index++)
+        {
+            var item = turn.Items[index];
+            // Keep questions, errors, attachments and generated files accessible even when collapsed.
+            if (item.Kind is RemoteProtocol.ItemKinds.Assistant
+                or RemoteProtocol.ItemKinds.Activity
+                or RemoteProtocol.ItemKinds.Reasoning
+                or RemoteProtocol.ItemKinds.ToolGroup
+                or RemoteProtocol.ItemKinds.Tool
+                or RemoteProtocol.ItemKinds.Terminal)
+            {
+                _workItemIds.Add(item.Id);
+            }
+        }
+
+        if (_workItemIds.Count > 0)
+        {
+            var summary = new RemoteTranscriptItem
+            {
+                Id = $"work-{Items.First(item => _workItemIds.Contains(item.Id)).Id}",
+                Kind = "work",
+                DurationMs = turn.WorkDurationMs
+            };
+            if (_workSummary?.Id == summary.Id)
+                _workSummary.Update(summary);
+            else
+                _workSummary = new WorkSummaryItemViewModel(summary, ToggleWork);
+        }
+        else
+            _workSummary = null;
+
+        RefreshDisplayItems();
+    }
+
+    internal void ResumeStreaming()
+    {
+        if (_workSummary is null)
+            return;
+        _workItemIds.Clear();
+        _workSummary.Items.Clear();
+        _workSummary = null;
+        RefreshDisplayItems();
+    }
+
+    private void ToggleWork()
+    {
+        if (_workSummary is null)
+            return;
+        _workSummary.IsExpanded = !_workSummary.IsExpanded;
+        RefreshDisplayItems();
+    }
+
+    private void RefreshDisplayItems()
+    {
+        var desired = new List<TranscriptItemViewModel>();
+        var workItems = new List<TranscriptItemViewModel>();
+        var addedSummary = false;
+        foreach (var item in Items)
+        {
+            if (_workSummary is not null && _workItemIds.Contains(item.Id))
+            {
+                if (!addedSummary)
+                {
+                    desired.Add(_workSummary);
+                    addedSummary = true;
+                }
+                if (_workSummary.IsExpanded)
+                    workItems.Add(item);
+                continue;
+            }
+
+            desired.Add(item);
+        }
+
+        if (_workSummary is not null)
+            SynchronizeDisplayItems(_workSummary.Items, workItems);
+        SynchronizeDisplayItems(DisplayItems, desired);
+    }
+
+    private static void SynchronizeDisplayItems(
+        ObservableCollection<TranscriptItemViewModel> target,
+        IReadOnlyList<TranscriptItemViewModel> desired)
+    {
+        for (var index = 0; index < desired.Count; index++)
+        {
+            if (index < target.Count && ReferenceEquals(target[index], desired[index]))
+                continue;
+            var existing = target.IndexOf(desired[index]);
+            if (existing >= 0)
+                target.Move(existing, index);
+            else
+                target.Insert(index, desired[index]);
+        }
+        while (target.Count > desired.Count)
+            target.RemoveAt(target.Count - 1);
     }
 
     public void Dispose()
@@ -854,5 +992,9 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
         foreach (var item in Items)
             item.Dispose();
         Items.Clear();
+        DisplayItems.Clear();
+        _workSummary?.Items.Clear();
+        _workSummary = null;
+        _workItemIds.Clear();
     }
 }

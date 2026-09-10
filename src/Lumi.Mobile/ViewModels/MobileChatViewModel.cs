@@ -759,6 +759,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     /// <summary>Whether any modal sheet currently covers the conversation.</summary>
     public bool HasOpenSheet =>
+        IsGitChangesOpen ||
         IsSourcesSheetOpen ||
         IsActivitySheetOpen ||
         IsRunSettingsSheetOpen ||
@@ -770,6 +771,15 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// <summary>Closes the visually topmost chat sheet.</summary>
     internal bool DismissTopmostSheet()
     {
+        if (IsGitChangesOpen)
+        {
+            if (IsGitFileOpen)
+                BackFromGitFile();
+            else
+                CloseGitChanges();
+            return true;
+        }
+
         if (IsSourcesSheetOpen)
         {
             IsSourcesSheetOpen = false;
@@ -856,6 +866,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     partial void OnChatIdChanged(Guid value)
     {
+        ResetGitChanges();
         OnPropertyChanged(nameof(HasChat));
         OnPropertyChanged(nameof(CanChooseWorktree));
         OnPropertyChanged(nameof(RunSettingsSummary));
@@ -1465,6 +1476,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// <summary>Clears everything so a chat switch never flashes the previous conversation.</summary>
     public void Reset(Guid chatId, string title, string? model = null)
     {
+        ResetGitChanges();
         var previousSurface = CurrentSurface;
         SaveDraft(previousSurface);
 
@@ -2243,6 +2255,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
                             return false;
                         }
                         assistant.ApplyStreamText(assistantText);
+                        turn.ResumeStreaming();
                         MarkVisibleResponseActivity();
                         return true;
                     case ReasoningItemViewModel reasoning:
@@ -2256,6 +2269,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
                         }
                         reasoning.Text = reasoningText;
                         reasoning.IsStreaming = true;
+                        turn.ResumeStreaming();
                         MarkVisibleResponseActivity();
                         return true;
                     default:

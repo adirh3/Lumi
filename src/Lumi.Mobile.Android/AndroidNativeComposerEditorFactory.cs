@@ -7,6 +7,7 @@ using Android.Text;
 using Android.Views;
 using Android.Views.InputMethods;
 using Android.Widget;
+using Avalonia;
 using Avalonia.Android;
 using Avalonia.Platform;
 using Avalonia.Styling;
@@ -81,7 +82,7 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
                 editor.RequestFocus();
                 editor.Post(() =>
                 {
-                    if (state.IsDestroyed || editor.Visibility != ViewStates.Visible)
+                    if (state.IsDestroyed || !host.IsVisible || editor.Visibility != ViewStates.Visible)
                         return;
                     editor.Context
                         ?.GetSystemService(Context.InputMethodService)
@@ -94,6 +95,7 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
                 editor.Post(() =>
                 {
                     if (state.IsDestroyed
+                        || !host.IsVisible
                         || editor.Visibility != ViewStates.Visible
                         || editor.HasFocus)
                         return;
@@ -122,10 +124,21 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
             }
         };
         state.ThemeChangedHandler = (_, _) => ApplyTheme(host, editor);
+        state.VisibilityChangedHandler = (_, args) =>
+        {
+            if (args.Property != NativeComposerEditorHost.IsVisibleProperty || host.IsVisible)
+                return;
+            editor.ClearFocus();
+            state.ReleaseAvaloniaFocus();
+            editor.Context?.GetSystemService(Context.InputMethodService)
+                ?.JavaCast<InputMethodManager>()
+                ?.HideSoftInputFromWindow(editor.WindowToken, HideSoftInputFlags.None);
+        };
         editor.TextChanged += state.TextChangedHandler;
         editor.Touch += state.TouchHandler;
         editor.FocusChange += state.FocusChangedHandler;
         host.ActualThemeVariantChanged += state.ThemeChangedHandler;
+        host.PropertyChanged += state.VisibilityChangedHandler;
         _states.Add(host, state);
         ApplyTheme(host, editor);
         return new AndroidViewControlHandle(editor);
@@ -141,6 +154,8 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         state.IsDestroyed = true;
         if (state.ThemeChangedHandler is not null)
             host.ActualThemeVariantChanged -= state.ThemeChangedHandler;
+        if (state.VisibilityChangedHandler is not null)
+            host.PropertyChanged -= state.VisibilityChangedHandler;
         if (ReferenceEquals(_focusedEditor, state.Editor))
             _focusedEditor = null;
         state.ReleaseAvaloniaFocus();
@@ -277,6 +292,7 @@ internal sealed class AndroidNativeComposerEditorFactory(Activity activity)
         public EventHandler<global::Android.Text.TextChangedEventArgs>? TextChangedHandler { get; set; }
         public EventHandler<View.TouchEventArgs>? TouchHandler { get; set; }
         public EventHandler<View.FocusChangeEventArgs>? FocusChangedHandler { get; set; }
+        public EventHandler<AvaloniaPropertyChangedEventArgs>? VisibilityChangedHandler { get; set; }
         public EventHandler? ThemeChangedHandler { get; set; }
 
         public void HoldAvaloniaFocus()

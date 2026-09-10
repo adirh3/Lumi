@@ -593,6 +593,11 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 case RemoteProtocol.Routes.FileSuggestions:
                     await HandleFileSuggestionsAsync(context, cancellationToken).ConfigureAwait(false);
                     return;
+                case RemoteProtocol.Routes.GitChanges:
+                case RemoteProtocol.Routes.GitDiff:
+                    await HandleGitReadAsync(context, path == RemoteProtocol.Routes.GitDiff, cancellationToken)
+                        .ConfigureAwait(false);
+                    return;
                 case RemoteProtocol.Routes.Transcript:
                     await HandleTranscriptAsync(context, cancellationToken).ConfigureAwait(false);
                     return;
@@ -638,6 +643,94 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             {
                 // Client already gone.
             }
+        }
+    }
+
+    private async Task HandleGitReadAsync(
+        RemoteHttpContext context, bool isDiff, CancellationToken cancellationToken)
+    {
+        if (!string.Equals(context.Request.Method, "GET", StringComparison.OrdinalIgnoreCase))
+        {
+            await WriteErrorAsync(context, 405, "Git inspection only supports GET.", cancellationToken);
+            return;
+        }
+        if (!Guid.TryParse(context.Request.QueryValue("chatId"), out var chatId) || chatId == Guid.Empty)
+        {
+            await WriteErrorAsync(context, 400, "An explicit chatId is required.", cancellationToken);
+            return;
+        }
+        var scope = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var chat = _dataStore.Data.Chats.FirstOrDefault(item => item.Id == chatId);
+            var owner = RemoteProjector.ResolveChatOwner(_main, chatId);
+            if (owner?.CurrentChat?.Id == chatId)
+                chat = owner.CurrentChat;
+            return chat is null ? null : RemoteGitChangesService.CaptureScope(_dataStore, chat);
+        });
+        if (scope is null)
+        {
+            await WriteErrorAsync(context, 404, "Chat not found.", cancellationToken);
+            return;
+        }
+        var filePath = context.Request.QueryValue("path");
+        if (isDiff && (string.IsNullOrWhiteSpace(filePath) || filePath.Length > 2048))
+        {
+            await WriteErrorAsync(context, 400, "A listed file path is required.", cancellationToken);
+            return;
+        }
+        if (isDiff && !string.Equals(scope.ScopeId, context.Request.QueryValue("scopeId"), StringComparison.Ordinal))
+        {
+            await WriteErrorAsync(context, 409, "The chat workspace changed. Refresh Git changes.", cancellationToken);
+            return;
+        }
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        request.CancelAfter(TimeSpan.FromSeconds(15));
+        try
+        {
+            var json = isDiff
+                ? JsonSerializer.Serialize(
+                    await RemoteGitChangesService.GetDiffAsync(scope, filePath!, request.Token).ConfigureAwait(false),
+                    RemoteJsonContext.Default.RemoteGitDiff)
+                : JsonSerializer.Serialize(
+                    await RemoteGitChangesService.GetChangesAsync(scope, request.Token).ConfigureAwait(false),
+                    RemoteJsonContext.Default.RemoteGitChanges);
+            var stillCurrent = await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var chat = _dataStore.Data.Chats.FirstOrDefault(item => item.Id == chatId);
+                var owner = RemoteProjector.ResolveChatOwner(_main, chatId);
+                if (owner?.CurrentChat?.Id == chatId)
+                    chat = owner.CurrentChat;
+                return chat is not null
+                    && RemoteGitChangesService.CaptureScope(_dataStore, chat).ScopeId == scope.ScopeId;
+            });
+            if (!stillCurrent)
+            {
+                await WriteErrorAsync(context, 409, "The chat workspace changed. Refresh Git changes.", cancellationToken);
+                return;
+            }
+            if (Encoding.UTF8.GetByteCount(json) > RemoteProtocol.MaxGitJsonBytes)
+            {
+                await WriteErrorAsync(context, 413, "Git response is too large for mobile.", cancellationToken);
+                return;
+            }
+            await context.WriteJsonAsync(json, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ArgumentException)
+        {
+            await WriteErrorAsync(context, 400, "Invalid repository file.", cancellationToken);
+        }
+        catch (System.IO.FileNotFoundException ex)
+        {
+            await WriteErrorAsync(context, 404, ex.Message, cancellationToken);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            await WriteErrorAsync(context, 408, "Git inspection timed out. Try refreshing.", cancellationToken);
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException
+            or System.ComponentModel.Win32Exception)
+        {
+            await WriteErrorAsync(context, 500, "Git changes could not be read. Check the repository on desktop.", cancellationToken);
         }
     }
 

@@ -152,7 +152,7 @@ jobs:
         run: >
           dotnet build src/Lumi.Mobile.Android/Lumi.Mobile.Android.csproj
           -t:InstallAndroidDependencies
-          -f net11.0-android
+          -f net10.0-android
           -p:AndroidSdkDirectory="$env:ANDROID_HOME"
           -p:JavaSdkDirectory="$env:JAVA_HOME"
           -p:AcceptAndroidSDKLicenses=True
@@ -162,7 +162,7 @@ jobs:
         run: >
           dotnet build src/Lumi.Mobile.Android/Lumi.Mobile.Android.csproj
           -c Debug
-          -f net11.0-android
+          -f net10.0-android
           -r android-arm64
           -p:AndroidSdkDirectory="$env:ANDROID_HOME"
           -p:JavaSdkDirectory="$env:JAVA_HOME"
@@ -171,7 +171,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: android-debug-${{ github.sha }}
-          path: src/Lumi.Mobile.Android/bin/Debug/net11.0-android/**/*-Signed.apk
+          path: src/Lumi.Mobile.Android/bin/Debug/net10.0-android/**/*-Signed.apk
           if-no-files-found: error
           retention-days: 7
 

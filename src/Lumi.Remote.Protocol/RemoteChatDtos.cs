@@ -210,6 +210,13 @@ public sealed class RemoteTranscriptItem
 public sealed class RemoteTranscriptTurn
 {
     public string Id { get; set; } = "";
+    /// <summary>
+    /// The completed answer after this turn's work. Null while active, interrupted, or when the
+    /// window does not contain that answer. Items always retain their original chronology.
+    /// </summary>
+    public string? FinalAnswerId { get; set; }
+    /// <summary>Elapsed work before the final answer, derived from persisted message/tool timing.</summary>
+    public double? WorkDurationMs { get; set; }
     public List<RemoteTranscriptItem> Items { get; set; } = [];
 }
 

@@ -573,16 +573,14 @@ internal static class RemoteProjector
             if (compactActivity is null)
                 return;
 
-            var target = EnsureTurn();
-            var insertionIndex = target.Items.FindIndex(
-                static item => item.Kind != RemoteProtocol.ItemKinds.User);
-            target.Items.Insert(
-                insertionIndex < 0 ? target.Items.Count : insertionIndex,
-                compactActivity);
+            EnsureTurn().Items.Add(compactActivity);
         }
 
         foreach (var message in window.Messages)
         {
+            if (!IsCompactTechnicalMessage(message))
+                compactActivity = null;
+
             switch (message.Role)
             {
                 case "user":
@@ -596,7 +594,6 @@ internal static class RemoteProjector
 
                 case "assistant":
                     toolGroup = null;
-                    EnsureCompactActivity(message);
                     EnsureTurn().Items.Add(BuildAssistantItem(
                         message,
                         authorizedImagePaths));
@@ -652,7 +649,6 @@ internal static class RemoteProjector
                     toolGroup = null;
                     if (!string.IsNullOrWhiteSpace(message.Content))
                     {
-                        EnsureCompactActivity(message);
                         EnsureTurn().Items.Add(new RemoteTranscriptItem
                         {
                             Id = message.Id.ToString("N"),
@@ -669,6 +665,9 @@ internal static class RemoteProjector
                     break;
             }
         }
+
+        if (compact)
+            ProjectCompletedWork(transcript, compactSource, runningBackgroundToolCallIds);
 
         // The plan is chat-level state, not a transcript row. Appending it to the last turn pinned a
         // full-size card to the bottom of every refresh, which pushed the actual conversation up and
@@ -689,20 +688,12 @@ internal static class RemoteProjector
             return null;
 
         if (!Guid.TryParseExact(activityId, "N", out var activityMessageId)
-            || !TryFindLogicalTurn(messages, activityMessageId, out var start, out var end))
+            || !TryFindActivitySegment(messages, activityMessageId, out var start, out var end))
         {
             return null;
         }
 
-        var anchor = messages
-            .Skip(start)
-            .Take(end - start)
-            .FirstOrDefault(static message =>
-                message.Role == "reasoning"
-                || message.Role == "tool"
-                   && !IsQuestion(message)
-                   && !IsAnnouncedFile(message));
-        if (anchor?.Id != activityMessageId)
+        if (messages[start].Id != activityMessageId)
             return null;
 
         var technicalMessages = new List<ChatMessage>();
@@ -852,6 +843,113 @@ internal static class RemoteProjector
         return true;
     }
 
+    private static bool TryFindActivitySegment(
+        IReadOnlyList<ChatMessage> messages,
+        Guid messageId,
+        out int start,
+        out int end)
+    {
+        start = 0;
+        end = 0;
+        for (var index = 0; index < messages.Count; index++)
+        {
+            if (messages[index].Id != messageId)
+                continue;
+            if (!IsCompactTechnicalMessage(messages[index]))
+                return false;
+
+            start = index;
+            while (start > 0 && IsCompactTechnicalMessage(messages[start - 1]))
+                start--;
+            end = index + 1;
+            while (end < messages.Count && IsCompactTechnicalMessage(messages[end]))
+                end++;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static void ProjectCompletedWork(
+        RemoteTranscript transcript,
+        IReadOnlyList<ChatMessage> messages,
+        IReadOnlySet<string>? runningBackgroundToolCallIds)
+    {
+        foreach (var turn in transcript.Turns)
+        {
+            var answer = turn.Items.LastOrDefault(item =>
+                item.Kind == RemoteProtocol.ItemKinds.Assistant
+                && !string.IsNullOrWhiteSpace(item.Text));
+            if (answer is null
+                || !Guid.TryParseExact(answer.Id, "N", out var answerId)
+                || !TryFindLogicalTurn(messages, answerId, out var start, out var end))
+            {
+                continue;
+            }
+
+            // Idle alone is not proof of a final answer: stop/error may leave only a preamble.
+            // Likewise an old page must not inherit the currently running tail's status.
+            if (end == messages.Count
+                && transcript.IsLatestWindow
+                && (transcript.Status.IsBusy || transcript.Status.IsStreaming))
+            {
+                continue;
+            }
+
+            var answerIndex = -1;
+            var interrupted = false;
+            for (var index = start; index < end; index++)
+            {
+                var message = messages[index];
+                if (message.Id == answerId)
+                    answerIndex = index;
+                if (message.IsStreaming
+                    || message.Role == "tool"
+                    && ProjectedToolStatus(message, runningBackgroundToolCallIds) is "InProgress" or "Stopped")
+                {
+                    interrupted = true;
+                }
+                // Completed file notifications may arrive after idle; they are bookkeeping, not new work.
+                var completedFileNotification = message is
+                {
+                    Role: "tool",
+                    ToolName: ToolDisplayHelper.WorkspaceFileChangedToolName,
+                    ToolStatus: "Completed"
+                };
+                if (answerIndex >= 0 && index > answerIndex && !completedFileNotification
+                    && (IsCompactTechnicalMessage(message) || message.Role == "error"
+                        || message.Role == "tool" && IsQuestion(message)
+                        || message.Role == "assistant" && !string.IsNullOrWhiteSpace(message.Content)))
+                {
+                    interrupted = true;
+                }
+            }
+
+            if (interrupted || answerIndex < 0 || messages[answerIndex].Role != "assistant")
+                continue;
+
+            turn.FinalAnswerId = answer.Id;
+            if (answerIndex <= start)
+                continue;
+
+            var startedAt = messages[start].ToolStartedAt ?? messages[start].Timestamp;
+            var finishedAt = messages[answerIndex].Timestamp;
+            for (var index = start; index < answerIndex; index++)
+            {
+                var message = messages[index];
+                if (message.ToolDurationMs is { } duration && duration > 0 && double.IsFinite(duration))
+                {
+                    var toolEnd = (message.ToolStartedAt ?? message.Timestamp)
+                        .AddMilliseconds(duration);
+                    if (toolEnd > finishedAt)
+                        finishedAt = toolEnd;
+                }
+            }
+
+            turn.WorkDurationMs = Math.Max(0, (finishedAt - startedAt).TotalMilliseconds);
+        }
+    }
+
     /// <summary>
     /// Selects a contiguous raw-message page before any turn/tool projection occurs. The cursor is an
     /// exclusive end index: requesting <c>beforeMessageIndex=N</c> returns messages strictly before
@@ -913,7 +1011,7 @@ internal static class RemoteProjector
 
     /// <summary>
     /// Selects whole logical turns by the number of rows compact mode will actually project. Raw
-    /// reasoning/tool messages are inspected locally to find turn boundaries and build one activity
+    /// reasoning/tool messages are inspected locally to find turn boundaries and build activity
     /// summary, but they neither consume the visible-item/text allowance nor enter the transcript
     /// DTO individually. The returned raw indexes remain the stable paging cursor.
     /// </summary>
@@ -952,7 +1050,7 @@ internal static class RemoteProjector
 
             // Always include the newest represented turn so paging advances even when one answer is
             // individually oversized. Older turns are admitted by what the phone will actually draw:
-            // user/assistant/question/file rows plus one activity card, never raw command count.
+            // user/assistant/question/file rows plus contiguous activity cards, never raw command count.
             if (start < end
                 && (visibleItemCount + turnCost.VisibleItems > maxVisibleItems
                     || visibleTextCharacters + turnCost.TextCharacters
@@ -990,6 +1088,7 @@ internal static class RemoteProjector
             }
 
             selected.Add(message);
+            hasActivityAnchor = false;
         }
 
         return new TranscriptMessageWindow(selected, start, end, total);
@@ -1028,6 +1127,7 @@ internal static class RemoteProjector
                 continue;
             }
 
+            hasActivity = false;
             if (!ProducesCompactTranscriptItem(message))
                 continue;
 
@@ -1267,7 +1367,7 @@ internal static class RemoteProjector
         string? workingDirectory,
         IReadOnlySet<string>? runningBackgroundToolCallIds)
     {
-        if (!TryFindLogicalTurn(messages, messageId, out var start, out var end))
+        if (!TryFindActivitySegment(messages, messageId, out var start, out var end))
             return null;
 
         var technicalMessages = new List<ChatMessage>();
@@ -1808,6 +1908,7 @@ internal static class RemoteProjector
         foreach (var turn in transcript.Turns)
         {
             turn.Id = BoundRequired(turn.Id, RemoteProtocol.MobileIdentifierLimit);
+            turn.FinalAnswerId = BoundOptional(turn.FinalAnswerId, RemoteProtocol.MobileIdentifierLimit);
             foreach (var item in turn.Items)
             {
                 item.Id = BoundRequired(item.Id, RemoteProtocol.MobileIdentifierLimit);
