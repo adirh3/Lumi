@@ -1004,6 +1004,105 @@ public sealed class ChatViewScrollBehaviorTests
     }
 
     [Fact]
+    public async Task EmptyComposer_UpAndDownKeysScrollTranscript()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await DispatchAsync(session, async () =>
+        {
+            var chat = CreateLongChat(pairCount: 36);
+            var data = new AppData
+            {
+                Settings = new UserSettings
+                {
+                    AutoSaveChats = false,
+                    EnableMemoryAutoSave = false
+                }
+            };
+            data.Chats.Add(chat);
+
+            using var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+            var view = new ChatView { DataContext = viewModel };
+            var window = new Window
+            {
+                Width = 1100,
+                Height = 820,
+                Content = view,
+            };
+
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                await viewModel.LoadChatAsync(chat);
+                await WaitUntilAsync(() =>
+                    view.FindControl<StrataChatShell>("ChatShell")?.TranscriptScrollViewer is not null
+                    && !TranscriptRealizationScheduler.Instance.HasPendingWork);
+
+                var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
+                var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
+                var composer = Assert.IsType<StrataChatComposer>(view.FindControl<StrataChatComposer>("Composer"));
+                var input = composer.GetVisualDescendants()
+                    .OfType<TextBox>()
+                    .Single(control => control.Name == "PART_Input");
+
+                shell.JumpToLatest();
+                await WaitUntilAsync(() =>
+                    scrollViewer.Extent.Height - scrollViewer.Viewport.Height > 96);
+                var maxOffset = Math.Max(0, scrollViewer.Extent.Height - scrollViewer.Viewport.Height);
+                shell.PreserveViewport();
+                scrollViewer.Offset = scrollViewer.Offset.WithY(maxOffset / 2);
+                input.Text = string.Empty;
+                input.Focus();
+                await PumpAsync();
+
+                var beforeUp = scrollViewer.Offset.Y;
+                var up = new KeyEventArgs
+                {
+                    RoutedEvent = InputElement.KeyDownEvent,
+                    Key = Key.Up,
+                    KeyModifiers = KeyModifiers.None,
+                };
+                input.RaiseEvent(up);
+                await PumpAsync();
+
+                Assert.True(up.Handled);
+                Assert.True(scrollViewer.Offset.Y < beforeUp);
+
+                var beforeDown = scrollViewer.Offset.Y;
+                var down = new KeyEventArgs
+                {
+                    RoutedEvent = InputElement.KeyDownEvent,
+                    Key = Key.Down,
+                    KeyModifiers = KeyModifiers.None,
+                };
+                input.RaiseEvent(down);
+                await PumpAsync();
+
+                Assert.True(down.Handled);
+                Assert.True(scrollViewer.Offset.Y > beforeDown);
+
+                input.Text = "draft";
+                input.CaretIndex = input.Text.Length;
+                var beforeDraftUp = scrollViewer.Offset.Y;
+                input.RaiseEvent(new KeyEventArgs
+                {
+                    RoutedEvent = InputElement.KeyDownEvent,
+                    Key = Key.Up,
+                    KeyModifiers = KeyModifiers.None,
+                });
+                await PumpAsync();
+
+                Assert.InRange(Math.Abs(scrollViewer.Offset.Y - beforeDraftUp), 0, 0.5);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task ClearingDataContext_DetachesMountedTurnHeightSubscriptions()
     {
         using var session = HeadlessTestSession.Start();

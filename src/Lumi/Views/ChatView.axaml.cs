@@ -33,6 +33,8 @@ namespace Lumi.Views;
 
 public partial class ChatView : UserControl
 {
+    private const double TranscriptKeyboardScrollStep = 48;
+
     public static readonly StyledProperty<bool> ShowInternalTitleProperty =
         AvaloniaProperty.Register<ChatView, bool>(nameof(ShowInternalTitle), true);
 
@@ -183,6 +185,7 @@ public partial class ChatView : UserControl
         AddHandler(StrataChatMessage.CopyTurnRequestedEvent, OnCopyTurnRequested);
         AddHandler(StrataChatMessage.ForkRequestedEvent, OnForkRequested);
         AddHandler(KeyDownEvent, OnLinkedChatKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(KeyDownEvent, OnEmptyComposerScrollKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         SizeChanged += OnChatViewSizeChanged;
 
         // ── Search bar controls ──
@@ -574,6 +577,45 @@ public partial class ChatView : UserControl
         {
             RecordTranscriptPagingDirection(direction);
         }
+    }
+
+    private void OnEmptyComposerScrollKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Handled
+            || e.KeyModifiers != KeyModifiers.None
+            || e.Key is not (Key.Up or Key.Down)
+            || _chatShell is null
+            || _transcriptScrollViewer is null)
+        {
+            return;
+        }
+
+        var sourceControl = e.Source as Control;
+        var input = sourceControl as TextBox
+            ?? sourceControl?.FindAncestorOfType<TextBox>();
+        if (input?.Name != "PART_Input"
+            || !ReferenceEquals(input.FindAncestorOfType<StrataChatComposer>(), _composer)
+            || !string.IsNullOrEmpty(input.Text))
+        {
+            return;
+        }
+
+        var maxOffset = Math.Max(0, _transcriptScrollViewer.Extent.Height - _transcriptScrollViewer.Viewport.Height);
+        if (maxOffset <= ChatScrollPolicy.FractionalEpsilon)
+            return;
+
+        var direction = e.Key == Key.Up
+            ? TranscriptPagingDirection.TowardOlder
+            : TranscriptPagingDirection.TowardNewer;
+        var delta = direction == TranscriptPagingDirection.TowardOlder
+            ? -TranscriptKeyboardScrollStep
+            : TranscriptKeyboardScrollStep;
+        var targetOffset = Math.Clamp(_transcriptScrollViewer.Offset.Y + delta, 0, maxOffset);
+
+        _chatShell.PreserveViewport();
+        _transcriptScrollViewer.Offset = _transcriptScrollViewer.Offset.WithY(targetOffset);
+        RecordTranscriptPagingDirection(direction);
+        e.Handled = true;
     }
 
     private void OnTranscriptPagingScrollGesture(object? sender, ScrollGestureEventArgs e)
