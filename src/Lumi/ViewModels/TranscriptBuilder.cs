@@ -568,13 +568,14 @@ public class TranscriptBuilder
 
         if (ToolDisplayHelper.IsShellCommandTool(toolName))
         {
+            var termParentSubagent = FindOwningSubagent(msgVm.Message.ParentToolCallId);
             var command = ToolDisplayHelper.ExtractJsonField(msgVm.Content, "command") ?? "";
             var termPreview = new TerminalPreviewItem(friendlyName, command, initialStatus, $"terminal:{toolStableIdSeed}")
             {
                 Output = msgVm.Message.ToolOutput ?? string.Empty,
                 DurationMs = msgVm.Message.ToolDurationMs ?? 0,
                 RunningSince = msgVm.Message.ToolStartedAt,
-                IsExpanded = !IsRebuildingTranscript,
+                IsExpanded = !IsRebuildingTranscript && termParentSubagent is not null,
                 Timestamp = msgVm.Message.ToolStartedAt ?? msgVm.Message.Timestamp,
             };
             // Rebuilt while this async shell is still running in the background: recreate the card
@@ -589,7 +590,6 @@ public class TranscriptBuilder
             if (toolCallId is not null)
                 _terminalPreviewsByToolCallId[toolCallId] = termPreview;
 
-            var termParentSubagent = FindOwningSubagent(msgVm.Message.ParentToolCallId);
             // A tool the sub-agent ran belongs to its run, not to Lumi's own tool group. Creating a
             // group here anyway would leave an empty "Working…" card stranded under the agent row
             // for as long as the run lasts.
@@ -1741,7 +1741,7 @@ public class TranscriptBuilder
                 if (idx >= 0)
                     target[idx] = new SingleToolItem(_currentToolGroup.ToolCalls[0], _currentToolGroup.Source)
                     {
-                        IsExpanded = _currentToolGroup.IsExpanded,
+                        IsExpanded = _currentToolGroup.HasExpandedContent,
                     };
             }
         }
@@ -1859,7 +1859,10 @@ public class TranscriptBuilder
                 {
                     var idx = turn.IndexOf(group);
                     if (idx >= 0)
-                        turn.Items[idx] = new SingleToolItem(group.ToolCalls[0], group.Source);
+                        turn.Items[idx] = new SingleToolItem(group.ToolCalls[0], group.Source)
+                        {
+                            IsExpanded = group.HasExpandedContent,
+                        };
                 }
             }
         }
@@ -2081,7 +2084,7 @@ public class TranscriptBuilder
     private static bool IsExpandedActivity(TranscriptItem item)
         => item switch
         {
-            ToolGroupItem group => group.IsExpanded,
+            ToolGroupItem group => group.HasExpandedContent,
             ReasoningItem reasoning => reasoning.IsExpanded,
             SingleToolItem single => single.IsExpanded,
             TurnSummaryItem summary => summary.IsExpanded,

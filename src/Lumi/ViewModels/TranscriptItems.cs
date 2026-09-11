@@ -595,6 +595,14 @@ public partial class ToolGroupItem : TranscriptItem
     // A plan's header represents its steps, not a single tool invocation.
     public bool IsSingleTool => ToolCalls.Count == 1 && ToolCalls[0] is not TodoProgressItem;
     public ToolCallItemBase? SingleTool => IsSingleTool ? ToolCalls[0] : null;
+    internal bool HasExpandedContent => IsSingleTool
+        ? SingleTool switch
+        {
+            ToolCallItem tool => tool.IsExpanded,
+            TerminalPreviewItem terminal => terminal.IsExpanded,
+            _ => false,
+        }
+        : IsExpanded;
     public bool HasStreamingSummary => !string.IsNullOrWhiteSpace(StreamingSummary);
     public ChatMessageViewModel? Source { get; set; }
 
@@ -602,8 +610,24 @@ public partial class ToolGroupItem : TranscriptItem
         : base(stableId ?? TranscriptIds.Create("tool-group"))
     {
         _label = label;
-        ToolCalls.CollectionChanged += (_, _) =>
+        ToolCalls.CollectionChanged += (_, args) =>
         {
+            if (ToolCalls.Count == 2 && args.NewStartingIndex == 1)
+            {
+                // The singleton's own card was visible before promotion. Keep inspected details
+                // open without changing the normal "expand a group with collapsed children" behavior.
+                switch (ToolCalls[0])
+                {
+                    case ToolCallItem { IsExpanded: true } tool:
+                        IsExpanded = true;
+                        tool.IsExpanded = true;
+                        break;
+                    case TerminalPreviewItem { IsExpanded: true } terminal:
+                        IsExpanded = true;
+                        terminal.IsExpanded = true;
+                        break;
+                }
+            }
             OnPropertyChanged(nameof(IsSingleTool));
             OnPropertyChanged(nameof(SingleTool));
         };
@@ -611,7 +635,7 @@ public partial class ToolGroupItem : TranscriptItem
 
     partial void OnIsExpandedChanged(bool value)
     {
-        if (!value)
+        if (!value || IsSingleTool)
             return;
 
         foreach (var toolCall in ToolCalls)

@@ -56,9 +56,16 @@ public sealed class TranscriptCollapsibleToggleTests
                 Assert.False(wrapper.IsVisible);
                 Assert.Equal(StrataAiToolCallStatus.Completed, tool.Status);
 
+                tool.IsExpanded = true;
+                window.UpdateLayout();
+                Assert.True(first.IsExpanded);
                 group.ToolCalls.Add(new ToolCallItem("Search files", StrataAiToolCallStatus.InProgress));
                 window.UpdateLayout();
                 Assert.True(wrapper.IsVisible);
+                Assert.True(wrapper.IsExpanded);
+                Assert.True(first.IsExpanded);
+                Assert.True(view.GetVisualDescendants().OfType<StrataAiToolCall>()
+                    .Single(card => ReferenceEquals(card.DataContext, first)).IsExpanded);
                 Assert.Null(group.SingleTool);
             }
             finally

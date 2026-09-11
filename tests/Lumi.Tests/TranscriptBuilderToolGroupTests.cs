@@ -15,6 +15,81 @@ namespace Lumi.Tests;
 public sealed class TranscriptBuilderToolGroupTests
 {
     [Fact]
+    public void UnopenedStandaloneCommands_StillFoldIntoTheActivityTrail()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        for (var i = 0; i < 3; i++)
+        {
+            builder.ProcessMessageToTranscript(CreateToolVm($"shell-{i}", "powershell", "Completed", "{}"));
+            builder.ProcessMessageToTranscript(CreateReasoningVm($"Check {i}"));
+        }
+        builder.ProcessMessageToTranscript(CreateToolVm("current", "view", "InProgress", "{}"));
+
+        Assert.Equal(2, turns[0].Items.Count);
+        Assert.Equal(6, Assert.IsType<TurnSummaryItem>(turns[0].Items[0]).InnerItems.Count);
+    }
+
+    [Theory]
+    [InlineData("view", false)]
+    [InlineData("view", true)]
+    [InlineData("powershell", false)]
+    [InlineData("powershell", true)]
+    public void ExpandedStandaloneTool_StaysVisibleAfterReasoningAndCompletion(string toolName, bool finishAfterReasoning)
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        var message = CreateToolVm("first", toolName, "InProgress", "{}");
+        builder.ProcessMessageToTranscript(message);
+        var group = Assert.IsType<ToolGroupItem>(Assert.Single(turns[0].Items));
+        SetExpanded(group.SingleTool!);
+
+        if (!finishAfterReasoning)
+        {
+            message.Message.ToolStatus = "Completed";
+            message.NotifyToolStatusChanged();
+        }
+        builder.ProcessMessageToTranscript(CreateReasoningVm("Continue checking"));
+        if (finishAfterReasoning)
+        {
+            message.Message.ToolStatus = "Completed";
+            message.NotifyToolStatusChanged();
+        }
+        builder.ProcessMessageToTranscript(CreateToolVm("next", "view", "InProgress", "{}"));
+
+        Assert.True(Assert.IsType<SingleToolItem>(turns[0].Items[0]).IsExpanded);
+        Assert.IsType<ReasoningItem>(turns[0].Items[1]);
+        Assert.True(Assert.IsType<ToolGroupItem>(turns[0].Items[2]).IsActive);
+
+        static void SetExpanded(ToolCallItemBase tool)
+        {
+            if (tool is ToolCallItem call)
+                call.IsExpanded = true;
+            else
+                Assert.IsType<TerminalPreviewItem>(tool).IsExpanded = true;
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExpandedStandaloneTool_PromotionPreservesTheInspectedChild(bool terminal)
+    {
+        var group = new ToolGroupItem("Working");
+        ToolCallItemBase first = terminal
+            ? new TerminalPreviewItem("Run command", "echo test", StrataTheme.Controls.StrataAiToolCallStatus.InProgress) { IsExpanded = true }
+            : new ToolCallItem("Read file", StrataTheme.Controls.StrataAiToolCallStatus.InProgress) { IsExpanded = true };
+        group.ToolCalls.Add(first);
+        group.ToolCalls.Add(new ToolCallItem("Next action", StrataTheme.Controls.StrataAiToolCallStatus.InProgress));
+
+        Assert.True(group.IsExpanded);
+        Assert.True(first is ToolCallItem call ? call.IsExpanded : ((TerminalPreviewItem)first).IsExpanded);
+        Assert.False(group.IsSingleTool);
+    }
+
+    [Fact]
     public void Rebuild_ConsecutiveReasoning_IsOneItemWithoutASummaryWrapper()
     {
         var first = CreateReasoningVm("Inspect the implementation.");
@@ -469,6 +544,7 @@ public sealed class TranscriptBuilderToolGroupTests
         group.ToolCalls.Add(terminal);
         group.ToolCalls.Add(todo);
 
+        group.IsExpanded = false;
         group.IsExpanded = true;
 
         Assert.False(tool.IsExpanded);
