@@ -43,6 +43,8 @@ public class TranscriptBuilder
     public ObservableCollection<SubagentToolCallItem> SubagentRuns { get; } = [];
 
     private ToolGroupItem? _currentToolGroup;
+    private ReasoningItem? _currentReasoning;
+    private readonly List<ReasoningItem> _reasoningItems = [];
     private int _currentToolGroupCount;
     private TodoProgressItem? _currentTodoToolCall;
     private TodoProgressState? _currentTodoProgress;
@@ -251,6 +253,10 @@ public class TranscriptBuilder
         foreach (var (vm, handler) in _pendingToolHandlers)
             vm.PropertyChanged -= handler;
         _pendingToolHandlers.Clear();
+        foreach (var reasoning in _reasoningItems)
+            reasoning.DetachSources();
+        _reasoningItems.Clear();
+        _currentReasoning = null;
 
         _currentToolGroup = null;
         _currentToolGroupCount = 0;
@@ -299,6 +305,9 @@ public class TranscriptBuilder
     {
         if (!_processedMessageIds.Add(msgVm.Message.Id))
             return;
+
+        if (msgVm.Role != "reasoning")
+            _currentReasoning = null;
 
         var showToolCalls = _dataStore.Data.Settings.ShowToolCalls;
         var showReasoning = _dataStore.Data.Settings.ShowReasoning;
@@ -1360,7 +1369,21 @@ public class TranscriptBuilder
         if (!showReasoning)
             return;
 
-        AppendToCurrentTurn(new ReasoningItem(msgVm, expandWhileStreaming), TurnStableIdFor($"reasoning:{msgVm.Message.Id}"));
+        if (_currentReasoning is not null)
+        {
+            _currentTurn ??= GetTurnTarget()?.LastOrDefault(turn => turn.Items.Any(item =>
+                ReferenceEquals(item, _currentReasoning)
+                || item is TurnSummaryItem summary && summary.InnerItems.Contains(_currentReasoning)));
+            if (_currentTurn is not null)
+                UnfoldHistoryContaining(_currentTurn, item => ReferenceEquals(item, _currentReasoning));
+            _currentReasoning.AppendSource(msgVm);
+            CompactEarlierActivity();
+            return;
+        }
+
+        _currentReasoning = new ReasoningItem(msgVm, expandWhileStreaming);
+        _reasoningItems.Add(_currentReasoning);
+        AppendToCurrentTurn(_currentReasoning, TurnStableIdFor($"reasoning:{msgVm.Message.Id}"));
     }
 
     private void ProcessChatMessage(ChatMessageViewModel msgVm, bool showTimestamps)
@@ -1710,13 +1733,16 @@ public class TranscriptBuilder
             // A background-shell group must stay expanded so its live terminal card remains visible;
             // collapsing here would hide the still-running process behind a static "Working…" pill and
             // nothing would re-expand it (the monitor only refreshes the group when the flag flips).
-            _currentToolGroup.IsExpanded = hasBackgroundShell;
+            _currentToolGroup.IsExpanded |= hasBackgroundShell;
 
             if (canFlattenSingleTool && target is not null)
             {
                 var idx = target.IndexOf(_currentToolGroup);
                 if (idx >= 0)
-                    target[idx] = new SingleToolItem(_currentToolGroup.ToolCalls[0], _currentToolGroup.Source);
+                    target[idx] = new SingleToolItem(_currentToolGroup.ToolCalls[0], _currentToolGroup.Source)
+                    {
+                        IsExpanded = _currentToolGroup.IsExpanded,
+                    };
             }
         }
 
@@ -1786,9 +1812,9 @@ public class TranscriptBuilder
             group.StreamingSummary = !IsRebuildingTranscript && group.IsActive
                 ? ToolDisplayHelper.BuildToolActivitySummary(group.ToolCalls.Select(GetToolGroupSummaryLabel))
                 : null;
-
             if (!group.IsActive || IsRebuildingTranscript)
                 group.IsExpanded = false;
+            CompactEarlierActivity();
             return;
         }
 
@@ -1860,6 +1886,7 @@ public class TranscriptBuilder
         group.StreamingSummary = !IsRebuildingTranscript && group.IsActive
             ? ToolDisplayHelper.BuildToolActivitySummary(group.ToolCalls.Select(GetToolGroupSummaryLabel))
             : null;
+        CompactEarlierActivity();
     }
 
     private static string? GetToolGroupSummaryLabel(ToolCallItemBase item)
@@ -1969,7 +1996,13 @@ public class TranscriptBuilder
         CollapseTranscriptBlocks(turn, CollectAdjacentSummaryBlocks(items, idx + 1, 1), assistantItem, "after");
     }
 
-    private void CollapseActivityOnlyBlocks(TranscriptTurn turn)
+    private void CompactEarlierActivity()
+    {
+        if (!IsRebuildingTranscript && _currentTurn is not null)
+            CollapseActivityOnlyBlocks(_currentTurn, keepLatest: true);
+    }
+
+    private void CollapseActivityOnlyBlocks(TranscriptTurn turn, bool keepLatest = false)
     {
         if (!CollapseCompletedTurns)
             return;
@@ -1979,9 +2012,11 @@ public class TranscriptBuilder
         var currentRunStart = -1;
         var items = turn.Items;
 
-        for (var i = 0; i < items.Count; i++)
+        var limit = keepLatest ? items.Count - 1 : items.Count;
+        for (var i = 0; i < limit; i++)
         {
-            if (IsActivityOnlySummaryEligibleBlock(items[i]))
+            if (IsActivityOnlySummaryEligibleBlock(items[i])
+                && (!keepLatest || items[i] is TurnSummaryItem || !IsExpandedActivity(items[i])))
             {
                 if (currentRun.Count == 0)
                     currentRunStart = i;
@@ -1998,7 +2033,7 @@ public class TranscriptBuilder
         for (var i = runs.Count - 1; i >= 0; i--)
         {
             var (startIndex, blocks) = runs[i];
-            CollapseTranscriptBlocks(turn, blocks, $"turn-summary:{turn.StableId}:activity:{startIndex}");
+            CollapseTranscriptBlocks(turn, blocks, $"turn-summary:{turn.StableId}:activity:{startIndex}", keepLatest);
         }
 
         void AddActivityRunIfCollapsible()
@@ -2011,7 +2046,7 @@ public class TranscriptBuilder
         }
     }
 
-    private static List<TranscriptItem> CollectAdjacentSummaryBlocks(IList<TranscriptItem> items, int startIndex, int step)
+    private List<TranscriptItem> CollectAdjacentSummaryBlocks(IList<TranscriptItem> items, int startIndex, int step)
     {
         var blocks = new List<TranscriptItem>();
         for (var i = startIndex; i >= 0 && i < items.Count; i += step)
@@ -2028,13 +2063,44 @@ public class TranscriptBuilder
         return blocks;
     }
 
-    private static bool IsSummaryEligibleBlock(TranscriptItem item)
-        => item is ToolGroupItem or ReasoningItem or SingleToolItem or SubagentToolCallItem or TurnSummaryItem
-           && !ContainsRunningBackgroundShell(item);
+    private bool IsSummaryEligibleBlock(TranscriptItem item)
+        => item switch
+        {
+            ToolGroupItem group => !ReferenceEquals(group, _currentToolGroup)
+                && !group.IsActive && !ContainsRunningBackgroundShell(group),
+            ReasoningItem reasoning => !reasoning.IsActive,
+            SingleToolItem single => !single.IsActive && !ContainsRunningBackgroundShell(single),
+            SubagentToolCallItem agent => agent.Status != StrataAiToolCallStatus.InProgress,
+            TurnSummaryItem summary => summary.InnerItems.All(IsSummaryEligibleBlock),
+            _ => false,
+        };
 
-    private static bool IsActivityOnlySummaryEligibleBlock(TranscriptItem item)
-        => item is ToolGroupItem or ReasoningItem or SingleToolItem or TurnSummaryItem
-           && !ContainsRunningBackgroundShell(item);
+    private bool IsActivityOnlySummaryEligibleBlock(TranscriptItem item)
+        => item is not SubagentToolCallItem && IsSummaryEligibleBlock(item);
+
+    private static bool IsExpandedActivity(TranscriptItem item)
+        => item switch
+        {
+            ToolGroupItem group => group.IsExpanded,
+            ReasoningItem reasoning => reasoning.IsExpanded,
+            SingleToolItem single => single.IsExpanded,
+            TurnSummaryItem summary => summary.IsExpanded,
+            _ => false,
+        };
+
+    private static void UnfoldHistoryContaining(TranscriptTurn turn, Func<TranscriptItem, bool> matches)
+    {
+        for (var i = 0; i < turn.Items.Count; i++)
+        {
+            if (turn.Items[i] is not TurnSummaryItem summary || !summary.InnerItems.Any(matches))
+                continue;
+
+            turn.Items.RemoveAt(i);
+            for (var j = 0; j < summary.InnerItems.Count; j++)
+                turn.Items.Insert(i + j, summary.InnerItems[j]);
+            return;
+        }
+    }
 
     /// <summary>A tool block whose async shell is still running in the background must never be folded
     /// into a compact turn summary — it would vanish behind a "Reasoned · N actions" line while the
@@ -2072,7 +2138,8 @@ public class TranscriptBuilder
     private void CollapseTranscriptBlocks(
         TranscriptTurn turn,
         List<TranscriptItem> blocksToMerge,
-        string stableId)
+        string stableId,
+        bool earlierActivity = false)
     {
         if (blocksToMerge.Count < 2)
             return;
@@ -2165,21 +2232,39 @@ public class TranscriptBuilder
             label = Loc.TurnSummary_ReasonedAndOneAction;
 
         if (failedCount > 0)
-            label += " " + string.Format(Loc.ToolGroup_FinishedFailed, failedCount);
+            label += " · " + Loc.Get("TurnSummary_Failed", failedCount);
+
+        if (earlierActivity)
+            label = Loc.Get("TurnSummary_EarlierWork", label);
 
         var firstIdx = items.IndexOf(blocksToMerge[0]);
-        foreach (var block in blocksToMerge)
-            items.Remove(block);
-
-        var summary = new TurnSummaryItem(label, stableId)
+        // Keep the history row and its children mounted as more work arrives. Replacing it would
+        // reset a user's expansion and the scroll position while they inspect earlier steps.
+        var summary = blocksToMerge[0] as TurnSummaryItem;
+        if (summary is not null)
         {
-            IsExpanded = hasTodoProgress && !IsRebuildingTranscript,
-            HasFailures = failedCount > 0,
-        };
-        foreach (var block in flattenedBlocks)
-            summary.InnerItems.Add(block);
-
-        items.Insert(firstIdx, summary);
+            summary.Label = label;
+            summary.HasFailures = failedCount > 0;
+            summary.IsExpanded |= blocksToMerge.Skip(1).Any(IsExpandedActivity);
+            foreach (var block in flattenedBlocks.Skip(summary.InnerItems.Count))
+                summary.InnerItems.Add(block);
+            foreach (var block in blocksToMerge.Skip(1))
+                items.Remove(block);
+        }
+        else
+        {
+            summary = new TurnSummaryItem(label, stableId)
+            {
+                IsExpanded = !IsRebuildingTranscript
+                    && (hasTodoProgress || blocksToMerge.Any(IsExpandedActivity)),
+                HasFailures = failedCount > 0,
+            };
+            foreach (var block in flattenedBlocks)
+                summary.InnerItems.Add(block);
+            foreach (var block in blocksToMerge)
+                items.Remove(block);
+            items.Insert(firstIdx, summary);
+        }
     }
 
     private void CollapseAllCompletedTurns()
@@ -2356,6 +2441,16 @@ public class TranscriptBuilder
 
         foreach (var turn in turns)
         {
+            if (running)
+            {
+                UnfoldHistoryContaining(turn, item => item switch
+                {
+                    ToolGroupItem group => group.ToolCalls.Contains(card),
+                    SingleToolItem single => ReferenceEquals(single.Inner, card),
+                    _ => false,
+                });
+            }
+
             var items = turn.Items;
             for (var i = 0; i < items.Count; i++)
             {
@@ -2403,11 +2498,15 @@ public class TranscriptBuilder
 
     private TranscriptTurn AppendItemToCurrentTurn(TranscriptItem item, string turnStableId)
     {
+        if (item is not ReasoningItem)
+            _currentReasoning = null;
+
         if (_currentTurn is not null)
         {
             _currentTurn.Items.Add(item);
             if (item is not (UserMessageItem or JobWakeItem))
                 _fileChipTurn.TranscriptTurn = _currentTurn;
+            CompactEarlierActivity();
             return _currentTurn;
         }
 

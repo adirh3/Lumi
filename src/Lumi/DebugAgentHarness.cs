@@ -711,6 +711,48 @@ public static class DebugAgentHarness
             => $"\"{JsonEncodedText.Encode(value).ToString()}\"";
     }
 
+    public static IEnumerable<LumiChatMessage> CreateActivityTrailFixtureMessages()
+    {
+        yield return Message("user", "Show consecutive reasoning as one item.");
+        yield return Message("reasoning", "First, inspect the transcript grouping rules.");
+        yield return Message("reasoning", "Then verify the rendered controls and streaming updates.");
+        yield return Message("assistant", "The two reasoning messages above share one expandable item.");
+
+        yield return Message("user", "Show one completed action without a group wrapper.");
+        yield return Tool("standalone", "Completed");
+        yield return Message("assistant", "A single action shows its own name, not Finished 1/1.");
+
+        yield return Message("user", "Show a long activity trail, keeping the current step visible.");
+        for (var i = 1; i <= 8; i++)
+        {
+            yield return Tool($"activity-{i}", i == 4 ? "Failed" : "Completed");
+            yield return Message("reasoning", $"Step {i}: review what the preceding action found.");
+            yield return Message("reasoning", $"Step {i}: choose the next check without adding a second reasoning row.");
+        }
+        yield return Tool("current-step", "InProgress");
+
+        static LumiChatMessage Message(string role, string content) => new()
+        {
+            Role = role,
+            Author = role == "user" ? "You" : "Lumi",
+            Content = content,
+            Timestamp = DateTimeOffset.Now,
+        };
+
+        static LumiChatMessage Tool(string id, string status) => new()
+        {
+            Role = "tool",
+            ToolName = "view",
+            ToolCallId = $"debug-trail-{id}",
+            ToolStatus = status,
+            Content = "{\"path\":\"TranscriptBuilder.cs\"}",
+            ToolOutput = status == "Failed" ? "Synthetic fixture failure: try the next file." : null,
+            ToolDurationMs = status == "InProgress" ? null : 42,
+            ToolStartedAt = DateTimeOffset.Now,
+            Timestamp = DateTimeOffset.Now,
+        };
+    }
+
     public static async Task<int> RunChatStressAsync(CopilotService copilotService, CancellationToken ct)
     {
         Console.WriteLine("Lumi chat stress harness");

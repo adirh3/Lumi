@@ -518,43 +518,65 @@ public partial class ErrorMessageItem : TranscriptItem
 
 public partial class ReasoningItem : TranscriptItem
 {
-    [ObservableProperty] private string _content;
+    [ObservableProperty] private string _content = "";
     [ObservableProperty] private bool _isActive;
     [ObservableProperty] private bool _isExpanded;
 
-    private readonly ChatMessageViewModel? _source;
+    private readonly List<string> _parts = [];
+    private readonly Dictionary<ChatMessageViewModel, int> _streamingSources = [];
     private readonly bool _expandWhileStreaming;
 
     public ReasoningItem(ChatMessageViewModel source, bool expandWhileStreaming)
         : base($"message:reasoning:{source.Message.Id}")
     {
-        _content = source.Content;
-        _isActive = source.IsStreaming;
-        _isExpanded = expandWhileStreaming && source.IsStreaming;
+        _expandWhileStreaming = expandWhileStreaming;
+        AppendSource(source);
+    }
 
-        // Only subscribe while streaming. Once done, content is final.
+    public void AppendSource(ChatMessageViewModel source)
+    {
+        _parts.Add(source.Content);
         if (source.IsStreaming)
         {
-            _source = source;
-            _expandWhileStreaming = expandWhileStreaming;
+            _streamingSources.Add(source, _parts.Count - 1);
             source.PropertyChanged += OnSourcePropertyChanged;
+            if (!IsActive && _expandWhileStreaming)
+                IsExpanded = true;
+            IsActive = true;
         }
+
+        RefreshContent();
     }
 
     private void OnSourcePropertyChanged(object? s, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(ChatMessageViewModel.Content) && _source is not null)
+        if (s is not ChatMessageViewModel source || !_streamingSources.TryGetValue(source, out var index))
+            return;
+
+        if (e.PropertyName is nameof(ChatMessageViewModel.Content) or nameof(ChatMessageViewModel.IsStreaming))
         {
-            Content = _source.Content;
-            // Skip expensive height estimation during streaming — recalculated when streaming ends.
+            _parts[index] = source.Content;
+            RefreshContent();
         }
-        else if (e.PropertyName == nameof(ChatMessageViewModel.IsStreaming) && _source is not null && !_source.IsStreaming)
+
+        if (e.PropertyName == nameof(ChatMessageViewModel.IsStreaming) && !source.IsStreaming)
         {
-            IsActive = false;
-            if (_expandWhileStreaming)
+            source.PropertyChanged -= OnSourcePropertyChanged;
+            _streamingSources.Remove(source);
+            IsActive = _streamingSources.Count > 0;
+            if (!IsActive && _expandWhileStreaming)
                 IsExpanded = false;
-            _source.PropertyChanged -= OnSourcePropertyChanged;
         }
+    }
+
+    private void RefreshContent()
+        => Content = string.Join("\n\n", _parts.Where(static part => !string.IsNullOrWhiteSpace(part)));
+
+    internal void DetachSources()
+    {
+        foreach (var source in _streamingSources.Keys)
+            source.PropertyChanged -= OnSourcePropertyChanged;
+        _streamingSources.Clear();
     }
 }
 
@@ -570,6 +592,9 @@ public partial class ToolGroupItem : TranscriptItem
     [ObservableProperty] private string? _streamingSummary;
 
     public ObservableCollection<ToolCallItemBase> ToolCalls { get; } = [];
+    // A plan's header represents its steps, not a single tool invocation.
+    public bool IsSingleTool => ToolCalls.Count == 1 && ToolCalls[0] is not TodoProgressItem;
+    public ToolCallItemBase? SingleTool => IsSingleTool ? ToolCalls[0] : null;
     public bool HasStreamingSummary => !string.IsNullOrWhiteSpace(StreamingSummary);
     public ChatMessageViewModel? Source { get; set; }
 
@@ -577,6 +602,11 @@ public partial class ToolGroupItem : TranscriptItem
         : base(stableId ?? TranscriptIds.Create("tool-group"))
     {
         _label = label;
+        ToolCalls.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(IsSingleTool));
+            OnPropertyChanged(nameof(SingleTool));
+        };
     }
 
     partial void OnIsExpandedChanged(bool value)

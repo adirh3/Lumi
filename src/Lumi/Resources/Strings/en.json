@@ -641,6 +641,8 @@
   "TurnSummary_ReasonedAndActions": "Reasoned \u00b7 {0} actions",
   "TurnSummary_ReasonedAndOneAction": "Reasoned \u00b7 1 action",
   "TurnSummary_Reasoned": "Reasoned",
+  "TurnSummary_EarlierWork": "Earlier work \u00b7 {0}",
+  "TurnSummary_Failed": "{0} failed",
 
   "SubagentGroup_Working": "{0} agents working\u2026",
   "SubagentGroup_Finished": "{0} agents",

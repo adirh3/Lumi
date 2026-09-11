@@ -1025,42 +1025,47 @@
 
     <!-- ── Tool group (collapsible) ─────────────────── -->
     <DataTemplate DataType="vm:ToolGroupItem">
-      <sc:StrataThink Label="{Binding Label}"
-                      Meta="{Binding Meta}"
-                      IsExpanded="{Binding IsExpanded}"
-                      IsActive="{Binding IsActive}"
-                      ProgressValue="{Binding ProgressValue}">
-        <sc:StrataThink.HeaderExtra>
-          <Border Classes="streaming-tool-summary"
-                  IsVisible="{Binding HasStreamingSummary}">
-            <TextBlock Text="{Binding StreamingSummary}" />
-          </Border>
-        </sc:StrataThink.HeaderExtra>
-        <sc:StrataThink.Content>
-          <ScrollViewer MaxHeight="{StaticResource Chat.ToolGroupContentMaxHeight}"
-                        VerticalScrollBarVisibility="Auto"
-                        HorizontalScrollBarVisibility="Disabled">
-            <ItemsControl ItemsSource="{Binding ToolCalls}">
-              <ItemsControl.Styles>
-                <Style Selector="ContentPresenter">
-                  <Setter Property="Margin" Value="0,0,6,6" />
-                </Style>
-                <Style Selector="sc|StrataAiToolCall">
-                  <Setter Property="MinWidth" Value="320" />
-                  <Setter Property="MaxWidth" Value="420" />
-                </Style>
-                <Style Selector="sc|StrataTerminalPreview">
-                  <Setter Property="MinWidth" Value="360" />
-                  <Setter Property="MaxWidth" Value="560" />
-                </Style>
-              </ItemsControl.Styles>
-              <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
-            </ItemsControl>
-          </ScrollViewer>
-        </sc:StrataThink.Content>
-      </sc:StrataThink>
+      <Panel>
+        <ContentControl Content="{Binding SingleTool}"
+                        IsVisible="{Binding IsSingleTool}" />
+        <sc:StrataThink Label="{Binding Label}"
+                        IsVisible="{Binding !IsSingleTool}"
+                        Meta="{Binding Meta}"
+                        IsExpanded="{Binding IsExpanded}"
+                        IsActive="{Binding IsActive}"
+                        ProgressValue="{Binding ProgressValue}">
+          <sc:StrataThink.HeaderExtra>
+            <Border Classes="streaming-tool-summary"
+                    IsVisible="{Binding HasStreamingSummary}">
+              <TextBlock Text="{Binding StreamingSummary}" />
+            </Border>
+          </sc:StrataThink.HeaderExtra>
+          <sc:StrataThink.Content>
+            <ScrollViewer MaxHeight="{StaticResource Chat.ToolGroupContentMaxHeight}"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+              <ItemsControl ItemsSource="{Binding ToolCalls}">
+                <ItemsControl.Styles>
+                  <Style Selector="ContentPresenter">
+                    <Setter Property="Margin" Value="0,0,6,6" />
+                  </Style>
+                  <Style Selector="sc|StrataAiToolCall">
+                    <Setter Property="MinWidth" Value="320" />
+                    <Setter Property="MaxWidth" Value="420" />
+                  </Style>
+                  <Style Selector="sc|StrataTerminalPreview">
+                    <Setter Property="MinWidth" Value="360" />
+                    <Setter Property="MaxWidth" Value="560" />
+                  </Style>
+                </ItemsControl.Styles>
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+              </ItemsControl>
+            </ScrollViewer>
+          </sc:StrataThink.Content>
+        </sc:StrataThink>
+      </Panel>
     </DataTemplate>
 
     <!-- ── Single tool (flattened — StrataThink pill) ── -->
@@ -1234,11 +1239,15 @@
                             IsExpanded="{Binding IsExpanded}"
                             HasFailures="{Binding HasFailures}">
         <sc:StrataTurnSummary.Content>
-          <ItemsControl ItemsSource="{Binding InnerItems}">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-          </ItemsControl>
+          <ScrollViewer MaxHeight="{StaticResource Chat.ToolGroupContentMaxHeight}"
+                        VerticalScrollBarVisibility="Auto"
+                        HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding InnerItems}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+            </ItemsControl>
+          </ScrollViewer>
         </sc:StrataTurnSummary.Content>
       </sc:StrataTurnSummary>
     </DataTemplate>

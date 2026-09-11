@@ -5,7 +5,10 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Data;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Lumi.ViewModels;
+using Lumi.Views;
 using StrataTheme.Controls;
 using Xunit;
 
@@ -25,6 +28,46 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class TranscriptCollapsibleToggleTests
 {
+    [Fact]
+    public async Task ToolGroupTemplate_SingleToolRendersAloneUntilSecondToolArrives()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            var group = new ToolGroupItem("Finished") { Meta = "1/1 done" };
+            var first = new ToolCallItem("Read file", StrataAiToolCallStatus.InProgress);
+            group.ToolCalls.Add(first);
+            var chatView = new ChatView();
+            var template = chatView.DataTemplates.Single(template => template.Match(group));
+            var view = template.Build(group)!;
+            view.DataContext = group;
+            var window = new Window { Width = 800, Height = 500, Content = view };
+            window.Show();
+            try
+            {
+                window.UpdateLayout();
+                var wrapper = Assert.Single(view.GetVisualDescendants().OfType<StrataThink>());
+                Assert.False(wrapper.IsVisible);
+                var tool = Assert.Single(view.GetVisualDescendants().OfType<StrataAiToolCall>());
+                Assert.Equal(StrataAiToolCallStatus.InProgress, tool.Status);
+
+                first.Status = StrataAiToolCallStatus.Completed;
+                window.UpdateLayout();
+                Assert.False(wrapper.IsVisible);
+                Assert.Equal(StrataAiToolCallStatus.Completed, tool.Status);
+
+                group.ToolCalls.Add(new ToolCallItem("Search files", StrataAiToolCallStatus.InProgress));
+                window.UpdateLayout();
+                Assert.True(wrapper.IsVisible);
+                Assert.Null(group.SingleTool);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     private sealed class ExpandVm : ObservableObject
     {
         private bool _isExpanded;

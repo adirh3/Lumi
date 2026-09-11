@@ -86,6 +86,14 @@ public partial class ChatViewModel
         SuggestionB = "Summarize the root cause";
         SuggestionC = "Show the diff that fixed the freeze";
 
+        // Feed this tail through the live collection path, not Rebuild, so the fixture exercises
+        // progressive folding before a final answer (without sending anything to Copilot).
+        foreach (var message in DebugAgentHarness.CreateActivityTrailFixtureMessages())
+        {
+            fixture.Messages.Add(message);
+            Messages.Add(new ChatMessageViewModel(message));
+        }
+
         ScrollToEndRequested?.Invoke();
     }
 

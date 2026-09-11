@@ -15,6 +15,381 @@ namespace Lumi.Tests;
 public sealed class TranscriptBuilderToolGroupTests
 {
     [Fact]
+    public void Rebuild_ConsecutiveReasoning_IsOneItemWithoutASummaryWrapper()
+    {
+        var first = CreateReasoningVm("Inspect the implementation.");
+        var turns = CreateBuilder().Rebuild(
+        [
+            first,
+            CreateReasoningVm(""),
+            CreateReasoningVm("Then check the tests."),
+        ]);
+
+        var reasoning = Assert.IsType<ReasoningItem>(Assert.Single(Assert.Single(turns).Items));
+        Assert.Equal($"message:reasoning:{first.Message.Id}", reasoning.StableId);
+        Assert.Equal("Inspect the implementation.\n\nThen check the tests.", reasoning.Content);
+    }
+
+    [Fact]
+    public void ConsecutiveReasoning_StreamsAllPartsWithoutLosingEarlierText()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        var first = CreateReasoningVm("First", isStreaming: true);
+        var second = CreateReasoningVm("", isStreaming: true);
+
+        builder.ProcessMessageToTranscript(first);
+        var reasoning = Assert.IsType<ReasoningItem>(Assert.Single(Assert.Single(turns).Items));
+        builder.ProcessMessageToTranscript(second);
+        builder.ProcessMessageToTranscript(second);
+        second.Message.Content = "Second";
+        second.NotifyContentChanged();
+        first.Message.Content = "First, finalized";
+        first.Message.IsStreaming = false;
+        first.NotifyStreamingEnded();
+
+        Assert.Same(reasoning, Assert.Single(turns[0].Items));
+        Assert.Equal("First, finalized\n\nSecond", reasoning.Content);
+        Assert.True(reasoning.IsActive);
+
+        second.Message.IsStreaming = false;
+        second.NotifyStreamingEnded();
+        Assert.False(reasoning.IsActive);
+    }
+
+    [Fact]
+    public void ResetState_DetachesMergedReasoningStreams()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        var first = CreateReasoningVm("First", isStreaming: true);
+        var second = CreateReasoningVm("Second", isStreaming: true);
+        builder.ProcessMessageToTranscript(first);
+        builder.ProcessMessageToTranscript(second);
+        var reasoning = Assert.IsType<ReasoningItem>(Assert.Single(Assert.Single(turns).Items));
+
+        builder.ResetState();
+        first.Message.Content = "Detached first";
+        first.NotifyContentChanged();
+        second.Message.Content = "Detached second";
+        second.NotifyContentChanged();
+
+        Assert.Equal("First\n\nSecond", reasoning.Content);
+    }
+
+    [Fact]
+    public void ConsecutiveReasoning_AfterExplicitCollapse_RevealsTheMergedLiveItem()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        builder.ProcessMessageToTranscript(CreateToolVm("read", "view", "Completed", "{}"));
+        builder.ProcessMessageToTranscript(CreateReasoningVm("First thought"));
+        builder.CollapseCompletedBlocksInCurrentTurn();
+        Assert.IsType<TurnSummaryItem>(Assert.Single(turns[0].Items));
+
+        builder.ProcessMessageToTranscript(CreateReasoningVm("Continued thought", isStreaming: true));
+
+        var reasoning = Assert.IsType<ReasoningItem>(turns[0].Items[^1]);
+        Assert.True(reasoning.IsActive);
+        Assert.Equal("First thought\n\nContinued thought", reasoning.Content);
+    }
+
+    [Fact]
+    public void ConsecutiveReasoning_AfterRebuild_RevealsTheMergedLiveItem()
+    {
+        var builder = CreateBuilder();
+        var turns = builder.Rebuild(
+        [
+            CreateToolVm("read", "view", "Completed", "{}"),
+            CreateReasoningVm("Earlier thought"),
+        ]);
+        Assert.IsType<TurnSummaryItem>(Assert.Single(turns[0].Items));
+
+        builder.ProcessMessageToTranscript(CreateReasoningVm("Continued thought", isStreaming: true));
+        var reasoning = Assert.IsType<ReasoningItem>(turns[0].Items[^1]);
+        Assert.True(reasoning.IsActive);
+        Assert.Equal("Earlier thought\n\nContinued thought", reasoning.Content);
+
+        builder.ProcessMessageToTranscript(CreateToolVm("next", "view", "InProgress", "{}"));
+        Assert.Single(turns);
+        Assert.True(Assert.IsType<ToolGroupItem>(turns[0].Items[^1]).IsActive);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ConsecutiveReasoning_RespectsStreamingExpansionPreference(bool expand)
+    {
+        var first = CreateReasoningVm("First", isStreaming: true);
+        var reasoning = new ReasoningItem(first, expand);
+        Assert.Equal(expand, reasoning.IsExpanded);
+        first.Message.IsStreaming = false;
+        first.NotifyStreamingEnded();
+        Assert.False(reasoning.IsExpanded);
+
+        var second = CreateReasoningVm("Second", isStreaming: true);
+        reasoning.AppendSource(second);
+        Assert.Equal(expand, reasoning.IsExpanded);
+        second.Message.IsStreaming = false;
+        second.NotifyStreamingEnded();
+        Assert.False(reasoning.IsExpanded);
+    }
+
+    [Fact]
+    public void Rebuild_HiddenReasoningDoesNotProduceAnEmptyHistoryRow()
+    {
+        var store = CreateDataStore();
+        store.Data.Settings.ShowReasoning = false;
+        var builder = new TranscriptBuilder(store, _ => { }, (_, _) => { }, _ => { },
+            (_, _) => Task.CompletedTask, () => null);
+
+        Assert.Empty(builder.Rebuild([CreateReasoningVm("First"), CreateReasoningVm("Second")]));
+    }
+
+    [Fact]
+    public void SingleTool_RemainsStandaloneUntilASecondToolActuallyArrives()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        var first = CreateToolVm("first", "view", "InProgress", "{}");
+        builder.ProcessMessageToTranscript(first);
+        var group = Assert.IsType<ToolGroupItem>(Assert.Single(turns[0].Items));
+        var single = Assert.IsType<ToolCallItem>(group.SingleTool);
+        Assert.True(group.IsSingleTool);
+
+        first.Message.ToolStatus = "Completed";
+        first.NotifyToolStatusChanged();
+        Assert.True(group.IsSingleTool);
+        Assert.Same(single, group.SingleTool);
+        Assert.Equal(StrataTheme.Controls.StrataAiToolCallStatus.Completed, single.Status);
+
+        builder.ProcessMessageToTranscript(CreateToolVm("second", "view", "InProgress", "{}"));
+        Assert.Same(group, Assert.Single(turns[0].Items));
+        Assert.False(group.IsSingleTool);
+        Assert.Null(group.SingleTool);
+        Assert.Equal(2, group.ToolCalls.Count);
+    }
+
+    [Fact]
+    public void SinglePlan_PreservesItsStepProgressHeader()
+    {
+        var group = new ToolGroupItem("Plan") { Meta = "1/3 completed" };
+        group.ToolCalls.Add(new TodoProgressItem("Plan", StrataTheme.Controls.StrataAiToolCallStatus.InProgress));
+        Assert.False(group.IsSingleTool);
+        Assert.Null(group.SingleTool);
+        Assert.Equal("1/3 completed", group.Meta);
+    }
+
+    [Fact]
+    public void ExplicitCollapse_DoesNotHideAnOpenGroupThatCanReceiveMoreTools()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        builder.ProcessMessageToTranscript(CreateReasoningVm("Planning"));
+        builder.ProcessMessageToTranscript(CreateToolVm("first", "view", "Completed", "{}"));
+        var group = Assert.IsType<ToolGroupItem>(turns[0].Items[^1]);
+
+        builder.CollapseCompletedBlocksInCurrentTurn();
+        builder.ProcessMessageToTranscript(CreateToolVm("second", "view", "InProgress", "{}"));
+
+        Assert.Contains(group, turns[0].Items);
+        Assert.True(group.IsActive);
+        Assert.Equal(2, group.ToolCalls.Count);
+        Assert.DoesNotContain(turns[0].Items, item => item is TurnSummaryItem);
+    }
+
+    [Fact]
+    public void AlternatingActivity_KeepsOneHistoryRowAndTheCurrentStep()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        for (var i = 0; i < 24; i++)
+        {
+            builder.ProcessMessageToTranscript(CreateToolVm($"tool-{i}", "view", "Completed", "{}"));
+            builder.ProcessMessageToTranscript(CreateReasoningVm($"Reasoning {i}"));
+            builder.ProcessMessageToTranscript(CreateReasoningVm($"More reasoning {i}"));
+        }
+        builder.ProcessMessageToTranscript(CreateToolVm("current", "view", "InProgress", "{}"));
+
+        var turn = Assert.Single(turns);
+        Assert.Equal(2, turn.Items.Count);
+        var history = Assert.IsType<TurnSummaryItem>(turn.Items[0]);
+        Assert.False(history.IsExpanded);
+        Assert.Equal(48, history.InnerItems.Count);
+        Assert.Equal(24, history.InnerItems.OfType<ReasoningItem>().Count());
+        Assert.Equal(24, history.InnerItems.OfType<SingleToolItem>().Count());
+        Assert.Contains("24 actions", history.Label);
+        Assert.StartsWith("Earlier work", history.Label);
+        var current = Assert.IsType<ToolGroupItem>(turn.Items[1]);
+        Assert.True(current.IsActive);
+        Assert.True(current.IsSingleTool);
+    }
+
+    [Fact]
+    public void ActivityHistory_PreservesExpandedRowAndChildrenAsWorkArrivesAndFinishes()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        builder.ProcessMessageToTranscript(CreateToolVm("first", "view", "Completed", "{}"));
+        builder.ProcessMessageToTranscript(CreateReasoningVm("Reasoning"));
+        builder.ProcessMessageToTranscript(CreateToolVm("second", "view", "Completed", "{}"));
+        var history = Assert.IsType<TurnSummaryItem>(turns[0].Items[0]);
+        var reasoning = Assert.IsType<ReasoningItem>(history.InnerItems[1]);
+        history.IsExpanded = true;
+        reasoning.IsExpanded = true;
+
+        builder.ProcessMessageToTranscript(CreateReasoningVm("Later reasoning"));
+        builder.ProcessMessageToTranscript(CreateAssistantVm("Done."));
+
+        Assert.Same(history, turns[0].Items[0]);
+        Assert.True(history.IsExpanded);
+        Assert.Same(reasoning, history.InnerItems[1]);
+        Assert.True(reasoning.IsExpanded);
+        Assert.Equal(4, history.InnerItems.Count);
+        Assert.IsType<AssistantMessageItem>(turns[0].Items[^1]);
+    }
+
+    [Fact]
+    public void ActivityHistory_CompletionKeepsAnExpandedStepVisibleWhenJoiningCollapsedHistory()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        builder.ProcessMessageToTranscript(CreateToolVm("first", "view", "Completed", "{}"));
+        builder.ProcessMessageToTranscript(CreateReasoningVm("Reasoning"));
+        builder.ProcessMessageToTranscript(CreateToolVm("second", "view", "Completed", "{}"));
+        builder.ProcessMessageToTranscript(CreateToolVm("third", "view", "Completed", "{}"));
+        var history = Assert.IsType<TurnSummaryItem>(turns[0].Items[0]);
+        Assert.False(history.IsExpanded);
+        Assert.IsType<ToolGroupItem>(turns[0].Items[1]).IsExpanded = true;
+
+        builder.ProcessMessageToTranscript(CreateAssistantVm("Done."));
+
+        Assert.Same(history, turns[0].Items[0]);
+        Assert.True(history.IsExpanded);
+        Assert.True(Assert.IsType<ToolGroupItem>(history.InnerItems[^1]).IsExpanded);
+    }
+
+    [Fact]
+    public void ActivityHistory_DoesNotHideRunningToolsOrStreamingReasoning()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        builder.ProcessMessageToTranscript(CreateToolVm("running", "view", "InProgress", "{}"));
+        builder.ProcessMessageToTranscript(CreateReasoningVm("Still thinking", isStreaming: true));
+        builder.ProcessMessageToTranscript(CreateToolVm("completed", "view", "Completed", "{}"));
+        builder.CollapseCompletedBlocksInCurrentTurn();
+
+        Assert.Equal(3, turns[0].Items.Count);
+        Assert.True(Assert.IsType<ToolGroupItem>(turns[0].Items[0]).IsActive);
+        Assert.True(Assert.IsType<ReasoningItem>(turns[0].Items[1]).IsActive);
+        Assert.DoesNotContain(turns[0].Items, item => item is TurnSummaryItem);
+    }
+
+    [Fact]
+    public void ActivityHistory_LateToolCompletionFoldsOnlyTheFinishedPrefix()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        var pending = CreateToolVm("pending", "view", "InProgress", "{}");
+        builder.ProcessMessageToTranscript(pending);
+        builder.ProcessMessageToTranscript(CreateReasoningVm("Thinking between actions"));
+        builder.ProcessMessageToTranscript(CreateToolVm("current", "view", "InProgress", "{}"));
+        Assert.Equal(3, turns[0].Items.Count);
+
+        pending.Message.ToolStatus = "Completed";
+        pending.NotifyToolStatusChanged();
+
+        Assert.Equal(2, turns[0].Items.Count);
+        Assert.IsType<TurnSummaryItem>(turns[0].Items[0]);
+        Assert.True(Assert.IsType<ToolGroupItem>(turns[0].Items[1]).IsActive);
+    }
+
+    [Fact]
+    public void ActivityHistory_DoesNotFoldAnExpandedReasoningItemWhileWorking()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        builder.ProcessMessageToTranscript(CreateToolVm("first", "view", "Completed", "{}"));
+        builder.ProcessMessageToTranscript(CreateReasoningVm("Inspecting this thought"));
+        var reasoning = Assert.IsType<ReasoningItem>(turns[0].Items[^1]);
+        reasoning.IsExpanded = true;
+
+        builder.ProcessMessageToTranscript(CreateToolVm("second", "view", "InProgress", "{}"));
+
+        Assert.Contains(reasoning, turns[0].Items);
+        Assert.True(reasoning.IsExpanded);
+        Assert.DoesNotContain(turns[0].Items, item => item is TurnSummaryItem);
+    }
+
+    [Fact]
+    public void ActivityHistory_KeepsQuestionsOutsideTheFoldAndShowsFailures()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        builder.ProcessMessageToTranscript(CreateToolVm("failed", "view", "Failed", "{}"));
+        builder.ProcessMessageToTranscript(CreateReasoningVm("Need more information"));
+        builder.AddQuestionToTranscript("question", "Which file?", ["A", "B"], false);
+
+        var history = Assert.IsType<TurnSummaryItem>(turns[0].Items[0]);
+        Assert.True(history.HasFailures);
+        Assert.Contains("1 failed", history.Label);
+        Assert.IsType<QuestionItem>(turns[0].Items[1]);
+        builder.ProcessMessageToTranscript(CreateReasoningVm("After question"));
+        Assert.IsType<QuestionItem>(turns[0].Items[1]);
+        Assert.IsType<ReasoningItem>(turns[0].Items[2]);
+    }
+
+    [Fact]
+    public void ActivityHistory_LateBackgroundShellIsRevealedInChronologicalOrder()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        builder.ProcessMessageToTranscript(CreateToolVm("shell", "powershell", "Completed", "{\"command\":\"long job\"}"));
+        builder.ProcessMessageToTranscript(CreateReasoningVm("The shell is running independently"));
+        builder.ProcessMessageToTranscript(CreateToolVm("current", "view", "InProgress", "{}"));
+        Assert.IsType<TurnSummaryItem>(turns[0].Items[0]);
+
+        builder.SetTerminalRunningInBackground("shell", true);
+
+        var group = Assert.IsType<ToolGroupItem>(turns[0].Items[0]);
+        var terminal = Assert.IsType<TerminalPreviewItem>(group.SingleTool);
+        Assert.True(terminal.IsRunningInBackground);
+        Assert.True(terminal.IsExpanded);
+        Assert.IsType<ReasoningItem>(turns[0].Items[1]);
+        Assert.True(Assert.IsType<ToolGroupItem>(turns[0].Items[2]).IsActive);
+    }
+
+    [Fact]
+    public void ActivityHistory_RespectsSubagentShowAllWorkMode()
+    {
+        var builder = new TranscriptBuilder(CreateDataStore(), _ => { }, (_, _) => { }, _ => { },
+            (_, _) => Task.CompletedTask, () => null) { CollapseCompletedTurns = false };
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        builder.ProcessMessageToTranscript(CreateToolVm("first", "view", "Completed", "{}"));
+        builder.ProcessMessageToTranscript(CreateReasoningVm("Thought one"));
+        builder.ProcessMessageToTranscript(CreateReasoningVm("Thought two"));
+        builder.ProcessMessageToTranscript(CreateToolVm("second", "view", "Completed", "{}"));
+
+        Assert.Equal(3, turns[0].Items.Count);
+        Assert.DoesNotContain(turns[0].Items, item => item is TurnSummaryItem);
+        Assert.Equal("Thought one\n\nThought two", Assert.IsType<ReasoningItem>(turns[0].Items[1]).Content);
+    }
+
+    [Fact]
     public void ProcessMessageToTranscript_SameMessageTwice_RendersOnce()
     {
         var builder = CreateBuilder();
@@ -979,12 +1354,13 @@ public sealed class TranscriptBuilderToolGroupTests
             Timestamp = DateTimeOffset.Now,
         });
 
-    private static ChatMessageViewModel CreateReasoningVm(string content)
+    private static ChatMessageViewModel CreateReasoningVm(string content, bool isStreaming = false)
         => new(new ChatMessage
         {
             Role = "reasoning",
             Content = content,
             Author = "Thinking",
+            IsStreaming = isStreaming,
             Timestamp = DateTimeOffset.Now,
         });
 
