@@ -31,14 +31,15 @@ internal sealed class HeadlessTestSession : IDisposable
         return _inner.Dispatch(action, cancellationToken);
     }
 
-    // NOTE: Avalonia's HeadlessUnitTestSession.Dispatch(Func<Task>) awaits the dispatched body to
-    // completion but does NOT surface exceptions it faults with, so an assertion failure inside an
-    // `async () => { ... }` body is silently swallowed and the test still passes. Tests that need to
-    // assert on UI-thread state should capture the results inside the body and assert OUTSIDE this
-    // call (see StrataCollapsibleReparentClickTests). See the suite-wide note in the task summary.
+    // Avalonia has no Func<Task> overload: forwarding it directly returns Task<Task> as Task.
+    // Select the async generic overload so the dispatcher pumps and propagates the whole operation.
     public Task Dispatch(Func<Task> action, CancellationToken cancellationToken)
     {
-        return _inner.Dispatch(action, cancellationToken);
+        return _inner.Dispatch<int>(async () =>
+        {
+            await action();
+            return 0;
+        }, cancellationToken);
     }
 
     public void Dispose()

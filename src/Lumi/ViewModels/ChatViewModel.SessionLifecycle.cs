@@ -131,17 +131,6 @@ public partial class ChatViewModel
         return added ? target : null;
     }
 
-    /// <summary>
-    /// Whether sub-agent output suppression is currently active for a chat. Driven SOLELY by
-    /// genuine nested sub-agent execution (<c>subagent.started</c>/<c>subagent.completed</c>,
-    /// tracked by <see cref="ChatRuntimeState.ActiveSubagentExecutionDepth"/>). The
-    /// <c>subagent.selected</c>/<c>subagent.deselected</c> events must NOT feed into this — the
-    /// CLI emits them only for the top-level configured agent (config.Agent), so gating on them
-    /// dropped the entire main turn whenever a Lumi agent was selected.
-    /// </summary>
-    internal static bool SubagentOutputIsActive(ChatRuntimeState runtime)
-        => Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0;
-
     // A successful task-tool completion only means the wrapper spawned the sub-agent.
     // Keep the card live until the authoritative subagent.completed/subagent.failed event.
     internal static string ResolveToolStartStatus(string? toolName, string? completedStatus)
@@ -293,6 +282,7 @@ public partial class ChatViewModel
             ? _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == chat.AgentId.Value)?.Name ?? Loc.Author_Lumi
             : Loc.Author_Lumi;
         var runtime = GetOrCreateRuntimeState(chat.Id);
+        var sessionTurnSequence = runtime.LifecycleTurnSequence;
         var capabilities = GetCapabilities(chat, workDir);
         var toolParentById = new Dictionary<string, string?>(StringComparer.Ordinal);
         var terminalRootByToolCallId = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -304,9 +294,9 @@ public partial class ChatViewModel
         StreamingTextAccumulator? reasoningStream = null;
         var subagentStateGate = new object();
         var activeSubagentToolCallIds = new List<string>();
+        var subagentToolCallIdsByAgentId = new Dictionary<string, string>(StringComparer.Ordinal);
         var subagentAssistantStreams = new Dictionary<string, StreamingTextAccumulator>(StringComparer.Ordinal);
         var subagentReasoningStreams = new Dictionary<string, StreamingTextAccumulator>(StringComparer.Ordinal);
-        string? mostRecentSubagentToolCallId = null;
         var pendingFetchedSources = new List<SearchSource>();
         var pendingFetchedSkillRefs = new List<SkillReference>();
 
@@ -436,32 +426,26 @@ public partial class ChatViewModel
         _copilotService.CliProcessExited += OnCliProcessExited;
 
 
-        bool IsSubagentOutputActive()
-            => SubagentOutputIsActive(runtime);
-
-        static string? GetSubagentToolCallIdFromParent(string? parentToolCallId)
-            => string.IsNullOrWhiteSpace(parentToolCallId) ? null : parentToolCallId;
-
-        string? GetActiveSubagentToolCallId()
+        string? GetSubagentOutputToolCallId(SessionEvent evt, string? parentToolCallId = null)
         {
-            lock (subagentStateGate)
-                return activeSubagentToolCallIds.Count == 0 ? null : activeSubagentToolCallIds[^1];
-        }
-
-        string? GetCurrentSubagentOutputToolCallId()
-        {
-            var activeToolCallId = GetActiveSubagentToolCallId();
-            if (!string.IsNullOrWhiteSpace(activeToolCallId))
-                return activeToolCallId;
-
-            if (!IsSubagentOutputActive())
+            if (IsRootAgentEvent(evt))
                 return null;
 
             lock (subagentStateGate)
-                return mostRecentSubagentToolCallId;
+            {
+                if (subagentToolCallIdsByAgentId.TryGetValue(evt.AgentId!, out var toolCallId))
+                    return toolCallId;
+            }
+
+            if (!string.IsNullOrWhiteSpace(parentToolCallId))
+                return parentToolCallId;
+
+            System.Diagnostics.Trace.TraceWarning(
+                $"[Chat] Cannot route {evt.Type} from unknown subagent {evt.AgentId} in chat {chat.Id}.");
+            return null;
         }
 
-        void RegisterActiveSubagent(string? toolCallId)
+        void RegisterActiveSubagent(string? toolCallId, string? agentId)
         {
             if (string.IsNullOrWhiteSpace(toolCallId))
                 return;
@@ -469,7 +453,8 @@ public partial class ChatViewModel
             lock (subagentStateGate)
             {
                 activeSubagentToolCallIds.Add(toolCallId);
-                mostRecentSubagentToolCallId = toolCallId;
+                if (!string.IsNullOrEmpty(agentId))
+                    subagentToolCallIdsByAgentId[agentId] = toolCallId;
             }
         }
 
@@ -491,9 +476,6 @@ public partial class ChatViewModel
                     break;
                 }
 
-                mostRecentSubagentToolCallId = activeSubagentToolCallIds.Count > 0
-                    ? activeSubagentToolCallIds[^1]
-                    : toolCallId;
                 return removed;
             }
         }
@@ -712,7 +694,7 @@ public partial class ChatViewModel
             lock (subagentStateGate)
             {
                 activeSubagentToolCallIds.Clear();
-                mostRecentSubagentToolCallId = null;
+                subagentToolCallIdsByAgentId.Clear();
                 streamsToDispose.AddRange(subagentAssistantStreams.Values);
                 streamsToDispose.AddRange(subagentReasoningStreams.Values);
                 subagentAssistantStreams.Clear();
@@ -853,11 +835,11 @@ public partial class ChatViewModel
             {
             switch (evt)
             {
-                case AssistantTurnStartEvent turnStart:
+                case AssistantTurnStartEvent turnStart when IsRootAgentEvent(evt):
                     Volatile.Write(ref runtime.AssistantTurnStarted, true);
                     var isTopLevelTurnStart = assistantTurnBoundaries.Begin(
                         turnStart.Data.TurnId,
-                        Volatile.Read(ref runtime.ActiveSubagentExecutionDepth));
+                        activeSubagentDepth: 0);
                     Dispatcher.UIThread.Post(() =>
                     {
                         // Capture the model once per top-level user turn. Subsequent agentic turns within
@@ -893,8 +875,7 @@ public partial class ChatViewModel
                 case AssistantMessageDeltaEvent delta:
 #pragma warning disable CS0618 // ParentToolCallId is deprecated in GitHub.Copilot.SDK 1.0.1 with no replacement; still required for sub-agent stream routing.
                     var activeSubagentToolCallIdForAssistantDelta =
-                        GetSubagentToolCallIdFromParent(delta.Data.ParentToolCallId)
-                        ?? GetCurrentSubagentOutputToolCallId();
+                        GetSubagentOutputToolCallId(delta, delta.Data.ParentToolCallId);
 #pragma warning restore CS0618
                     if (!string.IsNullOrWhiteSpace(activeSubagentToolCallIdForAssistantDelta))
                     {
@@ -906,7 +887,7 @@ public partial class ChatViewModel
                             .Append(delta.Data.DeltaContent);
                         break;
                     }
-                    if (IsSubagentOutputActive())
+                    if (!IsRootAgentEvent(delta))
                         break;
                     assistantStream.Append(delta.Data.DeltaContent);
                     break;
@@ -914,8 +895,7 @@ public partial class ChatViewModel
                 case AssistantMessageEvent msg:
 #pragma warning disable CS0618 // ParentToolCallId is deprecated in GitHub.Copilot.SDK 1.0.1 with no replacement; still required for sub-agent stream routing.
                     var activeSubagentToolCallIdForAssistantMessage =
-                        GetSubagentToolCallIdFromParent(msg.Data.ParentToolCallId)
-                        ?? GetCurrentSubagentOutputToolCallId();
+                        GetSubagentOutputToolCallId(msg, msg.Data.ParentToolCallId);
 #pragma warning restore CS0618
                     if (!string.IsNullOrWhiteSpace(activeSubagentToolCallIdForAssistantMessage))
                     {
@@ -960,7 +940,7 @@ public partial class ChatViewModel
                         subagentAssistantStream?.Clear();
                         break;
                     }
-                    if (IsSubagentOutputActive())
+                    if (!IsRootAgentEvent(msg))
                         break;
                     var capturedFinalContent = msg.Data.Content;
                     // Older CLI versions can emit an empty assistant envelope immediately before the
@@ -1033,7 +1013,7 @@ public partial class ChatViewModel
                     break;
 
                 case AssistantReasoningDeltaEvent rd:
-                    var activeSubagentToolCallIdForReasoningDelta = GetCurrentSubagentOutputToolCallId();
+                    var activeSubagentToolCallIdForReasoningDelta = GetSubagentOutputToolCallId(rd);
                     if (!string.IsNullOrWhiteSpace(activeSubagentToolCallIdForReasoningDelta))
                     {
                         GetOrCreateSubagentStream(
@@ -1045,13 +1025,13 @@ public partial class ChatViewModel
                         break;
                     }
 
-                    if (IsSubagentOutputActive())
+                    if (!IsRootAgentEvent(rd))
                         break;
                     reasoningStream.Append(rd.Data.DeltaContent);
                     break;
 
                 case AssistantReasoningEvent r:
-                    var activeSubagentToolCallIdForReasoning = GetCurrentSubagentOutputToolCallId();
+                    var activeSubagentToolCallIdForReasoning = GetSubagentOutputToolCallId(r);
                     if (!string.IsNullOrWhiteSpace(activeSubagentToolCallIdForReasoning))
                     {
                         var subagentReasoningStream = GetSubagentStream(
@@ -1077,7 +1057,7 @@ public partial class ChatViewModel
                         break;
                     }
 
-                    if (IsSubagentOutputActive())
+                    if (!IsRootAgentEvent(r))
                         break;
                     reasoningStream.CancelPending();
                     Dispatcher.UIThread.Post(() =>
@@ -1472,7 +1452,8 @@ public partial class ChatViewModel
                     });
                     break;
 
-                case UserMessageEvent userMessage:
+                case UserMessageEvent userMessage when IsRootAgentEvent(evt):
+                    sessionTurnSequence = runtime.LifecycleTurnSequence;
                     // The SDK echoes a user message when the agent actually CONSUMES it at a step boundary.
                     // For an immediate-mode steer this is the authoritative "the agent has now seen your
                     // message" signal, so flip the pending steer badge from "Steering…" to "Steered into
@@ -1507,7 +1488,7 @@ public partial class ChatViewModel
                     });
                     break;
 
-                case AssistantTurnEndEvent turnEnd:
+                case AssistantTurnEndEvent turnEnd when IsRootAgentEvent(evt):
                     // The stop intent is NOT cleared here. An aborted turn still ends, and clearing it
                     // at turn end made the AbortEvent handler below classify the user's own stop as a
                     // broken session. PreparePendingTurnTracking resets it when the next turn starts.
@@ -1519,12 +1500,16 @@ public partial class ChatViewModel
                     var isTopLevelTurnEnd = assistantTurnBoundaries.End(turnEnd.Data.TurnId);
                     var shouldReconcileSubagentTools =
                         ShouldReconcileSubagentToolsOnTurnEnd(activeSubagentDepthAtTurnEnd);
+                    var endedTurnSequence = sessionTurnSequence;
                     assistantStream.CancelPending();
                     reasoningStream.CancelPending();
                     if (shouldReconcileSubagentTools)
                         ResetSubagentOutputState();
                     Dispatcher.UIThread.Post(() =>
                     {
+                        if (runtime.LifecycleTurnSequence != endedTurnSequence)
+                            return;
+
                         var shouldUpdateDisplayedChatUi = IsDisplayedSession();
                         // A sub-agent's own nested turns raise this event too (the guard above exists
                         // for exactly that reason), and settling them here would mark a running agent
@@ -1581,17 +1566,24 @@ public partial class ChatViewModel
                     }
                     break;
 
-                case SessionIdleEvent:
+                case SessionIdleEvent idle when IsRootAgentEvent(evt):
                     // Same as turn end: an abort drives the session idle too, so clearing the stop
                     // intent here would race the AbortEvent handler's classification.
-                    ClearPendingTurnTracking(chat.Id);
-                    DropCompletedTurnState(chat.Id, dropCancellation: true);
-                    assistantStream.CancelPending();
-                    reasoningStream.CancelPending();
-                    CompleteAndResetSubagentOutputState();
+                    var idleTurnSequence = sessionTurnSequence;
 
                     Dispatcher.UIThread.Post(() =>
                     {
+                        if (runtime.LifecycleTurnSequence != idleTurnSequence
+                            || (idle.Data.Aborted == true && !WasManualStopRequested(chat.Id)))
+                        {
+                            return;
+                        }
+
+                        ClearPendingTurnTracking(chat.Id);
+                        DropCompletedTurnState(chat.Id, dropCancellation: true);
+                        assistantStream.CancelPending();
+                        reasoningStream.CancelPending();
+                        CompleteAndResetSubagentOutputState();
                         var shouldUpdateDisplayedChatUi = IsDisplayedSession();
                         FinalizeCompletedTurnStreams(shouldUpdateDisplayedChatUi);
                         AttachPendingSourcesToFinalAssistantMessage();
@@ -1666,8 +1658,6 @@ public partial class ChatViewModel
                         else
                             QueueSaveChat(chat, saveIndex: false);
 
-                        CompleteSessionIdleWait(chat.Id);
-
                         // The chat is free again. This is the authoritative "chat is idle" signal —
                         // without it a deferred send only ever left the queue via Stop.
                         ScheduleQueuedBusySendDrain(chat.Id);
@@ -1680,7 +1670,7 @@ public partial class ChatViewModel
                     // Lumi uses its own guarded title generator instead.
                     break;
 
-                case SessionErrorEvent err:
+                case SessionErrorEvent err when IsRootAgentEvent(evt):
                     ClearManualStopRequested(chat.Id);
                     ClearPendingTurnTracking(chat.Id);
                     assistantStream.CancelPending();
@@ -1693,7 +1683,6 @@ public partial class ChatViewModel
                         if (!IsAuthoritativeSession())
                             return;
 
-                        AbandonSessionIdleWait(chat.Id);
                         var shouldUpdateDisplayedChatUi = IsDisplayedSession();
                         // Skip if CLI crash handler already claimed cleanup
                         if (Volatile.Read(ref cliExitHandled) == 1)
@@ -1846,14 +1835,18 @@ public partial class ChatViewModel
                     });
                     break;
 
-                case AbortEvent abort:
+                case AbortEvent abort when IsRootAgentEvent(evt):
                     var wasUserStopRequested = WasManualStopRequested(chat.Id);
-                    ClearPendingTurnTracking(chat.Id);
-                    assistantStream.CancelPending();
-                    reasoningStream.CancelPending();
-                    ResetSubagentOutputState();
+                    var abortedTurnSequence = sessionTurnSequence;
                     Dispatcher.UIThread.Post(() =>
                     {
+                        if (runtime.LifecycleTurnSequence != abortedTurnSequence)
+                            return;
+
+                        ClearPendingTurnTracking(chat.Id);
+                        assistantStream.CancelPending();
+                        reasoningStream.CancelPending();
+                        ResetSubagentOutputState();
                         var shouldUpdateDisplayedChatUi = CurrentChat?.Id == chat.Id
                             && (!_sessionCache.TryGetValue(chat.Id, out var cachedSession)
                                 || ReferenceEquals(cachedSession, session));
@@ -1901,10 +1894,7 @@ public partial class ChatViewModel
                         reasoningStream.Clear();
                         if (wasUserStopRequested && IsAuthoritativeSession())
                             ReconcileInProgressSubagentTools(chat, "Stopped");
-                        if (wasUserStopRequested && runtime.AwaitingStopIdle)
-                            MarkRuntimeTerminalPreservingStopIdle(runtime);
-                        else
-                            MarkRuntimeTerminal(runtime);
+                        MarkRuntimeTerminal(runtime);
 
                         if (!wasUserStopRequested)
                         {
@@ -1944,7 +1934,7 @@ public partial class ChatViewModel
                     });
                     break;
 
-                case SessionShutdownEvent shutdown:
+                case SessionShutdownEvent shutdown when IsRootAgentEvent(evt):
                     ClearManualStopRequested(chat.Id);
                     ClearPendingTurnTracking(chat.Id);
                     assistantStream.CancelPending();
@@ -2068,12 +2058,8 @@ public partial class ChatViewModel
                     break;
 
                 case SubagentStartedEvent subStart:
-                    // SDK immediate-mode sends target the next LLM request in the session. Once a nested
-                    // agent starts, that request can belong to the sub-agent and MessageOptions exposes no
-                    // way to target the root agent. Keep later user messages local until a fresh root turn.
-                    Volatile.Write(ref runtime.DeferSteersUntilNextTurn, true);
                     Interlocked.Increment(ref runtime.ActiveSubagentExecutionDepth);
-                    RegisterActiveSubagent(subStart.Data.ToolCallId);
+                    RegisterActiveSubagent(subStart.Data.ToolCallId, subStart.AgentId);
                     var subagentStartedAt = DateTimeOffset.UtcNow;
                     Dispatcher.UIThread.Post(() =>
                     {
@@ -2513,28 +2499,20 @@ public partial class ChatViewModel
         return true;
     }
 
+    internal static bool IsRootAgentEvent(SessionEvent evt)
+        => string.IsNullOrEmpty(evt.AgentId);
+
     private static void MarkRuntimeTerminal(ChatRuntimeState runtime, string? statusText = null)
     {
         runtime.IsBusy = false;
         runtime.IsStreaming = false;
         runtime.TurnInProgress = false;
-        runtime.AwaitingStopIdle = false;
         runtime.HasPendingBackgroundWork = false;
         runtime.ActiveSubagentExecutionDepth = 0;
-        Volatile.Write(ref runtime.DeferSteersUntilNextTurn, false);
         Volatile.Write(ref runtime.AssistantTurnStarted, false);
         runtime.SendQueuedNowWhenTurnStarts = false;
         runtime.ExpectTurnStartUserEcho = false;
         runtime.StatusText = statusText ?? string.Empty;
-    }
-
-    private static void MarkRuntimeTerminalPreservingStopIdle(
-        ChatRuntimeState runtime,
-        string? statusText = null)
-    {
-        var awaitingStopIdle = runtime.AwaitingStopIdle;
-        MarkRuntimeTerminal(runtime, statusText);
-        runtime.AwaitingStopIdle = awaitingStopIdle;
     }
 
     internal static void MarkRuntimeCompacting(ChatRuntimeState runtime)
@@ -2575,14 +2553,7 @@ public partial class ChatViewModel
             ? string.IsNullOrWhiteSpace(runtime.StatusText) ? Loc.Status_Thinking : runtime.StatusText
             : statusText;
         runtime.IsStreaming = isStreaming;
-        // TurnInProgress is set true at exactly the same points IsStreaming is (turn initiation / an
-        // actively streaming turn), which makes it a strict superset of the old IsStreaming steer signal.
-        // But — unlike IsStreaming — it is only cleared at turn end / terminal. Mid-turn updates
-        // (compaction, sub-agent, background-task drain) and the post-turn keep-busy path all call this
-        // with isStreaming:false, so they must NOT touch TurnInProgress: mid-turn it stays true (with
-        // CanSteerImmediately applying the separate sub-agent barrier), and post-turn it stays false
-        // (already cleared by MarkRuntimeWaitingForSessionIdle, so steering correctly falls back to the
-        // queue).
+        // Presentation-only updates must not end the main assistant turn.
         if (isStreaming)
             runtime.TurnInProgress = true;
         if (hasPendingBackgroundWork)
@@ -2601,8 +2572,7 @@ public partial class ChatViewModel
     {
         runtime.IsStreaming = false;
         Volatile.Write(ref runtime.AssistantTurnStarted, false);
-        // The assistant turn has ended; only background/idle draining may remain. Immediate steering
-        // cannot inject into a turn that already ended, so drop the "turn running" signal here.
+        // Only the main turn has ended; background work can still keep the session active.
         runtime.TurnInProgress = false;
         // The turn is over, so its turn-start echo window is closed — clear the skip flag (belt-and-suspenders
         // for the rare case where the turn-start echo never arrived) so it can't leak into the next turn.
@@ -2690,7 +2660,6 @@ public partial class ChatViewModel
 
     private void DetachSessionAfterRemoteShutdown(Chat chat, bool wasActive)
     {
-        AbandonSessionIdleWait(chat.Id);
         DisposeSessionSubscription(chat.Id);
         // The session already ended server-side (SessionShutdownEvent), so its host runtime and MCP
         // subprocesses are already reaped — dropping the handle here leaks nothing, and a destroy RPC
@@ -2754,12 +2723,6 @@ public partial class ChatViewModel
     {
         // ChatSessionStore reset the shared catalog before surfaces receive this reconnect event.
         RefreshCapabilities();
-
-        List<Guid> idleWaiterChatIds;
-        lock (_sessionIdleWaitersLock)
-            idleWaiterChatIds = _sessionIdleWaiters.Keys.ToList();
-        foreach (var chatId in idleWaiterChatIds)
-            AbandonSessionIdleWait(chatId);
 
         // Dispose all event subscriptions
         foreach (var sub in _sessionSubs.Values)

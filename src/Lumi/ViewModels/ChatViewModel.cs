@@ -824,9 +824,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private readonly Dictionary<Guid, Task> _mcpProxyReleaseTasks = new();
     /// <summary>Maps chat ID → live event subscriptions for locally attached sessions.</summary>
     private readonly Dictionary<Guid, IDisposable> _sessionSubs = new();
-    /// <summary>Awaiters used by abort-and-replace paths that must not send until session.idle.</summary>
-    private readonly Dictionary<Guid, List<TaskCompletionSource<bool>>> _sessionIdleWaiters = new();
-    private readonly object _sessionIdleWaitersLock = new();
     /// <summary>Maps chat ID → in-progress streaming message not yet committed to Chat.Messages.</summary>
     private readonly Dictionary<Guid, ChatMessage> _inProgressMessages = new();
     /// <summary>Per-chat runtime state sourced from live session events.</summary>
@@ -3467,7 +3464,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var chatId = targetChat.Id;
             var abortedPreviousTurn = ReleasePreviousTurnCancellation(chatId);
             if (abortedPreviousTurn)
-                await AbortCachedTurnAsync(targetChat, waitForIdle: true, cancellationToken);
+                await AbortCachedTurnAsync(targetChat, cancellationToken);
 
             var runtime = GetOrCreateRuntimeState(chatId);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
@@ -4522,7 +4519,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 // end up on the same session, corrupting SDK state.
                 try
                 {
-                    await AbortCachedTurnAsync(targetChat, waitForIdle: true);
+                    await AbortCachedTurnAsync(targetChat);
                 }
                 catch (Exception ex)
                 {
@@ -5030,13 +5027,22 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// The single turn-abort primitive. Abort-and-replace callers wait for the authoritative
-    /// <c>session.idle</c> acknowledgement before sending again; the Stop/Send-now path leaves delivery
-    /// to its existing idle-event queue drain.
+    /// The single turn-abort primitive. The RPC result acknowledges interruption; session.idle is an
+    /// activity notification, not an abort acknowledgement, and may never follow a background-only abort.
     /// </summary>
-    private async Task<bool> AbortCachedTurnAsync(
+    private Task<bool> AbortCachedTurnAsync(
         Chat chat,
-        bool waitForIdle,
+        CancellationToken cancellationToken = default)
+    {
+        var runtime = GetOrCreateRuntimeState(chat.Id);
+        if (runtime.AbortOperation is { IsCompleted: false } pending)
+            return pending.WaitAsync(cancellationToken);
+
+        return runtime.AbortOperation = AbortCachedTurnCoreAsync(chat, cancellationToken);
+    }
+
+    private async Task<bool> AbortCachedTurnCoreAsync(
+        Chat chat,
         CancellationToken cancellationToken = default)
     {
         var chatId = chat.Id;
@@ -5057,72 +5063,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
 
         SetManualStopRequested(chatId, true);
-        var runtime = GetOrCreateRuntimeState(chatId);
-        runtime.AwaitingStopIdle = true;
-        var idleWaiter = waitForIdle ? BeginSessionIdleWait(chatId) : null;
-
-        try
-        {
-            await session.AbortAsync(cancellationToken);
-        }
-        catch
-        {
-            runtime.AwaitingStopIdle = false;
-            if (idleWaiter is not null)
-                CancelSessionIdleWait(chatId, idleWaiter);
-            throw;
-        }
-
-        if (idleWaiter is not null)
-        {
-            try
-            {
-                var reachedIdle = await idleWaiter.Task.WaitAsync(
-                    TimeSpan.FromSeconds(15),
-                    cancellationToken);
-                if (!reachedIdle)
-                {
-                    throw new InvalidOperationException(
-                        "The Copilot session ended before the aborted turn reached idle.");
-                }
-            }
-            catch
-            {
-                CancelSessionIdleWait(chatId, idleWaiter);
-                throw;
-            }
-        }
+#pragma warning disable GHCP001
+        var result = await session.Rpc.AbortAsync(cancellationToken: cancellationToken);
+        if (!result.Success)
+            throw new InvalidOperationException(result.Error ?? "Copilot did not accept the stop request.");
+#pragma warning restore GHCP001
 
         return true;
-    }
-
-    private async Task WaitForPendingStopIdleAsync(
-        Guid chatId,
-        CancellationToken cancellationToken = default)
-    {
-        if (!_runtimeStates.TryGetValue(chatId, out var runtime)
-            || !runtime.AwaitingStopIdle)
-        {
-            return;
-        }
-
-        var idleWaiter = BeginSessionIdleWait(chatId);
-        try
-        {
-            var reachedIdle = await idleWaiter.Task.WaitAsync(
-                TimeSpan.FromSeconds(15),
-                cancellationToken);
-            if (!reachedIdle)
-            {
-                throw new InvalidOperationException(
-                    "The Copilot session ended before the aborted turn reached idle.");
-            }
-        }
-        catch
-        {
-            CancelSessionIdleWait(chatId, idleWaiter);
-            throw;
-        }
     }
 
     /// <summary>Returns a cached session only when it is still usable on the current CLI connection.</summary>
@@ -5222,7 +5169,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// re-establish it via ResumeSessionAsync, preserving server-side context.</summary>
     private void InvalidateLocalSessionCache(Chat chat)
     {
-        AbandonSessionIdleWait(chat.Id);
         _sessionCache.TryGetValue(chat.Id, out var invalidatedSession);
         if (invalidatedSession is not null
             && !_copilotService.TryDetachSessionFromSdkRegistry(invalidatedSession))
@@ -5291,7 +5237,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void DetachPersistedSession(Chat chat, string? sessionId = null)
     {
-        AbandonSessionIdleWait(chat.Id);
         var detachedSessionId = sessionId ?? chat.CopilotSessionId;
         DisposeSessionSubscription(chat.Id);
 
@@ -5692,29 +5637,30 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// When true, any still-pending SDK steers are marked "Not delivered" before the abort. "Send now"
     /// first reclaims its selected steer into Lumi's local queue, so it also uses this safe cleanup mode.
     /// </param>
-    private async Task<string?> StopGenerationInternal(
+    private Task<string?> StopGenerationInternal(
         Chat chat,
-        bool resolvePendingSteersAsFailed,
-        bool waitForIdle = false)
+        bool resolvePendingSteersAsFailed)
+    {
+        var runtime = GetOrCreateRuntimeState(chat.Id);
+        if (runtime.StopOperation is { IsCompleted: false } pending)
+            return pending;
+
+        return runtime.StopOperation = StopGenerationCoreAsync(chat, resolvePendingSteersAsFailed);
+    }
+
+    private async Task<string?> StopGenerationCoreAsync(
+        Chat chat,
+        bool resolvePendingSteersAsFailed)
     {
         var chatId = chat.Id;
         if (await TryStopManualContextCompactionAsync(chat))
+        {
+            // Compaction's earlier drain may have been blocked by this stop operation.
+            ScheduleQueuedBusySendDrain(chatId);
             return null;
+        }
         var wasActiveTurn = IsChatRuntimeActive(chatId) || _ctsSources.ContainsKey(chatId);
         var runtime = GetOrCreateRuntimeState(chatId);
-
-        if (waitForIdle && runtime.AwaitingStopIdle)
-        {
-            try
-            {
-                await WaitForPendingStopIdleAsync(chatId);
-                return null;
-            }
-            catch (Exception ex)
-            {
-                return $"Could not finish stopping this turn: {ex.Message}";
-            }
-        }
 
         // Record intent before cancellation or AbortAsync can synchronously emit Abort/Idle events.
         // Those handlers read this flag to distinguish a user stop from a broken session.
@@ -5733,23 +5679,30 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         ReleaseChatCancellation(chatId, cancel: true);
 
-        string? abortError = null;
-        var abortRequested = false;
         try
         {
-            abortRequested = await AbortCachedTurnAsync(chat, waitForIdle);
+            await AbortCachedTurnAsync(chat);
         }
         catch (Exception ex)
         {
             Trace.TraceWarning($"[Chat] Abort failed for {chatId}: {ex}");
-            abortError = $"Could not stop this turn cleanly: {ex.Message}";
+            var error = $"Could not stop this turn cleanly: {ex.Message}";
+            SetManualStopRequested(chatId, false);
+            if (IsCopilotTransportError(ex))
+            {
+                HandleSendError(ex, wasCancelledByUser: false, chat: chat);
+                return error;
+            }
+
+            FailQueuedBusySends(chatId);
+            runtime.StatusText = error;
+            if (CurrentChat?.Id == chatId)
+                ApplyDisplayedRuntimeState(runtime);
+            return error;
         }
 
         var stoppedTools = MarkInProgressToolsStopped(chat);
-        if (runtime.AwaitingStopIdle)
-            MarkRuntimeTerminalPreservingStopIdle(runtime, Loc.Status_Stopped);
-        else
-            MarkRuntimeTerminal(runtime, Loc.Status_Stopped);
+        MarkRuntimeTerminal(runtime, Loc.Status_Stopped);
         if (wasActiveTurn)
         {
             PublishTerminalChatLifecycleEventOnce(
@@ -5777,15 +5730,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (stoppedTools || canceledQuestions)
             QueueSaveChat(chat, saveIndex: false);
 
-        // Copilot's abort contract does not make the session reusable until session.idle. That handler
-        // owns the drain for a real session. Sending here raced the abort tail and intermittently forced
-        // a same-ID resume, which restarted MCP connections. If Stop itself failed, the message cannot
-        // be sent safely and is surfaced as undelivered rather than hanging in the queue indefinitely.
-        if (abortError is not null)
-            FailQueuedBusySends(chatId);
-        else if (!abortRequested)
-            ScheduleQueuedBusySendDrain(chatId);
-        return abortError;
+        // Post after cleanup. IsStopping also blocks an earlier idle-event drain until this operation
+        // completes, so an idle arriving before the RPC response cannot race the replacement send.
+        ScheduleQueuedBusySendDrain(chatId);
+        return null;
     }
 
     private async Task SaveCurrentChatAsync(bool saveIndex = true, bool touchIndex = false)
@@ -6489,14 +6437,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // Stop any active generation first. Regenerate/edit continues immediately afterward, so unlike
-        // the queued Send-now path it must await the SDK's session.idle acknowledgement here.
+        // Regenerate/edit shares the same completed interruption as Stop and Send now.
         if (IsChatRuntimeActive(CurrentChat.Id))
         {
             var stopError = await StopGenerationInternal(
                 CurrentChat,
-                resolvePendingSteersAsFailed: true,
-                waitForIdle: true);
+                resolvePendingSteersAsFailed: true);
             if (stopError is not null)
             {
                 ApplyStopError(CurrentChat.Id, stopError);
@@ -6624,7 +6570,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             var resendChat = CurrentChat;
             var abortedPreviousTurn = ReleasePreviousTurnCancellation(chatId);
             if (abortedPreviousTurn)
-                await AbortCachedTurnAsync(resendChat, waitForIdle: true);
+                await AbortCachedTurnAsync(resendChat);
 
             if (CurrentChat?.Id != resendChat.Id)
                 return;

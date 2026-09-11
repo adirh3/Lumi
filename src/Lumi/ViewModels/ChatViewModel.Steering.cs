@@ -164,9 +164,7 @@ public partial class ChatViewModel
             // SendAsync confirms queue acceptance; the event stream confirms actual consumption.
             await AcquireByokRateSlotAsync(activeChat, token);
 
-            // A sub-agent may have started while skills or rate limiting were awaited. Re-check the
-            // delivery gate immediately before handing the message to the SDK; otherwise immediate mode
-            // can inject it into the nested agent even though the send began on the parent trajectory.
+            // Stop or session setup may have changed ownership while skills/rate limiting were awaited.
             if (!CanSteerImmediately(runtime))
             {
                 RequeueMaterializedSteer(chatId, prompt, userMsg, messageViewModel);
@@ -425,19 +423,20 @@ public partial class ChatViewModel
     }
 
     private static bool CanSteerImmediately(ChatRuntimeState runtime)
-        => Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) == 0
-           && !Volatile.Read(ref runtime.DeferSteersUntilNextTurn)
-           && HasSubmittedCopilotTurn(runtime)
-           && (runtime.TurnInProgress || runtime.ActiveToolCount > 0);
+        => !runtime.IsStopping
+           && !runtime.SendQueuedNowWhenTurnStarts
+           && HasSubmittedCopilotTurn(runtime);
 
     private static bool HasSubmittedCopilotTurn(ChatRuntimeState runtime)
         => runtime.PendingSessionUserMessageCount > 0
            || runtime.ActiveToolCount > 0
-           || Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0;
+           || Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0
+           || runtime.HasPendingBackgroundWork;
 
     private bool CanInterruptQueuedSendNowImmediately(Guid chatId)
         => _runtimeStates.TryGetValue(chatId, out var runtime)
-           && (Volatile.Read(ref runtime.AssistantTurnStarted)
+           && (runtime.IsStopping
+               || Volatile.Read(ref runtime.AssistantTurnStarted)
                || runtime.ActiveToolCount > 0
                || Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0
                || runtime.HasPendingBackgroundWork);
@@ -458,7 +457,8 @@ public partial class ChatViewModel
             return;
         }
 
-        await StopGenerationInternal(chat, resolvePendingSteersAsFailed: true);
+        var error = await StopGenerationInternal(chat, resolvePendingSteersAsFailed: true);
+        ApplyStopError(chatId, error);
     }
 
     /// <summary>
@@ -510,6 +510,7 @@ public partial class ChatViewModel
         // Any OTHER steer the SDK was still holding dies with this abort, so mark those "Not delivered"
         // rather than leaving them pending against a turn that no longer exists. The reclaimed message
         // is already out of that set, and the drain scheduled by the stop starts its fresh turn.
-        await StopGenerationInternal(chat, resolvePendingSteersAsFailed: true);
+        var error = await StopGenerationInternal(chat, resolvePendingSteersAsFailed: true);
+        ApplyStopError(chat.Id, error);
     }
 }

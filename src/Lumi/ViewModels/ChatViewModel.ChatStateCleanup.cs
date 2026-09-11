@@ -185,14 +185,6 @@ public partial class ChatViewModel
         }
 
         _runtimeStates.Clear();
-        List<TaskCompletionSource<bool>> idleWaiters;
-        lock (_sessionIdleWaitersLock)
-        {
-            idleWaiters = _sessionIdleWaiters.Values.SelectMany(static waiters => waiters).ToList();
-            _sessionIdleWaiters.Clear();
-        }
-        foreach (var waiter in idleWaiters)
-            waiter.TrySetCanceled();
         ClearPendingQuestionTracking();
         _queuedBusySendPrompts.Clear();
         _inProgressMessages.Clear();
@@ -655,65 +647,6 @@ public partial class ChatViewModel
         return false;
     }
 
-    private TaskCompletionSource<bool> BeginSessionIdleWait(Guid chatId)
-    {
-        var waiter = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        lock (_sessionIdleWaitersLock)
-        {
-            if (!_sessionIdleWaiters.TryGetValue(chatId, out var waiters))
-            {
-                waiters = [];
-                _sessionIdleWaiters[chatId] = waiters;
-            }
-
-            waiters.Add(waiter);
-        }
-        return waiter;
-    }
-
-    private void CompleteSessionIdleWait(Guid chatId)
-    {
-        foreach (var waiter in TakeSessionIdleWaiters(chatId))
-            waiter.TrySetResult(true);
-    }
-
-    private void CancelSessionIdleWait(Guid chatId, TaskCompletionSource<bool> expected)
-    {
-        lock (_sessionIdleWaitersLock)
-        {
-            if (!_sessionIdleWaiters.TryGetValue(chatId, out var waiters)
-                || !waiters.Remove(expected))
-            {
-                return;
-            }
-
-            if (waiters.Count == 0)
-                _sessionIdleWaiters.Remove(chatId);
-        }
-
-        expected.TrySetCanceled();
-    }
-
-    private void AbandonSessionIdleWait(Guid chatId)
-    {
-        if (_runtimeStates.TryGetValue(chatId, out var runtime))
-            runtime.AwaitingStopIdle = false;
-
-        foreach (var waiter in TakeSessionIdleWaiters(chatId))
-            waiter.TrySetResult(false);
-    }
-
-    private List<TaskCompletionSource<bool>> TakeSessionIdleWaiters(Guid chatId)
-    {
-        lock (_sessionIdleWaitersLock)
-        {
-            if (!_sessionIdleWaiters.Remove(chatId, out var waiters))
-                return [];
-
-            return waiters;
-        }
-    }
-
     private void DropCompletedTurnState(Guid chatId, bool dropCancellation)
     {
         _inProgressMessages.Remove(chatId);
@@ -851,7 +784,6 @@ public partial class ChatViewModel
 
     private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest)
     {
-        AbandonSessionIdleWait(chatId);
         // Drop any still-pending steer confirmations for this chat. Without this a chat deleted / released
         // while a steer is in flight leaks its entry (and the referenced ChatMessageViewModel), and — because
         // a remote-shutdown keeps CopilotSessionId for resume — a later Retry's turn-start echo could pop the

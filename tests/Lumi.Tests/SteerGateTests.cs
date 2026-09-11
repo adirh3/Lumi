@@ -12,9 +12,8 @@ namespace Lumi.Tests;
 /// <see cref="ChatRuntimeState.IsStreaming"/>, which is set only at AssistantTurnStart and force-cleared
 /// mid-turn by compaction / sub-agent / background-task events (and never re-armed). That left long
 /// windows where a mid-turn steer silently fell back to the post-turn queue: the user's message rendered
-/// no bubble and was only delivered at turn end. Steering now requires both a submitted SDK turn and
-/// <see cref="ChatRuntimeState.TurnInProgress"/>, except after nested sub-agent delegation: Copilot
-/// immediate mode has no root-agent target, so those messages must wait for a fresh parent turn.
+/// no bubble and was only delivered at turn end. Delivery now uses submitted-session ownership,
+/// independently of whether the main agent or one of its children is currently streaming.
 /// </summary>
 public sealed class SteerGateTests
 {
@@ -54,10 +53,9 @@ public sealed class SteerGateTests
     }
 
     [Fact]
-    public void CanSteerImmediately_FalseWhileSubagentExecuting()
+    public void CanSteerImmediately_TrueWhileSubagentExecuting()
     {
-        // SDK immediate mode targets the next LLM request, which belongs to the active nested agent here.
-        // Lumi must queue for a fresh root turn rather than injecting the user's steer into the sub-agent.
+        // Sending addresses the parent session; child activity is not a reason to defer locally.
         var runtime = new ChatRuntimeState
         {
             Chat = new Chat { Title = "subagent" },
@@ -67,14 +65,12 @@ public sealed class SteerGateTests
             ActiveSubagentExecutionDepth = 1
         };
 
-        Assert.False(InvokeCanSteerImmediately(runtime));
+        Assert.True(InvokeCanSteerImmediately(runtime));
     }
 
     [Fact]
-    public void CanSteerImmediately_FalseAfterSubagentCompletesInTheSameTurn()
+    public void CanSteerImmediately_TrueAfterSubagentCompletesInTheSameTurn()
     {
-        // The next LLM request could be another sibling sub-agent. Keep the barrier until a fresh user
-        // turn starts because the SDK cannot target the parent trajectory explicitly.
         var runtime = new ChatRuntimeState
         {
             Chat = new Chat { Title = "post-subagent" },
@@ -82,18 +78,16 @@ public sealed class SteerGateTests
             IsStreaming = true,
             ActiveToolCount = 0,
             ActiveSubagentExecutionDepth = 0,
-            PendingSessionUserMessageCount = 1,
-            DeferSteersUntilNextTurn = true
+            PendingSessionUserMessageCount = 1
         };
 
-        Assert.False(InvokeCanSteerImmediately(runtime));
+        Assert.True(InvokeCanSteerImmediately(runtime));
     }
 
     [Fact]
-    public void CanSteerImmediately_FalseWhenTurnEnded()
+    public void CanSteerImmediately_TrueWhileBackgroundWorkRemains()
     {
-        // No live turn: the runtime may still be busy draining background work, but there is no step
-        // boundary to interject into. Steering must fall back to the deferred queue (fresh turn).
+        // The SDK can accept the next parent message even while background work remains.
         var runtime = new ChatRuntimeState
         {
             Chat = new Chat { Title = "ended" },
@@ -104,7 +98,7 @@ public sealed class SteerGateTests
             HasPendingBackgroundWork = true
         };
 
-        Assert.False(InvokeCanSteerImmediately(runtime));
+        Assert.True(InvokeCanSteerImmediately(runtime));
     }
 
     [Fact]
@@ -137,7 +131,6 @@ public sealed class SteerGateTests
             IsBusy = true,
             IsStreaming = true,
             ActiveSubagentExecutionDepth = 2,
-            DeferSteersUntilNextTurn = true,
             AssistantTurnStarted = true,
             SendQueuedNowWhenTurnStarts = true
         };
@@ -145,30 +138,30 @@ public sealed class SteerGateTests
         InvokePrivateStatic(typeof(ChatViewModel), "MarkRuntimeTerminal", runtime, null);
 
         Assert.False(runtime.TurnInProgress);
-        Assert.False(runtime.DeferSteersUntilNextTurn);
         Assert.False(runtime.AssistantTurnStarted);
         Assert.False(runtime.SendQueuedNowWhenTurnStarts);
         Assert.False(InvokeCanSteerImmediately(runtime));
     }
 
     [Fact]
-    public void MarkRuntimeTerminal_CanPreserveAbortSettlementUntilSessionIdle()
+    public void MarkRuntimeTerminal_CannotReleaseAnUnfinishedStopOperation()
     {
+        var completion = new TaskCompletionSource<string?>();
         var runtime = new ChatRuntimeState
         {
             Chat = new Chat { Title = "stopping" },
             IsBusy = true,
-            AwaitingStopIdle = true
+            StopOperation = completion.Task
         };
 
-        InvokePrivateStatic(typeof(ChatViewModel), "MarkRuntimeTerminalPreservingStopIdle", runtime, "Stopped");
+        InvokePrivateStatic(typeof(ChatViewModel), "MarkRuntimeTerminal", runtime, "Stopped");
 
-        Assert.True(runtime.AwaitingStopIdle);
+        Assert.True(runtime.IsStopping);
         Assert.True(runtime.HasActiveWork);
 
-        InvokePrivateStatic(typeof(ChatViewModel), "MarkRuntimeTerminal", runtime, null);
+        completion.SetResult(null);
 
-        Assert.False(runtime.AwaitingStopIdle);
+        Assert.False(runtime.IsStopping);
         Assert.False(runtime.HasActiveWork);
     }
 
@@ -233,7 +226,7 @@ public sealed class SteerGateTests
     {
         // When the turn ends but background work must drain, MarkRuntimeWaitingForSessionIdle clears
         // TurnInProgress and then re-marks the runtime busy via MarkRuntimeActive(isStreaming:false). That
-        // keep-busy call must not resurrect TurnInProgress, so a post-turn steer still queues (no live turn).
+        // keep-busy call must not resurrect TurnInProgress, but the session can still accept a message.
         var runtime = new ChatRuntimeState
         {
             Chat = new Chat { Title = "draining" },
@@ -246,7 +239,7 @@ public sealed class SteerGateTests
 
         Assert.True(runtime.IsBusy);
         Assert.False(runtime.TurnInProgress);
-        Assert.False(InvokeCanSteerImmediately(runtime));
+        Assert.True(InvokeCanSteerImmediately(runtime));
     }
 
     private static bool InvokeCanSteerImmediately(ChatRuntimeState runtime)

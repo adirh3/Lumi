@@ -153,34 +153,26 @@ public sealed class ChatViewModelAgentRoutingTests
     }
 
     [Fact]
-    public void SubagentOutputIsActive_FalseWhenNoNestedSubagentExecuting()
+    public void IsRootAgentEvent_TrueWithoutNestedAgentIdentity()
     {
-        // Regression: selecting a Lumi agent makes the CLI emit subagent.selected for the
-        // top-level configured agent (no nested execution). Output suppression must be driven
-        // ONLY by genuine nested sub-agent execution, so with ActiveSubagentExecutionDepth == 0
-        // the main turn must NOT be suppressed — otherwise the whole reply is dropped.
-        var runtime = new ChatRuntimeState
+        var message = new AssistantMessageEvent
         {
-            Chat = new Chat { Title = "top-level agent" },
-            ActiveSubagentExecutionDepth = 0
+            Data = new AssistantMessageData { MessageId = "main", Content = "Configured agent reply" }
         };
 
-        Assert.False(ChatViewModel.SubagentOutputIsActive(runtime));
+        Assert.True(ChatViewModel.IsRootAgentEvent(message));
     }
 
     [Fact]
-    public void SubagentOutputIsActive_TrueWhileNestedSubagentExecuting()
+    public void IsRootAgentEvent_FalseForNestedAgentIdentity()
     {
-        // Genuine nested sub-agents are bracketed by subagent.started/completed which drive
-        // ActiveSubagentExecutionDepth; their output must still be routed away from the main
-        // transcript.
-        var runtime = new ChatRuntimeState
+        var message = new AssistantMessageEvent
         {
-            Chat = new Chat { Title = "nested subagent" },
-            ActiveSubagentExecutionDepth = 1
+            AgentId = "child",
+            Data = new AssistantMessageData { MessageId = "nested", Content = "Nested reply" }
         };
 
-        Assert.True(ChatViewModel.SubagentOutputIsActive(runtime));
+        Assert.False(ChatViewModel.IsRootAgentEvent(message));
     }
 
     [Fact]

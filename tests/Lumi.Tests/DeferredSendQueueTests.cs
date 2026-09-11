@@ -1,13 +1,24 @@
 using System;
 using System.Collections.Generic;
+using System.IO.Pipelines;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using GitHub.Copilot;
+using GitHub.Copilot.Rpc;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
+using Microsoft.Extensions.Logging.Abstractions;
+using StreamJsonRpc;
 using Xunit;
+
+using JsonRpc = StreamJsonRpc.JsonRpc;
+
+#pragma warning disable GHCP001 // Exercise the SDK's typed abort contract.
 
 namespace Lumi.Tests;
 
@@ -125,15 +136,15 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
-    public async Task Drain_WhileAbortIsWaitingForSessionIdle_KeepsPromptQueued()
+    public async Task Drain_WhileAbortOperationIsPending_KeepsPromptQueued()
     {
         using var host = DeferredSendHost.Create();
-        host.QueuePrompt("wait for abort idle");
-        host.Runtime.AwaitingStopIdle = true;
+        host.QueuePrompt("wait for abort");
+        host.Runtime.AbortOperation = new TaskCompletionSource<bool>().Task;
 
         await host.DrainAsync();
 
-        Assert.Equal(["wait for abort idle"], host.QueuedPrompts());
+        Assert.Equal(["wait for abort"], host.QueuedPrompts());
         Assert.True(host.IsChatRuntimeActive());
     }
 
@@ -279,33 +290,39 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
-    public async Task SendWhileSubagentRuns_QueuesForTheParentTurn()
+    public async Task SendWhileSubagentRuns_SteersTheParentSession()
     {
         using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        host.AttachSession(rpc);
         host.MarkRuntimeBusy(turnInProgress: true);
         host.Runtime.ActiveSubagentExecutionDepth = 1;
-        host.Runtime.DeferSteersUntilNextTurn = true;
 
         await host.SendCoreAsync("tell the parent instead");
 
-        Assert.Equal(["tell the parent instead"], host.QueuedPrompts());
+        Assert.Empty(host.QueuedPrompts());
+        Assert.Equal(1, rpc.SendCount);
+        Assert.Equal("immediate", rpc.LastSendMode);
         var message = Assert.Single(host.ViewModel.Messages);
-        Assert.Equal(MessageSteerState.Queued, message.SteerState);
+        Assert.Equal(MessageSteerState.Steering, message.SteerState);
         Assert.True(message.CanSendNow);
     }
 
     [Fact]
-    public async Task FlushAsSteer_IsSkipped_AfterSubagentDelegationInTheCurrentTurn()
+    public async Task FlushAsSteer_ResumesWhenTheParentSessionIsAvailable()
     {
         using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        host.AttachSession(rpc);
         host.QueuePrompt("keep this for the parent");
         host.MarkRuntimeBusy(turnInProgress: true);
-        host.Runtime.DeferSteersUntilNextTurn = true;
+        host.Runtime.PendingSessionUserMessageCount = 1;
 
         await host.TryFlushAsSteer();
 
-        Assert.Equal(["keep this for the parent"], host.QueuedPrompts());
-        Assert.Equal(MessageSteerState.Queued, Assert.Single(host.ViewModel.Messages).SteerState);
+        Assert.Empty(host.QueuedPrompts());
+        Assert.Equal(1, rpc.SendCount);
+        Assert.Equal(MessageSteerState.Steering, Assert.Single(host.ViewModel.Messages).SteerState);
     }
 
     [Fact]
@@ -323,15 +340,14 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
-    public void PreparingAFreshUserTurn_ClearsTheSubagentSteeringBarrier()
+    public void PreparingAFreshUserTurn_ResetsTheAssistantStartAcknowledgement()
     {
         using var host = DeferredSendHost.Create();
-        host.Runtime.DeferSteersUntilNextTurn = true;
         host.Runtime.AssistantTurnStarted = true;
 
         host.PrepareFreshTurn();
 
-        Assert.False(host.Runtime.DeferSteersUntilNextTurn);
+        Assert.Equal(1, host.Runtime.PendingSessionUserMessageCount);
         Assert.False(host.Runtime.AssistantTurnStarted);
     }
 
@@ -523,6 +539,45 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    public async Task StopDuringManualCompaction_RedrainsQueuedMessagesAfterChatSwitch()
+    {
+        var ui = HeadlessTestSession.Start();
+        try
+        {
+            await ui.Dispatch(async () =>
+            {
+                using var host = DeferredSendHost.Create();
+                host.MarkManualCompactionActive();
+                host.QueuePrompt("sent during compaction");
+                var queuedMessage = Assert.Single(host.ViewModel.Messages);
+                var stopTask = host.StopGenerationAsync();
+
+                host.ConfirmManualCompactionEnded(beforeCompletion: () =>
+                {
+                    // The compaction lifecycle's first drain runs before Stop has finished.
+                    Dispatcher.UIThread.RunJobs();
+                    Assert.False(stopTask.IsCompleted);
+                    Assert.Single(host.QueuedPrompts());
+
+                    // Off-screen delivery must fail visibly, not stay queued indefinitely.
+                    host.ViewModel.CurrentChat = null;
+                });
+
+                Assert.Null(await stopTask.WaitAsync(TimeSpan.FromSeconds(5)));
+                Dispatcher.UIThread.RunJobs();
+                Assert.False(host.IsChatRuntimeActive());
+                Assert.Empty(host.QueuedPrompts());
+                Assert.Equal(MessageSteerState.Failed, queuedMessage.SteerState);
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            // Headless completions can resume on their dispatch thread; disposal must run elsewhere.
+            await Task.Run(ui.Dispose);
+        }
+    }
+
+    [Fact]
     public async Task AutomaticCompaction_DoesNotInterceptTheTurnStopPath()
     {
         using var host = DeferredSendHost.Create();
@@ -620,6 +675,238 @@ public sealed class DeferredSendQueueTests
         Assert.False(host.Runtime.IsBusy);
         Assert.Equal(MessageSteerState.Queued, message.SteerState);
         Assert.Contains("answer me now", host.QueuedPrompts());
+    }
+
+    [Fact]
+    public async Task SendNow_BackgroundOnlyAbortWithoutIdle_ReleasesTheChat()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        host.AttachSession(rpc);
+        host.MarkTurnEndedWithBackgroundWorkPending();
+        host.QueuePrompt("answer me now");
+        var message = Assert.Single(host.ViewModel.Messages);
+
+        await host.SendNowAsync(message);
+
+        Assert.Equal(1, rpc.AbortCount);
+        Assert.False(host.IsChatRuntimeActive());
+        Assert.Equal(["answer me now"], host.QueuedPrompts());
+        Assert.Equal(MessageSteerState.Queued, message.SteerState);
+    }
+
+    [Fact]
+    public async Task SendNow_RejectedAbort_SurfacesTheErrorAndDoesNotSend()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc
+        {
+            Result = new AbortResult { Success = false, Error = "The session could not be interrupted." }
+        };
+        host.AttachSession(rpc);
+        host.MarkTurnEndedWithBackgroundWorkPending();
+        host.QueuePrompt("answer me now");
+        var message = Assert.Single(host.ViewModel.Messages);
+
+        await host.SendNowAsync(message);
+
+        Assert.Equal(MessageSteerState.Failed, message.SteerState);
+        Assert.Empty(host.QueuedPrompts());
+        Assert.True(host.IsChatRuntimeActive());
+        Assert.False(host.Runtime.IsStopping);
+        Assert.False(host.Runtime.ManualStopRequested);
+        Assert.Contains("The session could not be interrupted.", host.ViewModel.StatusText);
+    }
+
+    [Fact]
+    public async Task Stop_CoalescesRequestsAndKeepsNewSendsQueuedUntilCleanupCompletes()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc
+        {
+            AbortReply = new TaskCompletionSource<AbortResult>(TaskCreationOptions.RunContinuationsAsynchronously)
+        };
+        host.AttachSession(rpc);
+        host.MarkTurnEndedWithBackgroundWorkPending();
+        host.QueuePrompt("selected");
+
+        var firstStop = host.StopGenerationAsync();
+        await rpc.AbortReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        host.MarkRuntimeTerminal();
+
+        Assert.True(host.Runtime.IsStopping);
+        Assert.True(host.IsChatRuntimeActive());
+        Assert.Same(firstStop, host.StopGenerationAsync());
+
+        await host.SendCoreAsync("sent during stop");
+        await host.DrainAsync();
+        Assert.Equal(["selected", "sent during stop"], host.QueuedPrompts());
+        Assert.Equal(0, rpc.SendCount);
+
+        rpc.AbortReply.SetResult(new AbortResult { Success = true });
+        Assert.Null(await firstStop);
+        Assert.Equal(1, rpc.AbortCount);
+        Assert.False(host.Runtime.IsStopping);
+        Assert.False(host.IsChatRuntimeActive());
+    }
+
+    [Fact]
+    public async Task Stop_DisconnectedTransport_CompletesWithoutAnIdleWaiter()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc
+        {
+            AbortReply = new TaskCompletionSource<AbortResult>(TaskCreationOptions.RunContinuationsAsynchronously)
+        };
+        host.AttachSession(rpc);
+        host.MarkTurnEndedWithBackgroundWorkPending();
+        host.QueuePrompt("selected");
+
+        var stop = host.StopGenerationAsync();
+        await rpc.AbortReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        rpc.Disconnect();
+
+        var error = await stop.WaitAsync(TimeSpan.FromSeconds(5));
+        rpc.AbortReply.TrySetResult(new AbortResult { Success = false });
+        Assert.NotNull(error);
+        Assert.False(host.Runtime.IsStopping);
+        Assert.False(host.IsChatRuntimeActive());
+        Assert.Equal(MessageSteerState.Failed, Assert.Single(host.ViewModel.Messages, message => message.Role == "user").SteerState);
+        Assert.Empty(host.QueuedPrompts());
+    }
+
+    [Fact]
+    public async Task ChildLifecycleEvents_DoNotStopTheParentOrConfirmItsSteer()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.MarkRuntimeBusy();
+            host.PrepareFreshTurn();
+            var steer = host.AddTranscriptMessage("for the parent", MessageSteerState.Steering);
+            host.RegisterPendingSteer(steer);
+
+            rpc.Emit(new UserMessageEvent { AgentId = "child", Data = new UserMessageData { Content = "child prompt" } });
+            rpc.Emit(new AssistantTurnStartEvent { AgentId = "child", Data = new AssistantTurnStartData { TurnId = "child-turn" } });
+            rpc.Emit(new AssistantTurnEndEvent { AgentId = "child", Data = new AssistantTurnEndData { TurnId = "child-turn" } });
+            rpc.Emit(new AbortEvent { AgentId = "child", Data = new AbortData { Reason = new GitHub.Copilot.AbortReason("subagent_cancelled") } });
+            rpc.Emit(new SessionErrorEvent { AgentId = "child", Data = new SessionErrorData { ErrorType = "test", Message = "Child failed" } });
+            rpc.Emit(new SessionIdleEvent { AgentId = "child", Data = new SessionIdleData() });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(host.Runtime.TurnInProgress);
+            Assert.False(host.Runtime.AssistantTurnStarted);
+            Assert.Equal(1, host.Runtime.PendingSessionUserMessageCount);
+            Assert.Equal(MessageSteerState.Steering, steer.SteerState);
+            Assert.True(host.IsChatRuntimeActive());
+
+            rpc.Emit(new UserMessageEvent { Data = new UserMessageData { Content = "for the parent" } });
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(MessageSteerState.Steered, steer.SteerState);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task SteeredParentOutput_StaysOutsideTheRunningChildCard()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+            rpc.Emit(new SubagentStartedEvent
+            {
+                AgentId = "child",
+                Data = new SubagentStartedData
+                {
+                    ToolCallId = "child-tool",
+                    AgentName = "task",
+                    AgentDisplayName = "Child",
+                    AgentDescription = "Background work"
+                }
+            });
+            Dispatcher.UIThread.RunJobs();
+
+            rpc.Emit(new AssistantMessageEvent
+            {
+                Data = new AssistantMessageData { MessageId = "parent-answer", Content = "PARENT_STEER_OK" }
+            });
+            rpc.Emit(new AssistantMessageEvent
+            {
+                AgentId = "child",
+                Data = new AssistantMessageData { MessageId = "child-answer", Content = "CHILD_DONE" }
+            });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal("PARENT_STEER_OK", Assert.Single(host.Chat.Messages, message => message.Role == "assistant").Content);
+            var child = Assert.Single(host.Chat.Messages, message => message.ToolCallId == "child-tool");
+            Assert.Contains("CHILD_DONE", child.Content);
+            Assert.DoesNotContain("PARENT_STEER_OK", child.Content);
+            Assert.Equal("InProgress", child.ToolStatus);
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PreviousTurnTerminalCallback_CannotClearTheReplacementTurn(bool abort)
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.ViewModel.BeginChatLifecycleTurn(host.Chat);
+            host.PrepareFreshTurn();
+            rpc.Emit(new UserMessageEvent { Data = new UserMessageData { Content = "original" } });
+            Dispatcher.UIThread.RunJobs();
+
+            if (abort)
+                rpc.Emit(new AbortEvent { Data = new AbortData { Reason = GitHub.Copilot.AbortReason.UserInitiated } });
+            else
+                rpc.Emit(new SessionIdleEvent { Data = new SessionIdleData() });
+
+            host.ViewModel.BeginChatLifecycleTurn(host.Chat);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(host.Runtime.TurnInProgress);
+            Assert.Equal(1, host.Runtime.PendingSessionUserMessageCount);
+            Assert.True(host.IsChatRuntimeActive());
+            Assert.DoesNotContain(host.Chat.Messages, message => message.Role == "error");
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task AbortedIdleAfterReplacementEcho_DoesNotEndTheReplacementTurn()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.ViewModel.BeginChatLifecycleTurn(host.Chat);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+            rpc.Emit(new UserMessageEvent { Data = new UserMessageData { Content = "replacement" } });
+            Dispatcher.UIThread.RunJobs();
+
+            rpc.Emit(new SessionIdleEvent { Data = new SessionIdleData { Aborted = true } });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(host.Runtime.TurnInProgress);
+            Assert.Equal(1, host.Runtime.PendingSessionUserMessageCount);
+            Assert.True(host.IsChatRuntimeActive());
+        }, CancellationToken.None);
     }
 
     [Fact]
@@ -766,8 +1053,8 @@ public sealed class DeferredSendQueueTests
         public Task StopAndSendAsync()
             => (Task)Invoke("StopAndSendMessage")!;
 
-        public Task StopGenerationAsync()
-            => (Task)Invoke("StopGenerationInternal", Chat, true, false)!;
+        public Task<string?> StopGenerationAsync()
+            => (Task<string?>)Invoke("StopGenerationInternal", Chat, true)!;
 
         public Task<bool> TryStopManualCompactionAsync()
             => (Task<bool>)Invoke("TryStopManualContextCompactionAsync", Chat)!;
@@ -801,9 +1088,10 @@ public sealed class DeferredSendQueueTests
             ViewModel.IsContextCompacting = true;
         }
 
-        public void ConfirmManualCompactionEnded()
+        public void ConfirmManualCompactionEnded(Action? beforeCompletion = null)
         {
             Invoke("CompleteContextCompactionLifecycle", Chat, Runtime, true);
+            beforeCompletion?.Invoke();
             Invoke("CompleteManualContextCompactionTracking", Chat.Id);
         }
 
@@ -895,6 +1183,24 @@ public sealed class DeferredSendQueueTests
         public void MarkWorktreeCreationPending()
             => GetField<HashSet<Guid>>("_pendingWorktreeCreations").Add(Chat.Id);
 
+        public void AttachSession(AbortRpc rpc, bool subscribe = false)
+        {
+            Chat.CopilotSessionId = rpc.Session.SessionId;
+            GetField<Dictionary<Guid, CopilotSession>>("_sessionCache")[Chat.Id] = rpc.Session;
+            SetField("_activeSession", rpc.Session);
+            SetField("_activeSessionProviderSignature", ByokConfigHelper.BuildProviderSignature(null));
+            if (subscribe)
+                Invoke("SubscribeToSession", rpc.Session, Chat, Environment.CurrentDirectory, null);
+        }
+
+        public void RegisterPendingSteer(ChatMessageViewModel message)
+            => Invoke("RegisterPendingSteer", Chat.Id, message);
+
+        public void MarkRuntimeTerminal()
+            => typeof(ChatViewModel)
+                .GetMethod("MarkRuntimeTerminal", BindingFlags.Static | BindingFlags.NonPublic)!
+                .Invoke(null, [Runtime, "Stopped"]);
+
         public IReadOnlyList<string> QueuedPrompts(Guid? chatId = null)
         {
             var queue = GetQueue();
@@ -936,4 +1242,89 @@ public sealed class DeferredSendQueueTests
             return method.Invoke(ViewModel, args);
         }
     }
+
+    private sealed class AbortRpc : IDisposable
+    {
+        private readonly JsonRpc _rpc;
+        private readonly IDisposable _sdkRpc;
+
+        public AbortRpc()
+        {
+            var requests = new Pipe();
+            var responses = new Pipe();
+            _rpc = new JsonRpc(new HeaderDelimitedMessageHandler(
+                responses.Writer.AsStream(), requests.Reader.AsStream(), new JsonMessageFormatter()));
+            _rpc.AddLocalRpcTarget(this);
+            _rpc.StartListening();
+
+            var rpcType = typeof(CopilotSession).Assembly.GetType("GitHub.Copilot.JsonRpc", throwOnError: true)!;
+            _sdkRpc = (IDisposable)Activator.CreateInstance(
+                rpcType,
+                requests.Writer.AsStream(),
+                responses.Reader.AsStream(),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web)
+                {
+                    TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+                },
+                NullLogger.Instance)!;
+            rpcType.GetMethod("StartListening")!.Invoke(_sdkRpc, null);
+            Session = (CopilotSession)Activator.CreateInstance(
+                typeof(CopilotSession),
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                binder: null,
+                args: [Guid.NewGuid().ToString(), _sdkRpc, NullLogger.Instance, null, null],
+                culture: null)!;
+            GC.SuppressFinalize(Session);
+        }
+
+        public CopilotSession Session { get; }
+        public AbortResult Result { get; init; } = new() { Success = true };
+        public TaskCompletionSource<AbortResult>? AbortReply { get; init; }
+        public TaskCompletionSource AbortReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int AbortCount { get; private set; }
+        public int SendCount { get; private set; }
+        public string? LastSendMode { get; private set; }
+
+        [JsonRpcMethod("session.abort", UseSingleObjectParameterDeserialization = true)]
+        public async Task<AbortResult> Abort(object request)
+        {
+            AbortCount++;
+            AbortReceived.TrySetResult();
+            return AbortReply is null ? Result : await AbortReply.Task;
+        }
+
+        [JsonRpcMethod("session.destroy", UseSingleObjectParameterDeserialization = true)]
+        public object Destroy(object request) => new { };
+
+        [JsonRpcMethod("session.send", UseSingleObjectParameterDeserialization = true)]
+        public SendResult Send(Dictionary<string, object> request)
+        {
+            SendCount++;
+            LastSendMode = Assert.IsType<string>(request["mode"]);
+            return new SendResult { MessageId = Guid.NewGuid().ToString() };
+        }
+
+        public void Emit(SessionEvent evt)
+        {
+            var subscriptions = (System.Collections.IEnumerable)typeof(CopilotSession)
+                .GetField("_eventHandlers", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(Session)!;
+            foreach (var subscription in subscriptions)
+            {
+                var handler = (Action<SessionEvent>)subscription.GetType()
+                    .GetProperty("Handler")!.GetValue(subscription)!;
+                handler(evt);
+            }
+        }
+
+        public void Disconnect() => _rpc.Dispose();
+
+        public void Dispose()
+        {
+            _sdkRpc.Dispose();
+            _rpc.Dispose();
+        }
+    }
 }
+
+#pragma warning restore GHCP001

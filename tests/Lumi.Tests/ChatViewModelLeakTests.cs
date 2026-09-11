@@ -396,32 +396,6 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
-    public async Task InvalidatingSession_ReleasesAbortIdleWaiterWithoutTimeout()
-    {
-        var dataStore = CreateDataStore();
-        var chat = new Chat
-        {
-            Title = "abort waiter",
-            CopilotSessionId = "sid-abort-wait"
-        };
-        dataStore.Data.Chats.Add(chat);
-        using var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared)
-        {
-            CurrentChat = chat
-        };
-        var session = CreateDetachedSession(chat.CopilotSessionId);
-        GetField<Dictionary<Guid, CopilotSession>>(viewModel, "_sessionCache")[chat.Id] = session;
-        var waiter = InvokePrivate<TaskCompletionSource<bool>>(
-            viewModel,
-            "BeginSessionIdleWait",
-            chat.Id);
-
-        InvokePrivate(viewModel, "InvalidateLocalSessionCache", chat);
-
-        Assert.False(await waiter.Task);
-    }
-
-    [Fact]
     public void ReleaseInactiveChatState_ReleasesDetachedRuntimeResourcesWithoutEvictingMessages()
     {
         var dataStore = CreateDataStore();

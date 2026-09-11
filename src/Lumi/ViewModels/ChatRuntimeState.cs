@@ -32,15 +32,8 @@ internal sealed class ChatRuntimeState
     public bool IsStreaming { get; set; }
 
     /// <summary>
-    /// True while a live assistant turn is running. Set at turn initiation — the same point
-    /// <see cref="IsStreaming"/> is set true (see <c>MarkRuntimeActive</c>, invoked on send / resend /
-    /// <c>AssistantTurnStart</c>) — and cleared only at turn end / terminal / abort / error. This is the
-    /// "a live assistant turn is running" signal used with submitted-turn tracking to decide whether a
-    /// steer can be injected via immediate mode. Unlike <see cref="IsStreaming"/>, it is NOT cleared
-    /// mid-turn by
-    /// compaction, sub-agent, or background-task events (each of which forces <see cref="IsStreaming"/>
-    /// to false for the rest of the turn). A separate sub-agent barrier below prevents immediate mode
-    /// from delivering a user steer into the nested agent rather than the parent.
+    /// Tracks the main assistant turn independently of presentation-only streaming updates such as
+    /// compaction. Child-agent turn boundaries must not clear the main turn's state.
     /// </summary>
     public bool TurnInProgress { get; set; }
 
@@ -75,14 +68,6 @@ internal sealed class ChatRuntimeState
     /// drops to 0 while the sub-agent keeps streaming. This counter keeps the session busy
     /// (and blocks idle-recovery) until the sub-agent actually finishes.</summary>
     public int ActiveSubagentExecutionDepth;
-
-    /// <summary>
-    /// Set when a nested sub-agent starts and kept until a fresh user turn is prepared. Copilot SDK
-    /// immediate mode targets the next LLM request in the session and has no parent-agent target, so
-    /// steering after delegation can otherwise inject the user's message into that sub-agent (or a
-    /// later sibling) instead of the root agent.
-    /// </summary>
-    public bool DeferSteersUntilNextTurn;
 
     /// <summary>
     /// True after the SDK emits AssistantTurnStart for the current submitted prompt. Unlike
@@ -125,18 +110,22 @@ internal sealed class ChatRuntimeState
     public bool HasActiveWork
         => IsBusy
            || IsStreaming
-           || AwaitingStopIdle
+           || IsStopping
            || HasPendingBackgroundWork
            || ActiveToolCount > 0
            || ActiveSubagentExecutionDepth > 0
            || PendingSessionUserMessageCount > 0;
 
     /// <summary>
-    /// True after a user Stop has been accepted by the SDK but before the resulting
-    /// <c>session.idle</c>. Copilot's own abort contract waits for idle before sending again; keeping
-    /// this state active prevents a queued or newly typed message from overlapping the abort tail.
+    /// The interrupt request and its UI cleanup own this barrier, not session events.
+    /// A successful SDK abort need not emit session.idle (notably for background-only work).
     /// </summary>
-    public bool AwaitingStopIdle { get; set; }
+    public bool IsStopping
+        => StopOperation is { IsCompleted: false } || AbortOperation is { IsCompleted: false };
+
+    public Task<string?>? StopOperation { get; set; }
+
+    public Task<bool>? AbortOperation { get; set; }
 
     /// <summary>True when the user explicitly clicked Stop for the current turn.
     /// Unexpected SDK aborts must not be mistaken for this state.</summary>
