@@ -93,11 +93,15 @@ public partial class ChatViewModel
             : Loc.Author_Lumi;
         foreach (var assistantMessage in recoveredAssistantMessages)
         {
+            var content = NormalizeAssistantContent(assistantMessage.Content);
+            if (string.IsNullOrWhiteSpace(content))
+                continue;
+
             var recoveredMessage = new ChatMessage
             {
                 Role = "assistant",
                 Author = author,
-                Content = assistantMessage.Content,
+                Content = content,
                 IsStreaming = false,
                 Model = ResolveSelectedModelForChat(chat)
             };

@@ -7116,7 +7116,9 @@ public partial class ChatMessageViewModel : ObservableObject
     public ChatMessageViewModel(ChatMessage message)
     {
         Message = message;
-        _content = message.Content;
+        _content = message.Role == "assistant" && !message.IsStreaming
+            ? ChatViewModel.NormalizeAssistantContent(message.Content) ?? string.Empty
+            : message.Content;
         _isStreaming = message.IsStreaming;
         _toolStatus = message.ToolStatus;
         _linkedChatId = message.LinkedChatId;

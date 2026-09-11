@@ -134,7 +134,7 @@ public sealed class ChatViewModelStallRecoveryTests
             vm,
             "SyncRecoveredAssistantMessages",
             chat,
-            new[] { new RecoveredAssistantMessage("Still working") });
+            new[] { new RecoveredAssistantMessage("Still working\n\n") });
 
         Assert.Equal("Still working", Assert.Single(chat.Messages).Content);
         Assert.True(runtime.IsBusy);

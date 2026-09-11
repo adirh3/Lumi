@@ -2038,7 +2038,7 @@ public sealed class ChatViewModelLeakTests
         var streamingMessage = new ChatMessage
         {
             Role = "assistant",
-            Content = "final answer",
+            Content = "final answer\n\n",
             IsStreaming = true
         };
 
@@ -2047,6 +2047,7 @@ public sealed class ChatViewModelLeakTests
         Assert.True(added);
         Assert.False(streamingMessage.IsStreaming);
         Assert.Same(streamingMessage, Assert.Single(chat.Messages));
+        Assert.Equal("final answer", streamingMessage.Content);
     }
 
     [Fact]

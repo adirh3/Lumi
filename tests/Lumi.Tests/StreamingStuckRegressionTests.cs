@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using Lumi.Models;
 using Lumi.ViewModels;
 using StrataTheme.Controls;
 using Xunit;
@@ -167,7 +168,7 @@ public sealed class StreamingStuckRegressionTests
     {
         var result = ChatViewModel.ResolveFinalAssistantContent(
             finalEventContent: "",
-            streamedContent: "\nstreamed answer",
+            streamedContent: "\nstreamed answer\n\n",
             existingStreamingContent: null);
 
         Assert.Equal("streamed answer", result);
@@ -177,11 +178,27 @@ public sealed class StreamingStuckRegressionTests
     public void ResolveFinalAssistantContent_PrefersFinalEventContentWhenPresent()
     {
         var result = ChatViewModel.ResolveFinalAssistantContent(
-            finalEventContent: "\nfinal answer",
+            finalEventContent: "\r\nfinal answer\r\n\r\n",
             streamedContent: "streamed answer",
             existingStreamingContent: "existing answer");
 
         Assert.Equal("final answer", result);
+    }
+
+    [Fact]
+    public void ChatMessageViewModel_CompletedAssistantTrimsPersistedBoundaryLineBreaks()
+    {
+        var message = new ChatMessage
+        {
+            Role = "assistant",
+            Content = "\nexisting answer\n\n",
+            IsStreaming = false
+        };
+
+        var viewModel = new ChatMessageViewModel(message);
+
+        Assert.Equal("existing answer", viewModel.Content);
+        Assert.Equal("\nexisting answer\n\n", message.Content);
     }
 
     [Theory]

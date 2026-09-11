@@ -77,6 +77,7 @@ public partial class ChatViewModel
 
     internal static bool FinalizeTerminalAssistantMessage(Chat chat, ChatMessage streamingMessage)
     {
+        streamingMessage.Content = NormalizeAssistantContent(streamingMessage.Content) ?? string.Empty;
         streamingMessage.IsStreaming = false;
         if (string.IsNullOrWhiteSpace(streamingMessage.Content))
             return false;
@@ -90,8 +91,8 @@ public partial class ChatViewModel
     internal static void FinalizeTerminalReasoningMessage(ChatMessage reasoningMessage)
         => reasoningMessage.IsStreaming = false;
 
-    private static string? NormalizeAssistantContent(string? content)
-        => content?.TrimStart('\n', '\r');
+    internal static string? NormalizeAssistantContent(string? content)
+        => content?.Trim('\n', '\r');
 
     private static ChatMessage? AttachSourcesToFinalAssistantMessage(
         Chat chat,
@@ -372,11 +373,9 @@ public partial class ChatViewModel
 
                 if (streamingMsg is not null)
                 {
-                    streamingMsg.IsStreaming = false;
                     _inProgressMessages.Remove(chat.Id);
-                    if (!string.IsNullOrWhiteSpace(streamingMsg.Content))
+                    if (FinalizeTerminalAssistantMessage(chat, streamingMsg))
                     {
-                        chat.Messages.Add(streamingMsg);
                         if (shouldUpdateDisplayedChatUi)
                             streamingVm?.NotifyStreamingEnded();
                     }
