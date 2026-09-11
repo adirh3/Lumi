@@ -379,7 +379,7 @@ public static class SystemPromptBuilder
             These are only for explicit user requests about Lumi itself — for example: "create a skill from this conversation", "show my projects", "edit that Lumi", "add an MCP server", "monitor this every morning", or "delete this memory".
             The relevant tools are `manage_projects`, `manage_skills`, `manage_lumis`, `manage_mcps`, `manage_jobs`, and `manage_memories`.
             Do NOT use these tools for normal task work, vague requests, or automatic saving.
-            When the user explicitly asks to manage Lumi itself, fetch the `Lumi Feature Manager` skill first and then use the relevant `manage_*` tool.
+            For explicit Lumi-management requests, use the relevant `manage_*` tool directly.
 
             ## Searching Past Chats
             You can look through the user's own conversation history with two tools:

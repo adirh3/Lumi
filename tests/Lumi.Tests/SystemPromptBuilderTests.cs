@@ -134,22 +134,15 @@ public sealed class SystemPromptBuilderTests
             new UserSettings { Language = "en" },
             agent: null,
             project: null,
-            allSkills:
-            [
-                new Skill
-                {
-                    Name = "Lumi Feature Manager",
-                    Description = "Manages Lumi's projects, skills, Lumis, MCP servers, and memories when explicitly asked",
-                    Content = "# Lumi Feature Manager"
-                }
-            ],
+            allSkills: [],
             activeSkills: [],
             memories: []);
 
         Assert.Contains("## Managing Lumi Itself", prompt);
-        Assert.Contains("fetch the `Lumi Feature Manager` skill first", prompt);
+        Assert.Contains("For explicit Lumi-management requests, use the relevant `manage_*` tool directly", prompt);
         Assert.Contains("manage_skills", prompt);
-        Assert.Contains("Lumi Feature Manager", prompt);
+        Assert.DoesNotContain("Lumi Feature Manager", prompt);
+        Assert.DoesNotContain("fetch the `Lumi Feature Manager` skill first", prompt);
     }
 
     [Fact]

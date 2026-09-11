@@ -110,7 +110,11 @@ public class DataStore
         SeedDefaults();
         SeedCodingLumi();
         EnsureCurrentChatManagementTool();
-        EnsureFeatureManagerSkill();
+        if (RemoveRetiredFeatureManagerSkill(_data))
+        {
+            Save();
+            SyncSkillFiles();
+        }
     }
 
     internal DataStore(AppData data, string? skillsDirectoryOverride = null)
@@ -1640,8 +1644,7 @@ public class DataStore
                     - If any external CDN resources fail to load (e.g., Google Fonts), the page should still look good with fallback system fonts.
                     - Use `charset="UTF-8"` in the HTML head to support all languages and special characters.
                     """
-            },
-            CreateFeatureManagerSkill()
+            }
         ]);
 
         // ── Default Agents ──
@@ -2041,95 +2044,12 @@ public class DataStore
         Save();
     }
 
-    private void EnsureFeatureManagerSkill()
+    internal static bool RemoveRetiredFeatureManagerSkill(AppData data)
     {
-        var desired = CreateFeatureManagerSkill();
-        var existing = _data.Skills.FirstOrDefault(s =>
-            s.Name.Equals(desired.Name, StringComparison.OrdinalIgnoreCase));
-
-        if (existing is null)
-        {
-            _data.Skills.Add(desired);
-            Save();
-            SyncSkillFiles();
-            return;
-        }
-
-        if (!existing.IsBuiltIn)
-            return;
-
-        var changed = false;
-        if (existing.Description != desired.Description)
-        {
-            existing.Description = desired.Description;
-            changed = true;
-        }
-
-        if (existing.IconGlyph != desired.IconGlyph)
-        {
-            existing.IconGlyph = desired.IconGlyph;
-            changed = true;
-        }
-
-        if (existing.Content != desired.Content)
-        {
-            existing.Content = desired.Content;
-            changed = true;
-        }
-
-        if (!changed)
-            return;
-
-        Save();
-        SyncSkillFiles();
-    }
-
-    private static Skill CreateFeatureManagerSkill()
-    {
-        return new Skill
-        {
-            Name = "Lumi Feature Manager",
-            Description = "Manages Lumi's projects, skills, Lumis, MCP servers, background jobs, and memories when explicitly asked",
-            IconGlyph = "🛠",
-            IsBuiltIn = true,
-            Content = """
-                # Lumi Feature Manager
-
-                Use this skill only when the user explicitly asks to manage Lumi itself — its projects, skills, Lumis, MCP servers, background jobs, or memories.
-
-                ## When This Skill Applies
-
-                Use it for requests like:
-                - "Create a skill from this conversation"
-                - "Show me my Lumi projects"
-                - "Edit the Daily Planner Lumi"
-                - "Add an MCP server"
-                - "Create a background job to monitor hotel prices"
-                - "Pause the morning planning job"
-                - "Delete that memory"
-
-                Do **not** use this skill for normal task work, implicit preferences, or automatic saving.
-
-                ## Management Tools
-
-                - `manage_projects` — List, create, update, or delete Lumi projects
-                - `manage_skills` — List, create, update, or delete Lumi skills
-                - `manage_lumis` — List, create, update, or delete Lumi agents
-                - `manage_mcps` — List, create, update, or delete MCP servers
-                - `manage_jobs` — List, create, update, pause, resume, run, or delete Lumi background jobs
-                - `manage_memories` — List, create, update, or delete memories
-
-                ## Working Rules
-
-                1. If the target item is unclear, list the current items first or ask a clarifying question.
-                2. Only mutate Lumi data after the user explicitly asks for that change.
-                3. Use exact names or IDs from list results when there is any ambiguity.
-                4. For skill edits, use `fetch_skill` when you need the full content of an existing skill before changing it.
-                5. For background jobs, link the job to the current chat unless the user names another chat. Time jobs can recur; chat-event jobs wake the linked chat directly when another chat reaches selected lifecycle events; script jobs are one-shot wake scripts that wait/poll/block and wake the linked chat when the process exits with output.
-                6. For memories, prefer normal conversation plus auto-save unless the user explicitly asks to create, edit, or delete a memory.
-                7. After every successful mutation, clearly summarize what changed.
-                """
-        };
+        ArgumentNullException.ThrowIfNull(data);
+        return data.Skills.RemoveAll(skill =>
+            skill.IsBuiltIn
+            && skill.Name.Equals("Lumi Feature Manager", StringComparison.OrdinalIgnoreCase)) > 0;
     }
 
     private static AppData Load()
