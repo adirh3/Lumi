@@ -26,6 +26,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     private readonly CopilotService _copilotService;
     private readonly BrowserService _browserService;
     private readonly UpdateService _updateService;
+    private readonly McpProxyRuntime _mcpProxyRuntime;
     /// <summary>OS credential store for BYOK CredentialStore mode. May be unsupported on this platform.</summary>
     private readonly Lumi.Services.Byok.ISecureKeyStore? _secureKeyStore;
 
@@ -185,7 +186,11 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _useBYOKOnly;
 
     // ── MCP ──
-    [ObservableProperty] private bool _useMcpProxy;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RefreshMcpToolsCommand))]
+    private bool _useMcpProxy;
+    [ObservableProperty] private bool _useLazyMcpInitialization;
+    [ObservableProperty] private string _mcpDiscoveryRefreshStatus = "";
     private decimal? _mcpToolTimeoutSeconds;
 
     // Match NumericUpDown's nullable decimal value and validate before persisting integer seconds.
@@ -468,6 +473,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     /// <summary>Raised when a setting that affects other ViewModels changes.</summary>
     public event Action? SettingsChanged;
     public event Action? SystemPromptSettingsChanged;
+    public event Action? McpDiscoveryRefreshRequested;
     public event Action? CookieImportDialogRequested;
 
     /// <summary>Raised when the BYOK endpoint/model configuration changes. Consumers re-inject picker tokens and clear stale selections.</summary>
@@ -483,13 +489,14 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     /// browser settings group is hidden on Linux/macOS.</summary>
     public bool IsEmbeddedBrowserAvailable => OperatingSystem.IsWindows();
 
-    public SettingsViewModel(DataStore dataStore, CopilotService copilotService, BrowserService browserService, UpdateService updateService, Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null)
+    public SettingsViewModel(DataStore dataStore, CopilotService copilotService, BrowserService browserService, UpdateService updateService, Lumi.Services.Byok.ISecureKeyStore? secureKeyStore = null, McpProxyRuntime? mcpProxyRuntime = null)
     {
         _dataStore = dataStore;
         _copilotService = copilotService;
         _browserService = browserService;
         _updateService = updateService;
         _secureKeyStore = secureKeyStore;
+        _mcpProxyRuntime = mcpProxyRuntime ?? McpProxyRuntime.Shared;
         ByokApiKeyModeOptions =
         [
             new(ByokApiKeyMode.None, Loc.Settings_Byok_ApiKeyMode_None),
@@ -584,6 +591,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
         // MCP
         _useMcpProxy = s.UseMcpProxy;
+        _useLazyMcpInitialization = s.UseLazyMcpInitialization;
         _mcpToolTimeoutSeconds = s.McpToolTimeoutSeconds;
 
         // Privacy
@@ -1060,6 +1068,27 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     }
 
     partial void OnUseMcpProxyChanged(bool value) { _dataStore.Data.Settings.UseMcpProxy = value; Save(); NotifyModified(); }
+    partial void OnUseLazyMcpInitializationChanged(bool value) { _dataStore.Data.Settings.UseLazyMcpInitialization = value; Save(); NotifyModified(); }
+
+    private bool CanRefreshMcpTools() => UseMcpProxy;
+
+    [RelayCommand(CanExecute = nameof(CanRefreshMcpTools))]
+    private async Task RefreshMcpTools()
+    {
+        McpDiscoveryRefreshStatus = "";
+        try
+        {
+            await _mcpProxyRuntime.RefreshDiscoveryAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Trace.TraceWarning("[Settings] MCP discovery refresh failed: {0}", ex.Message);
+            McpDiscoveryRefreshStatus = string.Format(Loc.SettingError_RefreshMcpTools, ex.Message);
+            return;
+        }
+        McpDiscoveryRefreshRequested?.Invoke();
+        McpDiscoveryRefreshStatus = Loc.SettingStatus_RefreshMcpTools;
+    }
 
     partial void OnUseBYOKOnlyChanged(bool value)
     {
@@ -1706,6 +1735,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool IsReasoningEffortModified => ReasoningEffort != _defaults.ReasoningEffort;
     public bool IsGlobalCustomInstructionsModified => GlobalCustomInstructions != _defaults.GlobalCustomInstructions;
     public bool IsUseMcpProxyModified => UseMcpProxy != _defaults.UseMcpProxy;
+    public bool IsUseLazyMcpInitializationModified => UseLazyMcpInitialization != _defaults.UseLazyMcpInitialization;
     public bool IsMcpToolTimeoutModified => McpToolTimeoutSeconds != _defaults.McpToolTimeoutSeconds;
     public bool IsContextWindowTierModified => ContextWindowTier != _defaults.ContextWindowTier;
     public bool IsEnableMemoryAutoSaveModified => EnableMemoryAutoSave != _defaults.EnableMemoryAutoSave;
@@ -1736,6 +1766,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsReasoningEffortModified));
         OnPropertyChanged(nameof(IsGlobalCustomInstructionsModified));
         OnPropertyChanged(nameof(IsUseMcpProxyModified));
+        OnPropertyChanged(nameof(IsUseLazyMcpInitializationModified));
         OnPropertyChanged(nameof(IsMcpToolTimeoutModified));
         OnPropertyChanged(nameof(IsContextWindowTierModified));
         OnPropertyChanged(nameof(IsEnableMemoryAutoSaveModified));
@@ -1787,6 +1818,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     }
     [RelayCommand] private void RevertGlobalCustomInstructions() => GlobalCustomInstructions = _defaults.GlobalCustomInstructions;
     [RelayCommand] private void RevertUseMcpProxy() => UseMcpProxy = _defaults.UseMcpProxy;
+    [RelayCommand] private void RevertUseLazyMcpInitialization() => UseLazyMcpInitialization = _defaults.UseLazyMcpInitialization;
     [RelayCommand] private void RevertMcpToolTimeout() => McpToolTimeoutSeconds = _defaults.McpToolTimeoutSeconds;
     [RelayCommand] private void RevertEnableMemoryAutoSave() => EnableMemoryAutoSave = _defaults.EnableMemoryAutoSave;
     [RelayCommand] private void RevertEnableMemoryAutoMaintenance() => EnableMemoryAutoMaintenance = _defaults.EnableMemoryAutoMaintenance;
@@ -1923,6 +1955,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         PreferredModel = defaults.PreferredModel;
         ReasoningEffort = defaults.ReasoningEffort;
         UseMcpProxy = defaults.UseMcpProxy;
+        UseLazyMcpInitialization = defaults.UseLazyMcpInitialization;
         McpToolTimeoutSeconds = defaults.McpToolTimeoutSeconds;
         ContextWindowTier = defaults.ContextWindowTier;
         EnableMemoryAutoSave = defaults.EnableMemoryAutoSave;

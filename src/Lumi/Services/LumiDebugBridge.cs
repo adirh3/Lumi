@@ -1166,6 +1166,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             _mainViewModel.SettingsVM.ReasoningEffort = value;
         });
         SetBool("useMcpProxy", value => settings.UseMcpProxy = _mainViewModel.SettingsVM.UseMcpProxy = value);
+        SetBool("useLazyMcpInitialization", value => settings.UseLazyMcpInitialization = _mainViewModel.SettingsVM.UseLazyMcpInitialization = value);
         SetString("contextWindowTier", value =>
         {
             settings.ContextWindowTier = value;

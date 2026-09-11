@@ -43,6 +43,7 @@ internal static class AppDataSnapshotFactory
                 ReasoningEffort = settings.ReasoningEffort,
                 GlobalCustomInstructions = settings.GlobalCustomInstructions,
                 UseMcpProxy = settings.UseMcpProxy,
+                UseLazyMcpInitialization = settings.UseLazyMcpInitialization,
                 McpToolTimeoutSeconds = settings.McpToolTimeoutSeconds,
                 ContextWindowTier = settings.ContextWindowTier,
                 ByokEndpoints = settings.ByokEndpoints

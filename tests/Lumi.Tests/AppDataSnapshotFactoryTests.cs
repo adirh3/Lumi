@@ -180,6 +180,44 @@ public class AppDataSnapshotFactoryTests
             .GetBoolean());
     }
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"useMcpProxy\":true}")]
+    public void LazyMcpInitialization_DefaultsOffForExistingSettings(string json)
+    {
+        var settings = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.UserSettings);
+
+        Assert.False(new UserSettings().UseLazyMcpInitialization);
+        Assert.NotNull(settings);
+        Assert.False(settings.UseLazyMcpInitialization);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LazyMcpInitialization_SurvivesSnapshotAndJsonRoundTrip(bool enabled)
+    {
+        var source = new AppData
+        {
+            Settings = new UserSettings { UseLazyMcpInitialization = enabled }
+        };
+
+        var snapshot = InvokeCreateIndexSnapshot(source);
+        var json = JsonSerializer.Serialize(snapshot, AppDataJsonContext.Default.AppData);
+        using var document = JsonDocument.Parse(json);
+        var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData);
+
+        Assert.NotSame(source.Settings, snapshot.Settings);
+        Assert.Equal(enabled, snapshot.Settings.UseLazyMcpInitialization);
+        Assert.Equal(enabled, document.RootElement
+            .GetProperty("settings")
+            .GetProperty("useLazyMcpInitialization")
+            .GetBoolean());
+        Assert.NotNull(restored);
+        Assert.Equal(enabled, restored.Settings.UseLazyMcpInitialization);
+        Assert.False(restored.Settings.UseMcpProxy);
+    }
+
     [Fact]
     public void AppDataJsonContext_SerializesSettingsReasoningEffort()
     {

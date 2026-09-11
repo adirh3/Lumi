@@ -17,6 +17,67 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Localization** — English and Hebrew, with easy extension to other languages
 - **Desktop notifications** — Toast notifications when responses complete in the background
 
+### Lazy MCP initialization
+
+In **Settings > AI & Models > MCP Servers**, enable **Fast MCP Initialization**, then
+**Lazy MCP Initialization** (off by default). Changes apply to new sessions; existing
+sessions keep their configuration.
+
+The first connection starts the real local MCP server and learns its initialization
+metadata and complete tool definitions. Saved catalogs have **no age expiry**.
+Later connections can use an older, last-known snapshot: the proxy answers
+`initialize`, ordinary `tools/list`, and `ping` without starting that server.
+The first real operation, such as `tools/call`, activates or joins the shared
+backend and checks live discovery against the catalog that client saw before
+forwarding the operation. Each client keeps its own stable discovery view, even
+when clients share one running backend. Tool results are never cached, and tool
+calls are not replayed after an uncertain failure.
+
+Use **Refresh MCP Tools > Refresh catalogs** in the same settings group to clear
+stored catalog snapshots and mark current chats for safe reconnect on their next
+turn, preserving their session history and preferences. Active work finishes
+normally: refresh does not force an interruption or kill a busy backend.
+Ordinary last-owner cleanup may still stop a backend as usual. Refresh is an
+explicit user action, never a timer; catalogs are rediscovered when chats reconnect,
+not eagerly by the button itself.
+
+This is deliberately conservative:
+
+- Only tools-only stdio servers with a supported protocol version and a recognized
+  client initialization are eligible. Notification-capable SDK tool servers are
+  accepted: the proxy advertises `tools.listChanged: false` for its stable client
+  view, rather than promising live tool-list updates. Use explicit refresh to
+  request a new catalog.
+- Remote HTTP servers, resources/prompts/other unsupported capability kinds, roots,
+  and unknown client extensions retain eager initialization in this iteration.
+  Copilot's advertised sampling and MCP Apps/task support are accepted when warm-up
+  succeeds without callbacks; advertising client support does not mean a
+  tools-only server uses it.
+- Only successful, complete, unpaginated `tools/list` responses to absent/empty
+  parameters (or an optional progress-correlation token) are cached. Backend
+  pagination remains eager; cursors are not reused across sessions.
+- Before a cached tool call is forwarded, validation checks the selected tool's
+  **full advertised contract**, server name, negotiated protocol, and instructions.
+  A server version change, tool-list reordering, or unrelated tool additions alone
+  do not block that call. If validation fails, the operation is not forwarded;
+  refresh and reconnect to rediscover the server.
+- MCP does **not** promise cross-run catalog stability. Package dependencies,
+  external sign-in state, and remote configuration can change without changing the
+  launch configuration. Descriptions can therefore remain stale until the server
+  is needed or an explicit refresh is requested; reuse is not a freshness guarantee.
+- Cache keys include the configuration, working directory, effective launch
+  environment, client initialization profile, and identifiable executable/script
+  file stamps. Cache files contain server discovery metadata, not configuration
+  credentials or tool-call arguments/results, in Lumi's `mcp-discovery` app-data
+  directory. Missing, corrupt, oversized, or unreadable cache data falls back to real
+  discovery. Storage failures are logged without failing a successful MCP response.
+
+Current 2025 protocol versions are tested; newer/unknown protocol versions remain
+unsupported by lazy discovery. This is not a claim of full MCP 2026 support.
+Servers requiring bidirectional client callbacks still need direct Copilot
+connections (turn off Fast MCP Initialization); lazy mode does not add live
+callback forwarding.
+
 ## Tech Stack
 
 - **.NET 11** with C#
@@ -92,6 +153,13 @@ src/Lumi/
 ```
 
 Data is persisted as a single JSON file in `%AppData%/Lumi/data.json` — no database required.
+
+The local MCP proxy is organized by responsibility:
+
+- `McpProxyRuntime` owns HTTP routing and registration; its `.Registration` partial contains leases.
+- `McpStdioServerConnection` owns backend lifecycle; `.Discovery`, `.Process`, and `.Transport` keep catalog validation, process management, and message forwarding separate.
+- `McpDiscoveryCache` stores snapshots, while `McpDiscoverySession` holds each client's advertised contract.
+- `JsonRpc` contains the shared message-format helpers.
 
 ## License
 

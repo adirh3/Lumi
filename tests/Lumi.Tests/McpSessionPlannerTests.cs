@@ -10,6 +10,47 @@ namespace Lumi.Tests;
 
 public sealed class McpSessionPlannerTests
 {
+    [Fact]
+    public async Task LazyInitialization_RequiresProxyAndIsBoundToNewSessionConfiguration()
+    {
+        await using var runtime = new McpProxyRuntime();
+        var server = new McpServer { Name = "local", Command = "node" };
+        var data = new AppData
+        {
+            Settings = new UserSettings { UseLazyMcpInitialization = true },
+            McpServers = [server]
+        };
+        Assert.Null(McpSessionPlanner.SelectProxyRuntime(data.Settings, runtime));
+        using var direct = McpSessionPlanner.Build(data, @"C:\repo", EmptyCatalog(), new Chat(), null, null);
+        Assert.IsType<McpStdioServerConfig>(direct.Servers["local"]);
+
+        data.Settings.UseMcpProxy = true;
+        using var lazy = McpSessionPlanner.Build(data, @"C:\repo", EmptyCatalog(), new Chat(), null, null,
+            McpSessionPlanner.SelectProxyRuntime(data.Settings, runtime));
+        var lazyConfig = Assert.IsType<McpHttpServerConfig>(lazy.Servers["local"]);
+        var expected = runtime.Register(new McpProxyServerDefinition(
+            $"lumi:{server.Id}", server.Name,
+            new McpStdioServerConfig
+            {
+                Command = "node", Args = [], WorkingDirectory = @"C:\repo", Tools = ["*"],
+                Timeout = UserSettings.DefaultMcpToolTimeoutSeconds * 1000
+            },
+            UseLazyInitialization: true));
+        Assert.Equal(new Uri(expected.Url).AbsolutePath, new Uri(lazyConfig.Url).AbsolutePath);
+        Assert.NotEqual(expected.Url, lazyConfig.Url);
+        Assert.StartsWith("?client=", new Uri(lazyConfig.Url).Query);
+
+        data.Settings.UseLazyMcpInitialization = false;
+        using var eager = McpSessionPlanner.Build(data, @"C:\repo", EmptyCatalog(), new Chat(), null, null, runtime);
+        var eagerConfig = Assert.IsType<McpHttpServerConfig>(eager.Servers["local"]);
+        Assert.Equal(new Uri(lazyConfig.Url).AbsolutePath, new Uri(eagerConfig.Url).AbsolutePath);
+        Assert.Empty(new Uri(eagerConfig.Url).Query);
+        data.Settings.UseLazyMcpInitialization = true;
+        using var secondLazy = McpSessionPlanner.Build(
+            data, @"C:\repo", EmptyCatalog(), new Chat(), null, null, runtime);
+        Assert.NotEqual(lazyConfig.Url, Assert.IsType<McpHttpServerConfig>(secondLazy.Servers["local"]).Url);
+    }
+
     [Theory]
     [InlineData(180, null, 180_000)]
     [InlineData(600, null, 600_000)]

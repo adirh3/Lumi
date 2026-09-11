@@ -757,6 +757,95 @@ public class CopilotIntegrationTests : IAsyncLifetime
     }
 
     [SkippableFact]
+    public async Task LazyMcp_RealCliInitializeCapture_AndDiscoveryAcrossRuntimeLifetimes()
+    {
+        SkipIfDisabled();
+        using var fake = new LazyMcpRuntimeTests.FakeMcp("dynamic");
+        const string serverName = "lumi-lazy-capture";
+        var configDirectory = Directory.CreateDirectory(Path.Combine(fake.Root, "cli-config")).FullName;
+        var sessionIds = new HashSet<string>(StringComparer.Ordinal);
+        JsonElement? coldTools = null;
+        var coldMessageCount = 0;
+
+        for (var lifetime = 0; lifetime < 2; lifetime++)
+        {
+            await using var runtime = new McpProxyRuntime(fake.CacheDirectory);
+            using var registration = runtime.AcquireSessionRegistration(fake.Definition());
+            var remote = registration.ServerConfig;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+            // No config discovery, existing chats, prompts, or model inference. The test class
+            // owns/disposes its CopilotService; each iteration owns a new synthetic session.
+            var session = await _service.CreateSessionAsync(new SessionConfig
+            {
+                ClientName = "lumi",
+                WorkingDirectory = fake.Root,
+                ConfigDirectory = configDirectory,
+                EnableConfigDiscovery = false,
+                EnableSessionStore = false,
+                OnPermissionRequest = PermissionHandler.ApproveAll,
+                McpServers = new Dictionary<string, McpServerConfig> { [serverName] = remote }
+            }, timeout.Token);
+            try
+            {
+                Assert.True(sessionIds.Add(session.SessionId), "Capture must use distinct, newly created sessions.");
+                var connected = false;
+                while (!connected)
+                {
+                    var servers = await session.Rpc.Mcp.ListAsync(timeout.Token);
+                    var server = servers.Servers.SingleOrDefault(s => s.Name == serverName);
+                    Assert.True(string.IsNullOrWhiteSpace(server?.Error), server?.Error);
+                    if (server?.Status.Value == "connected")
+                        connected = true;
+                    else
+                        await Task.Delay(100, timeout.Token);
+                }
+
+                var tools = await session.Rpc.Mcp.ListToolsAsync(serverName, timeout.Token);
+                Assert.Contains(tools.Tools, tool => tool.Name == "echo");
+                if (lifetime == 0)
+                {
+                    Assert.Single(fake.Starts);
+                    var initialize = Assert.Single(fake.Messages("initialize")).GetProperty("params");
+                    // Only protocol-defined discovery identity is printed; never CLI environment,
+                    // headers, credentials, other MCP definitions, or session configuration.
+                    _output.WriteLine("Real Copilot MCP initialize (sanitized): " + JsonSerializer.Serialize(new
+                    {
+                        protocolVersion = initialize.GetProperty("protocolVersion"),
+                        capabilities = initialize.GetProperty("capabilities"),
+                        clientInfo = initialize.GetProperty("clientInfo")
+                    }));
+                    coldTools = JsonSerializer.SerializeToElement(tools.Tools);
+                    coldMessageCount = fake.Messages().Length;
+                    Assert.NotEmpty(fake.Messages("tools/list"));
+                    _output.WriteLine("Synthetic backend discovery requests: " +
+                        string.Join("\n", fake.Messages().Select(message => message.GetRawText())));
+                    _output.WriteLine("Discovery cache files: " +
+                        (Directory.Exists(fake.CacheDirectory) ? Directory.GetFiles(fake.CacheDirectory, "*.json").Length : 0));
+                    var cachePath = Assert.Single(Directory.GetFiles(fake.CacheDirectory, "*.json"));
+                    var snapshot = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(cachePath))!;
+                    Assert.True(snapshot["initializeResult"]!["capabilities"]!["tools"]!["listChanged"]!.GetValue<bool>());
+                    snapshot["createdAtUtc"] = DateTimeOffset.UtcNow.AddDays(-42);
+                    await File.WriteAllTextAsync(cachePath, snapshot.ToJsonString());
+                }
+                else
+                {
+                    Assert.Single(fake.Starts);
+                    Assert.Equal(coldMessageCount, fake.Messages().Length);
+                    Assert.True(JsonElement.DeepEquals(coldTools!.Value, JsonSerializer.SerializeToElement(tools.Tools)),
+                        "The second CLI session must discover the same cached tool metadata without starting the backend.");
+                    _output.WriteLine($"Second runtime discovery backend starts: {fake.Starts.Length - 1}");
+                }
+                Assert.Empty(fake.Messages("tools/call"));
+            }
+            finally
+            {
+                await session.DisposeAsync();
+                await _service.DeleteSessionAsync(session.SessionId);
+            }
+        }
+    }
+
+    [SkippableFact]
     public async Task GitHubMcpWebSearch_CanBeInvokedByNormalSession()
     {
         SkipIfDisabled();

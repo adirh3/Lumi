@@ -1179,6 +1179,7 @@ public class UserSettings
     // start once and are reused across chats. When false (default), MCP servers are
     // passed directly to Copilot and initialized per session.
     public bool UseMcpProxy { get; set; }
+    public bool UseLazyMcpInitialization { get; set; }
 
     public const int DefaultMcpToolTimeoutSeconds = 180;
     public const int MinMcpToolTimeoutSeconds = 1;

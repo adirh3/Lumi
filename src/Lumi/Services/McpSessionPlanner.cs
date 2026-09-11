@@ -179,7 +179,8 @@ public static class McpSessionPlanner
                     defaultTimeoutMilliseconds,
                     proxyRuntime,
                     ResolveProxyKey(server, capabilities),
-                    proxyRegistrations);
+                    proxyRegistrations,
+                    data.Settings.UseLazyMcpInitialization);
             }
 
             // Phase 2: project each distinct server onto a CAPI-safe, collision-free namespace. The
@@ -294,7 +295,8 @@ public static class McpSessionPlanner
         int defaultTimeoutMilliseconds,
         McpProxyRuntime? proxyRuntime,
         string proxyKey,
-        ICollection<McpProxyRuntime.SessionRegistrationLease>? proxyRegistrations)
+        ICollection<McpProxyRuntime.SessionRegistrationLease>? proxyRegistrations,
+        bool useLazyInitialization)
     {
         if (string.Equals(server.ServerType, "remote", StringComparison.OrdinalIgnoreCase))
         {
@@ -326,7 +328,8 @@ public static class McpSessionPlanner
             var registration = proxyRuntime.AcquireSessionRegistration(new McpProxyServerDefinition(
                 proxyKey,
                 server.Name,
-                local));
+                local,
+                useLazyInitialization));
             proxyRegistrations!.Add(registration);
             return registration.ServerConfig;
         }

@@ -928,7 +928,30 @@
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_McpServers}">
           <sc:StrataSetting Header="{loc:Str Setting_UseMcpProxy}" Description="{loc:Str SettingDesc_UseMcpProxy}"
                             IsModified="{Binding IsUseMcpProxyModified}">
-            <ToggleSwitch IsChecked="{Binding UseMcpProxy}" />
+            <ToggleSwitch x:Name="McpProxyToggle" IsChecked="{Binding UseMcpProxy}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting x:Name="LazyMcpInitializationSetting"
+                            Header="{loc:Str Setting_UseLazyMcpInitialization}"
+                            Description="{loc:Str SettingDesc_UseLazyMcpInitialization}"
+                            IsModified="{Binding IsUseLazyMcpInitializationModified}">
+            <ToggleSwitch x:Name="LazyMcpInitializationToggle"
+                          IsChecked="{Binding UseLazyMcpInitialization}"
+                          IsEnabled="{Binding UseMcpProxy}" />
+          </sc:StrataSetting>
+          <sc:StrataSetting Classes="stacked-content"
+                            Header="{loc:Str Setting_RefreshMcpTools}"
+                            Description="{loc:Str SettingDesc_RefreshMcpTools}">
+            <StackPanel Spacing="8">
+              <Button x:Name="RefreshMcpToolsButton"
+                      Classes="subtle motion-action" Content="{loc:Str Button_RefreshMcpTools}"
+                      Padding="14,6" MinHeight="0" HorizontalAlignment="Left"
+                      Command="{Binding RefreshMcpToolsCommand}" />
+              <TextBlock Text="{Binding McpDiscoveryRefreshStatus}"
+                         IsVisible="{Binding McpDiscoveryRefreshStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                         FontSize="{DynamicResource Font.SizeCaption}"
+                         Foreground="{DynamicResource Brush.TextSecondary}"
+                         TextWrapping="Wrap" />
+            </StackPanel>
           </sc:StrataSetting>
           <sc:StrataSetting x:Name="McpToolTimeoutSetting"
                             Header="{loc:Str Setting_McpToolTimeout}"
