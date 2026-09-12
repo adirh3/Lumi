@@ -432,9 +432,6 @@ public static class SystemPromptBuilder
             - Use `recall_memory` only when a memory key is relevant and you need its full content.
             """;
         var promptBuilder = new StringBuilder(prompt);
-        var activeSkillIds = activeSkills.Count > 0
-            ? activeSkills.Select(static s => s.Id).ToHashSet()
-            : null;
 
         if (!string.IsNullOrWhiteSpace(settings.GlobalCustomInstructions))
         {
@@ -458,6 +455,7 @@ public static class SystemPromptBuilder
                 if (agentSkills.Count > 0)
                 {
                     promptBuilder.Append("\n\n--- Agent Skills ---\n");
+                    promptBuilder.Append("These skills are already loaded. Follow them directly; do not load them again.\n");
                     foreach (var skill in agentSkills)
                         promptBuilder.Append("\n### ").Append(skill.Name).Append('\n').Append(skill.Content).Append('\n');
                 }
@@ -488,35 +486,6 @@ public static class SystemPromptBuilder
             promptBuilder.Append("These skills are already loaded. Follow their instructions directly; do not fetch them again.\n");
             foreach (var skill in activeSkills)
                 promptBuilder.Append("\n### ").Append(skill.Name).Append('\n').Append(skill.Content).Append('\n');
-        }
-
-        // All available skills (short descriptions for implicit discovery)
-        if (allSkills.Count > 0)
-        {
-            promptBuilder.Append("""
-
-
-                --- Available Skills ---
-                You have access to a library of skills — reusable capability definitions that teach you how to do specific tasks.
-                Below are all available skills with short descriptions. You can retrieve the full content of any skill using the `fetch_skill` tool.
-
-                **When to use skills:**
-                - If the user explicitly asks to use a skill by name → fetch it immediately and follow its instructions.
-                - If the user's request closely matches a skill's description → fetch and apply it without asking.
-                - If the user's request is somewhat related to a skill → ask the user if they'd like you to use that skill before fetching it.
-                - Skills marked with ✓ are already active — their full content is loaded above, no need to fetch them again.
-
-                """);
-            foreach (var skill in allSkills)
-            {
-                var activeMarker = activeSkillIds?.Contains(skill.Id) == true ? " ✓" : "";
-                promptBuilder.Append("- **")
-                    .Append(skill.Name)
-                    .Append("**: ")
-                    .Append(skill.Description)
-                    .Append(activeMarker)
-                    .Append('\n');
-            }
         }
 
         var promptMemories = memories

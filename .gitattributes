@@ -11,6 +11,7 @@
 *.md text
 *.txt text
 *.xml text
+*.patch text eol=lf -whitespace
 
 # Binary
 *.png binary

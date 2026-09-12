@@ -81,6 +81,45 @@ public class ToolDisplayHelperTests
     }
 
     [Fact]
+    public void NativeSkill_UsesSkillArgumentAndRetainsLegacyToolAlias()
+    {
+        const string args = "{\"skill\":\"debug-expert\"}";
+        Assert.Equal("Using debug-expert", ToolDisplayHelper.FormatToolStatusName("skill", args));
+        Assert.Equal(("Using debug-expert", null), ToolDisplayHelper.GetFriendlyToolDisplay("skill", null, args));
+        Assert.Equal("**Skill:** debug-expert", ToolDisplayHelper.FormatToolArgsFriendly("skill", args));
+        Assert.Equal(ToolDisplayHelper.GetToolGlyph("fetch_skill"), ToolDisplayHelper.GetToolGlyph("skill"));
+        Assert.True(ToolDisplayHelper.IsCompactEligible("skill"));
+        Assert.Equal(["skill"], ToolDisplayHelper.ToRuntimeToolNames(["fetch_skill", "skill"]));
+    }
+
+    [Fact]
+    public void NativeSkill_DisplayNameOverridesSlugWithoutChangingArguments()
+    {
+        const string args = "{\"skill\":\"native-skill-trial\"}";
+        const string displayName = "Native Skill Trial";
+        Assert.Equal("Using Native Skill Trial", ToolDisplayHelper.FormatToolStatusName("skill", args, displayName));
+        Assert.Equal("Using Native Skill Trial",
+            ToolDisplayHelper.GetFriendlyToolDisplay("skill", null, args, displayName).Name);
+        Assert.Equal("**Skill:** Native Skill Trial", ToolDisplayHelper.FormatToolArgsFriendly("skill", args, displayName));
+
+        var original = new Lumi.Models.ChatMessage
+        {
+            Role = "tool",
+            ToolName = "skill",
+            ToolSkillName = displayName,
+            Content = args,
+        };
+        var clone = original.Clone();
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            new System.Collections.Generic.List<Lumi.Models.ChatMessage> { clone },
+            Lumi.Models.AppDataJsonContext.Default.ListChatMessage);
+        var restored = Assert.Single(System.Text.Json.JsonSerializer.Deserialize(
+            json, Lumi.Models.AppDataJsonContext.Default.ListChatMessage)!);
+        Assert.Equal(displayName, restored.ToolSkillName);
+        Assert.Equal(args, restored.Content);
+    }
+
+    [Fact]
     public void GetFriendlyToolDisplay_FetchSkill_UsesSkillNameInLabel()
     {
         var (name, info) = ToolDisplayHelper.GetFriendlyToolDisplay("fetch_skill", null, "{\"name\":\"Debug Expert\"}");

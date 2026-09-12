@@ -1155,12 +1155,12 @@ public class DataStore
     }
 
     /// <summary>Renders a skill's on-disk markdown (frontmatter + body), matching the mirror layout.</summary>
-    public static string BuildSkillMarkdown(Skill skill)
+    public static string BuildSkillMarkdown(Skill skill, string? name = null, string? description = null)
     {
         return $"""
             ---
-            name: {EncodeYamlScalar(skill.Name)}
-            description: {EncodeYamlScalar(skill.Description)}
+            name: {EncodeYamlScalar(name ?? skill.Name)}
+            description: {EncodeYamlScalar(description ?? skill.Description)}
             ---
 
             {skill.Content}
@@ -1913,7 +1913,7 @@ public class DataStore
             ToolNames = [
                 "code_review", "generate_tests", "explain_code", "analyze_project",
                 "lumi_fetch",
-                "announce_file", "fetch_skill", "recall_memory", "manage_current_chat",
+                "announce_file", "skill", "recall_memory", "manage_current_chat",
             ],
             SystemPrompt = """
                 You are **Coding Lumi** — an elite software engineering agent. You combine deep technical expertise with practical engineering wisdom to produce exceptional code and solve hard problems.

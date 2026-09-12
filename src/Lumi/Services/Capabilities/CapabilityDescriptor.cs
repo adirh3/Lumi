@@ -101,6 +101,9 @@ public sealed record CapabilityDescriptor
     /// <summary>Canonical identity used for selection, persistence and de-duplication.</summary>
     public required string Name { get; init; }
 
+    /// <summary>Native skill invocation name reported by Copilot, when different from its authored name.</summary>
+    public string? SkillInvocationName { get; init; }
+
     public required CapabilityOrigin Origin { get; init; }
 
     /// <summary>Label preferred for display; falls back to <see cref="Name"/>.</summary>

@@ -92,7 +92,8 @@ public sealed class LightweightSessionOptions
         string? agentName = null,
         string? contextTier = null,
         GitHub.Copilot.ProviderConfig? provider = null,
-        bool enableCapabilityDiscovery = true)
+        bool enableCapabilityDiscovery = true,
+        SkillProvider? skillProvider = null)
     {
         var config = new SessionConfig
         {
@@ -102,6 +103,7 @@ public sealed class LightweightSessionOptions
             WorkingDirectory = workingDirectory,
             ConfigDirectory = GetDefaultConfigDir(),
             EnableConfigDiscovery = enableCapabilityDiscovery && EnableSdkConfigDiscovery,
+            SkillProvider = skillProvider,
             EnableSessionStore = true,
             ExcludedTools = ExcludedBuiltInTools(),
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
@@ -136,7 +138,8 @@ public sealed class LightweightSessionOptions
         string? agentName = null,
         string? contextTier = null,
         GitHub.Copilot.ProviderConfig? provider = null,
-        bool enableCapabilityDiscovery = true)
+        bool enableCapabilityDiscovery = true,
+        SkillProvider? skillProvider = null)
     {
         var config = new ResumeSessionConfig
         {
@@ -146,6 +149,7 @@ public sealed class LightweightSessionOptions
             WorkingDirectory = workingDirectory,
             ConfigDirectory = GetDefaultConfigDir(),
             EnableConfigDiscovery = enableCapabilityDiscovery && EnableSdkConfigDiscovery,
+            SkillProvider = skillProvider,
             EnableSessionStore = true,
             ExcludedTools = ExcludedBuiltInTools(),
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
@@ -329,7 +333,9 @@ public sealed class LightweightSessionOptions
         if (!string.IsNullOrWhiteSpace(systemPrompt))
             config.SystemMessage = BuildSystemMessage(systemPrompt, config.Model);
 
-        config.EnableSkills = enableCapabilityDiscovery;
+        config.EnableSkills = enableCapabilityDiscovery || config.SkillProvider is not null;
+        if (!enableCapabilityDiscovery)
+            config.IncludedBuiltinSkills = [];
 
         ApplySessionSkillRoots(config, enableCapabilityDiscovery, skillDirectories);
 
@@ -378,7 +384,9 @@ public sealed class LightweightSessionOptions
         if (!string.IsNullOrWhiteSpace(systemPrompt))
             config.SystemMessage = BuildSystemMessage(systemPrompt, config.Model);
 
-        config.EnableSkills = enableCapabilityDiscovery;
+        config.EnableSkills = enableCapabilityDiscovery || config.SkillProvider is not null;
+        if (!enableCapabilityDiscovery)
+            config.IncludedBuiltinSkills = [];
 
         ApplySessionSkillRoots(config, enableCapabilityDiscovery, skillDirectories);
 

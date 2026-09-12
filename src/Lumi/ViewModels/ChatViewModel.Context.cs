@@ -477,7 +477,12 @@ public partial class ChatViewModel
 
     private SkillReference? FindSkillReferenceByName(string name, CapabilitySnapshot capabilities)
     {
+        var catalogSkill = capabilities.FindSkill(name);
         var skill = FindSkillByName(name);
+        if (skill is null && catalogSkill is not null)
+            return CreateExternalSkillReference(catalogSkill);
+
+        skill ??= LumiSkillProvider.FindSkill(_dataStore.Data.Skills, name, capabilities);
         if (skill is not null)
         {
             return new SkillReference
@@ -488,11 +493,7 @@ public partial class ChatViewModel
             };
         }
 
-        var externalSkill = capabilities.FindSkill(name);
-        if (externalSkill is null)
-            return null;
-
-        return CreateExternalSkillReference(externalSkill);
+        return null;
     }
 
     public void AddAttachment(string filePath)

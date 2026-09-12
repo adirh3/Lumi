@@ -245,7 +245,8 @@ public sealed class CapabilityCatalog : IDisposable
             query,
             merged.Values.ToArray(),
             isComplete: external?.IsAvailable ?? _externalProviders.Count == 0,
-            sessionSkillRoots: external?.SessionSkillRoots);
+            sessionSkillRoots: external?.SessionSkillRoots,
+            nativeSkillInvocationNames: CapabilitySnapshot.GetNativeSkillInvocationNames(external?.Capabilities ?? []));
     }
 
     private sealed class PendingLoad(int generation)

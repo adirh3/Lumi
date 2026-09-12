@@ -65,6 +65,23 @@ public sealed class CapabilityCatalogTests
     }
 
     [Fact]
+    public async Task ExactDisplayCollision_StillReservesTheNativeInvocationName()
+    {
+        var skill = new Skill { Name = "pdf", Content = "Lumi instructions" };
+        var store = Store(skill);
+        using var catalog = Catalog(store, new StubProvider(SkillOf("pdf", CapabilityOrigin.Project, "native")));
+        var snapshot = await LoadSnapshotAsync(catalog);
+
+        Assert.True(Assert.Single(snapshot.Skills).Origin.IsLumi);
+        Assert.Contains("pdf", snapshot.NativeSkillInvocationNames);
+        var provider = new LumiSkillProvider(
+            _ => Task.FromResult<IReadOnlyList<Skill>>(store.Data.Skills), snapshot);
+        var descriptor = Assert.Single(await provider.ListAsync());
+        Assert.Equal($"pdf-{skill.Id:N}", descriptor.Name);
+        Assert.Contains(skill.Content, await provider.ReadAsync(descriptor.Name));
+    }
+
+    [Fact]
     public async Task OrdersLumiCapabilitiesBeforeDiscoveredOnes()
     {
         var catalog = Catalog(

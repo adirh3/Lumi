@@ -195,6 +195,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Apply native skill SDK patch
+        run: git apply --directory=CopilotSdk patches/copilot-native-skills.patch
+
       # Velopack's vpk CLI is multi-targeted; its tool host selects the net9.0 build when a
       # newer runtime is present, so install the .NET 9 runtime rather than relying on the
       # runner image shipping it. The build still uses the highest SDK installed (.NET 11).
@@ -501,6 +504,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Apply native skill SDK patch
+        run: git apply --directory=CopilotSdk patches/copilot-native-skills.patch
+
       - name: Setup .NET 9 (runtime for the Velopack vpk CLI)
         uses: actions/setup-dotnet@v4
         with:
@@ -613,6 +619,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Apply native skill SDK patch
+        run: git apply --directory=CopilotSdk patches/copilot-native-skills.patch
 
       - name: Setup .NET 9 (runtime for the Velopack vpk CLI)
         uses: actions/setup-dotnet@v4

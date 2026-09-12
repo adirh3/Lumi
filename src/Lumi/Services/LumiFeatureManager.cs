@@ -21,7 +21,8 @@ public sealed record FeatureChangeResult(
     string? SkillContentHash = null,
     bool McpCatalogChanged = false,
     bool BackgroundJobsChanged = false,
-    bool CapabilityContextChanged = false);
+    bool CapabilityContextChanged = false,
+    IReadOnlyList<Guid>? SkillIds = null);
 
 public sealed class LumiFeatureManager
 {
@@ -68,7 +69,7 @@ public sealed class LumiFeatureManager
     {
         return NormalizeAction(action) switch
         {
-            "list" => new FeatureChangeResult(ListSkills(query ?? identifier)),
+            "list" => ListSkills(query ?? identifier),
             "create" => CreateSkill(name, description, content, iconGlyph, updateMode),
             "update" => UpdateSkill(identifier, name, description, content, iconGlyph, updateMode, editOldString, editNewString),
             "import" => ImportSkill(identifier),
@@ -1034,7 +1035,8 @@ public sealed class LumiFeatureManager
         if (bytes > SkillOversizeWarningBytes)
             message.Append($"\n⚠ Skill is {FormatKb(bytes)}; the model may not load the full body — consider compressing.");
 
-        return Success(message.ToString(), syncSkillFiles: true, skillContentBytes: bytes, skillContentHash: hash);
+        return Success(message.ToString(), syncSkillFiles: true, skillContentBytes: bytes, skillContentHash: hash)
+            with { SkillIds = [skill.Id] };
     }
 
     private static (bool Ok, string? Content, string? Error) ComputeEditedContent(
@@ -1350,7 +1352,7 @@ public sealed class LumiFeatureManager
             syncSkillFiles: true);
     }
 
-    private string ListSkills(string? query)
+    private FeatureChangeResult ListSkills(string? query)
     {
         var skills = FilterByQuery(
                 _dataStore.Data.Skills,
@@ -1360,10 +1362,10 @@ public sealed class LumiFeatureManager
             .OrderBy(skill => skill.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (skills.Count == 0)
-            return string.IsNullOrWhiteSpace(query) ? "No Lumi skills found." : $"No Lumi skills matched \"{query}\".";
-
-        return "Skills:\n" + string.Join("\n", skills.Select(DescribeSkill));
+        var message = skills.Count == 0
+            ? string.IsNullOrWhiteSpace(query) ? "No Lumi skills found." : $"No Lumi skills matched \"{query}\"."
+            : "Skills:\n" + string.Join("\n", skills.Select(DescribeSkill));
+        return new FeatureChangeResult(message, SkillIds: skills.Select(skill => skill.Id).ToArray());
     }
 
     private FeatureChangeResult CreateLumi(

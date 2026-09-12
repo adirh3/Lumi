@@ -1119,7 +1119,13 @@ public partial class ChatViewModel
                             toolStart.Data.ParentToolCallId!, toolParentById, terminalRootByToolCallId);
                     }
 
-                    var displayName = ToolDisplayHelper.FormatToolStatusName(toolStart.Data.ToolName, toolStart.Data.Arguments?.ToString());
+                    var toolArguments = toolStart.Data.Arguments?.ToString();
+                    var displaySkillName = toolStart.Data.ToolName == "skill"
+                        && ToolDisplayHelper.ExtractJsonField(toolArguments, "skill") is { Length: > 0 } runtimeSkillName
+                            ? FindSkillReferenceByName(runtimeSkillName, capabilities)?.Name
+                            : null;
+                    var displayName = ToolDisplayHelper.FormatToolStatusName(
+                        toolStart.Data.ToolName, toolArguments, displaySkillName);
                     MarkRuntimeActive(
                         runtime,
                         ToolDisplayHelper.FormatProgressLabel(displayName),
@@ -1141,9 +1147,10 @@ public partial class ChatViewModel
                             ToolCallId = startToolCallId,
                             ParentToolCallId = toolStart.Data.ParentToolCallId,
                             ToolName = toolStart.Data.ToolName,
+                            ToolSkillName = displaySkillName,
                             ToolStatus = toolStatus,
                             ToolOutput = completedToolOutput,
-                            Content = toolStart.Data.Arguments?.ToString() ?? "",
+                            Content = toolArguments ?? "",
                             Author = displayName
                         };
                         chat.Messages.Add(toolMsg);
@@ -1153,11 +1160,12 @@ public partial class ChatViewModel
                         toolMsg.ParentToolCallId = toolStart.Data.ParentToolCallId;
 #pragma warning restore CS0618
                         toolMsg.ToolName = toolStart.Data.ToolName;
+                        toolMsg.ToolSkillName = displaySkillName ?? toolMsg.ToolSkillName;
                         toolMsg.ToolStatus = toolStatus;
                         if (toolStatus == "Failed")
                             toolMsg.ToolOutput = completedToolOutput;
 
-                        toolMsg.Content = toolStart.Data.Arguments?.ToString() ?? "";
+                        toolMsg.Content = toolArguments ?? "";
                         toolMsg.Author = displayName;
                     }
 

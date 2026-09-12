@@ -174,6 +174,7 @@ public sealed class CopilotSdkCapabilityProvider : ICapabilityProvider
             {
                 Kind = CapabilityKind.Skill,
                 Name = skill.Name,
+                SkillInvocationName = skill.CommandName,
                 Origin = CapabilityOrigin.FromSdkSource(skill.Source.Value),
                 Description = skill.Description,
                 SourcePath = skill.Path,

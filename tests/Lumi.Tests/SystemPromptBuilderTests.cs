@@ -6,6 +6,29 @@ namespace Lumi.Tests;
 
 public sealed class SystemPromptBuilderTests
 {
+    [Fact]
+    public void Skills_LeaveDiscoveryToSdkAndKeepExplicitlySelectedContentPreloaded()
+    {
+        var selected = new Skill { Name = "Selected", Content = "SELECTED_SKILL_BODY" };
+        var agentSkill = new Skill { Name = "Assigned", Content = "AGENT_SKILL_BODY" };
+        var lazy = new Skill { Name = "Lazy", Description = "LAZY_SKILL_DESCRIPTION", Content = "LAZY_SKILL_BODY" };
+        var prompt = SystemPromptBuilder.Build(
+            new UserSettings { Language = "en" },
+            new LumiAgent { Name = "Agent", SkillIds = [agentSkill.Id] },
+            project: null,
+            allSkills: [selected, agentSkill, lazy],
+            activeSkills: [selected],
+            memories: []);
+
+        Assert.Contains(selected.Content, prompt);
+        Assert.Contains(agentSkill.Content, prompt);
+        Assert.Contains("These skills are already loaded", prompt);
+        Assert.DoesNotContain(lazy.Description, prompt);
+        Assert.DoesNotContain(lazy.Content, prompt);
+        Assert.DoesNotContain("--- Available Skills ---", prompt);
+        Assert.DoesNotContain("fetch_skill", prompt);
+    }
+
     [Theory]
     [InlineData("Windows")]
     [InlineData("MacOS")]

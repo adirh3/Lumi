@@ -15,6 +15,23 @@ namespace Lumi.Tests;
 public sealed class TranscriptBuilderToolGroupTests
 {
     [Fact]
+    public void NativeSkill_UsesPersistedDisplayNameInTitleAndDetails()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        var message = CreateToolVm("skill-1", "skill", "InProgress", "{\"skill\":\"native-skill-trial\"}");
+        message.Message.ToolSkillName = "Native Skill Trial";
+        builder.ProcessMessageToTranscript(message);
+
+        var group = Assert.IsType<ToolGroupItem>(Assert.Single(turns[0].Items));
+        var call = Assert.IsType<ToolCallItem>(Assert.Single(group.ToolCalls));
+        Assert.Contains("Using Native Skill Trial", call.ToolName);
+        Assert.Equal("**Skill:** Native Skill Trial", call.InputParameters);
+        Assert.Equal("{\"skill\":\"native-skill-trial\"}", message.Content);
+    }
+
+    [Fact]
     public void UnopenedStandaloneCommands_StillFoldIntoTheActivityTrail()
     {
         var builder = CreateBuilder();

@@ -29,6 +29,7 @@ public static partial class ToolDisplayHelper
         "browser_find" => BrowserFindToolName,
         "browser_do" => BrowserDoToolName,
         "browser_js" => BrowserJsToolName,
+        "fetch_skill" => "skill",
         _ => toolName
     };
 
@@ -51,7 +52,7 @@ public static partial class ToolDisplayHelper
         "web_fetch" or "lumi_fetch" => "📚",
         "ui_inspect" or "ui_find" or "ui_click" or "ui_type" or "ui_read" => "🖥",
         "save_memory" or "update_memory" or "recall_memory" or "delete_memory" => "🧠",
-        "fetch_skill" => "⚡",
+        "fetch_skill" or "skill" => "⚡",
         "manage_projects" => "📁",
         "manage_skills" => "⚡",
         "manage_lumis" => "✦",
@@ -87,7 +88,7 @@ public static partial class ToolDisplayHelper
             or "recall_memory"
             or "search_chats" or "read_chat"
             or "report_intent"
-            or "announce_file" or "fetch_skill"
+            or "announce_file" or "fetch_skill" or "skill"
             or "ui_list_windows" or "ui_read"
             || toolName.StartsWith("DotSight-", StringComparison.Ordinal)
             || toolName.StartsWith("Avalonia-MCP-", StringComparison.Ordinal)
@@ -96,7 +97,8 @@ public static partial class ToolDisplayHelper
     /// <summary>
     /// Maps a tool call to a user-friendly display name and summary line.
     /// </summary>
-    public static (string Name, string? Info) GetFriendlyToolDisplay(string toolName, string? author, string? argsJson)
+    public static (string Name, string? Info) GetFriendlyToolDisplay(
+        string toolName, string? author, string? argsJson, string? displaySkillName = null)
     {
         switch (toolName)
         {
@@ -173,8 +175,10 @@ public static partial class ToolDisplayHelper
             case "announce_file":
                 return (Loc.Tool_SharingFile, ExtractShortFileName(argsJson));
             case "fetch_skill":
+            case "skill":
             {
-                var skillName = ExtractJsonField(argsJson, "name");
+                var skillName = displaySkillName
+                    ?? ExtractJsonField(argsJson, toolName == "skill" ? "skill" : "name");
                 return !string.IsNullOrWhiteSpace(skillName)
                     ? (string.Format(Loc.Tool_UsingNamedSkill, skillName), null)
                     : (Loc.Tool_FetchingSkill, null);
@@ -274,7 +278,7 @@ public static partial class ToolDisplayHelper
     /// <summary>
     /// Formats tool arguments into a human-readable summary.
     /// </summary>
-    public static string? FormatToolArgsFriendly(string toolName, string? argsJson)
+    public static string? FormatToolArgsFriendly(string toolName, string? argsJson, string? displaySkillName = null)
     {
         if (string.IsNullOrWhiteSpace(argsJson)) return null;
 
@@ -345,6 +349,9 @@ public static partial class ToolDisplayHelper
                 }
                 case "fetch_skill":
                     return GetString(root, "name") is { } skillName ? $"**Skill:** {skillName}" : null;
+                case "skill":
+                    return (displaySkillName ?? GetString(root, "skill")) is { } nativeSkillName
+                        ? $"**Skill:** {nativeSkillName}" : null;
                 case "report_intent":
                     return GetString(root, "intent") is { } intent ? $"Intent: {intent}" : null;
                 case "read_powershell":

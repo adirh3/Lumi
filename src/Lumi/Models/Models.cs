@@ -40,6 +40,8 @@ public class ChatMessage
     public string? RemoteRequestId { get; set; }
     public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.Now;
     public string? ToolName { get; set; }
+    /// <summary>Display name for a native skill call; the original runtime arguments remain in Content.</summary>
+    public string? ToolSkillName { get; set; }
     public string? ToolCallId { get; set; }
     public string? ParentToolCallId { get; set; }
     public string? ToolStatus { get; set; } // InProgress, Completed, Failed, Stopped
@@ -113,6 +115,7 @@ public class ChatMessage
         RemoteRequestId = RemoteRequestId,
         Timestamp = Timestamp,
         ToolName = ToolName,
+        ToolSkillName = ToolSkillName,
         ToolCallId = ToolCallId,
         ParentToolCallId = ParentToolCallId,
         ToolStatus = ToolStatus,

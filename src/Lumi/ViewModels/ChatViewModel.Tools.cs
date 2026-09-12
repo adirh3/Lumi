@@ -37,6 +37,11 @@ public partial class ChatViewModel
     {
         var agents = new List<CustomAgentConfig>();
         var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var activeLumiAgent = _dataStore.Data.Agents.FirstOrDefault(agent =>
+            string.Equals(agent.Name, activeAgentName, StringComparison.OrdinalIgnoreCase));
+        var skillNames = LumiSkillProvider.IsAllowedForAgent(activeLumiAgent)
+            ? LumiSkillProvider.GetRuntimeNames(_dataStore.Data.Skills, capabilities)
+            : new Dictionary<Guid, string>();
         foreach (var agent in _dataStore.Data.Agents)
         {
             // CustomAgentConfig.Tools is an SDK-wide allowlist when the agent is active, so setting
@@ -48,6 +53,10 @@ public partial class ChatViewModel
                 DisplayName = agent.Name,
                 Description = agent.Description,
                 Prompt = agent.SystemPrompt,
+                Skills = !string.Equals(agent.Name, activeAgentName, StringComparison.OrdinalIgnoreCase)
+                    && agent.SkillIds.Count > 0
+                    ? agent.SkillIds.Where(skillNames.ContainsKey).Select(id => skillNames[id]).ToList()
+                    : null,
             });
             seenNames.Add(agent.Name);
         }
@@ -135,14 +144,13 @@ public partial class ChatViewModel
         return CancellationToken.None;
     }
 
-    private List<AIFunction> BuildCustomTools(Guid chatId, LumiAgent? activeAgent)
+    private List<AIFunction> BuildCustomTools(Guid chatId, LumiAgent? activeAgent, LumiSkillProvider? skillProvider = null)
     {
         var tools = new List<AIFunction>();
         tools.AddRange(BuildMemoryTools());
         tools.Add(BuildAnnounceFileTool(chatId));
-        tools.Add(BuildFetchSkillTool());
         tools.Add(BuildAskQuestionTool(chatId));
-        tools.AddRange(BuildLumiManagementTools(chatId));
+        tools.AddRange(BuildLumiManagementTools(chatId, skillProvider));
         tools.AddRange(BuildWebTools());
         // The embedded browser is built on WebView2 (Windows-only), so the lumi_browser_* tools
         // are only offered on Windows. On Linux/macOS the agent uses web_search + lumi_fetch instead.
@@ -617,20 +625,22 @@ public partial class ChatViewModel
         return normalizedPath;
     }
 
-    private AIFunction BuildFetchSkillTool()
+    private LumiSkillProvider? BuildLumiSkillProvider(LumiAgent? activeAgent, CapabilitySnapshot capabilities)
     {
-        return AIFunctionFactory.Create(
-            ([Description("The exact name of the skill to retrieve (as listed in Available Skills)")] string name) =>
-            {
-                var skill = _dataStore.Data.Skills
-                    .FirstOrDefault(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-                if (skill is not null)
-                    return $"# {skill.Name}\n\n{skill.Content}";
+        if (!LumiSkillProvider.IsAllowedForAgent(activeAgent))
+            return null;
 
-                return $"Skill not found: {name}. Check the Available Skills list for exact names.";
-            },
-            "fetch_skill",
-            "Retrieve the full content of a skill by name. Use this when the user asks to use a skill, or when their request closely matches a skill's description. The skill content contains detailed instructions on how to perform the task.");
+        return new LumiSkillProvider(async cancellationToken =>
+            await Dispatcher.UIThread.InvokeAsync<IReadOnlyList<Skill>>(
+                () => _dataStore.Data.Skills.Select(skill => new Skill
+                {
+                    Id = skill.Id,
+                    Name = skill.Name,
+                    Description = skill.Description,
+                    Content = skill.Content,
+                }).ToArray(),
+                DispatcherPriority.Normal,
+                cancellationToken), capabilities);
     }
 
     private AIFunction BuildAskQuestionTool(Guid chatId)
@@ -754,7 +764,7 @@ public partial class ChatViewModel
         NotificationService.ShowQuestion(question, chatTitle, chatId);
     }
 
-    private List<AIFunction> BuildLumiManagementTools(Guid chatId)
+    private List<AIFunction> BuildLumiManagementTools(Guid chatId, LumiSkillProvider? skillProvider)
     {
         var tools = new List<AIFunction>
         {
@@ -819,7 +829,7 @@ public partial class ChatViewModel
                     [Description("For updateMode='patch'/'append'/'prepend'/'replaceSection': the replacement/added text.")] string? editNewString = null) =>
                 {
                     var result = FeatureManager.ManageSkills(action, identifier, name, description, content, iconGlyph, query, updateMode, editOldString, editNewString);
-                    return await ApplyFeatureChangeAsync(result, chatId);
+                    return await ApplyFeatureChangeAsync(result, chatId, skillProvider);
                 },
                 "manage_skills",
                 "List, create, update, delete, or import Lumi skills. Use this only when the user explicitly asks to manage Lumi's internal skills. For edits to an EXISTING skill, PREFER updateMode='patch' with editOldString/editNewString (or 'append'/'prepend'/'replaceSection') instead of resending the full content — it is safer and avoids truncation on large skills. Use full content only for create or an intentional full rewrite.",
@@ -1471,10 +1481,13 @@ public partial class ChatViewModel
             Lumi.Models.AppDataJsonContext.Default.Options);
     }
 
-    private async Task<string> ApplyFeatureChangeAsync(FeatureChangeResult result, Guid sourceChatId)
+    private async Task<string> ApplyFeatureChangeAsync(
+        FeatureChangeResult result,
+        Guid sourceChatId,
+        LumiSkillProvider? skillProvider = null)
     {
         if (!result.DataChanged)
-            return result.Message;
+            return AppendNativeSkillInvocations(result, skillProvider);
 
         if (result.SyncSkillFiles)
             _dataStore.SyncSkillFiles();
@@ -1483,7 +1496,42 @@ public partial class ChatViewModel
 
         Dispatcher.UIThread.Post(() => ApplyFeatureChangeUiState(result, sourceChatId));
 
-        return result.Message;
+        if (result.SyncSkillFiles)
+        {
+            try
+            {
+                var session = await Dispatcher.UIThread.InvokeAsync(() =>
+                    _sessionCache.GetValueOrDefault(sourceChatId));
+                if (session is not null)
+                {
+                    var diagnostics = await session.Rpc.Skills.ReloadAsync();
+                    if (diagnostics.Errors is { Count: > 0 })
+                        return $"{result.Message}\n\nThe skill was saved, but Copilot reported skill-loading errors: {string.Join("; ", diagnostics.Errors)}";
+                }
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Skills] Native catalog refresh failed: {ex.Message}");
+                return $"{result.Message}\n\nThe skill was saved, but the running Copilot skill catalog could not be refreshed: {ex.Message}. It will refresh before the next message.";
+            }
+        }
+
+        return AppendNativeSkillInvocations(result, skillProvider);
+    }
+
+    internal static string AppendNativeSkillInvocations(FeatureChangeResult result, LumiSkillProvider? skillProvider)
+    {
+        if (skillProvider is null || result.SkillIds is not { Count: > 0 } skillIds)
+            return result.Message;
+
+        var calls = skillIds
+            .Select(id => (Id: id, Name: skillProvider.GetInvocationName(id)))
+            .Where(skill => skill.Name is not null)
+            .Select(skill => $"- {skill.Id}: `skill({{\"skill\":\"{skill.Name}\"}})`")
+            .ToArray();
+        return calls.Length == 0
+            ? result.Message
+            : $"{result.Message}\n\nNative skill calls for this chat (use these invocation names):\n{string.Join("\n", calls)}";
     }
 
     private void ApplyFeatureChangeUiState(FeatureChangeResult result, Guid sourceChatId)
@@ -1498,6 +1546,8 @@ public partial class ChatViewModel
 
     internal void RefreshFeatureCatalogState(FeatureChangeResult result)
     {
+        if (result.SyncSkillFiles)
+            InvalidateSystemPromptSession();
         if (result.CapabilityContextChanged)
             RefreshCapabilities();
         else

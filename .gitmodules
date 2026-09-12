@@ -1,3 +1,6 @@
 [submodule "Strata"]
 	path = Strata
 	url = https://github.com/adirh3/Strata.git
+[submodule "CopilotSdk"]
+	path = CopilotSdk
+	url = https://github.com/github/copilot-sdk.git

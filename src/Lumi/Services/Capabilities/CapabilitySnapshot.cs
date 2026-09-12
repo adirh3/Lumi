@@ -20,7 +20,8 @@ public sealed class CapabilitySnapshot
         CapabilityQuery query,
         IReadOnlyList<CapabilityDescriptor> capabilities,
         bool isComplete,
-        IReadOnlyList<string>? sessionSkillRoots = null)
+        IReadOnlyList<string>? sessionSkillRoots = null,
+        IEnumerable<string>? nativeSkillInvocationNames = null)
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(capabilities);
@@ -28,6 +29,8 @@ public sealed class CapabilitySnapshot
         Query = query;
         IsComplete = isComplete;
         SessionSkillRoots = sessionSkillRoots ?? [];
+        NativeSkillInvocationNames = (nativeSkillInvocationNames ?? GetNativeSkillInvocationNames(capabilities))
+            .ToHashSet(NameComparer);
 
         Skills = Order(capabilities.Where(static c => c.Kind == CapabilityKind.Skill));
         Agents = Order(capabilities.Where(static c => c.Kind == CapabilityKind.Agent));
@@ -43,6 +46,9 @@ public sealed class CapabilitySnapshot
     /// </summary>
     public IReadOnlyList<string> SessionSkillRoots { get; }
 
+    /// <summary>Native identities reserved even when a Lumi entry wins display-catalog deduplication.</summary>
+    public IReadOnlySet<string> NativeSkillInvocationNames { get; }
+
     public IReadOnlyList<CapabilityDescriptor> Skills { get; }
 
     public IReadOnlyList<CapabilityDescriptor> Agents { get; }
@@ -56,6 +62,12 @@ public sealed class CapabilitySnapshot
     public bool IsComplete { get; }
 
     public CapabilityDescriptor? FindSkill(string? name) => Find(name, Skills, matchSlug: true);
+
+    internal static IEnumerable<string> GetNativeSkillInvocationNames(IEnumerable<CapabilityDescriptor> capabilities)
+        => capabilities
+            .Where(capability => capability.Kind == CapabilityKind.Skill && !capability.Origin.IsLumi)
+            .SelectMany(skill => new[] { skill.Name, skill.SkillInvocationName, Slugify(skill.Name) })
+            .OfType<string>();
 
     /// <summary>
     /// Resolves an agent the same way as a skill. An agent's file name and its authored name often

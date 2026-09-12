@@ -295,6 +295,22 @@ public sealed class RemoteProjectionTests
     }
 
     [Fact]
+    public void NativeSkill_ProjectsItsDisplayNameInsteadOfItsRuntimeSlug()
+    {
+        var chat = new Chat { Title = "Native skills" };
+        var tool = Message("tool", "{\"skill\":\"native-skill-trial\"}", "skill", "Completed");
+        tool.ToolSkillName = "Native Skill Trial";
+        var transcript = Build(chat, [Message("user", "Use the skill"), tool]);
+
+        var group = Assert.Single(transcript.Turns[0].Items, item => item.Kind == RemoteProtocol.ItemKinds.ToolGroup);
+        var call = Assert.Single(group.Tools!);
+        Assert.Equal("skill", call.Name);
+        Assert.Equal("Using Native Skill Trial", call.DisplayName);
+        Assert.Equal("Native Skill Trial", call.Input);
+        Assert.Equal("{\"skill\":\"native-skill-trial\"}", tool.Content);
+    }
+
+    [Fact]
     public void Transcript_HonoursTheDesktopsReasoningAndToolPreferences()
     {
         var chat = new Chat { Id = Guid.NewGuid(), Title = "Quiet" };

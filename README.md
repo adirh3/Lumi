@@ -99,7 +99,7 @@ git clone --recurse-submodules https://github.com/adirh3/Lumi.git
 cd Lumi
 ```
 
-> **Note:** The `--recurse-submodules` flag is required to pull the [StrataTheme](https://github.com/adirh3/Strata) UI library.
+> **Note:** The `--recurse-submodules` flag pulls the [StrataTheme](https://github.com/adirh3/Strata) UI library and the pinned [Copilot SDK](https://github.com/github/copilot-sdk) source dependency.
 
 If you already cloned without submodules:
 
@@ -108,6 +108,27 @@ git submodule update --init --recursive
 ```
 
 ### Build & Run
+
+After initializing the submodules, apply the tracked SDK patch once before restoring or building:
+
+```bash
+git apply --directory=CopilotSdk patches/copilot-native-skills.patch
+```
+
+The `CopilotSdk` dependency is pinned to the public SDK 1.0.13 commit
+`f13e4a2cc7e4e220974d2333142234e162a3252e`, so a clean checkout never needs a private
+fork or an unpublished commit. The patch contains the .NET binding and its tests;
+CI applies the same patch. It intentionally leaves the submodule working tree modified.
+The patch pins CLI 1.0.83 directly, so Node.js is not required to build Lumi.
+
+The binding exposes the runtime's experimental `skillProvider.list` and
+`skillProvider.read` callbacks. Lumi keeps skill definitions in its existing JSON
+store and supplies Markdown directly to Copilot's native `skill` tool; no runtime
+skill files or replacement skill tool are needed. Existing skill mirrors/backups
+remain a separate editing feature, not the runtime's skill source.
+
+If the patch is already applied, `git apply --reverse --check --directory=CopilotSdk patches/copilot-native-skills.patch`
+verifies it without changing files. Do not discard unrelated submodule edits when updating the patch.
 
 ```bash
 dotnet build src/Lumi/Lumi.csproj

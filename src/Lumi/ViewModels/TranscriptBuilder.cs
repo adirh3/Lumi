@@ -561,7 +561,12 @@ public class TranscriptBuilder
             return;
         }
 
-        var (friendlyName, friendlyInfo) = ToolDisplayHelper.GetFriendlyToolDisplay(toolName, msgVm.Author, msgVm.Content);
+        var displaySkillName = msgVm.Message.ToolSkillName;
+        if (displaySkillName is null && toolName == "skill"
+            && ToolDisplayHelper.ExtractJsonField(msgVm.Content, "skill") is { Length: > 0 } runtimeSkillName)
+            displaySkillName = ResolveFetchedSkill(runtimeSkillName)?.Name;
+        var (friendlyName, friendlyInfo) = ToolDisplayHelper.GetFriendlyToolDisplay(
+            toolName, msgVm.Author, msgVm.Content, displaySkillName);
         friendlyName = $"{ToolDisplayHelper.GetToolGlyph(toolName)} {friendlyName}";
 
         var toolCallId = msgVm.Message.ToolCallId;
@@ -642,7 +647,7 @@ public class TranscriptBuilder
 
         var toolCall = new ToolCallItem(friendlyName, initialStatus, $"tool:{toolStableIdSeed}")
         {
-            InputParameters = ToolDisplayHelper.FormatToolArgsFriendly(toolName, msgVm.Content),
+            InputParameters = ToolDisplayHelper.FormatToolArgsFriendly(toolName, msgVm.Content, displaySkillName),
             MoreInfo = BuildToolCallMoreInfo(friendlyInfo, msgVm, initialStatus),
             DurationMs = msgVm.Message.ToolDurationMs ?? 0,
             RunningSince = msgVm.Message.ToolStartedAt,

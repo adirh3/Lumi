@@ -53,8 +53,6 @@
     <PackageReference Include="Avalonia.Themes.Simple" Version="$(AvaloniaVersion)" />
     <PackageReference Include="Avalonia.Controls.DataGrid" Version="$(AvaloniaVersion)" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
-    <!-- Let the SDK select its protocol-compatible CLI so transport fixes are not held back by a stale override. -->
-    <PackageReference Include="GitHub.Copilot.SDK" Version="1.0.13" />
     <PackageReference Include="StreamJsonRpc" Version="2.25.29" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.5" />
     <!-- Override the transitive SQLitePCLRaw.bundle_e_sqlite3 2.1.10 (vulnerable SQLite < 3.50.2, CVE-2025-6965 / GHSA-2m69-gcr7-jv3q).
@@ -79,11 +77,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Pinned SDK source adds the experimental native, in-memory skill-provider binding. -->
+    <ProjectReference Include="..\..\CopilotSdk\dotnet\src\GitHub.Copilot.SDK.csproj" />
     <ProjectReference Include="..\Lumi.Generators\Lumi.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\Lumi.Remote.Protocol\Lumi.Remote.Protocol.csproj" />
     <ProjectReference Include="..\..\Strata\src\StrataSearch\StrataSearch.csproj" />
     <ProjectReference Include="..\..\Strata\src\StrataTheme\StrataTheme.csproj" />
   </ItemGroup>
+
+  <Target Name="CheckNativeSkillSdkPatch" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)\..\..\CopilotSdk\dotnet\src\SkillProvider.cs')"
+           Text="Apply patches/copilot-native-skills.patch to the initialized CopilotSdk submodule before building; see README.md." />
+  </Target>
 
   <!-- Exclude test harness from Release builds -->
   <ItemGroup Condition="'$(Configuration)' != 'Debug'">

@@ -2180,12 +2180,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ResolveRoutedAgentName(capabilities, sdkAgentName));
 
         var customAgents = BuildCustomAgents(capabilities, agentName);
-        var customTools = BuildCustomTools(chat.Id, activeAgent);
+        var skillProvider = BuildLumiSkillProvider(activeAgent, capabilities);
+        var customTools = BuildCustomTools(chat.Id, activeAgent, skillProvider);
 
-        // Active skills are injected into the system prompt and inactive Lumi skills are loaded
-        // lazily through fetch_skill. Everything the Copilot runtime owns — project, personal,
-        // plugin and built-in skills — is discovered by the SDK itself. The only roots Lumi passes
-        // are the ones the runtime reported that a session's own config directory cannot reach.
+        // The native skill tool reads Lumi skills through the provider and discovers other sources.
+        // Explicitly selected Lumi skills remain preloaded in the prompt.
         var skillRoots = capabilities.SessionSkillRoots.ToList();
 
         var selectedModel = ResolveSelectedModelForChat(chat);
@@ -2332,13 +2331,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             SessionConfigBuilder.Build(
                 systemPrompt, selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
                 effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
-                provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved);
+                provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider);
 
         ResumeSessionConfig buildResumeConfig() =>
             SessionConfigBuilder.BuildForResume(
                 systemPrompt, selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
                 effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
-                provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved);
+                provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider);
 
         if (chat.CopilotSessionId is not null)
             await AwaitPendingSessionReleaseAsync(chat.Id, sessionCt);

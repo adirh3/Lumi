@@ -12,6 +12,26 @@ namespace Lumi.Tests;
 public sealed class LumiFeatureManagerTests
 {
     [Fact]
+    public void SkillResults_IdentifyOnlyTheCreatedUpdatedOrListedSkills()
+    {
+        var data = new AppData();
+        var manager = new LumiFeatureManager(new DataStore(data));
+        var created = manager.ManageSkills("create", name: "Review skill", content: "Instructions");
+        var skill = Assert.Single(data.Skills);
+        Assert.Equal([skill.Id], created.SkillIds);
+
+        var updated = manager.ManageSkills("update", identifier: skill.Id.ToString(), description: "Updated");
+        Assert.Equal([skill.Id], updated.SkillIds);
+
+        data.Skills.Add(new Skill { Name = "Other", Content = "Other instructions" });
+        var listed = manager.ManageSkills("list", query: "Review skill");
+        Assert.False(listed.DataChanged);
+        Assert.Equal([skill.Id], listed.SkillIds);
+        Assert.Empty(manager.ManageSkills("list", query: "missing").SkillIds!);
+        Assert.Null(manager.ManageSkills("update", identifier: "missing", description: "None").SkillIds);
+    }
+
+    [Fact]
     public void ManageJobs_CreateScriptJob_CreatesOneShotWakeJob()
     {
         var chat = new Chat

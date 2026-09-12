@@ -8,6 +8,50 @@ namespace Lumi.Tests;
 
 public sealed class SessionConfigBuilderTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnresolvedExternalDiscovery_DoesNotDisableTheLumiProvider(bool resume)
+    {
+        var provider = new LumiSkillProvider(_ =>
+            System.Threading.Tasks.Task.FromResult<IReadOnlyList<Skill>>([]));
+        SessionConfigBase config = resume
+            ? SessionConfigBuilder.BuildForResume(
+                "prompt", null, null, null, [@"C:\external-skills"], [], [], null, null, null, null,
+                enableCapabilityDiscovery: false, skillProvider: provider)
+            : SessionConfigBuilder.Build(
+                "prompt", null, null, null, [@"C:\external-skills"], [], [], null, null, null, null,
+                enableCapabilityDiscovery: false, skillProvider: provider);
+
+        Assert.True(config.EnableSkills);
+        Assert.False(config.EnableConfigDiscovery);
+        Assert.Null(config.SkillDirectories);
+        Assert.Empty(config.IncludedBuiltinSkills!);
+    }
+
+    [Fact]
+    public void SkillProvider_ReachesCreateAndResumeWithoutReplacingNativeSkillRoots()
+    {
+        var provider = new LumiSkillProvider(_ =>
+            System.Threading.Tasks.Task.FromResult<IReadOnlyList<Skill>>([]));
+        var roots = new List<string> { @"C:\native-skills" };
+        var created = SessionConfigBuilder.Build(
+            "prompt", null, null, null, roots, [], [], null, null, null, null,
+            skillProvider: provider);
+        var resumed = SessionConfigBuilder.BuildForResume(
+            "prompt", null, null, null, roots, [], [], null, null, null, null,
+            skillProvider: provider);
+
+#pragma warning disable GHCP001 // The trial intentionally exercises the SDK's experimental provider binding.
+        Assert.Same(provider, created.SkillProvider);
+        Assert.Same(provider, resumed.SkillProvider);
+#pragma warning restore GHCP001
+        Assert.Equal(roots, created.SkillDirectories);
+        Assert.Equal(roots, resumed.SkillDirectories);
+        Assert.DoesNotContain("builtin:skill", created.ExcludedTools!);
+        Assert.DoesNotContain("builtin:skill", resumed.ExcludedTools!);
+    }
+
     [Fact]
     public void McpToolTimeout_ReachesBothCreateAndResumeConfigurations()
     {

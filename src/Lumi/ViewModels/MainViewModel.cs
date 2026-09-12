@@ -360,7 +360,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         SkillsVM.SkillsChanged += () =>
         {
-            _chatSessionStore.ApplyToSurfaces(surface => surface.RefreshComposerCatalogs());
+            _chatSessionStore.ApplyToSurfaces(surface =>
+            {
+                surface.InvalidateSystemPromptSession();
+                surface.RefreshComposerCatalogs();
+            });
             RefreshFeatureManagementUi();
         };
         AgentsVM.AgentsChanged += () =>

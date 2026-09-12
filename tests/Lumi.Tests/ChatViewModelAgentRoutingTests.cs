@@ -939,6 +939,64 @@ public sealed class ChatViewModelAgentRoutingTests
     }
 
     [Fact]
+    public void LumiAgentSkills_AreNativePreloadsForDelegationButNotDuplicatedForActivePersona()
+    {
+        var skill = new Skill { Name = "Code Helper", Content = "Instructions" };
+        var agent = new LumiAgent { Name = "Coding Lumi", SkillIds = [skill.Id] };
+        using var harness = CreateHarness(new AppData { Skills = [skill], Agents = [agent] });
+
+        var delegated = Assert.Single(InvokeBuildCustomAgents(harness.ViewModel));
+        Assert.Equal(["code-helper"], delegated.Skills);
+        var active = Assert.Single(InvokeBuildCustomAgents(harness.ViewModel, activeAgentName: agent.Name));
+        Assert.Null(active.Skills);
+    }
+
+    [Fact]
+    public void DelegatedLumiSkills_UseTheProvidersCollisionFreeRuntimeName()
+    {
+        var skill = new Skill { Name = "Code Helper", Content = "Lumi instructions" };
+        var agent = new LumiAgent { Name = "Coding Lumi", SkillIds = [skill.Id] };
+        using var harness = CreateHarness(new AppData { Skills = [skill], Agents = [agent] });
+        var snapshot = new CapabilitySnapshot(CapabilityQuery.Empty,
+        [
+            new CapabilityDescriptor
+            {
+                Kind = CapabilityKind.Skill, Name = "code-helper", Origin = CapabilityOrigin.Project,
+            },
+        ], isComplete: true);
+
+        var delegated = Assert.Single(InvokeBuildCustomAgents(harness.ViewModel, snapshot));
+        Assert.Equal([$"code-helper-{skill.Id:N}"], delegated.Skills);
+    }
+
+    [Fact]
+    public void BuildCustomTools_DoesNotRegisterEitherSkillLoaderAsACustomTool()
+    {
+        using var harness = CreateHarness(new AppData());
+        var names = InvokeBuildCustomTools(harness.ViewModel).Select(tool => tool.Name).ToArray();
+
+        Assert.DoesNotContain("fetch_skill", names);
+        Assert.DoesNotContain("skill", names);
+    }
+
+    [Fact]
+    public async Task ManageSkillsTool_ListsCallableNamesFromItsOwnProvider()
+    {
+        var skill = new Skill { Name = "\u05db\u05ea\u05d9\u05d1\u05d4", Content = "Instructions" };
+        var data = new AppData { Skills = [skill] };
+        using var harness = CreateHarness(data);
+        var provider = new LumiSkillProvider(_ => Task.FromResult<IReadOnlyList<Skill>>(data.Skills));
+        var descriptor = Assert.Single(await provider.ListAsync());
+        var tool = Assert.Single(
+            InvokeBuildCustomTools(harness.ViewModel, skillProvider: provider),
+            candidate => candidate.Name == "manage_skills");
+
+        var result = await tool.InvokeAsync(new AIFunctionArguments { ["action"] = "list" });
+        Assert.Contains($"skill({{\"skill\":\"{descriptor.Name}\"}})",
+            Assert.IsType<System.Text.Json.JsonElement>(result).GetString());
+    }
+
+    [Fact]
     public void BuildCustomTools_RestrictedAgentFiltersOnlyLumiInjectedTools()
     {
         var agent = new LumiAgent
@@ -1076,17 +1134,18 @@ public sealed class ChatViewModelAgentRoutingTests
             method!.Invoke(viewModel, [capabilities, activeAgentName]));
     }
 
-    private static List<AIFunction> InvokeBuildCustomTools(ChatViewModel viewModel, LumiAgent? agent = null)
+    private static List<AIFunction> InvokeBuildCustomTools(
+        ChatViewModel viewModel, LumiAgent? agent = null, LumiSkillProvider? skillProvider = null)
     {
         var method = typeof(ChatViewModel).GetMethod(
             "BuildCustomTools",
             BindingFlags.Instance | BindingFlags.NonPublic,
             binder: null,
-            types: [typeof(Guid), typeof(LumiAgent)],
+            types: [typeof(Guid), typeof(LumiAgent), typeof(LumiSkillProvider)],
             modifiers: null);
 
         Assert.NotNull(method);
-        return Assert.IsType<List<AIFunction>>(method!.Invoke(viewModel, [Guid.NewGuid(), agent]));
+        return Assert.IsType<List<AIFunction>>(method!.Invoke(viewModel, [Guid.NewGuid(), agent, skillProvider]));
     }
 
     private static T GetPrivateField<T>(ChatViewModel viewModel, string fieldName)

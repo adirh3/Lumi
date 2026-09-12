@@ -27,7 +27,7 @@ public static partial class ToolDisplayHelper
     };
 
     /// <summary>Formats a tool name into a standalone live-status phrase (e.g. "Reading file" or "Running command").</summary>
-    public static string FormatToolStatusName(string toolName, string? argsJson = null)
+    public static string FormatToolStatusName(string toolName, string? argsJson = null, string? displaySkillName = null)
     {
         if (toolName.StartsWith("agent:", StringComparison.Ordinal))
             return string.Format(Loc.Tool_RunningAgent, toolName["agent:".Length..]);
@@ -66,6 +66,9 @@ public static partial class ToolDisplayHelper
             "announce_file" => Loc.Tool_SharingFile,
             "fetch_skill" => ExtractJsonField(argsJson, "name") is { Length: > 0 } skillName
                 ? string.Format(Loc.Tool_UsingNamedSkill, skillName)
+                : Loc.Tool_FetchingSkill,
+            "skill" => (displaySkillName ?? ExtractJsonField(argsJson, "skill")) is { Length: > 0 } nativeSkillName
+                ? string.Format(Loc.Tool_UsingNamedSkill, nativeSkillName)
                 : Loc.Tool_FetchingSkill,
             "manage_projects" => "Managing Lumi projects",
             "manage_skills" => "Managing Lumi skills",

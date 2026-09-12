@@ -17,6 +17,50 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class ChatViewModelProjectSkillComposerTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExactExternalSelection_IsNotReplacedByALumiRuntimeAlias(bool restrictLumiSkills)
+    {
+        using var session = HeadlessTestSession.Start();
+        var root = CreateProjectRoot();
+        try
+        {
+            await session.Dispatch(() =>
+            {
+                var skill = new Skill { Name = "Code Helper", Content = "Lumi instructions" };
+                var project = new Project { Name = "Project", WorkingDirectory = root };
+                var agent = new LumiAgent { Name = "Agent", HasExplicitToolSelection = restrictLumiSkills };
+                var chat = new Chat { ProjectId = project.Id, AgentId = agent.Id };
+                var store = new DataStore(new AppData
+                {
+                    Skills = [skill], Projects = [project], Agents = [agent], Chats = [chat],
+                });
+                using var catalog = new CapabilityCatalog(
+                    new LumiCapabilityProvider(store),
+                    new ScopedSkillProvider(root, "code-helper", "Native instructions"));
+                WarmCatalog(catalog, store);
+                using var viewModel = new ChatViewModel(store, TestCopilot.Shared, capabilityCatalog: catalog)
+                {
+                    CurrentChat = chat,
+                };
+
+                viewModel.AddSkillByName("code-helper");
+                Assert.Empty(chat.ActiveSkillIds);
+                Assert.Equal(["code-helper"], chat.ActiveExternalSkillNames);
+                Assert.Equal("Native instructions", viewModel.FindSkillReferenceByName("code-helper")!.Description);
+
+                viewModel.AddSkillByName("Code Helper");
+                Assert.Equal([skill.Id], chat.ActiveSkillIds);
+                Assert.Equal(["code-helper"], chat.ActiveExternalSkillNames);
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            Cleanup(root);
+        }
+    }
+
     [Fact]
     public async Task ExternalProjectChange_LoadsAColdCapabilityQuery()
     {

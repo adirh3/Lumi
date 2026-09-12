@@ -1531,14 +1531,15 @@ internal static class RemoteProjector
         IReadOnlySet<string>? runningBackgroundToolCallIds = null)
     {
         var toolName = message.ToolName ?? "tool";
-        var (friendly, info) = ToolDisplayHelper.GetFriendlyToolDisplay(toolName, message.Author, message.Content);
+        var (friendly, info) = ToolDisplayHelper.GetFriendlyToolDisplay(
+            toolName, message.Author, message.Content, message.ToolSkillName);
         return new RemoteToolCall
         {
             Id = message.ToolCallId ?? message.Id.ToString("N"),
             Name = toolName,
             DisplayName = friendly,
             Input = RemoteProtocol.TruncateForMobile(
-                info ?? message.Content,
+                message.ToolSkillName ?? info ?? message.Content,
                 RemoteProtocol.MobileToolInputLimit),
             Output = RemoteProtocol.TruncateForMobile(
                 message.ToolOutput,
@@ -1568,6 +1569,8 @@ internal static class RemoteProjector
 
     private static string? SanitizeActivityToolInput(ChatMessage message)
     {
+        if (message.ToolName == "skill" && message.ToolSkillName is { Length: > 0 } skillName)
+            return skillName;
         if (!ToolDisplayHelper.IsSubagentTool(message.ToolName)
             || string.IsNullOrWhiteSpace(message.Content))
         {

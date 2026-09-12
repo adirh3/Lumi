@@ -11,6 +11,20 @@ namespace Lumi.Tests;
 public sealed class SkillPreviewTests
 {
     [Fact]
+    public void ProviderRuntimeName_ResolvesToLumisOriginalNameAndGlyph()
+    {
+        var skill = new Skill { Name = "Code Helper", IconGlyph = "C", Description = "Code instructions" };
+        using var viewModel = new ChatViewModel(new DataStore(new AppData { Skills = [skill] }), TestCopilot.Shared);
+
+        var reference = viewModel.FindSkillReferenceByName("code-helper");
+
+        Assert.NotNull(reference);
+        Assert.Equal(skill.Name, reference.Name);
+        Assert.Equal(skill.IconGlyph, reference.Glyph);
+        Assert.Equal(skill.Description, reference.Description);
+    }
+
+    [Fact]
     public void ResolveSkillMarkdown_RendersRuntimeLocatedSkillBody_WhenChipUsesSlugName()
     {
         // A repo skill invoked via the native Copilot skill tool arrives as a slug
