@@ -357,11 +357,8 @@ public partial class ChatViewModel
         });
 
         var runtime = GetOrCreateRuntimeState(chat.Id);
-        MarkRuntimeActive(
-            runtime,
-            string.Format(Loc.Status_BackgroundRunning, FormatCompactElapsed(TimeSpan.Zero)),
-            isStreaming: false,
-            hasPendingBackgroundWork: true);
+        MarkSessionBackgroundActive(runtime);
+        MarkAssistantIdle(runtime);
 
         _isBulkLoadingMessages = true;
         try

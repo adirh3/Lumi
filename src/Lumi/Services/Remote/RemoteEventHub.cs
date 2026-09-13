@@ -393,6 +393,7 @@ internal sealed class RemoteEventHub : IDisposable
         switch (e.PropertyName)
         {
             case nameof(ChatViewModel.IsBusy):
+            case nameof(ChatViewModel.IsSessionActive):
                 MarkChatsDirty();
                 MarkStatusDirty(observer.Surface.CurrentChat?.Id);
                 break;

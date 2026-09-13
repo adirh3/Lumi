@@ -385,6 +385,29 @@ public class RemoteClientEndToEndTests
             "the streaming delta to land");
 
         Assert.Equal("Hello from your PC", ((AssistantItemViewModel)shell.Chat.Turns[0].Items[0]).Text);
+
+        shell.SearchChatList.Apply(OneChatPage(new RemoteChat
+        {
+            Id = chatId,
+            Title = "Live",
+            IsRunning = true
+        }));
+        await desktop.PushAsync(RemoteProtocol.Events.ChatStatus, JsonSerializer.Serialize(
+            new RemoteChatStatus { ChatId = chatId, IsSessionActive = true },
+            RemoteJsonContext.Default.RemoteChatStatus));
+        await WaitAsync(() => shell.Chat.HasBackgroundActivity, "assistant ready with background activity");
+        Assert.False(shell.Chat.IsBusy);
+        Assert.False(shell.Chat.IsStreaming);
+        Assert.True(shell.ChatList.Groups[0].Chats[0].HasBackgroundActivity);
+        Assert.True(shell.SearchChatList.Groups[0].Chats[0].HasBackgroundActivity);
+
+        // This frame changes only session activity; no assistant busy/streaming edge can carry it.
+        await desktop.PushAsync(RemoteProtocol.Events.ChatStatus, JsonSerializer.Serialize(
+            new RemoteChatStatus { ChatId = chatId },
+            RemoteJsonContext.Default.RemoteChatStatus));
+        await WaitAsync(() => !shell.Chat.IsSessionActive, "the remaining session activity to finish");
+        Assert.False(shell.ChatList.Groups[0].Chats[0].HasBackgroundActivity);
+        Assert.False(shell.SearchChatList.Groups[0].Chats[0].HasBackgroundActivity);
     }
 
     [Fact]
@@ -873,8 +896,10 @@ public class RemoteClientEndToEndTests
             item => item.Text == "hello");
     }
 
-    [Fact]
-    public async Task Sending_KeepsProgressUntilVisibleResponseActivity()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Sending_KeepsProgressUntilVisibleResponseActivity(bool backgroundActive)
     {
         var chatId = Guid.NewGuid();
         var chat = new MobileChatViewModel(new NeverCompletingSink())
@@ -905,16 +930,20 @@ public class RemoteClientEndToEndTests
         {
             ChatId = chatId,
             IsBusy = false,
-            IsStreaming = false
+            IsStreaming = false,
+            IsSessionActive = backgroundActive
         });
         Assert.True(chat.IsBusy);
         Assert.True(chat.ShowThinking);
+        Assert.Equal(backgroundActive, chat.IsSessionActive);
+        Assert.False(chat.HasBackgroundActivity);
 
         chat.ApplyTranscript(new RemoteTranscript
         {
             ChatId = chatId,
             Revision = 6,
             IsLatestWindow = true,
+            Status = new RemoteChatStatus { ChatId = chatId, IsSessionActive = backgroundActive },
             Turns =
             [
                 new RemoteTranscriptTurn
@@ -939,6 +968,7 @@ public class RemoteClientEndToEndTests
             ChatId = chatId,
             Revision = 7,
             IsLatestWindow = true,
+            Status = new RemoteChatStatus { ChatId = chatId, IsSessionActive = backgroundActive },
             Turns =
             [
                 new RemoteTranscriptTurn
@@ -964,6 +994,8 @@ public class RemoteClientEndToEndTests
         });
 
         Assert.False(chat.ShowThinking);
+        Assert.False(chat.IsBusy);
+        Assert.Equal(backgroundActive, chat.HasBackgroundActivity);
     }
 
     [Fact]

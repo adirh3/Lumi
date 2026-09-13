@@ -233,6 +233,12 @@ public sealed partial class MobileShellViewModel :
                 SearchChatList.SetRunning(Chat.ChatId, isRunning);
             }
 
+            if (e.PropertyName == nameof(MobileChatViewModel.IsSessionActive))
+            {
+                ChatList.SetSessionActive(Chat.ChatId, Chat.IsSessionActive);
+                SearchChatList.SetSessionActive(Chat.ChatId, Chat.IsSessionActive);
+            }
+
             if (e.PropertyName is nameof(MobileChatViewModel.ChatId))
             {
                 SearchChatList.SelectedChatId = Chat.ChatId;
@@ -1316,6 +1322,7 @@ public sealed partial class MobileShellViewModel :
             MessageCount = 1,
             UpdatedAt = DateTimeOffset.Now,
             IsRunning = true,
+            IsSessionActive = true,
             LastModelUsed = Chat.Model
         }, isNewChat);
     }
@@ -1855,6 +1862,13 @@ public sealed partial class MobileShellViewModel :
                     {
                         Chat.ApplyStatus(status);
                         ChatList.SetRunning(status.ChatId, status.IsBusy || status.IsStreaming);
+                        SearchChatList.SetRunning(status.ChatId, status.IsBusy || status.IsStreaming);
+                        ChatList.SetSessionActive(
+                            status.ChatId,
+                            status.IsSessionActive || status.IsBusy || status.IsStreaming);
+                        SearchChatList.SetSessionActive(
+                            status.ChatId,
+                            status.IsSessionActive || status.IsBusy || status.IsStreaming);
                     });
                 }
                 return;

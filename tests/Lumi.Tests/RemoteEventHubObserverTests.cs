@@ -564,6 +564,78 @@ public sealed class RemoteEventHubObserverTests
         failure?.Throw();
     }
 
+    [Fact]
+    public async Task SessionOnlyChangesPublishReadyStatusAndChatListUpdates()
+    {
+        using var session = HeadlessTestSession.Start();
+        ExceptionDispatchInfo? failure = null;
+
+        await session.Dispatch(() =>
+        {
+            CancellationTokenSource? cancellation = null;
+            Task? writer = null;
+            MainViewModel? main = null;
+            try
+            {
+                var chat = Chat("Ready background session");
+                var dataStore = new DataStore(new AppData { Chats = [chat] });
+                main = new MainViewModel(
+                    dataStore,
+                    TestCopilot.Shared,
+                    new UpdateService(),
+                    initializeCopilotOnStartup: false);
+                main.ChatVM.CurrentChat = chat;
+                using var hub = new RemoteEventHub(dataStore, main, () => []);
+                Dispatcher.UIThread.RunJobs();
+
+                var stream = new RecordingStream();
+                var client = hub.AddClient(
+                    stream,
+                    "session-observer",
+                    subscription: new RemoteEventSubscription
+                    {
+                        ChatId = chat.Id,
+                        IncludeChatList = true,
+                        IsForeground = true
+                    });
+                cancellation = new CancellationTokenSource();
+                writer = client.RunAsync(cancellation.Token);
+                Flush(hub);
+                WriteBarrierAndWait(hub, stream);
+
+                foreach (var active in new[] { true, false })
+                {
+                    var before = stream.Text.Length;
+                    main.ChatVM.IsSessionActive = active;
+                    Assert.False(main.ChatVM.IsBusy);
+                    Flush(hub);
+                    WriteBarrierAndWait(hub, stream);
+
+                    var update = stream.Text[before..];
+                    Assert.Equal(1, CountEvent(update, RemoteProtocol.Events.ChatStatus));
+                    Assert.Equal(1, CountEvent(update, RemoteProtocol.Events.Chats));
+                    Assert.Contains($"\"isSessionActive\":{(active ? "true" : "false")}", update);
+                    Assert.Contains("\"isBusy\":false", update);
+                    Assert.Contains("\"isRunning\":false", update);
+                }
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                cancellation?.Cancel();
+                if (writer is not null)
+                    Pump(writer);
+                cancellation?.Dispose();
+                main?.Dispose();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
     private static void Flush(RemoteEventHub hub) =>
         typeof(RemoteEventHub)
             .GetMethod("FlushPending", BindingFlags.Instance | BindingFlags.NonPublic)!

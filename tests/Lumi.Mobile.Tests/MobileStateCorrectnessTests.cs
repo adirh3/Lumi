@@ -1161,6 +1161,157 @@ public sealed class MobileStateCorrectnessTests
     }
 
     [Fact]
+    public void SessionOnlyStatusShowsBackgroundActivityWithoutAssistantProgress()
+    {
+        var chat = new MobileChatViewModel(new RecordingSink());
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Background");
+        var notifications = new List<string?>();
+        chat.PropertyChanged += (_, args) => notifications.Add(args.PropertyName);
+
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsSessionActive = true });
+
+        Assert.False(chat.IsBusy);
+        Assert.False(chat.IsStreaming);
+        Assert.False(chat.ShowThinking);
+        Assert.True(chat.IsSessionActive);
+        Assert.True(chat.HasBackgroundActivity);
+        Assert.Contains(nameof(MobileChatViewModel.HasBackgroundActivity), notifications);
+
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId });
+        Assert.False(chat.IsSessionActive);
+        Assert.False(chat.HasBackgroundActivity);
+    }
+
+    [Fact]
+    public async Task ReadyBackgroundSendDoesNotRequestSteeringOrStop()
+    {
+        var sink = new RecordingSink();
+        var chat = new MobileChatViewModel(sink);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Background");
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsSessionActive = true });
+        chat.PromptText = "Continue while the server stays open";
+
+        await chat.SendCommand.ExecuteAsync(null);
+
+        Assert.Equal(RemoteProtocol.Actions.SendMessage, sink.LastCommand?.Action);
+        Assert.Null(sink.LastCommand?.Get("steer"));
+        Assert.Null(sink.LastCommand?.Get("stopAndSend"));
+        Assert.True(chat.IsSessionActive);
+    }
+
+    [Fact]
+    public void ChatAndHostResetClearBackgroundSessionActivity()
+    {
+        var chat = new MobileChatViewModel(new RecordingSink());
+        chat.Reset(Guid.NewGuid(), "First");
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chat.ChatId, IsSessionActive = true });
+
+        chat.Reset(Guid.NewGuid(), "Second");
+        Assert.False(chat.IsSessionActive);
+        Assert.False(chat.HasBackgroundActivity);
+
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chat.ChatId, IsSessionActive = true });
+        chat.ResetHostState();
+        Assert.False(chat.IsSessionActive);
+        Assert.False(chat.HasBackgroundActivity);
+    }
+
+    [Fact]
+    public void DelayedTranscriptCannotRestoreAnAlreadyDrainedSession()
+    {
+        var chat = new MobileChatViewModel(new RecordingSink());
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Background");
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsSessionActive = true });
+        var requestedAt = chat.StatusVersion;
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId });
+
+        chat.ApplyTranscript(new RemoteTranscript
+        {
+            ChatId = chatId,
+            Revision = 1,
+            Status = new RemoteChatStatus { ChatId = chatId, IsSessionActive = true }
+        }, requestedAt);
+
+        Assert.False(chat.IsSessionActive);
+        Assert.False(chat.HasBackgroundActivity);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task FailedBackgroundStopKeepsRetryControlsRegardlessOfStatusOrdering(bool statusFirst)
+    {
+        var sink = new SequencedCommandSink(commandCount: 2);
+        var chat = new MobileChatViewModel(sink);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Background session");
+        var active = new RemoteChatStatus { ChatId = chatId, IsSessionActive = true };
+        chat.ApplyStatus(active);
+
+        var stop = chat.StopCommand.ExecuteAsync(null);
+        var first = await sink.WaitForCommandAsync(0);
+        if (statusFirst)
+            chat.ApplyStatus(active);
+        sink.Complete(0, new RemoteCommandResult
+        {
+            Ok = false, ChatId = chatId, RequestId = first.RequestId,
+            Error = "Copilot could not stop background task preview."
+        });
+        await stop;
+        if (!statusFirst)
+            chat.ApplyStatus(active);
+
+        Assert.True(chat.IsSessionActive);
+        Assert.True(chat.HasBackgroundActivity);
+        Assert.False(chat.IsBusy);
+        Assert.Contains("could not stop", chat.ErrorText);
+
+        var retry = chat.StopCommand.ExecuteAsync(null);
+        var second = await sink.WaitForCommandAsync(1);
+        Assert.NotEqual(first.RequestId, second.RequestId);
+        sink.Complete(1, new RemoteCommandResult { Ok = true, ChatId = chatId });
+        await retry;
+        Assert.False(chat.IsSessionActive);
+        Assert.False(chat.HasBackgroundActivity);
+    }
+
+    [Fact]
+    public async Task BackgroundStatusDoesNotCompleteAnUnacknowledgedSessionStop()
+    {
+        var sink = new SequencedCommandSink(commandCount: 2);
+        var chat = new MobileChatViewModel(sink);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Background");
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsSessionActive = true });
+
+        var firstStop = chat.StopCommand.ExecuteAsync(null);
+        var first = await sink.WaitForCommandAsync(0);
+        Assert.Equal(RemoteProtocol.Actions.StopGeneration, first.Action);
+        chat.ApplyStatus(new RemoteChatStatus { ChatId = chatId, IsSessionActive = true });
+        sink.Complete(0, new RemoteCommandResult
+        {
+            Error = "connection reset",
+            IsOutcomeUnknown = true,
+            RequestId = first.RequestId
+        });
+        await firstStop;
+
+        Assert.True(chat.HasBackgroundActivity);
+        var retry = chat.StopCommand.ExecuteAsync(null);
+        var second = await sink.WaitForCommandAsync(1);
+        Assert.Equal(first.RequestId, second.RequestId);
+        sink.Complete(1, new RemoteCommandResult { Ok = true });
+        await retry;
+
+        Assert.False(chat.IsSessionActive);
+        Assert.False(chat.HasBackgroundActivity);
+        Assert.False(chat.IsBusy);
+    }
+
+    [Fact]
     public async Task AmbiguousStopReusesItsRequestId()
     {
         var sink = new SequencedCommandSink(commandCount: 2);

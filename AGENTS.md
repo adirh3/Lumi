@@ -62,6 +62,9 @@ App.axaml.cs
 
 - **MVVM** with CommunityToolkit.Mvvm source generators — use `[ObservableProperty]` for bindable properties and `[RelayCommand]` for commands
 - **Event-driven streaming** — `CopilotService` events → `Dispatcher.UIThread.Post` → ViewModel state → View reactivity
+- **Assistant versus session activity** — `ChatViewModel.IsBusy` / `Chat.IsRunning` describe only the main assistant. Root `assistant.idle` makes it ready even when attached processes or background agents remain active. `IsSessionActive` tracks that independent session lifetime; `HasBackgroundActivity` presents the ready-with-background state. A cached but idle session is not active work.
+- **Ownership is not presentation** — session cleanup, eviction, configuration changes and explicit session Stop use runtime ownership (`HasActiveWork`, `OwnsLiveChat`, pending operations), never the assistant spinner. New messages to a ready assistant reuse its session without aborting background work. Child events update their own activity, not the main assistant's busy state.
+- **Completion boundaries** — `assistant.turn_end` is a per-step boundary, not readiness. `assistant.idle` settles the main reply; `session.idle` settles all attached work. Keep the existing chat-event `idle` automation contract tied to session completion.
 - **Programmatic UI construction** — `ChatView.axaml.cs` builds the chat transcript dynamically using Strata controls (not data templates)
 - **JSON file persistence** — single `data.json` file via `DataStore`, no database
 - **System prompt composition** — `SystemPromptBuilder` assembles context from user name, time of day, agent, project, skills, and memories

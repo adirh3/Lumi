@@ -15,7 +15,12 @@ public sealed partial class ChatListItemViewModel : ObservableObject
     [ObservableProperty] private string? _agentName;
     [ObservableProperty] private string _agentGlyph = "";
     [ObservableProperty] private bool _isPinned;
-    [ObservableProperty] private bool _isRunning;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
+    private bool _isRunning;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
+    private bool _isSessionActive;
     [ObservableProperty] private bool _hasUnreadMessages;
     [ObservableProperty] private bool _isSelected;
     [ObservableProperty] private int _messageCount;
@@ -27,6 +32,8 @@ public sealed partial class ChatListItemViewModel : ObservableObject
     public bool HasProject => !string.IsNullOrWhiteSpace(ProjectName);
 
     public bool HasAgent => !string.IsNullOrWhiteSpace(AgentName);
+
+    public bool HasBackgroundActivity => IsSessionActive && !IsRunning;
 
     /// <summary>
     /// Compact "when" label for the row: "now", "14m", "3h", "2d", then a date. Rows are already
@@ -62,6 +69,7 @@ public sealed partial class ChatListItemViewModel : ObservableObject
         AgentGlyph = chat.AgentGlyph ?? "";
         IsPinned = chat.IsPinned;
         IsRunning = chat.IsRunning;
+        IsSessionActive = chat.IsSessionActive || chat.IsRunning;
         HasUnreadMessages = chat.HasUnreadMessages;
         MessageCount = chat.MessageCount;
         UpdatedAt = chat.UpdatedAt;
@@ -263,6 +271,14 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
             realized.IsRunning = isRunning;
     }
 
+    public void SetSessionActive(Guid chatId, bool isSessionActive)
+    {
+        foreach (var chat in _source.SelectMany(group => group.Chats).Where(chat => chat.Id == chatId))
+            chat.IsSessionActive = isSessionActive;
+        if (_realizedChats.TryGetValue(chatId, out var realized))
+            realized.IsSessionActive = isSessionActive;
+    }
+
     public void PromoteChat(RemoteChat incoming, bool isNewChat = false)
     {
         RemoteChat? existing = null;
@@ -296,6 +312,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
             UpdatedAt = incoming.UpdatedAt == default ? DateTimeOffset.Now : incoming.UpdatedAt,
             IsPinned = existing?.IsPinned ?? incoming.IsPinned,
             IsRunning = incoming.IsRunning,
+            IsSessionActive = incoming.IsSessionActive || incoming.IsRunning,
             HasUnreadMessages = false,
             LastModelUsed = incoming.LastModelUsed ?? existing?.LastModelUsed
         };

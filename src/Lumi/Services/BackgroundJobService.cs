@@ -118,7 +118,10 @@ public sealed class BackgroundJobService : IDisposable
     private async Task<(ChatViewModel Executor, bool ReleaseWhenDone)> ResolveChatExecutorForInvocationAsync(Guid chatId)
     {
         if (_chatSurfaceRegistry.TryGetLiveOwner(chatId, out var liveSurface))
-            return (liveSurface, false);
+        {
+            _chatSessionStore?.Retain(liveSurface);
+            return (liveSurface, _chatSessionStore is not null);
+        }
 
         if (_chatSurfaceRegistry.TryGetOwner(chatId, out var visibleSurface))
         {
@@ -149,12 +152,12 @@ public sealed class BackgroundJobService : IDisposable
     private bool IsChatBusy(Guid chatId)
     {
         if (_chatSurfaceRegistry.TryGetLiveOwner(chatId, out var liveSurface))
-            return liveSurface.IsChatBusy(chatId);
+            return liveSurface.IsChatBusyForSend(chatId);
 
         if (_chatSurfaceRegistry.TryGetOwner(chatId, out var visibleSurface))
-            return visibleSurface.IsChatBusy(chatId);
+            return visibleSurface.IsChatBusyForSend(chatId);
 
-        return _fallbackChatViewModel?.IsChatBusy(chatId) == true;
+        return _fallbackChatViewModel?.IsChatBusyForSend(chatId) == true;
     }
 
     public void Start()

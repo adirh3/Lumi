@@ -938,6 +938,21 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private bool _isStreaming;
     [ObservableProperty] private string _statusText = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
+    [NotifyPropertyChangedFor(nameof(ShowInfoStrip))]
+    private bool _isSessionActive;
+    [ObservableProperty] private string _backgroundActivityText = Loc.Get("Chat_BackgroundActivity");
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasRunningSessionActivities))]
+    private IReadOnlyList<SessionActivityItem> _runningSessionActivities = [];
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasBackgroundActivityNotice))]
+    private string? _backgroundActivityNotice = Loc.Get("Chat_BackgroundActivityLoading");
+
+    public bool HasBackgroundActivity => IsSessionActive && !IsBusy;
+    public bool HasRunningSessionActivities => RunningSessionActivities.Count > 0;
+    public bool HasBackgroundActivityNotice => !string.IsNullOrEmpty(BackgroundActivityNotice);
     [ObservableProperty] private string? _selectedModel;
     [ObservableProperty] private bool _isEditingMessage;
     [ObservableProperty] private string _editingMessageStatusText = "";
@@ -962,7 +977,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [ObservableProperty] private long _contextTokenLimit;
 
     public bool HasTokenUsage => HasContextUsage || CurrentChat is { Messages.Count: > 0 };
-    public bool ShowInfoStrip => IsCodingProject || HasTokenUsage;
+    public bool ShowInfoStrip => IsCodingProject || HasTokenUsage || HasBackgroundActivity;
     public string TokenUsageSummary => HasContextUsage
         ? $"{ContextUsagePercent}%"
         : HasTokenUsage ? Loc.Get("Chat_ContextWindow_ChipLabel") : "";
@@ -1611,6 +1626,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     partial void OnIsBusyChanged(bool value)
     {
+        OnPropertyChanged(nameof(HasBackgroundActivity));
+        OnPropertyChanged(nameof(ShowInfoStrip));
         UpdateUserMessageEditState();
         NotifyContextActionAvailabilityChanged();
         if (value)
@@ -1623,6 +1640,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 QueueRefreshCodingProjectState();
             // Newly produced files / sources may have arrived this turn.
             RebuildWorkspacePanel();
+        }
+    }
+
+    partial void OnIsSessionActiveChanged(bool value)
+    {
+        NotifyContextActionAvailabilityChanged();
+        if (!value)
+        {
+            BackgroundActivityText = Loc.Get("Chat_BackgroundActivity");
+            ResetBackgroundActivityItems();
         }
     }
 
@@ -2613,6 +2640,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             IsBusy = runtime.IsBusy;
             IsStreaming = runtime.IsStreaming;
             StatusText = runtime.StatusText;
+            IsSessionActive = runtime.IsSessionActive;
             TotalInputTokens = runtime.TotalInputTokens;
             TotalOutputTokens = runtime.TotalOutputTokens;
             ContextCurrentTokens = runtime.ContextCurrentTokens;
@@ -2876,6 +2904,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         CurrentChat = null;
         QueueRefreshCodingProjectState();
         IsBusy = false;
+        IsSessionActive = false;
         IsStreaming = false;
         TotalInputTokens = 0;
         TotalOutputTokens = 0;
@@ -3064,6 +3093,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         => _pendingSessionInvalidations.Contains(chatId)
            || _pendingSessionReconfigurations.Contains(chatId);
 
+    private bool HasActiveSessionConfigurationConflict(Chat chat, string? requestedProviderSignature)
+        => IsChatRuntimeActive(chat.Id)
+           && (HasPendingSessionRefresh(chat.Id)
+               || (chat.CopilotSessionId is not null
+                   && !string.Equals(chat.SessionProviderSignature, requestedProviderSignature, StringComparison.Ordinal)));
+
     private void ReconfigureSession(Chat chat)
     {
         _pendingSessionReconfigurations.Remove(chat.Id);
@@ -3086,6 +3121,20 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         return OwnsLiveChat(chatId) || IsExternalSendReserved(chatId);
     }
+
+    /// <summary>Assistant readiness, independent of session/background resource ownership.</summary>
+    public bool IsAssistantBusy(Guid chatId)
+        => (_runtimeStates.TryGetValue(chatId, out var runtime) && (runtime.IsBusy || runtime.IsStreaming))
+           || (CurrentChat?.Id == chatId && (IsBusy || IsStreaming));
+
+    internal bool IsChatBusyForSend(Guid chatId)
+        => HasPendingAssistantWork(chatId) || IsExternalSendReserved(chatId);
+
+    private bool HasPendingAssistantWork(Guid chatId)
+        => IsAssistantBusy(chatId)
+           || (_runtimeStates.TryGetValue(chatId, out var runtime) && runtime.IsStopping)
+           || HasPendingQuestion(chatId)
+           || (_queuedBusySendPrompts.TryGetValue(chatId, out var queued) && queued.Count > 0);
 
     internal sealed class ExternalSendReservation : IDisposable
     {
@@ -3119,7 +3168,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     {
         lock (_externalSendReservationLock)
         {
-            if (OwnsLiveChat(chatId) || _externalSendReservations.ContainsKey(chatId))
+            if (HasPendingAssistantWork(chatId) || _externalSendReservations.ContainsKey(chatId))
                 return null;
 
             var token = Guid.NewGuid();
@@ -3303,7 +3352,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             ArgumentNullException.ThrowIfNull(targetChat);
             validateBeforeSend?.Invoke();
 
-        if (OwnsLiveChat(targetChat.Id)
+        if (HasPendingAssistantWork(targetChat.Id)
             || IsExternalSendReservedByAnother(targetChat.Id, reservationToken))
             throw new InvalidOperationException($"Chat \"{targetChat.Title}\" is already running.");
         if (reservationToken is { } initialReservationToken
@@ -3341,6 +3390,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             throw new ByokOnlyRequestBlockedException(Loc.Byok_Error_ByokOnly);
 
         var requestedProviderSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider);
+        if (HasActiveSessionConfigurationConflict(targetChat, requestedProviderSignature))
+        {
+            throw new InvalidOperationException("Stop this session's background work before changing its configuration.");
+        }
         if (targetChat.CopilotSessionId is not null
             && !string.Equals(
                 targetChat.SessionProviderSignature,
@@ -3401,7 +3454,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         };
 
         targetChat.Messages.Add(userMsg);
-        BeginChatLifecycleTurn(targetChat);
         if (CurrentChat?.Id == targetChat.Id)
         {
             Messages.Add(new ChatMessageViewModel(userMsg));
@@ -3447,6 +3499,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
         ChatUpdated?.Invoke();
 
+        // Configuration may have changed while the receipt was persisted. Keep that accepted
+        // message in the existing queue instead of replacing a session that still owns work.
+        if (HasActiveSessionConfigurationConflict(targetChat, requestedProviderSignature))
+        {
+            userMsg.SteerDelivery = MessageSteerState.Queued;
+            if (ResolveQueuedViewModel(userMsg) is { } queuedViewModel)
+                queuedViewModel.SteerState = MessageSteerState.Queued;
+            QueueBusySendPrompt(targetChat.Id, prompt, userMsg);
+            onAccepted?.Invoke();
+            return;
+        }
+
         CancellationTokenSource? cts = null;
         MessageOptions? sendOptions = null;
         CopilotSession? sendSession = null;
@@ -3461,11 +3525,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         try
         {
             var chatId = targetChat.Id;
-            var abortedPreviousTurn = ReleasePreviousTurnCancellation(chatId);
-            if (abortedPreviousTurn)
-                await AbortCachedTurnAsync(targetChat, cancellationToken);
+            // Admission reserved a ready assistant. A background continuation may start during the
+            // preparation awaits; enqueue the new prompt without cancelling that session's work.
+            _ctsSources.Remove(chatId);
 
             var runtime = GetOrCreateRuntimeState(chatId);
+            BeginChatLifecycleTurn(targetChat);
             MarkRuntimeActive(runtime, Loc.Status_Thinking);
             if (reservationToken is { } token)
             {
@@ -3583,7 +3648,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 sendSession,
                 localUserMessageCount,
                 cts.Token,
-                verifyWithLiveEvents: abortedPreviousTurn);
+                verifyWithLiveEvents: false);
             // Apply the BYOK model's per-minute request limit (if configured) before this turn
             // consumes a network slot. No-op for non-BYOK models or models without a limit, so
             // existing chats are unaffected. Retries below reuse this turn's slot.
@@ -4325,7 +4390,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (BlockSendForByokOnly(guardChat, selectedModelForSend, prompt, consumeComposerPrompt))
             return;
 
-        if (CurrentChat is { } activeChat && IsChatRuntimeActive(activeChat.Id))
+        if (CurrentChat is { } activeChat
+            && IsChatRuntimeActive(activeChat.Id)
+            && (!CanStartTurnOnReadySession(activeChat)
+                || (queuedMessage is null && _queuedBusySendPrompts.ContainsKey(activeChat.Id))))
         {
             await SteerActiveTurnAsync(activeChat, prompt, consumeComposerPrompt, queuedMessage);
             return;
@@ -4998,6 +5066,13 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private bool WasCancelledByUser(Guid? chatId)
         => chatId.HasValue && _ctsSources.GetValueOrDefault(chatId.Value)?.IsCancellationRequested == true;
 
+    private bool CanStartTurnOnReadySession(Chat chat)
+        => !IsAssistantBusy(chat.Id)
+           && (!_runtimeStates.TryGetValue(chat.Id, out var runtime) || !runtime.IsStopping)
+           && !HasPendingQuestion(chat.Id)
+           && _sessionCache.TryGetValue(chat.Id, out var session)
+           && IsCachedSessionProviderConsistentWithSelection(chat.Id, session);
+
     /// <summary>
     /// The per-chat cache, not <see cref="_activeSession"/>, determines whether a session must be
     /// created or resumed. The active pointer is presentation state and may be temporarily cleared
@@ -5644,7 +5719,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (runtime.StopOperation is { IsCompleted: false } pending)
             return pending;
 
-        return runtime.StopOperation = StopGenerationCoreAsync(chat, resolvePendingSteersAsFailed);
+        var operation = runtime.StopOperation = StopGenerationCoreAsync(chat, resolvePendingSteersAsFailed);
+        _ = operation.ContinueWith(
+            _ => Dispatcher.UIThread.Post(() =>
+            {
+                // The store must reevaluate ownership after the stop guard, not only after SDK idle.
+                if (!_isDisposed)
+                    OnPropertyChanged(nameof(IsSessionActive));
+            }),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return operation;
     }
 
     private async Task<string?> StopGenerationCoreAsync(
@@ -5681,6 +5767,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         try
         {
             await AbortCachedTurnAsync(chat);
+            MarkAssistantIdle(runtime);
+            if (_sessionCache.TryGetValue(chatId, out var session))
+                await StopRemainingSessionTasksAsync(session, runtime);
         }
         catch (Exception ex)
         {
@@ -5696,7 +5785,11 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             FailQueuedBusySends(chatId);
             runtime.StatusText = error;
             if (CurrentChat?.Id == chatId)
+            {
                 ApplyDisplayedRuntimeState(runtime);
+                if (HasBackgroundActivity)
+                    BackgroundActivityText = error;
+            }
             return error;
         }
 
@@ -5711,7 +5804,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
         ClearPendingTurnTracking(chatId);
 
-        // Aborting the session kills any background shell it launched, so stop showing them "running".
+        // Both the assistant abort and explicit background cancellation have now completed.
         if (CurrentChat?.Id == chatId)
             CompleteAllBackgroundShellsAndStop();
 

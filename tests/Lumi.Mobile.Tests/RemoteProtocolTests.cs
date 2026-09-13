@@ -98,6 +98,32 @@ public class RemoteProtocolTests
     }
 
     [Fact]
+    public void SessionActivityRoundTripsSeparatelyFromAssistantActivity()
+    {
+        var chatId = Guid.NewGuid();
+        var chats = new List<RemoteChat>
+        {
+            new() { Id = chatId, IsSessionActive = true }
+        };
+        var chatJson = JsonSerializer.Serialize(chats, RemoteJsonContext.Default.ListRemoteChat);
+        var parsedChat = Assert.Single(JsonSerializer.Deserialize(
+            chatJson, RemoteJsonContext.Default.ListRemoteChat)!);
+        Assert.True(parsedChat.IsSessionActive);
+        Assert.False(parsedChat.IsRunning);
+
+        var statusJson = JsonSerializer.Serialize(
+            new RemoteChatStatus { ChatId = chatId, IsSessionActive = true },
+            RemoteJsonContext.Default.RemoteChatStatus);
+        var status = JsonSerializer.Deserialize(statusJson, RemoteJsonContext.Default.RemoteChatStatus)!;
+        Assert.True(status.IsSessionActive);
+        Assert.False(status.IsBusy);
+        Assert.False(status.IsStreaming);
+
+        var legacy = JsonSerializer.Deserialize("{}", RemoteJsonContext.Default.RemoteChatStatus)!;
+        Assert.False(legacy.IsSessionActive);
+    }
+
+    [Fact]
     public void Transcript_SurvivesAnUnknownItemKind()
     {
         // Forward compatibility: a newer desktop may emit kinds this build has never heard of.

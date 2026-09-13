@@ -436,6 +436,7 @@ public partial class ChatViewModel
     private bool CanInterruptQueuedSendNowImmediately(Guid chatId)
         => _runtimeStates.TryGetValue(chatId, out var runtime)
            && (runtime.IsStopping
+               || (runtime.IsSessionActive && !runtime.IsBusy)
                || Volatile.Read(ref runtime.AssistantTurnStarted)
                || runtime.ActiveToolCount > 0
                || Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0

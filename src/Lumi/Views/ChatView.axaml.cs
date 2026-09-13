@@ -43,6 +43,7 @@ public partial class ChatView : UserControl
 
     private StrataChatShell? _chatShell;
     private StrataChatComposer? _composer;
+    private Button? _backgroundActivityButton;
     private Panel? _composerSpacer;
     private Panel? _dropOverlay;
     private ItemsControl? _transcript;
@@ -140,6 +141,9 @@ public partial class ChatView : UserControl
         _chatShell = this.FindControl<StrataChatShell>("ChatShell");
         ApplyShellChrome();
         _composer = this.FindControl<StrataChatComposer>("Composer");
+        _backgroundActivityButton = this.FindControl<Button>("BackgroundActivityButton");
+        if (_backgroundActivityButton?.Flyout is { } activityFlyout)
+            activityFlyout.Opened += OnBackgroundActivityFlyoutOpened;
         if (_composer is not null)
             _composer.ClipboardPasteInterceptFormats = new DataFormat[] { LumiChatContextClipboardFormat, DataFormat.Text };
         _composerSpacer = this.FindControl<Panel>("ComposerSpacer");
@@ -293,8 +297,15 @@ public partial class ChatView : UserControl
 
     private void FocusComposerAtEnd() => _composer?.FocusInputAtEnd();
 
+    private async void OnBackgroundActivityFlyoutOpened(object? sender, EventArgs e)
+    {
+        if (_subscribedVm is { } vm)
+            await vm.RefreshBackgroundActivityAsync();
+    }
+
     private void UnsubscribeFromViewModel()
     {
+        _backgroundActivityButton?.Flyout?.Hide();
         if (_subscribedVm is null) return;
         _subscribedVm.ScrollToEndRequested -= OnScrollToEndRequested;
         _subscribedVm.UserMessageSent -= OnUserMessageSent;
@@ -802,11 +813,20 @@ public partial class ChatView : UserControl
             var chatReferenceChanged = !ReferenceEquals(currentChat, _lastObservedCurrentChat);
             _lastObservedCurrentChat = currentChat;
 
+            if (chatReferenceChanged)
+                _backgroundActivityButton?.Flyout?.Hide();
+
             if (chatReferenceChanged && currentChat is not null)
             {
                 _chatShell?.EnterFollowTailMode();
                 SyncTranscriptPinnedState();
             }
+        }
+
+        if (e.PropertyName == nameof(ChatViewModel.HasBackgroundActivity)
+            && _subscribedVm?.HasBackgroundActivity != true)
+        {
+            _backgroundActivityButton?.Flyout?.Hide();
         }
 
         if (e.PropertyName == nameof(ChatViewModel.IsChatSurfaceLoading))

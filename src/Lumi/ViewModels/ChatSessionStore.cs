@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.Services.Capabilities;
@@ -395,6 +396,13 @@ public sealed class ChatSessionStore : IDisposable
             RemoveChatOwner(surface);
             if (surface.CurrentChat is { } chat)
                 RegisterChatOwner(surface, chat.Id);
+        }
+
+        if (args.PropertyName == nameof(ChatViewModel.IsSessionActive))
+        {
+            // Session completion is published inside SDK cleanup; never evict the owner reentrantly.
+            Dispatcher.UIThread.Post(() => CacheOrReleaseIfIdleAndUnhosted(surface));
+            return;
         }
 
         if (args.PropertyName is nameof(ChatViewModel.CurrentChat)

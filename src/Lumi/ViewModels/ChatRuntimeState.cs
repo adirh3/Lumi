@@ -12,9 +12,11 @@ internal enum ContextTokenLimitSource
 internal sealed class ChatRuntimeState
 {
     private bool _isBusy;
+    private bool _isSessionActive;
 
     public Chat? Chat { get; init; }
 
+    /// <summary>Main-assistant activity only. Background work never makes the assistant busy.</summary>
     public bool IsBusy
     {
         get => _isBusy;
@@ -24,8 +26,25 @@ internal sealed class ChatRuntimeState
                 return;
 
             _isBusy = value;
+            if (value)
+                IsSessionActive = true;
             if (Chat is not null)
                 Chat.IsRunning = value;
+        }
+    }
+
+    /// <summary>
+    /// Session work survives assistant.idle. Only session.idle, a completed stop, or a terminal
+    /// failure releases it; display readiness must never determine resource ownership.
+    /// </summary>
+    public bool IsSessionActive
+    {
+        get => _isSessionActive;
+        set
+        {
+            _isSessionActive = value;
+            if (Chat is not null)
+                Chat.IsSessionActive = value;
         }
     }
 
@@ -66,7 +85,7 @@ internal sealed class ChatRuntimeState
     /// <summary>Number of sub-agents currently executing. The SDK completes the wrapping
     /// <c>task</c> tool as soon as a sub-agent is spawned, so <see cref="ActiveToolCount"/>
     /// drops to 0 while the sub-agent keeps streaming. This counter keeps the session busy
-    /// (and blocks idle-recovery) until the sub-agent actually finishes.</summary>
+    /// (and blocks session recovery/cleanup) until the sub-agent actually finishes.</summary>
     public int ActiveSubagentExecutionDepth;
 
     /// <summary>
@@ -108,7 +127,8 @@ internal sealed class ChatRuntimeState
     public Dictionary<string, DateTimeOffset> RunningBackgroundShells { get; } = new(StringComparer.Ordinal);
 
     public bool HasActiveWork
-        => IsBusy
+        => IsSessionActive
+           || IsBusy
            || IsStreaming
            || IsStopping
            || HasPendingBackgroundWork

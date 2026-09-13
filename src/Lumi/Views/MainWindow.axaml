@@ -1300,6 +1300,13 @@
                                             Opacity="0.9"
                                             IsVisible="{Binding IsPinned}"
                                             ToolTip.Tip="{loc:Str Chat_PinnedTooltip}" />
+                                  <Border x:Name="BackgroundChatIndicator" DockPanel.Dock="Right"
+                                          Width="7" Height="7" CornerRadius="3.5"
+                                          Margin="7,0,0,0" BorderThickness="1.5"
+                                          BorderBrush="{DynamicResource Brush.TextTertiary}"
+                                          VerticalAlignment="Center"
+                                          IsVisible="{Binding HasBackgroundActivity}"
+                                          ToolTip.Tip="{loc:Str Chat_BackgroundActivityTooltip}" />
                                   <TextBlock Text="{Binding Title}"
                                              ToolTip.Tip="{Binding Title}"
                                              TextTrimming="CharacterEllipsis"

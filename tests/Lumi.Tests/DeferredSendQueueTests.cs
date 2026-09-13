@@ -10,7 +10,9 @@ using Avalonia.Threading;
 using GitHub.Copilot;
 using GitHub.Copilot.Rpc;
 using Lumi.Models;
+using Lumi.Remote.Protocol;
 using Lumi.Services;
+using Lumi.Services.Remote;
 using Lumi.ViewModels;
 using Microsoft.Extensions.Logging.Abstractions;
 using StreamJsonRpc;
@@ -678,6 +680,252 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    public async Task BackgroundActivityRefresh_ListsConcreteTasksWithoutMakingTheAssistantBusy()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        rpc.RunningShells.Add("preview");
+        host.AttachSession(rpc);
+        host.MarkTurnEndedWithBackgroundWorkPending();
+
+        await host.ViewModel.RefreshBackgroundActivityAsync();
+
+        var item = Assert.Single(host.ViewModel.RunningSessionActivities);
+        Assert.Equal("preview", item.Id);
+        Assert.Equal("Debug process", item.Title);
+        Assert.Equal("Start-Sleep -Seconds 300", item.Detail);
+        Assert.False(host.ViewModel.IsBusy);
+        Assert.Equal(0, rpc.AbortCount);
+
+        rpc.RunningShells.Clear();
+        await host.ViewModel.RefreshBackgroundActivityAsync();
+        Assert.Empty(host.ViewModel.RunningSessionActivities);
+        Assert.True(host.ViewModel.HasBackgroundActivityNotice);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BackgroundActivityRefresh_IgnoresAResultAfterSessionEndsOrChatChanges(bool switchChat)
+    {
+        var ui = HeadlessTestSession.Start();
+        try
+        {
+            await ui.Dispatch(async () =>
+            {
+                using var host = DeferredSendHost.Create();
+                using var rpc = new AbortRpc
+                {
+                    TaskListReply = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously)
+                };
+                rpc.RunningShells.Add("preview");
+                host.AttachSession(rpc);
+                host.MarkTurnEndedWithBackgroundWorkPending();
+                var refresh = host.ViewModel.RefreshBackgroundActivityAsync();
+                await rpc.TaskListReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+                if (switchChat)
+                    host.ViewModel.CurrentChat = new Chat { IsSessionActive = true };
+                else
+                    host.ViewModel.IsSessionActive = false;
+                rpc.TaskListReply.SetResult(rpc.BuildTaskList());
+                await refresh;
+
+                Assert.Empty(host.ViewModel.RunningSessionActivities);
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(ui.Dispose);
+        }
+    }
+
+    [Fact]
+    public async Task BackgroundActivityRefresh_FailureKeepsLastKnownItemsAndReportsUnavailable()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        rpc.RunningShells.Add("preview");
+        host.AttachSession(rpc);
+        host.MarkTurnEndedWithBackgroundWorkPending();
+        await host.ViewModel.RefreshBackgroundActivityAsync();
+        var items = host.ViewModel.RunningSessionActivities;
+
+        rpc.Disconnect();
+        await host.ViewModel.RefreshBackgroundActivityAsync();
+
+        Assert.Same(items, host.ViewModel.RunningSessionActivities);
+        Assert.True(host.ViewModel.HasBackgroundActivityNotice);
+        Assert.Equal(Lumi.Localization.Loc.Get("Chat_BackgroundActivityUnavailable"), host.ViewModel.BackgroundActivityNotice);
+        Assert.True(host.ViewModel.IsSessionActive);
+        Assert.False(host.ViewModel.IsBusy);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExternalSend_ConfigurationChangedDuringPersistence_QueuesWithoutReplacingTheSession(
+        bool sameSessionReconfiguration)
+    {
+        var ui = HeadlessTestSession.Start();
+        try
+        {
+            await ui.Dispatch(async () =>
+            {
+                await TestCopilot.Shared.ConnectAsync();
+                using var host = DeferredSendHost.Create();
+                using var rpc = new AbortRpc();
+                using var lifetime = new CancellationTokenSource();
+                using var sendCancellation = new CancellationTokenSource();
+                host.AttachSession(rpc);
+                host.MarkTurnEndedWithBackgroundWorkPending();
+                host.MarkRuntimeTerminal();
+                host.Runtime.IsSessionActive = true;
+                host.Runtime.HasPendingBackgroundWork = true;
+                host.SetTurnCancellation(lifetime);
+                var sequence = host.Runtime.LifecycleTurnSequence;
+                var sessionId = host.Chat.CopilotSessionId;
+                const string deviceId = "phone-config-race";
+                const string requestId = "message-config-race";
+                var configurationChanged = false;
+                host.DataStore.IndexSaved += () =>
+                {
+                    if (configurationChanged || host.Chat.LastRemoteRequestId != requestId)
+                        return;
+                    configurationChanged = true;
+                    host.QueueSessionRefresh(sameSessionReconfiguration);
+                };
+
+                var accepted = false;
+                try
+                {
+                    await host.ViewModel.SendExternalMessageAsync(
+                        host.Chat, "Keep the server alive", "Lumi Mobile", sendCancellation.Token,
+                        onAccepted: () =>
+                        {
+                            accepted = true;
+                            // Bound the unfixed path before it can start a real replacement session.
+                            sendCancellation.Cancel();
+                        },
+                        remoteDeviceId: deviceId,
+                        remoteRequestId: requestId);
+                }
+                catch (OperationCanceledException) when (sendCancellation.IsCancellationRequested)
+                {
+                }
+
+                Assert.True(configurationChanged);
+                Assert.True(accepted);
+                Assert.Equal(sessionId, host.Chat.CopilotSessionId);
+                Assert.True(host.HasCachedSession(rpc.Session));
+                Assert.Equal(0, rpc.DestroyCount);
+                Assert.Equal(0, rpc.SendCount);
+                Assert.False(lifetime.IsCancellationRequested);
+                Assert.False(host.ViewModel.IsBusy);
+                Assert.True(host.IsChatRuntimeActive());
+                Assert.Equal(sequence, host.Runtime.LifecycleTurnSequence);
+                Assert.Equal(["Keep the server alive"], host.QueuedPrompts());
+                var message = Assert.Single(host.Chat.Messages);
+                Assert.Equal(MessageSteerState.Queued, message.SteerDelivery);
+                Assert.Equal(requestId, message.RemoteRequestId);
+                Assert.Equal(deviceId, host.Chat.LastRemoteDeviceId);
+                Assert.Equal(requestId, host.Chat.LastRemoteRequestId);
+
+                using var main = new MainViewModel(
+                    host.DataStore, TestCopilot.Shared, new UpdateService(),
+                    initializeCopilotOnStartup: false);
+                main.ChatSurfaceRegistry.Attach(host.ViewModel);
+                var retry = await new RemoteCommandRouter(host.DataStore, main).ExecuteAsync(
+                    new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                    {
+                        AuthenticatedDeviceId = deviceId, RequestId = requestId
+                    }.With("chatId", host.Chat.Id.ToString()).With("message", message.Content),
+                    CancellationToken.None);
+                Assert.True(retry.Ok, retry.Error);
+                Assert.Single(host.Chat.Messages);
+                Assert.Single(host.QueuedPrompts());
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(ui.Dispose);
+        }
+    }
+
+    [Fact]
+    public async Task RemoteStop_RejectedTaskCancellation_ReturnsFailureWhileSessionRemainsActive()
+    {
+        var ui = HeadlessTestSession.Start();
+        try
+        {
+            await ui.Dispatch(async () =>
+            {
+                using var host = DeferredSendHost.Create();
+                using var rpc = new AbortRpc { RejectTaskCancellation = true };
+                rpc.RunningShells.Add("preview");
+                host.AttachSession(rpc);
+                host.MarkTurnEndedWithBackgroundWorkPending();
+                using var main = new MainViewModel(
+                    host.DataStore, TestCopilot.Shared, new UpdateService(),
+                    initializeCopilotOnStartup: false);
+                main.ChatSurfaceRegistry.Attach(host.ViewModel);
+                var router = new RemoteCommandRouter(host.DataStore, main);
+
+                var result = await router.ExecuteAsync(
+                    new RemoteCommand(RemoteProtocol.Actions.StopGeneration)
+                        .With("chatId", host.Chat.Id.ToString()),
+                    CancellationToken.None);
+
+                Assert.False(result.Ok);
+                Assert.Equal(host.Chat.Id, result.ChatId);
+                Assert.NotNull(result.Error);
+                Assert.True(host.ViewModel.IsSessionActive);
+                Assert.True(host.ViewModel.HasBackgroundActivity);
+                Assert.Contains("preview", rpc.RunningShells);
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(ui.Dispose);
+        }
+    }
+
+    [Fact]
+    public async Task StopSession_CancelsAttachedShellsInsteadOfOnlyAbortingTheAssistant()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        rpc.RunningShells.Add("debug-process");
+        host.AttachSession(rpc);
+        host.MarkTurnEndedWithBackgroundWorkPending();
+
+        var error = await host.StopGenerationAsync();
+
+        Assert.Null(error);
+        Assert.Equal(["debug-process"], rpc.CancelledShells);
+        Assert.Empty(rpc.RunningShells);
+        Assert.False(host.IsChatRuntimeActive());
+    }
+
+    [Fact]
+    public async Task StopSession_RejectedTaskCancellation_PreservesBackgroundActivityAndReportsFailure()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc { RejectTaskCancellation = true };
+        rpc.RunningShells.Add("debug-process");
+        host.AttachSession(rpc);
+        host.MarkTurnEndedWithBackgroundWorkPending();
+        host.QueuePrompt("must not replace a failed stop");
+
+        var error = await host.StopGenerationAsync();
+
+        Assert.NotNull(error);
+        Assert.True(host.IsChatRuntimeActive());
+        Assert.True(host.Runtime.HasPendingBackgroundWork);
+        Assert.Equal(MessageSteerState.Failed, Assert.Single(host.ViewModel.Messages).SteerState);
+    }
+
+    [Fact]
     public async Task SendNow_BackgroundOnlyAbortWithoutIdle_ReleasesTheChat()
     {
         using var host = DeferredSendHost.Create();
@@ -773,6 +1021,195 @@ public sealed class DeferredSendQueueTests
         Assert.False(host.IsChatRuntimeActive());
         Assert.Equal(MessageSteerState.Failed, Assert.Single(host.ViewModel.Messages, message => message.Role == "user").SteerState);
         Assert.Empty(host.QueuedPrompts());
+    }
+
+    [Fact]
+    public async Task AssistantIdle_WithBackgroundWork_ReadiesTheAssistantWithoutReleasingTheSession()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+            host.ViewModel.IsBusy = true;
+            host.ViewModel.IsStreaming = true;
+            host.Runtime.HasPendingBackgroundWork = true;
+
+            rpc.Emit(new AssistantIdleEvent { Data = new AssistantIdleData() });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.False(host.ViewModel.IsBusy);
+            Assert.False(host.ViewModel.IsStreaming);
+            Assert.False(host.Chat.IsRunning);
+            Assert.True(host.Chat.IsSessionActive);
+            Assert.True(host.ViewModel.HasBackgroundActivity);
+            Assert.True(host.IsChatRuntimeActive());
+            Assert.True(host.Runtime.HasPendingBackgroundWork);
+            Assert.Equal(0, rpc.AbortCount);
+
+            rpc.Emit(new AssistantTurnStartEvent { Data = new AssistantTurnStartData { TurnId = "continuation" } });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(host.ViewModel.IsBusy);
+            Assert.True(host.Chat.IsRunning);
+            Assert.True(host.Runtime.HasPendingBackgroundWork);
+            Assert.False(host.ViewModel.HasBackgroundActivity);
+
+            rpc.Emit(new AssistantIdleEvent { Data = new AssistantIdleData() });
+            rpc.Emit(new SessionIdleEvent { Data = new SessionIdleData() });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.False(host.ViewModel.IsBusy);
+            Assert.False(host.ViewModel.IsSessionActive);
+            Assert.False(host.Chat.IsSessionActive);
+            Assert.False(host.IsChatRuntimeActive());
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task BackgroundChangeQueuedAfterSessionIdle_DoesNotReactivateTheSession()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+            host.Runtime.HasPendingBackgroundWork = true;
+
+            rpc.Emit(new SessionIdleEvent { Data = new SessionIdleData() });
+            rpc.Emit(new SessionBackgroundTasksChangedEvent { Data = new SessionBackgroundTasksChangedData() });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.False(host.IsChatRuntimeActive());
+            Assert.False(host.Chat.IsSessionActive);
+            Assert.False(host.ViewModel.HasBackgroundActivity);
+            Assert.False(host.Runtime.HasPendingBackgroundWork);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ChildActivity_AfterAssistantIdle_DoesNotRestartTheAssistantSpinner()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+            host.ViewModel.IsBusy = true;
+
+            rpc.Emit(new AssistantIdleEvent { Data = new AssistantIdleData() });
+            rpc.Emit(new SubagentStartedEvent
+            {
+                AgentId = "background-child",
+                Data = new SubagentStartedData
+                {
+                    ToolCallId = "child-tool",
+                    AgentName = "task",
+                    AgentDisplayName = "Background child",
+                    AgentDescription = "Continues independently"
+                }
+            });
+            rpc.Emit(new ToolExecutionStartEvent
+            {
+                AgentId = "background-child",
+                Data = new ToolExecutionStartData { ToolCallId = "child-shell", ToolName = "powershell" }
+            });
+            rpc.Emit(new SessionBackgroundTasksChangedEvent { Data = new SessionBackgroundTasksChangedData() });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.False(host.ViewModel.IsBusy);
+            Assert.False(host.Chat.IsRunning);
+            Assert.True(host.IsChatRuntimeActive());
+            Assert.Equal(1, host.Runtime.ActiveSubagentExecutionDepth);
+            Assert.Equal("InProgress", host.Chat.Messages.Single(message => message.ToolCallId == "child-tool").ToolStatus);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task SendNow_OnReadyActiveSession_DoesNotWaitForAnotherAssistantStart()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+
+            rpc.Emit(new AssistantIdleEvent { Data = new AssistantIdleData() });
+            Dispatcher.UIThread.RunJobs();
+            host.QueuePrompt("run this now");
+
+            await host.SendNowAsync(Assert.Single(host.ViewModel.Messages));
+
+            Assert.Equal(1, rpc.AbortCount);
+            Assert.False(host.Runtime.SendQueuedNowWhenTurnStarts);
+            Assert.False(host.Runtime.IsSessionActive);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ReadySession_AdmitsANewTurnWithoutCancelingItsBackgroundLifetime()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            using var backgroundLifetime = new CancellationTokenSource();
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+            host.SetTurnCancellation(backgroundLifetime);
+            host.Runtime.HasPendingBackgroundWork = true;
+
+            rpc.Emit(new AssistantIdleEvent { Data = new AssistantIdleData() });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(host.CanStartTurnOnReadySession());
+            Assert.False(host.ViewModel.IsAssistantBusy(host.Chat.Id));
+            Assert.False(host.ViewModel.IsChatBusyForSend(host.Chat.Id));
+            Assert.False(host.ReleasePreviousTurnCancellation());
+            Assert.False(backgroundLifetime.IsCancellationRequested);
+            Assert.True(host.ViewModel.OwnsLiveChat(host.Chat.Id));
+            Assert.Equal(0, rpc.AbortCount);
+
+            using var reservation = host.ViewModel.TryReserveExternalSend(host.Chat.Id);
+            Assert.NotNull(reservation);
+            Assert.True(host.ViewModel.IsChatBusyForSend(host.Chat.Id));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task AssistantTurnEnd_IsAStepBoundary_NotAssistantReadiness()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+
+            rpc.Emit(new AssistantTurnStartEvent { Data = new AssistantTurnStartData { TurnId = "step" } });
+            rpc.Emit(new AssistantTurnEndEvent { Data = new AssistantTurnEndData { TurnId = "step" } });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.True(host.ViewModel.IsBusy);
+            Assert.True(host.Chat.IsRunning);
+            Assert.True(host.Chat.IsSessionActive);
+        }, CancellationToken.None);
     }
 
     [Fact]
@@ -977,6 +1414,8 @@ public sealed class DeferredSendQueueTests
 
         public ChatViewModel ViewModel { get; }
 
+        public DataStore DataStore => GetField<DataStore>("_dataStore");
+
         public Chat Chat { get; }
 
         public ChatRuntimeState Runtime => GetRuntimeStates()[Chat.Id];
@@ -1055,6 +1494,22 @@ public sealed class DeferredSendQueueTests
 
         public Task<string?> StopGenerationAsync()
             => (Task<string?>)Invoke("StopGenerationInternal", Chat, true)!;
+
+        public bool CanStartTurnOnReadySession()
+            => (bool)Invoke("CanStartTurnOnReadySession", Chat)!;
+
+        public bool ReleasePreviousTurnCancellation()
+            => (bool)Invoke("ReleasePreviousTurnCancellation", Chat.Id)!;
+
+        public void SetTurnCancellation(CancellationTokenSource cancellation)
+            => GetField<Dictionary<Guid, CancellationTokenSource>>("_ctsSources")[Chat.Id] = cancellation;
+
+        public void QueueSessionRefresh(bool sameSession)
+            => GetField<HashSet<Guid>>(sameSession ? "_pendingSessionReconfigurations" : "_pendingSessionInvalidations")
+                .Add(Chat.Id);
+
+        public bool HasCachedSession(CopilotSession session)
+            => GetField<Dictionary<Guid, CopilotSession>>("_sessionCache").GetValueOrDefault(Chat.Id) == session;
 
         public Task<bool> TryStopManualCompactionAsync()
             => (Task<bool>)Invoke("TryStopManualContextCompactionAsync", Chat)!;
@@ -1283,7 +1738,13 @@ public sealed class DeferredSendQueueTests
         public TaskCompletionSource AbortReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int AbortCount { get; private set; }
         public int SendCount { get; private set; }
+        public int DestroyCount { get; private set; }
         public string? LastSendMode { get; private set; }
+        public HashSet<string> RunningShells { get; } = [];
+        public List<string> CancelledShells { get; } = [];
+        public bool RejectTaskCancellation { get; init; }
+        public TaskCompletionSource<object>? TaskListReply { get; init; }
+        public TaskCompletionSource TaskListReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         [JsonRpcMethod("session.abort", UseSingleObjectParameterDeserialization = true)]
         public async Task<AbortResult> Abort(object request)
@@ -1294,7 +1755,43 @@ public sealed class DeferredSendQueueTests
         }
 
         [JsonRpcMethod("session.destroy", UseSingleObjectParameterDeserialization = true)]
-        public object Destroy(object request) => new { };
+        public object Destroy(object request)
+        {
+            DestroyCount++;
+            return new { };
+        }
+
+        [JsonRpcMethod("session.tasks.list", UseSingleObjectParameterDeserialization = true)]
+        public async Task<object> ListTasks(object request)
+        {
+            TaskListReceived.TrySetResult();
+            return TaskListReply is null ? BuildTaskList() : await TaskListReply.Task;
+        }
+
+        public object BuildTaskList() => new
+        {
+            tasks = RunningShells.Select(id => new
+            {
+                type = "shell",
+                id,
+                status = "running",
+                attachmentMode = "attached",
+                executionMode = "background",
+                command = "Start-Sleep -Seconds 300",
+                description = "Debug process",
+                startedAt = DateTimeOffset.UtcNow
+            }).ToArray()
+        };
+
+        [JsonRpcMethod("session.tasks.cancel", UseSingleObjectParameterDeserialization = true)]
+        public TasksCancelResult CancelTask(Dictionary<string, object> request)
+        {
+            var id = Assert.IsType<string>(request["id"]);
+            if (RejectTaskCancellation || !RunningShells.Remove(id))
+                return new TasksCancelResult { Cancelled = false };
+            CancelledShells.Add(id);
+            return new TasksCancelResult { Cancelled = true };
+        }
 
         [JsonRpcMethod("session.send", UseSingleObjectParameterDeserialization = true)]
         public SendResult Send(Dictionary<string, object> request)

@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.Mobile.ViewModels"
+             xmlns:loc="using:Lumi.Mobile.Localization"
              xmlns:sc="using:StrataTheme.Controls"
              xmlns:sa="using:StrataTheme.Animation"
              x:Class="Lumi.Mobile.Views.MobileDrawerView"
@@ -176,6 +177,13 @@
                                     sa:LifecycleOpacityPulse.Duration="0:0:1.2"
                                     sa:LifecycleOpacityPulse.PlaybackDirection="Alternate"
                                     sa:LifecycleOpacityPulse.IsActive="True" />
+                            <PathIcon x:Name="BackgroundActivityIndicator"
+                                      Width="10" Height="10" VerticalAlignment="Center"
+                                      Foreground="{DynamicResource Brush.TextTertiary}"
+                                      IsVisible="{Binding HasBackgroundActivity}"
+                                      ToolTip.Tip="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}"
+                                      AutomationProperties.Name="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}"
+                                      Data="M4 4h16v12H4V4zm2 2v8h12V6H6zm2 12h8v2H8v-2z" />
                             <Ellipse Width="9" Height="9" VerticalAlignment="Center"
                                      Fill="{DynamicResource Brush.AccentDefault}"
                                      IsVisible="{Binding HasUnreadMessages}" />

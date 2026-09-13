@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.Mobile.ViewModels"
              xmlns:views="using:Lumi.Mobile.Views"
+             xmlns:loc="using:Lumi.Mobile.Localization"
              xmlns:proto="using:Lumi.Remote.Protocol"
              xmlns:behaviors="using:Lumi.Mobile.Behaviors"
              xmlns:sc="using:StrataTheme.Controls"
@@ -439,6 +440,23 @@
                        VerticalAlignment="Center" />
           </StackPanel>
         </Border>
+        <!-- A ready assistant is not a busy session. Keep attached work visible and explicitly
+             stoppable without driving the composer or the assistant's typing indicator. -->
+        <Grid x:Name="BackgroundSessionStatus"
+              IsVisible="{Binding Chat.HasBackgroundActivity}"
+              ColumnDefinitions="*,Auto" ColumnSpacing="8"
+              MaxWidth="{DynamicResource Chat.ReadingColumnWidth}"
+              Margin="16,0,12,4">
+          <TextBlock Text="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}"
+                     FontSize="{DynamicResource Font.SizeCaption}"
+                     Foreground="{DynamicResource Brush.TextSecondary}"
+                     TextWrapping="Wrap" VerticalAlignment="Center" />
+          <Button x:Name="StopSessionButton" Grid.Column="1"
+                  Classes="subtle touch"
+                  Content="{x:Static loc:ChatSessionStrings.StopSession}"
+                  Command="{Binding Chat.StopCommand}"
+                  IsEnabled="{Binding IsLive}" />
+        </Grid>
         </StackPanel>
         </Border>
       </sc:StrataChatShell.Header>

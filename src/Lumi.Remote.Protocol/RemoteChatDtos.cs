@@ -12,7 +12,10 @@ public sealed class RemoteChat
     public int MessageCount { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public bool IsPinned { get; set; }
+    /// <summary>The main assistant is working; background activity alone does not set this.</summary>
     public bool IsRunning { get; set; }
+    /// <summary>The session has active work, including attached background processes or agents.</summary>
+    public bool IsSessionActive { get; set; }
     public bool HasUnreadMessages { get; set; }
     public string? LastModelUsed { get; set; }
     public string? Preview { get; set; }
@@ -43,8 +46,11 @@ public sealed class RemoteChatPage
 public sealed class RemoteChatStatus
 {
     public Guid ChatId { get; set; }
+    /// <summary>The main assistant is working, independently of background session activity.</summary>
     public bool IsBusy { get; set; }
     public bool IsStreaming { get; set; }
+    /// <summary>Remains true after the main assistant is ready until all session work finishes.</summary>
+    public bool IsSessionActive { get; set; }
     public string? StatusText { get; set; }
     public string? Model { get; set; }
     public long ContextCurrentTokens { get; set; }

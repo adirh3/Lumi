@@ -261,6 +261,8 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
                 isOnboarded = _mainViewModel.IsOnboarded,
                 isBusy = _mainViewModel.ChatVM.IsBusy,
                 isStreaming = _mainViewModel.ChatVM.IsStreaming,
+                isSessionActive = _mainViewModel.ChatVM.IsSessionActive,
+                hasBackgroundActivity = _mainViewModel.ChatVM.HasBackgroundActivity,
                 statusText = _mainViewModel.ChatVM.StatusText
             },
             context = new
@@ -1730,6 +1732,8 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             chat.CreatedAt,
             chat.UpdatedAt,
             chat.IsRunning,
+            chat.IsSessionActive,
+            chat.HasBackgroundActivity,
             chat.HasUnreadMessages
         };
 
@@ -1746,6 +1750,8 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             chat.CreatedAt,
             chat.UpdatedAt,
             chat.IsRunning,
+            chat.IsSessionActive,
+            chat.HasBackgroundActivity,
             chat.HasUnreadMessages,
             activeSkillIds = chat.ActiveSkillIds,
             activeExternalSkillNames = chat.ActiveExternalSkillNames,

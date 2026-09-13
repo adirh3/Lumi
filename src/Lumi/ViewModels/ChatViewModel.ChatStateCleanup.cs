@@ -422,7 +422,7 @@ public partial class ChatViewModel
         if (_pendingWorktreeCreations.Contains(chatId))
             return;
 
-        if (IsChatRuntimeActive(chatId))
+        if (IsChatRuntimeActive(chatId) && !CanStartTurnOnReadySession(CurrentChat))
             return;
 
         // Dequeue only once the send is certain, so the message cannot lose its place in the queue.
@@ -635,7 +635,8 @@ public partial class ChatViewModel
         if (!_ctsSources.ContainsKey(chatId))
             return false;
 
-        if (IsChatRuntimeActive(chatId))
+        if (IsAssistantBusy(chatId)
+            || (_runtimeStates.TryGetValue(chatId, out var runtime) && runtime.IsStopping))
         {
             ReleaseChatCancellation(chatId, cancel: true);
             return true;
@@ -1166,6 +1167,7 @@ public partial class ChatViewModel
         // instead of losing the browser (and its toggle button). The service is disposed when the
         // chat is deleted (CleanupSession) or the app shuts down (Dispose).
         _runtimeStates.Remove(chat.Id);
+        OnPropertyChanged(nameof(IsSessionActive));
 
         if (unloadMessages && !mutatedPersistedMessages)
             TryUnloadInactiveChatMessages(chat, expectedMessageCount);

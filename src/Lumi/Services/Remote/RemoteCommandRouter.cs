@@ -304,24 +304,25 @@ internal sealed class RemoteCommandRouter
             if (owner.IsExternalSendReserved(chat.Id))
                 return Fail("That chat is already starting a turn.", chat.Id);
 
-            if (owner.IsChatBusy(chat.Id))
+            if (command.GetBool("stopAndSend") == true && owner.IsChatBusy(chat.Id))
             {
-                if (command.GetBool("stopAndSend") == true)
-                {
-                    var stopAndSendAccepted = await owner
-                        .StopAndSendExternalMessageAsync(
-                            chat,
-                            message,
-                            "Lumi Mobile",
-                            command.AuthenticatedDeviceId,
-                            command.RequestId,
-                            cancellationToken)
-                        .ConfigureAwait(true);
-                    return stopAndSendAccepted
-                        ? Success("Current turn stopped and message queued.", chat.Id)
-                        : Fail("Lumi could not stop and send that message.", chat.Id);
-                }
+                var stopAndSendAccepted = await owner
+                    .StopAndSendExternalMessageAsync(
+                        chat,
+                        message,
+                        "Lumi Mobile",
+                        command.AuthenticatedDeviceId,
+                        command.RequestId,
+                        cancellationToken)
+                    .ConfigureAwait(true);
+                return stopAndSendAccepted
+                    ? Success("Current turn stopped and message queued.", chat.Id)
+                    : Fail("Lumi could not stop and send that message.", chat.Id);
+            }
 
+            // Readiness chooses send versus steer, never whether to honor an explicit session Stop.
+            if (owner.IsAssistantBusy(chat.Id))
+            {
                 if (command.GetBool("steer") != true)
                     return Fail("That chat is already running.", chat.Id);
 
@@ -572,13 +573,7 @@ internal sealed class RemoteCommandRouter
         var error = await owner.TryStopGenerationAsync().ConfigureAwait(true);
         return error is null
             ? Success("Generation stopped.", chat.Id)
-            : new RemoteCommandResult
-            {
-                Ok = true,
-                ChatId = chat.Id,
-                Message = "Generation stopped locally.",
-                Error = error
-            };
+            : Fail(error, chat.Id);
     }
 
     private async Task<RemoteCommandResult> AnswerQuestionAsync(RemoteCommand command)

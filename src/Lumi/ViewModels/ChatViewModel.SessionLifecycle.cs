@@ -345,7 +345,7 @@ public partial class ChatViewModel
 
             Dispatcher.UIThread.Post(() =>
             {
-                if (!runtime.IsBusy
+                if (!runtime.HasActiveWork
                     && streamingMsg is null
                     && reasoningMsg is null
                     && !HasInProgressSubagentTools(chat))
@@ -820,6 +820,39 @@ public partial class ChatViewModel
             reasoningStream.Clear();
         }
 
+        void CompleteAssistantResponse(bool updateDisplayed)
+        {
+            var wasBusy = runtime.IsBusy;
+            FinalizeCompletedTurnStreams(updateDisplayed);
+            AttachPendingSourcesToFinalAssistantMessage();
+            ResolvePendingSteersAsDelivered(chat.Id);
+            MarkAssistantIdle(runtime);
+            if (updateDisplayed)
+            {
+                _transcriptBuilder.AppendModelLabel(turnModelId);
+                _transcriptBuilder.FlushPendingFileEdits();
+                ApplyDisplayedRuntimeState(runtime);
+                if (runtime.IsSessionActive)
+                    EnsureBackgroundShellMonitorRunning();
+                RebuildWorkspacePanel();
+                ScrollToEndRequested?.Invoke();
+            }
+
+            if (!wasBusy)
+                return;
+
+            if (!IsChatOnScreen(chat.Id))
+                chat.HasUnreadMessages = true;
+            if (_dataStore.Data.Settings.NotificationsEnabled)
+            {
+                var body = string.IsNullOrWhiteSpace(chat.Title)
+                    ? Loc.Notification_ResponseReady
+                    : $"{chat.Title} — {Loc.Notification_ResponseReady}";
+                NotificationService.ShowIfInactive(agentName, body, chat.Id);
+            }
+            QueueChatCompletionFollowUps(chat);
+        }
+
         assistantStream = new StreamingTextAccumulator(
             4096,
             TimeSpan.FromMilliseconds(StreamingUiUpdateThrottleMs),
@@ -1098,7 +1131,8 @@ public partial class ChatViewModel
                     break;
 
                 case ToolExecutionStartEvent toolStart:
-                    AdjustPendingToolCount(chat.Id, 1);
+                    if (IsRootAgentEvent(toolStart))
+                        AdjustPendingToolCount(chat.Id, 1);
                     // Stamp the start on the event thread, before the UI dispatch: queuing latency
                     // (which can be large while the UI thread is busy rendering a stream) must not
                     // be counted as command time.
@@ -1126,10 +1160,10 @@ public partial class ChatViewModel
                             : null;
                     var displayName = ToolDisplayHelper.FormatToolStatusName(
                         toolStart.Data.ToolName, toolArguments, displaySkillName);
-                    MarkRuntimeActive(
-                        runtime,
-                        ToolDisplayHelper.FormatProgressLabel(displayName),
-                        isStreaming: runtime.IsStreaming);
+                    if (IsRootAgentEvent(toolStart))
+                        MarkRuntimeActive(runtime, ToolDisplayHelper.FormatProgressLabel(displayName), isStreaming: runtime.IsStreaming);
+                    else
+                        MarkSessionBackgroundActive(runtime);
                     var toolMsg = chat.Messages.LastOrDefault(m => m.ToolCallId == startToolCallId);
                     var toolStatus = ResolveToolStartStatus(
                         toolStart.Data.ToolName,
@@ -1247,7 +1281,8 @@ public partial class ChatViewModel
                     break;
 
                 case ToolExecutionCompleteEvent toolEnd:
-                    var shouldReconcileAfterTool = AdjustPendingToolCount(chat.Id, -1);
+                    var shouldReconcileAfterTool = IsRootAgentEvent(toolEnd)
+                        && AdjustPendingToolCount(chat.Id, -1);
                     if (shouldReconcileAfterTool)
                         SchedulePostToolReconciliation(chat.Id);
                     // Captured on the event thread for the same reason as the start stamp.
@@ -1364,16 +1399,17 @@ public partial class ChatViewModel
                     // Client-side external tools have their own request/completion lifecycle
                     // and may not emit tool.execution_start/tool.execution_complete events.
                     externalToolCallIdByRequestId[externalToolRequest.Data.RequestId] = externalToolRequest.Data.ToolCallId;
-                    AdjustPendingToolCount(chat.Id, 1);
+                    if (IsRootAgentEvent(externalToolRequest))
+                        AdjustPendingToolCount(chat.Id, 1);
                     var externalToolStartedAt = DateTimeOffset.UtcNow;
                     Dispatcher.UIThread.Post(() =>
                     {
                     var arguments = externalToolRequest.Data.Arguments?.ToString();
                     var displayName = ToolDisplayHelper.FormatToolStatusName(externalToolRequest.Data.ToolName, arguments);
-                    MarkRuntimeActive(
-                        runtime,
-                        ToolDisplayHelper.FormatProgressLabel(displayName),
-                        isStreaming: runtime.IsStreaming);
+                    if (IsRootAgentEvent(externalToolRequest))
+                        MarkRuntimeActive(runtime, ToolDisplayHelper.FormatProgressLabel(displayName), isStreaming: runtime.IsStreaming);
+                    else
+                        MarkSessionBackgroundActive(runtime);
 
                     var toolMsg = chat.Messages.LastOrDefault(m => m.ToolCallId == externalToolRequest.Data.ToolCallId);
                     var toolStatus = completedToolStatusesByCallId.GetValueOrDefault(externalToolRequest.Data.ToolCallId) ?? "InProgress";
@@ -1433,7 +1469,8 @@ public partial class ChatViewModel
                     break;
 
                 case ExternalToolCompletedEvent externalToolComplete:
-                    var shouldReconcileAfterExternalTool = AdjustPendingToolCount(chat.Id, -1);
+                    var shouldReconcileAfterExternalTool = IsRootAgentEvent(externalToolComplete)
+                        && AdjustPendingToolCount(chat.Id, -1);
                     if (shouldReconcileAfterExternalTool)
                         SchedulePostToolReconciliation(chat.Id);
                     var externalToolCompletedAt = DateTimeOffset.UtcNow;
@@ -1555,23 +1592,38 @@ public partial class ChatViewModel
                     });
                     break;
 
+                case AssistantIdleEvent assistantIdle when IsRootAgentEvent(evt):
+                    var assistantIdleTurnSequence = sessionTurnSequence;
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (!IsAuthoritativeSession()
+                            || runtime.LifecycleTurnSequence != assistantIdleTurnSequence
+                            || (assistantIdle.Data.Aborted == true && !WasManualStopRequested(chat.Id)))
+                        {
+                            return;
+                        }
+
+                        CompleteAssistantResponse(IsDisplayedSession());
+                        QueueSaveChat(chat, saveIndex: false);
+                    });
+                    break;
+
                 case SessionBackgroundTasksChangedEvent:
                     // SDK 0.2.2 emits this both when background work starts and again
                     // after session.idle when the background queue drains. Treat it as
                     // "pending" only while the current turn is still active locally.
-                    if (ShouldMarkBackgroundWorkPending(runtime))
+                    Dispatcher.UIThread.Post(() =>
                     {
-                        runtime.HasPendingBackgroundWork = true;
-                        Dispatcher.UIThread.Post(() =>
+                        if (!IsAuthoritativeSession() || !ShouldMarkBackgroundWorkPending(runtime))
+                            return;
+
+                        MarkSessionBackgroundActive(runtime);
+                        if (IsDisplayedSession())
                         {
-                            MarkRuntimeActive(runtime, isStreaming: false, hasPendingBackgroundWork: true);
-                            if (IsDisplayedSession())
-                            {
-                                EnsureBackgroundShellMonitorRunning();
-                                ApplyDisplayedRuntimeState(runtime);
-                            }
-                        });
-                    }
+                            EnsureBackgroundShellMonitorRunning();
+                            ApplyDisplayedRuntimeState(runtime);
+                        }
+                    });
                     break;
 
                 case SessionIdleEvent idle when IsRootAgentEvent(evt):
@@ -1581,7 +1633,8 @@ public partial class ChatViewModel
 
                     Dispatcher.UIThread.Post(() =>
                     {
-                        if (runtime.LifecycleTurnSequence != idleTurnSequence
+                        if (!IsAuthoritativeSession()
+                            || runtime.LifecycleTurnSequence != idleTurnSequence
                             || (idle.Data.Aborted == true && !WasManualStopRequested(chat.Id)))
                         {
                             return;
@@ -1593,12 +1646,7 @@ public partial class ChatViewModel
                         reasoningStream.CancelPending();
                         CompleteAndResetSubagentOutputState();
                         var shouldUpdateDisplayedChatUi = IsDisplayedSession();
-                        FinalizeCompletedTurnStreams(shouldUpdateDisplayedChatUi);
-                        AttachPendingSourcesToFinalAssistantMessage();
-
-                        // Final safety net for steer badges in case no AssistantTurnEnd preceded idle
-                        // (e.g. abort paths): never leave a steered message stuck on "Steering…".
-                        ResolvePendingSteersAsDelivered(chat.Id);
+                        CompleteAssistantResponse(shouldUpdateDisplayedChatUi);
 
                         // In SDK 0.2.2+, session.idle is only emitted once background work is drained.
                         // Clearing IsBusy updates Chat.IsRunning, so keep it on the UI thread.
@@ -1624,42 +1672,8 @@ public partial class ChatViewModel
                         if (shouldUpdateDisplayedChatUi)
                             CompleteAllBackgroundShellsAndStop();
 
-                        // Mark chat as unread when the user is not looking at it — either another chat
-                        // is displayed, or the reply landed on a hidden background/orchestration surface.
-                        if (!IsChatOnScreen(chat.Id))
-                            chat.HasUnreadMessages = true;
-
-                        if (_dataStore.Data.Settings.NotificationsEnabled)
-                        {
-                            var chatTitle = chat.Title;
-                            var body = string.IsNullOrWhiteSpace(chatTitle)
-                                ? Loc.Notification_ResponseReady
-                                : $"{chatTitle} — {Loc.Notification_ResponseReady}";
-                            NotificationService.ShowIfInactive(agentName, body, chat.Id);
-                        }
-
-                        // Flush file changes only when session is truly idle (not between agentic turns).
                         if (shouldUpdateDisplayedChatUi)
-                        {
-                            // Show model label once at the very end of the assistant turn
-                            // (not per-message during agentic loops).
-                            _transcriptBuilder.AppendModelLabel(turnModelId);
                             ApplyDisplayedRuntimeState(runtime);
-                            _transcriptBuilder.CloseCurrentToolGroup();
-                            _transcriptBuilder.CollapseCompletedBlocksInCurrentTurn();
-                            _transcriptBuilder.FlushPendingFileEdits();
-                            // FlushPendingFileEdits appends this turn's file-change summary *after*
-                            // the IsBusy=false rebuild already ran, so rebuild once more — otherwise
-                            // the Workspace Changes/Files tabs miss this turn's edits until the next one.
-                            RebuildWorkspacePanel();
-                            ScrollToEndRequested?.Invoke();
-                        }
-
-                        // Memory checkpoint + suggestions only when session is truly idle.
-                        // Running these on every AssistantTurnEndEvent creates a storm of
-                        // background sessions that can starve the CLI process and stall
-                        // all active sessions.
-                        QueueChatCompletionFollowUps(chat);
 
                         if (CurrentChat?.Id != chat.Id)
                             QueueSaveChat(chat, saveIndex: false, releaseIfInactive: true);
@@ -1793,7 +1807,7 @@ public partial class ChatViewModel
                     });
                     break;
 
-                case SessionCompactionStartEvent compactionStart:
+                case SessionCompactionStartEvent compactionStart when IsRootAgentEvent(evt):
                     Dispatcher.UIThread.Post(() =>
                     {
                         MarkRuntimeCompacting(runtime);
@@ -1804,7 +1818,7 @@ public partial class ChatViewModel
                     });
                     break;
 
-                case SessionCompactionCompleteEvent compactionComplete:
+                case SessionCompactionCompleteEvent compactionComplete when IsRootAgentEvent(evt):
                     Dispatcher.UIThread.Post(() =>
                     {
                         var isDisplayed = IsDisplayedSession();
@@ -1902,7 +1916,10 @@ public partial class ChatViewModel
                         reasoningStream.Clear();
                         if (wasUserStopRequested && IsAuthoritativeSession())
                             ReconcileInProgressSubagentTools(chat, "Stopped");
-                        MarkRuntimeTerminal(runtime);
+                        if (wasUserStopRequested && runtime.IsStopping)
+                            MarkAssistantIdle(runtime);
+                        else
+                            MarkRuntimeTerminal(runtime);
 
                         if (!wasUserStopRequested)
                         {
@@ -2039,7 +2056,7 @@ public partial class ChatViewModel
 
                 // ── New SDK event handlers ──
 
-                case AssistantIntentEvent intent:
+                case AssistantIntentEvent intent when IsRootAgentEvent(evt):
                     Dispatcher.UIThread.Post(() =>
                     {
                     if (!string.IsNullOrWhiteSpace(intent.Data.Intent))
@@ -2072,7 +2089,7 @@ public partial class ChatViewModel
                     Dispatcher.UIThread.Post(() =>
                     {
                     var displayName = subStart.Data.AgentDisplayName ?? subStart.Data.AgentName ?? "Agent";
-                    MarkRuntimeActive(runtime, $"⚡ {displayName}", isStreaming: false);
+                    MarkSessionBackgroundActive(runtime);
                     var subagentPayload = BuildSubagentPayloadJson(
                         description: string.Empty,
                         agentName: subStart.Data.AgentName,
@@ -2521,6 +2538,23 @@ public partial class ChatViewModel
         runtime.SendQueuedNowWhenTurnStarts = false;
         runtime.ExpectTurnStartUserEcho = false;
         runtime.StatusText = statusText ?? string.Empty;
+        runtime.IsSessionActive = false;
+    }
+
+    private static void MarkAssistantIdle(ChatRuntimeState runtime)
+    {
+        runtime.IsStreaming = false;
+        runtime.TurnInProgress = false;
+        Volatile.Write(ref runtime.AssistantTurnStarted, false);
+        runtime.ExpectTurnStartUserEcho = false;
+        runtime.StatusText = string.Empty;
+        runtime.IsBusy = false;
+    }
+
+    private static void MarkSessionBackgroundActive(ChatRuntimeState runtime)
+    {
+        runtime.HasPendingBackgroundWork = true;
+        runtime.IsSessionActive = true;
     }
 
     internal static void MarkRuntimeCompacting(ChatRuntimeState runtime)
@@ -2574,6 +2608,7 @@ public partial class ChatViewModel
         StatusText = runtime.StatusText;
         IsStreaming = runtime.IsStreaming;
         IsBusy = runtime.IsBusy;
+        IsSessionActive = runtime.IsSessionActive;
     }
 
     private static void MarkRuntimeWaitingForSessionIdle(ChatRuntimeState runtime)

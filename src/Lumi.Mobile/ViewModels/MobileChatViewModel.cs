@@ -47,8 +47,15 @@ public sealed partial class MobileChatViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
     private string _promptText = "";
-    [ObservableProperty] private bool _isBusy;
-    [ObservableProperty] private bool _isStreaming;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
+    private bool _isBusy;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
+    private bool _isStreaming;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
+    private bool _isSessionActive;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
     private bool _isLoading;
@@ -475,6 +482,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public ObservableCollection<StrataComposerChip> AvailableFiles { get; } = [];
 
     public bool HasChat => ChatId != Guid.Empty;
+
+    public bool HasBackgroundActivity => IsSessionActive && !IsBusy && !IsStreaming;
 
     /// <summary>
     /// True when the blank surface has become the user's work rather than the untouched launch
@@ -1522,6 +1531,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             ProjectName = null;
             UseWorktree = false;
             _worktreeChoiceExplicit = false;
+            IsSessionActive = false;
             IsBusy = false;
             IsStreaming = false;
             IsLoading = false;
@@ -1839,18 +1849,22 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // Preserve the working state across that gap; a visible response row, Stop, or an explicit
         // send failure is what ends the optimistic progress state.
         var reportsWorking = status.IsBusy || status.IsStreaming;
+        var reportsSessionActive = status.IsSessionActive || reportsWorking;
         var wasWorking = IsBusy || IsStreaming;
         if (reportsWorking && !wasWorking && !_hasVisibleResponseActivity)
             BeginAwaitingVisibleActivity();
 
         var statusChatId = status.ChatId == Guid.Empty ? ChatId : status.ChatId;
-        var pendingStopCompleted = !reportsWorking &&
+        // Assistant idle does not acknowledge a session Stop while attached work is still active.
+        var pendingStopCompleted = !reportsSessionActive &&
                                    statusChatId != Guid.Empty &&
                                    _pendingStopRequestIds.Remove(statusChatId);
         var holdingProgress = !pendingStopCompleted &&
                               _awaitingVisibleActivity &&
                               !reportsWorking &&
                               wasWorking;
+        if (!reportsSessionActive)
+            IsSessionActive = false;
         if (pendingStopCompleted)
         {
             ResetVisibleActivityProgress();
@@ -1862,6 +1876,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
             if (!reportsWorking)
                 ResetVisibleActivityProgress();
         }
+
+        if (reportsSessionActive)
+            IsSessionActive = true;
 
         StatusText = status.StatusText;
         ContextCurrentTokens = status.ContextCurrentTokens;
@@ -2879,6 +2896,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         if (ChatId == Guid.Empty)
         {
             ResetVisibleActivityProgress();
+            IsSessionActive = false;
             IsBusy = false;
             IsStreaming = false;
             _pendingStopBlankGeneration = _blankSurfaceGeneration;
@@ -2945,6 +2963,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
 
         ResetVisibleActivityProgress();
+        IsSessionActive = false;
         IsBusy = false;
         IsStreaming = false;
         StatusText = null;

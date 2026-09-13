@@ -97,6 +97,37 @@ public sealed class ChatListIncrementalRealizationTests
     }
 
     [Fact]
+    public void SessionActivitySurvivesPromotionAndUpdatesWithoutARebuild()
+    {
+        var id = Guid.NewGuid();
+        var list = new ChatListViewModel(new NoOpSink());
+        list.Apply([]);
+        list.PromoteChat(new RemoteChat
+        {
+            Id = id,
+            Title = "Background session",
+            IsSessionActive = true
+        }, isNewChat: true);
+
+        var row = Assert.Single(VisibleChats(list));
+        Assert.False(row.IsRunning);
+        Assert.True(row.HasBackgroundActivity);
+
+        list.SetRunning(id, true);
+        Assert.False(row.HasBackgroundActivity);
+        list.SetRunning(id, false);
+        Assert.True(row.HasBackgroundActivity);
+        list.SetSessionActive(id, false);
+        Assert.False(row.HasBackgroundActivity);
+        Assert.Same(row, Assert.Single(VisibleChats(list)));
+
+        // Updating the backing summary matters too: realizing the row again must not revive it.
+        list.SearchText = "not this chat";
+        list.SearchText = "";
+        Assert.False(Assert.Single(VisibleChats(list)).IsSessionActive);
+    }
+
+    [Fact]
     public void PromoteChatImmediatelyAddsANewlyCreatedChat()
     {
         var id = Guid.NewGuid();

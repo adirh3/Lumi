@@ -674,7 +674,10 @@ public sealed class ChatOrchestrationService : IDisposable
     private async Task<(ChatViewModel Executor, bool Release)> ResolveExecutorAsync(Chat chat)
     {
         if (_registry.TryGetLiveOwner(chat.Id, out var live))
-            return (live, false);
+        {
+            _sessionStore.Retain(live);
+            return (live, true);
+        }
 
         if (_registry.TryGetOwner(chat.Id, out var visible))
         {
@@ -687,7 +690,9 @@ public sealed class ChatOrchestrationService : IDisposable
     }
 
     private bool IsBusy(Guid chatId)
-        => _starting.Contains(chatId) || _runs.ContainsKey(chatId) || _registry.TryGetLiveOwner(chatId, out _);
+        => _starting.Contains(chatId) || _runs.ContainsKey(chatId)
+           || ((_registry.TryGetLiveOwner(chatId, out var owner) || _registry.TryGetOwner(chatId, out owner))
+               && owner.IsChatBusyForSend(chatId));
 
     /// <summary>Completes when no orchestrated run is in flight. Intended for graceful shutdown and for
     /// tests that need to drain background runs deterministically; await it on the UI thread.</summary>
@@ -829,7 +834,7 @@ public sealed class ChatOrchestrationService : IDisposable
 
     private string DescribeLiveState(Chat chat)
     {
-        var running = chat.IsRunning || _registry.TryGetLiveOwner(chat.Id, out _);
+        var running = chat.IsRunning || IsBusy(chat.Id);
         if (running)
         {
             if (_runs.TryGetValue(chat.Id, out var run))
@@ -837,6 +842,8 @@ public sealed class ChatOrchestrationService : IDisposable
             return "running";
         }
 
+        if (chat.HasBackgroundActivity)
+            return chat.HasUnreadMessages ? "ready · background activity · unread reply waiting" : "ready · background activity";
         return chat.HasUnreadMessages ? "idle · unread reply waiting" : "idle";
     }
 

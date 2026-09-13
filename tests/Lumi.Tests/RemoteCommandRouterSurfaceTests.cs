@@ -1304,6 +1304,90 @@ public sealed class RemoteCommandRouterSurfaceTests
         Assert.Same(rig.MainChat, rig.Main.ChatVM.CurrentChat);
     });
 
+    [Fact]
+    public Task ReadyDetachedSessionWithBackgroundWorkAcceptsAnOrdinarySend() => RunAsync(async () =>
+    {
+        using var rig = await DetachedRig.CreateAsync();
+        var runtime = MarkBackgroundActive(rig.DetachedSurface, rig.DetachedChat);
+        ChatViewModel? startedOn = null;
+        var router = new RemoteCommandRouter(
+            rig.DataStore,
+            rig.Main,
+            (owner, _, _, _, _, _) =>
+            {
+                startedOn = owner;
+                Assert.True(runtime.IsSessionActive);
+                Assert.True(runtime.HasPendingBackgroundWork);
+                return Task.FromResult<string?>(null);
+            });
+
+        Assert.True(rig.DetachedSurface.IsChatBusy(rig.DetachedChat.Id));
+        Assert.False(rig.DetachedSurface.IsAssistantBusy(rig.DetachedChat.Id));
+        var summary = RemoteProjector.BuildChat(rig.DataStore, rig.DetachedChat, rig.Main);
+        Assert.False(summary.IsRunning);
+        Assert.True(summary.IsSessionActive);
+
+        var result = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                .With("chatId", rig.DetachedChat.Id.ToString())
+                .With("message", "Continue without stopping the server"),
+            CancellationToken.None);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Same(rig.DetachedSurface, startedOn);
+        Assert.True(runtime.IsSessionActive);
+        Assert.True(runtime.HasPendingBackgroundWork);
+        Assert.Same(rig.MainChat, rig.Main.ChatVM.CurrentChat);
+    });
+
+    [Fact]
+    public Task StopAndSendStillStopsWhenTheAssistantHasAlreadyBecomeReady() => RunAsync(async () =>
+    {
+        using var rig = await DetachedRig.CreateAsync();
+        var runtime = MarkBackgroundActive(rig.DetachedSurface, rig.DetachedChat);
+        var ordinarySendStarted = false;
+        var router = new RemoteCommandRouter(
+            rig.DataStore,
+            rig.Main,
+            (_, _, _, _, _, _) =>
+            {
+                ordinarySendStarted = true;
+                return Task.FromResult<string?>(null);
+            });
+
+        var result = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.SendMessage)
+                .With("chatId", rig.DetachedChat.Id.ToString())
+                .With("message", "Stop that work and answer this")
+                .With("stopAndSend", "true"),
+            CancellationToken.None);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.False(ordinarySendStarted);
+        Assert.False(runtime.IsSessionActive);
+        Assert.Contains(rig.DetachedChat.Messages, message => message.Content == "Stop that work and answer this");
+    });
+
+    [Fact]
+    public Task StopStopsAReadyDetachedBackgroundSession() => RunAsync(async () =>
+    {
+        using var rig = await DetachedRig.CreateAsync();
+        var runtime = MarkBackgroundActive(rig.DetachedSurface, rig.DetachedChat);
+        var router = new RemoteCommandRouter(rig.DataStore, rig.Main);
+
+        var result = await router.ExecuteAsync(
+            new RemoteCommand(RemoteProtocol.Actions.StopGeneration)
+                .With("chatId", rig.DetachedChat.Id.ToString()),
+            CancellationToken.None);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.NotEqual("That chat is already stopped.", result.Message);
+        Assert.False(runtime.IsSessionActive);
+        Assert.False(rig.DetachedSurface.IsSessionActive);
+        Assert.False(rig.DetachedSurface.IsChatBusy(rig.DetachedChat.Id));
+        Assert.Same(rig.MainChat, rig.Main.ChatVM.CurrentChat);
+    });
+
     [Theory]
     [InlineData(RemoteProtocol.Actions.DeleteChat)]
     [InlineData(RemoteProtocol.Actions.RenameChat)]
@@ -1739,6 +1823,19 @@ public sealed class RemoteCommandRouterSurfaceTests
             IsStreaming = true
         };
         GetPrivateField<Dictionary<Guid, ChatRuntimeState>>(surface, "_runtimeStates")[chat.Id] = runtime;
+        return runtime;
+    }
+
+    private static ChatRuntimeState MarkBackgroundActive(ChatViewModel surface, Chat chat)
+    {
+        var runtime = new ChatRuntimeState
+        {
+            Chat = chat,
+            IsSessionActive = true,
+            HasPendingBackgroundWork = true
+        };
+        GetPrivateField<Dictionary<Guid, ChatRuntimeState>>(surface, "_runtimeStates")[chat.Id] = runtime;
+        surface.IsSessionActive = true;
         return runtime;
     }
 

@@ -18,6 +18,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Mobile.Behaviors;
 using Lumi.Mobile.Layout;
+using Lumi.Mobile.Localization;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.Views;
 using Lumi.Mobile.ViewModels;
@@ -250,6 +251,59 @@ public sealed class MobileShellViewTests
             // Nothing is docked or slid open on a phone until the user asks for it.
             Assert.False(Named(window, "DockedDrawer").IsVisible);
             Assert.False(DrawerOpen(window));
+        });
+    }
+
+    [Fact]
+    public async Task ReadyBackgroundSessionHasAQuietIndicatorAndAnExplicitStopAction()
+    {
+        await Run((shell, window) =>
+        {
+            Pair(shell);
+            shell.IsConnected = true;
+            shell.IsHostReady = true;
+            OpenChat(shell);
+            shell.ChatList.Apply(
+            [
+                new RemoteChatGroup
+                {
+                    Label = "Today",
+                    Chats = [new RemoteChat { Id = shell.Chat.ChatId, Title = "Background" }]
+                }
+            ]);
+            shell.Chat.ApplyStatus(new RemoteChatStatus
+            {
+                ChatId = shell.Chat.ChatId,
+                IsSessionActive = true
+            });
+            Layout(window, shell, 1200, 900);
+
+            var indicator = Named(window, "BackgroundSessionStatus");
+            Assert.True(indicator.IsEffectivelyVisible);
+            var stop = Assert.IsType<Button>(Named(window, "StopSessionButton"));
+            Assert.Equal(ChatSessionStrings.StopSession, stop.Content);
+            Assert.Same(shell.Chat.StopCommand, stop.Command);
+            Assert.True(stop.IsEnabled);
+            Assert.False(Assert.IsType<StrataChatComposer>(Named(window, "Composer")).IsBusy);
+            Assert.False(Assert.IsType<StrataTypingIndicator>(Named(window, "ChatTyping")).IsActive);
+            Assert.Contains(window.GetVisualDescendants().OfType<Control>(), control =>
+                control.Name == "BackgroundActivityIndicator" && control.IsEffectivelyVisible);
+            Assert.DoesNotContain(window.GetVisualDescendants().OfType<Control>(), control =>
+                control.Name == "BusyIndicator" && control.IsEffectivelyVisible);
+
+            shell.Chat.IsBusy = true;
+            Pump(window);
+            Assert.False(indicator.IsEffectivelyVisible);
+
+            shell.Chat.IsBusy = false;
+            shell.Chat.IsStreaming = true;
+            Pump(window);
+            Assert.False(indicator.IsEffectivelyVisible);
+
+            shell.Chat.IsStreaming = false;
+            shell.Chat.IsSessionActive = false;
+            Pump(window);
+            Assert.False(indicator.IsEffectivelyVisible);
         });
     }
 

@@ -466,6 +466,7 @@ public class Chat : INotifyPropertyChanged
     private Guid? _tagId;
     private ChatTag? _tag;
     private bool _isRunning;
+    private bool _isSessionActive;
     private bool _hasUnreadMessages;
     private bool _isPinned;
     private bool _showProjectBadge;
@@ -642,8 +643,31 @@ public class Chat : INotifyPropertyChanged
     public bool IsRunning
     {
         get => _isRunning;
-        set { if (_isRunning == value) return; _isRunning = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRunning))); }
+        set
+        {
+            if (_isRunning == value) return;
+            _isRunning = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRunning)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasBackgroundActivity)));
+        }
     }
+
+    /// <summary>Runtime-only session activity, including work that outlives the assistant's reply.</summary>
+    [JsonIgnore]
+    public bool IsSessionActive
+    {
+        get => _isSessionActive;
+        set
+        {
+            if (_isSessionActive == value) return;
+            _isSessionActive = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSessionActive)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasBackgroundActivity)));
+        }
+    }
+
+    [JsonIgnore]
+    public bool HasBackgroundActivity => IsSessionActive && !IsRunning;
 
     /// <summary>Runtime-only flag indicating this chat has unread messages from an auto-triggered background task response.</summary>
     [JsonIgnore]

@@ -213,6 +213,44 @@ public sealed class RemoteProjectionTests
         Assert.Contains(status.AvailableMcps, chip => chip.Name == "Workspace MCP");
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void BackgroundOnlySessionProjectsReadyForActiveAndInactiveChats(bool isCurrentChat)
+    {
+        var chat = new Chat { Title = "Background session" };
+        var dataStore = new DataStore(new AppData { Chats = [chat] });
+        using var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared)
+        {
+            CurrentChat = isCurrentChat ? chat : new Chat { Title = "Other foreground chat" },
+            IsBusy = !isCurrentChat,
+            IsStreaming = !isCurrentChat,
+            IsSessionActive = true
+        };
+        var runtimes = (Dictionary<Guid, ChatRuntimeState>)typeof(ChatViewModel)
+            .GetField("_runtimeStates", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(viewModel)!;
+        runtimes[chat.Id] = new ChatRuntimeState { Chat = chat, IsSessionActive = true };
+
+        Assert.True(viewModel.IsChatBusy(chat.Id));
+        Assert.False(viewModel.IsAssistantBusy(chat.Id));
+        var status = RemoteProjector.BuildStatus(dataStore, viewModel, chat);
+
+        Assert.False(status.IsBusy);
+        Assert.False(status.IsStreaming);
+        Assert.True(status.IsSessionActive);
+
+        var transcript = RemoteProjector.BuildTranscript(
+            chat,
+            [Message("user", "Start the server"), Message("assistant", "Ready")],
+            status,
+            showReasoning: true,
+            showToolCalls: true,
+            revision: 1);
+        Assert.False(transcript.Status.IsBusy);
+        Assert.True(transcript.Status.IsSessionActive);
+    }
+
     [Fact]
     public void Transcript_StartsANewTurnForEveryUserMessage()
     {

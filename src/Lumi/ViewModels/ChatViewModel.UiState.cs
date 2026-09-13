@@ -1099,6 +1099,9 @@ public partial class ChatViewModel
     partial void OnCurrentChatChanged(Chat? value)
     {
         ResetContextDetailsForChatChange(value);
+        IsSessionActive = value?.IsSessionActive == true;
+        BackgroundActivityText = Loc.Get("Chat_BackgroundActivity");
+        ResetBackgroundActivityItems();
 
         if (_currentChatTitleSource is not null)
             _currentChatTitleSource.PropertyChanged -= OnCurrentChatPropertyChanged;
@@ -1131,6 +1134,8 @@ public partial class ChatViewModel
     {
         if (e.PropertyName == nameof(Chat.Title))
             OnPropertyChanged(nameof(CurrentChatTitle));
+        else if (e.PropertyName == nameof(Chat.IsSessionActive))
+            IsSessionActive = CurrentChat?.IsSessionActive == true;
     }
 
     partial void OnActiveAgentChanged(LumiAgent? value)

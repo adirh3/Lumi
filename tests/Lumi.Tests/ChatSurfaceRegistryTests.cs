@@ -93,6 +93,64 @@ public sealed class ChatSurfaceRegistryTests
     }
 
     [Fact]
+    public void BackgroundActiveChat_KeepsItsOwnerWhileTheAssistantIsReady()
+    {
+        var background = new Chat { Title = "Ready with server" };
+        var visible = new Chat { Title = "Visible" };
+        using var surface = CreateSurface(background, visible);
+        using var registry = new ChatSurfaceRegistry();
+        registry.Attach(surface);
+        GetField<Dictionary<Guid, ChatRuntimeState>>(surface, "_runtimeStates")[background.Id] =
+            new ChatRuntimeState { Chat = background, IsSessionActive = true, HasPendingBackgroundWork = true };
+        surface.CurrentChat = visible;
+
+        Assert.False(background.IsRunning);
+        Assert.True(background.HasBackgroundActivity);
+        Assert.False(surface.IsAssistantBusy(background.Id));
+        Assert.True(registry.TryGetLiveOwner(background.Id, out var owner));
+        Assert.Same(surface, owner);
+    }
+
+    [Fact]
+    public async Task UnhostedBackgroundSession_IsReleasedOnlyAfterSessionActivityEnds()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            var chat = new Chat { Title = "Background owner" };
+            var data = new DataStore(new AppData
+            {
+                Settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false },
+                Chats = [chat]
+            });
+            using var registry = new ChatSurfaceRegistry();
+            using var store = new ChatSessionStore(
+                data, TestCopilot.Shared, registry,
+                static (surface, selected) =>
+                {
+                    surface.CurrentChat = selected;
+                    return Task.CompletedTask;
+                },
+                maxIdleCachedSurfaces: 0);
+            var surface = await store.AcquireChatAsync(chat);
+            var runtime = new ChatRuntimeState { Chat = chat, IsSessionActive = true };
+            GetField<Dictionary<Guid, ChatRuntimeState>>(surface, "_runtimeStates")[chat.Id] = runtime;
+
+            store.Release(surface);
+
+            Assert.False(surface.IsBusy);
+            Assert.True(registry.TryGetLiveOwner(chat.Id, out var owner));
+            Assert.Same(surface, owner);
+
+            runtime.IsSessionActive = false;
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+            Assert.False(registry.TryGetLiveOwner(chat.Id, out _));
+            Assert.False(registry.TryGetOwner(chat.Id, out _));
+        }, System.Threading.CancellationToken.None);
+    }
+
+    [Fact]
     public void Detach_RemovesTrackedOwner()
     {
         var chat = new Chat { Title = "Detached" };

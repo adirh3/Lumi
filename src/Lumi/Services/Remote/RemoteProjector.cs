@@ -148,6 +148,7 @@ internal static class RemoteProjector
     private static RemoteChat BuildChat(Chat chat, ChatProjectionContext context)
     {
         context.Owners.TryGetValue(chat.Id, out var owner);
+        var isRunning = owner?.IsAssistantBusy(chat.Id) ?? chat.IsRunning;
         var project = chat.ProjectId is { } projectId
             ? context.Projects.GetValueOrDefault(projectId)
             : null;
@@ -167,7 +168,9 @@ internal static class RemoteProjector
             MessageCount = GetEffectiveMessageCount(chat),
             UpdatedAt = chat.UpdatedAt,
             IsPinned = chat.IsPinned,
-            IsRunning = owner?.IsChatBusy(chat.Id) ?? chat.IsRunning,
+            IsRunning = isRunning,
+            IsSessionActive = owner?.IsSessionActive == true
+                              || chat.IsSessionActive || chat.IsRunning || isRunning,
             HasUnreadMessages = chat.HasUnreadMessages,
             LastModelUsed = chat.LastModelUsed,
             Preview = GetChatPreview(chat, owner)
@@ -256,8 +259,10 @@ internal static class RemoteProjector
         return BoundStatus(new RemoteChatStatus
         {
             ChatId = chatId,
-            IsBusy = isActive ? chatVm.IsBusy : chatVm.IsChatBusy(chatId),
+            IsBusy = isActive ? chatVm.IsBusy : chatVm.IsAssistantBusy(chatId),
             IsStreaming = isActive && chatVm.IsStreaming,
+            IsSessionActive = chat.IsSessionActive || chat.IsRunning
+                              || isActive && (chatVm.IsSessionActive || chatVm.IsBusy || chatVm.IsStreaming),
             StatusText = isActive ? chatVm.StatusText : null,
             Model = model,
             ContextCurrentTokens = isActive ? chatVm.ContextCurrentTokens : 0,
@@ -1976,6 +1981,7 @@ internal static class RemoteProjector
             ChatId = transcript.Status.ChatId,
             IsBusy = transcript.Status.IsBusy,
             IsStreaming = transcript.Status.IsStreaming,
+            IsSessionActive = transcript.Status.IsSessionActive,
             ContextCurrentTokens = transcript.Status.ContextCurrentTokens,
             ContextTokenLimit = transcript.Status.ContextTokenLimit,
             UsesWorktree = transcript.Status.UsesWorktree
@@ -2286,6 +2292,7 @@ internal static class RemoteProjector
             ChatId = status.ChatId,
             IsBusy = status.IsBusy,
             IsStreaming = status.IsStreaming,
+            IsSessionActive = status.IsSessionActive,
             StatusText = BoundOptional(status.StatusText, RemoteProtocol.MobileStatusTextLimit),
             Model = BoundOptional(status.Model, RemoteProtocol.MobileStatusValueLimit),
             ContextCurrentTokens = status.ContextCurrentTokens,

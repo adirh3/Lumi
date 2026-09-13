@@ -187,6 +187,7 @@ public partial class ChatViewModel
            && !HasPendingSessionRefresh(CurrentChat.Id)
            && HasContextUsage
            && !IsBusy
+           && !IsSessionActive
            && !IsContextDetailsLoading
            && !IsContextOperationRunning
            && !IsContextCompactingForCurrentChat;

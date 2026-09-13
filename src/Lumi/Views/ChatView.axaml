@@ -1617,7 +1617,7 @@
         </Button>
       </WrapPanel>
 
-      <!-- Info strip (coding project + token usage) — above the composer -->
+      <!-- Chat controls (coding project, background activity, and context) — above the composer -->
       <Border x:Name="CodingStrip" IsVisible="{Binding ShowInfoStrip}" Margin="4,0,4,0"
               RenderTransformOrigin="0.5,1">
         <Border.RenderTransform>
@@ -1764,9 +1764,105 @@
         </Button>
           </StackPanel>
 
-          <!-- Right: compact context window control -->
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+          <Button x:Name="BackgroundActivityButton"
+                  Classes="subtle"
+                  IsVisible="{Binding HasBackgroundActivity}"
+                  ToolTip.Tip="{loc:Str Chat_BackgroundActivityTooltip}"
+                  AutomationProperties.Name="{loc:Str Chat_BackgroundActivity}"
+                  Padding="8,2"
+                  MinHeight="0"
+                  Height="22"
+                  CornerRadius="999"
+                  Background="{DynamicResource Brush.Surface1}"
+                  BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                  BorderThickness="1"
+                  Cursor="Hand"
+                  VerticalAlignment="Center">
+            <Button.Flyout>
+              <Flyout Placement="TopEdgeAlignedRight">
+                <Flyout.FlyoutPresenterTheme>
+                  <ControlTheme TargetType="FlyoutPresenter"
+                                BasedOn="{StaticResource {x:Type FlyoutPresenter}}">
+                    <Setter Property="Padding" Value="14" />
+                  </ControlTheme>
+                </Flyout.FlyoutPresenterTheme>
+                <StackPanel Name="BackgroundSessionStatus" Width="300" Spacing="12">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="{loc:Str Chat_AssistantReady}"
+                               FontSize="12.5" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Brush.TextPrimary}" />
+                    <TextBlock Text="{Binding BackgroundActivityText}"
+                               FontSize="11" TextWrapping="Wrap"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                  </StackPanel>
+                  <ScrollViewer MaxHeight="260"
+                                HorizontalScrollBarVisibility="Disabled"
+                                IsVisible="{Binding HasRunningSessionActivities}">
+                    <ItemsControl Name="RunningSessionActivities"
+                                  ItemsSource="{Binding RunningSessionActivities}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SessionActivityItem">
+                          <Border Padding="0,8"
+                                  BorderBrush="{DynamicResource Brush.BorderSubtle}"
+                                  BorderThickness="0,1,0,0">
+                            <StackPanel Spacing="4">
+                              <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Text="{Binding Title}" FontSize="11.5"
+                                           FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                           Foreground="{DynamicResource Brush.TextPrimary}"
+                                           ToolTip.Tip="{Binding Title}" />
+                                <TextBlock Grid.Column="1" Text="{Binding Elapsed}"
+                                           Margin="12,0,0,0" FontSize="10.5"
+                                           Foreground="{DynamicResource Brush.TextSecondary}" />
+                              </Grid>
+                              <TextBlock Text="{Binding Kind}" FontSize="10"
+                                         Foreground="{DynamicResource Brush.TextTertiary}" />
+                              <TextBlock Text="{Binding Detail}" IsVisible="{Binding HasDetail}"
+                                         FontSize="10.5" MaxLines="2" TextWrapping="Wrap"
+                                         TextTrimming="CharacterEllipsis"
+                                         Foreground="{DynamicResource Brush.TextSecondary}"
+                                         ToolTip.Tip="{Binding Detail}" />
+                            </StackPanel>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
+                  <TextBlock Text="{Binding BackgroundActivityNotice}"
+                             IsVisible="{Binding HasBackgroundActivityNotice}"
+                             FontSize="11" TextWrapping="Wrap"
+                             Foreground="{DynamicResource Brush.TextTertiary}" />
+                  <Button Name="StopBackgroundSession"
+                          Classes="subtle"
+                          Command="{Binding StopGenerationCommand}"
+                          Content="{loc:Str Chat_StopSession}"
+                          HorizontalAlignment="Right"
+                          Padding="10,5" MinHeight="0" FontSize="11" />
+                </StackPanel>
+              </Flyout>
+            </Button.Flyout>
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <Border Width="6" Height="6" CornerRadius="3"
+                      BorderThickness="1.5"
+                      BorderBrush="{DynamicResource Brush.TextSecondary}"
+                      VerticalAlignment="Center" />
+              <TextBlock Text="{loc:Str Chat_BackgroundActivityLabel}"
+                         FontSize="10" Foreground="{DynamicResource Brush.TextSecondary}"
+                         VerticalAlignment="Center" />
+              <TextBlock Name="RunningSessionActivityCount"
+                         Text="{Binding RunningSessionActivities.Count}"
+                         IsVisible="{Binding HasRunningSessionActivities}"
+                         FontSize="10" FontWeight="SemiBold"
+                         Foreground="{DynamicResource Brush.TextPrimary}"
+                         VerticalAlignment="Center" />
+              <PathIcon Width="7" Height="7"
+                        Foreground="{DynamicResource Brush.TextTertiary}"
+                        Data="M7 10l5 5 5-5z" />
+            </StackPanel>
+          </Button>
+
           <Button x:Name="ContextWindowButton"
-                  Grid.Column="1"
                   Classes="subtle"
                   IsVisible="{Binding HasTokenUsage}"
                   Command="{Binding OpenContextDetailsCommand}"
@@ -2021,6 +2117,7 @@
                         Data="M7 10l5 5 5-5z" />
             </StackPanel>
           </Button>
+          </StackPanel>
         </Grid>
       </Border>
 
