@@ -14,6 +14,27 @@ namespace Lumi.Tests;
 
 public sealed class TranscriptBuilderToolGroupTests
 {
+    [Theory]
+    [InlineData("Failed", "External tool request received no response within 1800 seconds.", false)]
+    [InlineData("Stopped", null, false)]
+    [InlineData("Completed", "User answered: Yes", true)]
+    [InlineData("Completed", "Yes", true)]
+    public void Rebuild_QuestionFailureIsExpired_NotAnAnswer(string status, string? output, bool answered)
+    {
+        var message = CreateToolVm("question-1", "ask_question", status, "{}");
+        message.Message.QuestionId = "question-1";
+        message.Message.QuestionText = "Approve the rebase?";
+        message.Message.QuestionOptions = "[\"Yes\",\"No\"]";
+        message.Message.ToolOutput = output;
+
+        var turns = CreateBuilder().Rebuild([message]);
+
+        var question = Assert.IsType<QuestionItem>(Assert.Single(Assert.Single(turns).Items));
+        Assert.Equal(answered, question.IsAnswered);
+        Assert.Equal(!answered, question.IsExpired);
+        Assert.Equal(answered ? "Yes" : null, question.SelectedAnswer);
+    }
+
     [Fact]
     public void NativeSkill_UsesPersistedDisplayNameInTitleAndDetails()
     {

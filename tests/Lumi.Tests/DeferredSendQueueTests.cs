@@ -14,10 +14,12 @@ using Lumi.Remote.Protocol;
 using Lumi.Services;
 using Lumi.Services.Remote;
 using Lumi.ViewModels;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using StreamJsonRpc;
 using Xunit;
 
+using ChatMessage = Lumi.Models.ChatMessage;
 using JsonRpc = StreamJsonRpc.JsonRpc;
 
 #pragma warning disable GHCP001 // Exercise the SDK's typed abort contract.
@@ -1384,6 +1386,210 @@ public sealed class DeferredSendQueueTests
         Assert.Contains("answer me now", host.QueuedPrompts());
     }
 
+    [Fact]
+    public async Task QuestionRequestTimeout_ReleasesTheIdleChat_ForTheNextSend()
+    {
+        var ui = HeadlessTestSession.Start();
+        try
+        {
+            await ui.Dispatch(async () =>
+            {
+                using var host = DeferredSendHost.Create();
+                using var rpc = new AbortRpc();
+                host.AttachSession(rpc, subscribe: true);
+                rpc.RegisterTool(host.BuildQuestionTool());
+                var presented = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                host.ViewModel.QuestionAsked += (id, _, _, _) => presented.TrySetResult(id);
+                const string requestId = "expired-question";
+                const string toolCallId = "expired-question-call";
+
+                var invocation = rpc.BroadcastAsync(new ExternalToolRequestedEvent
+                {
+                    Data = new ExternalToolRequestedData
+                    {
+                        RequestId = requestId,
+                        SessionId = rpc.Session.SessionId,
+                        ToolCallId = toolCallId,
+                        ToolName = "ask_question",
+                        Arguments = JsonSerializer.SerializeToElement(new
+                        {
+                            question = "Approve the rebase?",
+                            options = new[] { "Yes", "No" },
+                            allowFreeText = true,
+                            allowMultiSelect = false
+                        })
+                    }
+                });
+                var questionId = await presented.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.True(host.IsChatRuntimeActive());
+
+                await rpc.BroadcastAsync(new ExternalToolCompletedEvent
+                {
+                    Data = new ExternalToolCompletedData { RequestId = requestId }
+                });
+                rpc.Emit(new ToolExecutionCompleteEvent
+                {
+                    Data = new ToolExecutionCompleteData
+                    {
+                        ToolCallId = toolCallId,
+                        Success = false,
+                        Error = new ToolExecutionCompleteError
+                        {
+                            Message = "External tool request received no response within 1800 seconds.",
+                            Code = "failure"
+                        }
+                    }
+                });
+                rpc.Emit(new AssistantIdleEvent { Data = new AssistantIdleData() });
+                rpc.Emit(new SessionIdleEvent { Data = new SessionIdleData() });
+                Dispatcher.UIThread.RunJobs();
+
+                Assert.False(host.Runtime.IsBusy);
+                Assert.False(host.Runtime.IsSessionActive);
+                await invocation.WaitAsync(TimeSpan.FromSeconds(5));
+                Dispatcher.UIThread.RunJobs();
+                Assert.False(host.IsChatRuntimeActive());
+                Assert.False(host.ViewModel.IsChatBusy(host.Chat.Id));
+                Assert.True(host.CanStartTurnOnReadySession());
+                Assert.True(host.QuestionCard(questionId).IsExpired);
+                Assert.Equal("Failed", host.Chat.Messages.Single(m => m.QuestionId == questionId).ToolStatus);
+
+                await TestCopilot.Shared.ConnectAsync();
+                await host.SendCoreAsync("Rebase on latest main");
+                Assert.Equal(1, rpc.SendCount);
+                Assert.Null(rpc.LastSendMode);
+                Assert.Empty(host.QueuedPrompts());
+                Assert.Equal(MessageSteerState.None, host.Chat.Messages.Last(m => m.Role == "user").SteerDelivery);
+                Assert.Equal(0, rpc.AbortCount);
+                Assert.Equal(0, rpc.DestroyCount);
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(ui.Dispose);
+        }
+    }
+
+    [Fact]
+    public async Task QuestionRequest_AlreadyCanceled_DoesNotCreateAQuestionOrBlockTheChat()
+    {
+        var ui = HeadlessTestSession.Start();
+        try
+        {
+            await ui.Dispatch(async () =>
+            {
+                using var host = DeferredSendHost.Create();
+                using var cancellation = new CancellationTokenSource();
+                cancellation.Cancel();
+                var tool = host.BuildQuestionTool();
+                Assert.False(tool.JsonSchema.GetProperty("properties").TryGetProperty("cancellationToken", out _));
+
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                    () => host.AskQuestionAsync("Never present this", cancellation.Token));
+                Dispatcher.UIThread.RunJobs();
+
+                Assert.Empty(host.Chat.Messages);
+                Assert.Empty(host.ViewModel.TranscriptTurns);
+                Assert.False(host.IsChatRuntimeActive());
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(ui.Dispose);
+        }
+    }
+
+    [Fact]
+    public async Task QuestionCancellation_AfterIdleDrain_RetriesTheAlreadyQueuedMessage()
+    {
+        var ui = HeadlessTestSession.Start();
+        try
+        {
+            await ui.Dispatch(async () =>
+            {
+                await TestCopilot.Shared.ConnectAsync();
+                using var host = DeferredSendHost.Create();
+                using var rpc = new AbortRpc();
+                using var cancellation = new CancellationTokenSource();
+                host.AttachSession(rpc);
+                var presented = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                host.ViewModel.QuestionAsked += (id, _, _, _) => presented.TrySetResult(id);
+                var invocation = host.AskQuestionAsync("Please choose", cancellation.Token);
+                await presented.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.True(host.IsChatRuntimeActive());
+
+                // Idle was processed before the asynchronous SDK cancellation reached the handler.
+                host.QueuePrompt("the message already waiting");
+                await host.DrainAsync();
+                Assert.Equal(0, rpc.SendCount);
+                Assert.Single(host.QueuedPrompts());
+                Assert.False(host.Runtime.IsSessionActive);
+
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                    () => invocation.WaitAsync(TimeSpan.FromSeconds(5)));
+                await rpc.SendReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+                Assert.Empty(host.QueuedPrompts());
+                Assert.Equal(1, rpc.SendCount);
+                Assert.Null(rpc.LastSendMode);
+                Assert.Single(host.Chat.Messages, m => m.Role == "user");
+                Assert.Equal(0, rpc.AbortCount);
+                Assert.Equal(0, rpc.DestroyCount);
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(ui.Dispose);
+        }
+    }
+
+    [Fact]
+    public async Task QuestionCancellation_ExpiresOnlyThatQuestion_AndPreservesAnotherAnswer()
+    {
+        var ui = HeadlessTestSession.Start();
+        try
+        {
+            await ui.Dispatch(async () =>
+            {
+                using var host = DeferredSendHost.Create();
+                using var cancellation = new CancellationTokenSource();
+                var presented = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                host.ViewModel.QuestionAsked += (id, _, _, _) => presented.TrySetResult(id);
+                var expired = host.AskQuestionAsync("Expired choice", cancellation.Token);
+                var firstId = await presented.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                presented = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var active = host.AskQuestionAsync("Active choice");
+                var secondId = await presented.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+                cancellation.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                    () => expired.WaitAsync(TimeSpan.FromSeconds(5)));
+                Dispatcher.UIThread.RunJobs();
+
+                Assert.True(host.QuestionCard(firstId).IsExpired);
+                Assert.False(host.QuestionCard(secondId).IsExpired);
+                Assert.True(host.IsChatRuntimeActive());
+                Assert.False(active.IsCompleted);
+                host.ViewModel.SubmitQuestionAnswer(firstId, "too late");
+                Assert.Null(host.Chat.Messages.First().ToolOutput);
+
+                host.QuestionCard(secondId).Submit("Yes");
+                var result = await active.WaitAsync(TimeSpan.FromSeconds(5));
+                Dispatcher.UIThread.RunJobs();
+                Assert.Contains("User answered: Yes", result?.ToString());
+                Assert.Equal("User answered: Yes", host.Chat.Messages.Last().ToolOutput);
+                Assert.True(host.QuestionCard(secondId).IsAnswered);
+                Assert.False(host.QuestionCard(secondId).IsExpired);
+                Assert.False(host.IsChatRuntimeActive());
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(ui.Dispose);
+        }
+    }
+
     /// <summary>
     /// "Send now" is offered for exactly the two pending states. A delivered or failed message has
     /// nothing left to expedite.
@@ -1429,7 +1635,8 @@ public sealed class DeferredSendQueueTests
                 Settings = new UserSettings
                 {
                     AutoSaveChats = false,
-                    EnableMemoryAutoSave = false
+                    EnableMemoryAutoSave = false,
+                    NotificationsEnabled = false
                 }
             });
 
@@ -1452,6 +1659,22 @@ public sealed class DeferredSendQueueTests
 
         public Task SendCoreAsync(string prompt, bool consumeComposerPrompt = false)
             => (Task)Invoke("SendMessageCore", prompt, consumeComposerPrompt, null)!;
+
+        public AIFunction BuildQuestionTool()
+            => (AIFunction)Invoke("BuildAskQuestionTool", Chat.Id)!;
+
+        public Task<object?> AskQuestionAsync(string question, CancellationToken cancellationToken = default)
+            => BuildQuestionTool().InvokeAsync(new AIFunctionArguments
+            {
+                ["question"] = question,
+                ["options"] = new[] { "Yes", "No" },
+                ["allowFreeText"] = true,
+                ["allowMultiSelect"] = false
+            }, cancellationToken).AsTask();
+
+        public QuestionItem QuestionCard(string questionId)
+            => ViewModel.TranscriptTurns.SelectMany(turn => turn.Items)
+                .OfType<QuestionItem>().Single(question => question.QuestionId == questionId);
 
         public MessageOptions BuildQueuedSendOptions(ChatMessage message)
         {
@@ -1738,6 +1961,7 @@ public sealed class DeferredSendQueueTests
         public TaskCompletionSource AbortReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int AbortCount { get; private set; }
         public int SendCount { get; private set; }
+        public TaskCompletionSource SendReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int DestroyCount { get; private set; }
         public string? LastSendMode { get; private set; }
         public HashSet<string> RunningShells { get; } = [];
@@ -1797,8 +2021,21 @@ public sealed class DeferredSendQueueTests
         public SendResult Send(Dictionary<string, object> request)
         {
             SendCount++;
-            LastSendMode = Assert.IsType<string>(request["mode"]);
+            LastSendMode = request.GetValueOrDefault("mode") is { } mode ? Assert.IsType<string>(mode) : null;
+            SendReceived.TrySetResult();
             return new SendResult { MessageId = Guid.NewGuid().ToString() };
+        }
+
+        public void RegisterTool(AIFunction tool)
+            => typeof(CopilotSession).GetMethod("RegisterTools", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(Session, [new AIFunctionDeclaration[] { tool }]);
+
+        public Task BroadcastAsync(SessionEvent evt)
+        {
+            Emit(evt);
+            return (Task)typeof(CopilotSession)
+                .GetMethod("HandleBroadcastEventAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(Session, [evt])!;
         }
 
         public void Emit(SessionEvent evt)

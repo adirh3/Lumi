@@ -649,8 +649,10 @@ public partial class ChatViewModel
             async ([Description("The question to ask the user")] string question,
              [Description("List of option labels for the user to choose from")] string[] options,
              [Description("Whether to allow the user to type a free-text answer in addition to the options. Default: true")] bool? allowFreeText,
-             [Description("Whether the user can select multiple options (and optionally type free text) before confirming. When true and allowFreeText is also true, the user can combine option selections with custom typed entries. Default: false")] bool? allowMultiSelect) =>
+             [Description("Whether the user can select multiple options (and optionally type free text) before confirming. When true and allowFreeText is also true, the user can combine option selections with custom typed entries. Default: false")] bool? allowMultiSelect,
+             CancellationToken cancellationToken) =>
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var freeText = allowFreeText ?? true;
                 var multiSelect = allowMultiSelect ?? false;
                 var questionId = Guid.NewGuid().ToString("N");
@@ -661,6 +663,7 @@ public partial class ChatViewModel
 
                 try
                 {
+                    using var registration = cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
                     await Dispatcher.UIThread.InvokeAsync(() =>
                         PresentPendingQuestion(
                             chatId,
@@ -669,7 +672,9 @@ public partial class ChatViewModel
                             optionsList,
                             optionsJson,
                             freeText,
-                            multiSelect));
+                            multiSelect),
+                        DispatcherPriority.Normal,
+                        cancellationToken);
 
                     var answer = await tcs.Task;
                     await Dispatcher.UIThread.InvokeAsync(() =>

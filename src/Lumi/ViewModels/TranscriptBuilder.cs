@@ -377,7 +377,7 @@ public class TranscriptBuilder
                 var qid = msg.QuestionId ?? ("replay_" + msg.Id);
 
                 CloseCurrentToolGroup();
-                var isAnswered = !string.IsNullOrEmpty(answer);
+                var isAnswered = !string.IsNullOrEmpty(answer) && msg.ToolStatus is not ("Failed" or "Stopped");
                 var isExpired = !isAnswered && IsTerminalToolStatus(msg.ToolStatus);
                 var card = new QuestionItem(qid, question, optionsList, freeText && !isAnswered && !isExpired, _submitQuestionAnswerAction, multiSelect && !isAnswered && !isExpired);
                 if (isAnswered)

@@ -720,12 +720,19 @@ public partial class ChatViewModel
         foreach (var pendingQuestion in pendingQuestions)
             pendingQuestion.TrySetCanceled();
 
+        return ExpireUnansweredQuestions(chat);
+    }
+
+    /// <summary>Expires unanswered questions in persistence and the live transcript.</summary>
+    private bool ExpireUnansweredQuestions(Chat chat, string? questionId = null)
+    {
         // Mark unanswered ask_question tool messages as Failed so rebuild renders them as expired
         var markedExpired = false;
         var expiredAt = DateTimeOffset.UtcNow;
         foreach (var msg in chat.Messages)
         {
             if (msg.ToolName == "ask_question"
+                && (questionId is null || msg.QuestionId == questionId)
                 && msg.ToolStatus == "InProgress"
                 && string.IsNullOrEmpty(msg.ToolOutput))
             {
@@ -735,8 +742,23 @@ public partial class ChatViewModel
             }
         }
 
-        // Expire any live QuestionItem cards in the current transcript
-        ExpireUnansweredQuestions(chat.Id);
+        if (CurrentChat?.Id == chat.Id)
+        {
+            foreach (var turn in TranscriptTurns)
+            {
+                foreach (var item in turn.Items)
+                {
+                    if (item is QuestionItem q
+                        && (questionId is null || q.QuestionId == questionId)
+                        && !q.IsAnswered
+                        && !q.IsExpired)
+                    {
+                        q.IsExpired = true;
+                    }
+                }
+            }
+        }
+
         return markedExpired;
     }
 
@@ -766,21 +788,6 @@ public partial class ChatViewModel
         }
 
         return true;
-    }
-
-    /// <summary>Sets IsExpired on all unanswered QuestionItems in the live transcript for the given chat.</summary>
-    private void ExpireUnansweredQuestions(Guid chatId)
-    {
-        if (CurrentChat?.Id != chatId) return;
-
-        foreach (var turn in TranscriptTurns)
-        {
-            foreach (var item in turn.Items)
-            {
-                if (item is QuestionItem q && !q.IsAnswered && !q.IsExpired)
-                    q.IsExpired = true;
-            }
-        }
     }
 
     private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest)

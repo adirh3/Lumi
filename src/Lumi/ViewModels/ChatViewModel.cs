@@ -1438,11 +1438,32 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void RemovePendingQuestion(string questionId)
     {
+        Guid chatId;
+        TaskCompletionSource<string>? completion;
         lock (_pendingQuestionsSync)
         {
-            _pendingQuestions.Remove(questionId);
-            _pendingQuestionChatIds.Remove(questionId);
+            _pendingQuestions.Remove(questionId, out completion);
+            if (!_pendingQuestionChatIds.Remove(questionId, out chatId))
+                return;
         }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_isDisposed)
+                return;
+
+            var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
+            if (chat is not null
+                && completion?.Task.IsCompletedSuccessfully != true
+                && ExpireUnansweredQuestions(chat, questionId))
+            {
+                QueueSaveChat(chat, saveIndex: false);
+            }
+
+            // SDK cancellation can finish after session.idle already tried to drain the queue.
+            ScheduleQueuedBusySendDrain(chatId);
+            OnPropertyChanged(nameof(IsSessionActive));
+        });
     }
 
     private void ClearPendingQuestionTracking()
