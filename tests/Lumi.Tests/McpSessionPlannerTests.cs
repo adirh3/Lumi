@@ -182,6 +182,8 @@ public sealed class McpSessionPlannerTests
 
         Assert.IsType<McpStdioServerConfig>(servers["filesystem"]);
         Assert.IsType<McpHttpServerConfig>(servers["jira"]);
+        Assert.Contains("filesystem", plan.GetSelectedRuntimeServerNames());
+        Assert.Contains("jira", plan.GetSelectedRuntimeServerNames());
         Assert.Null(plan.DetachProxyLease());
     }
 
@@ -220,6 +222,8 @@ public sealed class McpSessionPlannerTests
         Assert.Equal(["read_file"], proxiedLocal.Tools);
         var nativeRemote = Assert.IsType<McpHttpServerConfig>(servers["jira"]);
         Assert.Equal("https://example.test/mcp", nativeRemote.Url);
+        Assert.Contains("filesystem", plan.GetSelectedRuntimeServerNames());
+        Assert.Contains("jira", plan.GetSelectedRuntimeServerNames());
         using var proxyLease = plan.DetachProxyLease();
         Assert.NotNull(proxyLease);
     }
