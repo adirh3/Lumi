@@ -190,6 +190,7 @@ public partial class ChatView : UserControl
         AddHandler(StrataChatMessage.ForkRequestedEvent, OnForkRequested);
         AddHandler(KeyDownEvent, OnLinkedChatKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(KeyDownEvent, OnEmptyComposerScrollKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(KeyDownEvent, OnTranscriptScrollKeyDown, RoutingStrategies.Bubble);
         SizeChanged += OnChatViewSizeChanged;
 
         // ── Search bar controls ──
@@ -610,6 +611,42 @@ public partial class ChatView : UserControl
         {
             return;
         }
+
+        ScrollTranscriptByKeyboard(e);
+    }
+
+    private void OnTranscriptScrollKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Handled
+            || e.KeyModifiers != KeyModifiers.None
+            || e.Key is not (Key.Up or Key.Down)
+            || _transcriptScrollViewer is null
+            || e.Source is not Control sourceControl)
+        {
+            return;
+        }
+
+        var direction = e.Key == Key.Up
+            ? TranscriptPagingDirection.TowardOlder
+            : TranscriptPagingDirection.TowardNewer;
+        var isWithinTranscript = ReferenceEquals(sourceControl, _transcriptScrollViewer)
+            || sourceControl.GetVisualAncestors().Contains(_transcriptScrollViewer);
+        if (!isWithinTranscript
+            || sourceControl is TextBox
+            || sourceControl.FindAncestorOfType<TextBox>() is not null
+            || IsTranscriptScrollbarInteraction(sourceControl)
+            || CanNestedScrollViewerConsume(sourceControl, direction))
+        {
+            return;
+        }
+
+        ScrollTranscriptByKeyboard(e);
+    }
+
+    private void ScrollTranscriptByKeyboard(KeyEventArgs e)
+    {
+        if (_chatShell is null || _transcriptScrollViewer is null)
+            return;
 
         var maxOffset = Math.Max(0, _transcriptScrollViewer.Extent.Height - _transcriptScrollViewer.Viewport.Height);
         if (maxOffset <= ChatScrollPolicy.FractionalEpsilon)

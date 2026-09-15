@@ -1004,7 +1004,7 @@ public sealed class ChatViewScrollBehaviorTests
     }
 
     [Fact]
-    public async Task EmptyComposer_UpAndDownKeysScrollTranscript()
+    public async Task ChatSurface_UpAndDownKeysScrollTranscript()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -1082,8 +1082,28 @@ public sealed class ChatViewScrollBehaviorTests
                 Assert.True(down.Handled);
                 Assert.True(scrollViewer.Offset.Y > beforeDown);
 
+                var transcriptMessage = view.GetVisualDescendants()
+                    .OfType<StrataChatMessage>()
+                    .First();
+                transcriptMessage.Focus();
+                await PumpAsync();
+
+                var beforeTranscriptUp = scrollViewer.Offset.Y;
+                var transcriptUp = new KeyEventArgs
+                {
+                    RoutedEvent = InputElement.KeyDownEvent,
+                    Key = Key.Up,
+                    KeyModifiers = KeyModifiers.None,
+                };
+                transcriptMessage.RaiseEvent(transcriptUp);
+                await PumpAsync();
+
+                Assert.True(transcriptUp.Handled);
+                Assert.True(scrollViewer.Offset.Y < beforeTranscriptUp);
+
                 input.Text = "draft";
                 input.CaretIndex = input.Text.Length;
+                input.Focus();
                 var beforeDraftUp = scrollViewer.Offset.Y;
                 input.RaiseEvent(new KeyEventArgs
                 {
