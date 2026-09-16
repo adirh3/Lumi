@@ -441,7 +441,7 @@ public sealed class McpProxyRuntimeTests
     }
 
     [SkippableFact]
-    public async Task Proxy_ReturnsRawStartupOutputWhenServerWritesNonJson()
+    public async Task Proxy_ReturnsStartupDiagnosticsWhenServerExitsWithoutInitializing()
     {
         Skip.IfNot(OperatingSystem.IsWindows(), "PowerShell fake MCP server is Windows-only.");
 
@@ -480,7 +480,7 @@ public sealed class McpProxyRuntimeTests
             var error = initialize.RootElement.GetProperty("error");
             Assert.Equal(-32000, error.GetProperty("code").GetInt32());
             var message = error.GetProperty("message").GetString();
-            Assert.Contains("non-JSON output", message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("stopped", message, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("Usage: pwsh", message, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("${workspaceFolder}/run-mcp.ps1", message, StringComparison.Ordinal);
             Assert.Contains("token=[redacted]", message, StringComparison.OrdinalIgnoreCase);

@@ -243,7 +243,12 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
                 }
                 catch (JsonException ex)
                 {
-                    throw CreateNonJsonStdoutException(line, ex);
+                    // Package launchers can write diagnostics, but malformed JSON-RPC is still an error.
+                    if (line.AsSpan().TrimStart().StartsWith("{", StringComparison.Ordinal))
+                        throw CreateNonJsonStdoutException(line, ex);
+
+                    Trace.TraceWarning("MCP server '{0}' wrote non-JSON stdout: {1}",
+                        _definition.Name, FormatDiagnosticLine(line));
                 }
             }
         }

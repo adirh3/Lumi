@@ -43,6 +43,14 @@ public sealed partial class LazyMcpRuntimeTests
                     [Console]::Out.WriteLine(($obj | ConvertTo-Json -Compress -Depth 40))
                     [Console]::Out.Flush()
                 }
+                $startupMode = [System.IO.File]::ReadAllText($env:MCP_TEST_BEHAVIOR)
+                if ($startupMode -in @("startup-logs", "startup-logs-timeout")) {
+                    [Console]::Out.WriteLine("[NuGet Manager] [Info] Credential provider ready token=startup-secret")
+                    [Console]::Out.Flush()
+                } elseif ($startupMode -eq "malformed-stdout") {
+                    [Console]::Out.WriteLine('{"jsonrpc":"2.0","id":')
+                    [Console]::Out.Flush()
+                }
                 while ($null -ne ($line = [Console]::In.ReadLine())) {
                     if ([string]::IsNullOrWhiteSpace($line)) { continue }
                     [System.IO.File]::AppendAllText($env:MCP_TEST_MESSAGES, "$line`n")
@@ -54,6 +62,7 @@ public sealed partial class LazyMcpRuntimeTests
                         continue
                     }
                     if ($msg.method -eq "initialize") {
+                        if ($mode -eq "startup-logs-timeout") { continue }
                         if ($mode -eq "initialize-error") {
                             Write-Json @{ jsonrpc = "2.0"; id = $msg.id; error = @{ code = -32000; message = "Synthetic startup failure" } }
                             continue
@@ -180,6 +189,13 @@ public sealed partial class LazyMcpRuntimeTests
         public static JsonNode CopilotClientInitialize() => JsonNode.Parse(
             """{"protocolVersion":"2025-11-25","capabilities":{"extensions":{"io.modelcontextprotocol/tasks":{},"io.modelcontextprotocol/ui":{"mimeTypes":["text/html;profile=mcp-app"]}},"sampling":{}},"clientInfo":{"name":"github-copilot-developer","version":"1.0.78"}}""")!;
 
+        // Captured from Copilot CLI 1.0.84-5 before its legacy initialize fallback.
+        public static JsonNode CopilotServerDiscover() => JsonNode.Parse(
+            """{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"copilot-cli","version":"1.0.84-5"},"io.modelcontextprotocol/clientCapabilities":{"sampling":{}}}}""")!;
+
+        public static JsonNode CopilotCliInitialize() => JsonNode.Parse(
+            """{"protocolVersion":"2025-11-25","capabilities":{"sampling":{}},"clientInfo":{"name":"copilot-cli","version":"1.0.84-5"}}""")!;
+
         public Task<JsonElement> InitializeAsync(string url, JsonNode? client = null)
             => RequestAsync(url, "initialize", client ?? ClientInitialize());
 
@@ -246,12 +262,18 @@ public sealed partial class LazyMcpRuntimeTests
         public JsonElement[] Messages(string? method = null)
         {
             var path = Path.Combine(Root, "messages.jsonl");
-            return File.Exists(path)
-                ? File.ReadAllLines(path).Where(line => !string.IsNullOrWhiteSpace(line))
-                    .Select(line => JsonSerializer.Deserialize<JsonElement>(line))
-                    .Where(message => method is null || (message.TryGetProperty("method", out var value) && value.GetString() == method))
-                    .ToArray()
-                : [];
+            if (!File.Exists(path))
+                return [];
+
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+            var text = reader.ReadToEnd();
+            // A concurrent append is visible only once its complete line has been written.
+            return text[..(text.LastIndexOf('\n') + 1)].Split('\n')
+                .Where(line => !string.IsNullOrWhiteSpace(line))
+                .Select(line => JsonSerializer.Deserialize<JsonElement>(line))
+                .Where(message => method is null || (message.TryGetProperty("method", out var value) && value.GetString() == method))
+                .ToArray();
         }
 
         public void Dispose()

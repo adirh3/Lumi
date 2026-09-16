@@ -74,9 +74,17 @@ This is deliberately conservative:
 
 Current 2025 protocol versions are tested; newer/unknown protocol versions remain
 unsupported by lazy discovery. This is not a claim of full MCP 2026 support.
+The proxy rejects the newer `server/discover` request with method-not-found without
+starting or binding a backend, so Copilot can fall back to the supported
+`initialize` handshake with its actual client profile.
 Servers requiring bidirectional client callbacks still need direct Copilot
 connections (turn off Fast MCP Initialization); lazy mode does not add live
 callback forwarding.
+
+Package-launcher text on stdout (for example, NuGet credential-provider startup
+messages) is logged and retained as redacted diagnostics rather than failing the
+MCP connection. Malformed JSON-RPC, process exits, and initialization timeouts still
+fail explicitly; startup failures include the recent captured output.
 
 ## Tech Stack
 

@@ -100,6 +100,9 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
             return null;
         }
 
+        if (string.Equals(method, "server/discover", StringComparison.Ordinal))
+            return JsonRpc.Error(clientId, -32601, "Method not found: server/discover. Use initialize.");
+
         if (string.Equals(method, "initialize", StringComparison.Ordinal))
         {
             try
@@ -107,6 +110,11 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
                 var initParams = message.TryGetProperty("params", out var p) ? p.Clone() : (JsonElement?)null;
                 var initResult = await EnsureInitializedAsync(client, initParams, cancellationToken).ConfigureAwait(false);
                 return JsonRpc.Response(clientId, initResult);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return JsonRpc.Error(clientId, -32000,
+                    $"MCP server '{_definition.Name}' initialization timed out after {GetInitializeTimeoutMilliseconds(_timeoutMilliseconds)} ms.{FormatCapturedOutput()}");
             }
             catch (Exception ex)
             {
