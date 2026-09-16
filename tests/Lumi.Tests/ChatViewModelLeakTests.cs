@@ -1040,6 +1040,93 @@ public sealed class ChatViewModelLeakTests
         await DrainSessionReleaseAsync(vm, chat.Id);
     }
 
+    [Theory]
+    [InlineData((int)ChatViewModel.McpCatalogRecoverySignal.ToolsListChanged)]
+    [InlineData((int)ChatViewModel.McpCatalogRecoverySignal.SessionResumed)]
+    public async Task McpCatalogRecovery_InitialLazySignalsDeferUntilPostSendObservation(int signalValue)
+    {
+        var signal = (ChatViewModel.McpCatalogRecoverySignal)signalValue;
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chat = new Chat { Title = "lazy discovery", CopilotSessionId = "sid-lazy" };
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        using var proxyLease = SetLazyMcpSession(vm, session);
+        var operationCount = 0;
+        var operations = new ChatViewModel.McpCatalogRecoveryOperations(
+            () =>
+            {
+                operationCount++;
+                return ProviderSet("alpha", "beta");
+            },
+            _ =>
+            {
+                operationCount++;
+                return Task.FromResult<IReadOnlySet<string>?>(ProviderSet("alpha"));
+            },
+            _ =>
+            {
+                operationCount++;
+                return Task.CompletedTask;
+            },
+            _ =>
+            {
+                operationCount++;
+                return Task.CompletedTask;
+            });
+
+        Assert.False(vm.TryScheduleMcpCatalogReconciliation(chat, session, signal, operations));
+        Assert.False(vm.TryScheduleMcpCatalogReconciliation(chat, session, signal, operations));
+
+        Assert.Equal(0, operationCount);
+        Assert.False(vm.HasPendingMcpCatalogRecovery(chat.Id));
+        Assert.Contains(
+            chat.Id,
+            GetField<HashSet<Guid>>(vm, "_postSendMcpCatalogObservations"));
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+    }
+
+    [Fact]
+    public async Task McpCatalogRecovery_EstablishedLazyProviderDisappearanceStillReplacesSession()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chat = new Chat { Title = "lazy stale provider", CopilotSessionId = "sid-lazy-stale" };
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        using var proxyLease = SetLazyMcpSession(vm, session);
+        SetMcpProviderBaseline(vm, chat.Id, "alpha");
+        var reads = new Queue<IReadOnlySet<string>?>();
+        reads.Enqueue(ProviderSet());
+        reads.Enqueue(ProviderSet());
+        var reconcileCount = 0;
+        var replacementCount = 0;
+        var operations = CatalogOperations(
+            () => ProviderSet("alpha"),
+            reads,
+            reconcile: _ =>
+            {
+                reconcileCount++;
+                return Task.CompletedTask;
+            },
+            replace: _ =>
+            {
+                replacementCount++;
+                return Task.CompletedTask;
+            });
+
+        Assert.True(vm.TryScheduleMcpCatalogReconciliation(
+            chat,
+            session,
+            ChatViewModel.McpCatalogRecoverySignal.ToolsListChanged,
+            operations));
+        await vm.AwaitMcpCatalogRecoveryAsync(chat.Id, CancellationToken.None);
+
+        Assert.Equal(1, reconcileCount);
+        Assert.Equal(1, replacementCount);
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+    }
+
     [Fact]
     public async Task McpCatalogRecovery_ProviderReturnsDuringReconciliationWithoutReplacement()
     {
@@ -4379,6 +4466,17 @@ public sealed class ChatViewModelLeakTests
         params string[] providers)
         => GetField<Dictionary<Guid, HashSet<string>>>(vm, "_visibleMcpProviderBaselines")[chatId] =
             providers.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private static McpProxySessionLease SetLazyMcpSession(
+        ChatViewModel vm,
+        CopilotSession session)
+    {
+        var proxyLease = new McpProxySessionLease([], usesLazyInitialization: true);
+        GetField<Dictionary<CopilotSession, McpProxySessionLease>>(
+            vm,
+            "_mcpProxyLeasesBySession")[session] = proxyLease;
+        return proxyLease;
+    }
 
     private static ChatViewModel.McpCatalogRecoveryOperations CatalogOperations(
         Func<IReadOnlySet<string>> selected,

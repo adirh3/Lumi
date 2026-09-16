@@ -115,6 +115,12 @@ public partial class ChatViewModel
 
         lock (_mcpCatalogRecoveryLock)
         {
+            if (ShouldDeferInitialLazyMcpCatalogSignal(chat.Id, session, signal))
+            {
+                recoveryTask = null;
+                return false;
+            }
+
             if (_mcpCatalogRecoveries.TryGetValue(chat.Id, out var currentRecovery))
             {
                 currentRecovery.RerunRequested = true;
@@ -146,11 +152,37 @@ public partial class ChatViewModel
         }
     }
 
+    private bool ShouldDeferInitialLazyMcpCatalogSignal(
+        Guid chatId,
+        CopilotSession session,
+        McpCatalogRecoverySignal signal)
+    {
+        if (!_mcpProxyLeasesBySession.TryGetValue(session, out var proxyLease)
+            || !proxyLease.UsesLazyInitialization
+            || signal is McpCatalogRecoverySignal.ExactSessionLoss
+                or McpCatalogRecoverySignal.ProviderDegradedBeforeSend)
+        {
+            return false;
+        }
+
+        var hasBaseline = _visibleMcpProviderBaselines.TryGetValue(chatId, out var baseline)
+            && baseline.Count > 0;
+        if (signal != McpCatalogRecoverySignal.SessionResumed
+            && hasBaseline
+            && !_postSendMcpCatalogObservations.Contains(chatId))
+        {
+            return false;
+        }
+
+        _postSendMcpCatalogObservations.Add(chatId);
+        return true;
+    }
+
     private void ObserveMcpCatalogAfterSuccessfulSend(Chat chat, CopilotSession session)
     {
         lock (_mcpCatalogRecoveryLock)
         {
-            if (!_postSendMcpCatalogObservations.Remove(chat.Id))
+            if (!_postSendMcpCatalogObservations.Contains(chat.Id))
                 return;
         }
 
@@ -483,6 +515,15 @@ public partial class ChatViewModel
         if (GetSelectedMcpProviders(chat.Id).Count == 0)
             return;
 
+        if (retryWhenUninitialized
+            && _mcpProxyLeasesBySession.TryGetValue(session, out var proxyLease)
+            && proxyLease.UsesLazyInitialization)
+        {
+            lock (_mcpCatalogRecoveryLock)
+                _postSendMcpCatalogObservations.Add(chat.Id);
+            return;
+        }
+
         using var rpcCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         rpcCts.CancelAfter(McpCatalogReconciliationBudget);
         try
@@ -500,6 +541,8 @@ public partial class ChatViewModel
                 return;
             }
 
+            lock (_mcpCatalogRecoveryLock)
+                _postSendMcpCatalogObservations.Remove(chat.Id);
             var evaluation = EvaluateAndRecordMcpCatalog(
                 chat.Id,
                 GetSelectedMcpProviders(chat.Id),

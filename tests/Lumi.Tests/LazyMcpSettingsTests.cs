@@ -98,6 +98,31 @@ public sealed class LazyMcpSettingsTests
         Assert.True(vm.IsUseLazyMcpInitializationModified);
     }
 
+    [Fact]
+    public async Task EditingRuntimeMode_RequestsSessionInvalidationWithoutClearingDiscoveryCache()
+    {
+        var directory = Directory.CreateTempSubdirectory("Lumi-lazy-mcp-mode-").FullName;
+        try
+        {
+            var snapshotPath = Path.Combine(directory, new string('c', 64) + ".json");
+            File.WriteAllText(snapshotPath, "{}");
+            await using var runtime = new McpProxyRuntime(directory);
+            using var vm = CreateVm(new DataStore(new AppData()), runtime);
+            var invalidationRequests = 0;
+            vm.McpRuntimeConfigurationChanged += () => invalidationRequests++;
+
+            vm.UseMcpProxy = true;
+            vm.UseLazyMcpInitialization = true;
+
+            Assert.Equal(2, invalidationRequests);
+            Assert.True(File.Exists(snapshotPath));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

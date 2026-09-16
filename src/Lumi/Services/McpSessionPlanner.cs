@@ -66,11 +66,14 @@ public sealed record McpSessionPlan(
 }
 
 internal sealed class McpProxySessionLease(
-    IReadOnlyList<McpProxyRuntime.SessionRegistrationLease> registrations) : IDisposable, IAsyncDisposable
+    IReadOnlyList<McpProxyRuntime.SessionRegistrationLease> registrations,
+    bool usesLazyInitialization = false) : IDisposable, IAsyncDisposable
 {
     private readonly object _releaseGate = new();
     private IReadOnlyList<McpProxyRuntime.SessionRegistrationLease>? _registrations = registrations;
     private Task? _releaseTask;
+
+    internal bool UsesLazyInitialization { get; } = usesLazyInitialization;
 
     public void Dispose()
     {
@@ -247,7 +250,10 @@ public static class McpSessionPlanner
                 selectedRuntimeServerNames);
             if (proxyRegistrations is { Count: > 0 })
             {
-                plan.AttachProxyLease(new McpProxySessionLease(proxyRegistrations));
+                plan.AttachProxyLease(
+                    new McpProxySessionLease(
+                        proxyRegistrations,
+                        data.Settings.UseLazyMcpInitialization));
                 proxyRegistrations = null;
             }
 
