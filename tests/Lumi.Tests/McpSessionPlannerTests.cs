@@ -10,6 +10,45 @@ namespace Lumi.Tests;
 
 public sealed class McpSessionPlannerTests
 {
+    [Theory]
+    [InlineData("agency", new[] { "mcp", "mail" }, true)]
+    [InlineData("AGENCY.EXE", new[] { "MCP", "calendar" }, true)]
+    [InlineData(@"C:\tools\agency.exe", new[] { "mcp", "mail", "--verbose" }, true)]
+    [InlineData("agency.exe", new[] { "mcp" }, false)]
+    [InlineData("agency.exe", new[] { "other", "mail" }, false)]
+    [InlineData("node", new[] { "mcp", "mail" }, false)]
+    public void ToolCallPreflightPolicy_OptsInOnlyAgencyMcpProviders(
+        string command,
+        string[] args,
+        bool expected)
+    {
+        var policy = McpSessionPlanner.GetToolCallPreflightPolicy(command, args);
+
+        Assert.Equal(expected, policy.HasFlag(McpToolCallPreflightPolicy.ToolsListSessionHealth));
+        Assert.Equal(expected, policy.HasFlag(McpToolCallPreflightPolicy.AgencyNotDispatchedSignal));
+    }
+
+    [Fact]
+    public async Task ToolCallPreflightPolicy_GivesEagerFrontendsDistinctContractsOnSharedBackend()
+    {
+        await using var runtime = new McpProxyRuntime();
+        var definition = new McpProxyServerDefinition(
+            "test:agency-contracts",
+            "agency-contracts",
+            new McpStdioServerConfig { Command = "agency.exe", Args = ["mcp", "mail"] },
+            ToolCallPreflightPolicy: AgencyMcpSessionRecovery.Policy);
+
+        using var first = runtime.AcquireSessionRegistration(definition);
+        using var second = runtime.AcquireSessionRegistration(definition);
+
+        Assert.NotEqual(first.ServerConfig.Url, second.ServerConfig.Url);
+        Assert.Equal(
+            new Uri(first.ServerConfig.Url).AbsolutePath,
+            new Uri(second.ServerConfig.Url).AbsolutePath);
+        Assert.StartsWith("?client=", new Uri(first.ServerConfig.Url).Query);
+        Assert.StartsWith("?client=", new Uri(second.ServerConfig.Url).Query);
+    }
+
     [Fact]
     public async Task LazyInitialization_RequiresProxyAndIsBoundToNewSessionConfiguration()
     {

@@ -87,6 +87,8 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
                     // previous contract. Direct calls may capture their first real catalog.
                     if (cacheable && (plainList || method == "tools/call"))
                         client.ToolsResult ??= list.Clone();
+                    if (discovery.TryGetProperty("result", out var advertisedList))
+                        client.RecordAdvertisedTools(advertisedList);
                     if (plainList)
                         return (discovery, Volatile.Read(ref _processGeneration));
                 }
@@ -95,6 +97,18 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
             }
             else if (client.UseLazyInitialization)
                 ValidateClientInitialization(client);
+
+            if (method == "tools/call"
+                && _definition.ToolCallPreflightPolicy.HasFlag(
+                    McpToolCallPreflightPolicy.ToolsListSessionHealth))
+            {
+                var recovered = await ValidateToolCallSessionHealthUnderLockAsync(
+                    client,
+                    clientMessage,
+                    initializeCt).ConfigureAwait(false);
+                if (recovered)
+                    validateCatalog = false;
+            }
 
             processGeneration = Volatile.Read(ref _processGeneration);
             discoveryRevision = validateCatalog ? _liveDiscoveryRevision : DiscoveryRevision;
@@ -135,6 +149,8 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
                 try
                 {
                     RecordDiscovery(clientMessage, response, processGeneration, discoveryRevision, sourceRevision);
+                    if (response.TryGetProperty("result", out var advertisedList))
+                        client.RecordAdvertisedTools(advertisedList);
                 }
                 finally
                 {
@@ -153,6 +169,143 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
             lock (_pending)
                 _pending.Remove(key);
         }
+    }
+
+    private async Task<bool> ValidateToolCallSessionHealthUnderLockAsync(
+        McpDiscoverySession client,
+        JsonElement clientMessage,
+        CancellationToken cancellationToken)
+    {
+        var observedGeneration = Volatile.Read(ref _processGeneration);
+        var toolName = GetToolCallName(client, clientMessage);
+        if (await ProbeToolCallSessionHealthUnderLockAsync(
+                client,
+                toolName,
+                cancellationToken).ConfigureAwait(false))
+            return false;
+
+        await RecoverExpiredServerSessionUnderLockAsync(
+            observedGeneration,
+            cancellationToken,
+            async recoveryCt =>
+            {
+                if (!await ProbeToolCallSessionHealthUnderLockAsync(
+                        client,
+                        toolName,
+                        recoveryCt).ConfigureAwait(false))
+                {
+                    throw new IOException(
+                        $"MCP server '{_definition.Name}' replacement session was not available. "
+                        + "No tool was called.");
+                }
+            }).ConfigureAwait(false);
+        return true;
+    }
+
+    private string GetToolCallName(
+        McpDiscoverySession client,
+        JsonElement clientMessage)
+    {
+        if (clientMessage.TryGetProperty("params", out var callParams)
+            && callParams.TryGetProperty("name", out var name)
+            && name.ValueKind == JsonValueKind.String
+            && !string.IsNullOrWhiteSpace(name.GetString()))
+            return name.GetString()!;
+
+        ThrowDiscoveryChanged(client);
+        return string.Empty;
+    }
+
+    private async Task<bool> ProbeToolCallSessionHealthUnderLockAsync(
+        McpDiscoverySession client,
+        string toolName,
+        CancellationToken cancellationToken)
+    {
+        JsonElement? parameters = null;
+        var cursors = new HashSet<string>(StringComparer.Ordinal);
+        while (true)
+        {
+            var response = await SendRequestAsync(
+                "tools/list",
+                parameters,
+                cancellationToken).ConfigureAwait(false);
+            if (IsRecoverableSessionLossResponse(response))
+                return false;
+            if (!TryGetToolsListResult(response, out var tools))
+                throw new InvalidOperationException(BuildToolCallPreflightErrorMessage(response));
+
+            if (McpDiscoveryCache.TryFindTool(tools, toolName, out _))
+            {
+                ValidateClientInitialization(client);
+                var compatible = client.HasAdvertisedCatalog
+                    ? client.IsAdvertisedToolCompatible(tools, toolName)
+                    : McpDiscoveryCache.IsToolCompatible(
+                        client.ToolsResult ?? tools,
+                        tools,
+                        toolName);
+                if (!compatible)
+                    ThrowDiscoveryChanged(client);
+                return true;
+            }
+
+            if (!tools.TryGetProperty("nextCursor", out var nextCursor)
+                || nextCursor.ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(nextCursor.GetString())
+                || !cursors.Add(nextCursor.GetString()!))
+            {
+                ThrowDiscoveryChanged(client);
+            }
+
+            parameters = CreateToolsListCursor(nextCursor.GetString()!);
+        }
+    }
+
+    private static JsonElement CreateToolsListCursor(string cursor)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("cursor", cursor);
+            writer.WriteEndObject();
+        }
+        using var document = JsonDocument.Parse(stream.ToArray());
+        return document.RootElement.Clone();
+    }
+
+    private static bool TryGetToolsListResult(JsonElement response, out JsonElement result)
+    {
+        if (response.TryGetProperty("result", out result)
+            && result.ValueKind == JsonValueKind.Object
+            && result.TryGetProperty("tools", out var tools)
+            && tools.ValueKind == JsonValueKind.Array)
+        {
+            return true;
+        }
+
+        result = default;
+        return false;
+    }
+
+    private string BuildToolCallPreflightErrorMessage(JsonElement response)
+    {
+        if (response.TryGetProperty("error", out var error)
+            && error.ValueKind == JsonValueKind.Object)
+        {
+            var code = error.TryGetProperty("code", out var codeElement)
+                && codeElement.TryGetInt32(out var errorCode)
+                    ? errorCode.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : "unknown";
+            var message = error.TryGetProperty("message", out var messageElement)
+                && messageElement.ValueKind == JsonValueKind.String
+                    ? messageElement.GetString()?.Trim()
+                    : null;
+            return $"MCP server '{_definition.Name}' failed its tools/list health preflight "
+                + $"(code {code}): {message ?? "unknown error"}. No tool was called.";
+        }
+
+        return $"MCP server '{_definition.Name}' returned an invalid tools/list health preflight response. "
+            + "No tool was called.";
     }
 
     private async Task<JsonElement> SendRequestAsync(string method, JsonElement? parameters, CancellationToken cancellationToken)

@@ -350,12 +350,30 @@ public static class McpSessionPlanner
                 proxyKey,
                 server.Name,
                 local,
-                useLazyInitialization));
+                useLazyInitialization,
+                GetToolCallPreflightPolicy(local.Command, local.Args)));
             proxyRegistrations!.Add(registration);
             return registration.ServerConfig;
         }
 
         return local;
+    }
+
+    internal static McpToolCallPreflightPolicy GetToolCallPreflightPolicy(
+        string? command,
+        IList<string>? args)
+    {
+        var executableName = Path.GetFileName(command?.Trim());
+        if (!string.Equals(executableName, "agency", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(executableName, "agency.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return McpToolCallPreflightPolicy.None;
+        }
+
+        return args is { Count: >= 2 }
+            && string.Equals(args[0], "mcp", StringComparison.OrdinalIgnoreCase)
+                ? AgencyMcpSessionRecovery.Policy
+                : McpToolCallPreflightPolicy.None;
     }
 
     private static List<string> NormalizeTools(IEnumerable<string>? tools)
