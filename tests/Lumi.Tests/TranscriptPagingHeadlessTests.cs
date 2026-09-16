@@ -98,6 +98,8 @@ public sealed class TranscriptPagingHeadlessTests
             var (window, shell, scrollViewer) = await CreateHostAsync(controller);
             try
             {
+                Assert.True(shell.ExtentHeight > shell.ViewportHeight,
+                    $"Paging requires a scrollable fixture: extent={shell.ExtentHeight}, viewport={shell.ViewportHeight}.");
                 shell.ResetAutoScroll();
                 shell.ScrollToEnd();
                 await PumpAsync();
@@ -119,14 +121,17 @@ public sealed class TranscriptPagingHeadlessTests
                     "ui-prepend");
 
                 Assert.Equal(TranscriptWindowMutationKind.Prepend, mutation.Kind);
-                await PumpAsync();
+                await PumpAsync(window);
                 RestoreAnchor(window, shell, scrollViewer, anchor!.Value);
-                await PumpAsync();
+                await PumpAsync(window);
 
-                var restored = CaptureAnchor(window, scrollViewer);
-                Assert.NotNull(restored);
-                Assert.Equal(anchor.Value.StableId, restored!.Value.StableId);
-                Assert.InRange(Math.Abs(restored.Value.ViewportY - anchor.Value.ViewportY), 0, 1.5);
+                // A predecessor can become visible above the captured turn after prepending.
+                var restoredControl = window.GetVisualDescendants()
+                    .OfType<TranscriptTurnControl>()
+                    .Single(control => control.StableId == anchor.Value.StableId);
+                var restoredPosition = restoredControl.TranslatePoint(default, scrollViewer);
+                Assert.NotNull(restoredPosition);
+                Assert.InRange(Math.Abs(restoredPosition.Value.Y - anchor.Value.ViewportY), 0, 1.5);
             }
             finally
             {
@@ -160,6 +165,8 @@ public sealed class TranscriptPagingHeadlessTests
             var (window, shell, scrollViewer) = await CreateHostAsync(controller);
             try
             {
+                Assert.True(shell.ExtentHeight > shell.ViewportHeight,
+                    $"Paging requires a scrollable fixture: extent={shell.ExtentHeight}, viewport={shell.ViewportHeight}.");
                 shell.JumpToLatest();
                 await PumpAsync();
                 shell.PreserveViewport();
@@ -183,9 +190,9 @@ public sealed class TranscriptPagingHeadlessTests
                         $"ui-append-prepend-{i}");
 
                     Assert.Equal(TranscriptWindowMutationKind.Prepend, prepend.Kind);
-                    await PumpAsync();
+                    await PumpAsync(window);
                     RestoreAnchor(window, shell, scrollViewer, prependAnchor!.Value);
-                    await PumpAsync();
+                    await PumpAsync(window);
                 }
 
                 Assert.NotSame(source[^1], controller.MountedTurns[^1]);
@@ -208,9 +215,9 @@ public sealed class TranscriptPagingHeadlessTests
 
                 Assert.Equal(TranscriptWindowMutationKind.Append, append.Kind);
                 Assert.True(append.RequiresAnchorRestore);
-                await PumpAsync();
+                await PumpAsync(window);
                 RestoreAnchor(window, shell, scrollViewer, anchor!.Value);
-                await PumpAsync();
+                await PumpAsync(window);
 
                 var restored = CaptureAnchor(window, scrollViewer);
                 Assert.NotNull(restored);
@@ -643,7 +650,7 @@ public sealed class TranscriptPagingHeadlessTests
         var window = new Window
         {
             Width = 900,
-            Height = 700,
+            Height = 400,
             Content = shell,
         };
         window.DataTemplates.Add(new FuncDataTemplate<VisualTranscriptItem>((item, _) => new Border
@@ -655,7 +662,7 @@ public sealed class TranscriptPagingHeadlessTests
 
         window.Show();
         await PumpAsync();
-        await PumpAsync();
+        await PumpAsync(window);
 
         var scrollViewer = shell.TranscriptScrollViewer;
         Assert.NotNull(scrollViewer);
@@ -687,7 +694,7 @@ public sealed class TranscriptPagingHeadlessTests
             if (point is null)
                 continue;
 
-            if (point.Value.Y + control.Bounds.Height < 0)
+            if (point.Value.Y + control.Bounds.Height <= 0 || point.Value.Y >= scrollViewer.Viewport.Height)
                 continue;
 
             return new Anchor(control.Turn.StableId, point.Value.Y);
@@ -710,10 +717,19 @@ public sealed class TranscriptPagingHeadlessTests
         shell.ScrollToVerticalOffset(shell.VerticalOffset + delta);
     }
 
-    private static async Task PumpAsync()
+    private static async Task PumpAsync(Window? window = null)
     {
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+
+        if (window is not null)
+        {
+            window.UpdateLayout();
+            // Geometry assertions need realized turns, not frame-budgeted placeholders.
+            foreach (var control in window.GetVisualDescendants().OfType<TranscriptTurnControl>().ToArray())
+                control.RealizePendingHost();
+            window.UpdateLayout();
+        }
     }
 
     private static async Task DispatchAsync(HeadlessTestSession session, Func<Task> action)
@@ -779,18 +795,20 @@ public sealed class TranscriptPagingHeadlessTests
                 // Add a new item to the turn — this will increase its rendered height.
                 turnModel.Items.Add(new VisualTranscriptItem(
                     $"extra:{turnModel.StableId}", 120, "Extra content"));
-                await PumpAsync();
+                await PumpAsync(window);
 
                 var heightAfter = turnModel.MeasuredHeight;
                 var heightDelta = heightAfter - heightBefore;
                 Assert.True(heightDelta > 1, "Turn height should have increased.");
 
                 // Without compensation the anchor drifts by roughly heightDelta.
-                var anchorDrifted = CaptureAnchor(window, scrollViewer);
-                Assert.NotNull(anchorDrifted);
-                Assert.Equal(anchorBefore!.Value.StableId, anchorDrifted!.Value.StableId);
+                var anchorControl = window.GetVisualDescendants()
+                    .OfType<TranscriptTurnControl>()
+                    .Single(control => control.StableId == anchorBefore!.Value.StableId);
+                var anchorPosition = anchorControl.TranslatePoint(default, scrollViewer);
+                Assert.NotNull(anchorPosition);
 
-                var drift = anchorDrifted.Value.ViewportY - anchorBefore.Value.ViewportY;
+                var drift = anchorPosition.Value.Y - anchorBefore!.Value.ViewportY;
                 Assert.True(Math.Abs(drift) > 1,
                     $"Expected viewport drift from height change, but drift was {drift:F1}px");
 

@@ -2,6 +2,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Models;
@@ -17,7 +19,7 @@ namespace Lumi.Tests;
 public sealed class TranscriptTextContentHeadlessTests
 {
     [Fact]
-    public async Task StreamingMarkdown_UsesPlainTextUntilStreamingEnds()
+    public async Task StreamingMarkdown_UsesSelectablePlainTextUntilStreamingEnds()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -29,11 +31,13 @@ public sealed class TranscriptTextContentHeadlessTests
                 PreferPlainText = true
             };
 
-            Assert.IsType<TextBlock>(control.Content);
+            var plainText = Assert.IsType<SelectableTextBlock>(control.Content);
+            Assert.Equal(control.Text, plainText.Text);
 
             control.PreferPlainText = false;
 
-            Assert.IsType<StrataMarkdown>(control.Content);
+            var markdown = Assert.IsType<StrataMarkdown>(control.Content);
+            Assert.Equal(control.Text, markdown.Markdown);
 
             await Task.Delay(80);
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
@@ -59,7 +63,7 @@ public sealed class TranscriptTextContentHeadlessTests
     }
 
     [Fact]
-    public async Task StreamingMarkdown_HeadingFollowedByBody_RendersSeparateHeadingAndParagraph()
+    public async Task StreamingMarkdown_HeadingFollowedByBody_PreservesBlockFormatting()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -89,14 +93,20 @@ public sealed class TranscriptTextContentHeadlessTests
             await Task.Delay(100);
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
 
-            var textBlocks = markdown.GetVisualDescendants().OfType<SelectableTextBlock>().ToList();
-            var heading = Assert.Single(textBlocks, tb => tb.Classes.Contains("strata-md-heading"));
-            var body = Assert.Single(textBlocks, tb => tb.Text == "Body text");
+            var textBlock = Assert.Single(markdown.GetVisualDescendants().OfType<SelectableTextBlock>());
+            var inlines = textBlock.Inlines;
+            Assert.NotNull(inlines);
+            var heading = Assert.Single(inlines.OfType<Run>(), run => run.Text == "Heading");
+            var body = Assert.Single(inlines.OfType<Run>(), run => run.Text == "Body text");
 
-            Assert.Equal("Heading", heading.Text);
-            Assert.Contains("strata-md-paragraph", body.Classes);
-            Assert.DoesNotContain("strata-md-heading", body.Classes);
+            var headingIndex = inlines.IndexOf(heading);
+            var bodyIndex = inlines.IndexOf(body);
+            Assert.True(bodyIndex > headingIndex);
+            Assert.Contains(inlines.Skip(headingIndex + 1).Take(bodyIndex - headingIndex - 1),
+                inline => inline is LineBreak);
             Assert.True(heading.FontSize > body.FontSize);
+            Assert.Equal(FontWeight.SemiBold, heading.FontWeight);
+            Assert.Equal(FontWeight.Normal, body.FontWeight);
             Assert.True(StrataMarkdown.CaptureDiagnostics().IncrementalParseCount > 0);
 
             window.Close();
@@ -124,6 +134,7 @@ public sealed class TranscriptTextContentHeadlessTests
             Assert.NotNull(template);
 
             var control = Assert.IsAssignableFrom<Control>(template!.Build(assistantItem));
+            control.DataContext = assistantItem;
             var window = new Window
             {
                 Width = 640,
@@ -166,6 +177,7 @@ public sealed class TranscriptTextContentHeadlessTests
             Assert.NotNull(template);
 
             var control = Assert.IsAssignableFrom<Control>(template!.Build(reasoningItem));
+            control.DataContext = reasoningItem;
             var window = new Window
             {
                 Width = 640,

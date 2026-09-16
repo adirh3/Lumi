@@ -134,8 +134,10 @@ public sealed class ChatTokenUsageDisplayTests
         }, CancellationToken.None);
     }
 
-    [Fact]
-    public async Task LoadChatAsync_DropsLegacyUntrustedPersistedContextUsage()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LoadChatAsync_DropsLegacyUntrustedPersistedContextUsage(bool hasMessages)
     {
         using var session = HeadlessTestSession.Start();
 
@@ -148,7 +150,10 @@ public sealed class ChatTokenUsageDisplayTests
                 LastModelUsed = "claude-opus-5",
                 ContextCurrentTokens = 220_701,
                 ContextTokenLimit = 200_000,
-                HasExactContextUsage = false
+                HasExactContextUsage = false,
+                Messages = hasMessages
+                    ? [new ChatMessage { Role = "user", Content = "hello" }]
+                    : []
             };
             var data = new AppData
             {
@@ -165,8 +170,9 @@ public sealed class ChatTokenUsageDisplayTests
             await viewModel.LoadChatAsync(chat);
 
             Assert.False(viewModel.HasContextUsage);
-            Assert.True(viewModel.HasTokenUsage);
-            Assert.Equal("Context", viewModel.TokenUsageSummary);
+            Assert.Equal(hasMessages, viewModel.HasTokenUsage);
+            Assert.Equal(hasMessages ? "Context" : "", viewModel.TokenUsageSummary);
+            Assert.Empty(viewModel.TokenUsageSuffixText);
             Assert.Equal(0, viewModel.ContextCurrentTokens);
             Assert.Equal(0, chat.ContextCurrentTokens);
         }, CancellationToken.None);

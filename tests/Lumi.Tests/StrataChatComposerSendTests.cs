@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -103,9 +104,15 @@ public sealed class StrataChatComposerSendTests
             input.CaretIndex = input.Text.Length;
             await PumpAsync();
 
+            var autocompletePopup = composer.GetVisualDescendants()
+                .OfType<Popup>()
+                .Single(control => control.Name == "PART_AutoCompletePopup");
+            Assert.True(autocompletePopup.IsOpen);
+
             Click(window, sendButton);
             await PumpAsync();
 
+            Assert.False(autocompletePopup.IsOpen);
             Assert.Equal(1, sendRaised);
             Assert.Equal("hello @agent", command.Parameter);
 

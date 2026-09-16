@@ -211,6 +211,8 @@ public sealed class StrataChatShellScrollTests
                 .GetVisualDescendants()
                 .OfType<Panel>()
                 .First(control => control.Name == "PART_ScrollToBottomHost");
+            // Visibility state changes immediately; the opacity transition does not.
+            scrollButtonHost.Transitions = null;
 
             shell.JumpToLatest();
             await PumpAsync();

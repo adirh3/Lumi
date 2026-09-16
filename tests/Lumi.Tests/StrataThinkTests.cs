@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using StrataTheme.Controls;
@@ -13,8 +14,10 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class StrataThinkTests
 {
-    [Fact]
-    public async Task ExpandingNearViewportBottom_BringsContentIntoView()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExpandingNearViewportBottom_OnlyScrollsForUserInput(bool userInitiated)
     {
         using var session = HeadlessTestSession.Start();
 
@@ -58,18 +61,30 @@ public sealed class StrataThinkTests
             var think = Assert.IsType<StrataThink>(((StackPanel)scrollViewer.Content!).Children[1]);
             Assert.Equal(0, scrollViewer.Offset.Y);
 
-            think.IsExpanded = true;
+            if (userInitiated)
+            {
+                think.RaiseEvent(new KeyEventArgs
+                {
+                    RoutedEvent = InputElement.KeyDownEvent,
+                    Key = Key.Enter
+                });
+            }
+            else
+            {
+                think.IsExpanded = true;
+            }
             await Task.Delay(450);
             await PumpAsync();
 
-            Assert.True(scrollViewer.Offset.Y > 0);
+            Assert.True(think.IsExpanded);
+            Assert.Equal(userInitiated, scrollViewer.Offset.Y > 0);
 
             window.Close();
         }, CancellationToken.None);
     }
 
     [Fact]
-    public async Task HostScrolling_DoesNotDisableExpandedThinkScroller()
+    public async Task HostScrolling_DoesNotDisableExpandedThinkContent()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -118,15 +133,14 @@ public sealed class StrataThinkTests
             var transcriptScrollViewer = shell.TranscriptScrollViewer;
             Assert.NotNull(transcriptScrollViewer);
 
-            var innerScrollViewer = think.GetVisualDescendants()
-                .OfType<ScrollViewer>()
-                .FirstOrDefault(candidate => !ReferenceEquals(candidate, transcriptScrollViewer));
-            Assert.NotNull(innerScrollViewer);
+            var expandedContent = Assert.IsType<Border>(think.DisplayedContent);
+            Assert.True(expandedContent.Bounds.Height > 0);
+            Assert.DoesNotContain(think.GetVisualDescendants(), control => control is ScrollViewer);
 
             SetTranscriptScrollingState(shell, true);
             await PumpAsync();
 
-            var hitTestAncestors = innerScrollViewer!.GetVisualAncestors()
+            var hitTestAncestors = expandedContent.GetVisualAncestors()
                 .OfType<Control>()
                 .TakeWhile(control => !ReferenceEquals(control, transcriptScrollViewer))
                 .ToArray();
@@ -239,8 +253,12 @@ public sealed class StrataThinkTests
 
             window.Show();
             await PumpAsync();
-            await PumpAsync();
-            await Task.Delay(50);
+
+            var pill = think.GetVisualDescendants()
+                .OfType<Border>()
+                .Single(control => control.Name == "PART_Pill");
+            // Check the layout target, not an intermediate width animation frame.
+            pill.Transitions = null;
             await PumpAsync();
 
             Assert.True(presenter.Bounds.Width > 0);

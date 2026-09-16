@@ -189,6 +189,16 @@ public sealed class ChatViewScrollBehaviorTests
 
                 var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
                 var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
+                var transcript = Assert.IsType<TranscriptItemsControl>(view.FindControl<TranscriptItemsControl>("Transcript"));
+
+                // Measure scroll stability only after the chat-open reveal has finished moving the transcript.
+                await WaitUntilAsync(() =>
+                {
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    return !viewModel.IsChatSurfaceLoading
+                        && transcript.Opacity == 1
+                        && (transcript.RenderTransform?.Value ?? Matrix.Identity).IsIdentity;
+                });
 
                 shell.JumpToLatest();
                 await PumpAsync();
@@ -642,6 +652,16 @@ public sealed class ChatViewScrollBehaviorTests
                 var shell = Assert.IsType<StrataChatShell>(view.FindControl<StrataChatShell>("ChatShell"));
                 var scrollViewer = Assert.IsType<ScrollViewer>(shell.TranscriptScrollViewer);
                 var transcript = Assert.IsType<TranscriptItemsControl>(view.FindControl<TranscriptItemsControl>("Transcript"));
+
+                // Settle only the chat-open reveal, before scrolling queues the realization work under test.
+                await WaitUntilAsync(() =>
+                {
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    return !viewModel.IsChatSurfaceLoading
+                        && transcript.Opacity == 1
+                        && (transcript.RenderTransform?.Value ?? Matrix.Identity).IsIdentity;
+                });
+
                 shell.JumpToLatest();
                 await PumpAsync();
 
@@ -861,7 +881,19 @@ public sealed class ChatViewScrollBehaviorTests
 
         await DispatchAsync(session, async () =>
         {
-            var view = new ChatView();
+            var chat = CreateLongChat(pairCount: 1);
+            var data = new AppData
+            {
+                Settings = new UserSettings
+                {
+                    AutoSaveChats = false,
+                    EnableMemoryAutoSave = false
+                }
+            };
+            data.Chats.Add(chat);
+
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+            var view = new ChatView { DataContext = viewModel };
             var window = new Window
             {
                 Width = 1100,
@@ -872,6 +904,10 @@ public sealed class ChatViewScrollBehaviorTests
             window.Show();
             try
             {
+                await PumpAsync();
+                await viewModel.LoadChatAsync(chat);
+                await WaitUntilAsync(() => !viewModel.IsChatSurfaceLoading);
+
                 var flags = BindingFlags.Instance | BindingFlags.NonPublic;
                 var scrollViewerField = typeof(ChatView).GetField("_transcriptScrollViewer", flags);
                 var dragField = typeof(ChatView).GetField("_isTranscriptScrollbarDragging", flags);
@@ -882,7 +918,12 @@ public sealed class ChatViewScrollBehaviorTests
 
                 await WaitUntilAsync(() => scrollViewerField.GetValue(view) is ScrollViewer);
                 var scrollViewer = Assert.IsType<ScrollViewer>(scrollViewerField.GetValue(view));
-                var wheelPoint = GetCenterPoint(window, scrollViewer);
+                Assert.True(scrollViewer.Viewport.Height > 0);
+                Assert.True(scrollViewer.Extent.Height <= scrollViewer.Viewport.Height);
+                Assert.Equal(0d, scrollViewer.Offset.Y);
+
+                var message = scrollViewer.GetVisualDescendants().OfType<StrataChatMessage>().First();
+                var wheelPoint = GetCenterPoint(window, message);
 
                 dragField.SetValue(view, true);
                 try
@@ -891,11 +932,13 @@ public sealed class ChatViewScrollBehaviorTests
                     Assert.Equal(
                         TranscriptPagingDirection.TowardNewer,
                         Assert.IsType<TranscriptPagingDirection>(directionField.GetValue(view)));
+                    Assert.Equal(0d, scrollViewer.Offset.Y);
 
                     window.MouseWheel(wheelPoint, new Vector(0, 1), RawInputModifiers.None);
                     Assert.Equal(
                         TranscriptPagingDirection.TowardOlder,
                         Assert.IsType<TranscriptPagingDirection>(directionField.GetValue(view)));
+                    Assert.Equal(0d, scrollViewer.Offset.Y);
                 }
                 finally
                 {
