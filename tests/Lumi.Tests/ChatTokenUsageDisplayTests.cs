@@ -145,7 +145,6 @@ public sealed class ChatTokenUsageDisplayTests
             {
                 Title = "Legacy billed usage",
                 CopilotSessionId = "legacy-session",
-                Messages = [new ChatMessage { Role = "user", Content = "Persisted conversation history." }],
                 LastModelUsed = "claude-opus-5",
                 ContextCurrentTokens = 220_701,
                 ContextTokenLimit = 200_000,
