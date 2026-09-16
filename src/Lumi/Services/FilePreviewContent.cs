@@ -12,6 +12,9 @@ internal sealed record FilePreviewContent(FilePreviewKind Kind, string? Text = n
 {
     internal const int MaxCharacters = 100_000;
 
+    internal static bool IsHtmlFile(string filePath)
+        => Path.GetExtension(filePath).ToLowerInvariant() is ".html" or ".htm";
+
     internal static async Task<FilePreviewContent> LoadAsync(string filePath, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

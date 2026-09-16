@@ -18,6 +18,56 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class FilePreviewUiTests
 {
+    [SkippableFact]
+    public async Task HtmlBrowserInitializationFailureShowsAnErrorInsteadOfSourceCode()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows());
+        var path = Path.Combine(Path.GetTempPath(), $"lumi-html-preview-{Guid.NewGuid():N}.html");
+        await File.WriteAllTextAsync(path, "<h1>Rendered HTML</h1>");
+        var session = HeadlessTestSession.Start();
+        try
+        {
+            await session.Dispatch(async () =>
+            {
+                var store = new DataStore(new AppData());
+                var chat = new Chat();
+                using var vm = new ChatViewModel(store, TestCopilot.Shared) { CurrentChat = chat };
+                var browserPanel = new Border { IsVisible = false };
+                var filePanel = new Border { IsVisible = false };
+                var fileHost = new ContentControl();
+                using var controller = new ChatPreviewPanelController(
+                    new Border(), store, vm, new Grid(), new Border(), null,
+                    browserPanel, new ContentControl(),
+                    new Border { IsVisible = false }, new ContentControl(), new TextBlock(),
+                    new Border { IsVisible = false }, new Border { IsVisible = false },
+                    new Border { IsVisible = false }, filePanel, fileHost);
+
+                // There is deliberately no native window for WebView2 in this headless test.
+                var show = typeof(ChatPreviewPanelController).GetMethod(
+                    "ShowFilePreviewPanelAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                await ((Task)show.Invoke(controller, [path, null])!).WaitAsync(TimeSpan.FromSeconds(10));
+
+                Assert.True(vm.HasUsedBrowser);
+                Assert.NotNull(vm.GetBrowserServiceForChat(chat.Id));
+                Assert.False(browserPanel.IsVisible);
+                Assert.True(filePanel.IsVisible);
+                Assert.True(vm.IsFilePreviewOpen);
+                Assert.Equal(path, vm.PreviewFilePath);
+                var view = Assert.IsType<FilePreviewView>(fileHost.Content);
+                var content = Assert.IsType<StackPanel>(
+                    view.FindControl<ContentControl>("FilePreviewContentHost")!.Content);
+                Assert.Contains(content.Children.OfType<SelectableTextBlock>(),
+                    text => text.Text?.Contains("no parent HWND available", StringComparison.Ordinal) == true);
+                Assert.DoesNotContain(content.Children, control => control is StrataCodeBlock);
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            await Task.Run(session.Dispose);
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public async Task MarkdownPreviewLoadsSiblingImagesFromTheDocumentDirectory()
     {

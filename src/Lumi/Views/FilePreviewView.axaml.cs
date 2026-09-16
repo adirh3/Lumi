@@ -13,6 +13,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Lumi.Localization;
 using Lumi.Services;
+using Lumi.ViewModels;
 using StrataTheme.Controls;
 
 namespace Lumi.Views;
@@ -129,6 +130,15 @@ public partial class FilePreviewView : UserControl, IDisposable
         PreviewTruncationNotice.IsVisible = false;
     }
 
+    internal void ShowUnavailable(string filePath, string message)
+    {
+        Clear();
+        _filePath = filePath;
+        PreviewFileName.Text = Path.GetFileName(filePath);
+        ToolTip.SetTip(PreviewFileName, filePath);
+        ShowStatus(Loc.Preview_Unavailable, message);
+    }
+
     private void ReleaseNativeHost()
     {
         var native = _nativeHost;
@@ -162,7 +172,12 @@ public partial class FilePreviewView : UserControl, IDisposable
     private async void OnRefreshClick(object? sender, RoutedEventArgs e)
     {
         if (_filePath is { } path)
-            await ShowFileAsync(path);
+        {
+            if (DataContext is ChatViewModel viewModel)
+                viewModel.OpenFilePreview(path);
+            else
+                await ShowFileAsync(path);
+        }
     }
 
     private void OnOpenClick(object? sender, RoutedEventArgs e)

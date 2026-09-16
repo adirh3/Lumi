@@ -893,7 +893,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>Gets or lazily creates a per-chat BrowserService instance. Browser tool callbacks run
     /// off the UI thread while chat-switch/cleanup code touches this map on the UI thread, so the
     /// backing store is a ConcurrentDictionary and creation goes through an atomic GetOrAdd.</summary>
-    private BrowserService GetOrCreateBrowserService(Guid chatId)
+    internal BrowserService GetOrCreateBrowserService(Guid chatId)
         => _chatBrowserServices.GetOrAdd(chatId, static _ => new BrowserService());
 
     /// <summary>Gets the BrowserService for a chat if one exists, without creating.</summary>

@@ -663,7 +663,7 @@ public sealed partial class BrowserService : IAsyncDisposable
     // ═══════════════════════════════════════════════════════════════
 
     /// <summary>Navigate to a URL and wait for the page to load.</summary>
-    private async Task<string> NavigateAsync(string url)
+    public async Task<string> NavigateAsync(string url)
     {
         await EnsureInitializedAsync();
         await WaitForActionLockAsync();
@@ -2667,6 +2667,7 @@ public sealed class BrowserService : IAsyncDisposable
     public void SetBounds(int x, int y, int width, int height, int cornerRadiusPx = 0) { }
 
     public Task InitializeAsync(IntPtr parentHwnd) => Task.CompletedTask;
+    public Task<string> NavigateAsync(string url) => Task.FromResult(NotSupported);
     public Task<string> OpenAndSnapshotAsync(string url) => Task.FromResult(NotSupported);
     public Task<string> LookAsync(string? filter = null) => Task.FromResult(NotSupported);
     public Task<string> FindElementsAsync(string query, int limit = 12, bool preferDialog = true) => Task.FromResult(NotSupported);

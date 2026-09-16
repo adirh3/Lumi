@@ -11,6 +11,18 @@ public sealed class FilePreviewContentTests : IDisposable
     public FilePreviewContentTests() => Directory.CreateDirectory(_root);
 
     [Theory]
+    [InlineData("page.html", true)]
+    [InlineData("page.htm", true)]
+    [InlineData("page.HtMl", true)]
+    [InlineData("page.HTM", true)]
+    [InlineData("page.html.txt", false)]
+    [InlineData("notes.md", false)]
+    public void HtmlFilesAreRecognizedForBrowserPreviews(string name, bool expected)
+    {
+        Assert.Equal(expected, FilePreviewContent.IsHtmlFile(Path.Combine(_root, name)));
+    }
+
+    [Theory]
     [InlineData("notes.md", "# Notes", "Markdown")]
     [InlineData("code.cs", "class Example {}", "Text")]
     [InlineData("page.html", "<script>example()</script>", "Text")]

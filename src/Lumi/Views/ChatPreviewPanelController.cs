@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -212,8 +213,31 @@ internal sealed class ChatPreviewPanelController : IDisposable
             PostIfActive(HideFilePreviewPanel);
     }
 
-    private async Task ShowFilePreviewPanelAsync(string filePath)
+    private async Task ShowFilePreviewPanelAsync(string filePath, string? error = null)
     {
+        if (error is null && OperatingSystem.IsWindows() && FilePreviewContent.IsHtmlFile(filePath)
+            && File.Exists(filePath) && _viewModel.CurrentChat is { } chat)
+        {
+            var browserService = _viewModel.GetOrCreateBrowserService(chat.Id);
+            _viewModel.HasUsedBrowser = true;
+            try
+            {
+                if (await ShowBrowserPanelAsync(chat.Id))
+                    await browserService.NavigateAsync(new Uri(Path.GetFullPath(filePath)).AbsoluteUri);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException
+                                       or InvalidOperationException or COMException
+#if WINDOWS
+                                       or Microsoft.Web.WebView2.Core.WebView2RuntimeNotFoundException
+#endif
+                                       )
+            {
+                if (!_isDisposed && _viewModel.CurrentChat?.Id == chat.Id && _browserPanel.IsVisible)
+                    await ShowFilePreviewPanelAsync(filePath, ex.Message);
+            }
+            return;
+        }
+
         var wasOpen = _filePanel.IsVisible;
         HidePreviewPanelsExcept(_filePanel);
         _ensureChatVisible?.Invoke();
@@ -222,6 +246,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _fileHost.Content = _fileView;
         _filePanel.IsVisible = true;
         _viewModel.IsFilePreviewOpen = true;
+        _viewModel.PreviewFilePath = filePath;
         if (_splitter is not null)
             _splitter.IsVisible = true;
 
@@ -242,7 +267,10 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _filePanel.Opacity = 1;
         _filePanel.RenderTransform = null;
         // Native child windows cannot participate in Avalonia transforms; attach after the slide.
-        await _fileView.ShowFileAsync(filePath);
+        if (error is not null)
+            _fileView.ShowUnavailable(filePath, error);
+        else
+            await _fileView.ShowFileAsync(filePath);
     }
 
     public void HideFilePreviewPanel()
@@ -429,11 +457,11 @@ internal sealed class ChatPreviewPanelController : IDisposable
         _ = HidePreviewPanelAsync(_subagentPanel, () => _viewModel.IsSubagentRunOpen = false);
     }
 
-    private async Task ShowBrowserPanelAsync(Guid chatId)
+    private async Task<bool> ShowBrowserPanelAsync(Guid chatId)
     {
         var browserService = _viewModel.GetBrowserServiceForChat(chatId);
         if (browserService is null)
-            return;
+            return false;
 
         HidePreviewPanelsExcept(_browserPanel);
         EnsureBrowserViewLoaded(browserService);
@@ -445,7 +473,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
             _viewModel.IsBrowserOpen = true;
             _browserView?.RefreshBounds();
             browserService.SetControllerVisible(true);
-            return;
+            return true;
         }
 
         _ensureChatVisible?.Invoke();
@@ -465,11 +493,11 @@ internal sealed class ChatPreviewPanelController : IDisposable
         }
         catch (OperationCanceledException)
         {
-            return;
+            return false;
         }
 
         if (ct.IsCancellationRequested)
-            return;
+            return false;
 
         _browserPanel.Opacity = 1;
         _browserPanel.RenderTransform = null;
@@ -477,6 +505,7 @@ internal sealed class ChatPreviewPanelController : IDisposable
 
         browserService.SetControllerVisible(true);
         Dispatcher.UIThread.Post(() => _browserView?.RefreshBounds(), DispatcherPriority.Loaded);
+        return true;
     }
 
     private async Task HideBrowserPanelAsync()
