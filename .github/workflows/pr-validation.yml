@@ -74,6 +74,7 @@ jobs:
           --results-directory TestResults
           --filter
           "(FullyQualifiedName~Lumi.Tests.UnixShellPathTests
+          |FullyQualifiedName~Lumi.Tests.AppIconTests
           |FullyQualifiedName~Lumi.Tests.McpProxyRuntimeTests.Proxy_ResolvesPathCommandBeforeStartingStdioServer_OnUnix
           |FullyQualifiedName~Lumi.Tests.SystemPromptBuilderTests
           |FullyQualifiedName~Lumi.Tests.AgentsViewModelToolSelectionTests

@@ -285,9 +285,8 @@ public partial class App : Application
                     AnimationLifecycleLeakRepro.Start(desktop);
 #endif
             };
-            // macOS has no runtime Dock icon unless the app is a bundle with an Info.plist icon; set
-            // it explicitly so an unbundled/dev launch is still branded. No-op on other platforms.
-            if (OperatingSystem.IsMacOS())
+            // Keep the system-rendered bundle icon; the runtime PNG is only an unbundled fallback.
+            if (AppIcon.ShouldUseRuntimeDockIcon(OperatingSystem.IsMacOS(), Environment.ProcessPath))
             {
                 var iconBytes = AppIcon.TryReadPngBytes();
                 if (iconBytes is not null)

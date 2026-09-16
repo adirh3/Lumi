@@ -5,11 +5,10 @@ using System.Runtime.Versioning;
 namespace Lumi.Services;
 
 /// <summary>
-/// macOS-only native integration via the Objective-C runtime. On macOS the Dock icon is taken from
-/// the <c>.app</c> bundle's <c>Info.plist</c> (<c>CFBundleIconFile</c>); a plain <c>dotnet publish</c>
-/// or otherwise unbundled launch has no bundle, so Lumi shows the generic Dock icon. This sets the
-/// running application's Dock icon at runtime so Lumi is branded regardless of how it was launched
-/// (and reinforces the bundled case). Everything here is best-effort and no-ops off macOS.
+/// macOS-only native image integration via the Objective-C runtime. Packaged launches retain the Dock
+/// icon from the <c>.app</c> bundle's <c>Info.plist</c> (<c>CFBundleIconFile</c>). Only unbundled launches
+/// use the runtime Dock-icon fallback; overriding the bundle icon bypasses macOS's icon margins.
+/// Everything here is best-effort and no-ops off macOS.
 /// </summary>
 [SupportedOSPlatform("macos")]
 internal static class MacOsNative
@@ -43,7 +42,7 @@ internal static class MacOsNative
     private const int NSBitmapImageFileTypePng = 4;
 
     /// <summary>
-    /// Sets the running app's Dock icon from raw image bytes (PNG/TIFF/etc.). Best-effort: any failure
+    /// Sets an unbundled app's Dock icon from raw image bytes (PNG/TIFF/etc.). Best-effort: any failure
     /// leaves the current icon untouched. Must be called on the UI (main) thread.
     /// </summary>
     public static void TrySetDockIcon(byte[]? imageBytes)
