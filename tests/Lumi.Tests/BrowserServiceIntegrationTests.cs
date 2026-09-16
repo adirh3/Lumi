@@ -273,10 +273,34 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
             Assert.True(pixel.R > 180 && pixel.B > 130 && pixel.G < 100, $"Unexpected screenshot pixel: {pixel}");
         }
 
+        var formBeforeCapture = await browser.DoAsync("read_form");
+        browser.SetBounds(0, 0, 3840, 2160);
+        var scaledImage = await browser.CaptureScreenshotAsync();
+        Assert.Equal(2048, scaledImage.Width);
+        Assert.Equal(1152, scaledImage.Height);
+        Assert.InRange(scaledImage.PngBytes.Length, 1, BrowserService.MaxScreenshotPngBytes);
+        Assert.Equal(image.TabId, scaledImage.TabId);
+        Assert.Equal(image.Url, scaledImage.Url);
+        using (var stream = new MemoryStream(scaledImage.PngBytes))
+        using (var bitmap = new System.Drawing.Bitmap(stream))
+        {
+            Assert.Equal(scaledImage.Width, bitmap.Width);
+            Assert.Equal(scaledImage.Height, bitmap.Height);
+        }
+        Assert.Equal(formBeforeCapture, await browser.DoAsync("read_form"));
+        Assert.Equal(new System.Drawing.Rectangle(0, 0, 3840, 2160), browser.Controller!.Bounds);
+        browser.SetBounds(0, 0, 940, 700);
+
         await browser.ManageTabsAsync("new", url: url);
         var second = browser.ActiveTabId;
         var hidden = await Assert.ThrowsAsync<InvalidOperationException>(() => browser.CaptureScreenshotAsync(first));
         Assert.Contains("hidden", hidden.Message, StringComparison.OrdinalIgnoreCase);
+        var captureTool = Lumi.ViewModels.ChatViewModel.BuildBrowserScreenshotTool(browser.CaptureScreenshotAsync);
+        var failure = Assert.IsType<GitHub.Copilot.ToolResultAIContent>(await captureTool.InvokeAsync(
+            new Microsoft.Extensions.AI.AIFunctionArguments { ["tabId"] = first }));
+        Assert.Equal("failure", failure.Result.ResultType);
+        Assert.Contains("Switch to this tab and show the browser panel", failure.Result.TextResultForLlm);
+        Assert.Null(failure.Result.BinaryResultsForLlm);
         Assert.Equal(second, browser.ActiveTabId);
         await browser.ManageTabsAsync("switch", first);
         browser.WebView!.DownloadStarting += (_, args) => args.Handled = true;

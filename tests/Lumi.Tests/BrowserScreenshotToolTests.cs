@@ -38,25 +38,12 @@ public sealed class BrowserScreenshotToolTests
 
         Assert.Equal(requestedTabId, capturedTabId);
         Assert.Equal(1, captureCount);
-        var contents = Assert.IsType<AIContent[]>(rawResult);
-        Assert.Equal(2, contents.Length);
-        var text = Assert.IsType<TextContent>(contents[0]);
-        var image = Assert.IsType<DataContent>(contents[1]);
-        Assert.Equal("image/png", image.MediaType);
-        Assert.Equal(PngBytes, image.Data.ToArray());
+        var content = Assert.IsType<ToolResultAIContent>(rawResult);
+        var result = ConvertToolResult(rawResult, tool);
 
-        // This is the actual SDK conversion called by CopilotSession after AIFunction.InvokeAsync.
-        // Testing only a constructed DataContent would miss accidental JSON marshalling by the factory.
-        var convert = typeof(ToolResultObject).GetMethod(
-            "ConvertFromInvocationResult",
-            BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.NotNull(convert);
-        var result = Assert.IsType<ToolResultObject>(
-            convert.Invoke(null, [rawResult, tool.JsonSerializerOptions]));
-
+        Assert.Same(content.Result, result);
         Assert.Equal("success", result.ResultType);
         Assert.Null(result.Error);
-        Assert.Equal(text.Text, result.TextResultForLlm);
         Assert.Contains("tab-alpha", result.TextResultForLlm);
         Assert.Contains("https://example.test/canvas", result.TextResultForLlm);
         Assert.Contains("1 × 1 pixels", result.TextResultForLlm);
@@ -73,16 +60,44 @@ public sealed class BrowserScreenshotToolTests
         Assert.Equal(Convert.ToBase64String(PngBytes), wireImage.GetProperty("data").GetString());
     }
 
-    [Fact]
-    public async Task ScreenshotDelegate_PreservesUsefulCaptureFailureForSdkToolBoundary()
+    [Theory]
+    [InlineData("Tab tab-alpha is hidden. Switch to this tab and show the browser panel before capturing.")]
+    [InlineData("Browser tab 'tab-alpha' was closed. List tabs and try again.")]
+    [InlineData("Screenshot exceeds the 3 MiB PNG budget at a readable size. Narrow the browser panel or use look/find to inspect text.")]
+    public async Task ScreenshotDelegate_ThroughSdkConversion_PreservesActionableFailure(string reason)
     {
-        var expected = new InvalidOperationException("Browser tab 'closed-tab' was closed. List tabs and try again.");
+        var expected = new InvalidOperationException(reason);
         var tool = ChatViewModel.BuildBrowserScreenshotTool(_ => Task.FromException<BrowserScreenshot>(expected));
+        var raw = await tool.InvokeAsync(new AIFunctionArguments { ["tabId"] = "tab-alpha" });
+        var result = ConvertToolResult(raw, tool);
 
-        var actual = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => tool.InvokeAsync(new AIFunctionArguments { ["tabId"] = "closed-tab" }).AsTask());
+        Assert.Equal("failure", result.ResultType);
+        Assert.Equal(reason, result.Error);
+        Assert.StartsWith("Error: Browser screenshot failed.", result.TextResultForLlm);
+        Assert.Contains(reason, result.TextResultForLlm);
+        Assert.Null(result.BinaryResultsForLlm);
+        var wire = JsonSerializer.SerializeToElement(result);
+        Assert.Equal("failure", wire.GetProperty("resultType").GetString());
+        Assert.Contains(reason, wire.GetProperty("textResultForLlm").GetString());
+        Assert.Equal(reason, wire.GetProperty("error").GetString());
+    }
 
+    [Fact]
+    public async Task ScreenshotDelegate_DoesNotHideUnexpectedErrors()
+    {
+        var expected = new ApplicationException("Unexpected capture failure");
+        var tool = ChatViewModel.BuildBrowserScreenshotTool(_ => Task.FromException<BrowserScreenshot>(expected));
+        var actual = await Assert.ThrowsAsync<ApplicationException>(() => tool.InvokeAsync(new AIFunctionArguments()).AsTask());
         Assert.Same(expected, actual);
+    }
+
+    private static ToolResultObject ConvertToolResult(object? rawResult, AIFunction tool)
+    {
+        // CopilotSession uses this SDK conversion after invoking the actual AIFunction.
+        var convert = typeof(ToolResultObject).GetMethod(
+            "ConvertFromInvocationResult", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(convert);
+        return Assert.IsType<ToolResultObject>(convert.Invoke(null, [rawResult, tool.JsonSerializerOptions]));
     }
 
     [Fact]
@@ -101,5 +116,102 @@ public sealed class BrowserScreenshotToolTests
         Assert.Contains("icons", tool.Description);
         Assert.Contains("visible and ready", tool.Description);
         Assert.Contains("does not switch tabs or show the browser", tool.Description);
+        Assert.Contains("2048-pixel", tool.Description);
+        Assert.Contains("3 MiB PNG (4 MiB base64)", tool.Description);
+        Assert.Contains("image-count limits", tool.Description);
     }
+
+#if WINDOWS
+    [Theory]
+    [InlineData(800, 600, 800, 600)]
+    [InlineData(2048, 1024, 2048, 1024)]
+    [InlineData(3840, 2160, 2048, 1152)]
+    [InlineData(2160, 3840, 1152, 2048)]
+    public async Task ScreenshotSizing_PreservesAspectRatioAndDeliversActualDimensions(
+        int width, int height, int expectedWidth, int expectedHeight)
+    {
+        using var bitmap = new System.Drawing.Bitmap(width, height);
+        using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
+            graphics.Clear(System.Drawing.Color.Magenta);
+        var original = ScreenshotFromBitmap(bitmap);
+        var resized = BrowserService.PrepareScreenshotForModel(original);
+
+        Assert.Equal(expectedWidth, resized.Width);
+        Assert.Equal(expectedHeight, resized.Height);
+        Assert.Equal(original.TabId, resized.TabId);
+        Assert.Equal(original.Url, resized.Url);
+        Assert.InRange(resized.PngBytes.Length, 1, BrowserService.MaxScreenshotPngBytes);
+        if (width == expectedWidth && height == expectedHeight)
+            Assert.Same(original, resized);
+        using var stream = new MemoryStream(resized.PngBytes);
+        using var decoded = new System.Drawing.Bitmap(stream);
+        Assert.Equal(expectedWidth, decoded.Width);
+        Assert.Equal(expectedHeight, decoded.Height);
+        Assert.Equal(System.Drawing.Color.Magenta.ToArgb(), decoded.GetPixel(0, 0).ToArgb());
+
+        var tool = ChatViewModel.BuildBrowserScreenshotTool(_ => Task.FromResult(resized));
+        var result = ConvertToolResult(await tool.InvokeAsync(new AIFunctionArguments()), tool);
+        Assert.Contains($"{expectedWidth} × {expectedHeight} pixels", result.TextResultForLlm);
+        Assert.Equal(resized.PngBytes, Convert.FromBase64String(Assert.Single(result.BinaryResultsForLlm!).Data));
+    }
+
+    [Fact]
+    public void ScreenshotSizing_ReducesHighDetailPngToFitEncodedBudget()
+    {
+        using var bitmap = NoiseBitmap(2048, 1536);
+        var original = ScreenshotFromBitmap(bitmap);
+        Assert.True(original.PngBytes.Length > BrowserService.MaxScreenshotPngBytes);
+
+        var resized = BrowserService.PrepareScreenshotForModel(original);
+
+        Assert.InRange(resized.PngBytes.Length, 1, BrowserService.MaxScreenshotPngBytes);
+        Assert.InRange(Convert.ToBase64String(resized.PngBytes).Length, 1, 4 * 1024 * 1024);
+        Assert.InRange(resized.Width, 1024, 2047);
+        Assert.InRange(Math.Abs(resized.Height - resized.Width * 0.75), 0, 1);
+        using var stream = new MemoryStream(resized.PngBytes);
+        using var decoded = new System.Drawing.Bitmap(stream);
+        Assert.Equal(resized.Width, decoded.Width);
+        Assert.Equal(resized.Height, decoded.Height);
+    }
+
+    [Fact]
+    public void ScreenshotSizing_RejectsOversizedImageRatherThanMakingItIllegible()
+    {
+        using var bitmap = NoiseBitmap(1024, 1024);
+        var screenshot = ScreenshotFromBitmap(bitmap);
+        Assert.True(screenshot.PngBytes.Length > BrowserService.MaxScreenshotPngBytes);
+
+        var error = Assert.Throws<InvalidOperationException>(
+            () => BrowserService.PrepareScreenshotForModel(screenshot));
+
+        Assert.Contains("readable size", error.Message);
+        Assert.Contains("look/find", error.Message);
+    }
+
+    private static BrowserScreenshot ScreenshotFromBitmap(System.Drawing.Bitmap bitmap)
+    {
+        using var output = new MemoryStream();
+        bitmap.Save(output, System.Drawing.Imaging.ImageFormat.Png);
+        return new BrowserScreenshot("tab-sized", "https://example.test/viewport",
+            bitmap.Width, bitmap.Height, output.ToArray());
+    }
+
+    private static System.Drawing.Bitmap NoiseBitmap(int width, int height)
+    {
+        var bitmap = new System.Drawing.Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        var data = bitmap.LockBits(new System.Drawing.Rectangle(0, 0, width, height),
+            System.Drawing.Imaging.ImageLockMode.WriteOnly, bitmap.PixelFormat);
+        try
+        {
+            var pixels = new byte[data.Stride * height];
+            new Random(42).NextBytes(pixels);
+            System.Runtime.InteropServices.Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
+        }
+        finally
+        {
+            bitmap.UnlockBits(data);
+        }
+        return bitmap;
+    }
+#endif
 }

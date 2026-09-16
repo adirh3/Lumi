@@ -4,6 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 #if WINDOWS
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using Microsoft.Web.WebView2.Core;
 #endif
 
@@ -16,6 +19,10 @@ public sealed record BrowserScreenshot(string TabId, string Url, int Width, int 
 #if WINDOWS
 public sealed partial class BrowserService
 {
+    internal const int MaxScreenshotDimension = 2048;
+    internal const int MaxScreenshotPngBytes = 3 * 1024 * 1024; // At most 4 MiB after base64 encoding.
+    private const int MinScreenshotDimension = 1024;
+
     // The per-chat service coordinates tabs. Each leaf reuses the existing controller and automation code.
     private readonly BrowserService? _tabOwner;
     private readonly List<BrowserService> _tabs = [];
@@ -212,7 +219,7 @@ public sealed partial class BrowserService
             throw new InvalidOperationException($"Tab {tab.TabId} is busy. Wait for its current browser action to finish before capturing.");
         try
         {
-            return await InvokeOnUiThreadAsync(async () =>
+            var screenshot = await InvokeOnUiThreadAsync(async () =>
             {
                 ObjectDisposedException.ThrowIf(tab._isDisposed, tab);
                 var controller = tab._controller
@@ -238,6 +245,7 @@ public sealed partial class BrowserService
                     throw new InvalidOperationException("WebView2 returned an empty screenshot.");
                 return new BrowserScreenshot(tab.TabId, url, width, height, bytes);
             });
+            return await Task.Run(() => PrepareScreenshotForModel(screenshot));
         }
         catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or TimeoutException)
         {
@@ -247,6 +255,47 @@ public sealed partial class BrowserService
         finally
         {
             tab._actionLock.Release();
+        }
+    }
+
+    internal static BrowserScreenshot PrepareScreenshotForModel(BrowserScreenshot screenshot)
+    {
+        var originalLongestEdge = Math.Max(screenshot.Width, screenshot.Height);
+        if (originalLongestEdge <= MaxScreenshotDimension && screenshot.PngBytes.Length <= MaxScreenshotPngBytes)
+            return screenshot;
+
+        using var input = new MemoryStream(screenshot.PngBytes);
+        using var original = Image.FromStream(input);
+        var longestEdge = Math.Min(originalLongestEdge, MaxScreenshotDimension);
+        var minimumEdge = Math.Min(originalLongestEdge, MinScreenshotDimension);
+        while (true)
+        {
+            var scale = (double)longestEdge / originalLongestEdge;
+            var width = Math.Max(1, (int)Math.Round(screenshot.Width * scale));
+            var height = Math.Max(1, (int)Math.Round(screenshot.Height * scale));
+            using var resized = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+            using (var graphics = Graphics.FromImage(resized))
+            using (var attributes = new ImageAttributes())
+            {
+                graphics.CompositingMode = CompositingMode.SourceCopy;
+                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                attributes.SetWrapMode(WrapMode.TileFlipXY);
+                graphics.DrawImage(original, new Rectangle(0, 0, width, height),
+                    0, 0, original.Width, original.Height, GraphicsUnit.Pixel, attributes);
+            }
+
+            using var output = new MemoryStream();
+            resized.Save(output, ImageFormat.Png);
+            if (output.Length <= MaxScreenshotPngBytes)
+                return screenshot with { Width = width, Height = height, PngBytes = output.ToArray() };
+            if (longestEdge <= minimumEdge)
+                throw new InvalidOperationException(
+                    "Screenshot exceeds the 3 MiB PNG budget at a readable size. Narrow the browser panel or use look/find to inspect text.");
+
+            // Render each attempt from the original, not from a previously downscaled image.
+            var reduction = Math.Min(0.9, Math.Sqrt((double)MaxScreenshotPngBytes / output.Length) * 0.95);
+            longestEdge = Math.Max(minimumEdge, (int)(longestEdge * reduction));
         }
     }
 
