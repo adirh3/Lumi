@@ -331,6 +331,12 @@ public sealed partial class ConnectViewModel : ObservableObject
         }
     }
 
+    partial void OnErrorTextChanged(string? value)
+    {
+        if (!string.IsNullOrEmpty(value))
+            StatusText = null;
+    }
+
     internal void Reset()
     {
         _searchCts?.Cancel();

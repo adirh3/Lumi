@@ -12,7 +12,7 @@ public partial class LibraryView : UserControl
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
-    /// <summary>Long-press a library row for its actions — the touch stand-in for a right click.</summary>
+    /// <summary>Long-press is a shortcut to the same sheet as the visible row action button.</summary>
     private void OnLibraryRowHolding(object? sender, HoldingRoutedEventArgs e)
     {
         if (e.HoldingState != HoldingState.Started
@@ -22,12 +22,12 @@ public partial class LibraryView : UserControl
             return;
         }
 
-        if (control.DataContext is not LibraryEntryViewModel entry)
+        if (control.DataContext is not LibraryEntryViewModel { HasActions: true } entry
+            || DataContext is not LibraryViewModel library
+            || library.IsEditing)
             return;
 
-        if (DataContext is LibraryViewModel library)
-            library.OpenRowActionsCommand.Execute(entry);
-
-        e.Handled = true;
+        library.OpenRowActionsCommand.Execute(entry);
+        e.Handled = library.IsRowActionsOpen;
     }
 }

@@ -77,11 +77,12 @@ public readonly record struct MobileLayoutState
 
         var widthClass = ClassifyWidth(width);
 
-        // Book posture folds the screen into two logical halves. Honour the hinge instead of
-        // splitting arbitrarily, so no content is ever painted underneath it.
+        // An occluding book hinge needs a reserved pane; a drawable crease must not leave
+        // half the canvas empty when navigation closes. Tabletop retains its upper-pane layout.
         var splitAtHinge = posture == FoldPosture.BookVerticalHinge
+                           && hingeSize > 0
                            && hingePosition >= ListPaneMinWidth
-                           && width - (hingePosition + Math.Max(hingeSize, 1)) >= MinimumDetailPaneWidth;
+                           && width - (hingePosition + hingeSize) >= MinimumDetailPaneWidth;
         var splitAtHorizontalHinge = posture == FoldPosture.TabletopHorizontalHinge
                                      && hingePosition >= 300
                                      && height - (hingePosition + Math.Max(hingeSize, 1)) >= 200;
@@ -93,7 +94,7 @@ public readonly record struct MobileLayoutState
             WidthClass = widthClass,
             // Only report the hinge when the panes actually meet there. Reporting it otherwise would
             // paint an empty stripe away from the physical fold while content sat under the real one.
-            HingeSize = splitAtHinge ? Math.Max(hingeSize, 1) : 0,
+            HingeSize = splitAtHinge ? hingeSize : 0,
             HingePosition = splitAtHinge ? hingePosition : 0,
             HorizontalHingeSize = splitAtHorizontalHinge ? Math.Max(hingeSize, 1) : 0,
             HorizontalHingePosition = splitAtHorizontalHinge ? hingePosition : 0

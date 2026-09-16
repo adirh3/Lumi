@@ -3,24 +3,24 @@
              xmlns:vm="using:Lumi.Mobile.ViewModels"
              xmlns:views="using:Lumi.Mobile.Views"
              xmlns:sc="using:StrataTheme.Controls"
+             xmlns:textInput="using:Avalonia.Input.TextInput"
              x:Class="Lumi.Mobile.Views.MobileShellView"
              x:DataType="vm:MobileShellViewModel"
              Background="{DynamicResource Brush.Surface0}">
 
   <UserControl.Styles>
-    <!-- Strata owns the title in its template, outside Content. Reuse the otherwise-unconsumed
-         sheet Padding property to pass the cutout-aware title margin into that template part. -->
-    <Style Selector="sc|StrataBottomSheet.safe-area /template/ TextBlock#PART_Title">
-      <Setter Property="Margin"
-              Value="{Binding $parent[sc:StrataBottomSheet].Padding}" />
-    </Style>
-    <Style Selector="sc|StrataBottomSheet.safe-area /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Margin"
-              Value="{Binding $parent[sc:StrataBottomSheet].Tag}" />
+    <Style Selector="sc|StrataBottomSheet.safe-area">
+      <Setter Property="SheetMargin"
+              Value="{Binding #SheetMarginProxy.Padding}" />
     </Style>
   </UserControl.Styles>
 
   <Panel x:Name="Root">
+
+    <!-- Styles share a null-safe source even before the shell receives its ViewModel. -->
+    <Border x:Name="SheetMarginProxy" Width="0" Height="0"
+            HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"
+            Padding="{Binding SafeAreaSheetMargin}" />
 
     <!-- ═══ Onboarding: not paired with any PC yet ═══ -->
     <Grid x:Name="ConnectLayout"
@@ -44,22 +44,22 @@
 
     <!-- ═══ Main shell ═══ -->
     <!--
-      The drawer wraps the shell rather than floating over it, because the drag has to be recognised
-      above everything it can start on top of. Its gesture recognizer is disabled while docked: on a
-      wide screen the sidebar is pinned and a swipe there would fight the transcript.
+      One measured navigation surface and one gesture recognizer serve both modal and docked layouts.
+      The view keeps the conversation's leading edge attached to the drawer's live progress.
+      Its trailing edge stays at the window edge, including during drag and button settling.
     -->
     <sc:StrataNavigationDrawer x:Name="NavDrawer"
                                IsVisible="{Binding IsPaired}"
-                               IsOpen="{Binding IsDrawerOpen, Mode=TwoWay}"
+                               IsOpen="{Binding IsNavigationOpen, Mode=TwoWay}"
+                               IsModal="{Binding !CanDockDrawer}"
                                PanelWidth="{Binding DrawerWidth}"
                                IsDragEnabled="{Binding CanDragDrawer}"
                                CanOpenFromAnywhere="True">
       <sc:StrataNavigationDrawer.Panel>
-        <Border Background="{DynamicResource Brush.Surface1}"
-                BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                BorderThickness="0,0,1,0"
-                BoxShadow="4 0 28 0 #40000000">
-          <views:MobileDrawerView x:Name="SlidingDrawerContent" />
+        <Border x:Name="DrawerPane" Classes="navigation-pane"
+                Background="{DynamicResource Brush.NavigationSurface}"
+                ClipToBounds="True">
+          <views:MobileDrawerView x:Name="DrawerContent" />
         </Border>
       </sc:StrataNavigationDrawer.Panel>
 
@@ -67,21 +67,9 @@
             Height="{Binding UsableContentHeight}"
             VerticalAlignment="Top">
 
-        <!--
-          Docked drawer, expanded widths only (>=840dp). ChatGPT just stretches its phone layout onto
-          tablets, which wastes the space; Material's list-detail guidance says pin the list instead.
-        -->
-        <Border x:Name="DockedDrawer" Grid.Column="0"
-                IsVisible="{Binding IsDrawerDocked}"
-                Width="{Binding DrawerWidth}"
-                BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                BorderThickness="0,0,1,0">
-          <views:MobileDrawerView x:Name="DockedDrawerContent" />
-        </Border>
-
-        <Border x:Name="CollapsedHingeLead" Grid.Column="0"
-                IsVisible="{Binding HasCollapsedHingeLead}"
-                Width="{Binding CollapsedHingeLeadWidth}"
+        <Border x:Name="NavigationSpacer" Grid.Column="0"
+                Width="0"
+                IsHitTestVisible="False"
                 Background="{DynamicResource Brush.Surface0}" />
 
         <!-- Physical hinge gap on a book-posture foldable: never paint underneath it. -->
@@ -90,9 +78,11 @@
                 Background="{DynamicResource Brush.Surface0}" />
 
         <!-- ═══ The conversation. Always mounted: this app IS the chat. ═══ -->
-        <Panel Grid.Column="2">
+        <Border x:Name="ConversationFrame" Grid.Column="2" Classes="conversation-frame"
+                Background="{DynamicResource Brush.ChatCanvas}"
+                ClipToBounds="True">
+        <Panel>
           <views:ChatDetailView x:Name="ChatSurface" />
-
           <!-- Pages stack OVER the chat rather than replacing it, so coming back never costs a
                transcript rebuild. -->
           <Panel x:Name="LibraryHost" IsVisible="{Binding IsLibraryPage}"
@@ -105,18 +95,79 @@
 
           <views:MobileSearchView x:Name="SearchPage" IsVisible="{Binding IsSearchPage}" />
         </Panel>
+        </Border>
+
+        <!-- An overlay follows the live pane edge without remeasuring the conversation. -->
+        <Border x:Name="ConversationSeparation" Grid.Column="2"
+                Width="1" HorizontalAlignment="Left" IsHitTestVisible="False"
+                Background="{DynamicResource Brush.ChatPaneSeparation}"
+                BoxShadow="{DynamicResource Shadow.ChatPaneSeparation}">
+          <Border.IsVisible>
+            <MultiBinding Converter="{x:Static BoolConverters.And}">
+              <Binding Path="CanDockDrawer" />
+              <Binding Path="IsDrawerPresented" />
+              <Binding Path="!HasHingeGap" />
+            </MultiBinding>
+          </Border.IsVisible>
+        </Border>
       </Grid>
     </sc:StrataNavigationDrawer>
+
+    <sc:StrataBottomSheet x:Name="ProjectPickerSheet"
+                          Classes="safe-area"
+                          SheetMargin="{Binding ProjectPickerSheetMargin}"
+                          IsOpen="{Binding IsProjectPickerOpen, Mode=TwoWay}"
+                          Title="Projects">
+      <Grid RowDefinitions="Auto,*" MaxHeight="440" Margin="12,0,12,12"
+            IsEnabled="{Binding CanChangeProjectScope}">
+        <Button x:Name="AllProjectsButton" Classes="sheet-item"
+                Command="{Binding ClearProjectCommand}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock Text="All projects" VerticalAlignment="Center" />
+            <PathIcon Grid.Column="1" Width="18" Height="18" VerticalAlignment="Center"
+                      IsVisible="{Binding !HasActiveProject}" Foreground="{DynamicResource Brush.AccentDefault}"
+                      Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+          </Grid>
+        </Button>
+        <ScrollViewer Grid.Row="1" Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
+          <ItemsControl x:Name="ProjectPickerList" ItemsSource="{Binding Projects}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <VirtualizingStackPanel />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ProjectPickViewModel">
+                <Button Classes="sheet-item project-scope-option"
+                        AutomationProperties.Name="{Binding Name}"
+                        Command="{Binding $parent[views:MobileShellView].((vm:MobileShellViewModel)DataContext).SelectProjectCommand}"
+                        CommandParameter="{Binding}">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                    <PathIcon Grid.Column="1" Width="18" Height="18" VerticalAlignment="Center"
+                              IsVisible="{Binding IsActive}" Foreground="{DynamicResource Brush.AccentDefault}"
+                              Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Grid>
+    </sc:StrataBottomSheet>
 
     <!-- ═══ Chat actions, opened by long-pressing a drawer row ═══ -->
     <sc:StrataBottomSheet x:Name="ChatActionsSheet"
                           Classes="safe-area"
                           IsOpen="{Binding IsChatActionsOpen, Mode=TwoWay}"
-                          Title="{Binding ActionChatTitle}"
-                          Padding="{Binding SafeAreaSheetTitleMargin}"
-                          Tag="{Binding SafeAreaSheetPresenterMargin}">
-      <Border x:Name="ChatActionsSideInset" Padding="{Binding SafeAreaSides}">
+                          Title="{Binding ChatActionsTitle}">
+      <Border x:Name="ChatActionsSideInset">
+        <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
         <StackPanel>
+          <TextBlock Text="{Binding ActionChatTitle}" Margin="20,4,20,16"
+                     FontSize="{DynamicResource Font.SizeSubtitle}" FontWeight="SemiBold"
+                     TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
+          <StackPanel IsVisible="{Binding ShowChatActionList}">
           <Button x:Name="SheetPinButton" Classes="sheet-item"
                   Command="{Binding PinActionChatCommand}">
             <StackPanel Orientation="Horizontal" Spacing="16">
@@ -126,15 +177,61 @@
             </StackPanel>
           </Button>
 
+          <Button x:Name="SheetRenameButton" Classes="sheet-item"
+                  Command="{Binding RenameActionChatCommand}">
+            <StackPanel Orientation="Horizontal" Spacing="16">
+              <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
+                        VerticalAlignment="Center"
+                        Data="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z" />
+              <TextBlock Text="Rename chat" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+
           <Button x:Name="SheetDeleteButton" Classes="sheet-item danger"
                   Command="{Binding DeleteActionChatCommand}">
             <StackPanel Orientation="Horizontal" Spacing="16">
               <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}" VerticalAlignment="Center"
                         Data="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-              <TextBlock Text="Delete" VerticalAlignment="Center" />
+              <TextBlock Text="Delete chat" VerticalAlignment="Center" />
             </StackPanel>
           </Button>
+          <Button Classes="touch subtle" Content="Done" Margin="20,8,20,12"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                  Command="{Binding CloseChatActionsCommand}" />
+          </StackPanel>
+
+          <StackPanel IsVisible="{Binding IsRenamingChat}" Margin="20,0,20,16" Spacing="12">
+            <TextBlock Text="Chat name" Classes="field-label" />
+            <TextBox x:Name="RenameChatBox" Classes="mobile" Text="{Binding ChatNameDraft}"
+                     IsVisible="{Binding IsRenamingChat}"
+                     AutomationProperties.Name="Chat name"
+                     textInput:TextInputOptions.ReturnKeyType="Done"
+                     IsEnabled="{Binding !IsChatActionBusy}"
+                     KeyDown="OnChatRenameKeyDown" />
+            <Button x:Name="SaveChatNameButton" Classes="touch accent" Content="Save name"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                    Command="{Binding SaveChatNameCommand}" />
+            <Button Classes="touch subtle" Content="Cancel"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                    Command="{Binding CancelChatActionCommand}" />
+          </StackPanel>
+
+          <StackPanel IsVisible="{Binding IsConfirmingChatDelete}" Margin="20,0,20,16" Spacing="16">
+            <TextBlock Text="This conversation will be deleted from your phone and PC. This can't be undone."
+                       Classes="supporting" />
+            <Button x:Name="ConfirmChatDeleteButton" Classes="touch danger" Content="Delete chat"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                    Command="{Binding ConfirmDeleteActionChatCommand}" />
+            <Button x:Name="CancelChatDeleteButton" Classes="touch" Content="Keep chat"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                    Command="{Binding CancelChatActionCommand}" />
+          </StackPanel>
+          <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsChatActionBusy}" Height="3" Margin="20,0,20,12" />
+          <TextBlock Text="{Binding ChatActionError}" Classes="supporting" Margin="20,0,20,16"
+                     Foreground="{DynamicResource Brush.DangerDefault}"
+                     IsVisible="{Binding ChatActionError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         </StackPanel>
+        </ScrollViewer>
       </Border>
     </sc:StrataBottomSheet>
   </Panel>

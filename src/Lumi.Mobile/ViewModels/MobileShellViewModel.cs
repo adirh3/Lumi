@@ -134,6 +134,7 @@ public sealed partial class MobileShellViewModel :
     [NotifyPropertyChangedFor(nameof(IsLive))]
     [NotifyPropertyChangedFor(nameof(ShowConnectionBanner))]
     [NotifyPropertyChangedFor(nameof(ConnectionBannerText))]
+    [NotifyPropertyChangedFor(nameof(ConnectionStateLabel))]
     private bool _isConnected;
 
     /// <summary>
@@ -144,10 +145,15 @@ public sealed partial class MobileShellViewModel :
     [NotifyPropertyChangedFor(nameof(IsLive))]
     [NotifyPropertyChangedFor(nameof(ShowConnectionBanner))]
     [NotifyPropertyChangedFor(nameof(ConnectionBannerText))]
+    [NotifyPropertyChangedFor(nameof(ConnectionStateLabel))]
     private bool _isHostReady;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowConnectionBanner))]
+    [NotifyPropertyChangedFor(nameof(CanGoBack))]
+    [NotifyPropertyChangedFor(nameof(ShowMenuButton))]
+    [NotifyPropertyChangedFor(nameof(CanChangeProjectScope))]
+    [NotifyCanExecuteChangedFor(nameof(OpenProjectPickerCommand))]
     private bool _isPaired;
 
     [ObservableProperty]
@@ -165,13 +171,27 @@ public sealed partial class MobileShellViewModel :
     [ObservableProperty] private MobilePage _page = MobilePage.Chat;
 
     /// <summary>
-    /// Navigation drawer state. On compact and medium widths the drawer slides over the chat and
-    /// is dismissed by the scrim; at expanded widths it is docked permanently and this is ignored.
+    /// Overlay navigation state. Expanded layouts use the remembered sidebar preference instead.
     /// </summary>
     [ObservableProperty] private bool _isDrawerOpen;
 
     /// <summary>User collapsed the docked sidebar to give the conversation the full width.</summary>
     [ObservableProperty] private bool _isSidebarCollapsed;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsNavigationCoveringContent))]
+    private bool _isDrawerPresented;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsNavigationCoveringContent))]
+    private bool _isDrawerMoving;
+
+    [ObservableProperty] private bool _isModalSheetPresented;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanGoBack))]
+    [NotifyPropertyChangedFor(nameof(CanDragDrawer))]
+    private bool _isProjectPickerOpen;
 
     public MobileShellViewModel(
         LumiRemoteClient? client = null,
@@ -197,6 +217,11 @@ public sealed partial class MobileShellViewModel :
             Discovery,
             OnPairedAsync,
             MobilePlatformServices.HostEnvironment);
+        Connect.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ConnectViewModel.Step))
+                OnPropertyChanged(nameof(CanGoBack));
+        };
         IsSidebarCollapsed = _settings.IsSidebarCollapsed;
 
         ChatList.ChatActivated += OnChatActivated;
@@ -205,13 +230,18 @@ public sealed partial class MobileShellViewModel :
         Client.StreamFrameReceived += OnFrameReceived;
         Client.StateChanged += OnClientStateChanged;
 
-        // The header shows the chat title once a conversation exists, and the model before that.
+        // The details sheet keeps the chat identity; the header binds to the live model directly.
         Chat.PropertyChanged += (_, e) =>
         {
+            if (e.PropertyName is nameof(MobileChatViewModel.ChatId)
+                or nameof(MobileChatViewModel.CanChangeProjectSelection))
+            {
+                OnPropertyChanged(nameof(CanChangeProjectScope));
+                OpenProjectPickerCommand.NotifyCanExecuteChanged();
+            }
+
             if (e.PropertyName is nameof(MobileChatViewModel.HasChat)
-                or nameof(MobileChatViewModel.Title)
-                or nameof(MobileChatViewModel.Model)
-                or nameof(MobileChatViewModel.ModelDisplayName))
+                or nameof(MobileChatViewModel.Title))
             {
                 OnPropertyChanged(nameof(HeaderTitle));
             }
@@ -224,6 +254,9 @@ public sealed partial class MobileShellViewModel :
                 OnPropertyChanged(nameof(CanGoBack));
                 OnPropertyChanged(nameof(CanDragDrawer));
             }
+
+            if (e.PropertyName == nameof(MobileChatViewModel.IsGitChangesOpen) && CanReadChatTranscript)
+                _ = RefreshTranscriptAsync();
 
             if (e.PropertyName is nameof(MobileChatViewModel.IsBusy)
                 or nameof(MobileChatViewModel.IsStreaming))
@@ -310,18 +343,64 @@ public sealed partial class MobileShellViewModel :
 
     public bool HasProjects => Projects.Count > 0;
 
-    // ── Chat action sheet (long-press on a drawer row) ────────────────────────────────────────
+    // ── Chat action sheet ────────────────────────────────────────────────────────────────────
+
+    private long _chatActionsVersion;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanGoBack))]
     [NotifyPropertyChangedFor(nameof(CanDragDrawer))]
     private bool _isChatActionsOpen;
 
-    [ObservableProperty] private ChatListItemViewModel? _actionChat;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanManageActionChat))]
+    [NotifyCanExecuteChangedFor(nameof(PinActionChatCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteActionChatCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RenameActionChatCommand))]
+    private ChatListItemViewModel? _actionChat;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowChatActionList))]
+    [NotifyPropertyChangedFor(nameof(ChatActionsTitle))]
+    [NotifyCanExecuteChangedFor(nameof(SaveChatNameCommand))]
+    private bool _isRenamingChat;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowChatActionList))]
+    [NotifyPropertyChangedFor(nameof(ChatActionsTitle))]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmDeleteActionChatCommand))]
+    private bool _isConfirmingChatDelete;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SaveChatNameCommand))]
+    private string _chatNameDraft = "";
+
+    [ObservableProperty] private string? _chatActionError;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanManageActionChat))]
+    [NotifyCanExecuteChangedFor(nameof(PinActionChatCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteActionChatCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RenameActionChatCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SaveChatNameCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmDeleteActionChatCommand))]
+    private bool _isChatActionBusy;
 
     public string ActionChatTitle => ActionChat?.Title ?? "";
 
-    public string PinActionLabel => ActionChat?.IsPinned == true ? "Unpin" : "Pin";
+    public string PinActionLabel => ActionChat?.IsPinned == true ? "Unpin chat" : "Pin chat";
+
+    public string ChatActionsTitle => IsRenamingChat ? "Rename chat"
+        : IsConfirmingChatDelete ? "Delete this chat?" : "Chat actions";
+
+    public bool ShowChatActionList => !IsRenamingChat && !IsConfirmingChatDelete;
+
+    public bool CanManageActionChat => ActionChat is not null && !IsChatActionBusy;
+
+    private bool CanSaveChatName => CanManageActionChat && IsRenamingChat
+        && !string.IsNullOrWhiteSpace(ChatNameDraft);
+
+    private bool CanConfirmChatDelete => CanManageActionChat && IsConfirmingChatDelete;
 
     [RelayCommand]
     private void OpenChatActions(ChatListItemViewModel? chat)
@@ -329,29 +408,112 @@ public sealed partial class MobileShellViewModel :
         if (chat is null)
             return;
 
+        _chatActionsVersion++;
         ActionChat = chat;
+        CancelChatAction();
         IsChatActionsOpen = true;
     }
 
     [RelayCommand]
     private void CloseChatActions() => IsChatActionsOpen = false;
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanManageActionChat))]
     private async Task PinActionChatAsync()
     {
-        if (ActionChat is { } chat)
-            await ChatList.TogglePinCommand.ExecuteAsync(chat);
+        if (ActionChat is not { } chat)
+            return;
 
-        IsChatActionsOpen = false;
+        if (await RunChatActionAsync(new RemoteCommand(RemoteProtocol.Actions.PinChat)
+                .With("chatId", chat.Id.ToString()).With("pinned", (!chat.IsPinned).ToString())))
+        {
+            IsChatActionsOpen = false;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanManageActionChat))]
+    private void DeleteActionChat()
+    {
+        ChatActionError = null;
+        IsConfirmingChatDelete = true;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanConfirmChatDelete))]
+    private async Task ConfirmDeleteActionChatAsync()
+    {
+        if (ActionChat is not { } chat)
+            return;
+
+        if (await RunChatActionAsync(new RemoteCommand(RemoteProtocol.Actions.DeleteChat)
+                .With("chatId", chat.Id.ToString())))
+        {
+            IsChatActionsOpen = false;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanManageActionChat))]
+    private void RenameActionChat()
+    {
+        IsDrawerOpen = false;
+        ChatActionError = null;
+        ChatNameDraft = ActionChatTitle;
+        IsRenamingChat = true;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanSaveChatName))]
+    private async Task SaveChatNameAsync()
+    {
+        if (ActionChat is not { } chat)
+            return;
+
+        var title = ChatNameDraft.Trim();
+        if (await RunChatActionAsync(new RemoteCommand(RemoteProtocol.Actions.RenameChat)
+                .With("chatId", chat.Id.ToString()).With("title", title)))
+        {
+            chat.Title = title;
+            if (Chat.ChatId == chat.Id)
+                Chat.Title = title;
+            IsChatActionsOpen = false;
+        }
     }
 
     [RelayCommand]
-    private async Task DeleteActionChatAsync()
+    private void CancelChatAction()
     {
-        if (ActionChat is { } chat)
-            await ChatList.DeleteChatCommand.ExecuteAsync(chat);
+        IsRenamingChat = false;
+        IsConfirmingChatDelete = false;
+        ChatActionError = null;
+    }
 
-        IsChatActionsOpen = false;
+    private async Task<bool> RunChatActionAsync(RemoteCommand command)
+    {
+        var version = _chatActionsVersion;
+        var connection = Volatile.Read(ref _connectionGeneration);
+        IsChatActionBusy = true;
+        ChatActionError = null;
+        try
+        {
+            var result = await SendCommandAsync(command);
+            if (version != _chatActionsVersion || !IsChatActionsOpen
+                || connection != Volatile.Read(ref _connectionGeneration))
+                return false;
+
+            if (!result.Ok)
+                ChatActionError = result.Error ?? "This action didn't complete. Please try again.";
+            return result.Ok;
+        }
+        finally
+        {
+            IsChatActionBusy = false;
+        }
+    }
+
+    partial void OnIsChatActionsOpenChanged(bool value)
+    {
+        if (!value)
+        {
+            _chatActionsVersion++;
+            CancelChatAction();
+        }
     }
 
     partial void OnActionChatChanged(ChatListItemViewModel? value)
@@ -361,9 +523,8 @@ public sealed partial class MobileShellViewModel :
     }
 
     /// <summary>
-    /// Selecting a project makes it the lens you work through: the chat list filters to it, and a
-    /// new chat started from here lands inside it. Tapping the active one clears the filter. This
-    /// mirrors Lumi desktop and ChatGPT — a project is a workspace, not a tag on one message.
+    /// Project scope filters history and becomes the destination for a pending new chat.
+    /// The picker has an explicit All projects choice rather than toggling the selected project off.
     /// </summary>
     [RelayCommand]
     private void SelectProject(ProjectPickViewModel? project)
@@ -373,7 +534,8 @@ public sealed partial class MobileShellViewModel :
         if (Chat.ChatId == Guid.Empty && !Chat.CanChangeProjectSelection)
             return;
 
-        ActiveProjectId = project.IsActive ? null : project.Id;
+        ActiveProjectId = project.Id;
+        IsProjectPickerOpen = false;
 
         // Stay in the drawer: the point of picking a project is to then choose one of ITS chats,
         // and closing here would make the user reopen the drawer to do it.
@@ -389,6 +551,20 @@ public sealed partial class MobileShellViewModel :
 
     public bool HasActiveProject => ActiveProjectId.HasValue;
 
+    public string ProjectScopeLabel => ActiveProject ?? "All projects";
+
+    public bool CanChangeProjectScope =>
+        IsPaired && (Chat.ChatId != Guid.Empty || Chat.CanChangeProjectSelection);
+
+    [RelayCommand(CanExecute = nameof(CanChangeProjectScope))]
+    private void OpenProjectPicker() => IsProjectPickerOpen = true;
+
+    partial void OnIsPairedChanged(bool value)
+    {
+        if (!value)
+            IsProjectPickerOpen = false;
+    }
+
     partial void OnActiveProjectIdChanged(Guid? value)
     {
         ChatList.ProjectFilterId = value;
@@ -396,6 +572,7 @@ public sealed partial class MobileShellViewModel :
             SearchChatList.ProjectFilterId = value;
         OnPropertyChanged(nameof(ActiveProject));
         OnPropertyChanged(nameof(HasActiveProject));
+        OnPropertyChanged(nameof(ProjectScopeLabel));
         SyncProjectSelection();
 
         // A project chosen while composing a blank chat is both a history lens and the destination
@@ -415,6 +592,7 @@ public sealed partial class MobileShellViewModel :
             return;
 
         ActiveProjectId = null;
+        IsProjectPickerOpen = false;
     }
 
     private void SyncProjectSelection()
@@ -447,6 +625,7 @@ public sealed partial class MobileShellViewModel :
 
             OnPropertyChanged(nameof(HasProjects));
             OnPropertyChanged(nameof(ActiveProject));
+            OnPropertyChanged(nameof(ProjectScopeLabel));
         }
 
         SyncProjectSelection();
@@ -521,8 +700,7 @@ public sealed partial class MobileShellViewModel :
     }
 
     /// <summary>
-    /// Centre of the top bar. The open chat's title matters more than the model once a conversation
-    /// exists; before that, the model is the thing the user is most likely to want to change.
+    /// Chat identity above the labelled project or assistant settings affordance.
     /// </summary>
     public string HeaderTitle => Chat.HasChat && !string.IsNullOrWhiteSpace(Chat.Title)
         ? Chat.Title
@@ -557,13 +735,15 @@ public sealed partial class MobileShellViewModel :
         SearchChatList.ProjectFilterId = ChatList.ProjectFilterId;
         SearchChatList.SearchText = "";
         SearchChatList.Apply(ChatList.SnapshotLoadedGroups());
-        _readWatermarks.Clear();
         Page = MobilePage.Search;
         IsDrawerOpen = false;
     }
 
     /// <summary>True only when the phone can actually reach a ready Lumi: link up AND host ready.</summary>
     public bool IsLive => IsConnected && IsHostReady;
+
+    public string ConnectionStateLabel => !IsConnected ? "Reconnecting"
+        : IsHostReady ? "Connected" : "Getting ready";
 
     /// <summary>
     /// A paired phone must never fail silently. The chat remains readable while reconnecting, but a
@@ -607,16 +787,33 @@ public sealed partial class MobileShellViewModel :
 
     /// <summary>
     /// At expanded widths the drawer can dock beside the chat instead of sliding over it. It is
-    /// still collapsible: even on a tablet the list costs the conversation a third of its width,
-    /// and reading is the dominant activity, so the hamburger stays and the state is remembered.
+    /// still collapsible: the list uses a meaningful share of the conversation width, so its
+    /// visibility is controlled by the same button/gesture state and remembered between launches.
     /// </summary>
-    public bool IsDrawerDocked => Layout.WidthClass == WidthSizeClass.Expanded && !IsSidebarCollapsed;
+    public bool IsDrawerDocked => CanDockDrawer && !IsSidebarCollapsed;
 
     /// <summary>Wide enough to dock, whether or not the user has collapsed it.</summary>
     public bool CanDockDrawer => Layout.WidthClass == WidthSizeClass.Expanded;
 
-    /// <summary>The sliding drawer only exists when it is not docked.</summary>
-    public bool IsDrawerOverlay => IsDrawerOpen && !IsDrawerDocked;
+    public bool IsPhoneLayout => Layout.WidthClass == WidthSizeClass.Compact;
+
+    /// <summary>The shared drawer drives the same gesture and button state in either layout.</summary>
+    public bool IsNavigationOpen
+    {
+        get => CanDockDrawer ? !IsSidebarCollapsed : IsDrawerOpen;
+        set
+        {
+            if (CanDockDrawer)
+                IsSidebarCollapsed = !value;
+            else
+                IsDrawerOpen = value;
+        }
+    }
+
+    public bool IsDrawerOverlay => !CanDockDrawer && IsDrawerOpen;
+
+    /// <summary>Native input waits for moving pane geometry instead of painting at stale platform bounds.</summary>
+    public bool IsNavigationCoveringContent => IsDrawerPresented && (!CanDockDrawer || IsDrawerMoving);
 
     /// <summary>
     /// Drawer gestures are suspended while another modal surface owns the pointer. This prevents a
@@ -624,8 +821,9 @@ public sealed partial class MobileShellViewModel :
     /// the active modal.
     /// </summary>
     public bool CanDragDrawer =>
-        !IsDrawerDocked &&
         !IsChatActionsOpen &&
+        !IsProjectPickerOpen &&
+        !IsDisconnectConfirmationOpen &&
         (Page != MobilePage.Chat || !Chat.HasOpenSheet) &&
         (Page != MobilePage.Library || !Library.HasOpenSurface);
 
@@ -633,46 +831,36 @@ public sealed partial class MobileShellViewModel :
     public bool ShowScrim => IsDrawerOverlay;
 
     /// <summary>Docked or slid open — either way the drawer's contents are on screen.</summary>
-    public bool IsDrawerVisible => IsDrawerDocked || IsDrawerOpen;
+    public bool IsDrawerVisible => IsNavigationOpen;
 
     /// <summary>
-    /// Drawer width. Material specifies 320dp for a modal drawer, capped so it never swallows a
-    /// small screen — but on a book-posture foldable the hinge wins: docking the drawer anywhere
-    /// else would paint the conversation underneath the physical crease.
+    /// Phones use the full screen. Larger layouts keep a readable pane width or honour the hinge.
     /// </summary>
-    public double DrawerWidth => IsDrawerDocked && Layout.HingeSize > 0 && Layout.HingePosition > 0
-        ? Layout.HingePosition
-        : Math.Min(320, Math.Max(260, Layout.Width - 56));
+    public double DrawerWidth => CanDockDrawer
+        ? HasHingeGap ? Layout.HingePosition : 320
+        : IsPhoneLayout ? Layout.Width + SafeArea.Left + SafeArea.Right : Math.Min(360, Layout.Width);
 
-    /// <summary>The hamburger stays on every width — docking is a preference, not a lock.</summary>
-    public bool ShowMenuButton => true;
+    /// <summary>Final reserved width. The view follows drawer progress between these endpoints.</summary>
+    public double NavigationLeadingWidth => HasHingeGap
+        ? Layout.HingePosition
+        : IsDrawerDocked ? DrawerWidth : 0;
+
+    /// <summary>The shared expander lives beside the chat title in both phone and tablet layouts.</summary>
+    public bool ShowMenuButton => IsPaired;
+
+    public string NavigationToggleLabel => IsNavigationOpen ? "Hide navigation" : "Open navigation";
 
     /// <summary>Physical hinge gap kept empty between a docked drawer and the conversation.</summary>
     public double HingeGapWidth => Layout.HingeSize;
 
     public bool HasHingeGap => Layout.HingeSize > 0;
 
-    public bool HasCollapsedHingeLead => HasHingeGap && !IsDrawerDocked;
-
-    public double CollapsedHingeLeadWidth => HasCollapsedHingeLead ? Layout.HingePosition : 0;
-
     public double UsableContentHeight => Layout.HorizontalHingePosition > 0
         ? Layout.HorizontalHingePosition
         : Layout.Height;
 
     [RelayCommand]
-    private void ToggleDrawer()
-    {
-        // On a wide screen the hamburger collapses the docked sidebar rather than sliding a second
-        // copy of it over the top.
-        if (CanDockDrawer)
-        {
-            IsSidebarCollapsed = !IsSidebarCollapsed;
-            return;
-        }
-
-        IsDrawerOpen = !IsDrawerOpen;
-    }
+    private void ToggleDrawer() => IsNavigationOpen = !IsNavigationOpen;
 
     [RelayCommand]
     private void CloseDrawer() => IsDrawerOpen = false;
@@ -682,10 +870,14 @@ public sealed partial class MobileShellViewModel :
         _settings.IsSidebarCollapsed = value;
         _store.Save(_settings);
 
-        // Collapsing while an overlay copy was open would leave both states stale.
         IsDrawerOpen = false;
 
+        OnPropertyChanged(nameof(IsNavigationOpen));
+        OnPropertyChanged(nameof(NavigationToggleLabel));
         OnPropertyChanged(nameof(IsDrawerDocked));
+        OnPropertyChanged(nameof(IsNavigationCoveringContent));
+        OnPropertyChanged(nameof(NavigationLeadingWidth));
+        OnPropertyChanged(nameof(ShowMenuButton));
         OnPropertyChanged(nameof(CanDragDrawer));
         OnPropertyChanged(nameof(IsDrawerOverlay));
         OnPropertyChanged(nameof(IsDrawerVisible));
@@ -693,8 +885,6 @@ public sealed partial class MobileShellViewModel :
         OnPropertyChanged(nameof(DrawerWidth));
         OnPropertyChanged(nameof(HingeGapWidth));
         OnPropertyChanged(nameof(HasHingeGap));
-        OnPropertyChanged(nameof(HasCollapsedHingeLead));
-        OnPropertyChanged(nameof(CollapsedHingeLeadWidth));
         OnPropertyChanged(nameof(UsableContentHeight));
         QueueSubscriptionUpdate();
         if (IsDrawerVisible)
@@ -715,9 +905,30 @@ public sealed partial class MobileShellViewModel :
     [RelayCommand]
     private void GoBack()
     {
+        if (!IsPaired && Connect.IsCodeStep)
+        {
+            Connect.BackCommand.Execute(null);
+            return;
+        }
+
+        if (IsDisconnectConfirmationOpen)
+        {
+            IsDisconnectConfirmationOpen = false;
+            return;
+        }
+
         if (IsChatActionsOpen)
         {
-            IsChatActionsOpen = false;
+            if (IsRenamingChat || IsConfirmingChatDelete)
+                CancelChatAction();
+            else
+                IsChatActionsOpen = false;
+            return;
+        }
+
+        if (IsProjectPickerOpen)
+        {
+            IsProjectPickerOpen = false;
             return;
         }
 
@@ -739,7 +950,10 @@ public sealed partial class MobileShellViewModel :
 
     /// <summary>True when the system back gesture has something of ours to dismiss.</summary>
     public bool CanGoBack =>
+        (!IsPaired && Connect.IsCodeStep) ||
+        IsDisconnectConfirmationOpen ||
         IsChatActionsOpen ||
+        IsProjectPickerOpen ||
         (Page == MobilePage.Library && Library.HasOpenSurface) ||
         (Page == MobilePage.Chat && Chat.HasOpenSheet) ||
         IsDrawerOverlay ||
@@ -747,6 +961,8 @@ public sealed partial class MobileShellViewModel :
 
     partial void OnPageChanged(MobilePage value)
     {
+        IsDisconnectConfirmationOpen = false;
+        IsProjectPickerOpen = false;
         var previousPage = _lastObservedPage;
         _lastObservedPage = value;
         OnPropertyChanged(nameof(IsChatPage));
@@ -778,6 +994,8 @@ public sealed partial class MobileShellViewModel :
 
     partial void OnIsDrawerOpenChanged(bool value)
     {
+        OnPropertyChanged(nameof(IsNavigationOpen));
+        OnPropertyChanged(nameof(NavigationToggleLabel));
         OnPropertyChanged(nameof(IsDrawerOverlay));
         OnPropertyChanged(nameof(IsDrawerVisible));
         OnPropertyChanged(nameof(ShowScrim));
@@ -785,23 +1003,30 @@ public sealed partial class MobileShellViewModel :
         QueueSubscriptionUpdate();
         if (value)
             _ = ChatList.RefreshFromServerAsync();
+        else if (CanReadChatTranscript)
+            _ = RefreshTranscriptAsync();
     }
 
     partial void OnLayoutChanged(MobileLayoutState value)
     {
         IsDrawerOpen = false;
+        OnPropertyChanged(nameof(IsNavigationOpen));
+        OnPropertyChanged(nameof(NavigationToggleLabel));
         OnPropertyChanged(nameof(CanDockDrawer));
+        OnPropertyChanged(nameof(IsPhoneLayout));
+        OnPropertyChanged(nameof(SafeAreaSheetMargin));
+        OnPropertyChanged(nameof(ProjectPickerSheetMargin));
         OnPropertyChanged(nameof(IsDrawerDocked));
+        OnPropertyChanged(nameof(IsNavigationCoveringContent));
         OnPropertyChanged(nameof(CanDragDrawer));
         OnPropertyChanged(nameof(IsDrawerOverlay));
         OnPropertyChanged(nameof(IsDrawerVisible));
         OnPropertyChanged(nameof(ShowScrim));
         OnPropertyChanged(nameof(ShowMenuButton));
         OnPropertyChanged(nameof(DrawerWidth));
+        OnPropertyChanged(nameof(NavigationLeadingWidth));
         OnPropertyChanged(nameof(HingeGapWidth));
         OnPropertyChanged(nameof(HasHingeGap));
-        OnPropertyChanged(nameof(HasCollapsedHingeLead));
-        OnPropertyChanged(nameof(CollapsedHingeLeadWidth));
         OnPropertyChanged(nameof(UsableContentHeight));
         OnPropertyChanged(nameof(HasWelcomeSpace));
         OnPropertyChanged(nameof(IsWelcomeVisible));
@@ -877,24 +1102,29 @@ public sealed partial class MobileShellViewModel :
     /// <summary>Left/right insets, which a folded or rotated device can have.</summary>
     public Thickness SafeAreaSides => new(SafeArea.Left, 0, SafeArea.Right, 0);
 
-    /// <summary>
-    /// Margin for Strata's template-owned sheet title: its normal 20/2/20/10 spacing plus cutouts.
-    /// </summary>
-    public Thickness SafeAreaSheetTitleMargin => new(
-        SafeArea.Left + 20,
-        2,
-        SafeArea.Right + 20,
-        10);
+    /// <summary>Keep the whole floating surface clear of cutouts, system bars and the keyboard.</summary>
+    public Thickness SafeAreaSheetMargin
+    {
+        get
+        {
+            var gap = IsPhoneLayout ? 12 : 20;
+            return new Thickness(SafeArea.Left + gap, SafeArea.Top + gap,
+                SafeArea.Right + gap, SafeArea.Bottom + gap);
+        }
+    }
 
-    /// <summary>
-    /// Margin for Strata's template-owned content presenter: its normal bottom gap plus the home bar.
-    /// Keeping this outside the payload scroller prevents the inset from scrolling away.
-    /// </summary>
-    public Thickness SafeAreaSheetPresenterMargin => new(
-        0,
-        0,
-        0,
-        SafeArea.Bottom + 10);
+    /// <summary>Keep the picker over its navigation pane, including on a physical book hinge.</summary>
+    public Thickness ProjectPickerSheetMargin
+    {
+        get
+        {
+            var margin = SafeAreaSheetMargin;
+            return !CanDockDrawer ? margin : new Thickness(
+                margin.Left, margin.Top,
+                Math.Max(margin.Right, Layout.Width + SafeArea.Left - DrawerWidth + margin.Right),
+                margin.Bottom);
+        }
+    }
 
     /// <summary>
     /// True while the software keyboard is up.
@@ -920,11 +1150,12 @@ public sealed partial class MobileShellViewModel :
 
     partial void OnSafeAreaChanged(Thickness value)
     {
+        OnPropertyChanged(nameof(DrawerWidth));
         OnPropertyChanged(nameof(SafeAreaTop));
         OnPropertyChanged(nameof(SafeAreaBottom));
         OnPropertyChanged(nameof(SafeAreaSides));
-        OnPropertyChanged(nameof(SafeAreaSheetTitleMargin));
-        OnPropertyChanged(nameof(SafeAreaSheetPresenterMargin));
+        OnPropertyChanged(nameof(SafeAreaSheetMargin));
+        OnPropertyChanged(nameof(ProjectPickerSheetMargin));
     }
 
     /// <summary>
@@ -950,17 +1181,41 @@ public sealed partial class MobileShellViewModel :
 
             var generation = Volatile.Read(ref _connectionGeneration);
             using var request = CreateConnectionRequest();
-            RemoteHello? hello;
+            RemoteHello? hello = null;
             try
             {
-                hello = await Client.HelloAsync(baseUrl, request.Token);
+                var backoff = TimeSpan.FromSeconds(1);
+                while (hello is null)
+                {
+                    try
+                    {
+                        hello = await Client.HelloAsync(baseUrl, request.Token);
+                    }
+                    catch (OperationCanceledException) when (!request.IsCancellationRequested)
+                    {
+                        Trace.TraceWarning("[Mobile] The transport canceled the handshake attempt; retrying.");
+                    }
+                    if (hello is not null)
+                        break;
+
+                    if (!_isApplicationActive
+                        || generation != Volatile.Read(ref _connectionGeneration)
+                        || !IsPaired
+                        || Client.State == RemoteLinkState.Unauthorized)
+                    {
+                        return;
+                    }
+
+                    // A transient resume/launch handshake failure happens before the SSE retry
+                    // loop exists. Keep this attempt alive, scoped to the current foreground host.
+                    await Task.Delay(backoff, request.Token);
+                    backoff = TimeSpan.FromMilliseconds(Math.Min(backoff.TotalMilliseconds * 2, 10_000));
+                }
             }
             catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
             {
                 return;
             }
-            if (hello is null)
-                return;
             if (!_isApplicationActive || generation != Volatile.Read(ref _connectionGeneration))
                 return;
             if (!RemoteProtocol.IsCompatibleVersion(hello.ProtocolVersion)
@@ -1110,6 +1365,8 @@ public sealed partial class MobileShellViewModel :
 
     private void ResetHostScopedState()
     {
+        _readWatermarks.Clear();
+        IsDisconnectConfirmationOpen = false;
         _canAdoptDesktopActiveChat = true;
         ActiveProjectId = null;
         ResetTranscriptNavigation();
@@ -1128,6 +1385,17 @@ public sealed partial class MobileShellViewModel :
         Page = MobilePage.Chat;
         IsDrawerOpen = false;
     }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanGoBack))]
+    [NotifyPropertyChangedFor(nameof(CanDragDrawer))]
+    private bool _isDisconnectConfirmationOpen;
+
+    [RelayCommand]
+    private void OpenDisconnectConfirmation() => IsDisconnectConfirmationOpen = true;
+
+    [RelayCommand]
+    private void CancelDisconnect() => IsDisconnectConfirmationOpen = false;
 
     [RelayCommand]
     private async Task ForgetPcAsync()
@@ -1297,11 +1565,11 @@ public sealed partial class MobileShellViewModel :
         }
     }
 
-    private void OnChatActivated(Guid chatId, string title, string? model, int messageCount)
+    private void OnChatActivated(Guid chatId, string title, string? model)
     {
         ChatList.SelectedChatId = chatId;
         SearchChatList.SelectedChatId = chatId;
-        _ = ActivateChatAsync(chatId, title, model, messageCount);
+        _ = ActivateChatAsync(chatId, title, model);
     }
 
     private void PromoteActiveChat(
@@ -1336,14 +1604,23 @@ public sealed partial class MobileShellViewModel :
     private async Task ActivateChatAsync(
         Guid chatId,
         string title,
-        string? model,
-        int messageCount)
+        string? model)
     {
         // From this point on the phone owns navigation. A delayed/reconnect snapshot must not jump
         // away from either the selected chat or a deliberately blank New Chat surface.
         _canAdoptDesktopActiveChat = false;
+        if (chatId != Guid.Empty && Chat.ChatId == chatId)
+        {
+            Page = MobilePage.Chat;
+            IsDrawerOpen = false;
+            await RefreshTranscriptAsync();
+            return;
+        }
+
         ResetTranscriptNavigation();
-        Chat.Reset(chatId, title, model);
+        var activation = _transcriptSurfaceGeneration;
+        var connection = Volatile.Read(ref _connectionGeneration);
+        Chat.Reset(chatId, title, model, isLoading: chatId != Guid.Empty);
 
         // Picking a chat is the drawer's whole purpose, so get out of the way and show it.
         _chatActivationOwnsSubscription = chatId != Guid.Empty;
@@ -1376,17 +1653,28 @@ public sealed partial class MobileShellViewModel :
 
         Chat.IsLoading = true;
         await UpdateEventSubscriptionForConnectionAsync(BuildEventSubscription());
-        await Task.WhenAll(
-            MarkChatReadAsync(chatId, messageCount),
-            RefreshTranscriptAsync());
-    }
-
-    private async Task MarkChatReadAsync(Guid chatId, int messageCount)
-    {
-        if (_readWatermarks.TryGetValue(chatId, out var acknowledged)
-            && acknowledged >= messageCount)
+        if (activation != _transcriptSurfaceGeneration
+            || connection != Volatile.Read(ref _connectionGeneration) || Chat.ChatId != chatId)
             return;
 
+        await RefreshTranscriptAsync();
+    }
+
+    private bool IsChatTranscriptVisible => IsPaired && _isApplicationActive && Page == MobilePage.Chat
+        && !IsDrawerOverlay && !Chat.IsGitChangesOpen;
+
+    private bool CanReadChatTranscript => IsChatTranscriptVisible && !Chat.IsLoading;
+
+    private async Task MarkChatReadAsync(Guid chatId, int messageCount, bool? hasUnreadMessages)
+    {
+        if (hasUnreadMessages == false
+            || (hasUnreadMessages is null
+                && _readWatermarks.TryGetValue(chatId, out var acknowledged)
+                && acknowledged >= messageCount))
+            return;
+
+        var connection = Volatile.Read(ref _connectionGeneration);
+        var surface = _transcriptSurfaceGeneration;
         try
         {
             var result = await SendCommandAsync(
@@ -1394,14 +1682,20 @@ public sealed partial class MobileShellViewModel :
                     .With("chatId", chatId.ToString())
                     .With("readThroughMessageCount", messageCount.ToString(
                         System.Globalization.CultureInfo.InvariantCulture)));
+            if (connection != Volatile.Read(ref _connectionGeneration)
+                || surface != _transcriptSurfaceGeneration || Chat.ChatId != chatId)
+                return;
+
             if (!result.Ok)
                 Trace.TraceWarning($"[Mobile] Could not mark chat {chatId} read: {result.Error}");
-            else
+            else if (hasUnreadMessages is null)
+                // Legacy hosts have no read state in transcript status. Never let this fallback
+                // suppress a fresh authoritative unread flag (completion can keep the same count).
                 _readWatermarks[chatId] = messageCount;
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
-            Trace.TraceWarning($"[Mobile] Could not mark chat {chatId} read: {ex}");
+            // The shell is shutting down.
         }
     }
 
@@ -1645,23 +1939,25 @@ public sealed partial class MobileShellViewModel :
                     if (!IsCurrentTranscriptRequest(request))
                         return;
 
-                    Chat.IsLoading = false;
                     if (transcript is null)
                     {
                         Chat.TranscriptErrorText = error;
+                        Chat.IsLoading = false;
                         ApplyDeferredNewerActivity(request);
                         return;
                     }
 
                     ApplyTranscriptNavigation(request, transcript);
                     Chat.ApplyTranscript(transcript, request.StatusVersion);
-                    if (_isApplicationActive
-                        && Page == MobilePage.Chat
+                    Chat.IsLoading = false;
+                    if (CanReadChatTranscript
+                        && request.StatusVersion == Chat.StatusVersion
                         && transcript.IsLatestWindow)
                     {
                         _ = MarkChatReadAsync(
                             transcript.ChatId,
-                            transcript.TotalRawMessageCount);
+                            transcript.TotalRawMessageCount,
+                            transcript.Status.HasUnreadMessages);
                     }
                     queueTrailingLatestRefresh = ApplyDeferredNewerActivity(request);
                 }
@@ -1869,6 +2165,13 @@ public sealed partial class MobileShellViewModel :
                         SearchChatList.SetSessionActive(
                             status.ChatId,
                             status.IsSessionActive || status.IsBusy || status.IsStreaming);
+                        if (status.HasUnreadMessages is { } unread)
+                        {
+                            ChatList.SetUnread(status.ChatId, unread);
+                            SearchChatList.SetUnread(status.ChatId, unread);
+                            if (unread && status.ChatId == Chat.ChatId && IsChatTranscriptVisible)
+                                QueueTranscriptRefresh();
+                        }
                     });
                 }
                 return;

@@ -49,13 +49,16 @@ internal static class RemoteGitChangesService
             return result;
         }
         var state = await GitService.GetReadOnlyChangesAsync(
-            scope.Repository, RemoteProtocol.GitFileLimit, cancellationToken).ConfigureAwait(false);
+            scope.Repository, RemoteProtocol.GitFileLimit, cancellationToken, includeLineStatistics: true).ConfigureAwait(false);
         result.Files = state.Files.Select(file => new RemoteGitFile
         {
             Path = file.RelativePath, Status = file.StatusCode,
             Kind = file.StatusCode == "D?" ? "Recreated"
                 : file.StatusCode.Contains('U') || file.StatusCode is "AA" or "DD"
-                ? "Conflicted" : file.KindLabel
+                ? "Conflicted" : file.KindLabel,
+            LinesAdded = file.HasLineStatistics ? file.LinesAdded : null,
+            LinesRemoved = file.HasLineStatistics ? file.LinesRemoved : null,
+            IsBinary = file.IsBinary
         }).ToList();
         result.IsTruncated = state.Truncated;
         result.Message = state.Truncated

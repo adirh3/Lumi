@@ -127,6 +127,13 @@ public sealed class RemoteCommandRouterSurfaceTests
             var dirtyBefore = DirtyChatVersion(dataStore, target.Id);
             var router = new RemoteCommandRouter(dataStore, main);
 
+            current.HasUnreadMessages = true;
+            var implicitRead = await router.ExecuteAsync(
+                new RemoteCommand(RemoteProtocol.Actions.OpenChat),
+                CancellationToken.None);
+            Assert.False(implicitRead.Ok);
+            Assert.True(current.HasUnreadMessages);
+
             var result = await router.ExecuteAsync(
                 new RemoteCommand(RemoteProtocol.Actions.OpenChat)
                     .With("chatId", target.Id.ToString()),

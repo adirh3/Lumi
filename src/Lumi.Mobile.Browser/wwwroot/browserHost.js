@@ -266,6 +266,12 @@ export function hideNativeTextInput(id) {
     input.style.display = 'none';
 }
 
+export function blurNativeTextInput(id) {
+    const input = nativeTextInputs.get(id);
+    if (input && document.activeElement === input)
+        input.blur();
+}
+
 export function destroyNativeTextInput(id) {
     const input = nativeTextInputs.get(id);
     if (!input)

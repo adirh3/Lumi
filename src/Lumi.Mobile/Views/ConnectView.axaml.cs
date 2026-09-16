@@ -55,12 +55,32 @@ public partial class ConnectView : UserControl
 
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         FocusPairingCodeIfNeeded();
+        RevealErrorIfNeeded();
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(ConnectViewModel.Step))
             FocusPairingCodeIfNeeded();
+
+        if (e.PropertyName is nameof(ConnectViewModel.ErrorText) or nameof(ConnectViewModel.Step))
+            RevealErrorIfNeeded();
+    }
+
+    private void RevealErrorIfNeeded()
+    {
+        if (_viewModel is { ErrorText.Length: > 0 } model)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_isAttached && ReferenceEquals(_viewModel, model)
+                    && !string.IsNullOrEmpty(model.ErrorText))
+                {
+                    // The error sits immediately above the retry action; keep both above the IME.
+                    this.FindControl<Button>(model.IsCodeStep ? "PairButton" : "ManualConnectButton")?.BringIntoView();
+                }
+            }, DispatcherPriority.Background);
+        }
     }
 
     private void FocusPairingCodeIfNeeded()

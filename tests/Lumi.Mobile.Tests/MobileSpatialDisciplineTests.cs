@@ -69,10 +69,14 @@ public sealed class MobileSpatialDisciplineTests
                     Left(hostRow, window),
                     Left(manualAddressBox, window)
                 };
-                AssertSharedAxis(findAxes, expected: 12, tolerance: 1);
+                AssertSharedAxis(findAxes, expected: 24, tolerance: 1);
 
                 var content = Required<Control>(connect, "ConnectContent");
-                AssertInsideViewport(content, window);
+                AssertInsideViewport(manualConnectButton, window);
+                Assert.Equal(24, Left(content, window), 1);
+                hostRow.BringIntoView();
+                Pump(window);
+                AssertInsideViewport(hostRow, window);
                 AssertInteractiveMinimum(connect, 48);
                 Assert.True(manualConnectButton.IsDefault);
 
@@ -125,7 +129,7 @@ public sealed class MobileSpatialDisciplineTests
     }
 
     [Fact]
-    public async Task PrimaryPagesShareTheTwelveDpPhoneGutter()
+    public async Task PrimaryPagesShareTheSixteenDpPhoneGutter()
     {
         await Run(
             360,
@@ -169,13 +173,14 @@ public sealed class MobileSpatialDisciplineTests
                     Left(Required<Control>(search, "SearchHeaderLayout"), window),
                     Left(Required<Control>(search, "SearchResultsContent"), window),
                     Left(searchRow, window)
-                ], expected: 12, tolerance: 1);
+                ], expected: 16, tolerance: 1);
 
                 shell.Page = MobilePage.Library;
                 Pump(window);
                 var library = Required<LibraryView>(window, "LibraryPage");
                 var libraryRow = Required<ItemsControl>(library, "LibraryEntries")
-                    .GetVisualDescendants().OfType<Button>().Single();
+                    .GetVisualDescendants().OfType<Button>()
+                    .Single(button => ReferenceEquals(button.Command, shell.Library.BeginEditCommand));
                 AssertSharedAxis(
                 [
                     Left(Required<Control>(library, "LibraryHeaderLayout"), window),
@@ -183,7 +188,7 @@ public sealed class MobileSpatialDisciplineTests
                     Left(Required<Control>(library, "LibrarySearchBox"), window),
                     Left(Required<Control>(library, "LibraryListContent"), window),
                     Left(libraryRow, window)
-                ], expected: 12, tolerance: 1);
+                ], expected: 16, tolerance: 1);
 
                 shell.Page = MobilePage.Settings;
                 Pump(window);
@@ -193,16 +198,15 @@ public sealed class MobileSpatialDisciplineTests
                     Left(Required<Control>(settings, "SettingsHeaderLayout"), window),
                     Left(Required<Control>(settings, "SettingsContent"), window),
                     Left(Required<Control>(settings, "SettingsConnectionCard"), window)
-                ], expected: 12, tolerance: 1);
+                ], expected: 16, tolerance: 1);
 
                 _output.WriteLine(
-                    "Phone page axes: Search 6/8 -> 12/12; Library 8/8/16/8 -> 12/12/12/12; " +
-                    "Settings 8/16 -> 12/12.");
+                    "Search, Library and Settings share a 16dp page gutter.");
             });
     }
 
     [Fact]
-    public async Task DrawerRowsUseOneFourteenDpContentAxisWithoutDoubleInset()
+    public async Task DrawerUsesConsistentGuttersAndAlignedNavigationIcons()
     {
         await Run(
             1100,
@@ -231,39 +235,41 @@ public sealed class MobileSpatialDisciplineTests
             },
             (_, window, _) =>
             {
-                var drawer = Required<MobileDrawerView>(window, "DockedDrawerContent");
-                var projectButton = Required<ItemsControl>(drawer, "DrawerProjects")
-                    .GetVisualDescendants().OfType<Button>().Single();
+                var drawer = Required<MobileDrawerView>(window, "DrawerContent");
+                var projectButton = Required<Button>(drawer, "DrawerProjectButton");
                 var chatButton = Required<ItemsControl>(drawer, "DrawerChatGroups")
                     .GetVisualDescendants().OfType<Button>().First();
-                var projectsLabel = drawer.GetVisualDescendants().OfType<TextBlock>()
-                    .First(text => text.Text == "Projects");
                 var rows = new[]
                 {
-                    Required<Button>(drawer, "DrawerNewChatButton"),
                     Required<Button>(drawer, "DrawerLibraryButton"),
-                    projectButton,
                     chatButton,
-                    Required<Button>(drawer, "DrawerLoadMoreButton"),
-                    Required<Button>(drawer, "DrawerAccountButton")
+                    Required<Button>(drawer, "DrawerLoadMoreButton")
                 };
-                var contentAxes = rows.Select(row => ContentLeft(row, drawer))
-                    .Append(Left(projectsLabel, drawer))
-                    .ToArray();
-
-                AssertSharedAxis(contentAxes, expected: 14, tolerance: 1);
-                Assert.All(rows, row => Assert.Equal(4, Left(row, drawer), 1));
+                Assert.All(rows, row => Assert.Equal(12, Left(row, drawer), 1));
+                Assert.Equal(16, Left(projectButton, drawer), 1);
+                Assert.Equal("All projects", Required<TextBlock>(drawer, "DrawerProjectLabel").Text);
+                var settings = Required<Button>(drawer, "DrawerAccountButton");
+                Assert.Equal(48, settings.Bounds.Width);
+                Assert.Equal(drawer.Bounds.Width - 12,
+                    settings.TranslatePoint(new Point(settings.Bounds.Width, 0), drawer)!.Value.X, 1);
+                var iconTiles = new[]
+                {
+                    Required<Button>(drawer, "DrawerLibraryButton")
+                }.Select(row => row.GetVisualDescendants().OfType<Border>()
+                    .Single(border => border.Classes.Contains("navigation-icon-tile")));
+                AssertSharedAxis(iconTiles.Select(tile => Left(tile, drawer)).ToArray(), expected: 24, tolerance: 1);
+                var chatTitle = chatButton.GetVisualDescendants().OfType<TextBlock>()
+                    .Single(text => text.Classes.Contains("conversation-title"));
+                Assert.Equal(24, Left(chatTitle, drawer), 1);
                 Assert.Single(drawer.GetVisualDescendants().OfType<ScrollViewer>());
                 AssertInteractiveMinimum(drawer, 48);
 
-                _output.WriteLine(
-                    "Drawer content axes: 32/32/30/22/32/24/14 -> {0}; row surfaces now begin at 4dp.",
-                    string.Join("/", contentAxes.Select(value => value.ToString("0.#"))));
+                _output.WriteLine("Navigation surfaces use a 12dp gutter and a shared 24dp icon/section axis.");
             });
     }
 
     [Fact]
-    public async Task PhoneAndUnfoldedFoldUseTheWiderTranscriptAndComposerGeometry()
+    public async Task PhoneAndUnfoldedFoldReserveRoomForComposerElevation()
     {
         await Run(
             360,
@@ -278,13 +284,14 @@ public sealed class MobileSpatialDisciplineTests
                 var composerRoot = Required<Border>(composer, "PART_Root");
                 var input = Required<TextBox>(composer, "PART_Input");
 
-                Assert.Equal(new Thickness(8, 6, 8, 8), composerHost.Padding);
-                Assert.Equal(new Thickness(12, 10, 12, 10), scrollContent.Padding);
-                Assert.Equal(344, composer.Bounds.Width, 1);
-                Assert.Equal(336, transcript.Bounds.Width, 1);
+                Assert.Equal(new Thickness(12, 10, 12, 12), composerHost.Padding);
+                Assert.Equal(new Thickness(16, 12, 16, 16), scrollContent.Padding);
+                Assert.Equal(336, composer.Bounds.Width, 1);
+                Assert.Equal(328, transcript.Bounds.Width, 1);
                 Assert.Equal(760, composer.MaxWidth, 1);
                 Assert.Equal(1, composerRoot.BorderThickness.Left, 1);
-                Assert.NotEqual(0, composerRoot.BoxShadow.Count);
+                Assert.True(composerRoot.BoxShadow.Count > 0);
+                var elevation = composerRoot.BoxShadow;
                 AssertInteractiveMinimum(Required<ChatDetailView>(window, "ChatSurface"), 48);
 
                 var pointerPoint = composerRoot.TranslatePoint(
@@ -295,7 +302,7 @@ public sealed class MobileSpatialDisciplineTests
                 Thread.Sleep(200);
                 Pump(window);
                 Assert.True(composerRoot.IsPointerOver);
-                Assert.NotEqual(0, composerRoot.BoxShadow.Count);
+                Assert.Equal(elevation, composerRoot.BoxShadow);
                 var neutralBorderColor =
                     Assert.IsAssignableFrom<ISolidColorBrush>(composerRoot.BorderBrush).Color;
 
@@ -303,7 +310,7 @@ public sealed class MobileSpatialDisciplineTests
                 Thread.Sleep(200);
                 Pump(window);
                 Assert.True(input.IsFocused);
-                Assert.NotEqual(0, composerRoot.BoxShadow.Count);
+                Assert.Equal(elevation, composerRoot.BoxShadow);
                 var focusedBorderColor =
                     Assert.IsAssignableFrom<ISolidColorBrush>(composerRoot.BorderBrush).Color;
                 Assert.Equal(neutralBorderColor, focusedBorderColor);
@@ -319,8 +326,8 @@ public sealed class MobileSpatialDisciplineTests
                     $"the focused underline target stayed at {focusedUnderlineOpacity.GetValueOrDefault():0.##}");
 
                 _output.WriteLine(
-                    "Phone chat: composer 336 -> {0:0.#}; transcript 328 -> {1:0.#}; " +
-                    "host padding 12,8,12,10 -> {2}; transcript padding 16,12,16,12 -> {3}.",
+                    "Phone chat: composer {0:0.#}; transcript {1:0.#}; " +
+                    "elevation gutter {2}; transcript padding {3}.",
                     composer.Bounds.Width,
                     transcript.Bounds.Width,
                     composerHost.Padding,
@@ -336,19 +343,20 @@ public sealed class MobileSpatialDisciplineTests
 
                 composer = Required<StrataChatComposer>(window, "Composer");
                 transcript = Required<Control>(window, "ChatTranscriptSideInset");
+                Assert.Equal(430, Required<Control>(window, "ConversationFrame").Bounds.Width, 1);
                 Assert.Equal(430, Required<Control>(window, "ChatSurface").Bounds.Width, 1);
-                Assert.Equal(414, composer.Bounds.Width, 1);
-                Assert.Equal(406, transcript.Bounds.Width, 1);
+                Assert.Equal(406, composer.Bounds.Width, 1);
+                Assert.Equal(398, transcript.Bounds.Width, 1);
 
                 _output.WriteLine(
-                    "Unfolded fold: composer 406 -> {0:0.#}; transcript 398 -> {1:0.#}.",
+                    "Unfolded fold: composer {0:0.#}; transcript {1:0.#}.",
                     composer.Bounds.Width,
                     transcript.Bounds.Width);
             });
     }
 
     [Fact]
-    public async Task AuxiliaryActionsStayUsableWhileComposerChipsRemainCompact()
+    public async Task AuxiliaryActionsAndComposerChipRemovalHaveFullTouchTargets()
     {
         await Run(
             412,
@@ -395,8 +403,8 @@ public sealed class MobileSpatialDisciplineTests
                             button.IsEffectivelyVisible);
 
                 Assert.True(
-                    removeButton.Bounds.Width is >= 28 and <= 32 &&
-                    removeButton.Bounds.Height is >= 28 and <= 32,
+                    removeButton.Bounds.Width is >= 48 and <= 52 &&
+                    removeButton.Bounds.Height is >= 48 and <= 52,
                     $"Attachment removal target was {removeButton.Bounds.Width:0.#}×" +
                     $"{removeButton.Bounds.Height:0.#}dp");
 
@@ -404,8 +412,8 @@ public sealed class MobileSpatialDisciplineTests
                 {
                     var button = Required<Button>(composer, name);
                     Assert.True(
-                        button.Bounds.Width is >= 28 and <= 32 &&
-                        button.Bounds.Height is >= 28 and <= 32,
+                        button.Bounds.Width is >= 48 and <= 52 &&
+                        button.Bounds.Height is >= 48 and <= 52,
                         $"{name} was {button.Bounds.Width:0.#}×{button.Bounds.Height:0.#}dp");
                 }
 
@@ -415,8 +423,8 @@ public sealed class MobileSpatialDisciplineTests
                         button.Classes.Contains("chip-remove") &&
                         button.DataContext is not PendingAttachment);
                 Assert.True(
-                    skillRemoveButton.Bounds.Width is >= 28 and <= 32 &&
-                    skillRemoveButton.Bounds.Height is >= 28 and <= 32,
+                    skillRemoveButton.Bounds.Width is >= 48 and <= 52 &&
+                    skillRemoveButton.Bounds.Height is >= 48 and <= 52,
                     $"Skill removal target was {skillRemoveButton.Bounds.Width:0.#}×" +
                     $"{skillRemoveButton.Bounds.Height:0.#}dp");
             });

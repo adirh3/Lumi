@@ -259,10 +259,11 @@ internal static class RemoteProjector
         return BoundStatus(new RemoteChatStatus
         {
             ChatId = chatId,
-            IsBusy = isActive ? chatVm.IsBusy : chatVm.IsAssistantBusy(chatId),
+            IsBusy = isActive ? chatVm.IsBusy : chat.IsRunning || chatVm.IsAssistantBusy(chatId),
             IsStreaming = isActive && chatVm.IsStreaming,
             IsSessionActive = chat.IsSessionActive || chat.IsRunning
                               || isActive && (chatVm.IsSessionActive || chatVm.IsBusy || chatVm.IsStreaming),
+            HasUnreadMessages = chat.HasUnreadMessages,
             StatusText = isActive ? chatVm.StatusText : null,
             Model = model,
             ContextCurrentTokens = isActive ? chatVm.ContextCurrentTokens : 0,
@@ -1982,6 +1983,7 @@ internal static class RemoteProjector
             IsBusy = transcript.Status.IsBusy,
             IsStreaming = transcript.Status.IsStreaming,
             IsSessionActive = transcript.Status.IsSessionActive,
+            HasUnreadMessages = transcript.Status.HasUnreadMessages,
             ContextCurrentTokens = transcript.Status.ContextCurrentTokens,
             ContextTokenLimit = transcript.Status.ContextTokenLimit,
             UsesWorktree = transcript.Status.UsesWorktree
@@ -2293,6 +2295,7 @@ internal static class RemoteProjector
             IsBusy = status.IsBusy,
             IsStreaming = status.IsStreaming,
             IsSessionActive = status.IsSessionActive,
+            HasUnreadMessages = status.HasUnreadMessages,
             StatusText = BoundOptional(status.StatusText, RemoteProtocol.MobileStatusTextLimit),
             Model = BoundOptional(status.Model, RemoteProtocol.MobileStatusValueLimit),
             ContextCurrentTokens = status.ContextCurrentTokens,

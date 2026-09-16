@@ -1,6 +1,8 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:behaviors="using:Lumi.Mobile.Behaviors"
+        xmlns:views="using:Lumi.Mobile.Views"
+        xmlns:sa="using:StrataTheme.Animation"
         xmlns:textInput="using:Avalonia.Input.TextInput"
         xmlns:sc="using:StrataTheme.Controls">
 
@@ -10,6 +12,7 @@
   -->
   <Style Selector="Button">
     <Setter Property="behaviors:TouchScrollClickGuard.IsEnabled" Value="True" />
+    <Setter Property="BorderThickness" Value="0" />
   </Style>
 
   <Style Selector="TextBox">
@@ -53,11 +56,11 @@
   </Style>
 
   <Style Selector="Border.mobile-card">
-    <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
     <Setter Property="CornerRadius" Value="16" />
-    <Setter Property="Padding" Value="16" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="BoxShadow" Value="none" />
   </Style>
 
   <!-- Chat rows are the primary touch target of the whole app: big, obvious, and press-animated. -->
@@ -86,9 +89,8 @@
   </Style>
 
   <Style Selector="Button.setup-host-row">
-    <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
     <Setter Property="CornerRadius" Value="14" />
     <Setter Property="Padding" Value="12,10" />
     <Setter Property="Margin" Value="0,0,0,6" />
@@ -107,6 +109,8 @@
     <Setter Property="Padding" Value="14,12" />
     <Setter Property="CornerRadius" Value="14" />
     <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Hidden" />
   </Style>
 
   <Style Selector="TextBox.native-input-focused /template/ Border#PART_Border">
@@ -137,11 +141,22 @@
   </Style>
 
   <Style Selector="Border.setup-pairing-panel">
-    <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-    <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="CornerRadius" Value="16" />
-    <Setter Property="Padding" Value="16" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+  </Style>
+
+  <Style Selector="Border.setup-step">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Padding" Value="0,8" />
+  </Style>
+
+  <Style Selector="Border.setup-step TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+  <Style Selector="Border.setup-step.current TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
 
   <Style Selector="TextBlock.section-title">
@@ -163,6 +178,18 @@
   <Style Selector="TextBlock.muted">
     <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+  </Style>
+
+  <Style Selector="TextBlock.supporting">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="LineHeight" Value="21" />
+  </Style>
+
+  <Style Selector="TextBlock.field-label">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
 
   <!-- ══ Icon-only buttons: square, centred, no text padding ══ -->
@@ -220,22 +247,6 @@
 
   <!-- ══ Navigation drawer ══ -->
 
-  <!-- Search entry is a button, not a field: tapping it opens the full-screen search page. -->
-  <Style Selector="Button.drawer-search-entry">
-    <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-    <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="CornerRadius" Value="21" />
-    <Setter Property="Padding" Value="14,0" />
-    <Setter Property="MinHeight" Value="48" />
-    <Setter Property="HorizontalAlignment" Value="Stretch" />
-    <Setter Property="HorizontalContentAlignment" Value="Left" />
-    <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
-  </Style>
-
-  <Style Selector="Button.drawer-search-entry:pressed">
-    <Setter Property="Background" Value="{DynamicResource Brush.Surface3}" />
-  </Style>
-
   <!--
     Search field on the full-screen page. ClipToBounds keeps the selection highlight inside the
     rounded capsule — without it the highlight paints square corners over the rounding, which is
@@ -247,6 +258,7 @@
     <Setter Property="CornerRadius" Value="22" />
     <Setter Property="FontSize" Value="{DynamicResource Font.SizeSubtitle}" />
     <Setter Property="ClipToBounds" Value="True" />
+    <Setter Property="BorderThickness" Value="0" />
   </Style>
 
   <Style Selector="TextBox.search-field /template/ Border#PART_Border">
@@ -266,20 +278,6 @@
   </Style>
 
   <Style Selector="Button.search-result:pressed">
-    <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-  </Style>
-
-  <!-- "Show all" escape hatch beside the Projects header when a filter is active. -->
-  <Style Selector="Button.clear-filter">
-    <Setter Property="Background" Value="Transparent" />
-    <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="CornerRadius" Value="9" />
-    <Setter Property="Padding" Value="10,8" />
-    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
-    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
-  </Style>
-
-  <Style Selector="Button.clear-filter:pressed">
     <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
   </Style>
 
@@ -304,11 +302,16 @@
     <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
   </Style>
 
+  <Style Selector="Button.drawer-row.selected">
+    <Setter Property="Background" Value="{DynamicResource Brush.NavigationSelected}" />
+  </Style>
+
   <!-- History rows: dense enough to show many chats, but never below a comfortable thumb target. -->
   <Style Selector="Button.drawer-chat">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="CornerRadius" Value="14" />
     <Setter Property="Margin" Value="{DynamicResource Mobile.Drawer.RowMargin}" />
     <Setter Property="Padding" Value="{DynamicResource Mobile.Drawer.ChatRowPadding}" />
     <Setter Property="MinHeight" Value="52" />
@@ -321,20 +324,67 @@
     <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
   </Style>
 
-  <!--
-    Selection is orientation, not emphasis. A solid accent pill was the loudest thing in a list of
-    forty rows and pulled the eye away from the conversation; every native drawer marks the current
-    row with a quiet neutral fill and lets weight carry the rest.
-  -->
+  <!-- One status position: pulsing while running, steady for an unread reply, hidden once read. -->
   <Style Selector="Button.drawer-chat.selected">
-    <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    <Setter Property="Background" Value="{DynamicResource Brush.NavigationSelected}" />
     <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
 
-  <Style Selector="Border.project-badge">
-    <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-    <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
-    <Setter Property="Padding" Value="7,2,9,2" />
+  <Style Selector="Button.drawer-conversation">
+    <Setter Property="MinHeight" Value="52" />
+    <Setter Property="Padding" Value="12,12" />
+  </Style>
+  <Style Selector="TextBlock.conversation-title">
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="Button.drawer-conversation.selected TextBlock.conversation-title,
+                   Button.drawer-conversation.unread TextBlock.conversation-title,
+                   Button.search-result.unread TextBlock.conversation-title">
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="Border.chat-list-status">
+    <Setter Property="Width" Value="6" />
+    <Setter Property="Height" Value="6" />
+    <Setter Property="Margin" Value="0,0,7,0" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+    <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.3" />
+    <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.2" />
+    <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+  </Style>
+  <Style Selector="PathIcon.chat-list-background">
+    <Setter Property="Width" Value="10" />
+    <Setter Property="Height" Value="10" />
+    <Setter Property="Margin" Value="0,0,7,0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="Data" Value="M4 4h16v12H4V4zm2 2v8h12V6H6zm2 12h8v2H8v-2z" />
+  </Style>
+  <Style Selector="Border.navigation-icon-tile">
+    <Setter Property="Width" Value="32" />
+    <Setter Property="Height" Value="32" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.navigation-icon-button, Button.chat-header-action">
+    <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="Button.navigation-icon-button:pressed, Button.chat-header-action:pressed">
+    <Setter Property="Background" Value="{DynamicResource Brush.NavigationControl}" />
+  </Style>
+  <Style Selector="Button.chat-header-action.new-conversation">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
   </Style>
 
   <!-- Experience chips: the library, one tap away, without spending a permanent tab on it. -->
@@ -357,17 +407,13 @@
     <Setter Property="RenderTransform" Value="scale(0.96)" />
   </Style>
 
-  <!-- Header title / model button: text-only, so the title reads as a title, not a control. -->
-  <Style Selector="Button.header-model">
-    <Setter Property="Background" Value="Transparent" />
-    <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="CornerRadius" Value="10" />
-    <Setter Property="Padding" Value="10,6" />
+  <Style Selector="Button.chat-controls">
+    <Setter Property="Padding" Value="12,0" />
+    <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
     <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
-  </Style>
-
-  <Style Selector="Button.header-model:pressed">
-    <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    <Setter Property="MaxWidth" Value="260" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
   </Style>
 
   <!-- Page headers on the pushed Library / Settings pages. -->
@@ -404,66 +450,58 @@
     <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
 
-  <!-- Native-feeling scroll indicator: thin and quiet instead of Strata's 8dp desktop scrollbar. -->
-  <Style Selector="ScrollViewer.mobile-scroll /template/ ScrollBar#PART_VerticalScrollBar">
-    <Setter Property="Width" Value="3" />
-    <Setter Property="MinWidth" Value="3" />
-    <Setter Property="Margin" Value="0,4,1,4" />
-    <Setter Property="Opacity" Value="0.28" />
+  <!-- Hidden keeps scrolling enabled without reserving or drawing a rail. -->
+  <Style Selector="ScrollViewer.mobile-scroll">
+    <Setter Property="VerticalScrollBarVisibility" Value="Hidden" />
+  </Style>
+  <Style Selector="sc|StrataChatShell.mobile">
+    <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Hidden" />
   </Style>
 
-  <Style Selector="ScrollViewer.mobile-scroll /template/ ScrollBar#PART_VerticalScrollBar:pointerover">
-    <Setter Property="Opacity" Value="0.5" />
-  </Style>
-
-  <Style Selector="ScrollViewer.mobile-scroll /template/ ScrollBar#PART_VerticalScrollBar /template/ Thumb#thumb">
-    <Setter Property="Margin" Value="0" />
-    <Setter Property="Opacity" Value="0.62" />
-  </Style>
-
-  <Style Selector="sc|StrataChatShell /template/ Button#PART_ScrollToBottomButton">
+  <Style Selector="sc|StrataChatShell.mobile /template/ Button#PART_ScrollToBottomButton">
     <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
     <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
     <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
     <Setter Property="CornerRadius" Value="24" />
   </Style>
 
-  <Style Selector="sc|StrataChatShell /template/ Border#PART_ComposerHost">
+  <Style Selector="sc|StrataChatShell.mobile /template/ Border#PART_ComposerHost">
     <Setter Property="Padding" Value="{DynamicResource Mobile.Chat.ComposerHostPadding}" />
   </Style>
 
-  <Style Selector="sc|StrataChatShell /template/ Border#PART_ScrollContent">
+  <Style Selector="sc|StrataChatShell.mobile /template/ Border#PART_ScrollContent">
     <Setter Property="Padding" Value="{DynamicResource Mobile.Chat.TranscriptPadding}" />
   </Style>
 
-  <!--
-    ══ Composer elevation ═════════════════════════════════════════════════════════════════════════
+  <!-- The native editor remains transparent above a glass surface and the presence light. -->
 
-    The surface needs to read as raised on both OLED black and the near-white light canvas. A
-    restrained semantic shadow plus a neutral keyline gives it depth without the old accent halo.
-  -->
+  <Style Selector="sc|StrataChatComposer.mobile">
+    <Setter Property="ClipToBounds" Value="False" />
+  </Style>
 
   <Style Selector="sc|StrataChatComposer.mobile /template/ Border#PART_Root">
-    <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
+    <Setter Property="Background" Value="{DynamicResource Brush.ComposerGlass}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorder}" />
     <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Level2}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Composer}" />
   </Style>
 
   <Style Selector="sc|StrataChatComposer.mobile /template/ Border#PART_Root:pointerover">
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderStrong}" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Level2}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorderStrong}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Composer}" />
   </Style>
 
   <Style Selector="sc|StrataChatComposer.mobile:focus-within /template/ Border#PART_Root,
                    sc|StrataChatComposer.mobile /template/ Border#PART_Root:focus-within,
                    sc|StrataChatComposer.mobile:editing /template/ Border#PART_Root">
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderStrong}" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Level2}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorderStrong}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Composer}" />
   </Style>
 
   <Style Selector="sc|StrataChatComposer.mobile /template/ TextBox#PART_Input">
     <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MaxHeight" Value="176" />
+    <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Hidden" />
     <Setter Property="behaviors:NativeTextInputOverlay.ForwardEnterKey" Value="True" />
     <Setter Property="textInput:TextInputOptions.ContentType" Value="Normal" />
     <Setter Property="textInput:TextInputOptions.ReturnKeyType" Value="Return" />
@@ -472,39 +510,80 @@
     <Setter Property="textInput:TextInputOptions.ShowSuggestions" Value="True" />
   </Style>
 
+  <Style Selector="sc|StrataChatComposer.mobile:external-editor /template/ Panel#PART_InputPanel">
+    <Setter Property="MinHeight" Value="{Binding ((views:NativeComposerEditorHost)EditorContent).Height, RelativeSource={RelativeSource TemplatedParent}}" />
+  </Style>
+
+  <Style Selector="sc|StrataChatComposer.mobile:external-editor /template/ TextBox#PART_Input">
+    <Setter Property="behaviors:NativeTextInputOverlay.IsEnabled" Value="False" />
+  </Style>
+
+  <Style Selector="sc|StrataTypingIndicator.mobile-working /template/ TextBlock">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+
   <Style Selector="sc|StrataChatComposer.mobile /template/ WrapPanel#PART_ChipsRow">
     <Setter Property="Margin" Value="12,7,12,0" />
   </Style>
 
-  <Style Selector="sc|StrataChatComposer.mobile /template/ Border#PART_AgentChip,
-                   sc|StrataChatComposer.mobile /template/ Border#PART_ProjectChip">
-    <Setter Property="CornerRadius" Value="13" />
-    <Setter Property="Padding" Value="9,3,3,3" />
-    <Setter Property="Margin" Value="0,0,4,4" />
+  <Style Selector="sc|StrataChatComposer.mobile /template/ Border#PART_ProjectChip,
+                   sc|StrataChatComposer.mobile /template/ Border#PART_AgentChip,
+                   sc|StrataChatComposer.mobile Border.composer-skill-chip">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="10,0,0,0" />
+    <Setter Property="Margin" Value="0,0,6,0" />
+    <Setter Property="MaxWidth" Value="268" />
+  </Style>
+
+  <Style Selector="sc|StrataChatComposer.mobile /template/ Border#PART_ProjectChipSurface,
+                   sc|StrataChatComposer.mobile /template/ Border#PART_AgentChipSurface,
+                   sc|StrataChatComposer.mobile Border.composer-chip-surface">
+    <Setter Property="IsVisible" Value="True" />
+    <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Height" Value="32" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Margin" Value="-10,0,0,0" />
+  </Style>
+
+  <Style Selector="sc|StrataChatComposer.mobile /template/ TextBlock#PART_ProjectName,
+                   sc|StrataChatComposer.mobile /template/ TextBlock#PART_AgentName,
+                   sc|StrataChatComposer.mobile /template/ TextBlock#PART_AgentGlyph,
+                   sc|StrataChatComposer.mobile Border.composer-skill-chip TextBlock.chip-name,
+                   sc|StrataChatComposer.mobile Border.composer-skill-chip TextBlock.chip-glyph">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
   </Style>
 
   <Style Selector="sc|StrataChatComposer.mobile /template/ Button#PART_AgentRemoveButton,
                    sc|StrataChatComposer.mobile /template/ Button#PART_ProjectRemoveButton,
                    sc|StrataChatComposer.mobile Button.chip-remove">
-    <Setter Property="Width" Value="28" />
-    <Setter Property="Height" Value="28" />
-    <Setter Property="MinWidth" Value="28" />
-    <Setter Property="MinHeight" Value="28" />
-    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Width" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="Height" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="CornerRadius" Value="24" />
     <Setter Property="Padding" Value="0" />
   </Style>
 
-  <Style Selector="sc|StrataChatComposer.mobile Border.composer-skill-chip">
-    <Setter Property="CornerRadius" Value="12" />
-    <Setter Property="Padding" Value="8,2,2,2" />
-    <Setter Property="Margin" Value="0,0,4,4" />
+  <Style Selector="sc|StrataChatComposer.mobile /template/ TextBlock#PART_AgentRemoveGlyph,
+                   sc|StrataChatComposer.mobile TextBlock.chip-remove-icon">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+  <Style Selector="sc|StrataChatComposer.mobile Border.composer-skill-chip TextBlock.chip-error">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
   </Style>
 
   <!-- The picker pill: a control ON the composer, so one step further up and fully rounded. -->
   <Style Selector="Button.composer-pill">
-    <Setter Property="Background" Value="{DynamicResource Brush.SurfaceOverlay}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
     <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
     <Setter Property="Padding" Value="12,0" />
     <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
@@ -543,36 +622,82 @@
     <Setter Property="RenderTransform" Value="scale(0.94)" />
   </Style>
 
-  <!-- Sheets float above everything, so they take level 3 and the widest shadow. -->
-  <Style Selector="sc|StrataBottomSheet /template/ Border#PART_Sheet">
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_SheetMotion">
+    <Setter Property="MaxWidth" Value="640" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_Sheet">
     <Setter Property="Background" Value="{DynamicResource Brush.SurfaceOverlay}" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Level3}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Level2}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="24" />
   </Style>
 
-  <!-- Cards rest ON the canvas: level 1, hairline, no shadow competing with the composer. -->
-  <Style Selector="Border.mobile-card">
-    <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-    <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Level1}" />
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ TextBlock#PART_Title">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeSubtitle}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="MaxLines" Value="2" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
   </Style>
 
-  <!-- Welcome starters are tappable cards, so they match the card treatment rather than a flat fill.
-       The shadow goes on the template's surface border — Button itself has no BoxShadow. -->
+  <Style Selector="sc|StrataBottomSheet.safe-area /template/ Border#PART_Scrim">
+    <Setter Property="Background" Value="{DynamicResource Brush.OverlayScrim}" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet Button.sheet-item">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet Button.sheet-item.model-option">
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Padding" Value="14,14" />
+  </Style>
+
+  <Style Selector="sc|StrataBottomSheet Button.sheet-item.model-option.selected">
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <Style Selector="sc|StrataSettingGroup.mobile /template/ Border#PART_Card">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="BoxShadow" Value="none" />
+  </Style>
+
+  <Style Selector="sc|StrataSetting.mobile /template/ Border#PART_RowBorder">
+    <Setter Property="Padding" Value="0,10" />
+  </Style>
+
+  <Style Selector="sc|StrataSetting.mobile /template/ Border#PART_Separator">
+    <Setter Property="IsVisible" Value="False" />
+    <Setter Property="Height" Value="0" />
+    <Setter Property="Margin" Value="0" />
+  </Style>
+
+  <Style Selector="sc|StrataSetting.mobile /template/ Border#PART_HighlightBar">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+
+  <Style Selector="sc|StrataSetting.mobile /template/ TextBlock#PART_Description">
+    <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    <Setter Property="LineHeight" Value="21" />
+  </Style>
+
+  <!-- Suggestions and headings belong to the canvas rather than another stack of cards. -->
   <Style Selector="Button.starter">
-    <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
   </Style>
   <Style Selector="Button.starter /template/ Border#PART_Surface">
-    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Level1}" />
+    <Setter Property="BoxShadow" Value="none" />
   </Style>
 
-  <!-- The top bar sits over the scrolling transcript and needs the same separation as the composer. -->
   <Style Selector="Border#TopBarInset">
-    <Setter Property="Background" Value="{DynamicResource Brush.Surface0}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
   </Style>
 
   <!-- Attachment chips: a file staged for the next message, with its own removal target. -->
@@ -600,15 +725,6 @@
     <Setter Property="Background" Value="{DynamicResource Brush.ControlPressed}" />
   </Style>
 
-  <Style Selector="sc|StrataChatComposer.mobile Button.chip-remove">
-    <Setter Property="Width" Value="28" />
-    <Setter Property="Height" Value="28" />
-    <Setter Property="MinWidth" Value="28" />
-    <Setter Property="MinHeight" Value="28" />
-    <Setter Property="CornerRadius" Value="14" />
-    <Setter Property="Padding" Value="0" />
-  </Style>
-
   <!-- The effort slider is a primary control in its sheet, so it gets a finger-sized thumb. -->
   <Style Selector="Slider">
     <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
@@ -622,7 +738,7 @@
   <Style Selector="Button.theme-option">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderThickness" Value="0" />
     <Setter Property="CornerRadius" Value="12" />
     <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
     <Setter Property="Padding" Value="14,0" />
@@ -636,5 +752,47 @@
     <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
     <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <Style Selector="Button.open-action">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    <Setter Property="CornerRadius" Value="24" />
+  </Style>
+  <Style Selector="Button.open-action:pressed">
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+  </Style>
+
+  <Style Selector="Button.floating-action">
+    <Setter Property="ClipToBounds" Value="False" />
+    <Setter Property="Background" Value="{DynamicResource Brush.FloatingControl}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.GlassBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="22" />
+    <Setter Property="MinHeight" Value="{DynamicResource Touch.MinTarget}" />
+    <Setter Property="MinWidth" Value="{DynamicResource Touch.MinTarget}" />
+  </Style>
+  <Style Selector="Button.floating-action /template/ Panel">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Button.floating-action /template/ Border#PART_FocusRing">
+    <Setter Property="Margin" Value="0" />
+  </Style>
+  <Style Selector="Button.floating-action /template/ Border#PART_Surface">
+    <Setter Property="Margin" Value="2" />
+    <Setter Property="ClipToBounds" Value="False" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingControl}" />
+  </Style>
+  <Style Selector="Button.floating-action:pointerover /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.FloatingControl}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.FloatingControl}" />
+  </Style>
+  <Style Selector="Button.floating-action:pressed /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.FloatingControlPressed}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource Shadow.Level1}" />
+  </Style>
+  <Style Selector="Button.floating-action:pointerover /template/ Border#PART_Aurora">
+    <Setter Property="Opacity" Value="0" />
   </Style>
 </Styles>

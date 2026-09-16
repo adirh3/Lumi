@@ -51,6 +51,8 @@ public sealed class RemoteChatStatus
     public bool IsStreaming { get; set; }
     /// <summary>Remains true after the main assistant is ready until all session work finishes.</summary>
     public bool IsSessionActive { get; set; }
+    /// <summary>Desktop-owned read state. Null when connected to a host predating read-state status.</summary>
+    public bool? HasUnreadMessages { get; set; }
     public string? StatusText { get; set; }
     public string? Model { get; set; }
     public long ContextCurrentTokens { get; set; }

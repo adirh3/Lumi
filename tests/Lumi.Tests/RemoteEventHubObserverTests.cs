@@ -1,6 +1,7 @@
 using System.Runtime.ExceptionServices;
 using System.Reflection;
 using System.Text;
+using System.Text.Json;
 using Avalonia.Threading;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
@@ -14,6 +15,112 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class RemoteEventHubObserverTests
 {
+    [Fact]
+    public async Task DesktopReadAndActivityTransitionsReachPagedListSubscribersWithoutOpeningAChat()
+    {
+        using var session = HeadlessTestSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(() =>
+        {
+            try
+            {
+                var chat = Chat("Older unread");
+                chat.UpdatedAt = DateTimeOffset.UtcNow.AddYears(-1);
+                chat.HasUnreadMessages = true;
+                var newer = Enumerable.Range(0, RemoteProtocol.ChatPageSize + 1)
+                    .Select(index => Chat($"Newer {index}")).ToList();
+                var dataStore = new DataStore(new AppData { Chats = [.. newer, chat] });
+                using var main = new MainViewModel(
+                    dataStore, TestCopilot.Shared, new UpdateService(), initializeCopilotOnStartup: false);
+                main.ChatVM.CurrentChat = chat;
+                using var hub = new RemoteEventHub(dataStore, main, () => []);
+                Dispatcher.UIThread.RunJobs();
+                var stream = new RecordingStream();
+                using var client = hub.AddClient(stream, "read-state-fixture",
+                    subscription: new RemoteEventSubscription { IncludeChatList = true, IsForeground = true });
+                using var cancellation = new CancellationTokenSource();
+                var writer = client.RunAsync(cancellation.Token);
+                try
+                {
+                    Flush(hub);
+                    WriteBarrierAndWait(hub, stream);
+                    var baseline = stream.Text.Length;
+                    var revision = hub.Revision;
+
+                    // This is the actual desktop display path: no save or chat-list rebuild.
+                    main.ChatVM.AddDisplayHost();
+                    Flush(hub);
+                    WriteBarrierAndWait(hub, stream);
+                    var readStatus = LastStatus(stream.Text[baseline..]);
+                    Assert.Equal(chat.Id, readStatus.ChatId);
+                    Assert.False(readStatus.HasUnreadMessages);
+                    Assert.False(chat.HasUnreadMessages);
+                    Assert.Equal(revision, hub.Revision);
+                    Assert.DoesNotContain($"event: {RemoteProtocol.Events.TranscriptInvalidated}", stream.Text[baseline..]);
+
+                    var page = RemoteProjector.BuildChatPage(dataStore, main, 0,
+                        RemoteProtocol.ChatPageSize, null, null);
+                    Assert.DoesNotContain(page.Groups.SelectMany(group => group.Chats), row => row.Id == chat.Id);
+                    Assert.False(RemoteProjector.BuildChat(dataStore, chat, main).HasUnreadMessages);
+
+                    main.ChatVM.RemoveDisplayHost();
+                    main.ChatVM.IsBusy = true;
+                    chat.HasUnreadMessages = true;
+                    Flush(hub);
+                    WriteBarrierAndWait(hub, stream);
+                    var unreadStatus = LastStatus(stream.Text);
+                    Assert.True(unreadStatus.HasUnreadMessages);
+                    Assert.True(unreadStatus.IsBusy);
+
+                    main.ChatVM.IsBusy = false;
+                    chat.IsSessionActive = false;
+                    Flush(hub);
+                    WriteBarrierAndWait(hub, stream);
+                    foreach (var active in new[] { true, false })
+                    {
+                        baseline = stream.Text.Length;
+                        chat.IsSessionActive = active;
+                        Assert.Equal(active, main.ChatVM.IsSessionActive);
+                        Flush(hub);
+                        WriteBarrierAndWait(hub, stream);
+
+                        var backgroundStatus = LastStatus(stream.Text[baseline..]);
+                        Assert.Equal(chat.Id, backgroundStatus.ChatId);
+                        Assert.Equal(active, backgroundStatus.IsSessionActive);
+                        Assert.False(backgroundStatus.IsBusy);
+                        Assert.True(backgroundStatus.HasUnreadMessages);
+                        Assert.DoesNotContain(RemoteProjector.BuildChatPage(dataStore, main, 0,
+                            RemoteProtocol.ChatPageSize, null, null).Groups.SelectMany(group => group.Chats),
+                            row => row.Id == chat.Id);
+                    }
+
+                    baseline = stream.Text.Length;
+                    Flush(hub);
+                    WriteBarrierAndWait(hub, stream);
+                    Assert.DoesNotContain($"event: {RemoteProtocol.Events.ChatStatus}", stream.Text[baseline..]);
+                }
+                finally
+                {
+                    cancellation.Cancel();
+                    Pump(writer);
+                }
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+        }, CancellationToken.None);
+        failure?.Throw();
+
+        static RemoteChatStatus LastStatus(string wire)
+        {
+            var statusFrame = wire.Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
+                .Last(frame => frame.StartsWith($"event: {RemoteProtocol.Events.ChatStatus}\n", StringComparison.Ordinal));
+            var json = statusFrame.Split('\n').Single(line => line.StartsWith("data: ", StringComparison.Ordinal))[6..];
+            return JsonSerializer.Deserialize(json, RemoteJsonContext.Default.RemoteChatStatus)!;
+        }
+    }
+
     [Fact]
     public async Task RemovedReplacedAndResetMessages_StopInvalidatingRemoteState()
     {

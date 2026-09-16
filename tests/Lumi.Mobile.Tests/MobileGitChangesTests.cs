@@ -7,6 +7,7 @@ using Avalonia;
 using Avalonia.Logging;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Lumi.Mobile.Views;
 using StrataTheme.Controls;
 using Xunit;
@@ -16,6 +17,67 @@ namespace Lumi.Mobile.Tests;
 [Collection("Headless mobile UI")]
 public sealed class MobileGitChangesTests
 {
+    [Fact]
+    public async Task GitStatisticsAppearForTheListAndTotalsAndStayHonestWhenIncomplete()
+    {
+        var sink = new GitSink
+        {
+            Files =
+            [
+                new() { Path = "first.cs", Kind = "Modified", LinesAdded = 12, LinesRemoved = 3 },
+                new() { Path = "new.cs", Kind = "Untracked", LinesAdded = 7, LinesRemoved = 0 },
+                new() { Path = "image.png", Kind = "Modified", IsBinary = true }
+            ]
+        };
+        var vm = new MobileChatViewModel(sink);
+        vm.Reset(Guid.NewGuid(), "Statistics");
+        await vm.OpenGitChangesCommand.ExecuteAsync(null);
+        Assert.Equal("+19", vm.GitTotalAdditionsText);
+        Assert.Equal("−3", vm.GitTotalDeletionsText);
+        Assert.Equal("Total text changes", vm.GitStatsScopeText);
+        Assert.True(vm.HasGitLineStatistics);
+
+        using var session = HeadlessMobileSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(() =>
+        {
+            var view = new GitChangesView { DataContext = vm };
+            var window = new Window { Width = 360, Height = 780, Content = view };
+            try
+            {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+                Assert.Equal("+19", view.FindControl<TextBlock>("GitTotalAdditions")!.Text);
+                Assert.Equal("−3", view.FindControl<TextBlock>("GitTotalDeletions")!.Text);
+                var totals = view.FindControl<Grid>("GitTotalStats")!;
+                var back = view.FindControl<Button>("GitBackButton")!;
+                Assert.True(totals.Bounds.Width >= 300);
+                Assert.True(totals.TranslatePoint(default, window)!.Value.Y >=
+                    back.TranslatePoint(new Point(0, back.Bounds.Height), window)!.Value.Y);
+                Assert.Contains(view.GetVisualDescendants().OfType<TextBlock>(),
+                    text => text.Name == "GitRowAdditions" && text.Text == "+12" && text.IsEffectivelyVisible);
+                Assert.Contains(view.GetVisualDescendants().OfType<TextBlock>(),
+                    text => text.Text == "Binary file" && text.IsEffectivelyVisible);
+            }
+            catch (Exception ex) { failure = ExceptionDispatchInfo.Capture(ex); }
+            finally
+            {
+                view.DataContext = null;
+                window.Close();
+            }
+        }, CancellationToken.None);
+        failure?.Throw();
+
+        vm.GitFilesTruncated = true;
+        Assert.Contains("partial", vm.GitStatsScopeText);
+        vm.GitFilesTruncated = false;
+        vm.GitFiles = [new() { Path = "legacy.cs" }];
+        Assert.False(vm.HasGitLineStatistics);
+        Assert.Contains("partial", vm.GitStatsScopeText);
+        vm.Reset(Guid.NewGuid(), "Other");
+        Assert.False(vm.HasGitLineStatistics);
+    }
+
     [Fact]
     public async Task SelectedPathProjection_NotifiesAndNeverReturnsNullAcrossNavigation()
     {

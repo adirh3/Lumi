@@ -30,8 +30,22 @@ public partial class MobileDrawerView : UserControl
             return;
 
         if (DataContext is MobileShellViewModel shell)
+        {
+            TouchScrollClickGuard.ConsumeHold(control);
             shell.OpenChatActionsCommand.Execute(chat);
+        }
 
         e.Handled = true;
+    }
+
+    private void OnChatRowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if ((e.Key == Key.Apps || e.Key == Key.F10 && e.KeyModifiers == KeyModifiers.Shift)
+            && sender is Control { DataContext: ChatListItemViewModel chat }
+            && DataContext is MobileShellViewModel shell)
+        {
+            shell.OpenChatActionsCommand.Execute(chat);
+            e.Handled = true;
+        }
     }
 }

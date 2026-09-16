@@ -4,8 +4,11 @@ using Avalonia.Controls.Platform;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using Lumi.Mobile.Layout;
 using Lumi.Mobile.ViewModels;
+using Lumi.Mobile.Behaviors;
+using StrataTheme.Controls;
 
 namespace Lumi.Mobile.Views;
 
@@ -21,6 +24,10 @@ public partial class MobileShellView : UserControl
     private Thickness _safeArea;
     private double _keyboardInset;
     private double _keyboardTop = double.NaN;
+    private readonly Dictionary<Control, MobileEntrance> _pageEntrances = [];
+    private readonly HashSet<StrataBottomSheet> _presentedSheets = [];
+    private readonly StrataNavigationDrawer? _navigationDrawer;
+    private readonly Border? _navigationSpacer;
 
     /// <summary>Posture pushed in by the host (Android hinge info, or the desktop simulator).</summary>
     public static readonly StyledProperty<FoldPosture> PostureProperty =
@@ -42,6 +49,121 @@ public partial class MobileShellView : UserControl
     public MobileShellView()
     {
         InitializeComponent();
+        AddHandler(StrataBottomSheet.PresentationChangedEvent, OnSheetPresentationChanged);
+        _navigationDrawer = this.FindControl<StrataNavigationDrawer>("NavDrawer");
+        _navigationSpacer = this.FindControl<Border>("NavigationSpacer");
+        if (_navigationDrawer is { } drawer)
+            drawer.PropertyChanged += OnDrawerPropertyChanged;
+        if (this.FindControl<TextBox>("RenameChatBox") is { } renameBox)
+            renameBox.PropertyChanged += OnRenameBoxPropertyChanged;
+        foreach (var name in new[] { "LibraryHost", "SettingsPage", "SearchPage" })
+        {
+            if (this.FindControl<Control>(name) is { } page)
+                page.PropertyChanged += OnPageVisibilityChanged;
+        }
+    }
+
+    private void OnDrawerPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == StrataNavigationDrawer.ProgressProperty
+            && sender is StrataNavigationDrawer drawer
+            && DataContext is MobileShellViewModel shell)
+        {
+            shell.IsDrawerPresented = drawer.Progress > 0.001;
+            if (drawer.Progress is > 0.001 and < 0.999)
+                shell.IsDrawerMoving = true;
+            else if (shell.IsDrawerMoving)
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (ReferenceEquals(DataContext, shell)
+                        && (drawer.Progress <= 0.001 || drawer.Progress >= 0.999))
+                        shell.IsDrawerMoving = false;
+                }, DispatcherPriority.Loaded);
+        }
+
+        if (e.Property == StrataNavigationDrawer.ProgressProperty
+            || e.Property == StrataNavigationDrawer.PanelWidthProperty
+            || e.Property == StrataNavigationDrawer.IsModalProperty)
+            UpdateNavigationLayout();
+    }
+
+    private void UpdateNavigationLayout()
+    {
+        if (_navigationDrawer is not { } drawer || _navigationSpacer is not { } spacer)
+            return;
+
+        // Resize the mounted conversation, including its native editor, rather than translating a
+        // fixed-width surface and exposing its trailing edge. Only a physical hinge reserves a pane
+        // independently of motion. The layout engine coalesces updates; no visual is recreated.
+        spacer.Width = DataContext is MobileShellViewModel shell
+            ? shell.HasHingeGap ? shell.Layout.HingePosition
+                : drawer.IsModal ? 0 : drawer.PanelWidth * drawer.Progress
+            : 0;
+    }
+
+    private void OnSheetPresentationChanged(object? sender, RoutedEventArgs e)
+    {
+        if (e.Source is not StrataBottomSheet sheet)
+            return;
+        if (sheet.IsPresented)
+            _presentedSheets.Add(sheet);
+        else
+            _presentedSheets.Remove(sheet);
+        UpdateSheetPresentation();
+    }
+
+    private void UpdateSheetPresentation()
+    {
+        if (DataContext is MobileShellViewModel shell)
+            shell.IsModalSheetPresented = _presentedSheets.Any(sheet => sheet.IsEffectivelyVisible);
+    }
+
+    private void OnPageVisibilityChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property != IsVisibleProperty)
+            return;
+        UpdateSheetPresentation();
+        if (sender is not Control { IsVisible: true } page)
+            return;
+
+        Control? content = page.Name switch
+        {
+            "LibraryHost" => this.FindControl<LibraryView>("LibraryPage")?.FindControl<StackPanel>("LibraryListContent"),
+            "SettingsPage" => this.FindControl<MobileSettingsView>("SettingsPage")?.FindControl<StackPanel>("SettingsContent"),
+            "SearchPage" => this.FindControl<MobileSearchView>("SearchPage")?.FindControl<StackPanel>("SearchResultsContent"),
+            _ => null
+        };
+        if (content is null)
+            return;
+
+        if (!_pageEntrances.TryGetValue(content, out var entrance))
+            _pageEntrances[content] = entrance = new MobileEntrance(content);
+        entrance.Play();
+    }
+
+    private void OnRenameBoxPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property != IsVisibleProperty || sender is not TextBox { IsVisible: true } box)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (box.IsEffectivelyVisible && DataContext is MobileShellViewModel { IsRenamingChat: true })
+            {
+                box.Focus();
+                box.SelectAll();
+            }
+        }, DispatcherPriority.Loaded);
+    }
+
+    private void OnChatRenameKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && DataContext is MobileShellViewModel shell
+            && shell.SaveChatNameCommand.CanExecute(null))
+        {
+            shell.SaveChatNameCommand.Execute(null);
+            e.Handled = true;
+        }
     }
 
     public FoldPosture Posture
@@ -106,6 +228,11 @@ public partial class MobileShellView : UserControl
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
+        foreach (var entrance in _pageEntrances.Values)
+            entrance.Dispose();
+        _pageEntrances.Clear();
+        _presentedSheets.Clear();
+
         if (_insets is not null)
             _insets.SafeAreaChanged -= OnSafeAreaChanged;
 
@@ -168,6 +295,9 @@ public partial class MobileShellView : UserControl
 
     public void NotifyApplicationActivated()
     {
+        if (_inputPane is { } pane)
+            ApplyInputPaneGeometry(pane.State, pane.OccludedRect);
+
         if (DataContext is MobileShellViewModel shell)
             _ = shell.NotifyApplicationActivatedAsync();
     }
@@ -181,6 +311,9 @@ public partial class MobileShellView : UserControl
     }
 
     private void OnInputPaneStateChanged(object? sender, InputPaneStateEventArgs e)
+        => ApplyInputPaneGeometry(e.NewState, e.EndRect);
+
+    internal void ApplyInputPaneGeometry(InputPaneState state, Rect occludedRect)
     {
         // Lift the composer above the keyboard.
         //
@@ -191,7 +324,7 @@ public partial class MobileShellView : UserControl
         // the pattern in Avalonia's own SafeAreaDemo. Treating EndRect.Height as the inset — which
         // is what this did — dropped the navigation bar's worth of padding and left the composer
         // partly under the keyboard.
-        var rect = e.NewState == InputPaneState.Open ? e.EndRect : default;
+        var rect = state == InputPaneState.Open ? occludedRect : default;
         _keyboardInset = rect.Height > 0 && _topLevel is { } top
             ? Math.Max(0, top.ClientSize.Height - rect.Top)
             : 0;
@@ -275,6 +408,7 @@ public partial class MobileShellView : UserControl
         var height = Bounds.Height;
 
         shell.UpdateLayout(width, height, Posture, HingeSize, HingePosition);
+        UpdateNavigationLayout();
         ApplyInsets();
     }
 
@@ -285,5 +419,13 @@ public partial class MobileShellView : UserControl
         // A fresh view model has no insets yet; re-publish whatever the OS already told us.
         ApplyInsets();
         PushLayout();
+        if (DataContext is MobileShellViewModel shell
+            && this.FindControl<StrataNavigationDrawer>("NavDrawer") is { } drawer)
+        {
+            shell.IsDrawerPresented = drawer.Progress > 0.001;
+            shell.IsDrawerMoving = drawer.Progress is > 0.001 and < 0.999;
+        }
+        UpdateNavigationLayout();
+        UpdateSheetPresentation();
     }
 }

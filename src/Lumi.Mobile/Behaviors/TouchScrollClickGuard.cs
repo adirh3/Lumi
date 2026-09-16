@@ -45,6 +45,12 @@ public sealed class TouchScrollClickGuard
         && States.TryGetValue(button, out var state)
         && state.Dragged;
 
+    public static void ConsumeHold(Control control)
+    {
+        if (control is Button button && States.TryGetValue(button, out var state))
+            state.Held = true;
+    }
+
     private static void Attach(Button button)
     {
         States.GetValue(button, static _ => new State());
@@ -67,9 +73,11 @@ public sealed class TouchScrollClickGuard
             return;
 
         state.Pointer = e.Pointer;
-        state.Start = e.GetPosition(button);
+        state.CoordinateRoot = TopLevel.GetTopLevel(button) ?? (Visual)button;
+        state.Start = e.GetPosition(state.CoordinateRoot);
         state.Tracking = true;
         state.Dragged = false;
+        state.Held = false;
     }
 
     private static void OnPointerMoved(object? sender, PointerEventArgs e)
@@ -82,7 +90,7 @@ public sealed class TouchScrollClickGuard
             return;
         }
 
-        state.Dragged |= ExceedsThreshold(state.Start, e.GetPosition(button));
+        state.Dragged |= ExceedsThreshold(state.Start, e.GetPosition(state.CoordinateRoot));
     }
 
     private static void OnPointerReleased(object? sender, PointerReleasedEventArgs e)
@@ -95,13 +103,14 @@ public sealed class TouchScrollClickGuard
             return;
         }
 
-        var dragged = state.Dragged || ExceedsThreshold(state.Start, e.GetPosition(button));
+        var dragged = state.Dragged || ExceedsThreshold(state.Start, e.GetPosition(state.CoordinateRoot));
         state.Tracking = false;
         state.Pointer = null;
+        state.CoordinateRoot = null;
 
         // Tunnel runs before Button's release handler, so marking the drag handled prevents Click /
         // Command while the ancestor ScrollViewer has already seen the release on its way down.
-        if (dragged)
+        if (dragged || state.Held)
             e.Handled = true;
     }
 
@@ -115,8 +124,10 @@ public sealed class TouchScrollClickGuard
     private sealed class State
     {
         public IPointer? Pointer;
+        public Visual? CoordinateRoot;
         public Point Start;
         public bool Tracking;
         public bool Dragged;
+        public bool Held;
     }
 }

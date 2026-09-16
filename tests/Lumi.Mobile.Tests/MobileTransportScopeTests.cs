@@ -115,8 +115,7 @@ public sealed class MobileTransportScopeTests
         Assert.Equal(chatsBeforeDrawer + 1, handler.ChatRequests);
         Assert.Equal(transcriptsBeforeDrawer, handler.TranscriptRequests);
 
-        shell.IsDrawerOpen = false;
-        shell.Page = MobilePage.Library;
+        shell.ShowPageCommand.Execute("Library");
         await handler.WaitForSubscriptionAsync(
             subscription => subscription.ChatId is null && subscription.IncludeLibrary);
         var transcriptsBeforeReturn = handler.TranscriptRequests;
@@ -133,6 +132,87 @@ public sealed class MobileTransportScopeTests
         await Task.WhenAll(pause, resume);
         await WaitUntilAsync(() => shell.IsConnected);
         Assert.True(handler.EventRequests >= 1);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task StartAndResumeRetryATransientHelloFailureWithoutRestartingOrLosingTheDraft(
+        bool resume, bool transportCancellation)
+    {
+        using var temp = new TempDirectory();
+        var handler = new TransportHandler(
+            protocolVersion: RemoteProtocol.Version,
+            scopedEvents: true,
+            compactTranscript: true)
+        {
+            FailHelloRequest = resume ? 2 : 1,
+            CancelFailedHelloRequest = transportCancellation
+        };
+        await using var client = CreateClient(handler);
+        var store = CreatePairedStore(temp.Path);
+        await using var shell = new MobileShellViewModel(
+            client,
+            store: store,
+            post: action => action());
+
+        if (resume)
+        {
+            await shell.StartAsync();
+            await WaitUntilAsync(() => shell.BootstrapSnapshotCount == 1);
+            await shell.NotifyApplicationDeactivatedAsync();
+        }
+        shell.Chat.PromptText = "Keep this unsent draft";
+
+        // The network is unavailable for the launch/resume handshake, then immediately recovers.
+        await shell.NotifyApplicationActivatedAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitUntilAsync(() => shell.IsConnected && shell.BootstrapSnapshotCount == (resume ? 2 : 1));
+
+        Assert.Equal(resume ? 3 : 2, handler.HelloRequests);
+        Assert.Equal("Keep this unsent draft", shell.Chat.PromptText);
+        Assert.True(shell.IsPaired);
+        Assert.Equal("token", store.Load().Token);
+        Assert.Equal(0, handler.SnapshotRequests);
+    }
+
+    [Fact]
+    public async Task PausingDuringHandshakeBackoffCancelsTheAttemptAndResumeCanReconnect()
+    {
+        using var temp = new TempDirectory();
+        var handler = new TransportHandler(
+            protocolVersion: RemoteProtocol.Version,
+            scopedEvents: true,
+            compactTranscript: true)
+        {
+            FailHelloRequest = 1
+        };
+        await using var client = CreateClient(handler);
+        await using var shell = new MobileShellViewModel(
+            client,
+            store: CreatePairedStore(temp.Path),
+            post: action => action());
+        var failed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.StateChanged += (state, _) =>
+        {
+            if (state == RemoteLinkState.Error)
+                failed.TrySetResult();
+        };
+
+        var start = shell.StartAsync();
+        await failed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await shell.NotifyApplicationDeactivatedAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        await start.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal(1, handler.HelloRequests);
+        Assert.Equal(0, handler.EventRequests);
+        Assert.True(shell.IsPaired);
+
+        await shell.NotifyApplicationActivatedAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        await WaitUntilAsync(() => shell.IsConnected);
+        Assert.Equal(2, handler.HelloRequests);
+        Assert.Equal(1, handler.EventRequests);
     }
 
     [Fact]
@@ -236,6 +316,8 @@ public sealed class MobileTransportScopeTests
         private int _eventRequests;
 
         public int HelloRequests { get; private set; }
+        public int FailHelloRequest { get; init; }
+        public bool CancelFailedHelloRequest { get; init; }
         public int SnapshotRequests { get; private set; }
         public int TranscriptRequests { get; private set; }
         public int ChatRequests { get; private set; }
@@ -294,6 +376,12 @@ public sealed class MobileTransportScopeTests
             if (path == RemoteProtocol.Routes.Hello)
             {
                 HelloRequests++;
+                if (HelloRequests == FailHelloRequest)
+                {
+                    if (CancelFailedHelloRequest)
+                        throw new TaskCanceledException("The transport canceled this attempt.");
+                    return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+                }
                 return Json(
                     new RemoteHello
                     {

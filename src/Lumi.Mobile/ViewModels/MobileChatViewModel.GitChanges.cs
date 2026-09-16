@@ -42,6 +42,10 @@ public sealed partial class MobileChatViewModel
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasGitFiles))]
     [NotifyPropertyChangedFor(nameof(GitFileCountText))]
+    [NotifyPropertyChangedFor(nameof(GitTotalAdditionsText))]
+    [NotifyPropertyChangedFor(nameof(GitTotalDeletionsText))]
+    [NotifyPropertyChangedFor(nameof(GitStatsScopeText))]
+    [NotifyPropertyChangedFor(nameof(HasGitLineStatistics))]
     [NotifyPropertyChangedFor(nameof(GitFilePositionText))]
     [NotifyPropertyChangedFor(nameof(ShowGitEmptyState))]
     [NotifyCanExecuteChangedFor(nameof(PreviousGitFileCommand))]
@@ -49,6 +53,7 @@ public sealed partial class MobileChatViewModel
     private IReadOnlyList<RemoteGitFile> _gitFiles = [];
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(GitFileCountText))]
+    [NotifyPropertyChangedFor(nameof(GitStatsScopeText))]
     private bool _gitFilesTruncated;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowGitFileList))]
@@ -67,6 +72,7 @@ public sealed partial class MobileChatViewModel
     [NotifyPropertyChangedFor(nameof(SelectedGitFileName))]
     [NotifyPropertyChangedFor(nameof(SelectedGitFileStatus))]
     [NotifyPropertyChangedFor(nameof(GitHeaderTitle))]
+    [NotifyPropertyChangedFor(nameof(GitHeaderSubtitle))]
     [NotifyPropertyChangedFor(nameof(ShowGitFileHeader))]
     [NotifyPropertyChangedFor(nameof(ShowGitCompactFileNavigation))]
     [NotifyPropertyChangedFor(nameof(GitFilePositionText))]
@@ -83,18 +89,28 @@ public sealed partial class MobileChatViewModel
     [NotifyPropertyChangedFor(nameof(HasGitDiffText))]
     [NotifyPropertyChangedFor(nameof(ShowGitTextPlaceholder))]
     private string _gitDiffText = "";
-    [ObservableProperty] private string _gitDiffStats = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GitHeaderSubtitle))]
+    private string _gitDiffStats = "";
 
     public bool IsGitFileOpen => SelectedGitFile is not null;
     public string SelectedGitFilePath => SelectedGitFile?.Path ?? "";
     public string SelectedGitFileName => SelectedGitFilePath[(SelectedGitFilePath.LastIndexOf('/') + 1)..];
     public string SelectedGitFileStatus => SelectedGitFile?.Kind ?? "";
     public string GitHeaderTitle => IsGitShortLayout && IsGitFileOpen ? SelectedGitFileName : "Git changes";
-    public string GitHeaderSubtitle => IsGitShortLayout ? $"Read-only · {GitRepositoryLabel}" : "READ-ONLY";
+    public string GitHeaderSubtitle => IsGitShortLayout
+        ? IsGitFileOpen ? $"{GitDiffStats} · Read-only" : $"Read-only · {GitRepositoryLabel}"
+        : "READ-ONLY";
     public bool ShowGitExpandedScope => !IsGitShortLayout;
     public bool ShowGitFileHeader => IsGitFileOpen && !IsGitShortLayout;
     public bool ShowGitCompactFileNavigation => IsGitFileOpen && IsGitShortLayout;
     public bool HasGitFiles => GitFiles.Count > 0;
+    public bool HasGitLineStatistics => GitFiles.Any(file => file.LinesAdded.HasValue && file.LinesRemoved.HasValue);
+    public string GitTotalAdditionsText => $"+{GitFiles.Sum(file => (long)(file.LinesAdded ?? 0)):N0}";
+    public string GitTotalDeletionsText => $"−{GitFiles.Sum(file => (long)(file.LinesRemoved ?? 0)):N0}";
+    public string GitStatsScopeText => GitFilesTruncated || GitFiles.Any(file => !file.IsBinary && !file.LinesAdded.HasValue)
+        ? "Known text changes · partial"
+        : "Total text changes";
     public bool HasGitDiffText => !string.IsNullOrWhiteSpace(GitDiffText);
     public bool HasGitMessage => !string.IsNullOrWhiteSpace(GitMessage);
     public bool HasGitError => !string.IsNullOrWhiteSpace(GitError);
@@ -234,7 +250,7 @@ public sealed partial class MobileChatViewModel
         CancelGitRequest();
         SelectedGitFile = file;
         GitDiffText = "";
-        GitDiffStats = "";
+        GitDiffStats = FileLineStatistics(file);
         GitMessage = null;
         GitError = null;
         var chatId = ChatId;
@@ -255,7 +271,9 @@ public sealed partial class MobileChatViewModel
                 : string.IsNullOrWhiteSpace(diff.UnifiedDiff)
                     ? "No text diff is available for this file (binary, empty, or metadata-only change)."
                     : null);
-            GitDiffStats = $"+{diff.LinesAdded}  −{diff.LinesRemoved}";
+            GitDiffStats = file.IsBinary ? "Binary file"
+                : diff.IsTruncated && file.LinesAdded.HasValue ? FileLineStatistics(file)
+                : $"+{diff.LinesAdded:N0}  −{diff.LinesRemoved:N0}{(diff.IsTruncated ? " · Preview only" : "")}";
         }
         catch (OperationCanceledException)
         {
@@ -284,6 +302,12 @@ public sealed partial class MobileChatViewModel
         GitError = null;
         GitMessage = _gitListMessage;
     }
+
+    private static string FileLineStatistics(RemoteGitFile file) => file.IsBinary
+        ? "Binary file"
+        : file.LinesAdded.HasValue && file.LinesRemoved.HasValue
+            ? $"+{file.LinesAdded:N0}  −{file.LinesRemoved:N0}"
+            : "";
 
     [RelayCommand]
     private void CloseGitChanges() => IsGitChangesOpen = false;

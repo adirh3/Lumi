@@ -55,6 +55,8 @@ internal interface INativeTextInputOverlaySession : IDisposable
     void Hide();
 
     void FocusAt(int caretIndex);
+
+    void Blur();
 }
 
 internal interface INativeTextInputOverlayPresenter
@@ -115,6 +117,8 @@ internal interface INativeComposerEditorFactory
     void FocusAt(NativeComposerEditorHost host, int caretIndex);
 
     void FocusAtEnd(NativeComposerEditorHost host);
+
+    void Blur(NativeComposerEditorHost host);
 }
 
 public static class MobilePlatformServices
@@ -333,4 +337,6 @@ internal sealed class DefaultNativeComposerEditorFactory : INativeComposerEditor
     public void FocusAtEnd(NativeComposerEditorHost host)
     {
     }
+
+    public void Blur(NativeComposerEditorHost host) => host.SetInputFocusFromNative(false);
 }

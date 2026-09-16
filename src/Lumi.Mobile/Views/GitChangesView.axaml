@@ -23,8 +23,7 @@
   </UserControl.Styles>
 
   <Grid x:Name="GitViewport" RowDefinitions="Auto,Auto,*">
-    <Border x:Name="GitHeader" BorderBrush="{DynamicResource Brush.BorderSubtle}"
-            BorderThickness="0,0,0,1" Padding="8,4,8,8">
+    <Border x:Name="GitHeader" Padding="8,4,8,8">
       <StackPanel Spacing="4">
         <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
           <Button x:Name="GitBackButton" Classes="subtle git-touch"
@@ -69,6 +68,15 @@
                      TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Brush.TextTertiary}"
                      FontSize="{DynamicResource Font.SizeCaption}" />
         </StackPanel>
+        <Grid x:Name="GitTotalStats" Margin="12,4,12,0" ColumnDefinitions="*,Auto,Auto"
+              ColumnSpacing="12" IsVisible="{Binding HasGitLineStatistics}">
+          <TextBlock Text="{Binding GitStatsScopeText}" FontSize="{DynamicResource Font.SizeCaption}"
+                     Foreground="{DynamicResource Brush.TextSecondary}" TextWrapping="Wrap" VerticalAlignment="Center" />
+          <TextBlock x:Name="GitTotalAdditions" Grid.Column="1" Text="{Binding GitTotalAdditionsText}"
+                     FontWeight="SemiBold" Foreground="{DynamicResource Brush.SuccessDefault}" VerticalAlignment="Center" />
+          <TextBlock x:Name="GitTotalDeletions" Grid.Column="2" Text="{Binding GitTotalDeletionsText}"
+                     FontWeight="SemiBold" Foreground="{DynamicResource Brush.DangerDefault}" VerticalAlignment="Center" />
+        </Grid>
       </StackPanel>
     </Border>
 
@@ -94,8 +102,7 @@
     </StackPanel>
 
     <Grid x:Name="GitPanes" Grid.Row="2" ColumnDefinitions="*,0">
-      <Border x:Name="GitFileListPane" IsVisible="{Binding ShowGitFileList}"
-              BorderBrush="{DynamicResource Brush.BorderSubtle}" BorderThickness="0,0,1,0">
+      <Border x:Name="GitFileListPane" IsVisible="{Binding ShowGitFileList}">
         <Grid RowDefinitions="Auto,*">
           <StackPanel Margin="16,12,16,10" Spacing="3">
             <TextBlock Text="{Binding GitFileCountText}" FontWeight="SemiBold" />
@@ -107,7 +114,7 @@
                    SelectionChanged="OnGitFileSelectionChanged"
                    IsVisible="{Binding HasGitFiles}"
                    ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                   ScrollViewer.VerticalScrollBarVisibility="Auto"
+                   ScrollViewer.VerticalScrollBarVisibility="Hidden"
                    Background="Transparent" BorderThickness="0">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="proto:RemoteGitFile">
@@ -117,6 +124,26 @@
                                ToolTip.Tip="{Binding Path}" />
                     <TextBlock Text="{Binding Kind}" FontSize="{DynamicResource Font.SizeCaption}"
                                Foreground="{DynamicResource Brush.TextSecondary}" />
+                    <StackPanel Orientation="Horizontal" Spacing="10"
+                                IsVisible="{Binding LinesAdded, Converter={x:Static ObjectConverters.IsNotNull}}">
+                      <TextBlock x:Name="GitRowAdditions" Text="{Binding LinesAdded, StringFormat='+{0:N0}'}"
+                                 FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeCaption}"
+                                 Foreground="{DynamicResource Brush.SuccessDefault}" />
+                      <TextBlock x:Name="GitRowDeletions" Text="{Binding LinesRemoved, StringFormat='−{0:N0}'}"
+                                 FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeCaption}"
+                                 Foreground="{DynamicResource Brush.DangerDefault}" />
+                    </StackPanel>
+                    <TextBlock Text="Binary file" IsVisible="{Binding IsBinary}"
+                               FontSize="{DynamicResource Font.SizeCaption}" Foreground="{DynamicResource Brush.TextTertiary}" />
+                    <TextBlock Text="Line counts unavailable" FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextTertiary}">
+                      <TextBlock.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                          <Binding Path="LinesAdded" Converter="{x:Static ObjectConverters.IsNull}" />
+                          <Binding Path="!IsBinary" />
+                        </MultiBinding>
+                      </TextBlock.IsVisible>
+                    </TextBlock>
                   </StackPanel>
                   <Border Grid.Column="1" Margin="12,0,0,0" Padding="7,3" CornerRadius="5"
                           Background="{DynamicResource Brush.Surface2}" VerticalAlignment="Center">

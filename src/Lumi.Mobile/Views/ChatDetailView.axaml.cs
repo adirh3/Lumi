@@ -10,12 +10,14 @@ using Avalonia.VisualTree;
 using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
+using Lumi.Mobile.Behaviors;
 using Lumi.Remote.Protocol;
 using StrataTheme.Controls;
 
@@ -27,6 +29,7 @@ public partial class ChatDetailView : UserControl
     private MobileShellViewModel? _shell;
     private StrataChatComposer? _composer;
     private NativeComposerEditorHost? _nativeComposerEditor;
+    private TextBox? _sharedComposerInput;
 
     /// <summary>Every collection and item we have hooked, so detach is exact and nothing leaks.</summary>
     private readonly HashSet<TranscriptTurnViewModel> _observedTurns =
@@ -46,10 +49,18 @@ public partial class ChatDetailView : UserControl
     /// once per frame.</para>
     /// </summary>
     private bool _followQueued;
+    private bool _transcriptContentChanged;
+    private MobileEntrance? _transcriptEntrance;
+    private MobileEntrance? _welcomeEntrance;
+    private int _chatEntranceVersion;
+    private bool _awaitingChatEntrance;
+    private IDisposable? _loadingDelay;
+    private bool _transcriptWidthHeld;
 
     public ChatDetailView()
     {
         InitializeComponent();
+        AddHandler(PointerPressedEvent, OnSurfacePointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
 
         // The ambient field is created in code rather than XAML because the controller owns it: it
         // has to insert it as the bottom-most child and keep it out of the hit-test path.
@@ -62,55 +73,99 @@ public partial class ChatDetailView : UserControl
         base.OnAttachedToVisualTree(e);
         Dispatcher.UIThread.Post(AttachComposerChipObserver, DispatcherPriority.Loaded);
         Dispatcher.UIThread.Post(AttachNativeComposerEditor, DispatcherPriority.Loaded);
+        if (_shell?.Chat.IsInitialLoading == true)
+            OnChatSurfaceReset();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
+        SetTranscriptMotionWidth(false);
         DetachNativeComposerEditor();
         DetachComposerChipObserver();
+        _loadingDelay?.Dispose();
+        _loadingDelay = null;
+        _chatEntranceVersion++;
+        _transcriptEntrance?.Dispose();
+        _transcriptEntrance = null;
+        _welcomeEntrance?.Dispose();
+        _welcomeEntrance = null;
+        _awaitingChatEntrance = false;
+        _transcriptContentChanged = false;
+        if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
+            transcript.IsHitTestVisible = true;
         base.OnDetachedFromVisualTree(e);
     }
 
     private void AttachNativeComposerEditor()
     {
         DetachNativeComposerEditor();
-        if (!MobilePlatformServices.NativeComposerEditorFactory.IsAvailable
+        if (!this.IsAttachedToVisualTree()
             || this.FindControl<StrataChatComposer>("Composer") is not { } composer)
         {
             return;
         }
 
+        _composer = composer;
+        composer.PropertyChanged += OnComposerPropertyChanged;
+        composer.GotFocus += OnComposerGotFocus;
+        composer.LostFocus += OnComposerLostFocus;
+        composer.SendRequested += OnComposerActionRequested;
+        composer.StopRequested += OnComposerActionRequested;
+        composer.StopAndSendRequested += OnComposerActionRequested;
+        composer.LayoutUpdated += OnComposerLayoutUpdated;
+        if (!MobilePlatformServices.NativeComposerEditorFactory.IsAvailable)
+        {
+            _sharedComposerInput = composer.GetVisualDescendants().OfType<TextBox>()
+                .FirstOrDefault(input => input.Name == "PART_Input");
+            if (_sharedComposerInput is not null)
+                _sharedComposerInput.Classes.CollectionChanged += OnSharedEditorClassesChanged;
+            UpdateComposerFocus();
+            return;
+        }
+
         var editor = new NativeComposerEditorHost
         {
-            Height = 64,
-            MinHeight = 64,
-            MaxHeight = 64,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Placeholder = composer.Placeholder,
             Text = composer.PromptText ?? ""
         };
-        _composer = composer;
         _nativeComposerEditor = editor;
-        composer.PropertyChanged += OnComposerPropertyChanged;
         editor.PropertyChanged += OnNativeComposerEditorPropertyChanged;
+        editor.InputFocusChanged += OnNativeInputFocusChanged;
         composer.EditorContent = editor;
         UpdateNativeComposerVisibility();
+        UpdateComposerFocus();
     }
 
     private void DetachNativeComposerEditor()
     {
         if (_composer is not null)
+        {
             _composer.PropertyChanged -= OnComposerPropertyChanged;
+            _composer.GotFocus -= OnComposerGotFocus;
+            _composer.LostFocus -= OnComposerLostFocus;
+            _composer.SendRequested -= OnComposerActionRequested;
+            _composer.StopRequested -= OnComposerActionRequested;
+            _composer.StopAndSendRequested -= OnComposerActionRequested;
+            _composer.LayoutUpdated -= OnComposerLayoutUpdated;
+        }
+        if (_sharedComposerInput is not null)
+            _sharedComposerInput.Classes.CollectionChanged -= OnSharedEditorClassesChanged;
         if (_nativeComposerEditor is not null)
+        {
             _nativeComposerEditor.PropertyChanged -= OnNativeComposerEditorPropertyChanged;
+            _nativeComposerEditor.InputFocusChanged -= OnNativeInputFocusChanged;
+        }
         if (_composer is not null
             && ReferenceEquals(_composer.EditorContent, _nativeComposerEditor))
         {
             _composer.EditorContent = null;
+            _composer.IsEditorContentVisible = true;
         }
 
         _nativeComposerEditor = null;
+        _sharedComposerInput = null;
         _composer = null;
     }
 
@@ -118,12 +173,75 @@ public partial class ChatDetailView : UserControl
         object? sender,
         AvaloniaPropertyChangedEventArgs e)
     {
-        if (e.Property == StrataChatComposer.PromptTextProperty
-            && _nativeComposerEditor is { } editor)
+        if (e.Property == StrataChatComposer.PromptTextProperty)
         {
-            editor.SetCurrentValue(
+            _nativeComposerEditor?.SetCurrentValue(
                 NativeComposerEditorHost.TextProperty,
                 e.GetNewValue<string?>() ?? "");
+            UpdateComposerFocus();
+        }
+    }
+
+    private void OnComposerGotFocus(object? sender, RoutedEventArgs e)
+    {
+        if (e.Source is TextBox || _composer?.IsCompact == false)
+            UpdateComposerFocus();
+    }
+
+    private void OnComposerLostFocus(object? sender, RoutedEventArgs e) =>
+        Dispatcher.UIThread.Post(UpdateComposerFocus, DispatcherPriority.Input);
+
+    private void OnSharedEditorClassesChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
+        UpdateComposerFocus();
+
+    private void OnNativeInputFocusChanged(bool focused)
+    {
+        // Unhandled native key-up events must not activate the last focused Avalonia button.
+        if (focused)
+            TopLevel.GetTopLevel(this)?.FocusManager?.Focus(null);
+        UpdateComposerFocus();
+    }
+
+    private void UpdateComposerFocus()
+    {
+        if (_composer is null)
+            return;
+
+        var focused = _sharedComposerInput?.IsFocused == true
+                      || _nativeComposerEditor?.IsInputFocused == true
+                      || _sharedComposerInput?.Classes.Contains("native-input-focused") == true
+                      || _composer is { IsCompact: false, IsKeyboardFocusWithin: true };
+        _composer.IsCompact = !focused && string.IsNullOrEmpty(_composer.PromptText)
+                              && _shell?.Chat.HasAttachments != true;
+    }
+
+    private void OnComposerActionRequested(object? sender, RoutedEventArgs e) => ReleaseComposerFocus();
+
+    private void OnSurfacePointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (_composer is null || e.Source is not Visual source
+            || ReferenceEquals(source, _composer) || source.GetVisualAncestors().Contains(_composer))
+            return;
+        ReleaseComposerFocus();
+    }
+
+    private void ReleaseComposerFocus()
+    {
+        if (_composer?.IsKeyboardFocusWithin == true)
+            TopLevel.GetTopLevel(this)?.FocusManager?.Focus(null);
+        if (_sharedComposerInput is not null)
+            NativeTextInputOverlay.Blur(_sharedComposerInput);
+        _nativeComposerEditor?.Blur();
+        UpdateComposerFocus();
+    }
+
+    private void OnComposerLayoutUpdated(object? sender, EventArgs e)
+    {
+        if (_shell?.IsWelcomeVisible == true
+            && _composer?.TranslatePoint(default, this) is { } origin
+            && this.FindControl<Border>("WelcomeSideInset") is { } welcome)
+        {
+            welcome.Margin = new Thickness(0, 0, 0, Math.Max(0, Bounds.Height - origin.Y + 8));
         }
     }
 
@@ -142,10 +260,17 @@ public partial class ChatDetailView : UserControl
 
     private void UpdateNativeComposerVisibility()
     {
-        if (_nativeComposerEditor is null)
-            return;
-
-        _nativeComposerEditor.IsVisible = ShouldShowNativeComposerEditor(_shell);
+        var visible = ShouldShowNativeComposerEditor(_shell);
+        if (!visible)
+            ReleaseComposerFocus();
+        if (_nativeComposerEditor is not null)
+        {
+            if (visible && _composer is not null)
+                _composer.IsEditorContentVisible = true;
+            _nativeComposerEditor.IsVisible = visible;
+            if (!visible && _composer is not null)
+                _composer.IsEditorContentVisible = false;
+        }
     }
 
     internal static bool ShouldShowNativeComposerEditor(MobileShellViewModel? shell) =>
@@ -153,6 +278,8 @@ public partial class ChatDetailView : UserControl
         {
             IsChatPage: true,
             IsDrawerOverlay: false,
+            IsNavigationCoveringContent: false,
+            IsModalSheetPresented: false,
             IsChatActionsOpen: false,
             HasPageOverlay: false
         }
@@ -204,11 +331,11 @@ public partial class ChatDetailView : UserControl
                      .OfType<Button>()
                      .Where(candidate => candidate.Classes.Contains("chip-remove")))
         {
-            button.Width = 28;
-            button.Height = 28;
-            button.MinWidth = 28;
-            button.MinHeight = 28;
-            button.CornerRadius = new CornerRadius(14);
+            button.Width = 48;
+            button.Height = 48;
+            button.MinWidth = 48;
+            button.MinHeight = 48;
+            button.CornerRadius = new CornerRadius(24);
         }
     }
 
@@ -227,6 +354,7 @@ public partial class ChatDetailView : UserControl
         if (_shell is not { } shell || TopLevel.GetTopLevel(this) is not { StorageProvider: { } storage })
             return;
 
+        ReleaseComposerFocus();
         try
         {
             var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
@@ -426,6 +554,7 @@ public partial class ChatDetailView : UserControl
         shell.Chat.PropertyChanged += OnChatPropertyChanged;
         shell.Chat.ChatActivitySubmitted += OnChatActivitySubmitted;
         shell.Chat.ChatSurfaceReset += OnChatSurfaceReset;
+        shell.Chat.TranscriptApplied += OnTranscriptApplied;
         shell.Chat.AttachmentPickRequested += OnPickAttachment;
         SynchronizeObservers();
         UpdateNativeComposerVisibility();
@@ -433,6 +562,7 @@ public partial class ChatDetailView : UserControl
 
     private void Detach()
     {
+        SetTranscriptMotionWidth(false);
         if (_shell is null)
             return;
 
@@ -440,10 +570,20 @@ public partial class ChatDetailView : UserControl
         _shell.Chat.PropertyChanged -= OnChatPropertyChanged;
         _shell.Chat.ChatActivitySubmitted -= OnChatActivitySubmitted;
         _shell.Chat.ChatSurfaceReset -= OnChatSurfaceReset;
+        _shell.Chat.TranscriptApplied -= OnTranscriptApplied;
         _shell.Chat.AttachmentPickRequested -= OnPickAttachment;
         _shell.PropertyChanged -= OnShellPropertyChanged;
 
         ClearObservers();
+        _loadingDelay?.Dispose();
+        _loadingDelay = null;
+        _chatEntranceVersion++;
+        _awaitingChatEntrance = false;
+        _transcriptContentChanged = false;
+        _transcriptEntrance?.Dispose();
+        _transcriptEntrance = null;
+        _welcomeEntrance?.Dispose();
+        _welcomeEntrance = null;
 
         _shell = null;
         UpdateNativeComposerVisibility();
@@ -453,8 +593,25 @@ public partial class ChatDetailView : UserControl
         object? sender,
         PropertyChangedEventArgs e)
     {
+        if (e.PropertyName is nameof(MobileShellViewModel.IsDrawerMoving)
+            or nameof(MobileShellViewModel.CanDockDrawer)
+            or nameof(MobileShellViewModel.HasHingeGap))
+        {
+            SetTranscriptMotionWidth(_shell is { IsDrawerMoving: true, CanDockDrawer: true, HasHingeGap: false });
+        }
+
+        if (e.PropertyName == nameof(MobileShellViewModel.IsKeyboardOpen))
+        {
+            if (_shell?.IsKeyboardOpen == true)
+                UpdateComposerFocus();
+            else
+                ReleaseComposerFocus();
+        }
+
         if (e.PropertyName is nameof(MobileShellViewModel.IsChatPage)
             or nameof(MobileShellViewModel.IsDrawerOverlay)
+            or nameof(MobileShellViewModel.IsNavigationCoveringContent)
+            or nameof(MobileShellViewModel.IsModalSheetPresented)
             or nameof(MobileShellViewModel.IsChatActionsOpen)
             or nameof(MobileShellViewModel.HasPageOverlay))
         {
@@ -462,8 +619,37 @@ public partial class ChatDetailView : UserControl
         }
     }
 
+    private void SetTranscriptMotionWidth(bool hold)
+    {
+        if (_transcriptWidthHeld == hold
+            || this.FindControl<Border>("ChatTranscriptSideInset") is not { } transcript)
+            return;
+
+        if (hold)
+        {
+            if (transcript.Bounds.Width <= 0)
+                return;
+            // Only the surrounding canvas resizes during motion; long markdown reflows once at rest.
+            transcript.Width = transcript.Bounds.Width;
+            transcript.HorizontalAlignment = FlowDirection == Avalonia.Media.FlowDirection.RightToLeft
+                ? HorizontalAlignment.Right : HorizontalAlignment.Left;
+        }
+        else
+        {
+            transcript.ClearValue(WidthProperty);
+            transcript.ClearValue(HorizontalAlignmentProperty);
+        }
+        _transcriptWidthHeld = hold;
+    }
+
     private void OnTurnsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        if (_shell?.Chat.IsApplyingTranscript == true)
+        {
+            _transcriptContentChanged = true;
+            return;
+        }
+
         SynchronizeObservers();
 
         // Replacing an older bounded page is navigation, not new tail content. Let the reader keep
@@ -483,10 +669,89 @@ public partial class ChatDetailView : UserControl
             Shell?.JumpToLatest();
     }
 
-    private void OnChatSurfaceReset() => Shell?.RequestInitialBottom();
+    private void OnChatSurfaceReset()
+    {
+        ReleaseComposerFocus();
+        var version = ++_chatEntranceVersion;
+        _awaitingChatEntrance = true;
+        _loadingDelay?.Dispose();
+        if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
+        {
+            _transcriptEntrance ??= new MobileEntrance(transcript);
+            _transcriptEntrance.Prepare();
+            transcript.IsHitTestVisible = false;
+        }
+        Shell?.RequestInitialBottom();
+        if (this.FindControl<Border>("ChatLoadingOverlay") is { } loading)
+        {
+            loading.IsVisible = false;
+            _loadingDelay = DispatcherTimer.RunOnce(() =>
+            {
+                if (version == _chatEntranceVersion && _shell?.Chat.IsInitialLoading == true)
+                    loading.IsVisible = true;
+            }, TimeSpan.FromMilliseconds(100));
+        }
+        QueueChatEntrance();
+    }
+
+    private void OnTranscriptApplied()
+    {
+        var contentChanged = _transcriptContentChanged;
+        _transcriptContentChanged = false;
+        SynchronizeObservers();
+        if (_awaitingChatEntrance)
+        {
+            Shell?.RequestInitialBottom();
+            QueueChatEntrance();
+        }
+        else if (_shell?.Chat.IsLatestWindow == true)
+        {
+            RequestFollow(newContent: contentChanged);
+        }
+    }
+
+    private void QueueChatEntrance()
+    {
+        if (!_awaitingChatEntrance)
+            return;
+
+        var version = _chatEntranceVersion;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_awaitingChatEntrance || version != _chatEntranceVersion || _shell?.Chat.IsLoading != false)
+                return;
+
+            // The shell lands the initial viewport at Render/Loaded priority. Reveal after that
+            // layout, rather than showing the top of the transcript and jumping to its bottom.
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!_awaitingChatEntrance || version != _chatEntranceVersion || _shell?.Chat.IsLoading != false)
+                    return;
+                _awaitingChatEntrance = false;
+                _loadingDelay?.Dispose();
+                _loadingDelay = null;
+                if (this.FindControl<Border>("ChatLoadingOverlay") is { } loading)
+                    loading.IsVisible = false;
+                if (this.FindControl<Border>("ChatTranscriptSideInset") is { } transcript)
+                    transcript.IsHitTestVisible = true;
+                _transcriptEntrance?.Reveal();
+                if (_shell.IsWelcomeVisible && this.FindControl<StackPanel>("NoChatPlaceholder") is { } welcome)
+                {
+                    _welcomeEntrance ??= new MobileEntrance(welcome);
+                    _welcomeEntrance.Play();
+                }
+            }, DispatcherPriority.Loaded);
+        }, DispatcherPriority.Loaded);
+    }
 
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        if (_shell?.Chat.IsApplyingTranscript == true)
+        {
+            _transcriptContentChanged = true;
+            return;
+        }
+
         SynchronizeObservers();
         if (_shell?.Chat.IsLatestWindow != true)
             return;
@@ -510,6 +775,12 @@ public partial class ChatDetailView : UserControl
 
     private void OnChatPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MobileChatViewModel.HasAttachments))
+            UpdateComposerFocus();
+
+        if (e.PropertyName == nameof(MobileChatViewModel.IsLoading) && _awaitingChatEntrance)
+            QueueChatEntrance();
+
         if (e.PropertyName == nameof(MobileChatViewModel.HasOpenSheet))
         {
             UpdateNativeComposerVisibility();
@@ -570,6 +841,9 @@ public partial class ChatDetailView : UserControl
     /// </summary>
     private void RequestFollow(bool newContent)
     {
+        if (_shell?.Chat.IsApplyingTranscript == true || _awaitingChatEntrance)
+            return;
+
         if (_followQueued)
             return;
 

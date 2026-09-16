@@ -33,23 +33,20 @@
     <Border x:Name="ConnectTopInset" Padding="{Binding #ConnectSafeAreaTopProxy.Padding}">
       <Border x:Name="ConnectBottomInset" Padding="{Binding #ConnectSafeAreaBottomProxy.Padding}">
         <Border x:Name="ConnectSideInset" Padding="{Binding #ConnectSafeAreaSidesProxy.Padding}">
-          <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
             <StackPanel x:Name="ConnectContent"
                         MaxWidth="480"
                         HorizontalAlignment="Stretch"
                         VerticalAlignment="Top"
                         Margin="{DynamicResource Mobile.Setup.ContentMargin}"
-                        Spacing="14">
+                        Spacing="24">
 
               <!-- Compact brand lockup: the product mark is real, immediate, and equally legible in
                    both theme variants. -->
               <Grid x:Name="ConnectHero" ColumnDefinitions="Auto,*" ColumnSpacing="12">
                 <Border Width="64" Height="64"
                         Padding="4"
-                        CornerRadius="18"
-                        Background="{DynamicResource Brush.Surface1}"
-                        BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                        BorderThickness="1">
+                        CornerRadius="18">
                   <Image x:Name="ConnectOrb"
                          Source="avares://Lumi.Mobile/Assets/lumi-icon.png"
                          Width="56" Height="56"
@@ -62,42 +59,51 @@
                   <TextBlock Text="Lumi"
                              FontSize="{DynamicResource Font.SizeTitle}"
                              FontWeight="SemiBold" />
-                  <TextBlock Text="Your PC, wherever you are."
-                             Classes="muted"
+                  <TextBlock Text="A little closer to everything."
+                             Classes="supporting"
                              TextWrapping="Wrap" />
                 </StackPanel>
               </Grid>
 
+              <Grid x:Name="SetupProgress" ColumnDefinitions="*,*" ColumnSpacing="8">
+                <Border Classes="setup-step" Classes.current="{Binding IsFindStep}">
+                  <TextBlock Text="1  Find your PC" FontSize="{DynamicResource Font.SizeMeta}" FontWeight="Medium" />
+                </Border>
+                <Border Grid.Column="1" Classes="setup-step" Classes.current="{Binding !IsFindStep}">
+                  <TextBlock Text="2  Pair your phone" FontSize="{DynamicResource Font.SizeMeta}" FontWeight="Medium" />
+                </Border>
+              </Grid>
+
               <!-- ═══ Step 1: find the PC ═══ -->
-              <StackPanel x:Name="FindStep" Spacing="12" IsVisible="{Binding IsFindStep}">
-                <StackPanel Spacing="4">
+              <StackPanel x:Name="FindStep" Spacing="20" IsVisible="{Binding IsFindStep}">
+                <StackPanel Spacing="8">
                   <TextBlock x:Name="FindStepTitle"
-                             Text="Connect to your PC"
-                             FontSize="{DynamicResource Font.SizeTitle}"
-                             FontWeight="SemiBold" />
-                  <TextBlock Text="Open the setup link from Lumi Desktop, or connect manually below."
-                             Classes="muted"
+                             Text="Your Lumi, on the go."
+                             FontSize="{DynamicResource Font.SizeHeadline}"
+                             FontWeight="SemiBold" TextWrapping="Wrap" />
+                  <TextBlock Text="Pick up your conversations and get things done on your PC, from your phone."
+                             Classes="supporting"
                              TextWrapping="Wrap" />
                 </StackPanel>
 
                 <Border Classes="mobile-card">
-                  <StackPanel Spacing="4">
-                    <TextBlock Text="On your PC"
+                  <StackPanel Spacing="6">
+                    <TextBlock Text="First, open Lumi on your PC"
                                FontWeight="SemiBold" />
-                    <TextBlock Text="Open Lumi → Settings → Mobile, turn on phone access, then choose Web app or Android app."
-                               Classes="muted"
+                    <TextBlock Text="Go to Settings → Mobile and turn on phone access. Open its setup link, or enter the address below."
+                               Classes="supporting"
                                TextWrapping="Wrap" />
                   </StackPanel>
                 </Border>
 
                 <Border x:Name="ManualAddressPath"
                         Margin="0,2,0,0">
-                  <StackPanel Spacing="10">
-                    <StackPanel Spacing="2">
+                  <StackPanel Spacing="12">
+                    <StackPanel Spacing="6">
                       <TextBlock Text="PC address"
                                  FontWeight="SemiBold" />
                       <TextBlock Text="Use the address shown by Lumi Desktop."
-                                 Classes="muted"
+                                 Classes="supporting"
                                  TextWrapping="Wrap" />
                     </StackPanel>
                     <TextBox x:Name="ManualAddressBox"
@@ -106,9 +112,18 @@
                              textInput:TextInputOptions.ReturnKeyType="Go"
                              textInput:TextInputOptions.AutoCapitalization="False"
                              textInput:TextInputOptions.ShowSuggestions="False"
-                             PlaceholderText="100.64.x.x"
+                             PlaceholderText="e.g. 100.100.20.10"
+                             AutomationProperties.Name="PC address"
                              Text="{Binding ManualAddress}"
                              KeyDown="OnManualAddressKeyDown" />
+                    <Border x:Name="ConnectError" Classes="mobile-card"
+                            Padding="14"
+                            BorderBrush="{DynamicResource Brush.BorderError}"
+                            Background="{DynamicResource Brush.DangerSubtle}"
+                            IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                      <TextBlock Text="{Binding ErrorText}" Classes="supporting"
+                                 Foreground="{DynamicResource Brush.DangerDefault}" />
+                    </Border>
                     <Button x:Name="ManualConnectButton"
                             Classes="touch accent"
                             HorizontalAlignment="Stretch"
@@ -116,16 +131,18 @@
                             Content="Continue"
                             IsDefault="True"
                             Command="{Binding ConnectManuallyCommand}" />
+                    <TextBlock Text="For a private connection from anywhere, keep Tailscale connected on both devices."
+                               Classes="supporting" />
                   </StackPanel>
                 </Border>
 
-                <Border Margin="0,2,0,0"
-                        Padding="0,12,0,0"
-                        BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                        BorderThickness="0,1,0,0">
+                <Border Margin="0,2,0,0" Padding="0,12,0,0">
                   <StackPanel Spacing="8">
-                    <ToggleSwitch Content="Use a trusted local network instead"
+                    <ToggleSwitch Content="Use local Wi-Fi instead"
                                   IsChecked="{Binding AllowInsecureLanDiscovery}" />
+                    <TextBlock Text="Local Wi-Fi traffic is unencrypted. Only use a network you trust."
+                               Classes="supporting" Foreground="{DynamicResource Brush.WarningDefault}"
+                               IsVisible="{Binding AllowInsecureLanDiscovery}" />
                     <Button x:Name="SearchButton"
                             Classes="touch subtle"
                             HorizontalAlignment="Stretch"
@@ -157,11 +174,9 @@
                         <Button Classes="setup-host-row"
                                 Command="{Binding $parent[ItemsControl].((vm:ConnectViewModel)DataContext).ChooseHostCommand}"
                                 CommandParameter="{Binding}">
-                          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                             <Border Grid.Column="0"
                                     Width="40" Height="40"
-                                    CornerRadius="12"
-                                    Background="{DynamicResource Brush.AccentSubtle}"
                                     VerticalAlignment="Center">
                               <PathIcon Width="20" Height="20"
                                         HorizontalAlignment="Center"
@@ -177,12 +192,6 @@
                                          Classes="muted"
                                          TextTrimming="CharacterEllipsis" />
                             </StackPanel>
-                            <PathIcon Grid.Column="2"
-                                      Width="{DynamicResource Touch.IconSizeSmall}"
-                                      Height="{DynamicResource Touch.IconSizeSmall}"
-                                      VerticalAlignment="Center"
-                                      Foreground="{DynamicResource Brush.TextTertiary}"
-                                      Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
                           </Grid>
                         </Button>
                       </DataTemplate>
@@ -192,13 +201,13 @@
               </StackPanel>
 
               <!-- ═══ Step 2: pairing code ═══ -->
-              <StackPanel x:Name="PairingStep" Spacing="14" IsVisible="{Binding IsCodeStep}">
-                <StackPanel Spacing="4">
-                  <TextBlock Text="Enter the 6-digit code"
-                             FontSize="{DynamicResource Font.SizeTitle}"
-                             FontWeight="SemiBold" />
-                  <TextBlock Text="Enter the code shown in Lumi Desktop → Settings → Mobile."
-                             Classes="muted"
+              <StackPanel x:Name="PairingStep" Spacing="20" IsVisible="{Binding IsCodeStep}">
+                <StackPanel Spacing="8">
+                  <TextBlock Text="One last step."
+                             FontSize="{DynamicResource Font.SizeHeadline}"
+                             FontWeight="SemiBold" TextWrapping="Wrap" />
+                  <TextBlock Text="Enter the 6-digit code from Settings → Mobile on your PC to pair this phone."
+                             Classes="supporting"
                              TextWrapping="Wrap" />
                 </StackPanel>
 
@@ -220,6 +229,7 @@
 
                     <TextBox x:Name="PairingCodeBox"
                              Classes="mobile pairing-code"
+                             AutomationProperties.Name="Six-digit pairing code"
                              PlaceholderText="000000"
                              Text="{Binding PairingCode}"
                              textInput:TextInputOptions.ContentType="Number"
@@ -231,6 +241,14 @@
                              TextAlignment="Center"
                              MaxLength="6"
                              KeyDown="OnPairingCodeKeyDown" />
+                    <Border x:Name="PairingError" Classes="mobile-card"
+                            Padding="14"
+                            BorderBrush="{DynamicResource Brush.BorderError}"
+                            Background="{DynamicResource Brush.DangerSubtle}"
+                            IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                      <TextBlock Text="{Binding ErrorText}" Classes="supporting"
+                                 Foreground="{DynamicResource Brush.DangerDefault}" />
+                    </Border>
                     <Button x:Name="PairButton"
                             Classes="touch accent"
                             HorizontalAlignment="Stretch"
@@ -262,14 +280,6 @@
                          TextAlignment="Center"
                          IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
-              <Border x:Name="ConnectError"
-                      Classes="mobile-card"
-                      BorderBrush="{DynamicResource Brush.BorderError}"
-                      IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                <TextBlock Text="{Binding ErrorText}"
-                           TextWrapping="Wrap"
-                           Foreground="{DynamicResource Brush.DangerDefault}" />
-              </Border>
             </StackPanel>
           </ScrollViewer>
         </Border>

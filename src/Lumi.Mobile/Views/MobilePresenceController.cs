@@ -63,6 +63,7 @@ internal sealed class MobilePresenceController : IDisposable
 
     /// <summary>Keeps the follow alive briefly after work ends so the descent lands on real layout.</summary>
     private DateTime _followUntil;
+    private Point? _composerLightTarget;
 
     public MobilePresenceController(Panel host)
     {
@@ -73,8 +74,8 @@ internal sealed class MobilePresenceController : IDisposable
             IsHitTestVisible = false,
             // A phone screen is small and mostly dark; the field has to read as atmosphere behind
             // the text, never as a wash over it.
-            Intensity = 0.95,
             Halo = true,
+            AnimateWhileWorking = true,
             FocusPoint = GreetingFocus
         };
 
@@ -83,12 +84,21 @@ internal sealed class MobilePresenceController : IDisposable
         // On white the same field reads as a heavy purple wash bleeding over the cards, because
         // the aurora is additive: it has a dark canvas to build on and none to spend itself
         // against. Ambience has to stay ambient, so light mode gets roughly a third of the strength.
-        _presence.ActualThemeVariantChanged += (_, _) => ApplyThemeIntensity();
+        _presence.ActualThemeVariantChanged += (_, _) =>
+        {
+            _presence.Merge();
+            _composerLightTarget = null;
+            ApplyThemeIntensity();
+            UpdateComposerLight();
+        };
         ApplyThemeIntensity();
     }
 
-    private void ApplyThemeIntensity() =>
-        _presence.Intensity = _presence.ActualThemeVariant == ThemeVariant.Light ? 0.34 : 0.95;
+    private void ApplyThemeIntensity()
+    {
+        var isLight = _presence.ActualThemeVariant == ThemeVariant.Light;
+        _presence.Intensity = isLight ? 0.10 : 0.26;
+    }
 
     public StrataPresence Visual => _presence;
 
@@ -100,8 +110,15 @@ internal sealed class MobilePresenceController : IDisposable
         shell.PropertyChanged += OnShellChanged;
         shell.Chat.PropertyChanged += OnChatChanged;
         shell.Chat.Turns.CollectionChanged += OnTurnsChanged;
+        shell.Chat.TranscriptApplied += OnTranscriptApplied;
+        _host.LayoutUpdated += OnHostLayoutUpdated;
         SynchronizeObservers(shell.Chat, reactToNewItems: false);
         Sync();
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (ReferenceEquals(_shell, shell))
+                UpdateComposerLight();
+        }, DispatcherPriority.Loaded);
     }
 
     public void Detach()
@@ -112,6 +129,10 @@ internal sealed class MobilePresenceController : IDisposable
         _shell.PropertyChanged -= OnShellChanged;
         _shell.Chat.PropertyChanged -= OnChatChanged;
         _shell.Chat.Turns.CollectionChanged -= OnTurnsChanged;
+        _shell.Chat.TranscriptApplied -= OnTranscriptApplied;
+        _host.LayoutUpdated -= OnHostLayoutUpdated;
+        _presence.Merge();
+        _composerLightTarget = null;
 
         ClearObservers();
 
@@ -176,8 +197,17 @@ internal sealed class MobilePresenceController : IDisposable
 
     private void OnTurnsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        if (_shell?.Chat.IsApplyingTranscript == true)
+            return;
         if (_shell is { } shell)
             SynchronizeObservers(shell.Chat, reactToNewItems: true);
+    }
+
+    private void OnTranscriptApplied()
+    {
+        if (_shell is { } shell)
+            SynchronizeObservers(shell.Chat, reactToNewItems: true);
+        Sync();
     }
 
     /// <summary>
@@ -188,6 +218,8 @@ internal sealed class MobilePresenceController : IDisposable
     /// </summary>
     private void OnItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        if (_shell?.Chat.IsApplyingTranscript == true)
+            return;
         if (_shell is { } shell)
             SynchronizeObservers(shell.Chat, reactToNewItems: true);
     }
@@ -233,7 +265,9 @@ internal sealed class MobilePresenceController : IDisposable
         if (e.PropertyName is nameof(MobileChatViewModel.IsBusy)
             or nameof(MobileChatViewModel.IsStreaming)
             or nameof(MobileChatViewModel.HasChat)
-            or nameof(MobileChatViewModel.ErrorText))
+            or nameof(MobileChatViewModel.IsEmpty)
+            or nameof(MobileChatViewModel.ErrorText)
+            or nameof(MobileChatViewModel.IsGitChangesOpen))
         {
             Sync();
         }
@@ -245,6 +279,7 @@ internal sealed class MobilePresenceController : IDisposable
             return;
 
         var chat = shell.Chat;
+        ApplyThemeIntensity();
         _attentionPending = chat.HasChat
                             && !chat.IsStreaming
                             && chat.Turns
@@ -266,6 +301,7 @@ internal sealed class MobilePresenceController : IDisposable
         // pre-move resting height rather than the height it is about to travel to.
         UpdateWorkEdge(chat);
         UpdateFocusTarget(chat);
+        UpdateComposerLight();
 
         // A finished answer earns a quiet bloom: the moment work completes is exactly when a
         // little life makes the app feel like it is with you.
@@ -279,6 +315,32 @@ internal sealed class MobilePresenceController : IDisposable
 
         _wasStreaming = chat.IsStreaming;
         _wasBusy = chat.IsBusy;
+    }
+
+    private void OnHostLayoutUpdated(object? sender, EventArgs e) => UpdateComposerLight();
+
+    private void UpdateComposerLight()
+    {
+        if (_shell is not { IsChatPage: true } shell || shell.Chat.IsGitChangesOpen
+            || ResolveNamed("Composer") is not { IsEffectivelyVisible: true })
+        {
+            if (_composerLightTarget is not null)
+            {
+                _presence.Merge();
+                _composerLightTarget = null;
+            }
+            return;
+        }
+
+        if (TryGetControlFocus("Composer", 0.55, 0.05, 0.99) is not { } target)
+            return;
+        if (_composerLightTarget is { } previous
+            && Math.Abs(previous.X - target.X) + Math.Abs(previous.Y - target.Y) < 0.006)
+            return;
+
+        // Reuse the presence's companion light: it stays under the glass while the main field works.
+        if (_presence.SplitToIsland(target, followFieldHeight: false))
+            _composerLightTarget = target;
     }
 
     /// <summary>

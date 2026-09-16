@@ -496,11 +496,22 @@ public sealed class ChatListIncrementalRealizationRenderTests
 
                 var realizedRows = window.GetVisualDescendants()
                     .OfType<Button>()
-                    .Where(button => button.DataContext is ChatListItemViewModel)
+                    .Where(button => button.DataContext is ChatListItemViewModel
+                                     && ReferenceEquals(button.Command, list.OpenChatCommand))
                     .ToList();
                 Assert.Equal(ChatListViewModel.InitialVisibleChatLimit, list.VisibleChatCount);
-                Assert.Equal(list.VisibleChatCount, realizedRows.Count);
+                Assert.InRange(realizedRows.Count, 1, 30);
                 Assert.True(realizedRows.Count < LargeChatHistory.ChatCount);
+                var firstVisibleIds = realizedRows.Select(row => ((ChatListItemViewModel)row.DataContext!).Id).ToHashSet();
+                var scroller = window.GetVisualDescendants().OfType<ScrollViewer>()
+                    .First(scroll => scroll.Extent.Height > scroll.Viewport.Height);
+                scroller.Offset = new Avalonia.Vector(0, 1800);
+                Dispatcher.UIThread.RunJobs();
+                var afterScroll = window.GetVisualDescendants().OfType<Button>()
+                    .Where(button => button.DataContext is ChatListItemViewModel
+                                     && ReferenceEquals(button.Command, list.OpenChatCommand)).ToList();
+                Assert.InRange(afterScroll.Count, 1, 30);
+                Assert.Contains(afterScroll, row => !firstVisibleIds.Contains(((ChatListItemViewModel)row.DataContext!).Id));
 
                 var loadMore = window.GetVisualDescendants()
                     .OfType<Button>()

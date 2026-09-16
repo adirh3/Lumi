@@ -1,8 +1,9 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.Mobile.ViewModels"
+             xmlns:loc="using:Lumi.Mobile.Localization"
              xmlns:textInput="using:Avalonia.Input.TextInput"
-             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:sa="using:StrataTheme.Animation"
              x:Class="Lumi.Mobile.Views.MobileSearchView"
              x:DataType="vm:MobileShellViewModel"
              Background="{DynamicResource Brush.Surface0}">
@@ -18,12 +19,13 @@
     <Border x:Name="SearchTopInset" Grid.Row="0" Padding="{Binding SafeAreaTop}">
       <Border x:Name="SearchHeaderSideInset" Padding="{Binding SafeAreaSides}">
         <Grid x:Name="SearchHeaderLayout"
-              ColumnDefinitions="Auto,*"
+              ColumnDefinitions="Auto,*,Auto"
               ColumnSpacing="2"
               MaxWidth="720"
               HorizontalAlignment="Stretch"
               Margin="{DynamicResource Mobile.Page.HeaderMargin}">
           <Button x:Name="SearchBackButton" Grid.Column="0" Classes="page-back"
+                  AutomationProperties.Name="Back to chat"
                   Command="{Binding GoBackCommand}">
             <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
                       Data="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
@@ -31,26 +33,64 @@
 
           <TextBox x:Name="SearchField" Grid.Column="1" Classes="search-field no-focus-accent"
                    PlaceholderText="Search chats"
+                   AutomationProperties.Name="Search your chats"
                    textInput:TextInputOptions.ContentType="Search"
                    textInput:TextInputOptions.ReturnKeyType="Search"
                    Text="{Binding SearchChatList.SearchText}" />
+          <Button x:Name="ClearSearchButton" Grid.Column="2" Classes="touch icon subtle"
+                  AutomationProperties.Name="Clear search"
+                  IsVisible="{Binding SearchChatList.HasSearchQuery}"
+                  Command="{Binding SearchChatList.ClearSearchCommand}">
+            <PathIcon Width="18" Height="18"
+                      Data="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+          </Button>
         </Grid>
       </Border>
     </Border>
 
     <Border x:Name="SearchBottomInset" Grid.Row="1" Padding="{Binding SafeAreaBottom}">
       <Border x:Name="SearchResultsSideInset" Padding="{Binding SafeAreaSides}">
-        <ScrollViewer>
+        <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
           <StackPanel x:Name="SearchResultsContent"
                       MaxWidth="720"
                       HorizontalAlignment="Stretch"
                       Margin="{DynamicResource Mobile.Page.ContentMargin}">
 
-            <StackPanel x:Name="SearchEmpty" IsVisible="{Binding SearchChatList.IsEmpty}"
+            <Border IsVisible="{Binding HasActiveProject}" Classes="mobile-card" Padding="12,4" Margin="0,0,0,12">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <TextBlock Text="{Binding ActiveProject, StringFormat='In {0}'}" Classes="supporting"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxLines="1" />
+                <Button Grid.Column="1" Classes="touch subtle" Content="All chats"
+                        Command="{Binding ClearProjectCommand}" />
+              </Grid>
+            </Border>
+
+            <TextBlock x:Name="SearchResultsLabel" Text="{Binding SearchChatList.ResultsLabel}"
+                       Classes="muted" Margin="4,4,4,8" />
+            <ProgressBar IsIndeterminate="True" Height="3" Margin="4,0,4,12"
+                         IsVisible="{Binding SearchChatList.IsRefreshing}" />
+            <Border x:Name="SearchLoadError" Classes="mobile-card" Margin="0,4,0,12"
+                    IsVisible="{Binding SearchChatList.LoadErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+              <StackPanel Spacing="12">
+                <TextBlock Text="{Binding SearchChatList.LoadErrorText}" Classes="supporting" />
+                <Button Classes="touch" Content="Try again" Command="{Binding SearchChatList.RetryLoadCommand}"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+              </StackPanel>
+            </Border>
+
+            <StackPanel x:Name="SearchEmpty" IsVisible="{Binding SearchChatList.ShowEmptyState}"
                         Spacing="8" Margin="12,40" HorizontalAlignment="Center">
-              <TextBlock Text="No matches" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeSubtitle}"
-                         HorizontalAlignment="Center" />
-              <TextBlock Text="Try a different word." Classes="muted" TextAlignment="Center" />
+              <PathIcon Width="36" Height="36" Margin="0,0,0,12"
+                        Foreground="{DynamicResource Brush.TextTertiary}"
+                        Data="M9.5 3a6.5 6.5 0 1 0 3.94 11.67L19.77 21 21 19.77l-6.33-6.33A6.5 6.5 0 0 0 9.5 3zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9z" />
+              <TextBlock Text="{Binding SearchChatList.EmptyTitle}" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeSubtitle}"
+                         HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" />
+              <TextBlock Text="{Binding SearchChatList.EmptyDescription}" Classes="supporting"
+                         TextAlignment="Center" />
+              <Button Classes="touch subtle" Content="Clear search"
+                      IsVisible="{Binding SearchChatList.HasSearchQuery}"
+                      Command="{Binding SearchChatList.ClearSearchCommand}"
+                      HorizontalAlignment="Center" Margin="0,8,0,0" />
             </StackPanel>
 
             <ItemsControl x:Name="SearchResults" ItemsSource="{Binding SearchChatList.Groups}">
@@ -59,30 +99,37 @@
                   <StackPanel>
                     <TextBlock Text="{Binding Label}" Classes="group-label" />
                     <ItemsControl ItemsSource="{Binding Chats}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <VirtualizingStackPanel />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:ChatListItemViewModel">
-                          <Button Classes="search-result"
+                          <Button Classes="search-result" Classes.unread="{Binding HasUnreadMessages}"
+                                  Classes.running="{Binding IsRunning}"
+                                  AutomationProperties.Name="{Binding AccessibilityName}"
                                   Command="{Binding $parent[UserControl].((vm:MobileShellViewModel)DataContext).SearchChatList.OpenChatCommand}"
                                   CommandParameter="{Binding}">
-                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                              <Border Grid.Column="0" Width="34" Height="34" CornerRadius="17"
-                                      VerticalAlignment="Center"
-                                      Background="{DynamicResource Brush.AccentSubtle}"
-                                      IsVisible="{Binding HasAgent}">
-                                <TextBlock Text="{Binding AgentGlyph}" FontSize="{DynamicResource Font.SizeSubtitle}"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
-                              </Border>
-
-                              <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeBody}"
-                                           TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding Preview}" Classes="muted" MaxLines="1"
-                                           TextTrimming="CharacterEllipsis"
-                                           IsVisible="{Binding Preview, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            <Grid ColumnDefinitions="Auto,*">
+                              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Border Classes="chat-list-status" IsHitTestVisible="False"
+                                        sa:LifecycleOpacityPulse.IsActive="{Binding IsRunning}">
+                                  <Border.IsVisible>
+                                    <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                                      <Binding Path="IsRunning" />
+                                      <Binding Path="HasUnreadMessages" />
+                                    </MultiBinding>
+                                  </Border.IsVisible>
+                                </Border>
+                                <PathIcon x:Name="BackgroundActivityIndicator" Classes="chat-list-background"
+                                          IsVisible="{Binding HasBackgroundActivity}"
+                                          ToolTip.Tip="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}"
+                                          AutomationProperties.Name="{x:Static loc:ChatSessionStrings.ReadyWithBackgroundActivity}" />
                               </StackPanel>
-
-                              <TextBlock Grid.Column="2" Text="{Binding RelativeTime}" Classes="muted"
-                                         FontSize="{DynamicResource Font.SizeCaption}" VerticalAlignment="Center" />
+                              <TextBlock Grid.Column="1" Text="{Binding Title}" Classes="conversation-title"
+                                         FontSize="{DynamicResource Font.SizeBody}"
+                                         VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                             </Grid>
                           </Button>
                         </DataTemplate>
@@ -95,32 +142,9 @@
 
             <Button x:Name="SearchLoadMoreButton" Classes="search-result"
                     Margin="0,12,0,4"
-                    Background="{DynamicResource Brush.Surface1}"
                     IsVisible="{Binding SearchChatList.HasMoreChats}"
                     Command="{Binding SearchChatList.LoadMoreChatsCommand}">
-              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                <Border Grid.Column="0" Width="34" Height="34" CornerRadius="17"
-                        VerticalAlignment="Center"
-                        Background="{DynamicResource Brush.AccentSubtle}">
-                  <PathIcon Width="18" Height="18"
-                            HorizontalAlignment="Center" VerticalAlignment="Center"
-                            Foreground="{DynamicResource Brush.AccentDefault}"
-                            Data="M7 10l5 5 5-5H7z" />
-                </Border>
-
-                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                  <TextBlock Text="Load more chats" FontWeight="SemiBold" />
-                  <TextBlock Text="{Binding SearchChatList.VisibleChatCountLabel}"
-                             Classes="muted" FontSize="{DynamicResource Font.SizeCaption}" />
-                </StackPanel>
-
-                <PathIcon Grid.Column="2"
-                          Width="{DynamicResource Touch.IconSizeSmall}"
-                          Height="{DynamicResource Touch.IconSizeSmall}"
-                          VerticalAlignment="Center"
-                          Foreground="{DynamicResource Brush.TextTertiary}"
-                          Data="M7 10l5 5 5-5H7z" />
-              </Grid>
+              <TextBlock Text="Load more chats" Foreground="{DynamicResource Brush.TextSecondary}" />
             </Button>
           </StackPanel>
         </ScrollViewer>

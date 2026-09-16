@@ -1,13 +1,16 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Lumi.Mobile.Localization;
 using Lumi.Remote.Protocol;
 
 namespace Lumi.Mobile.ViewModels;
 
 public sealed partial class ChatListItemViewModel : ObservableObject
 {
-    [ObservableProperty] private string _title = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AccessibilityName))]
+    private string _title = "";
     [ObservableProperty] private string? _preview;
     [ObservableProperty] private Guid? _projectId;
     [ObservableProperty] private string? _projectName;
@@ -17,11 +20,15 @@ public sealed partial class ChatListItemViewModel : ObservableObject
     [ObservableProperty] private bool _isPinned;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
+    [NotifyPropertyChangedFor(nameof(AccessibilityName))]
     private bool _isRunning;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBackgroundActivity))]
+    [NotifyPropertyChangedFor(nameof(AccessibilityName))]
     private bool _isSessionActive;
-    [ObservableProperty] private bool _hasUnreadMessages;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AccessibilityName))]
+    private bool _hasUnreadMessages;
     [ObservableProperty] private bool _isSelected;
     [ObservableProperty] private int _messageCount;
     [ObservableProperty] private DateTimeOffset _updatedAt;
@@ -35,6 +42,11 @@ public sealed partial class ChatListItemViewModel : ObservableObject
 
     public bool HasBackgroundActivity => IsSessionActive && !IsRunning;
 
+    public string AccessibilityName => Title
+        + (IsRunning ? ", Running" : "")
+        + (HasBackgroundActivity ? $", {ChatSessionStrings.ReadyWithBackgroundActivity}" : "")
+        + (HasUnreadMessages ? ", Unread" : "");
+
     /// <summary>
     /// Compact "when" label for the row: "now", "14m", "3h", "2d", then a date. Rows are already
     /// bucketed by day, so this only has to disambiguate within a bucket and must stay narrow.
@@ -43,6 +55,8 @@ public sealed partial class ChatListItemViewModel : ObservableObject
     {
         get
         {
+            if (UpdatedAt == default)
+                return "";
             var elapsed = DateTimeOffset.Now - UpdatedAt;
             return elapsed switch
             {
@@ -98,7 +112,6 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     internal const int InitialVisibleChatLimit = 120;
     internal const int ChatPageSize = 120;
 
-    private readonly IRemoteCommandSink _sink;
     private readonly IRemoteChatPageSink? _pageSink;
     private readonly Dictionary<Guid, ChatListItemViewModel> _realizedChats = [];
     private List<RemoteChatGroup> _source = [];
@@ -114,22 +127,35 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     private string _pinnedGroupLabel = "Pinned";
     private string _todayGroupLabel = "Today";
 
-    [ObservableProperty] private string _searchText = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSearchQuery))]
+    [NotifyPropertyChangedFor(nameof(EmptyTitle))]
+    [NotifyPropertyChangedFor(nameof(EmptyDescription))]
+    [NotifyPropertyChangedFor(nameof(ResultsLabel))]
+    private string _searchText = "";
     [ObservableProperty] private Guid _selectedChatId;
-    [ObservableProperty] private bool _isRefreshing;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
+    [NotifyPropertyChangedFor(nameof(ResultsLabel))]
+    private bool _isRefreshing;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
+    private string? _loadErrorText;
 
     /// <summary>
     /// When set, the list shows only that project's chats. This is what "selecting a project" means
     /// on Lumi desktop and in ChatGPT: the project becomes the lens you are working through, not just
     /// a label attached to the next message.
     /// </summary>
-    [ObservableProperty] private Guid? _projectFilterId;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(EmptyDescription))]
+    private Guid? _projectFilterId;
 
     partial void OnProjectFilterIdChanged(Guid? value) => QueueServerReload(debounce: false);
 
     public ChatListViewModel(IRemoteCommandSink sink)
     {
-        _sink = sink;
         _pageSink = sink as IRemoteChatPageSink;
     }
 
@@ -147,8 +173,32 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
 
     public bool IsEmpty => MatchingChatCount == 0;
 
+    public bool HasSearchQuery => !string.IsNullOrWhiteSpace(SearchText);
+
+    public bool ShowEmptyState => IsEmpty && !IsRefreshing && string.IsNullOrEmpty(LoadErrorText);
+
+    public string EmptyTitle => HasSearchQuery ? "No chats found" : "Your next idea starts here";
+
+    public string EmptyDescription => HasSearchQuery
+        ? "Try a different word or a shorter phrase."
+        : ProjectFilterId.HasValue
+            ? "Start a chat in this project, or show all chats."
+            : "Start a new chat. Your conversations will appear here and on your PC.";
+
+    public string ResultsLabel => IsRefreshing
+        ? HasSearchQuery ? "Searching your chats..." : "Updating chats..."
+        : HasSearchQuery
+            ? $"{MatchingChatCount:N0} {(MatchingChatCount == 1 ? "result" : "results")}"
+            : "Recent chats";
+
+    [RelayCommand]
+    private void ClearSearch() => SearchText = "";
+
+    [RelayCommand]
+    private Task RetryLoadAsync() => RefreshFromServerAsync();
+
     /// <summary>Raised when the user picks a chat, so the shell can navigate to the detail pane.</summary>
-    public event Action<Guid, string, string?, int>? ChatActivated;
+    public event Action<Guid, string, string?>? ChatActivated;
 
     public event Action<Guid>? ChatRemoved;
 
@@ -161,6 +211,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
 
     public void Apply(IEnumerable<RemoteChatGroup> groups)
     {
+        LoadErrorText = null;
         _serverPaged = false;
         _serverHasMore = false;
         var hadChats = TotalChats > 0;
@@ -187,6 +238,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
 
     public void Apply(RemoteChatPage page, bool reset = true)
     {
+        LoadErrorText = null;
         _serverPaged = true;
         _pinnedGroupLabel = page.PinnedGroupLabel;
         _todayGroupLabel = page.TodayGroupLabel;
@@ -261,6 +313,14 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
             OnPropertyChanged(nameof(TotalChats));
         }
         Rebuild();
+    }
+
+    public void SetUnread(Guid chatId, bool hasUnreadMessages)
+    {
+        foreach (var chat in _source.SelectMany(group => group.Chats).Where(chat => chat.Id == chatId))
+            chat.HasUnreadMessages = hasUnreadMessages;
+        if (_realizedChats.TryGetValue(chatId, out var realized))
+            realized.HasUnreadMessages = hasUnreadMessages;
     }
 
     public void SetRunning(Guid chatId, bool isRunning)
@@ -465,6 +525,8 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(HasMoreChats));
         OnPropertyChanged(nameof(VisibleChatCountLabel));
         OnPropertyChanged(nameof(IsEmpty));
+        OnPropertyChanged(nameof(ShowEmptyState));
+        OnPropertyChanged(nameof(ResultsLabel));
         return;
 
         bool Matches(RemoteChat chat)
@@ -497,6 +559,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
             var projectId = ProjectFilterId;
             var cancellationToken = _reloadCts?.Token ?? CancellationToken.None;
             IsRefreshing = true;
+            LoadErrorText = null;
             try
             {
                 var page = await _pageSink.GetChatPageAsync(
@@ -516,6 +579,11 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
                 {
                     Apply(page, reset: false);
                 }
+                else if (page is null && generation == Volatile.Read(ref _reloadGeneration)
+                         && !cancellationToken.IsCancellationRequested)
+                {
+                    LoadErrorText = "Couldn't load more chats. Check your PC connection and try again.";
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -532,7 +600,14 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
         Rebuild();
     }
 
-    public Task RefreshFromServerAsync() => ReloadServerAsync(debounce: false);
+    public Task RefreshFromServerAsync()
+    {
+        if (_pageSink is not null)
+            return ReloadServerAsync(debounce: false);
+
+        ResetPageAndRebuild();
+        return Task.CompletedTask;
+    }
 
     private void QueueServerReload(bool debounce)
     {
@@ -553,13 +628,14 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
         previous?.Cancel();
         previous?.Dispose();
         var cancellationToken = current.Token;
+        IsRefreshing = true;
+        LoadErrorText = null;
 
         try
         {
             if (debounce)
                 await Task.Delay(200, cancellationToken);
 
-            IsRefreshing = true;
             var page = await _pageSink!.GetChatPageAsync(
                 0,
                 InitialVisibleChatLimit,
@@ -574,6 +650,11 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
                 && page.ProjectId == ProjectFilterId)
             {
                 Apply(page);
+            }
+            else if (page is null && generation == Volatile.Read(ref _reloadGeneration)
+                     && !cancellationToken.IsCancellationRequested)
+            {
+                LoadErrorText = "Couldn't update your chats. Check your PC connection and try again.";
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -616,8 +697,7 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
             return;
 
         SelectedChatId = chat.Id;
-        chat.HasUnreadMessages = false;
-        ChatActivated?.Invoke(chat.Id, chat.Title, chat.LastModelUsed, chat.MessageCount);
+        ChatActivated?.Invoke(chat.Id, chat.Title, chat.LastModelUsed);
     }
 
     /// <summary>
@@ -634,33 +714,8 @@ public sealed partial class ChatListViewModel : ObservableObject, IDisposable
     private void NewChat()
     {
         SelectedChatId = Guid.Empty;
-        ChatActivated?.Invoke(Guid.Empty, "New chat", null, 0);
+        ChatActivated?.Invoke(Guid.Empty, "New chat", null);
     }
-
-    [RelayCommand]
-    private Task TogglePinAsync(ChatListItemViewModel? chat) =>
-        chat is null
-            ? Task.CompletedTask
-            : _sink.SendCommandAsync(
-                new RemoteCommand(RemoteProtocol.Actions.PinChat)
-                    .With("chatId", chat.Id.ToString())
-                    .With("pinned", (!chat.IsPinned).ToString()));
-
-    [RelayCommand]
-    private Task DeleteChatAsync(ChatListItemViewModel? chat) =>
-        chat is null
-            ? Task.CompletedTask
-            : _sink.SendCommandAsync(
-                new RemoteCommand(RemoteProtocol.Actions.DeleteChat).With("chatId", chat.Id.ToString()));
-
-    [RelayCommand]
-    private Task RenameChatAsync(ChatListItemViewModel? chat) =>
-        chat is null
-            ? Task.CompletedTask
-            : _sink.SendCommandAsync(
-                new RemoteCommand(RemoteProtocol.Actions.RenameChat)
-                    .With("chatId", chat.Id.ToString())
-                    .With("title", chat.Title));
 
     public void Dispose()
     {

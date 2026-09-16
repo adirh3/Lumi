@@ -57,6 +57,8 @@ public class RemoteClientEndToEndTests
 
         Assert.Equal(ConnectStep.EnterCode, shell.Connect.Step);
         Assert.Contains("not correct", shell.Connect.ErrorText);
+        Assert.Null(shell.Connect.StatusText);
+        Assert.False(shell.Connect.IsBusy);
         Assert.False(shell.IsPaired);
 
         shell.Connect.PairingCode = "123456";

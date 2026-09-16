@@ -19,6 +19,9 @@ public sealed class RemoteGitFile
     public string Path { get; set; } = "";
     public string Status { get; set; } = "";
     public string Kind { get; set; } = "";
+    public int? LinesAdded { get; set; }
+    public int? LinesRemoved { get; set; }
+    public bool IsBinary { get; set; }
 }
 
 public sealed class RemoteGitDiff

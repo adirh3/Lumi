@@ -180,7 +180,7 @@ internal sealed class RemoteCommandRouter
 
     private async Task<RemoteCommandResult> MarkChatReadAsync(RemoteCommand command)
     {
-        if (ResolveChat(command) is not { } chat)
+        if (ResolveExplicitChat(command) is not { } chat)
             return Fail("Chat not found.");
 
         if (!chat.HasUnreadMessages)

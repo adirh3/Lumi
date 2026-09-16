@@ -4,19 +4,13 @@
   <!--
     ══ Lumi mobile — DARK surfaces ═══════════════════════════════════════════════════════════════
 
-    True black rather than Strata's desktop charcoal (#1E1E1E). On a phone OLED, charcoal reads as
-    washed-out grey next to every other app, costs power, and mutes the accent.
-
-    ELEVATION is the organising idea. With no ambient light and a black canvas, a drop shadow is
-    nearly invisible — so height is expressed by SURFACE TINT first (each level lifts by a small,
-    even step), reinforced by a hairline border, with shadow only as a supporting cue. The steps are
-    deliberately close together: on black, small tonal differences read clearly, and large ones look
-    like unrelated blocks of colour rather than one surface lifted off another.
+    A near-black conversation canvas sits beside quieter ink navigation. A fine edge separates the
+    panes while typography, input and floating controls keep their existing hierarchy.
   -->
 
   <!-- Level 0 — the canvas the conversation sits on. -->
-  <Color x:Key="Color.Background">#000000</Color>
-  <Color x:Key="Color.Surface0">#000000</Color>
+  <Color x:Key="Color.Background">#0D0F16</Color>
+  <Color x:Key="Color.Surface0">#0D0F16</Color>
 
   <!-- Level 1 — drawer, cards, anything resting on the canvas. -->
   <Color x:Key="Color.Surface1">#0E0E10</Color>
@@ -41,7 +35,7 @@
   <!-- Near-white on black, the contrast every native chat app uses for message text. -->
   <Color x:Key="Color.TextPrimary">#F2F2F5</Color>
   <Color x:Key="Color.TextSecondary">#A8A8B2</Color>
-  <Color x:Key="Color.TextTertiary">#7A7A85</Color>
+  <Color x:Key="Color.TextTertiary">#9696A3</Color>
 
   <!-- A press on black needs more lift than on charcoal to register at all. -->
   <Color x:Key="Color.SubtleHover">#14FFFFFF</Color>
@@ -76,6 +70,8 @@
   <SolidColorBrush x:Key="Brush.Surface1Translucent" Color="{StaticResource Color.Surface1}" Opacity="0.78" />
   <SolidColorBrush x:Key="Brush.Surface1Glass" Color="{StaticResource Color.Surface1}" Opacity="0.52" />
   <SolidColorBrush x:Key="Brush.Surface2" Color="{StaticResource Color.Surface2}" />
+  <SolidColorBrush x:Key="Brush.Surface3" Color="{StaticResource Color.SurfaceOverlay}" />
+  <SolidColorBrush x:Key="Brush.SurfaceCard" Color="{StaticResource Color.Surface1}" />
   <SolidColorBrush x:Key="Brush.SurfaceOverlay" Color="{StaticResource Color.SurfaceOverlay}" />
   <SolidColorBrush x:Key="Brush.TextPrimary" Color="{StaticResource Color.TextPrimary}" />
   <SolidColorBrush x:Key="Brush.TextSecondary" Color="{StaticResource Color.TextSecondary}" />
@@ -90,4 +86,18 @@
   <SolidColorBrush x:Key="Brush.SubtleHover" Color="{StaticResource Color.SubtleHover}" />
   <SolidColorBrush x:Key="Brush.SubtlePressed" Color="{StaticResource Color.SubtlePressed}" />
   <SolidColorBrush x:Key="Brush.OverlayScrim" Color="{StaticResource Color.OverlayScrim}" />
+  <SolidColorBrush x:Key="Brush.NavigationSurface" Color="{StaticResource Color.Background}" />
+  <SolidColorBrush x:Key="Brush.NavigationControl" Color="#1D202C" />
+  <SolidColorBrush x:Key="Brush.NavigationSelected" Color="#28233D" />
+  <SolidColorBrush x:Key="Brush.ChatCanvas" Color="#050608" />
+  <SolidColorBrush x:Key="Brush.ChatPaneSeparation" Color="#20232B" />
+  <BoxShadows x:Key="Shadow.ChatPaneSeparation">2 0 6 0 #48000000</BoxShadows>
+  <SolidColorBrush x:Key="Brush.ChatUserSurface" Color="#29233E" />
+  <SolidColorBrush x:Key="Brush.FloatingControl" Color="#D12B2F3D" />
+  <SolidColorBrush x:Key="Brush.FloatingControlPressed" Color="#D9383D50" />
+  <SolidColorBrush x:Key="Brush.GlassBorder" Color="#28D8D5FF" />
+  <SolidColorBrush x:Key="Brush.GlassBorderStrong" Color="#55C6C4FA" />
+  <SolidColorBrush x:Key="Brush.ComposerGlass" Color="#A3202330" />
+  <BoxShadows x:Key="Shadow.FloatingControl">0 2 4 0 #32000000, 0 4 12 0 #32000000</BoxShadows>
+  <BoxShadows x:Key="Shadow.Composer">0 2 4 0 #2B000000, 0 5 18 0 #3D000000</BoxShadows>
 </ResourceDictionary>

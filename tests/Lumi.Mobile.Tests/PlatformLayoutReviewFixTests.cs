@@ -152,14 +152,14 @@ public sealed class PlatformLayoutReviewFixTests
                 Assert.Equal(430, shell.DrawerWidth, 1);
                 Assert.Equal(24, shell.HingeGapWidth, 1);
 
-                var dockedDrawer = Required<Border>(shellView, "DockedDrawer");
+                var dockedDrawer = Required<Border>(shellView, "DrawerPane");
                 var hingeGap = Required<Border>(shellView, "HingeGap");
                 var chat = Required<ChatDetailView>(shellView, "ChatSurface");
                 Assert.Equal(430, dockedDrawer.Bounds.Width, 1);
                 Assert.Equal(24, hingeGap.Bounds.Width, 1);
                 Assert.Equal(window.ClientSize.Width - 430 - 24, chat.Bounds.Width, 1);
 
-                var drawer = Required<MobileDrawerView>(shellView, "DockedDrawerContent");
+                var drawer = Required<MobileDrawerView>(shellView, "DrawerContent");
                 AssertRenderedSideInset(Required<Border>(drawer, "DrawerHeaderSideInset"), sideInsets);
                 AssertRenderedSideInset(Required<Border>(drawer, "DrawerContentSideInset"), sideInsets);
                 AssertRenderedSideInset(Required<Border>(drawer, "DrawerAccountSideInset"), sideInsets);
@@ -177,21 +177,21 @@ public sealed class PlatformLayoutReviewFixTests
                 shell.Chat.IsRunSettingsSheetOpen = true;
                 Pump(window);
 
-                Assert.Equal(shell.SafeAreaSheetTitleMargin, runSettings.Padding);
+                Assert.Equal(shell.SafeAreaSheetMargin, runSettings.SheetMargin);
                 Assert.Equal(
-                    shell.SafeAreaSheetTitleMargin,
+                    new Thickness(20, 0, 20, 14),
                     runSettings.GetVisualDescendants()
                         .OfType<TextBlock>()
                         .Single(control => control.Name == "PART_Title")
                         .Margin);
                 var runSettingsContent = Required<Border>(chat, "RunSettingsSideInset");
                 Assert.Equal(
-                    shell.SafeAreaSheetPresenterMargin,
+                    new Thickness(0, 0, 0, 10),
                     runSettingsContent.GetVisualAncestors()
                         .OfType<Control>()
                         .First(control => control.Name == "PART_ContentPresenter")
                         .Margin);
-                AssertRenderedSideInset(runSettingsContent, sideInsets);
+                AssertRenderedSideInset(runSettingsContent, default);
 
                 shell.Chat.IsRunSettingsSheetOpen = false;
                 Pump(window);
@@ -227,15 +227,15 @@ public sealed class PlatformLayoutReviewFixTests
                 Pump(window);
 
                 AssertSameRenderedBounds(libraryActions, library);
-                Assert.Equal(shell.SafeAreaSheetTitleMargin, libraryActions.Padding);
+                Assert.Equal(shell.SafeAreaSheetMargin, libraryActions.SheetMargin);
                 var libraryActionsContent = Required<Border>(library, "LibraryActionsSideInset");
                 Assert.Equal(
-                    shell.SafeAreaSheetPresenterMargin,
+                    new Thickness(0, 0, 0, 10),
                     libraryActionsContent.GetVisualAncestors()
                         .OfType<Control>()
                         .First(control => control.Name == "PART_ContentPresenter")
                         .Margin);
-                AssertRenderedSideInset(libraryActionsContent, sideInsets);
+                AssertRenderedSideInset(libraryActionsContent, default);
 
                 shell.Library.IsRowActionsOpen = false;
                 Pump(window);

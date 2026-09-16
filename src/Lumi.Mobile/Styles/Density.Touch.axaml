@@ -79,22 +79,23 @@
 
   <!-- ── Mobile layout rhythm ─────────────────────────────────────────────────────────────────
     Safe-area padding is always applied outside these values. The 12dp page gutter is the shared
-    phone axis; the drawer uses a 4dp press-surface inset plus 10dp row padding so every icon/label
-    lands on one 14dp content axis without the old stacked 8 + 8 + row-padding indentation.
+    phone axis; navigation surfaces use a 12dp outer gutter with a matching inner row inset,
+    giving section labels and action content a consistent 24dp axis.
   -->
-  <Thickness x:Key="Mobile.Page.HeaderMargin">12,8,12,8</Thickness>
-  <Thickness x:Key="Mobile.Page.ContentMargin">12,0,12,12</Thickness>
-  <Thickness x:Key="Mobile.Page.ControlMargin">12,0,12,8</Thickness>
-  <Thickness x:Key="Mobile.Page.FormContentMargin">12,0,12,16</Thickness>
-  <Thickness x:Key="Mobile.Setup.ContentMargin">12,16,12,20</Thickness>
-  <Thickness x:Key="Mobile.Drawer.RowMargin">4,0</Thickness>
-  <Thickness x:Key="Mobile.Drawer.RowPadding">10,14</Thickness>
-  <Thickness x:Key="Mobile.Drawer.ChatRowPadding">10,12</Thickness>
-  <Thickness x:Key="Mobile.Drawer.GroupLabelMargin">14,12,14,4</Thickness>
+  <Thickness x:Key="Mobile.Page.HeaderMargin">16,8,16,12</Thickness>
+  <Thickness x:Key="Mobile.Page.ContentMargin">16,0,16,16</Thickness>
+  <Thickness x:Key="Mobile.Page.ControlMargin">16,0,16,12</Thickness>
+  <Thickness x:Key="Mobile.Page.FormContentMargin">16,0,16,24</Thickness>
+  <Thickness x:Key="Mobile.Setup.ContentMargin">24,28,24,24</Thickness>
+  <Thickness x:Key="Mobile.Drawer.RowMargin">12,3</Thickness>
+  <Thickness x:Key="Mobile.Drawer.RowPadding">12,10</Thickness>
+  <Thickness x:Key="Mobile.Drawer.ChatRowPadding">12,9</Thickness>
+  <Thickness x:Key="Mobile.Drawer.GroupLabelMargin">24,14,24,6</Thickness>
+  <Thickness x:Key="Mobile.Navigation.HeaderMargin">16,8,16,8</Thickness>
 
   <!-- Mobile-only StrataChatShell overrides consume these named metrics after the desktop theme. -->
-  <Thickness x:Key="Mobile.Chat.ComposerHostPadding">8,6,8,8</Thickness>
-  <Thickness x:Key="Mobile.Chat.TranscriptPadding">12,10,12,10</Thickness>
+  <Thickness x:Key="Mobile.Chat.ComposerHostPadding">12,10,12,12</Thickness>
+  <Thickness x:Key="Mobile.Chat.TranscriptPadding">16,12,16,16</Thickness>
 
   <!-- The chat column is the full width of a phone; there is no room for a desktop reading column. -->
   <x:Double x:Key="Chat.ReadingColumnWidth">760</x:Double>

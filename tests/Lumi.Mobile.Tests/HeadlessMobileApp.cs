@@ -51,7 +51,11 @@ internal sealed class HeadlessMobileSession : IDisposable
         _inner.Dispatch(action, cancellationToken);
 
     public Task Dispatch(Func<Task> action, CancellationToken cancellationToken) =>
-        _inner.Dispatch(action, cancellationToken);
+        _inner.Dispatch<bool>(async () =>
+        {
+            await action();
+            return true;
+        }, cancellationToken);
 
     public void Dispose()
     {

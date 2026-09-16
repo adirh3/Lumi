@@ -1760,6 +1760,9 @@ public sealed class RemoteEndToEndTests
 
         await rig.Shell.Library.DeleteCommand.ExecuteAsync(
             rig.Shell.Library.Entries.First(e => e.Name == "Phone skill"));
+        Assert.True(rig.Shell.Library.IsConfirmingDelete);
+        Assert.Contains(rig.DataStore.Data.Skills, skill => skill.Name == "Phone skill");
+        await rig.Shell.Library.ConfirmDeleteActionEntryCommand.ExecuteAsync(null);
 
         await WaitAsync(() => rig.DataStore.Data.Skills.All(s => s.Name != "Phone skill"),
             "the skill to be deleted on the desktop");
@@ -1832,6 +1835,9 @@ public sealed class RemoteEndToEndTests
 
         await rig.Shell.Library.DeleteCommand.ExecuteAsync(
             rig.Shell.Library.Entries.First(e => e.Name == "Phone Made Project"));
+        Assert.True(rig.Shell.Library.IsConfirmingDelete);
+        Assert.Contains(rig.DataStore.Data.Projects, project => project.Name == "Phone Made Project");
+        await rig.Shell.Library.ConfirmDeleteActionEntryCommand.ExecuteAsync(null);
 
         // The delete may coalesce into the full-catalog resync started by the create frame. The
         // original regression is still pinned above (at least one dedicated library frame must

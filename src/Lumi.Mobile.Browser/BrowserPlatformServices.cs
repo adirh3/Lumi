@@ -244,6 +244,12 @@ internal sealed class BrowserNativeTextInputOverlayPresenter : INativeTextInputO
                 BrowserInterop.FocusNativeTextInput(id, caretIndex);
         }
 
+        public void Blur()
+        {
+            if (!_disposed)
+                BrowserInterop.BlurNativeTextInput(id);
+        }
+
         public void Dispose()
         {
             if (_disposed)
@@ -475,6 +481,9 @@ internal static partial class BrowserInterop
 
     [JSImport("focusNativeTextInput", "./browserHost.js")]
     internal static partial void FocusNativeTextInput(int id, int caretIndex);
+
+    [JSImport("blurNativeTextInput", "./browserHost.js")]
+    internal static partial void BlurNativeTextInput(int id);
 
     [JSExport]
     internal static void SetApplicationActive(bool active)

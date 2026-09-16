@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Lumi.Remote.Protocol;
@@ -23,13 +25,20 @@ public enum LibrarySection
 /// </summary>
 public sealed partial class LibraryEntryViewModel : ObservableObject
 {
-    [ObservableProperty] private string _name = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActionsLabel))]
+    private string _name = "";
     [ObservableProperty] private string? _description;
-    [ObservableProperty] private string? _detail;
     [ObservableProperty] private string _glyph = "•";
-    [ObservableProperty] private string? _badge;
-    [ObservableProperty] private bool _isBuiltIn;
-    [ObservableProperty] private bool _isEnabled = true;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasBadge))]
+    private string? _badge;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanEdit), nameof(HasActions))]
+    private bool _isBuiltIn;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(EnabledStateText))]
+    private bool _isEnabled = true;
 
     public required LibrarySection Section { get; init; }
 
@@ -43,6 +52,24 @@ public sealed partial class LibraryEntryViewModel : ObservableObject
             or LibrarySection.Memories;
 
     public bool HasBadge => !string.IsNullOrWhiteSpace(Badge);
+
+    public bool HasActions => CanEdit || Section is LibrarySection.McpServers or LibrarySection.Jobs;
+
+    public string ActionsLabel => $"Actions for {Name}";
+
+    public bool HasEnabledState => Section is LibrarySection.McpServers or LibrarySection.Jobs;
+
+    public string EnabledStateText => IsEnabled ? "Enabled" : "Disabled";
+
+    internal void UpdateFrom(LibraryEntryViewModel source)
+    {
+        Name = source.Name;
+        Description = source.Description;
+        Glyph = source.Glyph;
+        Badge = source.Badge;
+        IsBuiltIn = source.IsBuiltIn;
+        IsEnabled = source.IsEnabled;
+    }
 }
 
 /// <summary>
@@ -54,25 +81,116 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly IRemoteCommandSink _sink;
     private RemoteLibrary _library = new();
     private long _editorGeneration;
+    private long _actionGeneration;
+    private LibrarySection _section = LibrarySection.Projects;
+    private LibrarySection? _pendingSection;
+    private (string Name, string Description, string Body, string Glyph, string Workspace) _originalDraft =
+        ("", "", "", "", "");
 
-    [ObservableProperty] private LibrarySection _section = LibrarySection.Projects;
     [ObservableProperty] private string _searchText = "";
     [ObservableProperty] private LibraryEntryViewModel? _selectedEntry;
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasOpenSurface))]
+    [NotifyPropertyChangedFor(nameof(HasOpenSurface), nameof(PageTitle), nameof(ShowCreateButton),
+        nameof(CanEditFields), nameof(HasUnsavedChanges))]
+    [NotifyCanExecuteChangedFor(nameof(SaveCommand), nameof(BeginCreateCommand))]
     private bool _isEditing;
     [ObservableProperty] private string? _statusMessage;
 
     // Editor fields — reused across resources, only the relevant ones are shown.
-    [ObservableProperty] private string _editName = "";
-    [ObservableProperty] private string _editDescription = "";
-    [ObservableProperty] private string _editBody = "";
-    [ObservableProperty] private string _editGlyph = "";
-    [ObservableProperty] private string _editWorkingDirectory = "";
-    [ObservableProperty] private bool _isCreating;
-    [ObservableProperty] private bool _isEditorLoading;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUnsavedChanges), nameof(DiscardDescription))]
+    private string _editName = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUnsavedChanges))]
+    private string _editDescription = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUnsavedChanges))]
+    private string _editBody = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUnsavedChanges))]
+    private string _editGlyph = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUnsavedChanges))]
+    private string _editWorkingDirectory = "";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(EditorTitle), nameof(PageTitle))]
+    private bool _isCreating;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanEditFields), nameof(HasUnsavedChanges))]
+    [NotifyCanExecuteChangedFor(nameof(SaveCommand), nameof(RetryEditorCommand))]
+    private bool _isEditorLoading;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanEditFields))]
+    [NotifyCanExecuteChangedFor(nameof(SaveCommand), nameof(RetryEditorCommand))]
+    private bool _hasEditorLoadFailed;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOpenSurface))]
+    [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
+    private bool _isDiscardConfirmationOpen;
 
-    public LibraryViewModel(IRemoteCommandSink sink) => _sink = sink;
+    public LibraryViewModel(IRemoteCommandSink sink)
+    {
+        _sink = sink;
+        SaveCommand.PropertyChanged += OnOperationStateChanged;
+        ToggleEnabledCommand.PropertyChanged += OnOperationStateChanged;
+        ConfirmDeleteActionEntryCommand.PropertyChanged += OnOperationStateChanged;
+    }
+
+    public LibrarySection Section
+    {
+        get => _section;
+        set
+        {
+            if (_section == value || !Enum.IsDefined(value) || IsActionBusy)
+                return;
+
+            if (HasUnsavedChanges)
+            {
+                _pendingSection = value;
+                IsDiscardConfirmationOpen = true;
+                OnPropertyChanged(nameof(SectionIndex));
+                return;
+            }
+
+            EndEdit();
+            IsRowActionsOpen = false;
+            SetProperty(ref _section, value);
+            OnSectionChanged();
+        }
+    }
+
+    public string EditorTitle => $"{(IsCreating ? "New" : "Edit")} {SingularName(Section)}";
+    public string PageTitle => IsEditing ? EditorTitle : "Library";
+    public bool ShowCreateButton => CanCreate && !IsEditing;
+    public bool IsSaving => SaveCommand.IsRunning;
+    public string SaveButtonText => IsSaving ? "Saving…" : "Save";
+    public bool CanEditFields => IsEditing && !IsEditorLoading && !HasEditorLoadFailed && !IsSaving;
+    public bool HasUnsavedChanges => IsEditing && !IsEditorLoading && CurrentDraft != _originalDraft;
+
+    public string DiscardDescription =>
+        $"Your changes to “{(string.IsNullOrWhiteSpace(EditName) ? EditorTitle : EditName)}” will be lost. " +
+        "Nothing will be deleted from your PC.";
+
+    private (string, string, string, string, string) CurrentDraft =>
+        (EditName, EditDescription, EditBody, EditGlyph, EditWorkingDirectory);
+
+    private bool CanBeginCreate => CanCreate && !IsEditing && !IsRowActionsOpen;
+    private bool CanSave => CanEditFields && !IsDiscardConfirmationOpen && CanCreate &&
+                            (IsCreating || SelectedEntry?.CanEdit == true);
+    private bool CanRetryEditor => IsEditing && HasEditorLoadFailed && !IsEditorLoading;
+
+    private void OnOperationStateChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(IAsyncRelayCommand.IsRunning))
+            return;
+
+        OnPropertyChanged(nameof(IsSaving));
+        OnPropertyChanged(nameof(SaveButtonText));
+        OnPropertyChanged(nameof(CanEditFields));
+        OnPropertyChanged(nameof(IsActionBusy));
+        SaveCommand.NotifyCanExecuteChanged();
+        ConfirmDeleteActionEntryCommand.NotifyCanExecuteChanged();
+    }
 
     /// <summary>Raised when the user dismisses the library page and returns to the conversation.</summary>
     public event Action? CloseRequested;
@@ -80,50 +198,99 @@ public sealed partial class LibraryViewModel : ObservableObject
     [RelayCommand]
     private void Close()
     {
-        // Cancel a half-finished edit rather than stranding it behind the chat.
-        if (IsEditing)
-            CancelEdit();
-        else
+        if (!DismissTopmostSurface())
             CloseRequested?.Invoke();
     }
 
-    // ── Row action sheet (long-press) ─────────────────────────────────────────────────────────
+    // ── Row actions and their explicit destructive confirmation ──────────────────────────────
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasOpenSurface))]
     private bool _isRowActionsOpen;
 
     [ObservableProperty] private LibraryEntryViewModel? _actionEntry;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActionSheetTitle))]
+    [NotifyCanExecuteChangedFor(nameof(ConfirmDeleteActionEntryCommand))]
+    private bool _isConfirmingDelete;
 
     public string ActionEntryName => ActionEntry?.Name ?? "";
+    public string ActionSheetTitle => IsConfirmingDelete ? "Delete from Library?" : ActionEntryName;
+    public bool CanEditActionEntry => ActionEntry?.CanEdit == true;
+    public bool CanDeleteActionEntry => ActionEntry?.CanEdit == true;
+    public bool IsActionBusy => ToggleEnabledCommand.IsRunning || ConfirmDeleteActionEntryCommand.IsRunning;
+    public string ToggleActionText =>
+        $"{(ActionEntry?.IsEnabled == true ? "Disable" : "Enable")} {SingularName(ActionEntry?.Section ?? Section)}";
+    public string DeleteConfirmationDescription =>
+        $"Delete “{ActionEntryName}” from your shared Library? " +
+        "It will be deleted on your PC as well as this phone. This cannot be undone.";
 
     /// <summary>Only MCP servers and jobs have an enabled state worth toggling.</summary>
     public bool CanToggleActionEntry =>
         ActionEntry?.Section is LibrarySection.McpServers or LibrarySection.Jobs;
 
-    partial void OnActionEntryChanged(LibraryEntryViewModel? value)
+    partial void OnActionEntryChanged(LibraryEntryViewModel? oldValue, LibraryEntryViewModel? newValue)
+    {
+        if (oldValue is not null)
+            oldValue.PropertyChanged -= OnActionEntryPropertyChanged;
+        if (newValue is not null)
+            newValue.PropertyChanged += OnActionEntryPropertyChanged;
+
+        _actionGeneration++;
+        NotifyActionEntry();
+    }
+
+    private void OnActionEntryPropertyChanged(object? sender, PropertyChangedEventArgs e) => NotifyActionEntry();
+
+    private void NotifyActionEntry()
     {
         OnPropertyChanged(nameof(ActionEntryName));
+        OnPropertyChanged(nameof(ActionSheetTitle));
+        OnPropertyChanged(nameof(CanEditActionEntry));
+        OnPropertyChanged(nameof(CanDeleteActionEntry));
         OnPropertyChanged(nameof(CanToggleActionEntry));
+        OnPropertyChanged(nameof(ToggleActionText));
+        OnPropertyChanged(nameof(DeleteConfirmationDescription));
+        ConfirmDeleteActionEntryCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnIsRowActionsOpenChanged(bool value)
+    {
+        if (!value)
+        {
+            IsConfirmingDelete = false;
+            ActionEntry = null;
+        }
+        BeginCreateCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
     private void OpenRowActions(LibraryEntryViewModel? entry)
     {
-        if (entry is null)
+        if (entry is null || !entry.HasActions || IsEditing || IsActionBusy)
             return;
 
         ActionEntry = entry;
+        IsConfirmingDelete = false;
+        StatusMessage = null;
         IsRowActionsOpen = true;
+    }
+
+    [RelayCommand]
+    private async Task EditActionEntryAsync()
+    {
+        if (ActionEntry is not { CanEdit: true } entry || IsActionBusy)
+            return;
+
+        IsRowActionsOpen = false;
+        await BeginEditCommand.ExecuteAsync(entry);
     }
 
     [RelayCommand]
     private async Task ToggleActionEntryAsync()
     {
-        if (ActionEntry is { } entry)
+        if (!IsConfirmingDelete && ActionEntry is { } entry)
             await ToggleEnabledCommand.ExecuteAsync(entry);
-
-        IsRowActionsOpen = false;
     }
 
     [RelayCommand]
@@ -131,18 +298,39 @@ public sealed partial class LibraryViewModel : ObservableObject
     {
         if (ActionEntry is { } entry)
             await DeleteCommand.ExecuteAsync(entry);
+    }
 
-        IsRowActionsOpen = false;
+    [RelayCommand]
+    private void CancelDeleteConfirmation()
+    {
+        if (!IsActionBusy)
+            IsConfirmingDelete = false;
+    }
+
+    [RelayCommand]
+    private void CloseRowActions()
+    {
+        if (!IsActionBusy)
+            IsRowActionsOpen = false;
     }
 
     /// <summary>Whether Back should dismiss library-local UI before leaving the page.</summary>
-    public bool HasOpenSurface => IsRowActionsOpen || IsEditing;
+    public bool HasOpenSurface => IsDiscardConfirmationOpen || IsRowActionsOpen || IsEditing;
 
     internal bool DismissTopmostSurface()
     {
+        if (IsDiscardConfirmationOpen)
+        {
+            KeepEditing();
+            return true;
+        }
+
         if (IsRowActionsOpen)
         {
-            IsRowActionsOpen = false;
+            if (IsConfirmingDelete)
+                CancelDeleteConfirmation();
+            else
+                CloseRowActions();
             return true;
         }
 
@@ -155,7 +343,12 @@ public sealed partial class LibraryViewModel : ObservableObject
         return false;
     }
 
-    public ObservableCollection<LibraryEntryViewModel> Entries { get; } = [];
+    private ObservableCollection<LibraryEntryViewModel> _entries = [];
+    public ObservableCollection<LibraryEntryViewModel> Entries
+    {
+        get => _entries;
+        private set => SetProperty(ref _entries, value);
+    }
 
     public ObservableCollection<string> SectionNames { get; } =
         ["Projects", "Skills", "Lumis", "Memories", "MCP", "Jobs"];
@@ -171,6 +364,46 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
     public bool IsEmpty => Entries.Count == 0;
+    public bool HasSearchQuery => !string.IsNullOrWhiteSpace(SearchText);
+    public bool IsNoResults => IsEmpty && HasSearchQuery;
+    public string EmptyTitle => IsNoResults ? $"No {PluralName} found" : $"No {PluralName} yet";
+    public string EmptyDescription => IsNoResults
+        ? $"Try another name or clear the search to see all {PluralName}."
+        : Section switch
+        {
+            LibrarySection.McpServers => "Add MCP servers on your PC. You can enable or disable them here.",
+            LibrarySection.Jobs => "Create jobs on your PC. You can enable or disable them here.",
+            _ => $"Use New to add a {SingularName(Section)}, or add one on your PC. Your Library is shared."
+        };
+
+    public string SectionDescription => Section switch
+    {
+        LibrarySection.Projects => "Shared projects, instructions and PC workspaces for your chats.",
+        LibrarySection.Skills => "Reusable instructions that help Lumi handle familiar tasks.",
+        LibrarySection.Lumis => "Your assistants, each with their own role and instructions.",
+        LibrarySection.Memories => "Facts Lumi remembers and uses across your conversations.",
+        LibrarySection.McpServers => "Tool connections on your PC. Manage their availability here; configure them on your PC.",
+        LibrarySection.Jobs => "Automations that run on your PC. Manage their availability here; edit their schedules on your PC.",
+        _ => ""
+    };
+
+    private string PluralName => Section switch
+    {
+        LibrarySection.McpServers => "MCP servers",
+        LibrarySection.Lumis => "Lumis",
+        _ => SectionNames[SectionIndex].ToLowerInvariant()
+    };
+
+    private static string SingularName(LibrarySection section) => section switch
+    {
+        LibrarySection.Projects => "project",
+        LibrarySection.Skills => "skill",
+        LibrarySection.Lumis => "Lumi",
+        LibrarySection.Memories => "memory",
+        LibrarySection.McpServers => "MCP server",
+        LibrarySection.Jobs => "job",
+        _ => "item"
+    };
 
     /// <summary>Only resources with a meaningful phone editor allow creating from mobile.</summary>
     public bool CanCreate => Section is LibrarySection.Projects or LibrarySection.Skills
@@ -187,8 +420,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     public bool ShowGlyphEditor => Section is LibrarySection.Skills or LibrarySection.Lumis;
 
-    public bool ShowDescriptionEditor => Section is LibrarySection.Skills or LibrarySection.Lumis
-        or LibrarySection.McpServers or LibrarySection.Jobs;
+    public bool ShowDescriptionEditor => Section is LibrarySection.Skills or LibrarySection.Lumis;
 
     public bool ShowProjectWorkingDirectory => Section == LibrarySection.Projects;
 
@@ -200,48 +432,70 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     internal void ResetHostState()
     {
-        _editorGeneration++;
-        CancelEdit();
+        EndEdit();
+        _actionGeneration++;
         IsRowActionsOpen = false;
         ActionEntry = null;
-        SelectedEntry = null;
         SearchText = "";
         StatusMessage = null;
-        EditName = "";
-        EditDescription = "";
-        EditBody = "";
-        EditGlyph = "";
-        EditWorkingDirectory = "";
         Apply(new RemoteLibrary());
     }
 
-    partial void OnSectionChanged(LibrarySection value)
+    private void OnSectionChanged()
     {
-        _editorGeneration++;
-        IsEditing = false;
-        IsEditorLoading = false;
-        SelectedEntry = null;
+        StatusMessage = null;
         OnPropertyChanged(nameof(SectionIndex));
         OnPropertyChanged(nameof(CanCreate));
+        OnPropertyChanged(nameof(ShowCreateButton));
+        OnPropertyChanged(nameof(EditorTitle));
+        OnPropertyChanged(nameof(PageTitle));
+        OnPropertyChanged(nameof(SectionDescription));
         OnPropertyChanged(nameof(BodyLabel));
         OnPropertyChanged(nameof(ShowGlyphEditor));
         OnPropertyChanged(nameof(ShowDescriptionEditor));
         OnPropertyChanged(nameof(ShowProjectWorkingDirectory));
+        BeginCreateCommand.NotifyCanExecuteChanged();
         Rebuild();
     }
 
     partial void OnSearchTextChanged(string value) => Rebuild();
 
+    [RelayCommand]
+    private void ClearSearch() => SearchText = "";
+
     private void Rebuild()
     {
         var query = SearchText.Trim();
-        var projected = Project().Where(Matches).ToList();
+        var entries = Project().ToList();
+        if (!IsActionBusy && ActionEntry is { } action
+            && entries.FirstOrDefault(entry => entry.Section == action.Section
+                && entry.Identifier == action.Identifier) is { } latest)
+        {
+            action.IsEnabled = latest.IsEnabled;
+        }
+        var projected = entries.Where(Matches).ToList();
 
-        Entries.Clear();
-        foreach (var entry in projected)
-            Entries.Add(entry);
+        var previous = Entries.ToDictionary(entry => (entry.Section, entry.Identifier));
+        for (var i = 0; i < projected.Count; i++)
+        {
+            var incoming = projected[i];
+            if (!previous.TryGetValue((incoming.Section, incoming.Identifier), out var existing))
+                continue;
+            if (!IsActionBusy || !ReferenceEquals(existing, ActionEntry))
+                existing.UpdateFrom(incoming);
+            projected[i] = existing;
+        }
+
+        // Publish a changed page once. Replaying hundreds of Add notifications builds off-screen
+        // templates on the UI thread; an unchanged snapshot should not disturb the current rows.
+        if (!Entries.SequenceEqual(projected))
+            Entries = new ObservableCollection<LibraryEntryViewModel>(projected);
 
         OnPropertyChanged(nameof(IsEmpty));
+        OnPropertyChanged(nameof(HasSearchQuery));
+        OnPropertyChanged(nameof(IsNoResults));
+        OnPropertyChanged(nameof(EmptyTitle));
+        OnPropertyChanged(nameof(EmptyDescription));
         return;
 
         bool Matches(LibraryEntryViewModel entry) =>
@@ -258,9 +512,8 @@ public sealed partial class LibraryViewModel : ObservableObject
             Identifier = p.Id.ToString(),
             Name = p.Name,
             Description = p.Instructions,
-            Detail = p.WorkingDirectory,
             Glyph = "◆",
-            Badge = p.ChatCount > 0 ? $"{p.ChatCount}" : null
+            Badge = p.ChatCount > 0 ? $"{p.ChatCount} {(p.ChatCount == 1 ? "chat" : "chats")}" : null
         }),
 
         LibrarySection.Skills => _library.Skills.Select(s => new LibraryEntryViewModel
@@ -269,7 +522,6 @@ public sealed partial class LibraryViewModel : ObservableObject
             Identifier = s.Id.ToString(),
             Name = s.Name,
             Description = s.Description,
-            Detail = s.Content,
             Glyph = s.IconGlyph,
             IsBuiltIn = s.IsBuiltIn,
             Badge = s.IsBuiltIn ? "Built-in" : null
@@ -281,10 +533,9 @@ public sealed partial class LibraryViewModel : ObservableObject
             Identifier = l.Id.ToString(),
             Name = l.Name,
             Description = l.Description,
-            Detail = l.SystemPrompt,
             Glyph = l.IconGlyph,
             IsBuiltIn = l.IsBuiltIn,
-            Badge = l.SkillCount > 0 ? $"{l.SkillCount} skills" : null
+            Badge = l.IsBuiltIn ? "Built-in" : l.SkillCount > 0 ? $"{l.SkillCount} skills" : null
         }),
 
         LibrarySection.Memories => _library.Memories.Select(m => new LibraryEntryViewModel
@@ -293,7 +544,6 @@ public sealed partial class LibraryViewModel : ObservableObject
             Identifier = m.Id.ToString(),
             Name = m.Key,
             Description = m.Content,
-            Detail = m.Content,
             Glyph = "◇",
             Badge = m.Category
         }),
@@ -304,7 +554,6 @@ public sealed partial class LibraryViewModel : ObservableObject
             Identifier = s.Id.ToString(),
             Name = s.Name,
             Description = s.Description ?? s.Command ?? s.Url,
-            Detail = s.Command ?? s.Url,
             Glyph = "⬡",
             IsEnabled = s.IsEnabled,
             Badge = s.ToolCount > 0 ? $"{s.ToolCount} tools" : null
@@ -316,7 +565,6 @@ public sealed partial class LibraryViewModel : ObservableObject
             Identifier = j.Id.ToString(),
             Name = j.Name,
             Description = j.Description ?? j.ScheduleSummary,
-            Detail = j.ScheduleSummary,
             Glyph = "◷",
             IsEnabled = j.IsEnabled,
             Badge = j.LastRunStatus
@@ -336,13 +584,17 @@ public sealed partial class LibraryViewModel : ObservableObject
         _ => RemoteProtocol.Resources.Projects
     };
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanBeginCreate))]
     private void BeginCreate()
     {
+        if (!CanBeginCreate)
+            return;
+
         _editorGeneration++;
         IsCreating = true;
         IsEditing = true;
         IsEditorLoading = false;
+        HasEditorLoadFailed = false;
         SelectedEntry = null;
         EditName = "";
         EditDescription = "";
@@ -350,77 +602,157 @@ public sealed partial class LibraryViewModel : ObservableObject
         EditGlyph = Section == LibrarySection.Lumis ? "✦" : "⚡";
         EditWorkingDirectory = "";
         StatusMessage = null;
+        RememberDraft();
     }
 
     [RelayCommand]
     private async Task BeginEditAsync(LibraryEntryViewModel? entry)
     {
-        if (entry is null || !entry.CanEdit)
+        if (entry is null || !entry.CanEdit || IsEditorLoading || HasUnsavedChanges || IsActionBusy || IsRowActionsOpen
+            || IsDiscardConfirmationOpen)
             return;
 
+        Section = entry.Section;
+        IsRowActionsOpen = false;
+        await LoadEditorAsync(entry);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRetryEditor))]
+    private async Task RetryEditorAsync()
+    {
+        if (CanRetryEditor && SelectedEntry is { } entry)
+            await LoadEditorAsync(entry);
+    }
+
+    private async Task LoadEditorAsync(LibraryEntryViewModel entry)
+    {
         var generation = ++_editorGeneration;
         IsCreating = false;
         IsEditing = true;
         IsEditorLoading = true;
+        HasEditorLoadFailed = false;
         SelectedEntry = entry;
-        EditName = "";
+        EditName = entry.Name;
         EditDescription = "";
         EditBody = "";
         EditGlyph = "";
         EditWorkingDirectory = "";
+        RememberDraft();
         StatusMessage = "Loading full details…";
 
-        if (_sink is not IRemoteLibraryDetailSink detailSink)
+        try
+        {
+            if (_sink is not IRemoteLibraryDetailSink detailSink)
+            {
+                HasEditorLoadFailed = true;
+                StatusMessage = "This item cannot be edited from this connection.";
+                return;
+            }
+
+            var detail = await detailSink.GetLibraryItemAsync(
+                ResourceName(entry.Section),
+                entry.Identifier);
+            if (generation != _editorGeneration
+                || SelectedEntry?.Identifier != entry.Identifier
+                || SelectedEntry.Section != entry.Section)
+            {
+                return;
+            }
+
+            if (detail is null)
+            {
+                HasEditorLoadFailed = true;
+                StatusMessage = "Lumi could not load the full item. Try again when your PC is connected.";
+                return;
+            }
+
+            EditName = detail.Name;
+            EditDescription = detail.Description ?? "";
+            EditBody = detail.Body ?? "";
+            EditGlyph = detail.Glyph ?? entry.Glyph;
+            EditWorkingDirectory = detail.WorkingDirectory ?? "";
+            RememberDraft();
+            StatusMessage = null;
+        }
+        catch (Exception ex) when (ex is IOException or HttpRequestException or OperationCanceledException or JsonException)
         {
             if (generation == _editorGeneration)
             {
-                IsEditorLoading = false;
-                IsEditing = false;
-                StatusMessage = "This item cannot be edited from this connection.";
+                HasEditorLoadFailed = true;
+                StatusMessage = $"Could not load this item. {ex.Message}";
             }
-            return;
         }
-
-        var detail = await detailSink.GetLibraryItemAsync(
-            ResourceName(entry.Section),
-            entry.Identifier);
-        if (generation != _editorGeneration
-            || SelectedEntry?.Identifier != entry.Identifier
-            || SelectedEntry.Section != entry.Section)
+        finally
         {
-            return;
+            if (generation == _editorGeneration)
+                IsEditorLoading = false;
         }
-
-        IsEditorLoading = false;
-        if (detail is null)
-        {
-            IsEditing = false;
-            StatusMessage = "Lumi could not load the full item.";
-            return;
-        }
-
-        EditName = detail.Name;
-        EditDescription = detail.Description ?? "";
-        EditBody = detail.Body ?? "";
-        EditGlyph = detail.Glyph ?? entry.Glyph;
-        EditWorkingDirectory = detail.WorkingDirectory ?? "";
-        StatusMessage = null;
     }
 
     [RelayCommand]
     private void CancelEdit()
     {
-        _editorGeneration++;
-        IsEditing = false;
-        IsCreating = false;
-        IsEditorLoading = false;
-        SelectedEntry = null;
+        if (HasUnsavedChanges)
+        {
+            _pendingSection = null;
+            IsDiscardConfirmationOpen = true;
+            return;
+        }
+
+        EndEdit();
     }
 
     [RelayCommand]
+    private void KeepEditing() => IsDiscardConfirmationOpen = false;
+
+    partial void OnIsDiscardConfirmationOpenChanged(bool value)
+    {
+        if (!value)
+            _pendingSection = null;
+    }
+
+    [RelayCommand]
+    private void DiscardChanges()
+    {
+        if (!IsDiscardConfirmationOpen || IsSaving)
+            return;
+
+        var section = _pendingSection;
+        EndEdit();
+        StatusMessage = null;
+        if (section is { } requestedSection)
+            Section = requestedSection;
+    }
+
+    private void RememberDraft()
+    {
+        _originalDraft = CurrentDraft;
+        OnPropertyChanged(nameof(HasUnsavedChanges));
+    }
+
+    private void EndEdit()
+    {
+        _editorGeneration++;
+        IsDiscardConfirmationOpen = false;
+        _pendingSection = null;
+        IsEditing = false;
+        IsCreating = false;
+        IsEditorLoading = false;
+        HasEditorLoadFailed = false;
+        SelectedEntry = null;
+        StatusMessage = null;
+        EditName = "";
+        EditDescription = "";
+        EditBody = "";
+        EditGlyph = "";
+        EditWorkingDirectory = "";
+        RememberDraft();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanSave))]
     private async Task SaveAsync()
     {
-        if (IsEditorLoading)
+        if (!CanSave)
             return;
 
         if (EditName.Trim().Length == 0)
@@ -462,74 +794,150 @@ public sealed partial class LibraryViewModel : ObservableObject
             case LibrarySection.Memories:
                 command.With("key", EditName).With("content", EditBody);
                 break;
-            default:
-                command.With("name", EditName).With("description", EditDescription);
-                break;
         }
 
-        var result = await _sink.SendCommandAsync(command);
-        if (generation != _editorGeneration
-            || Section != section
-            || IsCreating != isCreating
-            || (!isCreating && SelectedEntry?.Identifier != selectedIdentifier))
+        StatusMessage = null;
+        try
         {
-            return;
+            var result = await _sink.SendCommandAsync(command);
+            if (!IsCurrentEditor())
+                return;
+
+            if (!result.Ok)
+            {
+                StatusMessage = result.Error ?? result.Message ?? "Could not save. Your changes are still here.";
+                return;
+            }
+
+            var message = await RefreshAfterSuccessAsync(result.Message ?? "Saved on your PC.");
+            if (!IsCurrentEditor())
+                return;
+
+            EndEdit();
+            StatusMessage = message;
         }
-
-        StatusMessage = result.Ok ? result.Message : result.Error;
-
-        if (result.Ok)
+        catch (Exception ex) when (ex is IOException or HttpRequestException or OperationCanceledException or JsonException)
         {
-            if (_sink is IRemoteCatalogRefreshSink refreshSink)
-                await refreshSink.RefreshCatalogsAsync();
-            _editorGeneration++;
-            IsEditing = false;
-            IsCreating = false;
-            SelectedEntry = null;
+            if (IsCurrentEditor())
+                StatusMessage = $"Could not save. Your changes are still here. {ex.Message}";
         }
+
+        bool IsCurrentEditor() => generation == _editorGeneration
+            && Section == section
+            && IsCreating == isCreating
+            && (isCreating || SelectedEntry?.Identifier == selectedIdentifier);
     }
 
     [RelayCommand]
-    private async Task DeleteAsync(LibraryEntryViewModel? entry)
+    private Task DeleteAsync(LibraryEntryViewModel? entry)
     {
-        if (entry is null || !entry.CanEdit)
+        if (entry is not { CanEdit: true } || IsEditing || IsActionBusy)
+            return Task.CompletedTask;
+
+        if (!ReferenceEquals(ActionEntry, entry))
+            OpenRowActions(entry);
+
+        IsConfirmingDelete = true;
+        StatusMessage = null;
+        return Task.CompletedTask;
+    }
+
+    private bool CanConfirmDelete => IsRowActionsOpen && IsConfirmingDelete && CanDeleteActionEntry && !IsActionBusy;
+
+    [RelayCommand(CanExecute = nameof(CanConfirmDelete))]
+    private async Task ConfirmDeleteActionEntryAsync()
+    {
+        if (!CanConfirmDelete || ActionEntry is not { } entry)
             return;
 
-        var result = await _sink.SendCommandAsync(
-            new RemoteCommand(RemoteProtocol.Actions.ConfigureFeature)
-                .With("resource", ResourceName(entry.Section))
-                .With("featureAction", "delete")
-                .With("identifier", entry.Identifier));
-
-        StatusMessage = result.Ok ? result.Message : result.Error;
-
-        if (result.Ok)
+        var generation = _actionGeneration;
+        StatusMessage = null;
+        try
         {
-            if (_sink is IRemoteCatalogRefreshSink refreshSink)
-                await refreshSink.RefreshCatalogsAsync();
-            if (ReferenceEquals(entry, SelectedEntry))
+            var result = await _sink.SendCommandAsync(
+                new RemoteCommand(RemoteProtocol.Actions.ConfigureFeature)
+                    .With("resource", ResourceName(entry.Section))
+                    .With("featureAction", "delete")
+                    .With("identifier", entry.Identifier));
+            if (generation != _actionGeneration)
+                return;
+
+            if (!result.Ok)
             {
-                IsEditing = false;
-                SelectedEntry = null;
+                StatusMessage = result.Error ?? result.Message ?? "Could not delete this item. Please try again.";
+                return;
             }
+
+            var message = await RefreshAfterSuccessAsync("Deleted from your shared Library.");
+            if (generation != _actionGeneration)
+                return;
+
+            IsRowActionsOpen = false;
+            StatusMessage = message;
+        }
+        catch (Exception ex) when (ex is IOException or HttpRequestException or OperationCanceledException or JsonException)
+        {
+            if (generation == _actionGeneration)
+                StatusMessage = $"Could not delete this item. {ex.Message}";
         }
     }
 
     [RelayCommand]
     private async Task ToggleEnabledAsync(LibraryEntryViewModel? entry)
     {
-        if (entry is null || entry.Section is not (LibrarySection.McpServers or LibrarySection.Jobs))
+        if (entry is null || entry.Section is not (LibrarySection.McpServers or LibrarySection.Jobs)
+            || IsEditing || IsActionBusy || IsConfirmingDelete)
             return;
 
-        var result = await _sink.SendCommandAsync(
-            new RemoteCommand(RemoteProtocol.Actions.ConfigureFeature)
-                .With("resource", ResourceName(entry.Section))
-                .With("featureAction", "update")
-                .With("identifier", entry.Identifier)
-                .With("isEnabled", (!entry.IsEnabled).ToString()));
+        if (!ReferenceEquals(ActionEntry, entry))
+            OpenRowActions(entry);
 
-        StatusMessage = result.Ok ? result.Message : result.Error;
-        if (result.Ok && _sink is IRemoteCatalogRefreshSink refreshSink)
-            await refreshSink.RefreshCatalogsAsync();
+        var generation = _actionGeneration;
+        var enabled = !entry.IsEnabled;
+        StatusMessage = null;
+        try
+        {
+            var result = await _sink.SendCommandAsync(
+                new RemoteCommand(RemoteProtocol.Actions.ConfigureFeature)
+                    .With("resource", ResourceName(entry.Section))
+                    .With("featureAction", "update")
+                    .With("identifier", entry.Identifier)
+                    .With("isEnabled", enabled.ToString()));
+            if (generation != _actionGeneration)
+                return;
+
+            if (!result.Ok)
+            {
+                StatusMessage = result.Error ?? result.Message ?? "Could not change this item. Please try again.";
+                return;
+            }
+
+            entry.IsEnabled = enabled;
+            var message = await RefreshAfterSuccessAsync(enabled ? "Enabled on your PC." : "Disabled on your PC.");
+            if (generation != _actionGeneration)
+                return;
+
+            IsRowActionsOpen = false;
+            StatusMessage = message;
+        }
+        catch (Exception ex) when (ex is IOException or HttpRequestException or OperationCanceledException or JsonException)
+        {
+            if (generation == _actionGeneration)
+                StatusMessage = $"Could not change this item. {ex.Message}";
+        }
+    }
+
+    private async Task<string> RefreshAfterSuccessAsync(string message)
+    {
+        try
+        {
+            if (_sink is IRemoteCatalogRefreshSink refreshSink)
+                await refreshSink.RefreshCatalogsAsync();
+            return message;
+        }
+        catch (Exception ex) when (ex is IOException or HttpRequestException or OperationCanceledException or JsonException)
+        {
+            return $"{message} The list could not refresh. Reconnect to your PC to reload it.";
+        }
     }
 }

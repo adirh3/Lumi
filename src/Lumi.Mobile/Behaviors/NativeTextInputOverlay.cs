@@ -60,6 +60,12 @@ public sealed class NativeTextInputOverlay
         return controller.TryFocus();
     }
 
+    public static void Blur(TextBox textBox)
+    {
+        if (Controllers.TryGetValue(textBox, out var controller))
+            controller.Blur();
+    }
+
     internal static Placement? GetVisiblePlacement(Control control, TopLevel topLevel)
     {
         if (IsOccludedByModal(control, topLevel))
@@ -118,27 +124,19 @@ public sealed class NativeTextInputOverlay
     private static bool IsOccludedByModal(Control control, TopLevel topLevel)
     {
         var ancestors = control.GetVisualAncestors().ToArray();
-        var openSheets = topLevel.GetVisualDescendants()
-            .OfType<StrataBottomSheet>()
-            .Where(sheet => sheet.IsOpen && sheet.IsEffectivelyVisible)
-            .ToArray();
-        if (openSheets.Length > 0
-            && !openSheets.Any(sheet => ancestors.Any(ancestor => ReferenceEquals(ancestor, sheet))))
-        {
-            return true;
-        }
-
-        if (topLevel.GetVisualDescendants()
-            .OfType<StrataNavigationDrawer>()
-            .Any(drawer => drawer.IsOpen && drawer.IsEffectivelyVisible))
-        {
-            return true;
-        }
-
         var shell = ancestors.OfType<MobileShellView>().FirstOrDefault()?.DataContext
             as MobileShellViewModel;
-        return shell?.HasPageOverlay == true
-               && ancestors.OfType<ChatDetailView>().Any();
+        if (shell?.HasPageOverlay == true && ancestors.OfType<ChatDetailView>().Any())
+            return true;
+
+        var presentedSheets = topLevel.GetVisualDescendants()
+            .OfType<StrataBottomSheet>()
+            .Where(sheet => (sheet.IsOpen || sheet.IsPresented) && sheet.IsEffectivelyVisible)
+            .ToArray();
+        if (presentedSheets.Length > 0)
+            return !presentedSheets.Any(sheet => ancestors.Any(ancestor => ReferenceEquals(ancestor, sheet)));
+
+        return shell is { IsDrawerOverlay: true } or { IsNavigationCoveringContent: true };
     }
 
     private static Rect? Intersect(Rect left, Rect right)
@@ -192,6 +190,13 @@ public sealed class NativeTextInputOverlay
 
             _session.FocusAt(_textBox.Text?.Length ?? 0);
             return true;
+        }
+
+        public void Blur()
+        {
+            _hasNativeFocus = false;
+            _textBox.Classes.Set("native-input-focused", false);
+            _session?.Blur();
         }
 
         public void Dispose()

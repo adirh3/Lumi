@@ -8,11 +8,11 @@ public static partial class GitService
     // Remote inspection must not refresh the index, run user-configured diff commands, or read an
     // unbounded pipe. Desktop's existing mutation helpers deliberately remain separate.
     internal static async Task<(List<GitFileChange> Files, bool Truncated)> GetReadOnlyChangesAsync(
-        string repoRoot, int fileLimit, CancellationToken cancellationToken) =>
-        await GetReadOnlyChangesAsync(repoRoot, fileLimit, 0, cancellationToken).ConfigureAwait(false);
+        string repoRoot, int fileLimit, CancellationToken cancellationToken, bool includeLineStatistics = false) =>
+        await GetReadOnlyChangesAsync(repoRoot, fileLimit, 0, cancellationToken, includeLineStatistics).ConfigureAwait(false);
 
     private static async Task<(List<GitFileChange> Files, bool Truncated)> GetReadOnlyChangesAsync(
-        string repoRoot, int fileLimit, int depth, CancellationToken cancellationToken)
+        string repoRoot, int fileLimit, int depth, CancellationToken cancellationToken, bool includeLineStatistics)
     {
         var output = await RunReadOnlyGitAsync(repoRoot,
             ["status", "--porcelain=v1", "-z", "-uall", "--ignore-submodules=none"],
@@ -88,12 +88,118 @@ public static partial class GitService
                     continue;
                 }
                 var nested = await GetReadOnlyChangesAsync(nestedRoot,
-                    Math.Max(0, fileLimit - changes.Count), depth + 1, cancellationToken).ConfigureAwait(false);
+                    Math.Max(0, fileLimit - changes.Count), depth + 1, cancellationToken, includeLineStatistics).ConfigureAwait(false);
                 changes.AddRange(nested.Files.Select(file => file.WithSubmodulePrefix(path)));
                 truncated |= nested.Truncated;
             }
         }
+        if (includeLineStatistics)
+            await PopulateReadOnlyLineStatisticsAsync(repoRoot, changes, cancellationToken).ConfigureAwait(false);
         return (changes, truncated);
+    }
+
+    private static async Task PopulateReadOnlyLineStatisticsAsync(
+        string repoRoot, List<GitFileChange> changes, CancellationToken cancellationToken)
+    {
+        var ownedFiles = changes.Where(file => file.SubmodulePath is null).ToList();
+        if (ownedFiles.Count == 0)
+            return;
+
+        string[] arguments = ["diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv", "--no-color",
+            "--submodule=short", "--find-renames"];
+        (string Text, bool Truncated) staged;
+        (string Text, bool Truncated) working;
+        try
+        {
+            staged = await RunReadOnlyGitAsync(repoRoot, [.. arguments, "--cached"], 256 * 1024, cancellationToken);
+            working = await RunReadOnlyGitAsync(repoRoot, arguments, 256 * 1024, cancellationToken);
+        }
+        catch (IOException ex)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Trace.TraceWarning($"[Git] Line statistics are unavailable: {ex.Message}");
+            return;
+        }
+        if (staged.Truncated || working.Truncated)
+            return;
+
+        var statistics = new Dictionary<string, (int Added, int Removed, bool Binary)>(StringComparer.Ordinal);
+        AddNumstat(staged.Text);
+        AddNumstat(working.Text);
+        const int untrackedLimit = 1024 * 1024;
+        var untrackedBudget = 8 * untrackedLimit;
+        char[]? buffer = null;
+        foreach (var file in ownedFiles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            statistics.TryGetValue(file.RepoRelativePath, out var stats);
+            file.LinesAdded = stats.Added;
+            file.LinesRemoved = stats.Removed;
+            file.IsBinary = stats.Binary;
+            file.HasLineStatistics = !stats.Binary;
+            if (file.Kind != GitChangeKind.Untracked && file.StatusCode != "D?")
+                continue;
+
+            // Untracked files are absent from numstat. Read one bounded buffer, never a diff per file.
+            // Large files remain explicitly unknown instead of reporting a truncated prefix as a total.
+            file.HasLineStatistics = false;
+            if (file.IsBinary || untrackedBudget <= 0 || !IsReadOnlyPathSafe(repoRoot, file.RepoRelativePath))
+                continue;
+            try
+            {
+                using var reader = new StreamReader(file.FullPath, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+                buffer ??= new char[untrackedLimit + 1];
+                var limit = Math.Min(untrackedLimit, untrackedBudget);
+                var count = await reader.ReadBlockAsync(buffer.AsMemory(0, limit + 1), cancellationToken).ConfigureAwait(false);
+                untrackedBudget -= count;
+                if (buffer.AsSpan(0, count).Contains('\0'))
+                {
+                    file.IsBinary = true;
+                    continue;
+                }
+                if (count > limit)
+                    continue;
+                var lines = 0;
+                for (var i = 0; i < count; i++)
+                    if (buffer[i] == '\n' || buffer[i] == '\r' && (i + 1 == count || buffer[i + 1] != '\n'))
+                        lines++;
+                if (count > 0 && buffer[count - 1] is not ('\n' or '\r'))
+                    lines++;
+                file.LinesAdded += lines;
+                file.HasLineStatistics = true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Trace.TraceWarning($"[Git] Could not count lines for {file.RelativePath}: {ex.Message}");
+            }
+        }
+
+        void AddNumstat(string output)
+        {
+            var records = output.Split('\0');
+            for (var i = 0; i < records.Length - 1; i++)
+            {
+                var fields = records[i].Split('\t', 3);
+                if (fields.Length != 3)
+                    continue;
+                var path = fields[2];
+                // With -z, a rename carries empty path, source NUL, destination NUL.
+                if (path.Length == 0)
+                {
+                    if (i + 2 >= records.Length - 1)
+                        break;
+                    path = records[i + 2];
+                    i += 2;
+                }
+                var binary = fields[0] == "-" || fields[1] == "-";
+                if (!binary && (!int.TryParse(fields[0], out _) || !int.TryParse(fields[1], out _)))
+                    continue;
+                var added = binary ? 0 : int.Parse(fields[0], System.Globalization.CultureInfo.InvariantCulture);
+                var removed = binary ? 0 : int.Parse(fields[1], System.Globalization.CultureInfo.InvariantCulture);
+                statistics.TryGetValue(path, out var previous);
+                statistics[path] = (previous.Added + added, previous.Removed + removed, previous.Binary || binary);
+            }
+        }
     }
 
     internal static async Task<(string Text, bool Truncated)> GetReadOnlyDiffAsync(

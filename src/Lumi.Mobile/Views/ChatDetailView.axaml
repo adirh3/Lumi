@@ -6,12 +6,29 @@
              xmlns:proto="using:Lumi.Remote.Protocol"
              xmlns:behaviors="using:Lumi.Mobile.Behaviors"
              xmlns:sc="using:StrataTheme.Controls"
+             xmlns:sa="using:StrataTheme.Animation"
              x:Class="Lumi.Mobile.Views.ChatDetailView"
              x:DataType="vm:MobileShellViewModel"
              sc:StrataTextSelection.IsTouchSelectionEnabled="False"
-             Background="{DynamicResource Brush.Surface0}">
+             Background="{DynamicResource Brush.ChatCanvas}">
 
   <UserControl.Styles>
+    <Style Selector="sc|StrataChatShell.mobile /template/ Border#PART_HeaderContainer">
+      <Setter Property="Padding" Value="0" />
+    </Style>
+
+    <Style Selector="sc|StrataChatShell.mobile /template/ Border#PART_HeaderChrome">
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <Style Selector="sc|StrataChatMessage.mobile-message:user /template/ Border#PART_Bubble">
+      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserSurface}" />
+      <Setter Property="CornerRadius" Value="20,20,6,20" />
+      <Setter Property="Padding" Value="16,13" />
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
     <!--
       Comfortable reading column. On an unfolded fold or a tablet the conversation would otherwise
       run the full width of the pane, which reads badly. A max width with the default Stretch
@@ -35,14 +52,13 @@
       <Setter Property="Height" Value="0" />
     </Style>
 
-    <!-- Welcome starters: a quiet outlined row that reads as an offer, not a primary action. -->
+    <!-- Suggestions are open rows on the canvas, not another card stack. -->
     <Style Selector="Button.starter">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
       <Setter Property="CornerRadius" Value="14" />
-      <Setter Property="Padding" Value="14,0" />
-      <Setter Property="MinHeight" Value="48" />
+      <Setter Property="Padding" Value="16,12" />
+      <Setter Property="MinHeight" Value="60" />
     </Style>
     <Style Selector="Button.starter:pressed">
       <Setter Property="Background" Value="{DynamicResource Brush.Surface3}" />
@@ -56,7 +72,7 @@
     </Style>
 
     <Style Selector="Button.activity-card">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="16" />
@@ -70,7 +86,7 @@
     </Style>
 
     <Style Selector="Button.source-card">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface1}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="14" />
@@ -88,6 +104,15 @@
       <Setter Property="CornerRadius" Value="10" />
       <Setter Property="Padding" Value="10,7" />
     </Style>
+
+    <Style Selector="sc|StrataAiToolCall.mobile-activity /template/ Border#PART_Root,
+                     sc|StrataTerminalPreview.mobile-activity /template/ Border#PART_Root,
+                     sc|StrataThink.mobile-activity /template/ Border#PART_Pill">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="16" />
+    </Style>
   </UserControl.Styles>
 
   <UserControl.DataTemplates>
@@ -95,7 +120,7 @@
     <!-- User turn: accent bubble, right-aligned — exactly ChatGPT's shape. -->
     <DataTemplate DataType="vm:UserTurnItemViewModel">
       <StackPanel Spacing="6" Margin="0,14,0,6">
-        <sc:StrataChatMessage Role="User">
+        <sc:StrataChatMessage Role="User" Classes="mobile-message">
           <sc:StrataChatMessage.Content>
             <SelectableTextBlock Text="{Binding Text}"
                                  TextWrapping="Wrap"
@@ -134,14 +159,20 @@
     -->
     <DataTemplate DataType="vm:AssistantItemViewModel">
       <StackPanel Margin="0,2,0,4" Spacing="2">
+        <StackPanel x:Name="AssistantIdentity" Orientation="Horizontal" Spacing="8" Margin="0,12,0,10">
+          <Border Width="24" Height="24" VerticalAlignment="Center">
+            <PathIcon Width="16" Height="16" Foreground="{DynamicResource Brush.AccentDefault}"
+                      Data="M12 2l2.5 7.5L22 12l-7.5 2.5L12 22l-2.5-7.5L2 12l7.5-2.5L12 2z" />
+          </Border>
+          <TextBlock Text="Lumi" FontSize="{DynamicResource Font.SizeMeta}" FontWeight="SemiBold"
+                     Foreground="{DynamicResource Brush.TextSecondary}" VerticalAlignment="Center" />
+        </StackPanel>
         <!-- IsInline drops StrataMarkdown's card surface. An answer is the page, not a document
              pinned to it, and a card border here would just be a bubble by another name. -->
         <sc:StrataMarkdown Markdown="{Binding Text}"
                            IsInline="True"
                            behaviors:NativeTextSelection.IsEnabled="True"
                            behaviors:NativeTextSelection.Text="{Binding SelectionText}" />
-        <sc:StrataTypingIndicator IsActive="True" Margin="0,4,0,0"
-                                  IsVisible="{Binding IsStreaming}" />
 
         <Button Classes="source-card"
                 Margin="0,7,0,2"
@@ -167,9 +198,6 @@
               <TextBlock Text="{Binding SourceCountText}"
                          FontSize="{DynamicResource Font.SizeCaption}"
                          Foreground="{DynamicResource Brush.TextSecondary}" />
-              <PathIcon Width="15" Height="15"
-                        Foreground="{DynamicResource Brush.TextTertiary}"
-                        Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
             </StackPanel>
           </Grid>
         </Button>
@@ -183,8 +211,6 @@
                 Command="{Binding ToggleCommand}"
                 AutomationProperties.Name="{Binding Label}">
           <StackPanel Orientation="Horizontal" Spacing="10">
-            <PathIcon Data="{Binding DisclosurePath}" Width="12" Height="12"
-                      Foreground="{DynamicResource Brush.TextTertiary}" />
             <TextBlock Text="{Binding Label}" FontWeight="SemiBold" />
           </StackPanel>
         </Button>
@@ -203,7 +229,7 @@
               Margin="0,4,0,6"
               Command="{Binding OpenCommand}">
         <StackPanel Spacing="9">
-          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
             <TextBlock Grid.Column="0"
                        Text="✓"
                        IsVisible="{Binding IsSucceeded}"
@@ -232,11 +258,6 @@
                        FontWeight="SemiBold"
                        VerticalAlignment="Center"
                        TextWrapping="Wrap" />
-            <PathIcon Grid.Column="2"
-                      Width="16" Height="16"
-                      VerticalAlignment="Center"
-                      Foreground="{DynamicResource Brush.TextTertiary}"
-                      Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
           </Grid>
 
           <StackPanel IsVisible="{Binding HasFileChanges}" Spacing="5">
@@ -276,7 +297,7 @@
 
     <!-- Reasoning -->
     <DataTemplate DataType="vm:ReasoningItemViewModel">
-      <sc:StrataThink Margin="0,4" Label="{Binding Label}" IsActive="{Binding IsStreaming}"
+      <sc:StrataThink Classes="mobile-activity" Margin="0,4" Label="{Binding Label}" IsActive="{Binding IsStreaming}"
                       Content="{Binding Text}" />
     </DataTemplate>
 
@@ -286,7 +307,7 @@
         <ItemsControl ItemsSource="{Binding Tools}">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:ToolCallViewModel">
-              <sc:StrataAiToolCall ToolName="{Binding DisplayName}"
+              <sc:StrataAiToolCall Classes="mobile-activity" ToolName="{Binding DisplayName}"
                                    Status="{Binding Status}"
                                    InputParameters="{Binding Input}"
                                    MoreInfo="{Binding Output}" />
@@ -298,7 +319,7 @@
 
     <!-- Terminal command -->
     <DataTemplate DataType="vm:TerminalItemViewModel">
-      <sc:StrataTerminalPreview Margin="0,4" ToolName="{Binding ToolName}"
+      <sc:StrataTerminalPreview Classes="mobile-activity" Margin="0,4" ToolName="{Binding ToolName}"
                                 Command="{Binding Command}" Output="{Binding Output}"
                                 Status="{Binding Status}" />
     </DataTemplate>
@@ -351,6 +372,7 @@
     -->
 
     <sc:StrataChatShell x:Name="ChatShell"
+                       Classes="mobile"
                        IsVisible="{Binding !Chat.IsGitChangesOpen}"
                         IsOnline="{Binding IsLive}"
                         IsStreaming="{Binding Chat.IsStreaming}">
@@ -358,63 +380,40 @@
       <sc:StrataChatShell.Header>
         <Border x:Name="ChatHeaderSideInset" Padding="{Binding SafeAreaSides}">
           <StackPanel>
-          <!--
-            The bar's background runs edge to edge under the status bar (the shell no longer pads
-            itself), and only the controls take the top inset. That is what makes the app read as
-            full-screen rather than sitting below a dead black band.
-          -->
-          <Border x:Name="TopBarInset" Padding="{Binding SafeAreaTop}">
-            <Grid x:Name="TopBar" ColumnDefinitions="Auto,*,Auto" Margin="2,0"
+          <Border x:Name="TopBarInset" Padding="{Binding SafeAreaTop}" BorderThickness="0">
+            <Grid x:Name="TopBar" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6"
+                  MinHeight="{DynamicResource Touch.MinTarget}"
+                  Margin="{DynamicResource Mobile.Navigation.HeaderMargin}"
                   HorizontalAlignment="Stretch">
           <!-- Hamburger: the single entry point to history, library and settings. -->
-          <Button x:Name="MenuButton" Grid.Column="0" Classes="subtle touch icon"
+          <Button x:Name="MenuButton" Grid.Column="0" Classes="chat-header-action floating-action"
+                  AutomationProperties.Name="{Binding NavigationToggleLabel}"
                   IsVisible="{Binding ShowMenuButton}" Command="{Binding ToggleDrawerCommand}">
-            <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
+            <PathIcon Width="{DynamicResource Touch.IconSizeSmall}" Height="{DynamicResource Touch.IconSizeSmall}"
                       Data="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z" />
           </Button>
 
-          <!-- Conversation identity only. Run settings live in one stable composer affordance rather
-               than being duplicated in both the header and composer. -->
-          <TextBlock x:Name="HeaderTitleText" Grid.Column="1"
-                     Text="{Binding HeaderTitle}"
-                     FontWeight="SemiBold" FontSize="{DynamicResource Font.SizeSubtitle}"
-                     TextTrimming="CharacterEllipsis"
-                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <Button x:Name="HeaderDetailsButton" Grid.Column="1" Classes="chat-controls floating-action"
+                  AutomationProperties.Name="{Binding Chat.ModelDisplayName, StringFormat='Chat controls: {0}'}"
+                  AutomationProperties.HelpText="Model, reasoning effort, context, plan and workspace details"
+                  Command="{Binding Chat.OpenRunSettingsSheetCommand}">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                <TextBlock x:Name="HeaderModelText" Text="{Binding Chat.ModelDisplayName}"
+                           FontSize="{DynamicResource Font.SizeBody}" FontWeight="Medium"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <PathIcon x:Name="HeaderControlsIcon" Grid.Column="1"
+                          Width="{DynamicResource Touch.IconSizeSmall}" Height="{DynamicResource Touch.IconSizeSmall}"
+                          VerticalAlignment="Center" Foreground="{DynamicResource Brush.TextSecondary}"
+                          Data="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
+              </Grid>
+          </Button>
 
-          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
-            <Button x:Name="GitChangesButton" Classes="subtle touch icon"
-                    IsVisible="{Binding Chat.HasChat}"
-                    ToolTip.Tip="Git changes (read-only)"
-                    AutomationProperties.Name="Git changes"
-                    Command="{Binding Chat.OpenGitChangesCommand}">
-              <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
-                        Data="M7 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm10 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zM6 7v9a3 3 0 1 0 2 0v-2h4a6 6 0 0 0 6-6h-2a4 4 0 0 1-4 4H8V7H6zm1 11a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" />
-            </Button>
-            <!-- Plan: chat-level state, so it lives in the bar and opens on demand. Pinning it to
-                 the bottom of the transcript pushed the conversation up on every refresh. -->
-            <Button x:Name="PlanButton" Classes="subtle touch icon"
-                    IsVisible="{Binding Chat.HasPlan}"
-                    Command="{Binding Chat.TogglePlanCommand}">
-              <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
-                        Data="M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2zM7 7h10v2H7V7zm0 4h10v2H7v-2zm0 4h7v2H7v-2z" />
-            </Button>
-
-            <!-- Context meter: compact, and only once the window is worth watching. -->
-            <Border x:Name="ContextMeter"
-                    Classes.warn="{Binding Chat.IsContextWarn}"
-                    Classes.critical="{Binding Chat.IsContextCritical}"
-                    Classes="context-meter"
-                    IsVisible="{Binding Chat.ShowContextMeter}">
-              <TextBlock x:Name="ContextText" Text="{Binding Chat.ContextUsageText}"
-                         FontSize="{DynamicResource Font.SizeCaption}" FontWeight="SemiBold" VerticalAlignment="Center" />
-            </Border>
-
-            <Button x:Name="NewChatButton" Classes="subtle touch icon"
+            <Button x:Name="NewChatButton" Grid.Column="2" Classes="chat-header-action new-conversation floating-action"
+                    AutomationProperties.Name="Start a new chat"
                     Command="{Binding ChatList.NewChatCommand}">
-              <PathIcon Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
+              <PathIcon Width="{DynamicResource Touch.IconSizeSmall}" Height="{DynamicResource Touch.IconSizeSmall}"
                         Data="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z" />
             </Button>
-          </StackPanel>
           </Grid>
         </Border>
 
@@ -426,19 +425,18 @@
         <Border x:Name="ConnectionBanner"
                 IsVisible="{Binding ShowConnectionBanner}"
                 Background="{DynamicResource Brush.Surface2}"
-                BorderBrush="{DynamicResource Brush.BorderSubtle}"
-                BorderThickness="1"
+                BorderThickness="0"
                 CornerRadius="14"
                 HorizontalAlignment="Center"
                 Margin="12,4,12,6"
                 Padding="12,6">
-          <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
             <sc:StrataPulse IsLive="False" Width="10" Height="10" VerticalAlignment="Center" />
-            <TextBlock Text="{Binding ConnectionBannerText}"
+            <TextBlock Grid.Column="1" Text="{Binding ConnectionBannerText}" TextWrapping="Wrap"
                        FontSize="{DynamicResource Font.SizeMeta}"
                        Foreground="{DynamicResource Brush.TextSecondary}"
                        VerticalAlignment="Center" />
-          </StackPanel>
+          </Grid>
         </Border>
         <!-- A ready assistant is not a busy session. Keep attached work visible and explicitly
              stoppable without driving the composer or the assistant's typing indicator. -->
@@ -462,6 +460,7 @@
       </sc:StrataChatShell.Header>
 
       <sc:StrataChatShell.Transcript>
+        <Grid>
         <Border x:Name="ChatTranscriptSideInset" Padding="{Binding SafeAreaSides}">
         <StackPanel>
           <ProgressBar x:Name="TranscriptLoading"
@@ -512,17 +511,6 @@
                     IsEnabled="{Binding Chat.CanNavigateTranscript}" />
           </StackPanel>
 
-          <!--
-            The one live-progress affordance, at the end of the conversation exactly like the
-            desktop. It carries the status text as its label, so "Thinking…" becomes "Running
-            powershell…" as Lumi works. Hidden once text is streaming, because the assistant row
-            then shows its own indicator and running both reads as Lumi thinking twice.
-          -->
-          <sc:StrataTypingIndicator x:Name="ChatTyping" Margin="4,6"
-                                    Label="{Binding Chat.ProgressText}"
-                                    IsActive="{Binding Chat.ShowThinking}"
-                                    IsVisible="{Binding Chat.ShowThinking}" />
-
           <Border x:Name="ChatError" Classes="mobile-card" Margin="0,8"
                   BorderBrush="{DynamicResource Brush.BorderError}"
                   IsVisible="{Binding Chat.ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
@@ -538,14 +526,44 @@
           </Border>
         </StackPanel>
         </Border>
+        <Border x:Name="ChatLoadingOverlay" IsVisible="False"
+                IsHitTestVisible="False" Padding="{Binding SafeAreaSides}"
+                Background="{DynamicResource Brush.ChatCanvas}">
+          <StackPanel Margin="0,14,0,0" Spacing="24"
+                      AutomationProperties.Name="Loading conversation">
+            <Border Height="58" Width="210" HorizontalAlignment="Right" CornerRadius="18"
+                    Background="{DynamicResource Brush.Surface2}" />
+            <StackPanel Spacing="12" Margin="0,8,20,0"
+                        sa:LifecycleOpacityPulse.IsActive="True"
+                        sa:LifecycleOpacityPulse.FromOpacity="0.45"
+                        sa:LifecycleOpacityPulse.ToOpacity="0.85"
+                        sa:LifecycleOpacityPulse.Duration="0:0:0.8"
+                        sa:LifecycleOpacityPulse.PlaybackDirection="Alternate">
+              <Border Height="12" Width="220" HorizontalAlignment="Left" CornerRadius="6"
+                      Background="{DynamicResource Brush.Surface2}" />
+              <Border Height="10" CornerRadius="5" Background="{DynamicResource Brush.Surface2}" />
+              <Border Height="10" Margin="0,0,42,0" CornerRadius="5" Background="{DynamicResource Brush.Surface2}" />
+              <Border Height="10" Margin="0,0,90,0" CornerRadius="5" Background="{DynamicResource Brush.Surface2}" />
+            </StackPanel>
+            <TextBlock Text="Loading conversation..." Classes="muted" />
+          </StackPanel>
+        </Border>
+        </Grid>
       </sc:StrataChatShell.Transcript>
 
       <sc:StrataChatShell.Composer>
         <!-- Bottom inset lives here: the gesture bar normally, the keyboard while it is open. -->
         <Border x:Name="ComposerInset" Padding="{Binding SafeAreaBottom}">
           <Border x:Name="ComposerSideInset" Padding="{Binding SafeAreaSides}">
+          <StackPanel MaxWidth="{DynamicResource Chat.ReadingColumnWidth}">
+          <sc:StrataTypingIndicator x:Name="ChatTyping" Classes="mobile-working" Margin="8,0,8,8"
+                                    Label="{Binding Chat.WorkingStatusText}"
+                                    IsActive="{Binding Chat.IsWorking}"
+                                    IsVisible="{Binding Chat.IsWorking}"
+                                    AutomationProperties.Name="{Binding Chat.WorkingStatusText}" />
           <sc:StrataChatComposer x:Name="Composer"
                                Classes="mobile"
+                               IsCompact="True"
                                MaxWidth="{DynamicResource Chat.ReadingColumnWidth}"
                                PromptText="{Binding Chat.PromptText, Mode=TwoWay}"
                                PreferAutoCompleteAbove="True"
@@ -555,7 +573,7 @@
                                CanAttach="True"
                                AttachCommand="{Binding Chat.PickAttachmentCommand}"
                                CanVoice="False"
-                               Placeholder="Ask anything"
+                               Placeholder="Message Lumi"
                                SendCommand="{Binding Chat.SendCommand}"
                                StopCommand="{Binding Chat.StopCommand}"
                                StopAndSendCommand="{Binding Chat.StopAndSendCommand}"
@@ -585,27 +603,26 @@
                                FileSelectedCommand="{Binding Chat.SelectFileCommand}">
           <!-- One run-settings affordance. Model, effort and context are one decision surface, not
                three permanent toolbar controls competing with the prompt. -->
-          <sc:StrataChatComposer.ToolbarContent>
-            <StackPanel Orientation="Horizontal" Spacing="4">
+          <sc:StrataChatComposer.LeadingContent>
               <Button x:Name="ComposerAttachButton" Classes="composer-toolbar-icon"
+                      AutomationProperties.Name="Attach a file"
                       Command="{Binding Chat.PickAttachmentCommand}">
-                <TextBlock Text="+" FontSize="18" FontWeight="SemiBold" />
+                <PathIcon Width="20" Height="20"
+                          Data="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7V4z" />
               </Button>
-
+          </sc:StrataChatComposer.LeadingContent>
+          <sc:StrataChatComposer.ToolbarContent>
               <Button x:Name="ComposerRunSettingsButton" Classes="composer-pill"
+                      AutomationProperties.Name="Choose model and chat settings"
                       Command="{Binding Chat.OpenRunSettingsSheetCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                   <PathIcon Width="15" Height="15" VerticalAlignment="Center"
                             Foreground="{DynamicResource Brush.TextSecondary}"
                             Data="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
-                  <TextBlock Text="{Binding Chat.RunSettingsSummary}" VerticalAlignment="Center"
-                             TextTrimming="CharacterEllipsis" MaxWidth="170" />
-                  <PathIcon Width="10" Height="10" VerticalAlignment="Center"
-                            Foreground="{DynamicResource Brush.TextTertiary}"
-                            Data="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
+                  <TextBlock Text="{Binding Chat.ModelDisplayName}" VerticalAlignment="Center"
+                             TextTrimming="CharacterEllipsis" MaxWidth="140" />
                 </StackPanel>
               </Button>
-            </StackPanel>
           </sc:StrataChatComposer.ToolbarContent>
 
           <!-- Files already uploaded to the PC, waiting on the next message. -->
@@ -627,6 +644,7 @@
                       <TextBlock Text="{Binding FileName}" VerticalAlignment="Center"
                                  TextTrimming="CharacterEllipsis" MaxWidth="170" />
                       <Button Classes="chip-remove"
+                              AutomationProperties.Name="{Binding FileName, StringFormat='Remove {0}'}"
                               Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).Chat.RemoveAttachmentCommand}"
                               CommandParameter="{Binding}">
                         <PathIcon Width="11" Height="11"
@@ -639,39 +657,36 @@
             </ItemsControl>
           </sc:StrataChatComposer.AttachmentContent>
           </sc:StrataChatComposer>
+          </StackPanel>
           </Border>
         </Border>
       </sc:StrataChatShell.Composer>
     </sc:StrataChatShell>
 
-    <!--
-      Empty state.
-
-      Keyed off an EMPTY CONVERSATION, not a missing one. "New chat" creates the chat on the desktop
-      straight away, so HasChat flips true before a single message exists — which is why this panel
-      never appeared when you started a chat and you got a blank screen instead. What the user means
-      by "new chat" is "nothing said yet", and that is Turns.Count == 0.
-    -->
+    <!-- A blank chat stays local until the first send. The welcome yields to the keyboard. -->
     <Border x:Name="WelcomeSideInset"
             Padding="{Binding SafeAreaSides}"
             Margin="0,0,0,110"
             ClipToBounds="True"
             IsVisible="{Binding IsWelcomeVisible}">
-      <ScrollViewer HorizontalScrollBarVisibility="Disabled"
-                    VerticalScrollBarVisibility="Auto"
+      <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Hidden"
                     VerticalAlignment="Center">
       <StackPanel x:Name="NoChatPlaceholder" IsVisible="{Binding IsWelcomeVisible}"
                   VerticalAlignment="Center" HorizontalAlignment="Center"
-                  Spacing="16" Margin="24,16">
+                  Spacing="14" Margin="24,16" MaxWidth="380">
         <Image x:Name="LumiBrandMark"
                Source="avares://Lumi.Mobile/Assets/lumi-icon.png"
-               Width="52" Height="52"
+               Width="56" Height="56"
                HorizontalAlignment="Center" />
         <TextBlock x:Name="GreetingText" Text="{Binding Greeting}"
+                   FontSize="{DynamicResource Font.SizeBody}" Foreground="{DynamicResource Brush.TextSecondary}"
+                   TextAlignment="Center" TextWrapping="Wrap" />
+        <TextBlock Text="What can I help with?"
                    FontSize="{DynamicResource Font.SizeHeadline}" FontWeight="SemiBold"
                    TextAlignment="Center" TextWrapping="Wrap" />
-        <TextBlock Text="Ask anything, or start with one of these."
-                   FontSize="{DynamicResource Font.SizeBody}" Opacity="0.62" Margin="0,-6,0,0"
+        <TextBlock Text="A question, an idea, or something to get done on your PC."
+                   Classes="supporting" Margin="0,-4,0,0"
                    TextAlignment="Center" TextWrapping="Wrap" />
 
         <!-- Full-width rows, not a chip cloud: a phone has one column and a 48px row is a
@@ -681,15 +696,15 @@
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:ChatStarter">
               <Button Classes="starter" Margin="0,0,0,8"
-                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                       Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).Chat.UseSuggestionCommand}"
                       CommandParameter="{Binding Text}">
-                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                   <PathIcon Grid.Column="0" Data="{Binding IconData}" Width="20" Height="20"
                             Foreground="{DynamicResource Brush.AccentDefault}" />
                   <TextBlock Grid.Column="1" Text="{Binding Text}"
                              FontSize="{DynamicResource Font.SizeBody}" VerticalAlignment="Center"
-                             TextTrimming="CharacterEllipsis" MaxLines="1" />
+                             TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxLines="2" />
                 </Grid>
               </Button>
             </DataTemplate>
@@ -702,57 +717,97 @@
     <sc:StrataBottomSheet x:Name="RunSettingsSheet"
                           Classes="safe-area"
                           IsOpen="{Binding Chat.IsRunSettingsSheetOpen, Mode=TwoWay}"
-                          Title="Run settings"
-                          Padding="{Binding SafeAreaSheetTitleMargin}"
-                          Tag="{Binding SafeAreaSheetPresenterMargin}">
-      <Border x:Name="RunSettingsSideInset" Padding="{Binding SafeAreaSides}">
+                          Title="Chat details">
+      <Border x:Name="RunSettingsSideInset">
+        <ScrollViewer Classes="mobile-scroll" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="0,0,0,12">
+        <StackPanel Margin="20,4,20,16" Spacing="6">
+          <TextBlock Text="{Binding HeaderTitle}" FontSize="{DynamicResource Font.SizeTitle}"
+                     FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="3"
+                     TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{Binding Chat.ProjectName}" Classes="supporting"
+                     IsVisible="{Binding Chat.ProjectName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+
+        <Button x:Name="PlanButton" Classes="sheet-item"
+                IsVisible="{Binding Chat.HasPlan}"
+                Command="{Binding Chat.OpenPlanFromRunSettingsCommand}">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+            <PathIcon Width="20" Height="20" VerticalAlignment="Center"
+                      Data="M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2zM7 7h10v2H7V7zm0 4h10v2H7v-2zm0 4h7v2H7v-2z" />
+            <StackPanel Grid.Column="1" Spacing="2">
+              <TextBlock Text="Plan" FontWeight="SemiBold" />
+              <TextBlock Text="See the steps and progress" Classes="muted" />
+            </StackPanel>
+          </Grid>
+        </Button>
+        <Button x:Name="GitChangesButton" Classes="sheet-item"
+                IsVisible="{Binding Chat.HasChat}"
+                AutomationProperties.Name="Git changes"
+                Command="{Binding Chat.OpenGitChangesFromRunSettingsCommand}">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+            <PathIcon Width="20" Height="20" VerticalAlignment="Center"
+                      Data="M7 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm10 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zM6 7v9a3 3 0 1 0 2 0v-2h4a6 6 0 0 0 6-6h-2a4 4 0 0 1-4 4H8V7H6zm1 11a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" />
+            <StackPanel Grid.Column="1" Spacing="2">
+              <TextBlock Text="Git changes" FontWeight="SemiBold" />
+              <TextBlock Text="Review workspace changes, read-only" Classes="muted" TextWrapping="Wrap" />
+            </StackPanel>
+          </Grid>
+        </Button>
+        <TextBlock Text="Preferences" Classes="group-label" Margin="20,16,20,4" />
         <Button x:Name="RunSettingsModelButton" Classes="sheet-item"
                 Command="{Binding Chat.OpenModelFromRunSettingsCommand}">
-          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
             <PathIcon Grid.Column="0" Width="20" Height="20"
                       Data="M12 2 4 6v6c0 4.42 3.05 8.44 8 9.8 4.95-1.36 8-5.38 8-9.8V6l-8-4zm0 4.5 4 2v3.5c0 2.5-1.7 4.8-4 5.7-2.3-.9-4-3.2-4-5.7V8.5l4-2z" />
             <StackPanel Grid.Column="1" Spacing="2">
               <TextBlock Text="Model" FontWeight="SemiBold" />
               <TextBlock Text="{Binding Chat.ModelDisplayName}" Classes="muted" />
             </StackPanel>
-            <PathIcon Grid.Column="2" Width="18" Height="18" VerticalAlignment="Center"
-                      Foreground="{DynamicResource Brush.TextTertiary}"
-                      Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
           </Grid>
         </Button>
 
         <Button x:Name="RunSettingsEffortButton" Classes="sheet-item"
                 Command="{Binding Chat.OpenEffortFromRunSettingsCommand}"
                 IsEnabled="{Binding Chat.HasQualityLevels}">
-          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
             <PathIcon Grid.Column="0" Width="20" Height="20"
                       Data="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z" />
             <StackPanel Grid.Column="1" Spacing="2">
               <TextBlock Text="Reasoning effort" FontWeight="SemiBold" />
               <TextBlock Text="{Binding Chat.EffortLabel}" Classes="muted" />
             </StackPanel>
-            <PathIcon Grid.Column="2" Width="18" Height="18" VerticalAlignment="Center"
-                      Foreground="{DynamicResource Brush.TextTertiary}"
-                      Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
           </Grid>
         </Button>
 
         <Button x:Name="RunSettingsContextButton" Classes="sheet-item"
                 Command="{Binding Chat.OpenContextFromRunSettingsCommand}"
                 IsEnabled="{Binding Chat.HasContextWindowTiers}">
-          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
             <PathIcon Grid.Column="0" Width="20" Height="20"
                       Data="M4 4h16v16H4V4zm2 2v12h12V6H6zm2 2h8v2H8V8zm0 4h8v2H8v-2z" />
             <StackPanel Grid.Column="1" Spacing="2">
               <TextBlock Text="Context window" FontWeight="SemiBold" />
               <TextBlock Text="{Binding Chat.ContextWindowLabel}" Classes="muted" />
             </StackPanel>
-            <PathIcon Grid.Column="2" Width="18" Height="18" VerticalAlignment="Center"
-                      Foreground="{DynamicResource Brush.TextTertiary}"
-                      Data="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
           </Grid>
         </Button>
+
+        <Border x:Name="ContextMeter" Classes="context-meter"
+                Classes.warn="{Binding Chat.IsContextWarn}"
+                Classes.critical="{Binding Chat.IsContextCritical}"
+                IsVisible="{Binding Chat.HasContextUsage}" Margin="20,12,20,4"
+                Padding="14" CornerRadius="14" HorizontalAlignment="Stretch">
+          <StackPanel Spacing="8">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <TextBlock Text="Context used" FontWeight="Medium" />
+              <TextBlock x:Name="ContextText" Grid.Column="1" Text="{Binding Chat.ContextUsageText}"
+                         FontWeight="SemiBold" />
+            </Grid>
+            <ProgressBar Minimum="0" Maximum="100" Value="{Binding Chat.ContextPercent}" Height="4" />
+            <TextBlock Text="{Binding Chat.ContextDetailText}" Classes="muted" />
+          </StackPanel>
+        </Border>
 
         <Border x:Name="RunSettingsWorkspace"
                 IsVisible="{Binding Chat.CanChooseWorktree}"
@@ -785,34 +840,46 @@
             </Grid>
           </StackPanel>
         </Border>
+        <Button x:Name="ChatDetailsDoneButton" Classes="touch" Content="Done"
+                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                Margin="20,16,20,4" Command="{Binding Chat.ClosePickerSheetCommand}" />
         </StackPanel>
+        </ScrollViewer>
       </Border>
     </sc:StrataBottomSheet>
 
     <sc:StrataBottomSheet x:Name="ModelSheet"
                           Classes="safe-area"
                           IsOpen="{Binding Chat.IsModelSheetOpen, Mode=TwoWay}"
-                          Title="Model"
-                          Padding="{Binding SafeAreaSheetTitleMargin}"
-                          Tag="{Binding SafeAreaSheetPresenterMargin}">
-      <Border x:Name="ModelSheetSideInset" Padding="{Binding SafeAreaSides}">
+                          Title="Model">
+      <Border x:Name="ModelSheetSideInset">
         <ScrollViewer Classes="mobile-scroll" MaxHeight="520" Padding="12,0,12,12">
           <StackPanel Spacing="2">
-            <ItemsControl x:Name="ModelSheetList" ItemsSource="{Binding Chat.ModelOptions}">
+            <ItemsControl x:Name="ModelSheetList" ItemsSource="{Binding Chat.ModelGroups}">
               <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:PickerOption">
-                  <Button Classes="sheet-item"
-                          Command="{Binding $parent[ItemsControl].((vm:MobileShellViewModel)DataContext).Chat.PickModelCommand}"
-                          CommandParameter="{Binding Name}">
-                    <Grid ColumnDefinitions="*,Auto">
-                      <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"
-                                 TextTrimming="CharacterEllipsis" />
-                      <PathIcon Grid.Column="1" Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}" VerticalAlignment="Center"
-                                IsVisible="{Binding IsSelected}"
-                                Foreground="{DynamicResource Brush.AccentDefault}"
-                                Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                    </Grid>
-                  </Button>
+                <DataTemplate x:DataType="vm:ModelProviderGroup">
+                  <StackPanel Spacing="4" Margin="0,0,0,12">
+                    <TextBlock Text="{Binding Label}" Classes="group-label" Margin="12,14,12,6" />
+                    <ItemsControl ItemsSource="{Binding Options}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PickerOption">
+                          <Button Classes="sheet-item model-option" Classes.selected="{Binding IsSelected}"
+                                  AutomationProperties.Name="{Binding Label}"
+                                  Command="{Binding $parent[views:ChatDetailView].((vm:MobileShellViewModel)DataContext).Chat.PickModelCommand}"
+                                  CommandParameter="{Binding Name}">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                              <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"
+                                         TextWrapping="Wrap" />
+                              <PathIcon Grid.Column="1" Width="{DynamicResource Touch.IconSize}" Height="{DynamicResource Touch.IconSize}"
+                                        VerticalAlignment="Center" IsVisible="{Binding IsSelected}"
+                                        Foreground="{DynamicResource Brush.AccentDefault}"
+                                        Data="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                            </Grid>
+                          </Button>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
@@ -825,10 +892,8 @@
     <sc:StrataBottomSheet x:Name="ContextSheet"
                           Classes="safe-area"
                           IsOpen="{Binding Chat.IsContextSheetOpen, Mode=TwoWay}"
-                          Title="Context window"
-                          Padding="{Binding SafeAreaSheetTitleMargin}"
-                          Tag="{Binding SafeAreaSheetPresenterMargin}">
-      <Border x:Name="ContextSheetSideInset" Padding="{Binding SafeAreaSides}">
+                          Title="Context window">
+      <Border x:Name="ContextSheetSideInset">
         <ItemsControl ItemsSource="{Binding Chat.ContextTierOptions}" Margin="12,0,12,12">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:PickerOption">
@@ -856,10 +921,8 @@
     <sc:StrataBottomSheet x:Name="EffortSheet"
                           Classes="safe-area"
                           IsOpen="{Binding Chat.IsEffortSheetOpen, Mode=TwoWay}"
-                          Title="Reasoning effort"
-                          Padding="{Binding SafeAreaSheetTitleMargin}"
-                          Tag="{Binding SafeAreaSheetPresenterMargin}">
-      <Border x:Name="EffortSheetSideInset" Padding="{Binding SafeAreaSides}">
+                          Title="Reasoning effort">
+      <Border x:Name="EffortSheetSideInset">
         <StackPanel Margin="24,4,24,28" Spacing="14">
           <TextBlock Text="{Binding Chat.EffortLabel}"
                      FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold"
@@ -880,6 +943,9 @@
             <TextBlock Grid.Column="1" Text="More thorough" Classes="muted"
                        HorizontalAlignment="Right" />
           </Grid>
+          <Button x:Name="EffortDoneButton" Classes="touch accent" Content="Done"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                  Command="{Binding Chat.ClosePickerSheetCommand}" />
         </StackPanel>
       </Border>
     </sc:StrataBottomSheet>
@@ -888,13 +954,11 @@
     <sc:StrataBottomSheet x:Name="PlanSheet"
                           Classes="safe-area"
                           IsOpen="{Binding Chat.IsPlanOpen, Mode=TwoWay}"
-                          Title="Plan"
-                          Padding="{Binding SafeAreaSheetTitleMargin}"
-                          Tag="{Binding SafeAreaSheetPresenterMargin}">
-      <ScrollViewer MaxHeight="440"
+                          Title="Plan">
+      <ScrollViewer Classes="mobile-scroll" MaxHeight="440"
                     Padding="20,0,20,0"
                     HorizontalScrollBarVisibility="Disabled"
-                    VerticalScrollBarVisibility="Auto">
+                    VerticalScrollBarVisibility="Hidden">
         <!--
           ScrollViewer must measure a layout container, not the markdown control directly. With the
           direct child, the sheet's bottom-aligned measure and markdown's desired-size updates fed
@@ -912,16 +976,14 @@
     <sc:StrataBottomSheet x:Name="SourcesSheet"
                           Classes="safe-area"
                           IsOpen="{Binding Chat.IsSourcesSheetOpen, Mode=TwoWay}"
-                          Title="Sources"
-                          Padding="{Binding SafeAreaSheetTitleMargin}"
-                          Tag="{Binding SafeAreaSheetPresenterMargin}">
-      <Border x:Name="SourcesSheetSideInset" Padding="{Binding SafeAreaSides}">
+                          Title="Sources">
+      <Border x:Name="SourcesSheetSideInset">
         <ContentControl Content="{Binding Chat.SelectedSourceAnswer}">
           <ContentControl.ContentTemplate>
             <DataTemplate x:DataType="vm:AssistantItemViewModel">
-              <ScrollViewer MaxHeight="560"
+              <ScrollViewer Classes="mobile-scroll" MaxHeight="560"
                             HorizontalScrollBarVisibility="Disabled"
-                            VerticalScrollBarVisibility="Auto">
+                            VerticalScrollBarVisibility="Hidden">
                 <StackPanel Margin="14,0,14,20" Spacing="10">
                   <TextBlock Text="References used in this answer"
                              FontSize="{DynamicResource Font.SizeSubtitle}"
@@ -974,16 +1036,14 @@
     <sc:StrataBottomSheet x:Name="ActivitySheet"
                           Classes="safe-area"
                           IsOpen="{Binding Chat.IsActivitySheetOpen, Mode=TwoWay}"
-                          Title="How Lumi worked"
-                          Padding="{Binding SafeAreaSheetTitleMargin}"
-                          Tag="{Binding SafeAreaSheetPresenterMargin}">
-      <Border x:Name="ActivitySheetSideInset" Padding="{Binding SafeAreaSides}">
+                          Title="How Lumi worked">
+      <Border x:Name="ActivitySheetSideInset">
         <ContentControl Content="{Binding Chat.SelectedActivity}">
           <ContentControl.ContentTemplate>
             <DataTemplate x:DataType="vm:ActivitySummaryItemViewModel">
-              <ScrollViewer MaxHeight="560"
+              <ScrollViewer Classes="mobile-scroll" MaxHeight="560"
                             HorizontalScrollBarVisibility="Disabled"
-                            VerticalScrollBarVisibility="Auto">
+                            VerticalScrollBarVisibility="Hidden">
                 <StackPanel Margin="16,0,16,22" Spacing="14">
             <TextBlock Text="{Binding SummaryText}"
                        FontSize="{DynamicResource Font.SizeSubtitle}"

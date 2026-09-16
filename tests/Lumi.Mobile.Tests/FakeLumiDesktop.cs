@@ -51,6 +51,10 @@ public sealed class FakeLumiDesktop : IAsyncDisposable
     public TaskCompletionSource? ReleaseChatResponse { get; set; }
 
     public RemoteTranscript Transcript { get; set; } = new();
+    public Func<HttpListenerRequest, Task<RemoteTranscript>>? TranscriptResponseFactory { get; set; }
+    public List<string> Capabilities { get; } = [RemoteProtocol.Capabilities.ScopedEventsV1];
+    public Func<Guid, RemoteGitChanges>? GitChangesFactory { get; set; }
+    public Func<Guid, string, string, RemoteGitDiff>? GitDiffFactory { get; set; }
 
     public List<RemoteCommand> ReceivedCommands { get; } = [];
     public Func<RemoteCommand?, RemoteCommandResult>? CommandResultFactory { get; set; }
@@ -164,7 +168,7 @@ public sealed class FakeLumiDesktop : IAsyncDisposable
                 await WriteJsonAsync(context, JsonSerializer.Serialize(
                     new RemoteHello
                     {
-                        Capabilities = [RemoteProtocol.Capabilities.ScopedEventsV1],
+                        Capabilities = [.. Capabilities],
                         InstanceId = "fake",
                         HostName = HostName,
                         UserName = UserName,
@@ -211,7 +215,7 @@ public sealed class FakeLumiDesktop : IAsyncDisposable
         {
             case RemoteProtocol.Routes.Snapshot:
                 Interlocked.Increment(ref _snapshotRequestCount);
-                Snapshot.Capabilities = [RemoteProtocol.Capabilities.ScopedEventsV1];
+                Snapshot.Capabilities = [.. Capabilities];
                 await WriteJsonAsync(context,
                     JsonSerializer.Serialize(Snapshot, RemoteJsonContext.Default.RemoteSnapshot));
                 return;
@@ -293,8 +297,23 @@ public sealed class FakeLumiDesktop : IAsyncDisposable
 
             case RemoteProtocol.Routes.Transcript:
                 Interlocked.Increment(ref _transcriptRequestCount);
+                var transcript = TranscriptResponseFactory is { } responder
+                    ? await responder(context.Request)
+                    : Transcript;
                 await WriteJsonAsync(context,
-                    JsonSerializer.Serialize(Transcript, RemoteJsonContext.Default.RemoteTranscript));
+                    JsonSerializer.Serialize(transcript, RemoteJsonContext.Default.RemoteTranscript));
+                return;
+
+            case RemoteProtocol.Routes.GitChanges when GitChangesFactory is { } gitChanges:
+                await WriteJsonAsync(context, JsonSerializer.Serialize(
+                    gitChanges(Guid.Parse(context.Request.QueryString["chatId"]!)), RemoteJsonContext.Default.RemoteGitChanges));
+                return;
+
+            case RemoteProtocol.Routes.GitDiff when GitDiffFactory is { } gitDiff:
+                await WriteJsonAsync(context, JsonSerializer.Serialize(
+                    gitDiff(Guid.Parse(context.Request.QueryString["chatId"]!),
+                        context.Request.QueryString["scopeId"]!, context.Request.QueryString["path"]!),
+                    RemoteJsonContext.Default.RemoteGitDiff));
                 return;
 
             case RemoteProtocol.Routes.Command:
@@ -355,7 +374,7 @@ public sealed class FakeLumiDesktop : IAsyncDisposable
 
         var writer = new StreamWriter(context.Response.OutputStream, new UTF8Encoding(false)) { AutoFlush = false };
 
-        Snapshot.Capabilities = [RemoteProtocol.Capabilities.ScopedEventsV1];
+        Snapshot.Capabilities = [.. Capabilities];
         await writer.WriteAsync(new RemoteEventFrame(
             RemoteProtocol.Events.Snapshot,
             JsonSerializer.Serialize(Snapshot, RemoteJsonContext.Default.RemoteSnapshot)).ToWire());

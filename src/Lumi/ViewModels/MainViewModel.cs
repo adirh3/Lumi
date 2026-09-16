@@ -1103,7 +1103,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
             RefreshProjectRunningState();
         else if (e.PropertyName == nameof(Chat.HasUnreadMessages))
             RefreshUnreadState();
+        else if (e.PropertyName != nameof(Chat.IsSessionActive))
+            return;
+
+        if (sender is Chat chat)
+            ChatActivityOrReadStateChanged?.Invoke(chat.Id);
     }
+
+    public event Action<Guid>? ChatActivityOrReadStateChanged;
 
     /// <summary>Recalculates IsRunning for all projects based on current chat states.</summary>
     public void RefreshProjectRunningState()

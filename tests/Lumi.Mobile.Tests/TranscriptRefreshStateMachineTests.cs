@@ -343,6 +343,70 @@ public sealed class TranscriptRefreshStateMachineTests
     }
 
     [Fact]
+    public async Task ChatActivationDoesNotExposeAnEmptyWelcomeBeforeTheTranscriptIsApplied()
+    {
+        var chatId = Guid.NewGuid();
+        var response = new TaskCompletionSource<RemoteTranscript>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new ControlledRemoteHandler { TranscriptResponder = (_, _) => response.Task };
+        await using var shell = CreateConfiguredShell(handler);
+        shell.Chat.Reset(Guid.NewGuid(), "Previous");
+        shell.Chat.ApplyTranscript(Transcript(shell.Chat.ChatId, "Previous", 1, 0, 2, 2, ["previous"]));
+        var emptyDuringLoad = false;
+        shell.Chat.PropertyChanged += (_, args) =>
+        {
+            if (shell.Chat.ChatId == chatId && args.PropertyName == nameof(MobileChatViewModel.IsEmpty)
+                && shell.Chat.IsEmpty)
+                emptyDuringLoad = true;
+        };
+
+        shell.ChatList.OpenChatCommand.Execute(new ChatListItemViewModel(
+            new RemoteChat { Id = chatId, Title = "Next", MessageCount = 2 }));
+        Assert.True(shell.Chat.IsLoading);
+        Assert.True(shell.Chat.IsInitialLoading);
+        Assert.False(shell.IsWelcomeVisible);
+        await handler.NextTranscriptRequestAsync();
+        var ready = WaitForPropertyAsync(shell.Chat, nameof(MobileChatViewModel.IsLoading),
+            () => !shell.Chat.IsLoading);
+        response.SetResult(Transcript(chatId, "Next", 1, 0, 2, 2, ["next"]));
+        await ready;
+        Assert.False(emptyDuringLoad);
+        Assert.Equal("next", Assert.Single(shell.Chat.Turns).Id);
+        Assert.False(shell.Chat.IsInitialLoading);
+    }
+
+    [Fact]
+    public async Task SelectingTheCurrentChatKeepsItsRowsDraftAndHistoryWindow()
+    {
+        var chatId = Guid.NewGuid();
+        var handler = new ControlledRemoteHandler();
+        await using var shell = CreateConfiguredShell(handler);
+        shell.Chat.Reset(chatId, "Current");
+        shell.Chat.ApplyTranscript(Transcript(chatId, "Current", 1, 10, 20, 100, ["older-page"]));
+        shell.Chat.PromptText = "Keep this draft";
+        var turn = Assert.Single(shell.Chat.Turns);
+        var resets = 0;
+        shell.Chat.ChatSurfaceReset += () => resets++;
+        shell.IsDrawerOpen = true;
+        shell.ChatList.OpenChatCommand.Execute(new ChatListItemViewModel(
+            new RemoteChat { Id = chatId, Title = "Current", MessageCount = 100 }));
+
+        Assert.False(shell.IsDrawerOpen);
+        Assert.Same(turn, Assert.Single(shell.Chat.Turns));
+        Assert.Equal("Keep this draft", shell.Chat.PromptText);
+        Assert.Equal(10, shell.Chat.WindowStartMessageIndex);
+        Assert.Equal(0, resets);
+        Assert.False(shell.Chat.IsLoading);
+        Assert.Equal(0, handler.TranscriptRequestCount);
+    }
+
+    [Fact]
+    public void InitialCompactHistoryHasA48ItemRenderBudgetWithoutReducingPagingCapacity()
+    {
+        Assert.Equal(48, RemoteProtocol.InitialCompactTranscriptWindowVisibleItemLimit);
+        Assert.Equal(400, RemoteProtocol.CompactTranscriptWindowVisibleItemLimit);
+    }
+
+    [Fact]
     public async Task SwitchingChats_CancelsOrIgnoresThePriorWindowAndOnlyAppliesTheNewChat()
     {
         var oldChatId = Guid.NewGuid();

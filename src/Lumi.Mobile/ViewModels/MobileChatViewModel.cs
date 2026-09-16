@@ -500,6 +500,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     public bool IsEmpty => Turns.Count == 0 && !IsLoading;
 
+    public bool IsInitialLoading => IsLoading && Turns.Count == 0;
+
+    internal bool IsApplyingTranscript { get; private set; }
+
+    public event Action? TranscriptApplied;
+
     public bool CanNavigateTranscript => !IsLoading;
 
     public string NewerActivityLabel => HasNewerActivity
@@ -515,6 +521,13 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// user's message, then yields only once another visible response row can take over.
     /// </summary>
     public bool ShowThinking => (IsBusy || IsStreaming) && _awaitingVisibleActivity;
+
+    public bool IsWorking => IsBusy || IsStreaming;
+
+    public string WorkingStatusText => !string.IsNullOrWhiteSpace(StatusText) ? StatusText!
+        : ShowThinking ? "Thinking…"
+        : IsStreaming ? "Writing…"
+        : "Working…";
 
     /// <summary>
     /// What Lumi is doing right now, in words — the label on the transcript's thinking row. The
@@ -589,6 +602,23 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private void OpenRunSettingsSheet() => IsRunSettingsSheetOpen = true;
 
     [RelayCommand]
+    private void ClosePickerSheet() => DismissTopmostSheet();
+
+    [RelayCommand]
+    private void OpenPlanFromRunSettings()
+    {
+        IsRunSettingsSheetOpen = false;
+        TogglePlanCommand.Execute(null);
+    }
+
+    [RelayCommand]
+    private async Task OpenGitChangesFromRunSettingsAsync()
+    {
+        IsRunSettingsSheetOpen = false;
+        await OpenGitChangesCommand.ExecuteAsync(null);
+    }
+
+    [RelayCommand]
     private void SelectLocalWorkspace()
     {
         if (!CanChooseWorktree)
@@ -640,6 +670,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// </summary>
     public ObservableCollection<PickerOption> ModelOptions { get; } = [];
 
+    public ObservableCollection<ModelProviderGroup> ModelGroups { get; } = [];
+
     public ObservableCollection<PickerOption> QualityOptions { get; } = [];
 
     public ObservableCollection<PickerOption> ContextTierOptions { get; } = [];
@@ -647,6 +679,28 @@ public sealed partial class MobileChatViewModel : ObservableObject
     private void RefreshPickerOptions()
     {
         SyncOptions(ModelOptions, AvailableModels, Model, DisplayModel);
+        var groups = ModelOptions.GroupBy(option => StrataModelPicker.GetModelProviderLabel(option.Name)).ToList();
+        for (var i = 0; i < groups.Count; i++)
+        {
+            if (i >= ModelGroups.Count)
+                ModelGroups.Add(new ModelProviderGroup(groups[i].Key));
+            else if (ModelGroups[i].Label != groups[i].Key)
+                ModelGroups[i] = new ModelProviderGroup(groups[i].Key);
+
+            var options = groups[i].ToList();
+            var target = ModelGroups[i].Options;
+            while (target.Count > options.Count)
+                target.RemoveAt(target.Count - 1);
+            for (var j = 0; j < options.Count; j++)
+            {
+                if (j >= target.Count)
+                    target.Add(options[j]);
+                else if (target[j] != options[j])
+                    target[j] = options[j];
+            }
+        }
+        while (ModelGroups.Count > groups.Count)
+            ModelGroups.RemoveAt(ModelGroups.Count - 1);
         SyncOptions(QualityOptions, QualityLevels, Quality);
         SyncOptions(ContextTierOptions, ContextWindowTiers, ContextWindowTier);
 
@@ -892,6 +946,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     partial void OnIsLoadingChanged(bool value)
     {
         OnPropertyChanged(nameof(IsEmpty));
+        OnPropertyChanged(nameof(IsInitialLoading));
         OnPropertyChanged(nameof(CanChooseWorktree));
         OnPropertyChanged(nameof(CanNavigateTranscript));
     }
@@ -912,12 +967,18 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     partial void OnIsStreamingChanged(bool value) => RaiseWorkingChanged();
 
-    partial void OnStatusTextChanged(string? value) => OnPropertyChanged(nameof(ProgressText));
+    partial void OnStatusTextChanged(string? value)
+    {
+        OnPropertyChanged(nameof(ProgressText));
+        OnPropertyChanged(nameof(WorkingStatusText));
+    }
 
     private void RaiseWorkingChanged()
     {
         OnPropertyChanged(nameof(ShowThinking));
         OnPropertyChanged(nameof(ProgressText));
+        OnPropertyChanged(nameof(IsWorking));
+        OnPropertyChanged(nameof(WorkingStatusText));
     }
 
     partial void OnContextCurrentTokensChanged(long value) => RaiseContextChanged();
@@ -1483,7 +1544,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     }
 
     /// <summary>Clears everything so a chat switch never flashes the previous conversation.</summary>
-    public void Reset(Guid chatId, string title, string? model = null)
+    public void Reset(Guid chatId, string title, string? model = null, bool isLoading = false)
     {
         ResetGitChanges();
         var previousSurface = CurrentSurface;
@@ -1506,6 +1567,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
             ChatId = chatId;
             Title = title;
+            IsLoading = isLoading;
             DisposeTurns();
             Turns.Clear();
             ChatSurfaceReset?.Invoke();
@@ -1516,7 +1578,15 @@ public sealed partial class MobileChatViewModel : ObservableObject
             ContextWindowTiers.Clear();
             ErrorText = null;
             TranscriptErrorText = null;
+            ContextCurrentTokens = 0;
+            ContextTokenLimit = 0;
+            StatusText = null;
             PlanContent = null;
+            IsPlanOpen = false;
+            IsRunSettingsSheetOpen = false;
+            IsModelSheetOpen = false;
+            IsContextSheetOpen = false;
+            IsEffortSheetOpen = false;
             IsActivitySheetOpen = false;
             SelectedActivity = null;
             IsSourcesSheetOpen = false;
@@ -1534,7 +1604,6 @@ public sealed partial class MobileChatViewModel : ObservableObject
             IsSessionActive = false;
             IsBusy = false;
             IsStreaming = false;
-            IsLoading = false;
             IsUploading = false;
             _revision = -1;
             _pendingEchoBaselineRevision = null;
@@ -1555,6 +1624,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(IsEmpty));
+        OnPropertyChanged(nameof(IsInitialLoading));
         OnPropertyChanged(nameof(CanChooseWorktree));
         OnPropertyChanged(nameof(ShowThinking));
         OnPropertyChanged(nameof(HasQualityLevels));
@@ -1578,6 +1648,21 @@ public sealed partial class MobileChatViewModel : ObservableObject
     }
 
     public void ApplyTranscript(RemoteTranscript transcript, long? statusVersionAtRequest = null)
+    {
+        IsApplyingTranscript = true;
+        try
+        {
+            ApplyTranscriptCore(transcript, statusVersionAtRequest);
+        }
+        finally
+        {
+            IsApplyingTranscript = false;
+            OnPropertyChanged(nameof(IsInitialLoading));
+            TranscriptApplied?.Invoke();
+        }
+    }
+
+    private void ApplyTranscriptCore(RemoteTranscript transcript, long? statusVersionAtRequest)
     {
         if (transcript.ChatId != ChatId)
             return;
@@ -2660,6 +2745,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         _awaitingVisibleActivity = value;
         OnPropertyChanged(nameof(ShowThinking));
+        OnPropertyChanged(nameof(WorkingStatusText));
     }
 
     private void MarkVisibleResponseActivity()
@@ -3418,6 +3504,12 @@ public sealed record PendingAttachment(string FileName, string Path);
 /// <param name="Glyph">Emoji shown ahead of the label.</param>
 /// <param name="Text">The prompt text placed into the composer when tapped.</param>
 public sealed record ChatStarter(string IconData, string Text);
+
+public sealed class ModelProviderGroup(string label)
+{
+    public string Label { get; } = label;
+    public ObservableCollection<PickerOption> Options { get; } = [];
+}
 
 /// <summary>One row in a picker sheet, carrying whether it is the current selection.</summary>
 /// <param name="Name">The value, shown as the row's label.</param>

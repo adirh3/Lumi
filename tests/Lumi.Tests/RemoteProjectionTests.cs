@@ -218,7 +218,7 @@ public sealed class RemoteProjectionTests
     [InlineData(false)]
     public void BackgroundOnlySessionProjectsReadyForActiveAndInactiveChats(bool isCurrentChat)
     {
-        var chat = new Chat { Title = "Background session" };
+        var chat = new Chat { Title = "Background session", HasUnreadMessages = true };
         var dataStore = new DataStore(new AppData { Chats = [chat] });
         using var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared)
         {
@@ -239,6 +239,7 @@ public sealed class RemoteProjectionTests
         Assert.False(status.IsBusy);
         Assert.False(status.IsStreaming);
         Assert.True(status.IsSessionActive);
+        Assert.True(status.HasUnreadMessages);
 
         var transcript = RemoteProjector.BuildTranscript(
             chat,
@@ -249,6 +250,7 @@ public sealed class RemoteProjectionTests
             revision: 1);
         Assert.False(transcript.Status.IsBusy);
         Assert.True(transcript.Status.IsSessionActive);
+        Assert.True(transcript.Status.HasUnreadMessages);
     }
 
     [Fact]

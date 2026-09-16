@@ -47,6 +47,7 @@ internal sealed class RemoteEventHub : IDisposable
     private readonly HashSet<Guid> _statusDirtyChatIds = [];
     private readonly HashSet<Guid> _transcriptDirtyChatIds = [];
     private readonly HashSet<Guid> _deletedChatIds = [];
+    private readonly HashSet<Guid> _chatStateDirtyIds = [];
     private readonly Dictionary<Guid, ChatRowState> _chatRowStates = [];
 
     private bool _chatsDirty;
@@ -220,6 +221,7 @@ internal sealed class RemoteEventHub : IDisposable
         _main.PropertyChanged += OnMainPropertyChanged;
         _main.ChatGroups.CollectionChanged += OnChatGroupsChanged;
         _main.ChatDeleted += OnChatDeleted;
+        _main.ChatActivityOrReadStateChanged += OnChatActivityOrReadStateChanged;
         _dataStore.ChatContentChanged += OnChatContentChanged;
         _dataStore.IndexSaved += OnLibraryChanged;
 
@@ -233,6 +235,7 @@ internal sealed class RemoteEventHub : IDisposable
         _main.PropertyChanged -= OnMainPropertyChanged;
         _main.ChatGroups.CollectionChanged -= OnChatGroupsChanged;
         _main.ChatDeleted -= OnChatDeleted;
+        _main.ChatActivityOrReadStateChanged -= OnChatActivityOrReadStateChanged;
         _dataStore.ChatContentChanged -= OnChatContentChanged;
         _dataStore.IndexSaved -= OnLibraryChanged;
 
@@ -374,6 +377,22 @@ internal sealed class RemoteEventHub : IDisposable
     }
 
     private void OnChatGroupsChanged(object? sender, NotifyCollectionChangedEventArgs e) => MarkChatsDirty();
+
+    private void OnChatActivityOrReadStateChanged(Guid chatId)
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => OnChatActivityOrReadStateChanged(chatId));
+            return;
+        }
+
+        if (HasChatListSubscriber())
+        {
+            _chatStateDirtyIds.Add(chatId);
+            MarkChatsDirty();
+        }
+        MarkStatusDirty(chatId);
+    }
 
     private void OnChatDeleted(Guid chatId)
     {
@@ -604,6 +623,7 @@ internal sealed class RemoteEventHub : IDisposable
             _statusDirtyChatIds.Clear();
             _transcriptDirtyChatIds.Clear();
             _deletedChatIds.Clear();
+            _chatStateDirtyIds.Clear();
             return;
         }
 
@@ -649,13 +669,17 @@ internal sealed class RemoteEventHub : IDisposable
                 static client => client.IsForeground);
         }
 
-        if (_statusDirtyChatIds.Count > 0)
+        if (_statusDirtyChatIds.Count > 0 || _chatStateDirtyIds.Count > 0)
         {
-            var dirtyChatIds = _statusDirtyChatIds.ToArray();
+            var dirtyChatIds = _statusDirtyChatIds.Union(_chatStateDirtyIds).ToArray();
             _statusDirtyChatIds.Clear();
             foreach (var chatId in dirtyChatIds)
             {
-                if (!HasChatSubscriber(chatId))
+                // A first-page list patch cannot update an older row the phone has already paged in.
+                // Reuse per-chat coalescing so these read/running transitions are not lost when a
+                // slower client replaces its pending first-page patch.
+                var includeChatList = _chatStateDirtyIds.Contains(chatId);
+                if (!HasChatSubscriber(chatId) && !(includeChatList && HasChatListSubscriber()))
                     continue;
 
                 var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
@@ -668,8 +692,9 @@ internal sealed class RemoteEventHub : IDisposable
                     RemoteProjector.BuildStatus(_dataStore, owner ?? _main.ChatVM, chat),
                     RemoteJsonContext.Default.RemoteChatStatus,
                     $"status:{chatId:N}",
-                    client => client.WantsChat(chatId));
+                    client => client.WantsChat(chatId) || (includeChatList && client.WantsChatList));
             }
+            _chatStateDirtyIds.Clear();
         }
 
         if (_transcriptDirtyChatIds.Count > 0)

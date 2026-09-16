@@ -997,6 +997,8 @@ public class GitFileChange
 
     public int LinesAdded { get; set; }
     public int LinesRemoved { get; set; }
+    public bool HasLineStatistics { get; set; }
+    public bool IsBinary { get; set; }
 
     public bool IsSubmoduleFile => !string.IsNullOrEmpty(SubmodulePath);
 
@@ -1053,6 +1055,8 @@ public class GitFileChange
             SubmodulePath = string.IsNullOrEmpty(SubmodulePath) ? prefix : $"{prefix}/{SubmodulePath}",
             LinesAdded = LinesAdded,
             LinesRemoved = LinesRemoved,
+            HasLineStatistics = HasLineStatistics,
+            IsBinary = IsBinary,
         };
     }
 

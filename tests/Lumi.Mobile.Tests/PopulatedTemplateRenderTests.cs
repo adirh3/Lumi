@@ -4,6 +4,7 @@ using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -77,17 +78,31 @@ public sealed class PopulatedTemplateRenderTests
         failure?.Throw();
     }
 
+    private static void AssertChatCardSurface(Control control, string partName)
+    {
+        var surface = control.GetVisualDescendants().OfType<Border>()
+            .Single(border => border.Name == partName);
+        var chat = control.GetVisualAncestors().OfType<ChatDetailView>().First();
+        Assert.Equal(1, surface.BorderThickness.Left);
+        Assert.True(surface.CornerRadius.TopLeft >= 12);
+        Assert.NotEqual(
+            Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(chat.Background).Color,
+            Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(surface.Background).Color);
+    }
+
     private static IReadOnlyList<Button> Rows(Window window, string itemsControlName)
     {
         var host = window.GetVisualDescendants().OfType<ItemsControl>().Single(c => c.Name == itemsControlName);
         return [.. host.GetVisualDescendants().OfType<Button>()];
     }
 
-    [Fact]
-    public async Task ChatRowsRenderAndTheirCommandsResolveToTheListViewModel()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ChatRowsRenderAndTheirCommandsResolveToTheListViewModel(bool search)
     {
         await Run(
-            shell => shell.ChatList.Apply(
+            shell => (search ? shell.SearchChatList : shell.ChatList).Apply(
             [
                 new RemoteChatGroup
                 {
@@ -115,30 +130,82 @@ public sealed class PopulatedTemplateRenderTests
                     Chats = [new RemoteChat { Id = Guid.NewGuid(), Title = "Older chat" }]
                 }
             ]),
-            shell => new MobileDrawerView { DataContext = shell },
+            shell => search
+                ? new MobileSearchView { DataContext = shell }
+                : new MobileDrawerView { DataContext = shell },
             (window, shell) =>
             {
-                var rows = Rows(window, "DrawerChatGroups");
+                var list = search ? shell.SearchChatList : shell.ChatList;
+                var rows = Rows(window, search ? "SearchResults" : "DrawerChatGroups")
+                    .Where(row => ReferenceEquals(row.Command, list.OpenChatCommand)).ToList();
                 Assert.Equal(3, rows.Count);
 
                 // The command binding is the exact thing that used to throw. A bound, executable
                 // command proves the cast through the vm: prefix resolved.
-                Assert.Same(shell.ChatList.OpenChatCommand, rows[0].Command);
+                Assert.Same(list.OpenChatCommand, rows[0].Command);
                 Assert.NotNull(rows[0].CommandParameter);
-                Assert.True(
-                    rows.All(row => row.Transitions is null || row.Transitions.Count == 0),
-                    "chat selection must snap; a background transition leaves the previous row lit briefly");
+                if (!search)
+                    Assert.True(
+                        rows.All(row => row.Transitions is null || row.Transitions.Count == 0),
+                        "chat selection must snap; a background transition leaves the previous row lit briefly");
 
-                var busy = window.GetVisualDescendants().OfType<Border>()
-                    .Single(border => border.Name == "BusyIndicator" && border.IsEffectivelyVisible);
-                Assert.Equal(6, busy.Bounds.Width);
-                Assert.Equal(6, busy.Bounds.Height);
-                Assert.True(StrataTheme.Animation.LifecycleOpacityPulse.GetIsActive(busy));
-                Assert.Equal(1, StrataTheme.Animation.LifecycleOpacityPulse.GetFromOpacity(busy));
-                Assert.Equal(0.3, StrataTheme.Animation.LifecycleOpacityPulse.GetToOpacity(busy));
-                Assert.Contains(
-                    rows[0].GetVisualDescendants().OfType<Border>(),
-                    border => border.Classes.Contains("project-badge") && border.IsEffectivelyVisible);
+                Assert.Contains("running", rows[0].Classes);
+                var title = Assert.Single(rows[0].GetVisualDescendants().OfType<TextBlock>(),
+                    text => text.Classes.Contains("conversation-title"));
+                Assert.Equal("Pinned chat", title.Text);
+                var background = Assert.Single(rows[0].GetVisualDescendants().OfType<PathIcon>(),
+                    icon => icon.Name == "BackgroundActivityIndicator");
+                Assert.False(background.IsEffectivelyVisible);
+                var running = Assert.Single(rows[0].GetVisualDescendants().OfType<Border>(),
+                    border => border.Classes.Contains("chat-list-status"));
+                Assert.True(StrataTheme.Animation.LifecycleOpacityPulse.GetIsActive(running));
+                Assert.True(running.IsEffectivelyVisible);
+                Assert.Equal(6, running.Bounds.Width);
+                Assert.Equal(6, running.Bounds.Height);
+                Assert.Equal(0, running.BorderThickness.Left);
+                Assert.Equal(1, StrataTheme.Animation.LifecycleOpacityPulse.GetFromOpacity(running));
+                Assert.Equal(0.3, StrataTheme.Animation.LifecycleOpacityPulse.GetToOpacity(running));
+                Assert.Equal(TimeSpan.FromSeconds(1.2), StrataTheme.Animation.LifecycleOpacityPulse.GetDuration(running));
+                Assert.Equal(Avalonia.Animation.PlaybackDirection.Alternate,
+                    StrataTheme.Animation.LifecycleOpacityPulse.GetPlaybackDirection(running));
+                Assert.Equal(StrataTheme.Animation.LifecycleOpacityPulseEasing.Linear,
+                    StrataTheme.Animation.LifecycleOpacityPulse.GetEasing(running));
+                var dotEnd = running.TranslatePoint(new Point(running.Bounds.Width, 0), rows[0])!.Value.X;
+                Assert.Equal(7, title.TranslatePoint(default, rows[0])!.Value.X - dotEnd, precision: 1);
+                Assert.Single(rows[0].GetVisualDescendants().OfType<TextBlock>());
+                var vm = Assert.IsType<ChatListItemViewModel>(rows[0].DataContext);
+                Assert.Equal(vm.AccessibilityName, Avalonia.Automation.AutomationProperties.GetName(rows[0]));
+                vm.HasUnreadMessages = false;
+                Dispatcher.UIThread.RunJobs();
+                Assert.True(StrataTheme.Animation.LifecycleOpacityPulse.GetIsActive(running));
+                Assert.True(running.IsEffectivelyVisible);
+                vm.HasUnreadMessages = true;
+                vm.IsSessionActive = false;
+                vm.IsRunning = false;
+                Dispatcher.UIThread.RunJobs();
+                Assert.False(StrataTheme.Animation.LifecycleOpacityPulse.GetIsActive(running));
+                Assert.True(running.IsEffectivelyVisible);
+                Assert.Equal(7, title.TranslatePoint(default, rows[0])!.Value.X - dotEnd, precision: 1);
+                vm.HasUnreadMessages = false;
+                Dispatcher.UIThread.RunJobs();
+                Assert.False(StrataTheme.Animation.LifecycleOpacityPulse.GetIsActive(running));
+                Assert.False(running.IsEffectivelyVisible);
+
+                vm.IsSessionActive = true;
+                Dispatcher.UIThread.RunJobs();
+                Assert.True(background.IsEffectivelyVisible);
+                Assert.Equal(10, background.Bounds.Width);
+                Assert.Equal(10, background.Bounds.Height);
+                Assert.False(running.IsEffectivelyVisible);
+                vm.HasUnreadMessages = true;
+                Dispatcher.UIThread.RunJobs();
+                Assert.True(background.IsEffectivelyVisible);
+                Assert.True(running.IsEffectivelyVisible);
+                Assert.False(StrataTheme.Animation.LifecycleOpacityPulse.GetIsActive(running));
+                vm.IsSessionActive = false;
+                Dispatcher.UIThread.RunJobs();
+                Assert.False(background.IsEffectivelyVisible);
+                Assert.True(running.IsEffectivelyVisible);
             });
     }
 
@@ -174,13 +241,16 @@ public sealed class PopulatedTemplateRenderTests
             shell => new LibraryView { DataContext = shell.Library },
             (window, shell) =>
             {
-                var row = Assert.Single(Rows(window, "LibraryEntries"));
+                var row = Assert.Single(Rows(window, "LibraryEntries"),
+                    button => ReferenceEquals(button.Command, shell.Library.BeginEditCommand));
                 Assert.Same(shell.Library.BeginEditCommand, row.Command);
             });
     }
 
-    [Fact]
-    public async Task RecordedQaWorkDisclosureContainsExpandedPreamblesAndKeepsTheFinalOutside()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RecordedQaWorkDisclosureContainsExpandedPreamblesAndKeepsTheFinalOutside(bool dark)
     {
         await Run(
             shell =>
@@ -192,6 +262,10 @@ public sealed class PopulatedTemplateRenderTests
             shell => new ChatDetailView { DataContext = shell },
             (window, shell) =>
             {
+                window.RequestedThemeVariant = dark
+                    ? Avalonia.Styling.ThemeVariant.Dark : Avalonia.Styling.ThemeVariant.Light;
+                Thread.Sleep(250);
+                Dispatcher.UIThread.RunJobs();
                 const string finalId = "43a1dc625cd643d689fd7646ac2d1ce2";
                 var preambleIds = new[] { "88b852c448e7447d854bb511ed8c9529", "7341167d7b874750aec8e2b7bc1093ec" };
                 var turn = shell.Chat.Turns[0];
@@ -199,6 +273,7 @@ public sealed class PopulatedTemplateRenderTests
                 var button = Assert.Single(window.GetVisualDescendants().OfType<Button>(),
                     button => ReferenceEquals(button.DataContext, work));
                 Assert.Same(work.ToggleCommand, button.Command);
+                AssertChatCardSurface(button, "PART_Surface");
                 Assert.Equal("Work 58s", work.Label);
                 Assert.Equal(new[] { finalId }, VisibleAnswers());
 
@@ -216,6 +291,9 @@ public sealed class PopulatedTemplateRenderTests
                 Assert.Equal(finalId, turn.DisplayItems[^1].Id);
                 Assert.Contains(window.GetVisualDescendants().OfType<Button>(),
                     control => control.DataContext is ActivitySummaryItemViewModel && control.IsEffectivelyVisible);
+                foreach (var activity in window.GetVisualDescendants().OfType<Button>()
+                             .Where(control => control.DataContext is ActivitySummaryItemViewModel))
+                    AssertChatCardSurface(activity, "PART_Surface");
 
                 button.Command.Execute(null);
                 Dispatcher.UIThread.RunJobs();
@@ -229,8 +307,10 @@ public sealed class PopulatedTemplateRenderTests
             });
     }
 
-    [Fact]
-    public async Task TranscriptTurnsAndNestedToolCallsRender()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TranscriptTurnsAndNestedToolCallsRender(bool dark)
     {
         await Run(
             shell =>
@@ -360,6 +440,10 @@ public sealed class PopulatedTemplateRenderTests
             shell => new ChatDetailView { DataContext = shell },
             (window, shell) =>
             {
+                window.RequestedThemeVariant = dark
+                    ? Avalonia.Styling.ThemeVariant.Dark : Avalonia.Styling.ThemeVariant.Light;
+                Thread.Sleep(250);
+                Dispatcher.UIThread.RunJobs();
                 var transcript = window.GetVisualDescendants().OfType<ItemsControl>()
                     .Single(c => c.Name == "Transcript");
 
@@ -380,6 +464,15 @@ public sealed class PopulatedTemplateRenderTests
                 Assert.NotEmpty(window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataTerminalPreview>());
                 Assert.NotEmpty(window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataQuestionCard>());
                 Assert.NotEmpty(window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataFileAttachment>());
+                foreach (var card in window.GetVisualDescendants().OfType<Control>()
+                             .Where(control => control is StrataTheme.Controls.StrataAiToolCall
+                                 or StrataTheme.Controls.StrataTerminalPreview))
+                    AssertChatCardSurface(card, "PART_Root");
+                foreach (var reasoning in window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataThink>())
+                    AssertChatCardSurface(reasoning, "PART_Pill");
+                foreach (var source in window.GetVisualDescendants().OfType<Button>()
+                             .Where(button => button.Classes.Contains("source-card")))
+                    AssertChatCardSurface(source, "PART_Surface");
 
                 var sourceAnswer = Assert.IsType<AssistantItemViewModel>(
                     shell.Chat.Turns[0].Items.Single(item =>
@@ -392,10 +485,14 @@ public sealed class PopulatedTemplateRenderTests
                 Assert.Single(sourceAnswer.Sources);
                 Assert.True(shell.Chat.DismissTopmostSheet());
 
+                shell.Chat.OpenRunSettingsSheetCommand.Execute(null);
+                window.InvalidateMeasure();
+                Dispatcher.UIThread.RunJobs();
                 var planButton = window.GetVisualDescendants().OfType<Button>()
                     .Single(button => button.Name == "PlanButton");
                 Assert.True(planButton.IsEffectivelyVisible);
-                shell.Chat.TogglePlanCommand.Execute(null);
+                planButton.Command!.Execute(planButton.CommandParameter);
+                Assert.False(shell.Chat.IsRunSettingsSheetOpen);
                 var planSheet = window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataBottomSheet>()
                     .Single(sheet => sheet.Name == "PlanSheet");
                 Assert.True(planSheet.IsOpen);

@@ -42,7 +42,14 @@ public sealed class MobileShellViewTests
 {
     private const string Pc = "LIGHTO-DESKTOP";
 
-    private static async Task Run(Action<MobileShellViewModel, Window> body)
+    private static Task Run(Action<MobileShellViewModel, Window> body) =>
+        RunAsync((shell, window) =>
+        {
+            body(shell, window);
+            return Task.CompletedTask;
+        });
+
+    private static async Task RunAsync(Func<MobileShellViewModel, Window, Task> body)
     {
         using var session = HeadlessMobileSession.Start();
         ExceptionDispatchInfo? failure = null;
@@ -54,7 +61,13 @@ public sealed class MobileShellViewTests
             try
             {
                 // post: run inline so property fan-out is observable without pumping the dispatcher.
-                shell = new MobileShellViewModel(store: session.NewStore(), post: action => action());
+                shell = new MobileShellViewModel(store: session.NewStore(), post: action =>
+                {
+                    if (Dispatcher.UIThread.CheckAccess())
+                        action();
+                    else
+                        Dispatcher.UIThread.Post(action);
+                });
                 window = new Window
                 {
                     Width = 412,
@@ -63,7 +76,7 @@ public sealed class MobileShellViewTests
                 };
                 window.Show();
 
-                body(shell, window);
+                await body(shell, window);
             }
             catch (Exception ex)
             {
@@ -161,6 +174,12 @@ public sealed class MobileShellViewTests
                 focusChanged(true);
             }
 
+            public void Blur()
+            {
+                FocusRequested = false;
+                focusChanged(false);
+            }
+
             public void SimulateText(string value, int? caretIndex = null)
             {
                 Value = value;
@@ -249,7 +268,7 @@ public sealed class MobileShellViewTests
             Assert.Equal(0, separator.Bounds.Height);
 
             // Nothing is docked or slid open on a phone until the user asks for it.
-            Assert.False(Named(window, "DockedDrawer").IsVisible);
+            Assert.False(shell.IsDrawerDocked);
             Assert.False(DrawerOpen(window));
         });
     }
@@ -452,18 +471,22 @@ public sealed class MobileShellViewTests
         }
     }
 
-    [Fact]
-    public async Task BrowserTextInputOverlaysSynchronizeSearchAndLibraryEditors()
+    [Theory]
+    [InlineData(412)]
+    [InlineData(1100)]
+    public async Task BrowserTextInputOverlaysSynchronizeSearchAndLibraryEditors(double width)
     {
         var presenter = new RecordingNativeTextInputOverlayPresenter();
         MobilePlatformServices.TextInputOverlayPresenter = presenter;
         try
         {
-            await Run((shell, window) =>
+            await RunAsync(async (shell, window) =>
             {
                 Pair(shell);
                 OpenChat(shell);
-                Layout(window, shell, 412, 892);
+                Layout(window, shell, width, 892);
+                await Task.Delay(360);
+                Pump(window);
 
                 var composerBox = window.GetVisualDescendants()
                     .OfType<TextBox>()
@@ -471,25 +494,32 @@ public sealed class MobileShellViewTests
                 var composerSession = Assert.Single(
                     presenter.Sessions,
                     session => session.IsShown
-                               && session.Options.Placeholder == "Ask anything");
+                               && session.Options.Placeholder == composerBox.PlaceholderText);
                 Assert.True(NativeTextInputOverlay.GetForwardEnterKey(composerBox));
                 Assert.Equal("enter", composerSession.Options.EnterKeyHint);
                 Assert.True(composerSession.Options.IsMultiline);
                 var emptyComposerBounds = composerSession.Bounds;
                 composerSession.SimulateText("שלום");
+                await Task.Delay(340);
                 Pump(window);
                 Assert.Equal("שלום", shell.Chat.PromptText);
                 Assert.Equal("rtl", composerSession.Options.Direction);
-                Assert.Equal(emptyComposerBounds, composerSession.Bounds);
+                var draftComposerBounds = composerSession.Bounds;
+                Assert.True(draftComposerBounds.Width > emptyComposerBounds.Width);
+                Assert.True(draftComposerBounds.Y < emptyComposerBounds.Y);
 
                 composerSession.FocusAt(5);
+                await Task.Delay(340);
+                Pump(window);
+                var focusedComposerBounds = composerSession.Bounds;
+                Assert.Equal(draftComposerBounds, focusedComposerBounds);
                 var nativeFocusCount = composerSession.FocusRequestCount;
                 composerSession.SimulateText("Hello from browser", 5);
                 Pump(window);
                 Assert.Equal("Hello from browser", shell.Chat.PromptText);
                 Assert.Equal("Hello from browser", composerBox.Text);
                 Assert.Equal("ltr", composerSession.Options.Direction);
-                Assert.Equal(emptyComposerBounds, composerSession.Bounds);
+                Assert.Equal(focusedComposerBounds, composerSession.Bounds);
                 Assert.Equal(5, composerBox.CaretIndex);
                 Assert.Equal(nativeFocusCount, composerSession.FocusRequestCount);
                 composerBox.CaretIndex = 12;
@@ -534,6 +564,11 @@ public sealed class MobileShellViewTests
                     "A modal sheet must suspend browser inputs behind its scrim.");
                 shell.Library.IsRowActionsOpen = false;
                 Pump(window);
+                Assert.False(librarySearch.IsShown,
+                    "The browser input must stay behind the closing sheet.");
+                await Task.Delay(240);
+                Pump(window);
+                Assert.True(librarySearch.IsShown);
 
                 shell.Library.IsEditing = true;
                 Pump(window);
@@ -698,21 +733,20 @@ public sealed class MobileShellViewTests
 
     /// <summary>
     /// At expanded widths the drawer docks beside the chat — and is still collapsible, because even
-    /// on a tablet the sidebar costs the conversation a third of its width. The hamburger stays.
+    /// on a tablet the sidebar costs the conversation a third of its width.
     /// </summary>
     [Fact]
     public async Task ExpandedWidth_DocksTheDrawerAndLetsTheUserCollapseIt()
     {
-        await Run((shell, window) =>
+        await RunAsync(async (shell, window) =>
         {
             Pair(shell);
             Layout(window, shell, 1112, 834);
 
             Assert.True(shell.IsDrawerDocked);
             Assert.True(shell.ShowMenuButton);
-            Assert.True(Named(window, "DockedDrawer").IsVisible);
-            Assert.False(DrawerOpen(window));
-            Assert.False(DrawerOpen(window));
+            Assert.True(DrawerOpen(window));
+            Assert.False(Drawer(window).IsModal);
 
             var narrow = Named(window, "ChatSurface").Bounds.Width;
 
@@ -722,14 +756,26 @@ public sealed class MobileShellViewTests
             Pump(window);
 
             Assert.True(shell.IsSidebarCollapsed);
-            Assert.False(Named(window, "DockedDrawer").IsVisible);
+            // Pump can advance a frame; verify the live edge instead of assuming motion has not begun.
+            var expectedWidth = window.ClientSize.Width - Drawer(window).PanelWidth * Drawer(window).Progress;
+            Assert.InRange(Math.Abs(expectedWidth - Named(window, "ChatSurface").Bounds.Width), 0, 1);
+            await Task.Delay(55);
+            Pump(window);
+            Assert.InRange(Drawer(window).Progress, 0.001, 0.999);
+            Assert.True(Named(window, "ChatSurface").Bounds.Width > narrow);
+            await Task.Delay(300);
+            Pump(window);
+            Assert.Equal(0, Drawer(window).Progress);
             Assert.False(DrawerOpen(window));
             Assert.True(Named(window, "ChatSurface").Bounds.Width > narrow);
 
             shell.ToggleDrawerCommand.Execute(null);
             Pump(window);
+            await Task.Delay(300);
+            Pump(window);
 
-            Assert.True(Named(window, "DockedDrawer").IsVisible);
+            Assert.True(DrawerOpen(window));
+            Assert.Equal(1, Drawer(window).Progress);
         });
     }
 
@@ -740,12 +786,13 @@ public sealed class MobileShellViewTests
         {
             Pair(shell);
             Layout(window, shell, 1112, 834);
-            Assert.True(Named(window, "DockedDrawer").IsVisible);
+            Assert.True(DrawerOpen(window));
 
             Layout(window, shell, 412, 892);
 
             Assert.False(shell.IsDrawerDocked);
-            Assert.False(Named(window, "DockedDrawer").IsVisible);
+            Assert.False(DrawerOpen(window));
+            Assert.Equal(0, Drawer(window).Progress);
             Assert.True(shell.ShowMenuButton);
         });
     }
@@ -949,14 +996,16 @@ public sealed class MobileShellViewTests
     [Fact]
     public async Task BackDismissesTheDrawerThenThePageThenStops()
     {
-        await Run((shell, window) =>
+        await RunAsync(async (shell, window) =>
         {
             Pair(shell);
             Layout(window, shell, 412, 892);
 
             shell.ShowPageCommand.Execute("Settings");
             shell.ToggleDrawerCommand.Execute(null);
+            await Task.Delay(80);
             Pump(window);
+            Assert.True(shell.IsDrawerPresented);
 
             // Drawer first: it is the topmost thing on screen.
             Assert.True(shell.CanGoBack);
@@ -1012,7 +1061,7 @@ public sealed class MobileShellViewTests
 
             // The drawer must end exactly at the crease. Docking it at the default 320 would leave
             // the conversation starting mid-drawer and running underneath the physical fold.
-            var drawer = Named(window, "DockedDrawer");
+            var drawer = Named(window, "DrawerPane");
             Assert.True(drawer.IsVisible);
             Assert.Equal(430, drawer.Bounds.Width, 1);
         });
@@ -1034,6 +1083,7 @@ public sealed class MobileShellViewTests
             Layout(window, shell, 412, 892);
 
             var presence = Assert.IsType<StrataPresence>(Named(window, "Presence"));
+            Assert.True(presence.AnimateWhileWorking);
 
             var resting = presence.FocusPoint.Y;
             Assert.True(resting > 0.6, $"idle field sat at {resting:F2}, expected it low near the composer");
@@ -1364,11 +1414,10 @@ public sealed class MobileShellViewTests
     }
 
     /// <summary>
-    /// A docked sidebar is pinned open, so the drag must be off: swiping there would fight the
-    /// transcript for a gesture that has nothing to do.
+    /// Phone and tablet navigation share horizontal gestures; vertical intent still belongs to chat.
     /// </summary>
     [Fact]
-    public async Task Drawer_DoesNotDragWhileDocked()
+    public async Task Drawer_RemainsDraggableWhileDocked()
     {
         await Run((shell, window) =>
         {
@@ -1379,7 +1428,7 @@ public sealed class MobileShellViewTests
 
             Layout(window, shell, 1100, 900);
             Assert.True(shell.IsDrawerDocked);
-            Assert.False(Drawer(window).IsDragEnabled);
+            Assert.True(Drawer(window).IsDragEnabled);
         });
     }
 
@@ -1480,6 +1529,31 @@ public sealed class MobileShellViewTests
     }
 
     [Fact]
+    public async Task ScrollingButtonUnderTheFingerDoesNotTurnTheReleaseIntoAClick()
+    {
+        await Run((_, window) =>
+        {
+            var clicks = 0;
+            var row = new Button { Content = "Summary", Width = 280, Height = 56 };
+            row.Click += (_, _) => clicks++;
+            window.Content = row;
+            Pump(window);
+            var center = row.TranslatePoint(new Point(row.Bounds.Width / 2, row.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(center, MouseButton.Left);
+            row.RenderTransform = new TranslateTransform(0, 40);
+            Pump(window);
+            window.MouseMove(center + new Point(0, 40), RawInputModifiers.LeftMouseButton);
+            window.MouseUp(center + new Point(0, 40), MouseButton.Left);
+            Pump(window);
+            Assert.Equal(0, clicks);
+
+            window.MouseDown(center + new Point(0, 40), MouseButton.Left);
+            window.MouseUp(center + new Point(0, 40), MouseButton.Left);
+            Assert.Equal(1, clicks);
+        });
+    }
+
+    [Fact]
     public async Task DraggingAcrossAButton_DoesNotInvokeItOnRelease()
     {
         await Run((shell, window) =>
@@ -1519,7 +1593,7 @@ public sealed class MobileShellViewTests
     [Fact]
     public async Task CriticalChatActions_AreActuallyHittable()
     {
-        await Run((shell, window) =>
+        await RunAsync(async (shell, window) =>
         {
             Pair(shell);
             OpenChat(shell);
@@ -1531,6 +1605,9 @@ public sealed class MobileShellViewTests
             shell.Chat.Model = "claude-opus-5";
             shell.Chat.PromptText = "hello";
             Layout(window, shell, 412, 892);
+            Named(window, "PART_Input").Focus();
+            await Task.Delay(280);
+            Pump(window);
 
             foreach (var name in new[]
                      {
@@ -1944,9 +2021,9 @@ public sealed class MobileShellViewTests
             var scrollers = drawer.GetVisualDescendants().OfType<ScrollViewer>().ToList();
             Assert.Single(scrollers);
 
-            // New chat, Library and Projects must all live inside it — they used to be pinned.
+            // Library and history share the scrolling surface; the project selector stays in the footer.
             var scroller = scrollers[0];
-            foreach (var name in new[] { "DrawerNewChatButton", "DrawerLibraryButton", "DrawerProjects" })
+            foreach (var name in new[] { "DrawerLibraryButton", "DrawerChatGroups" })
             {
                 var row = drawer.GetVisualDescendants().OfType<Control>().Single(c => c.Name == name);
                 Assert.True(
@@ -1957,6 +2034,8 @@ public sealed class MobileShellViewTests
             // Search and the account row stay pinned, exactly like ChatGPT's drawer.
             var search = drawer.GetVisualDescendants().OfType<Control>().Single(c => c.Name == "DrawerSearchButton");
             Assert.DoesNotContain(scroller, search.GetVisualAncestors());
+            var projects = drawer.GetVisualDescendants().OfType<Control>().Single(c => c.Name == "DrawerProjectButton");
+            Assert.DoesNotContain(scroller, projects.GetVisualAncestors());
         });
     }
 
@@ -2018,6 +2097,10 @@ public sealed class MobileShellViewTests
 
             var rows = Named(window, "ModelSheetList").GetVisualDescendants().OfType<Button>().ToList();
             Assert.Equal(3, rows.Count);
+            Assert.Equal(shell.Chat.ModelOptions.Select(option => StrataModelPicker.GetModelProviderLabel(option.Name)).Distinct(),
+                shell.Chat.ModelGroups.Select(group => group.Label));
+            Assert.All(shell.Chat.ModelGroups, group => Assert.NotEmpty(group.Options));
+            Assert.Equal(1, shell.Chat.ModelGroups.Sum(group => group.Options.Count(option => option.IsSelected)));
             Assert.All(rows, r => Assert.True(r.Bounds.Height >= 48, $"row was {r.Bounds.Height}px tall"));
             Assert.Contains(
                 rows.SelectMany(row => row.GetVisualDescendants().OfType<TextBlock>()),
@@ -2131,7 +2214,7 @@ public sealed class MobileShellViewTests
     [Fact]
     public async Task Composer_ShowsRunSettingsAndOpensTheSheet()
     {
-        await Run((shell, window) =>
+        await RunAsync(async (shell, window) =>
         {
             Pair(shell);
             OpenChat(shell);
@@ -2155,6 +2238,9 @@ public sealed class MobileShellViewTests
 
             Assert.Equal("Claude Opus 5 · High", shell.Chat.RunSettingsSummary);
 
+            Named(window, "PART_Input").Focus();
+            await Task.Delay(280);
+            Pump(window);
             var pill = Assert.IsType<Button>(Named(window, "ComposerRunSettingsButton"));
             Assert.True(pill.IsVisible);
             Assert.True(pill.Bounds.Height >= 48, $"pill was {pill.Bounds.Height}px tall");
@@ -2261,6 +2347,8 @@ public sealed class MobileShellViewTests
             shell.Chat.Reset(Guid.Empty, "New chat");
             shell.SelectProjectCommand.Execute(firstProject);
             shell.Chat.IsBusy = true;
+            Assert.False(shell.CanChangeProjectScope);
+            Assert.False(shell.OpenProjectPickerCommand.CanExecute(null));
 
             shell.SelectProjectCommand.Execute(secondProject);
             shell.ClearProjectCommand.Execute(null);
@@ -2295,9 +2383,9 @@ public sealed class MobileShellViewTests
     }
 
     [Fact]
-    public async Task CompactComposer_KeepsAttachSettingsAndSendOnOneRow()
+    public async Task ExpandedComposer_KeepsAttachSettingsAndSendOnOneRow()
     {
-        await Run((shell, window) =>
+        await RunAsync(async (shell, window) =>
         {
             Pair(shell);
             Layout(window, shell, 360, 780);
@@ -2312,13 +2400,18 @@ public sealed class MobileShellViewTests
             Pump(window);
 
             var composer = Named(window, "Composer");
+            Assert.InRange(composer.Bounds.Height, 48, 76);
+            Named(window, "PART_Input").Focus();
+            await Task.Delay(280);
+            Pump(window);
             var attach = Named(window, "ComposerAttachButton");
             var settings = Named(window, "ComposerRunSettingsButton");
             var send = Named(window, "PART_SendButton");
 
-            Assert.True(composer.Bounds.Height <= 120, $"compact composer was {composer.Bounds.Height:0.#}dp tall");
-            Assert.True(Math.Abs(attach.Bounds.Y - settings.Bounds.Y) < 1);
-            Assert.True(Math.Abs(attach.Bounds.Y - send.Bounds.Y) < 1);
+            Assert.True(composer.Bounds.Height <= 144, $"expanded composer was {composer.Bounds.Height:0.#}dp tall");
+            var attachTop = attach.TranslatePoint(default, composer)!.Value.Y;
+            Assert.Equal(attachTop, settings.TranslatePoint(default, composer)!.Value.Y, precision: 1);
+            Assert.Equal(attachTop, send.TranslatePoint(default, composer)!.Value.Y, precision: 1);
         });
     }
 
@@ -2344,7 +2437,10 @@ public sealed class MobileShellViewTests
                 .First(text => text.Text?.StartsWith("Research an intentionally", StringComparison.Ordinal) == true);
 
             Assert.Equal(TextTrimming.CharacterEllipsis, starterText.TextTrimming);
-            Assert.Equal(1, starterText.MaxLines);
+            Assert.Equal(2, starterText.MaxLines);
+            Assert.Equal(TextWrapping.Wrap, starterText.TextWrapping);
+            Assert.Equal(Avalonia.Layout.HorizontalAlignment.Stretch,
+                starterText.GetVisualAncestors().OfType<Button>().First().HorizontalContentAlignment);
         });
     }
 

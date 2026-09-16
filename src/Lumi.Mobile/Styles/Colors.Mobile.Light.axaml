@@ -9,15 +9,13 @@
     resources outrank a theme's ThemeDictionaries, so the dark values won in BOTH variants and
     switching to light changed nothing at all.
 
-    ELEVATION inverts on light. Tinting a surface darker to raise it reads as a hole, not a lift, so
-    height comes from SHADOW first, with an almost-white surface and a hairline border. Levels 0 and
-    1 are close on purpose: a phone in daylight shows banding between large light greys much more
-    readily than between dark ones.
+    A near-white conversation canvas sits beside softly tinted navigation. A fine edge separates
+    the panes without adding frames around the content or floating controls.
   -->
 
   <!-- Level 0 — the canvas. A hint off white so raised white surfaces have something to lift from. -->
-  <Color x:Key="Color.Background">#F7F7F9</Color>
-  <Color x:Key="Color.Surface0">#F7F7F9</Color>
+  <Color x:Key="Color.Background">#FAFAFD</Color>
+  <Color x:Key="Color.Surface0">#FAFAFD</Color>
 
   <!-- Level 1 — drawer, cards. -->
   <Color x:Key="Color.Surface1">#FCFCFE</Color>
@@ -40,7 +38,7 @@
   <!-- Not pure black: full-contrast body text on white is harsh at phone reading distance. -->
   <Color x:Key="Color.TextPrimary">#16161A</Color>
   <Color x:Key="Color.TextSecondary">#5A5A66</Color>
-  <Color x:Key="Color.TextTertiary">#8A8A96</Color>
+  <Color x:Key="Color.TextTertiary">#6D6D7B</Color>
 
   <Color x:Key="Color.SubtleHover">#0D000000</Color>
   <Color x:Key="Color.SubtlePressed">#1A000000</Color>
@@ -70,6 +68,8 @@
   <SolidColorBrush x:Key="Brush.Surface1Translucent" Color="{StaticResource Color.Surface1}" Opacity="0.78" />
   <SolidColorBrush x:Key="Brush.Surface1Glass" Color="{StaticResource Color.Surface1}" Opacity="0.52" />
   <SolidColorBrush x:Key="Brush.Surface2" Color="{StaticResource Color.Surface2}" />
+  <SolidColorBrush x:Key="Brush.Surface3" Color="{StaticResource Color.SurfaceOverlay}" />
+  <SolidColorBrush x:Key="Brush.SurfaceCard" Color="{StaticResource Color.Surface1}" />
   <SolidColorBrush x:Key="Brush.SurfaceOverlay" Color="{StaticResource Color.SurfaceOverlay}" />
   <SolidColorBrush x:Key="Brush.TextPrimary" Color="{StaticResource Color.TextPrimary}" />
   <SolidColorBrush x:Key="Brush.TextSecondary" Color="{StaticResource Color.TextSecondary}" />
@@ -84,4 +84,18 @@
   <SolidColorBrush x:Key="Brush.SubtleHover" Color="{StaticResource Color.SubtleHover}" />
   <SolidColorBrush x:Key="Brush.SubtlePressed" Color="{StaticResource Color.SubtlePressed}" />
   <SolidColorBrush x:Key="Brush.OverlayScrim" Color="{StaticResource Color.OverlayScrim}" />
+  <SolidColorBrush x:Key="Brush.NavigationSurface" Color="#F4F5F8" />
+  <SolidColorBrush x:Key="Brush.NavigationControl" Color="#FFFFFF" />
+  <SolidColorBrush x:Key="Brush.NavigationSelected" Color="#E9E3F9" />
+  <SolidColorBrush x:Key="Brush.ChatCanvas" Color="#FDFDFE" />
+  <SolidColorBrush x:Key="Brush.ChatPaneSeparation" Color="#DFE2EA" />
+  <BoxShadows x:Key="Shadow.ChatPaneSeparation">2 0 6 0 #10182033</BoxShadows>
+  <SolidColorBrush x:Key="Brush.ChatUserSurface" Color="#EBE6FA" />
+  <SolidColorBrush x:Key="Brush.FloatingControl" Color="#F2FFFFFF" />
+  <SolidColorBrush x:Key="Brush.FloatingControlPressed" Color="#E8F0EDF9" />
+  <SolidColorBrush x:Key="Brush.GlassBorder" Color="#30677591" />
+  <SolidColorBrush x:Key="Brush.GlassBorderStrong" Color="#52677591" />
+  <SolidColorBrush x:Key="Brush.ComposerGlass" Color="#DEFFFFFF" />
+  <BoxShadows x:Key="Shadow.FloatingControl">0 2 3 0 #160D1530, 0 4 12 0 #190D1530</BoxShadows>
+  <BoxShadows x:Key="Shadow.Composer">0 2 4 0 #100D1530, 0 5 18 0 #1B0D1530</BoxShadows>
 </ResourceDictionary>

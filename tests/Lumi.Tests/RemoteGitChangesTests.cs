@@ -64,6 +64,19 @@ public sealed class RemoteGitChangesTests
         Assert.Contains(changes.Files, f => f.RelativePath == "deleted.txt" && f.Kind == GitChangeKind.Deleted);
         Assert.Contains(changes.Files, f => f.RelativePath == "new name.txt" && f.Kind == GitChangeKind.Renamed);
         Assert.Contains(changes.Files, f => f.RelativePath == "新 file.txt" && f.Kind == GitChangeKind.Untracked);
+        var scope = new RemoteGitScope(Guid.NewGuid(), null, "Test", "scope", false, repo.Path);
+        var listed = await RemoteGitChangesService.GetChangesAsync(scope, CancellationToken.None);
+        var tracked = Assert.Single(listed.Files, file => file.Path == "tracked.txt");
+        Assert.Equal(2, tracked.LinesAdded);
+        Assert.Equal(2, tracked.LinesRemoved);
+        var deleted = Assert.Single(listed.Files, file => file.Path == "deleted.txt");
+        Assert.Equal(0, deleted.LinesAdded);
+        Assert.Equal(1, deleted.LinesRemoved);
+        Assert.Equal(1, Assert.Single(listed.Files, file => file.Path == "新 file.txt").LinesAdded);
+        var binary = Assert.Single(listed.Files, file => file.Path == "binary.dat");
+        Assert.True(binary.IsBinary);
+        Assert.Null(binary.LinesAdded);
+        Assert.Null(binary.LinesRemoved);
         var modified = await repo.Diff("tracked.txt");
         Assert.Contains("-original", modified.Text);
         Assert.Contains("+staged", modified.Text);
@@ -104,6 +117,10 @@ public sealed class RemoteGitChangesTests
         Assert.Equal(oldPath, file.OriginalRepoRelativePath);
         Assert.Equal(newPath, file.RepoRelativePath);
         var scope = new RemoteGitScope(Guid.NewGuid(), null, "Test", "scope", false, repo.Path);
+        var summary = await RemoteGitChangesService.GetChangesAsync(scope, CancellationToken.None);
+        var renamed = Assert.Single(summary.Files);
+        Assert.Equal(edit ? 1 : 0, renamed.LinesAdded);
+        Assert.Equal(edit ? 1 : 0, renamed.LinesRemoved);
         var diff = await RemoteGitChangesService.GetDiffAsync(scope, newPath, CancellationToken.None);
         Assert.Contains($"rename from {oldPath}", diff.UnifiedDiff);
         Assert.Contains($"rename to {newPath}", diff.UnifiedDiff);
@@ -155,6 +172,10 @@ public sealed class RemoteGitChangesTests
         Assert.Equal("new.txt", file.RepoRelativePath);
         Assert.Equal("old.txt", file.OriginalRepoRelativePath);
         var scope = new RemoteGitScope(Guid.NewGuid(), null, "Test", "scope", false, repo.Path);
+        var summary = await RemoteGitChangesService.GetChangesAsync(scope, CancellationToken.None);
+        var nested = Assert.Single(summary.Files, change => change.Path == $"{modulePath}/inner/new.txt");
+        Assert.Equal(0, nested.LinesAdded);
+        Assert.Equal(0, nested.LinesRemoved);
         var diff = await RemoteGitChangesService.GetDiffAsync(scope, file.RelativePath, CancellationToken.None);
         Assert.Equal($"{modulePath}/inner/new.txt", diff.Path);
         Assert.Contains("rename from old.txt", diff.UnifiedDiff);
@@ -186,6 +207,8 @@ public sealed class RemoteGitChangesTests
         var scope = new RemoteGitScope(Guid.NewGuid(), null, "Test", "scope", false, repo.Path);
         var summary = await RemoteGitChangesService.GetChangesAsync(scope, CancellationToken.None);
         Assert.Equal("Recreated", Assert.Single(summary.Files).Kind);
+        Assert.Equal(2, summary.Files[0].LinesAdded);
+        Assert.Equal(2, summary.Files[0].LinesRemoved);
         var diff = await RemoteGitChangesService.GetDiffAsync(scope, "same.txt", CancellationToken.None);
         Assert.Contains("Staged changes", diff.UnifiedDiff);
         Assert.Contains("Working tree changes", diff.UnifiedDiff);
@@ -203,6 +226,80 @@ public sealed class RemoteGitChangesTests
             repo.Path, "same.txt", 1, 256, CancellationToken.None);
         Assert.True(bounded.Truncated);
         Assert.InRange(bounded.Text.Length, 1, 256);
+    }
+
+    [Theory]
+    [InlineData("one\ntwo\n", 2)]
+    [InlineData("one\r\ntwo", 2)]
+    [InlineData("", 0)]
+    public async Task LineStatistics_WorkBeforeFirstCommitAndBoundLargeUntrackedFiles(string content, int lines)
+    {
+        using var repo = new Repository();
+        await repo.Git("init");
+        File.WriteAllText(repo.File("staged.txt"), content);
+        await repo.Git("add", "staged.txt");
+        File.WriteAllText(repo.File("untracked.txt"), content);
+        File.WriteAllText(repo.File("large.txt"), new string('x', 1024 * 1024 + 2));
+        var scope = new RemoteGitScope(Guid.NewGuid(), null, "Test", "scope", false, repo.Path);
+
+        var summary = await RemoteGitChangesService.GetChangesAsync(scope, CancellationToken.None);
+
+        Assert.Equal(lines, Assert.Single(summary.Files, file => file.Path == "staged.txt").LinesAdded);
+        Assert.Equal(lines, Assert.Single(summary.Files, file => file.Path == "untracked.txt").LinesAdded);
+        var large = Assert.Single(summary.Files, file => file.Path == "large.txt");
+        Assert.Null(large.LinesAdded);
+        Assert.Null(large.LinesRemoved);
+        Assert.False(large.IsBinary);
+    }
+
+    [SkippableFact]
+    public async Task UnreadableStatisticsDoNotHideTheChangedFileList()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "This regression requires Windows file-sharing semantics.");
+        using var repo = new Repository();
+        await repo.Git("init");
+        File.WriteAllText(repo.File("locked.txt"), "original\n");
+        await repo.Git("add", "locked.txt");
+        await repo.Git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+            "commit", "-m", "fixture");
+        File.WriteAllText(repo.File("locked.txt"), "a longer working tree change\n");
+        File.WriteAllText(repo.File("available.txt"), "still reachable\n");
+        using var locked = new FileStream(repo.File("locked.txt"), FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        var status = await GitService.GetReadOnlyChangesAsync(repo.Path, 200, CancellationToken.None);
+        Assert.Contains(status.Files, file => file.RelativePath == "locked.txt");
+        var scope = new RemoteGitScope(Guid.NewGuid(), null, "Test", "scope", false, repo.Path);
+        var summary = await RemoteGitChangesService.GetChangesAsync(scope, CancellationToken.None);
+
+        Assert.Equal(2, summary.Files.Count);
+        Assert.All(summary.Files, file =>
+        {
+            Assert.Null(file.LinesAdded);
+            Assert.Null(file.LinesRemoved);
+        });
+        Assert.Contains("+still reachable", (await repo.Diff("available.txt")).Text);
+    }
+
+    [Fact]
+    public async Task StagedBinaryDeletionRecreatedAsTextKeepsLineStatisticsUnavailable()
+    {
+        using var repo = new Repository();
+        await repo.Git("init");
+        File.WriteAllBytes(repo.File("same.txt"), [0, 1, 0, 255]);
+        await repo.Git("add", "same.txt");
+        await repo.Git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+            "commit", "-m", "fixture");
+        await repo.Git("rm", "same.txt");
+        File.WriteAllText(repo.File("same.txt"), "one\ntwo\n");
+        var scope = new RemoteGitScope(Guid.NewGuid(), null, "Test", "scope", false, repo.Path);
+
+        var summary = await RemoteGitChangesService.GetChangesAsync(scope, CancellationToken.None);
+
+        var file = Assert.Single(summary.Files);
+        Assert.Equal("Recreated", file.Kind);
+        Assert.True(file.IsBinary);
+        Assert.Null(file.LinesAdded);
+        Assert.Null(file.LinesRemoved);
     }
 
     [Theory]

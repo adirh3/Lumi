@@ -328,9 +328,9 @@ public sealed class LumiRemoteClientDeadlineTests
     }
 
     [Fact]
-    public async Task EventStreamDoesNotUseTheFiniteRequestDeadline()
+    public async Task EstablishedEventStreamDoesNotUseTheFiniteRequestDeadline()
     {
-        var handler = new BlockingHandler();
+        var handler = new RecoveringEventHandler();
         await using var client = new LumiRemoteClient(
             "device",
             "Phone",
@@ -338,15 +338,55 @@ public sealed class LumiRemoteClientDeadlineTests
             requestDeadline: TimeSpan.FromMilliseconds(40),
             uploadDeadline: TimeSpan.FromMilliseconds(80));
         client.Configure("http://lumi.test", "token");
+        var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.StateChanged += (state, _) =>
+        {
+            if (state == RemoteLinkState.Connected)
+                connected.TrySetResult();
+        };
 
         await client.StartEventStreamAsync();
-        await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await connected.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await Task.Delay(150);
 
         Assert.False(handler.CancellationObserved.Task.IsCompleted);
+        Assert.Equal(RemoteLinkState.Connected, client.State);
+        Assert.Equal(1, handler.EventRequests);
 
         await client.StopEventStreamAsync();
         await handler.CancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.Equal(RemoteLinkState.Disconnected, client.State);
+        Assert.Equal(1, handler.EventRequests);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task EventHeaderFailureRetriesWithoutRestartingTheClient(bool stallHeaders)
+    {
+        var handler = new RecoveringEventHandler(stallHeaders);
+        await using var client = new LumiRemoteClient(
+            "device",
+            "Phone",
+            handler,
+            requestDeadline: TimeSpan.FromMilliseconds(50),
+            uploadDeadline: TimeSpan.FromSeconds(1));
+        client.Configure("http://lumi.test", "token");
+        var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.StateChanged += (state, _) =>
+        {
+            if (state == RemoteLinkState.Connected)
+                connected.TrySetResult();
+        };
+
+        await client.StartEventStreamAsync();
+        await connected.Task.WaitAsync(TimeSpan.FromSeconds(4));
+
+        Assert.Equal(2, handler.EventRequests);
+        Assert.Equal(RemoteLinkState.Connected, client.State);
+        Assert.True(client.SupportsScopedEvents);
+        Assert.Equal("token", client.Token);
+        await client.StopEventStreamAsync();
     }
 
     [Fact]
@@ -505,6 +545,81 @@ public sealed class LumiRemoteClientDeadlineTests
                     Encoding.UTF8,
                     "application/json")
             };
+    }
+
+    private sealed class RecoveringEventHandler(bool? stallFirstHeaders = null) : HttpMessageHandler
+    {
+        public int EventRequests { get; private set; }
+        public TaskCompletionSource CancellationObserved { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Assert.Equal(RemoteProtocol.Routes.Events, request.RequestUri?.AbsolutePath);
+            EventRequests++;
+            if (EventRequests == 1 && stallFirstHeaders is { } stall)
+            {
+                if (stall)
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                // A transport can cancel an attempt without the stream owner requesting shutdown.
+                throw new TaskCanceledException("The interrupted connection attempt was canceled.");
+            }
+
+            var frame = new RemoteEventFrame(
+                RemoteProtocol.Events.Snapshot,
+                JsonSerializer.Serialize(
+                    new RemoteSnapshot
+                    {
+                        Capabilities = [RemoteProtocol.Capabilities.ScopedEventsV1]
+                    },
+                    RemoteJsonContext.Default.RemoteSnapshot));
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new LiveEventStream(
+                    Encoding.UTF8.GetBytes(frame.ToWire()), CancellationObserved))
+            };
+        }
+    }
+
+    private sealed class LiveEventStream(byte[] bootstrap, TaskCompletionSource cancellationObserved) : Stream
+    {
+        private int _offset;
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => _offset;
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_offset < bootstrap.Length)
+            {
+                var count = Math.Min(buffer.Length, bootstrap.Length - _offset);
+                bootstrap.AsMemory(_offset, count).CopyTo(buffer);
+                _offset += count;
+                return count;
+            }
+
+            using var registration = cancellationToken.Register(() => cancellationObserved.TrySetResult());
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return 0;
+        }
+
+        public override Task<int> ReadAsync(
+            byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private sealed class BlockingHandler : HttpMessageHandler

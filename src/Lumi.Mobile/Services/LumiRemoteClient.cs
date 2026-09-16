@@ -1303,7 +1303,7 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 backoff = TimeSpan.FromSeconds(1);
                 SetState(RemoteLinkState.Disconnected, "Lumi closed the connection.");
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 return;
             }
@@ -1338,8 +1338,9 @@ public sealed class LumiRemoteClient : IAsyncDisposable
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
         ApplyAuth(request);
 
+        using var connectionDeadline = CreateDeadline(cancellationToken, _requestDeadline);
         using var response = await _http
-            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, connectionDeadline.Token)
             .ConfigureAwait(false);
 
         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
@@ -1347,7 +1348,10 @@ public sealed class LumiRemoteClient : IAsyncDisposable
 
         response.EnsureSuccessStatusCode();
 
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        await using var stream = await response.Content.ReadAsStreamAsync(connectionDeadline.Token).ConfigureAwait(false);
+        // Only opening the response is finite. The live body keeps its existing silence deadline
+        // and must not inherit the request deadline after a healthy connection is established.
+        connectionDeadline.CancelAfter(Timeout.InfiniteTimeSpan);
         var frames = new RemoteEventFrame.Reader();
         var awaitingBootstrapSnapshot = true;
         await ReadEventLinesAsync(

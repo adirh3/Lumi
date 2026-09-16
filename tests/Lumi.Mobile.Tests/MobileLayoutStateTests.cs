@@ -57,6 +57,17 @@ public class MobileLayoutStateTests
     }
 
     [Fact]
+    public void DrawableBookCreaseDoesNotReserveAnEmptyNavigationPane()
+    {
+        var layout = MobileLayoutState.From(884, 908, FoldPosture.BookVerticalHinge,
+            hingeSize: 0, hingePosition: 442);
+
+        Assert.Equal(WidthSizeClass.Expanded, layout.WidthClass);
+        Assert.Equal(0, layout.HingeSize);
+        Assert.Equal(0, layout.HingePosition);
+    }
+
+    [Fact]
     public void UnfoldedFoldable_IgnoresAHingeThatWouldStarveTheDetailPane()
     {
         var layout = MobileLayoutState.From(

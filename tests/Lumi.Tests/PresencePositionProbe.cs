@@ -205,6 +205,49 @@ public sealed class PresencePositionProbe
     }
 
     [SkippableFact]
+    public void Probe_CompanionCanAnchorAtTheComposerWithoutChangingTheDefaultSplit()
+    {
+        Skip.IfNot(
+            Environment.GetEnvironmentVariable("PRESENCE_CAPTURE") == "1",
+            "Set PRESENCE_CAPTURE=1 to run the composer-light position probe.");
+        var session = TryStartSession(out var skip);
+        Skip.If(session is null, skip ?? "Skia headless session unavailable.");
+        var results = new List<(double AnchoredY, double DefaultY, double FieldY, double Height)>();
+        try
+        {
+            foreach (var (width, height) in new[] { (412, 892), (1112, 834) })
+            {
+                session!.Dispatch(() =>
+                {
+                    var presence = BuildPresence(PresenceState.Streaming, new Point(0.5, 0.3));
+                    var window = ShowWindow(presence, width, height);
+                    try
+                    {
+                        for (var i = 0; i < 8; i++) Tick(16);
+                        Assert.True(presence.SplitToIsland(new Point(0.5, 0.92), followFieldHeight: false));
+                        Assert.False(presence.IsArrangeValid);
+                        for (var i = 0; i < 90; i++) Tick(16);
+                        var anchored = presence.DebugCompanionOffset();
+                        Assert.True(presence.SplitToIsland(new Point(0.5, 0.92)));
+                        for (var i = 0; i < 90; i++) Tick(16);
+                        results.Add((anchored.Y, presence.DebugCompanionOffset().Y,
+                            presence.DebugFieldCenterOffset().Y, height));
+                    }
+                    finally { window.Close(); }
+                }, CancellationToken.None).GetAwaiter().GetResult();
+            }
+        }
+        finally { SafeDispose(session); }
+
+        Assert.Equal(2, results.Count);
+        foreach (var result in results)
+        {
+            Assert.InRange(Math.Abs(result.AnchoredY - 0.42 * result.Height), 0, 0.06 * result.Height);
+            Assert.InRange(Math.Abs(result.DefaultY - result.FieldY), 0, 0.1 * result.Height);
+        }
+    }
+
+    [SkippableFact]
     public void Probe_MergeRetractsHome()
     {
         Skip.IfNot(

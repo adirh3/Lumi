@@ -60,7 +60,7 @@ public static class RemoteProtocol
     public const int TranscriptWindowRawMessageLimit = 100;
     public const int InitialTranscriptWindowRawMessageLimit = 40;
     public const int CompactTranscriptWindowVisibleItemLimit = 400;
-    public const int InitialCompactTranscriptWindowVisibleItemLimit = 240;
+    public const int InitialCompactTranscriptWindowVisibleItemLimit = 48;
 
     /// <summary>
     /// Cumulative source-text budget for one transcript window. A single oversized message is still
