@@ -131,8 +131,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         => configuredServers is not null
             && configuredServers.Values.Any(config => config is McpHttpServerConfig);
 
+    // A cold proxy request can still wait for its child servers to start, so it needs the same
+    // overall session setup budget as the native path.
     internal static TimeSpan ResolveMcpSessionSetupTimeout(bool usesProxy)
-        => usesProxy ? TimeSpan.FromSeconds(60) : McpSessionSetupTimeout;
+        => McpSessionSetupTimeout;
 
     internal static TimeSpan ResolveMcpSettleBudget(bool usesProxy)
         => usesProxy ? ProxyMcpSettleBudget : NativeMcpSettleBudget;
