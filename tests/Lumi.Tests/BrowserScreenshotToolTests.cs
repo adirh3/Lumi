@@ -1,6 +1,8 @@
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using GitHub.Copilot;
+using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
 using Microsoft.Extensions.AI;
@@ -29,7 +31,7 @@ public sealed class BrowserScreenshotToolTests
         });
         var arguments = new AIFunctionArguments();
         if (requestedTabId is not null)
-            arguments["tabId"] = JsonSerializer.SerializeToElement(requestedTabId);
+            arguments["tabId"] = JsonSerializer.SerializeToElement(requestedTabId, AppDataJsonContext.Default.String);
 
         var invocation = tool.InvokeAsync(arguments).AsTask();
         Assert.False(invocation.IsCompleted);
@@ -53,7 +55,7 @@ public sealed class BrowserScreenshotToolTests
         Assert.Equal("image/png", binary.MimeType);
         Assert.Equal(PngBytes, Convert.FromBase64String(binary.Data));
 
-        var wireResult = JsonSerializer.SerializeToElement(result);
+        var wireResult = JsonSerializer.SerializeToElement(result, BrowserScreenshotTestJsonContext.Default.ToolResultObject);
         var wireImage = Assert.Single(wireResult.GetProperty("binaryResultsForLlm").EnumerateArray());
         Assert.Equal("image", wireImage.GetProperty("type").GetString());
         Assert.Equal("image/png", wireImage.GetProperty("mimeType").GetString());
@@ -76,7 +78,7 @@ public sealed class BrowserScreenshotToolTests
         Assert.StartsWith("Error: Browser screenshot failed.", result.TextResultForLlm);
         Assert.Contains(reason, result.TextResultForLlm);
         Assert.Null(result.BinaryResultsForLlm);
-        var wire = JsonSerializer.SerializeToElement(result);
+        var wire = JsonSerializer.SerializeToElement(result, BrowserScreenshotTestJsonContext.Default.ToolResultObject);
         Assert.Equal("failure", wire.GetProperty("resultType").GetString());
         Assert.Contains(reason, wire.GetProperty("textResultForLlm").GetString());
         Assert.Equal(reason, wire.GetProperty("error").GetString());
@@ -119,6 +121,38 @@ public sealed class BrowserScreenshotToolTests
         Assert.Contains("2048-pixel", tool.Description);
         Assert.Contains("3 MiB PNG (4 MiB base64)", tool.Description);
         Assert.Contains("image-count limits", tool.Description);
+    }
+
+    [Theory]
+    [InlineData("create")]
+    [InlineData("resume")]
+    [InlineData("lightweight")]
+    public void ScreenshotTool_CanBeRegisteredAndPreloadedWithoutReflectionMetadata(string sessionKind)
+    {
+        var screenshot = ChatViewModel.BuildBrowserScreenshotTool(
+            _ => throw new InvalidOperationException("Session setup must not capture."));
+        SessionConfigBase config = sessionKind switch
+        {
+            "create" => SessionConfigBuilder.Build(
+                "prompt", null, null, null, [], [], [screenshot], null, null, null, null),
+            "resume" => SessionConfigBuilder.BuildForResume(
+                "prompt", null, null, null, [], [], [screenshot], null, null, null, null),
+            "lightweight" => SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions
+            {
+                SystemPrompt = "prompt",
+                Tools = [screenshot]
+            }),
+            _ => throw new ArgumentOutOfRangeException(nameof(sessionKind))
+        };
+        var tool = Assert.IsAssignableFrom<AIFunction>(Assert.Single(config.Tools!));
+
+        // The app disables reflection. Its binary SDK envelope needs no JSON return schema,
+        // even though the input schema must remain available during every session setup.
+        Assert.Throws<NotSupportedException>(() => tool.JsonSerializerOptions!.GetTypeInfo(typeof(ToolResultAIContent)));
+        Assert.Null(tool.ReturnJsonSchema);
+        Assert.Equal(ToolDisplayHelper.BrowserScreenshotToolName, tool.Name);
+        Assert.Equal(["tabId"], tool.JsonSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name));
+        Assert.Equal(CopilotToolDefer.Never, Assert.IsType<CopilotToolDefer>(tool.AdditionalProperties["defer"]));
     }
 
 #if WINDOWS
@@ -215,3 +249,6 @@ public sealed class BrowserScreenshotToolTests
     }
 #endif
 }
+
+[JsonSerializable(typeof(ToolResultObject))]
+internal partial class BrowserScreenshotTestJsonContext : JsonSerializerContext;
