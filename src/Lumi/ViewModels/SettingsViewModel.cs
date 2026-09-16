@@ -474,6 +474,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public event Action? SettingsChanged;
     public event Action? SystemPromptSettingsChanged;
     public event Action? McpDiscoveryRefreshRequested;
+    public event Action? McpRuntimeConfigurationChanged;
     public event Action? CookieImportDialogRequested;
 
     /// <summary>Raised when the BYOK endpoint/model configuration changes. Consumers re-inject picker tokens and clear stale selections.</summary>
@@ -1067,8 +1068,21 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         NotifyModified();
     }
 
-    partial void OnUseMcpProxyChanged(bool value) { _dataStore.Data.Settings.UseMcpProxy = value; Save(); NotifyModified(); }
-    partial void OnUseLazyMcpInitializationChanged(bool value) { _dataStore.Data.Settings.UseLazyMcpInitialization = value; Save(); NotifyModified(); }
+    partial void OnUseMcpProxyChanged(bool value)
+    {
+        _dataStore.Data.Settings.UseMcpProxy = value;
+        Save();
+        NotifyModified();
+        McpRuntimeConfigurationChanged?.Invoke();
+    }
+
+    partial void OnUseLazyMcpInitializationChanged(bool value)
+    {
+        _dataStore.Data.Settings.UseLazyMcpInitialization = value;
+        Save();
+        NotifyModified();
+        McpRuntimeConfigurationChanged?.Invoke();
+    }
 
     private bool CanRefreshMcpTools() => UseMcpProxy;
 

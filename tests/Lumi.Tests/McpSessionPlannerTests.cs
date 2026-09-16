@@ -62,11 +62,13 @@ public sealed class McpSessionPlannerTests
         Assert.Null(McpSessionPlanner.SelectProxyRuntime(data.Settings, runtime));
         using var direct = McpSessionPlanner.Build(data, @"C:\repo", EmptyCatalog(), new Chat(), null, null);
         Assert.IsType<McpStdioServerConfig>(direct.Servers["local"]);
+        Assert.Null(direct.ProxyLease);
 
         data.Settings.UseMcpProxy = true;
         using var lazy = McpSessionPlanner.Build(data, @"C:\repo", EmptyCatalog(), new Chat(), null, null,
             McpSessionPlanner.SelectProxyRuntime(data.Settings, runtime));
         var lazyConfig = Assert.IsType<McpHttpServerConfig>(lazy.Servers["local"]);
+        Assert.True(lazy.ProxyLease?.UsesLazyInitialization);
         var expected = runtime.Register(new McpProxyServerDefinition(
             $"lumi:{server.Id}", server.Name,
             new McpStdioServerConfig
@@ -82,6 +84,7 @@ public sealed class McpSessionPlannerTests
         data.Settings.UseLazyMcpInitialization = false;
         using var eager = McpSessionPlanner.Build(data, @"C:\repo", EmptyCatalog(), new Chat(), null, null, runtime);
         var eagerConfig = Assert.IsType<McpHttpServerConfig>(eager.Servers["local"]);
+        Assert.False(eager.ProxyLease?.UsesLazyInitialization);
         Assert.Equal(new Uri(lazyConfig.Url).AbsolutePath, new Uri(eagerConfig.Url).AbsolutePath);
         Assert.Empty(new Uri(eagerConfig.Url).Query);
         data.Settings.UseLazyMcpInitialization = true;
