@@ -299,17 +299,37 @@ public partial class ChatViewModel
         => AIFunctionFactory.Create(
             async ([Description("Stable tab ID returned by lumi_browser_tabs. Omit to capture the active tab.")] string? tabId = null) =>
             {
-                var screenshot = await captureScreenshot(tabId).ConfigureAwait(false);
-                // A typed AIContent collection survives AIFunctionFactory marshalling and is converted
-                // by the Copilot SDK into textResultForLlm + binaryResultsForLlm, not JSON text.
-                return new AIContent[]
+                try
                 {
-                    new TextContent($"Browser screenshot — tab {screenshot.TabId}\nURL: {screenshot.Url}\nSize: {screenshot.Width} × {screenshot.Height} pixels."),
-                    new DataContent(screenshot.PngBytes, "image/png")
-                };
+                    var screenshot = await captureScreenshot(tabId).ConfigureAwait(false);
+                    return new ToolResultAIContent(new ToolResultObject
+                    {
+                        ResultType = "success",
+                        TextResultForLlm = $"Browser screenshot — tab {screenshot.TabId}\nURL: {screenshot.Url}\nSize: {screenshot.Width} × {screenshot.Height} pixels.",
+                        BinaryResultsForLlm =
+                        [
+                            new ToolBinaryResult
+                            {
+                                Type = ToolBinaryResultType.Image,
+                                MimeType = "image/png",
+                                Data = Convert.ToBase64String(screenshot.PngBytes)
+                            }
+                        ]
+                    });
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // SDK exception handling hides the recovery instructions; keep them in the structured result.
+                    return new ToolResultAIContent(new ToolResultObject
+                    {
+                        ResultType = "failure",
+                        TextResultForLlm = $"Error: Browser screenshot failed. {ex.Message}",
+                        Error = ex.Message
+                    });
+                }
             },
             ToolDisplayHelper.BrowserScreenshotToolName,
-            "Capture the browser viewport as an image you can inspect, with tab ID, URL, and pixel dimensions. Use for visual layout, canvas content, charts, or icons that DOM/text snapshots cannot explain. Defaults to the active tab; an explicit stable tab ID targets that tab. The target must already be visible and ready: capture does not switch tabs or show the browser. For a hidden tab, switch/show it first, then retry. Use look/find for interactive element numbers.");
+            "Capture the browser viewport as an image you can inspect, with tab ID, URL, and delivered pixel dimensions. Images preserve aspect ratio, are never upscaled, and are limited to a 2048-pixel longest edge and 3 MiB PNG (4 MiB base64). These size limits do not bypass model image-count limits; use look/find for exact text and interactive element numbers. Use screenshots for visual layout, canvas content, charts, or icons that DOM/text snapshots cannot explain. Defaults to the active tab; an explicit stable tab ID targets that tab. The target must already be visible and ready: capture does not switch tabs or show the browser. For a hidden tab, switch/show it first, then retry.");
 
     /// <summary>Raised when a browser tool requests the browser panel to be visible. Carries the chat ID.</summary>
     public event Action<Guid>? BrowserShowRequested;
