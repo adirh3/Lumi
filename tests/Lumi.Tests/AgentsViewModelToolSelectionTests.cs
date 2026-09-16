@@ -8,6 +8,34 @@ namespace Lumi.Tests;
 public sealed class AgentsViewModelToolSelectionTests
 {
     [Fact]
+    public void BrowserTabsAndScreenshot_AreSelectableOnlyOnWindows()
+    {
+        var visibleNames = GetVisibleToolNames();
+
+        Assert.Equal(OperatingSystem.IsWindows(), visibleNames.Contains(ToolDisplayHelper.BrowserTabsToolName));
+        Assert.Equal(OperatingSystem.IsWindows(), visibleNames.Contains(ToolDisplayHelper.BrowserScreenshotToolName));
+    }
+
+    [Fact]
+    public void SaveAgent_PreservesExplicitBrowserTabsAndScreenshotSelection()
+    {
+        var agent = new LumiAgent
+        {
+            Name = "Browser observer",
+            ToolNames = [ToolDisplayHelper.BrowserTabsToolName, ToolDisplayHelper.BrowserScreenshotToolName],
+            HasExplicitToolSelection = true
+        };
+        var viewModel = CreateEditor(agent);
+
+        viewModel.SaveAgentCommand.Execute(null);
+
+        Assert.True(agent.HasToolRestrictions);
+        Assert.Equal(
+            new[] { ToolDisplayHelper.BrowserScreenshotToolName, ToolDisplayHelper.BrowserTabsToolName },
+            agent.ToolNames.OrderBy(static name => name));
+    }
+
+    [Fact]
     public void SaveAgent_ExplicitEmptySelectionRemainsRestricted()
     {
         var agent = new LumiAgent

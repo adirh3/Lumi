@@ -463,6 +463,8 @@ public sealed class SystemPromptBuilderTests
         Assert.Contains("## Browser Automation", prompt);
         Assert.Contains("## Window Automation (UI Automation)", prompt);
         Assert.Contains("lumi_browser_open", prompt);
+        Assert.Contains("lumi_browser_tabs", prompt);
+        Assert.Contains("lumi_browser_screenshot", prompt);
         Assert.Contains("ui_inspect", prompt);
 
         // PowerShell / COM / winget / WMI techniques are Windows-only.
@@ -474,6 +476,21 @@ public sealed class SystemPromptBuilderTests
 
         // The async-tool guidance uses the Windows shell-tool names.
         Assert.Contains("call `read_powershell`", prompt);
+    }
+
+    [Fact]
+    public void Build_Windows_ExplainsVisualInspectionStableTabsAndSafeBatching()
+    {
+        var prompt = BuildForPlatform(SystemPromptBuilder.PromptPlatform.Windows);
+
+        Assert.Contains("visual layout, canvas content, charts, or icons", prompt);
+        Assert.Contains("capture does not switch tabs or show the browser", prompt);
+        Assert.Contains("stable tab IDs", prompt);
+        Assert.Contains("After switching tabs, use look/find", prompt);
+        Assert.Contains("Batch only when later steps do not require inspecting intermediate results", prompt);
+        Assert.Contains("Stops at the first failure; a partial fill blocks subsequent steps", prompt);
+        Assert.Contains("completed actions are not rolled back", prompt);
+        Assert.DoesNotContain("Always use `steps` when you need 2+", prompt);
     }
 
     [Fact]
@@ -511,6 +528,7 @@ public sealed class SystemPromptBuilderTests
         Assert.DoesNotContain("## Browser Automation", prompt);
         Assert.DoesNotContain("## Window Automation", prompt);
         Assert.DoesNotContain("lumi_browser_open", prompt);
+        Assert.DoesNotContain("lumi_browser_", prompt);
         Assert.DoesNotContain("ui_inspect", prompt);
         Assert.DoesNotContain("ui_list_windows", prompt);
 

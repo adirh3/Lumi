@@ -773,11 +773,14 @@ public sealed class ChatViewModelAgentRoutingTests
             Assert.Contains(ToolDisplayHelper.BrowserFindToolName, toolNames);
             Assert.Contains(ToolDisplayHelper.BrowserDoToolName, toolNames);
             Assert.Contains(ToolDisplayHelper.BrowserJsToolName, toolNames);
+            Assert.Contains(ToolDisplayHelper.BrowserTabsToolName, toolNames);
+            Assert.Contains(ToolDisplayHelper.BrowserScreenshotToolName, toolNames);
         }
         else
         {
             Assert.DoesNotContain(ToolDisplayHelper.BrowserOpenToolName, toolNames);
             Assert.DoesNotContain(ToolDisplayHelper.BrowserJsToolName, toolNames);
+            Assert.DoesNotContain(toolNames, static name => name.StartsWith("lumi_browser_", StringComparison.Ordinal));
         }
 
         // Regardless of platform, no tool should use the bare "browser" namespace.
@@ -836,6 +839,49 @@ public sealed class ChatViewModelAgentRoutingTests
             Assert.Equal(CopilotToolDefer.Never, Assert.IsType<CopilotToolDefer>(defer));
         });
         Assert.Null(config.ToolSearch);
+    }
+
+    [Fact]
+    public void BuildCustomTools_BrowserToolsPreserveExistingArgumentsAndAddTabContracts()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        using var harness = CreateHarness(new AppData());
+        var tools = InvokeBuildCustomTools(harness.ViewModel).ToDictionary(tool => tool.Name);
+        var expectedArguments = new Dictionary<string, string[]>
+        {
+            [ToolDisplayHelper.BrowserOpenToolName] = ["url"],
+            [ToolDisplayHelper.BrowserLookToolName] = ["filter"],
+            [ToolDisplayHelper.BrowserFindToolName] = ["query", "limit"],
+            [ToolDisplayHelper.BrowserDoToolName] = ["action", "target", "value"],
+            [ToolDisplayHelper.BrowserJsToolName] = ["script"],
+            [ToolDisplayHelper.BrowserTabsToolName] = ["action", "tabId", "url"],
+            [ToolDisplayHelper.BrowserScreenshotToolName] = ["tabId"]
+        };
+
+        foreach (var (name, parameters) in expectedArguments)
+            Assert.Equal(parameters, tools[name].JsonSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name));
+
+        var tabs = tools[ToolDisplayHelper.BrowserTabsToolName];
+        Assert.Equal(["action"], tabs.JsonSchema.GetProperty("required").EnumerateArray().Select(p => p.GetString()));
+        Assert.Contains("stable IDs", tabs.Description);
+        Assert.Contains("partial fill blocks subsequent steps", tools[ToolDisplayHelper.BrowserDoToolName].Description);
+    }
+
+    [Fact]
+    public void BuildCustomTools_RestrictedBrowserSelectionOnlyInjectsSelectedNewToolsOnWindows()
+    {
+        using var harness = CreateHarness(new AppData());
+        var agent = new LumiAgent
+        {
+            Name = "Browser observer",
+            ToolNames = [ToolDisplayHelper.BrowserTabsToolName, ToolDisplayHelper.BrowserScreenshotToolName],
+            HasExplicitToolSelection = true
+        };
+        var toolNames = InvokeBuildCustomTools(harness.ViewModel, agent).Select(tool => tool.Name).ToArray();
+
+        Assert.Equal(OperatingSystem.IsWindows() ? agent.ToolNames.ToArray() : [], toolNames);
     }
 
     [Fact]

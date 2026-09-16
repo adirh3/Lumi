@@ -59,6 +59,8 @@ public static partial class ToolDisplayHelper
             "browser_find" or BrowserFindToolName => Loc.Tool_FindingElement,
             "browser_do" or BrowserDoToolName => Loc.Tool_Action,
             "browser_js" or BrowserJsToolName => Loc.Tool_BrowserEvaluate,
+            BrowserTabsToolName => "Managing browser tabs",
+            BrowserScreenshotToolName => "Taking browser screenshot",
             "save_memory" => Loc.Tool_Remembering,
             "update_memory" => Loc.Tool_UpdatingMemory,
             "delete_memory" => Loc.Tool_Forgetting,

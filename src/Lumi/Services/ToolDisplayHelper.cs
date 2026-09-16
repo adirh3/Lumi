@@ -21,6 +21,8 @@ public static partial class ToolDisplayHelper
     public const string BrowserFindToolName = "lumi_browser_find";
     public const string BrowserDoToolName = "lumi_browser_do";
     public const string BrowserJsToolName = "lumi_browser_js";
+    public const string BrowserTabsToolName = "lumi_browser_tabs";
+    public const string BrowserScreenshotToolName = "lumi_browser_screenshot";
 
     public static string ToRuntimeToolName(string toolName) => toolName switch
     {
@@ -47,7 +49,9 @@ public static partial class ToolDisplayHelper
             or "replace_string_in_file" or "multi_replace_string_in_file" or "str_replace_editor" or "apply_patch" => "📝",
         "view" or "read_file" or "read" => "📄",
         "browser" or "browser_navigate" or "browser_do" or "browser_look" or "browser_find" or "browser_js"
-            or BrowserOpenToolName or BrowserLookToolName or BrowserFindToolName or BrowserDoToolName or BrowserJsToolName => "🌐",
+            or BrowserOpenToolName or BrowserLookToolName or BrowserFindToolName or BrowserDoToolName or BrowserJsToolName
+            or BrowserTabsToolName => "🌐",
+        BrowserScreenshotToolName => "📷",
         "web_search" or "search" => "🔎",
         "web_fetch" or "lumi_fetch" => "📚",
         "ui_inspect" or "ui_find" or "ui_click" or "ui_type" or "ui_read" => "🖥",
@@ -164,6 +168,14 @@ public static partial class ToolDisplayHelper
             case "browser_js":
             case BrowserJsToolName:
                 return (Loc.Tool_BrowserEvaluate, null);
+            case BrowserTabsToolName:
+            {
+                var action = ExtractJsonField(argsJson, "action");
+                var target = ExtractJsonField(argsJson, "tabId") ?? ExtractJsonField(argsJson, "url");
+                return ("Managing browser tabs", target is null ? action : $"{action}: {target}");
+            }
+            case BrowserScreenshotToolName:
+                return ("Taking browser screenshot", ExtractJsonField(argsJson, "tabId"));
             case "save_memory":
                 return (Loc.Tool_Remembering, ExtractJsonField(argsJson, "key"));
             case "update_memory":
