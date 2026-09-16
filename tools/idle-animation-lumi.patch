@@ -1,0 +1,23 @@
+diff --git a/src/Lumi/Views/MainWindow.axaml b/src/Lumi/Views/MainWindow.axaml
+index e60823d..9e3c71d 100644
+--- a/src/Lumi/Views/MainWindow.axaml
++++ b/src/Lumi/Views/MainWindow.axaml
+@@ -562,18 +562,12 @@
+     <Style Selector="Button.unread-toggle.open PathIcon#UnreadChevron">
+       <Setter Property="RenderTransform" Value="rotate(180deg)" />
+     </Style>
+-    <!-- The dot breathes so a reply arriving while the user is elsewhere draws the eye. -->
+     <Style Selector="Border.unread-dot">
+       <Setter Property="Width" Value="7" />
+       <Setter Property="Height" Value="7" />
+       <Setter Property="CornerRadius" Value="4" />
+       <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+       <Setter Property="VerticalAlignment" Value="Center" />
+-      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+-      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.32" />
+-      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.5" />
+-      <Setter Property="sa:LifecycleOpacityPulse.PlaybackDirection" Value="Alternate" />
+-      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+     </Style>
+     <Style Selector="Border.unread-nav-badge">
+       <Setter Property="MinWidth" Value="15" />

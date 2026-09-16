@@ -69,6 +69,12 @@ class Program
         OpenAgentDebugHarness = args.Any(DebugAgentHarness.IsUiHarnessFlag);
         SkipOnboarding = args.Contains("--skip-onboarding", StringComparer.OrdinalIgnoreCase)
             || args.Contains("--no-onboarding", StringComparer.OrdinalIgnoreCase);
+        if (IdleCpuProbe.Enabled)
+        {
+            AttachParentConsole();
+            EnsureIsolatedHarnessAppDataDir("idle-cpu-probe");
+            SkipOnboarding = true;
+        }
         if (OpenAgentDebugHarness)
         {
             EnsureIsolatedHarnessAppDataDir("agent-debug");
@@ -523,9 +529,12 @@ class Program
 
     public static AppBuilder BuildAvaloniaApp()
     {
-        var builder = AppBuilder.Configure<App>()
-            .UsePlatformDetect()
-            .LogToTrace();
+        var builder =
+#if DEBUG
+            IdleCpuProbe.Bare ? AppBuilder.Configure<IdleCpuProbeApplication>() :
+#endif
+            AppBuilder.Configure<App>();
+        builder = builder.UsePlatformDetect().LogToTrace();
 
         if (OperatingSystem.IsWindows())
         {
@@ -536,6 +545,7 @@ class Program
         }
 
 #if DEBUG
+        builder = IdleCpuProbe.Configure(builder);
         builder = builder.UseMcpDiagnostics();
 #endif
 

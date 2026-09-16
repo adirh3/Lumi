@@ -260,6 +260,13 @@ public partial class App : Application
 
             window.Opened += (_, _) =>
             {
+#if DEBUG
+                if (IdleCpuProbe.Enabled)
+                {
+                    IdleCpuProbe.Start(desktop, window, vm);
+                    return;
+                }
+#endif
                 Dispatcher.UIThread.Post(() =>
                 {
                     // Defer non-critical setup until first frame is shown.
@@ -462,7 +469,12 @@ public partial class App : Application
             , openAgentDebugHarness,
             skipOnboarding
 #endif
-            , initializeCopilotOnStartup: true
+            , initializeCopilotOnStartup:
+#if DEBUG
+                !IdleCpuProbe.Enabled
+#else
+                true
+#endif
         );
     }
 

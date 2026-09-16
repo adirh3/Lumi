@@ -14,7 +14,64 @@ permissions:
   contents: read
 
 jobs:
+  idle-probe:
+    if: github.ref_name == 'diagnostics/macos-idle-87c79f2d'
+    name: Native idle probe (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel, windows-latest]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+      - name: Record native display environment
+        if: runner.os == 'macOS'
+        run: |
+          New-Item -ItemType Directory -Path IdleProbeResults -Force | Out-Null
+          system_profiler SPDisplaysDataType | Set-Content IdleProbeResults/display.txt
+          sw_vers | Set-Content IdleProbeResults/os.txt
+      - name: Build original Lumi
+        run: dotnet build src/Lumi/Lumi.csproj -c Debug -p:PublishTrimmed=false --nologo -v quiet
+      - name: Measure bare Avalonia native startup
+        run: ./tools/Invoke-IdleCpuProbe.ps1 -Variant bare-default -Bare
+      - name: Measure original Lumi native startup
+        if: ${{ !cancelled() }}
+        run: ./tools/Invoke-IdleCpuProbe.ps1 -Variant lumi-default
+      - name: Measure software fallback
+        if: ${{ !cancelled() }}
+        run: ./tools/Invoke-IdleCpuProbe.ps1 -Variant lumi-software -Renderer software
+      - name: Apply isolated animation-fix comparison
+        if: ${{ !cancelled() }}
+        run: |
+          git -C Strata apply ../tools/idle-animation-strata.patch
+          if ($LASTEXITCODE -ne 0) { throw 'Strata comparison patch failed.' }
+          git apply tools/idle-animation-lumi.patch
+          if ($LASTEXITCODE -ne 0) { throw 'Lumi comparison patch failed.' }
+          dotnet build src/Lumi/Lumi.csproj -c Debug -p:PublishTrimmed=false --nologo -v quiet
+          if ($LASTEXITCODE -ne 0) { throw 'Patched Lumi build failed.' }
+      - name: Measure Lumi with animation fixes
+        if: ${{ !cancelled() }}
+        run: ./tools/Invoke-IdleCpuProbe.ps1 -Variant lumi-optimized
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: native-idle-${{ matrix.os }}
+          path: IdleProbeResults
+          if-no-files-found: warn
+          retention-days: 3
+
   validate:
+    if: github.ref_name != 'diagnostics/macos-idle-87c79f2d'
     name: Validate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -95,6 +152,7 @@ jobs:
           if-no-files-found: ignore
 
   validate-strata:
+    if: github.ref_name != 'diagnostics/macos-idle-87c79f2d'
     name: Validate Strata
     runs-on: windows-latest
     timeout-minutes: 20
@@ -123,6 +181,7 @@ jobs:
           --framework net11.0
 
   validate-android:
+    if: github.ref_name != 'diagnostics/macos-idle-87c79f2d'
     name: Validate Android APK
     runs-on: windows-latest
     timeout-minutes: 45
@@ -176,6 +235,7 @@ jobs:
           retention-days: 7
 
   validate-browser:
+    if: github.ref_name != 'diagnostics/macos-idle-87c79f2d'
     name: Validate Avalonia PWA
     runs-on: windows-latest
     timeout-minutes: 45
@@ -246,7 +306,7 @@ jobs:
 
   validate-required:
     name: Validate
-    if: ${{ always() }}
+    if: ${{ always() && github.ref_name != 'diagnostics/macos-idle-87c79f2d' }}
     needs: [validate, validate-strata, validate-android, validate-browser]
     runs-on: ubuntu-latest
     steps:

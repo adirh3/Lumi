@@ -1,0 +1,295 @@
+diff --git a/src/StrataTheme/Controls/Button.axaml b/src/StrataTheme/Controls/Button.axaml
+index 916aab9..80673a9 100644
+--- a/src/StrataTheme/Controls/Button.axaml
++++ b/src/StrataTheme/Controls/Button.axaml
+@@ -123,10 +123,6 @@
+   <Style Selector="Button.accent:pointerover /template/ Border#PART_Aurora">
+     <Setter Property="Opacity" Value="0.75" />
+     <Setter Property="RenderTransform" Value="translateX(0)" />
+-    <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.55" />
+-    <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.85" />
+-    <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.8" />
+-    <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+   </Style>
+   <Style Selector="Button.accent:pressed /template/ Border#PART_Surface">
+     <Setter Property="Background" Value="{DynamicResource Brush.AccentGradientPressed}" />
+diff --git a/src/StrataTheme/Controls/CheckBox.axaml b/src/StrataTheme/Controls/CheckBox.axaml
+index 9e75ea6..0a61bad 100644
+--- a/src/StrataTheme/Controls/CheckBox.axaml
++++ b/src/StrataTheme/Controls/CheckBox.axaml
+@@ -111,12 +111,6 @@
+           <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentHover}" />
+           <Setter Property="BoxShadow" Value="0 0 0 2 #1A4F46E5" />
+         </Style>
+-        <Style Selector="^:checked /template/ Path#CheckGlyph">
+-          <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.85" />
+-          <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="1" />
+-          <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.6" />
+-          <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+-        </Style>
+         <Style Selector="^:focus-visible /template/ Border#PART_FocusRing">
+           <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentGradient}" />
+         </Style>
+diff --git a/src/StrataTheme/Controls/Expander.axaml b/src/StrataTheme/Controls/Expander.axaml
+index 6bf6fa7..9cf6605 100644
+--- a/src/StrataTheme/Controls/Expander.axaml
++++ b/src/StrataTheme/Controls/Expander.axaml
+@@ -198,10 +198,6 @@
+         </Style>
+         <Style Selector="^:expanded /template/ Border#HeaderMarker">
+           <Setter Property="Opacity" Value="1" />
+-          <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.7" />
+-          <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="1" />
+-          <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.8" />
+-          <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+         </Style>
+         <Style Selector="^:expanded /template/ Border#ExpanderSeparator">
+           <Setter Property="Opacity" Value="1" />
+diff --git a/src/StrataTheme/Controls/RadioButton.axaml b/src/StrataTheme/Controls/RadioButton.axaml
+index fab43b0..b5beff2 100644
+--- a/src/StrataTheme/Controls/RadioButton.axaml
++++ b/src/StrataTheme/Controls/RadioButton.axaml
+@@ -70,10 +70,6 @@
+           <Setter Property="Width" Value="8" />
+           <Setter Property="Height" Value="8" />
+           <Setter Property="Opacity" Value="1" />
+-          <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.85" />
+-          <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="1" />
+-          <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.6" />
+-          <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+         </Style>
+         <Style Selector="^:pointerover /template/ Border#RadioBorder">
+           <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderStrong}" />
+diff --git a/src/StrataTheme/Controls/StrataChatMessage.cs b/src/StrataTheme/Controls/StrataChatMessage.cs
+index 82bc72a..1a14598 100644
+--- a/src/StrataTheme/Controls/StrataChatMessage.cs
++++ b/src/StrataTheme/Controls/StrataChatMessage.cs
+@@ -12,9 +12,9 @@ using Avalonia.Input;
+ using Avalonia.Interactivity;
+ using Avalonia.Media;
+ using Avalonia.Rendering.Composition;
+-using Avalonia.Rendering.Composition.Animations;
+ using Avalonia.Threading;
+ using Avalonia.VisualTree;
++using StrataTheme.Animation;
+ 
+ namespace StrataTheme.Controls;
+ 
+@@ -130,9 +130,6 @@ public class StrataChatMessage : TemplatedControl
+     // never begins a Forever composition animation on an already-detached, off-tree visual.
+     private bool _isAttachedToVisualTree;
+ 
+-    // Mirrors the streaming-pulse start/stop state machine (see IsStreamPulseActiveForTest).
+-    private bool _streamPulseActive;
+-
+     // ── Cached state to skip redundant updates ──
+     private bool _cachedEditVisible;
+     private bool _cachedRetryVisible;
+@@ -1378,47 +1375,29 @@ public class StrataChatMessage : TemplatedControl
+ 
+     private void StartStreamPulse()
+     {
+-        // Guard stale/asynchronous starts. This runs from the dispatcher (posted by OnApplyTemplate
+-        // and OnAttachedToVisualTree) and directly from OnStreamingChanged, so by the time it executes
+-        // the message may have stopped streaming or been detached by transcript virtualization.
+-        // Starting a Forever animation on a detached (off-tree) visual would orphan it — no parent
+-        // re-sync will ever stop it — so only start while still streaming AND attached.
++        // Deferred starts can arrive after streaming ends or the transcript detaches.
+         if (!IsStreaming || !_isAttachedToVisualTree || _streamBar is null) return;
+ 
+-        // The start/stop state machine is engaged (guard passed). Tracked separately from compositor
+-        // internals so the detach/guard contract is observable to tests via IsStreamPulseActiveForTest.
+-        _streamPulseActive = true;
+-
+-        var visual = ElementComposition.GetElementVisual(_streamBar);
+-        if (visual is null) return;
+-
+-        var anim = visual.Compositor.CreateStableScalarKeyFrameAnimation();
+-        anim.Target = "Opacity";
+-        anim.InsertKeyFrame(0f, 0.3f);
+-        anim.InsertKeyFrame(0.5f, 1f);
+-        anim.InsertKeyFrame(1f, 0.3f);
+-        anim.Duration = TimeSpan.FromMilliseconds(1400);
+-        anim.IterationBehavior = AnimationIterationBehavior.Forever;
+-        visual.StartAnimation("Opacity", anim);
++        LifecycleOpacityPulse.SetFromOpacity(_streamBar, 0.3);
++        LifecycleOpacityPulse.SetToOpacity(_streamBar, 1);
++        LifecycleOpacityPulse.SetDuration(_streamBar, TimeSpan.FromMilliseconds(1400));
++        LifecycleOpacityPulse.SetEasing(_streamBar, LifecycleOpacityPulseEasing.CompositorDefault);
++        LifecycleOpacityPulse.SetIsActive(_streamBar, true);
+     }
+ 
+     private void StopStreamPulse()
+     {
+-        _streamPulseActive = false;
+         if (_streamBar is null) return;
++        LifecycleOpacityPulse.SetIsActive(_streamBar, false);
+         var visual = ElementComposition.GetElementVisual(_streamBar);
+         if (visual is null) return;
+ 
+-        visual.StopAnimation("Opacity");
+         visual.Opacity = 0f;
+     }
+ 
+     /// <summary>
+-    /// Test-only view of the streaming-pulse state machine: <see langword="true"/> once
+-    /// <see cref="StartStreamPulse"/> has engaged the Forever pulse (after its streaming/attachment
+-    /// guard) and <see langword="false"/> after <see cref="StopStreamPulse"/>. Exposed to
+-    /// <c>Lumi.Tests</c> via <c>InternalsVisibleTo</c> to assert the detach-stops-and-does-not-restart
+-    /// contract without reaching into compositor internals.
++    /// Whether the streaming accent currently owns a running, visible compositor pulse.
+     /// </summary>
+-    internal bool IsStreamPulseActiveForTest => _streamPulseActive;
++    internal bool IsStreamPulseActiveForTest =>
++        _streamBar is not null && LifecycleOpacityPulse.IsRunning(_streamBar);
+ }
+diff --git a/src/StrataTheme/Controls/StrataChatShell.axaml b/src/StrataTheme/Controls/StrataChatShell.axaml
+index 5f1969a..7ab6591 100644
+--- a/src/StrataTheme/Controls/StrataChatShell.axaml
++++ b/src/StrataTheme/Controls/StrataChatShell.axaml
+@@ -241,13 +241,6 @@
+         <Style Selector="^:online /template/ Border#PART_PresenceDot">
+           <Setter Property="Background" Value="{DynamicResource Brush.SuccessDefault}" />
+         </Style>
+-        <Style Selector="^:online:has-presence /template/ Border#PART_PresenceDot">
+-          <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+-          <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.45" />
+-          <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.5" />
+-          <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="CompositorDefault" />
+-          <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+-        </Style>
+         <Style Selector="^:offline /template/ Border#PART_PresenceDot">
+           <Setter Property="Background" Value="{DynamicResource Brush.TextTertiary}" />
+         </Style>
+diff --git a/src/StrataTheme/Controls/StrataTypingIndicator.cs b/src/StrataTheme/Controls/StrataTypingIndicator.cs
+index da0a77f..d77d324 100644
+--- a/src/StrataTheme/Controls/StrataTypingIndicator.cs
++++ b/src/StrataTheme/Controls/StrataTypingIndicator.cs
+@@ -4,12 +4,13 @@ using Avalonia;
+ using Avalonia.Controls;
+ using Avalonia.Controls.Primitives;
+ using Avalonia.Threading;
++using StrataTheme.Animation;
+ 
+ namespace StrataTheme.Controls;
+ 
+ /// <summary>
+ /// Animated three-dot typing indicator with a configurable label.
+-/// The dots pulse with staggered timing when <see cref="IsActive"/> is true.
++/// The dots pulse with staggered timing while active, attached, and effectively visible.
+ /// </summary>
+ /// <remarks>
+ /// <para><b>XAML usage:</b></para>
+@@ -34,6 +35,7 @@ public class StrataTypingIndicator : TemplatedControl
+     private bool _attached;
+     private readonly Stopwatch _pulseClock = new();
+     private readonly DispatcherTimer _pulseTimer;
++    private readonly EffectiveVisibilityObserver _visibilityObserver;
+ 
+     /// <summary>Text displayed next to the dots (e.g. "Thinking…", "Typing…").</summary>
+     public static readonly StyledProperty<string> LabelProperty =
+@@ -50,7 +52,11 @@ public class StrataTypingIndicator : TemplatedControl
+ 
+     public StrataTypingIndicator()
+     {
+-        _pulseTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(40), DispatcherPriority.Render, OnPulseTick);
++        _pulseTimer = new DispatcherTimer(DispatcherPriority.Render)
++        {
++            Interval = TimeSpan.FromMilliseconds(40),
++        };
++        _visibilityObserver = new EffectiveVisibilityObserver(this, Refresh);
+     }
+ 
+     public string Label { get => GetValue(LabelProperty); set => SetValue(LabelProperty, value); }
+@@ -71,12 +77,14 @@ public class StrataTypingIndicator : TemplatedControl
+         _pulseTimer.Tick -= OnPulseTick;
+         _pulseTimer.Tick += OnPulseTick;
+         _attached = true;
++        _visibilityObserver.Subscribe();
+         Refresh();
+     }
+ 
+     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+     {
+         _attached = false;
++        _visibilityObserver.Unsubscribe();
+         StopPulse();
+         _pulseTimer.Tick -= OnPulseTick;
+         base.OnDetachedFromVisualTree(e);
+@@ -86,7 +94,7 @@ public class StrataTypingIndicator : TemplatedControl
+     {
+         PseudoClasses.Set(":active", IsActive);
+ 
+-        if (IsActive && _attached && HasTemplateParts)
++        if (CanPulse)
+         {
+             StartPulse();
+             return;
+@@ -119,7 +127,7 @@ public class StrataTypingIndicator : TemplatedControl
+ 
+     private void OnPulseTick(object? sender, EventArgs e)
+     {
+-        if (!_attached || !IsActive || !HasTemplateParts)
++        if (!CanPulse)
+         {
+             StopPulse();
+             return;
+@@ -170,4 +178,6 @@ public class StrataTypingIndicator : TemplatedControl
+         => from + ((to - from) * progress);
+ 
+     private bool HasTemplateParts => _dot1 is not null && _dot2 is not null && _dot3 is not null;
++
++    private bool CanPulse => IsActive && _attached && IsEffectivelyVisible && HasTemplateParts;
+ }
+diff --git a/src/StrataTheme/Controls/TabControl.axaml b/src/StrataTheme/Controls/TabControl.axaml
+index 9dc88ad..5b37413 100644
+--- a/src/StrataTheme/Controls/TabControl.axaml
++++ b/src/StrataTheme/Controls/TabControl.axaml
+@@ -105,10 +105,6 @@
+         </Style>
+         <Style Selector="^:selected /template/ Border#PART_SelectedPipe">
+           <Setter Property="Opacity" Value="1" />
+-          <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.86" />
+-          <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="1" />
+-          <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:2" />
+-          <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+         </Style>
+         <Style Selector="^:selected:pointerover /template/ Border#PART_SelectedPipe">
+           <Setter Property="RenderTransform" Value="scaleX(1.05)" />
+diff --git a/src/StrataTheme/Controls/TextBox.axaml b/src/StrataTheme/Controls/TextBox.axaml
+index 7d4716d..88f8808 100644
+--- a/src/StrataTheme/Controls/TextBox.axaml
++++ b/src/StrataTheme/Controls/TextBox.axaml
+@@ -115,10 +115,6 @@
+         </Style>
+         <Style Selector="^:focus-within /template/ Border#FocusAccentBar">
+           <Setter Property="Opacity" Value="1" />
+-          <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="0.72" />
+-          <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="1" />
+-          <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.6" />
+-          <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+         </Style>
+         <Style Selector="^:disabled">
+           <Setter Property="Opacity" Value="0.5" />
+@@ -131,7 +127,7 @@
+     </ResourceDictionary>
+   </Styles.Resources>
+ 
+-  <!-- Capsule/search fields can opt out of the animated outline while keeping the border halo. -->
++  <!-- Capsule/search fields can opt out of the focus outline while keeping the border halo. -->
+   <Style Selector="TextBox.no-focus-accent /template/ Border#FocusAccentBar">
+     <Setter Property="IsVisible" Value="False" />
+   </Style>
+diff --git a/src/StrataTheme/StrataTheme.csproj b/src/StrataTheme/StrataTheme.csproj
+index 16178c3..d725e92 100644
+--- a/src/StrataTheme/StrataTheme.csproj
++++ b/src/StrataTheme/StrataTheme.csproj
+@@ -7,7 +7,7 @@
+ 
+     <!-- NuGet metadata -->
+     <PackageId>StrataUI.Theme</PackageId>
+-    <Version>0.3.18</Version>
++    <Version>0.3.19</Version>
+     <Authors>StrataUI</Authors>
+     <Description>A modern, token-driven Avalonia theme for professional desktop applications.</Description>
+     <PackageTags>avalonia;theme;ui;desktop</PackageTags>
