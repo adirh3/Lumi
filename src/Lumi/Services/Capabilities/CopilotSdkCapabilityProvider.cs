@@ -234,7 +234,7 @@ public sealed class CopilotSdkCapabilityProvider : ICapabilityProvider
         foreach (var directory in directories)
         {
             var result = await client.Rpc.Mcp
-                .DiscoverAsync(directory, cancellationToken)
+                .DiscoverAsync(directory, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
             if (result?.Servers is not { Count: > 0 } discovered)

@@ -13,6 +13,7 @@ obj/
 *.suo
 *.userprefs
 *.nupkg
+!/vendor/nuget/*.nupkg
 project.lock.json
 
 ## IDE

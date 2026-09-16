@@ -11,9 +11,9 @@
 *.md text
 *.txt text
 *.xml text
-*.patch text eol=lf -whitespace
 
 # Binary
+*.nupkg binary
 *.png binary
 *.ico binary
 *.jpg binary

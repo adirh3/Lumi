@@ -35,9 +35,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Apply native skill SDK patch
-        run: git apply --directory=CopilotSdk patches/copilot-native-skills.patch
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
