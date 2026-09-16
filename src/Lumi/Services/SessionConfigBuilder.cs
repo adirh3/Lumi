@@ -193,7 +193,7 @@ public sealed class LightweightSessionOptions
 
         if (options.Tools is { Count: > 0 })
         {
-            config.Tools = options.Tools.Cast<AIFunctionDeclaration>().ToList();
+            config.Tools = PreloadLumiTools(options.Tools);
             config.AvailableTools = options.Tools.Select(t => t.Name).ToList();
         }
         else
@@ -203,6 +203,20 @@ public sealed class LightweightSessionOptions
         }
 
         return config;
+    }
+
+    // Copilot can stop exposing deferred tools after an earlier lookup or a resume.
+    // Preload Lumi-owned functions only; MCP tools keep their separate loading policy.
+    private static List<AIFunctionDeclaration> PreloadLumiTools(List<AIFunction> tools)
+        => tools.ConvertAll<AIFunctionDeclaration>(tool => new PreloadedLumiTool(tool));
+
+    private sealed class PreloadedLumiTool(AIFunction innerFunction) : DelegatingAIFunction(innerFunction)
+    {
+        public override IReadOnlyDictionary<string, object?> AdditionalProperties { get; } =
+            new Dictionary<string, object?>(innerFunction.AdditionalProperties, StringComparer.Ordinal)
+            {
+                ["defer"] = CopilotToolDefer.Never
+            };
     }
 
     private static string GetDefaultConfigDir()
@@ -343,7 +357,7 @@ public sealed class LightweightSessionOptions
             config.CustomAgents = customAgents;
 
         if (tools is { Count: > 0 })
-            config.Tools = tools.Cast<AIFunctionDeclaration>().ToList();
+            config.Tools = PreloadLumiTools(tools);
 
         if (mcpPlan is not null)
         {
@@ -394,7 +408,7 @@ public sealed class LightweightSessionOptions
             config.CustomAgents = customAgents;
 
         if (tools is { Count: > 0 })
-            config.Tools = tools.Cast<AIFunctionDeclaration>().ToList();
+            config.Tools = PreloadLumiTools(tools);
 
         if (mcpPlan is not null)
         {

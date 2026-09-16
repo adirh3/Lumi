@@ -1878,7 +1878,11 @@ public class CopilotIntegrationTests : IAsyncLifetime
 
         Assert.True(config.Streaming);
         Assert.NotNull(config.Tools);
-        Assert.Same(tool, Assert.Single(config.Tools!));
+        var exposedTool = Assert.IsAssignableFrom<AIFunction>(Assert.Single(config.Tools!));
+        Assert.Same(tool.UnderlyingMethod, exposedTool.UnderlyingMethod);
+        Assert.Equal(tool.JsonSchema.GetRawText(), exposedTool.JsonSchema.GetRawText());
+        Assert.Equal(CopilotToolDefer.Never,
+            Assert.IsType<CopilotToolDefer>(exposedTool.AdditionalProperties["defer"]));
         Assert.NotNull(config.AvailableTools);
         Assert.Equal("my_tool", Assert.Single(config.AvailableTools!));
         Assert.Null(config.ExcludedTools);

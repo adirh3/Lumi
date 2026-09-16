@@ -786,6 +786,59 @@ public sealed class ChatViewModelAgentRoutingTests
     }
 
     [Fact]
+    public void BuildCustomTools_RestrictedAgentCanAllowOnePreloadedBrowserTool()
+    {
+        var agent = new LumiAgent
+        {
+            Name = "Browser Lumi",
+            HasExplicitToolSelection = true,
+            ToolNames = [ToolDisplayHelper.BrowserOpenToolName]
+        };
+        using var harness = CreateHarness(new AppData());
+
+        var tools = InvokeBuildCustomTools(harness.ViewModel, agent);
+        var config = SessionConfigBuilder.Build(
+            "prompt", null, null, null, [], [], tools, null, null, null, null);
+
+        if (OperatingSystem.IsWindows())
+        {
+            var tool = Assert.Single(config.Tools!);
+            Assert.Equal(ToolDisplayHelper.BrowserOpenToolName, tool.Name);
+            Assert.Equal(CopilotToolDefer.Never,
+                Assert.IsType<CopilotToolDefer>(tool.AdditionalProperties["defer"]));
+        }
+        else
+        {
+            Assert.Empty(tools);
+            Assert.Null(config.Tools);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BuildCustomTools_PreloadsAllLumiToolsForCreateAndResume(bool resume)
+    {
+        using var harness = CreateHarness(new AppData());
+        var tools = InvokeBuildCustomTools(harness.ViewModel);
+        SessionConfigBase config = resume
+            ? SessionConfigBuilder.BuildForResume(
+                "prompt", null, null, null, [], [], tools, null, null, null, null)
+            : SessionConfigBuilder.Build(
+                "prompt", null, null, null, [], [], tools, null, null, null, null);
+
+        Assert.NotNull(config.Tools);
+        Assert.NotEmpty(config.Tools);
+        Assert.Equal(tools.Select(tool => tool.Name), config.Tools.Select(tool => tool.Name));
+        Assert.All(config.Tools, tool =>
+        {
+            Assert.True(tool.AdditionalProperties.TryGetValue("defer", out var defer));
+            Assert.Equal(CopilotToolDefer.Never, Assert.IsType<CopilotToolDefer>(defer));
+        });
+        Assert.Null(config.ToolSearch);
+    }
+
+    [Fact]
     public void BuildCustomTools_NoAgentInjectsAllLumiToolCategories()
     {
         using var harness = CreateHarness(new AppData());
@@ -1006,11 +1059,14 @@ public sealed class ChatViewModelAgentRoutingTests
         };
         using var harness = CreateHarness(new AppData());
 
-        var toolNames = InvokeBuildCustomTools(harness.ViewModel, agent)
-            .Select(tool => tool.Name)
-            .ToArray();
+        var tools = InvokeBuildCustomTools(harness.ViewModel, agent);
+        var config = SessionConfigBuilder.Build(
+            "prompt", null, null, null, [], [], tools, null, null, null, null);
+        var tool = Assert.Single(config.Tools!);
 
-        Assert.Equal(["lumi_fetch"], toolNames);
+        Assert.Equal("lumi_fetch", tool.Name);
+        Assert.Equal(CopilotToolDefer.Never,
+            Assert.IsType<CopilotToolDefer>(tool.AdditionalProperties["defer"]));
     }
 
     [Fact]

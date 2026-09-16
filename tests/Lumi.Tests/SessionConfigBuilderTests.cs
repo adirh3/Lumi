@@ -1,13 +1,103 @@
 using System.Collections.Generic;
+using System.Text.Json;
 using GitHub.Copilot;
 using Lumi.Models;
 using Lumi.Services;
+using Microsoft.Extensions.AI;
 using Xunit;
 
 namespace Lumi.Tests;
 
 public sealed class SessionConfigBuilderTests
 {
+    [Theory]
+    [InlineData("create")]
+    [InlineData("resume")]
+    [InlineData("lightweight")]
+    public async Task LumiTools_PreloadWithoutChangingTheirContract(string sessionKind)
+    {
+        using var cts = new CancellationTokenSource();
+        var arguments = new AIFunctionArguments { ["text"] = "receipt" };
+        var metadata = new object();
+        var original = AIFunctionFactory.Create(
+            (string text, AIFunctionArguments actualArguments, CancellationToken cancellationToken, int repeat = 2) =>
+            {
+                Assert.Same(arguments, actualArguments);
+                Assert.Equal(cts.Token, cancellationToken);
+                return string.Concat(Enumerable.Repeat(text, repeat));
+            },
+            new AIFunctionFactoryOptions
+            {
+                Name = "lumi_test_tool",
+                Description = "Return a diagnostic receipt.",
+                AdditionalProperties = new Dictionary<string, object?>
+                {
+                    ["defer"] = CopilotToolDefer.Auto,
+                    ["skip_permission"] = true,
+                    ["test_metadata"] = metadata
+                }
+            });
+
+        var config = BuildWithTools(sessionKind, [original]);
+        var tool = Assert.IsAssignableFrom<AIFunction>(Assert.Single(config.Tools!));
+
+        Assert.Equal(original.Name, tool.Name);
+        Assert.Equal(original.Description, tool.Description);
+        Assert.Equal(original.JsonSchema.GetRawText(), tool.JsonSchema.GetRawText());
+        Assert.Equal(original.ReturnJsonSchema?.GetRawText(), tool.ReturnJsonSchema?.GetRawText());
+        Assert.Same(original.JsonSerializerOptions, tool.JsonSerializerOptions);
+        Assert.Same(original.UnderlyingMethod, tool.UnderlyingMethod);
+        Assert.Equal(CopilotToolDefer.Never,
+            Assert.IsType<CopilotToolDefer>(tool.AdditionalProperties["defer"]));
+        Assert.True(Assert.IsType<bool>(tool.AdditionalProperties["skip_permission"]));
+        Assert.Same(metadata, tool.AdditionalProperties["test_metadata"]);
+        Assert.Equal(CopilotToolDefer.Auto,
+            Assert.IsType<CopilotToolDefer>(original.AdditionalProperties["defer"]));
+        Assert.Null(config.ToolSearch);
+
+        var result = await tool.InvokeAsync(arguments, cts.Token);
+        Assert.Equal("receiptreceipt", Assert.IsType<JsonElement>(result).GetString());
+    }
+
+    [Fact]
+    public async Task PreloadedLumiTools_PropagateErrorsAndCancellation()
+    {
+        var failure = new InvalidOperationException("Tool failed.");
+        string Invoke(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw failure;
+        }
+
+        var original = AIFunctionFactory.Create(Invoke, "failing_tool", "Diagnostic failure.");
+        var config = BuildWithTools("create", [original]);
+        var tool = Assert.IsAssignableFrom<AIFunction>(Assert.Single(config.Tools!));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => tool.InvokeAsync().AsTask());
+        Assert.Same(failure, error);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var cancelled = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => tool.InvokeAsync(cancellationToken: cts.Token).AsTask());
+        Assert.Equal(cts.Token, cancelled.CancellationToken);
+    }
+
+    private static SessionConfigBase BuildWithTools(string sessionKind, List<AIFunction> tools) =>
+        sessionKind switch
+        {
+            "create" => SessionConfigBuilder.Build(
+                "prompt", null, null, null, [], [], tools, null, null, null, null),
+            "resume" => SessionConfigBuilder.BuildForResume(
+                "prompt", null, null, null, [], [], tools, null, null, null, null),
+            "lightweight" => SessionConfigBuilder.BuildLightweight(new LightweightSessionOptions
+            {
+                SystemPrompt = "prompt",
+                Tools = tools
+            }),
+            _ => throw new ArgumentOutOfRangeException(nameof(sessionKind))
+        };
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -74,6 +164,10 @@ public sealed class SessionConfigBuilderTests
 
         Assert.Equal(600_000, created.McpServers!["local"].Timeout);
         Assert.Equal(600_000, resumed.McpServers!["local"].Timeout);
+        Assert.Same(plan.Servers, created.McpServers);
+        Assert.Same(plan.Servers, resumed.McpServers);
+        Assert.Null(created.ToolSearch);
+        Assert.Null(resumed.ToolSearch);
     }
 
     [Fact]

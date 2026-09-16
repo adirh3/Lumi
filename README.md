@@ -17,6 +17,20 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Localization** — English and Hebrew, with easy extension to other languages
 - **Desktop notifications** — Toast notifications when responses complete in the background
 
+### Lumi tool availability
+
+Lumi preloads its own tool definitions for new, resumed, and helper sessions,
+including background-job chats. This bypasses Copilot's deferred-tool discovery
+state getting stuck after an earlier successful lookup. The policy is applied
+centrally when building session configurations, after platform checks and agent
+tool restrictions. Tool names, schemas, handlers, and permission behavior are
+unchanged.
+
+External MCP tools retain Copilot's existing loading policy; tool search is not
+globally disabled. Preloading Lumi's tools adds their schemas to the model's
+context, trading some prompt size for reliable access. Website sign-in
+requirements are unchanged.
+
 ### Lazy MCP initialization
 
 In **Settings > AI & Models > MCP Servers**, enable **Fast MCP Initialization**, then
