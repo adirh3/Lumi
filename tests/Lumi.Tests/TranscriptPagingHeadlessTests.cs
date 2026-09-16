@@ -104,8 +104,10 @@ public sealed class TranscriptPagingHeadlessTests
                 shell.ScrollToEnd();
                 await PumpAsync();
 
+                shell.PreserveViewport();
                 shell.ScrollToVerticalOffset(0);
                 await PumpAsync();
+                Assert.False(shell.IsFollowingTail);
 
                 controller.UpdatePinnedState(false, shell.CurrentDistanceFromBottom, "ui-prepend");
                 var anchor = CaptureAnchor(window, scrollViewer);
@@ -765,9 +767,11 @@ public sealed class TranscriptPagingHeadlessTests
                 shell.ScrollToEnd();
                 await PumpAsync();
 
+                shell.PreserveViewport();
                 var midOffset = shell.ExtentHeight / 2;
                 shell.ScrollToVerticalOffset(midOffset);
                 await PumpAsync();
+                Assert.False(shell.IsFollowingTail);
 
                 // Capture the first visible turn as our anchor.
                 var anchorBefore = CaptureAnchor(window, scrollViewer);
