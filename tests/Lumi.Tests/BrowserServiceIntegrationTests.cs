@@ -324,10 +324,11 @@ public sealed class BrowserServiceIntegrationTests(ITestOutputHelper output)
         }
     }
 
+    // In inactive #if blocks, lines starting with '#' are still parsed as C# directives.
     private const string FixtureHtml = """
         <!doctype html><html><head><meta charset="utf-8"><title>Lumi isolated browser fixture</title>
         <style>body{margin:0;background:#fff;color:#111;font:16px sans-serif}
-        #marker{width:100%;height:35px;background:#e000d0}main{padding:16px}
+        div#marker{width:100%;height:35px;background:#e000d0}main{padding:16px}
         input,button{margin:8px;padding:8px}dialog{position:fixed;top:350px}</style></head>
         <body><div id="marker"></div><main><h1>Browser regression fixture</h1>
         <form onsubmit="event.preventDefault();window.submits++">
