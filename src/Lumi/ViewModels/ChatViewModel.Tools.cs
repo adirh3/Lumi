@@ -328,8 +328,15 @@ public partial class ChatViewModel
                     });
                 }
             },
-            ToolDisplayHelper.BrowserScreenshotToolName,
-            "Capture the browser viewport as an image you can inspect, with tab ID, URL, and delivered pixel dimensions. Images preserve aspect ratio, are never upscaled, and are limited to a 2048-pixel longest edge and 3 MiB PNG (4 MiB base64). These size limits do not bypass model image-count limits; use look/find for exact text and interactive element numbers. Use screenshots for visual layout, canvas content, charts, or icons that DOM/text snapshots cannot explain. Defaults to the active tab; an explicit stable tab ID targets that tab. The target must already be visible and ready: capture does not switch tabs or show the browser. For a hidden tab, switch/show it first, then retry.");
+            new AIFunctionFactoryOptions
+            {
+                Name = ToolDisplayHelper.BrowserScreenshotToolName,
+                Description = "Capture the browser viewport as an image you can inspect, with tab ID, URL, and delivered pixel dimensions. Images preserve aspect ratio, are never upscaled, and are limited to a 2048-pixel longest edge and 3 MiB PNG (4 MiB base64). These size limits do not bypass model image-count limits; use look/find for exact text and interactive element numbers. Use screenshots for visual layout, canvas content, charts, or icons that DOM/text snapshots cannot explain. Defaults to the active tab; an explicit stable tab ID targets that tab. The target must already be visible and ready: capture does not switch tabs or show the browser. For a hidden tab, switch/show it first, then retry.",
+                SerializerOptions = Lumi.Models.AppDataJsonContext.Default.Options,
+                // The SDK unwraps this binary envelope without JSON serialization. Inferring its
+                // return schema would require reflection metadata unavailable in the shipped app.
+                ExcludeResultSchema = true
+            });
 
     /// <summary>Raised when a browser tool requests the browser panel to be visible. Carries the chat ID.</summary>
     public event Action<Guid>? BrowserShowRequested;
