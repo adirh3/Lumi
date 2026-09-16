@@ -602,7 +602,7 @@ public static class SystemPromptBuilder
     /// <summary>
     /// The Windows-only "Browser Automation" + "Window Automation" prompt sections.
     /// Concatenated into the prompt only on Windows (where the lumi_browser_* and ui_* tools
-    /// are registered). Kept as the original text so the Windows prompt is unchanged.
+    /// are registered).
     /// </summary>
     private const string WindowsAutomationSections = """
 
@@ -616,7 +616,9 @@ public static class SystemPromptBuilder
         - Web search results aren't sufficient and you need interactive browsing
 
         **Browser tools:**
-        - `lumi_browser_open(url)` — Navigate to a URL. Returns numbered interactive elements and text preview.
+        - `lumi_browser_open(url)` — Navigate the active tab to a URL. Returns numbered interactive elements and text preview.
+        - `lumi_browser_tabs(action, tabId?, url?)` — List, create (`new`), switch, or close tabs. Use the stable tab IDs returned by list/new, never positions or titles. Supply tabId for switch/close; url is optional for new.
+        - `lumi_browser_screenshot(tabId?)` — Inspect a viewport image, with tab ID, URL, and pixel dimensions. Use it for visual layout, canvas content, charts, or icons that text/DOM snapshots miss. Omit tabId for the active tab. The target must be visible and ready; capture does not switch tabs or show the browser. If hidden, switch/show the target tab first, then retry.
         - `lumi_browser_look(filter?)` — Returns current page state. Optional filter narrows elements.
         - `lumi_browser_find(query)` — Find and rank interactive elements matching a query across text, aria-label, tooltip, title, and href. Returns element indices.
         - `lumi_browser_do(action, target?, value?)` — Interact with the page. Returns action result and updated page state. Actions:
@@ -632,9 +634,10 @@ public static class SystemPromptBuilder
           - `upload`: attach local file(s) to a file input **without** the native OS file picker (the picker is an OS window JS can't drive). value = absolute file path(s) — use a JSON array for multiple files, or a single path for one (multiple paths may also be newline-separated; commas are NOT separators, so paths containing commas stay intact); target = optional locator for the `<input type=file>` (CSS selector or the upload button/label text) — omit to use the page's only file input. Always use this for uploads instead of clicking a button that opens the system dialog.
           - `fill`: value = JSON object mapping field identifiers (element number, name, placeholder, or label) to values. Fills multiple form fields at once in a single call — **much more efficient than typing one by one**. Handles text inputs, textareas, checkboxes (true/false), and native selects.
           - `read_form`: no target needed. Returns all visible form fields with their names, values, types, required status, and validation errors. **Use this before and after filling forms** to verify state.
-          - `steps`: **CRITICAL for efficiency** — execute multiple actions in ONE call with only ONE snapshot at the end. Value = JSON array of action objects. Use this for calendar navigation, sequential clicks, or any multi-step flow where you don't need intermediate page state.
+          - `steps`: Execute multiple actions in ONE call with ONE final snapshot. Value = JSON array of action objects. Batch only when later steps do not require inspecting intermediate results. Stops at the first failure; a partial fill blocks subsequent steps. Inspect the result and repair failed fields before continuing.
         - `lumi_browser_js(script)` — Run JavaScript in the page context. Errors are caught and returned as messages (never silently null).
 
+        **Tab identity:** Browser actions default to the active tab. Each operation stays with the tab it started on, even if the user switches tabs while it runs. After switching tabs, use look/find before reusing element numbers; numbers belong to a tab's page state, not to every tab. Screenshots show pixels, not clickable element numbers.
         **Quiet mode:** Append ` quiet` to the target or set value to `quiet` on click/press/scroll to skip the auto-snapshot. Use when you already know the next action.
         **Steps action example:** `lumi_browser_do("steps", null, '[{"action":"click","target":"Next month"},{"action":"click","target":"Next month"},{"action":"click","target":"25"}]')`
 
@@ -643,10 +646,10 @@ public static class SystemPromptBuilder
         **Upload action example:** `lumi_browser_do("upload", null, "C:\\Users\\me\\Pictures\\photo.png")` — attaches the file directly to the page's file input; no native dialog opens. Use a target (CSS selector or upload-button text) only when the page has more than one file input.
 
         **Efficiency best practices (IMPORTANT):**
-        1. **Batch with `steps`** — Always use `steps` when you need 2+ sequential actions (especially calendar/date navigation). One `steps` call = one snapshot instead of N snapshots.
+        1. **Batch with `steps` only when safe** — Use it for known sequences whose later actions don't depend on inspecting intermediate results. Otherwise act, inspect, then choose the next step. A failure stops the batch; completed actions are not rolled back.
         2. **Use `fill` for forms** — One call fills all fields instead of one call per field.
         3. **Use `read_form`** before and after filling to verify state.
-        4. **Use `quiet` for intermediate clicks** — When you'll click again immediately, skip the snapshot: `lumi_browser_do("click", "3 quiet")`.
+        4. **Use `quiet` for known intermediate clicks** — Skip the snapshot only when the next action needs no intermediate inspection: `lumi_browser_do("click", "3 quiet")`.
         5. For custom dropdowns that aren't native `<select>`, use `lumi_browser_do("select", "element#", "option text")`.
         6. When a website uses a booking timer, use `fill` and `steps` to be fast.
         7. If a booking platform requires CAPTCHA or credit card — note it and move on immediately.

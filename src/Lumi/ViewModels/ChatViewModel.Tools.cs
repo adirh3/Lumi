@@ -223,7 +223,25 @@ public partial class ChatViewModel
                     return svc.OpenAndSnapshotAsync(url);
                 },
                 ToolDisplayHelper.BrowserOpenToolName,
-                "Open a URL in the browser and return the page with numbered interactive elements and a text preview. The browser has persistent cookies/sessions — the user may already be logged in. Returns element numbers you can use with lumi_browser_do. If the URL triggers a file download (e.g. an export URL), the download is detected automatically and reported instead of a page snapshot."),
+                "Open a URL in the active browser tab and return the page with numbered interactive elements and a text preview. The browser has persistent cookies/sessions — the user may already be logged in. Returns element numbers you can use with lumi_browser_do in that tab. Use lumi_browser_tabs to create or switch tabs. If the URL triggers a file download (e.g. an export URL), the download is detected automatically and reported instead of a page snapshot."),
+
+            AIFunctionFactory.Create(
+                ([Description("Tab action: list, new, switch, or close.")] string action,
+                 [Description("Stable tab ID returned by list/new for switch/close. Omit to target the active tab; never use a tab's position or title as its ID.")] string? tabId = null,
+                 [Description("Optional URL to open when action is new.")] string? url = null) =>
+                {
+                    var svc = GetOrCreateBrowserService(chatId);
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (CurrentChat?.Id == chatId) HasUsedBrowser = true;
+                        BrowserShowRequested?.Invoke(chatId);
+                    });
+                    return svc.ManageTabsAsync(action, tabId, url);
+                },
+                ToolDisplayHelper.BrowserTabsToolName,
+                "Manage browser tabs: list tabs with stable IDs, create a new active tab, switch tabs, or close a tab. Existing browser tools operate on the active tab. Use returned tab IDs, not positions or titles; refresh the page state after switching before using element numbers."),
+
+            BuildBrowserScreenshotTool(tabId => GetOrCreateBrowserService(chatId).CaptureScreenshotAsync(tabId)),
 
             AIFunctionFactory.Create(
                 ([Description("Optional text filter to narrow elements (e.g. 'button', 'download', 'search', 'Export'). Omit to see all.")] string? filter = null) =>
@@ -232,7 +250,7 @@ public partial class ChatViewModel
                     return svc.LookAsync(filter);
                 },
                 ToolDisplayHelper.BrowserLookToolName,
-                "Returns the current page state: numbered interactive elements and text preview. Use filter to narrow results."),
+                "Returns the active tab's page state: numbered interactive elements and text preview. Use filter to narrow results. For visual layout, canvas content, or icons, use lumi_browser_screenshot."),
 
             AIFunctionFactory.Create(
                 ([Description("What to find on the page (e.g. 'download', 'export csv', 'save', 'submit').")]
@@ -264,7 +282,7 @@ public partial class ChatViewModel
                     return svc.DoAsync(action ?? "", target, value);
                 },
                 ToolDisplayHelper.BrowserDoToolName,
-                "Interact with the page. Actions: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, upload, steps. Use 'upload' to attach local file(s) to a file input WITHOUT the native OS file picker (value = absolute file path(s); target = optional file-input locator) — this is the only way to upload, never try to drive the native dialog. Use 'steps' to batch multiple actions in ONE call (value: JSON array like [{\"action\":\"click\",\"target\":\"Next month\"},{\"action\":\"click\",\"target\":\"25\"}]) — only snapshots once at end, drastically reducing tokens. Append ' quiet' to target or set value='quiet' on click/press/scroll to skip the auto-snapshot entirely."),
+                "Interact with the active tab. Actions: click, type, press, select, scroll, back, wait, download, clear, fill, read_form, upload, steps. Use 'upload' to attach local file(s) to a file input WITHOUT the native OS file picker (value = absolute file path(s); target = optional file-input locator) — this is the only way to upload, never try to drive the native dialog. Use 'steps' to batch actions only when later steps do not require inspecting intermediate results (value: JSON array like [{\"action\":\"click\",\"target\":\"Next month\"},{\"action\":\"click\",\"target\":\"25\"}]); returns one final snapshot. Stops at the first failure; a partial fill blocks subsequent steps. Inspect the result before continuing. Append ' quiet' to target or set value='quiet' on click/press/scroll to skip the auto-snapshot only when the next action is already known."),
 
             AIFunctionFactory.Create(
                 ([Description("JavaScript code to execute in the page context")] string script) =>
@@ -276,6 +294,22 @@ public partial class ChatViewModel
                 "Run JavaScript in the browser page context."),
         ];
     }
+
+    internal static AIFunction BuildBrowserScreenshotTool(Func<string?, Task<BrowserScreenshot>> captureScreenshot)
+        => AIFunctionFactory.Create(
+            async ([Description("Stable tab ID returned by lumi_browser_tabs. Omit to capture the active tab.")] string? tabId = null) =>
+            {
+                var screenshot = await captureScreenshot(tabId).ConfigureAwait(false);
+                // A typed AIContent collection survives AIFunctionFactory marshalling and is converted
+                // by the Copilot SDK into textResultForLlm + binaryResultsForLlm, not JSON text.
+                return new AIContent[]
+                {
+                    new TextContent($"Browser screenshot — tab {screenshot.TabId}\nURL: {screenshot.Url}\nSize: {screenshot.Width} × {screenshot.Height} pixels."),
+                    new DataContent(screenshot.PngBytes, "image/png")
+                };
+            },
+            ToolDisplayHelper.BrowserScreenshotToolName,
+            "Capture the browser viewport as an image you can inspect, with tab ID, URL, and pixel dimensions. Use for visual layout, canvas content, charts, or icons that DOM/text snapshots cannot explain. Defaults to the active tab; an explicit stable tab ID targets that tab. The target must already be visible and ready: capture does not switch tabs or show the browser. For a hidden tab, switch/show it first, then retry. Use look/find for interactive element numbers.");
 
     /// <summary>Raised when a browser tool requests the browser panel to be visible. Carries the chat ID.</summary>
     public event Action<Guid>? BrowserShowRequested;
