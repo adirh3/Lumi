@@ -1734,7 +1734,6 @@ public class TranscriptBuilder
             var canFlattenSingleTool = _currentToolGroupCount == 1 && !hasRunningTool && !hasBackgroundShell
                 && _currentToolGroup.ToolCalls.Count == 1;
 
-            _currentToolGroup.StreamingSummary = null;
             // A background-shell group must stay expanded so its live terminal card remains visible;
             // collapsing here would hide the still-running process behind a static "Working…" pill and
             // nothing would re-expand it (the monitor only refreshes the group when the flag flips).
@@ -1812,11 +1811,9 @@ public class TranscriptBuilder
                 group.Meta += " · " + string.Format(Loc.ToolTodo_Updates, _todoUpdateCount);
 
             var progress = Math.Clamp((todoDone * 100d) / _currentTodoProgress.Total, 0d, 100d);
-            group.ProgressValue = IsRebuildingTranscript ? -1 : progress;
             group.IsActive = running > 0 && !IsTerminalToolStatus(_currentTodoProgress.ToolStatus);
-            group.StreamingSummary = !IsRebuildingTranscript && group.IsActive
-                ? ToolDisplayHelper.BuildToolActivitySummary(group.ToolCalls.Select(GetToolGroupSummaryLabel))
-                : null;
+            group.ProgressValue = IsRebuildingTranscript && !group.IsActive ? -1 : progress;
+            UpdateToolGroupActivityPreview(group);
             if (!group.IsActive || IsRebuildingTranscript)
                 group.IsExpanded = false;
             CompactEarlierActivity();
@@ -1834,7 +1831,7 @@ public class TranscriptBuilder
             group.Label = isCurrent && _currentIntentText is not null
                 ? _currentIntentText + "…"
                 : Loc.ToolGroup_Working;
-            group.StreamingSummary = null;
+            UpdateToolGroupActivityPreview(group);
             return;
         }
 
@@ -1876,7 +1873,7 @@ public class TranscriptBuilder
             group.IsActive = true;
             group.Label = intentText is not null
                 ? intentText + "…"
-                : (toolCount == 1 ? Loc.ToolGroup_Working : string.Format(Loc.ToolGroup_WorkingCount, toolCount));
+                : Loc.ToolGroup_Working;
             var runningCount = Math.Max(0, toolCount - completedCount - failedCount);
             group.Meta = runningCount > 0
                 ? string.Format(Loc.ToolGroup_MetaRunning, completedCount, toolCount, runningCount)
@@ -1890,23 +1887,42 @@ public class TranscriptBuilder
         var genericProgress = toolCount > 0
             ? Math.Clamp(((completedCount + failedCount) * 100d) / toolCount, 0d, 100d)
             : -1;
-        group.ProgressValue = IsRebuildingTranscript ? -1 : genericProgress;
-        group.StreamingSummary = !IsRebuildingTranscript && group.IsActive
-            ? ToolDisplayHelper.BuildToolActivitySummary(group.ToolCalls.Select(GetToolGroupSummaryLabel))
-            : null;
+        group.ProgressValue = IsRebuildingTranscript && !group.IsActive ? -1 : genericProgress;
+        UpdateToolGroupActivityPreview(group);
         CompactEarlierActivity();
     }
 
-    private static string? GetToolGroupSummaryLabel(ToolCallItemBase item)
-        => item switch
+    private static void UpdateToolGroupActivityPreview(ToolGroupItem group)
+    {
+        var preview = new List<ToolActivityPreviewItem>(3);
+        var runningCount = 0;
+        if (group.IsActive)
         {
-            ToolCallItem toolCall => string.IsNullOrWhiteSpace(toolCall.MoreInfo)
-                ? toolCall.ToolName
-                : $"{toolCall.ToolName}: {toolCall.MoreInfo}",
-            TerminalPreviewItem terminal => terminal.ToolName,
-            TodoProgressItem todo => todo.ToolName,
-            _ => null
-        };
+            foreach (var item in group.ToolCalls)
+            {
+                var activity = item switch
+                {
+                    ToolCallItem { Status: StrataAiToolCallStatus.InProgress } tool
+                        => new ToolActivityPreviewItem(tool.ToolName, tool.MoreInfo),
+                    TerminalPreviewItem terminal when terminal.Status == StrataAiToolCallStatus.InProgress || terminal.IsRunningInBackground
+                        => new ToolActivityPreviewItem(terminal.ToolName, terminal.Command),
+                    TodoProgressItem { Status: StrataAiToolCallStatus.InProgress } todo
+                        => new ToolActivityPreviewItem(todo.ToolName, todo.MoreInfo),
+                    _ => null
+                };
+                if (activity is null)
+                    continue;
+
+                runningCount++;
+                if (preview.Count < 3)
+                    preview.Add(activity);
+            }
+        }
+
+        if (!group.ActivityPreview.SequenceEqual(preview))
+            group.ActivityPreview = preview;
+        group.AdditionalActivityCount = runningCount - preview.Count;
+    }
 
     private void UpsertTodoProgressToolCall(List<ToolDisplayHelper.TodoStepSnapshot> steps, string toolStatus)
     {

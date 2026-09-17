@@ -639,6 +639,7 @@
   "ToolGroup_MetaRunning": "{0}/{1} הושלמו \u00b7 {2} בריצה",
   "ToolGroup_MetaDone": "{0}/{1} הושלמו",
   "ToolGroup_MetaFailed": "{0}/{1} הושלמו \u00b7 {2} נכשלו",
+  "ToolGroup_MoreRunning": "עוד {0} פעולות בריצה",
   "TurnSummary_ReasonedAndActions": "חשב \u00b7 {0} פעולות",
   "TurnSummary_ReasonedAndOneAction": "חשב \u00b7 פעולה אחת",
   "TurnSummary_Reasoned": "חשב",

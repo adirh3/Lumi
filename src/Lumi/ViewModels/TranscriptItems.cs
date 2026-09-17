@@ -589,7 +589,8 @@ public partial class ToolGroupItem : TranscriptItem
     [ObservableProperty] private bool _isActive;
     [ObservableProperty] private double _progressValue = -1;
     [ObservableProperty] private bool _isExpanded;
-    [ObservableProperty] private string? _streamingSummary;
+    [ObservableProperty] private IReadOnlyList<ToolActivityPreviewItem> _activityPreview = [];
+    [ObservableProperty] private int _additionalActivityCount;
 
     public ObservableCollection<ToolCallItemBase> ToolCalls { get; } = [];
     // A plan's header represents its steps, not a single tool invocation.
@@ -603,7 +604,10 @@ public partial class ToolGroupItem : TranscriptItem
             _ => false,
         }
         : IsExpanded;
-    public bool HasStreamingSummary => !string.IsNullOrWhiteSpace(StreamingSummary);
+    public bool HasActivityPreview => ActivityPreview.Count > 0;
+    public string? AdditionalActivityLabel => AdditionalActivityCount > 0
+        ? string.Format(Loc.ToolGroup_MoreRunning, AdditionalActivityCount)
+        : null;
     public ChatMessageViewModel? Source { get; set; }
 
     public ToolGroupItem(string label, string? stableId = null)
@@ -655,8 +659,14 @@ public partial class ToolGroupItem : TranscriptItem
         }
     }
 
-    partial void OnStreamingSummaryChanged(string? value) => OnPropertyChanged(nameof(HasStreamingSummary));
+    partial void OnActivityPreviewChanged(IReadOnlyList<ToolActivityPreviewItem> value)
+        => OnPropertyChanged(nameof(HasActivityPreview));
+
+    partial void OnAdditionalActivityCountChanged(int value)
+        => OnPropertyChanged(nameof(AdditionalActivityLabel));
 }
+
+public sealed record ToolActivityPreviewItem(string Label, string? Detail);
 
 // ── Single tool (flattened — rendered as StrataThink pill) ─
 

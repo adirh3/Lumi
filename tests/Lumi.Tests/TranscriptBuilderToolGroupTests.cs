@@ -481,6 +481,7 @@ public sealed class TranscriptBuilderToolGroupTests
         var terminal = Assert.IsType<TerminalPreviewItem>(group.SingleTool);
         Assert.True(terminal.IsRunningInBackground);
         Assert.True(terminal.IsExpanded);
+        Assert.Equal("long job", Assert.Single(group.ActivityPreview).Detail);
         Assert.IsType<ReasoningItem>(turns[0].Items[1]);
         Assert.True(Assert.IsType<ToolGroupItem>(turns[0].Items[2]).IsActive);
     }
@@ -524,7 +525,7 @@ public sealed class TranscriptBuilderToolGroupTests
     }
 
     [Fact]
-    public void ProcessMessageToTranscript_StreamingToolGroup_StaysCollapsedAndShowsSummary()
+    public void ProcessMessageToTranscript_StreamingToolGroup_ShowsOnlyRunningActivityRows()
     {
         var builder = CreateBuilder();
         var liveTurns = new ObservableCollection<TranscriptTurn>();
@@ -542,20 +543,65 @@ public sealed class TranscriptBuilderToolGroupTests
         Assert.True(group.IsActive);
         Assert.False(group.IsExpanded);
         Assert.Equal(2, group.ToolCalls.Count);
-        Assert.NotNull(group.StreamingSummary);
-        Assert.Contains("notes.txt", group.StreamingSummary, StringComparison.Ordinal);
-        Assert.Contains("Running command", group.StreamingSummary, StringComparison.Ordinal);
+        Assert.Equal(2, group.ActivityPreview.Count);
+        Assert.Contains("notes.txt", group.ActivityPreview[0].Label + group.ActivityPreview[0].Detail, StringComparison.Ordinal);
+        Assert.Contains("Running command", group.ActivityPreview[1].Label, StringComparison.Ordinal);
+        Assert.Equal("dotnet test", group.ActivityPreview[1].Detail);
 
         firstTool.Message.ToolStatus = "Completed";
         firstTool.NotifyToolStatusChanged();
         Assert.True(group.IsActive);
-        Assert.NotNull(group.StreamingSummary);
+        Assert.Equal("dotnet test", Assert.Single(group.ActivityPreview).Detail);
+        Assert.Equal(50, group.ProgressValue);
 
         secondTool.Message.ToolStatus = "Completed";
         secondTool.NotifyToolStatusChanged();
 
         Assert.False(group.IsActive);
-        Assert.Null(group.StreamingSummary);
+        Assert.Empty(group.ActivityPreview);
+        Assert.Null(group.AdditionalActivityLabel);
+    }
+
+    [Fact]
+    public void StreamingActivityPreview_IsBoundedAndKeepsEarlierRunningOperationsVisible()
+    {
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        var messages = Enumerable.Range(1, 5)
+            .Select(index => CreateToolVm($"tool-{index}", "view", "InProgress",
+                $"{{\"path\":\"file-{index}.txt\"}}"))
+            .ToArray();
+        foreach (var message in messages)
+            builder.ProcessMessageToTranscript(message);
+
+        var group = Assert.IsType<ToolGroupItem>(Assert.Single(Assert.Single(turns).Items));
+        Assert.Equal(3, group.ActivityPreview.Count);
+        Assert.Equal(2, group.AdditionalActivityCount);
+        Assert.Equal("+2 more running", group.AdditionalActivityLabel);
+        Assert.Contains("file-1.txt", group.ActivityPreview[0].Label + group.ActivityPreview[0].Detail);
+        var unchangedPreview = group.ActivityPreview;
+
+        foreach (var status in new[] { "Completed", "Failed", "Stopped" })
+            builder.ProcessMessageToTranscript(CreateToolVm(status, "view", status, "{\"path\":\"finished.txt\"}"));
+        Assert.Same(unchangedPreview, group.ActivityPreview);
+        Assert.Equal(2, group.AdditionalActivityCount);
+
+        messages[0].Message.ToolStatus = "Completed";
+        messages[0].NotifyToolStatusChanged();
+        Assert.Equal(1, group.AdditionalActivityCount);
+        Assert.Contains("file-2.txt", group.ActivityPreview[0].Label + group.ActivityPreview[0].Detail);
+        Assert.Contains("file-4.txt", group.ActivityPreview[2].Label + group.ActivityPreview[2].Detail);
+
+        foreach (var message in messages.Skip(1))
+        {
+            message.Message.ToolStatus = "Stopped";
+            message.NotifyToolStatusChanged();
+        }
+        Assert.False(group.IsActive);
+        Assert.Empty(group.ActivityPreview);
+        Assert.Equal(0, group.AdditionalActivityCount);
+        Assert.Null(group.AdditionalActivityLabel);
     }
 
     [Fact]
@@ -688,7 +734,7 @@ public sealed class TranscriptBuilderToolGroupTests
 
         var group = Assert.IsType<ToolGroupItem>(Assert.Single(Assert.Single(liveTurns).Items));
         Assert.True(group.IsActive);
-        Assert.NotNull(group.StreamingSummary);
+        Assert.Single(group.ActivityPreview);
 
         builder.CloseCurrentToolGroup();
         builder.CollapseCompletedBlocksInCurrentTurn();
@@ -696,7 +742,7 @@ public sealed class TranscriptBuilderToolGroupTests
         group = Assert.IsType<ToolGroupItem>(Assert.Single(Assert.Single(liveTurns).Items));
         Assert.True(group.IsActive);
         Assert.False(group.IsExpanded);
-        Assert.Null(group.StreamingSummary);
+        Assert.Single(group.ActivityPreview);
     }
 
     [Fact]
@@ -714,6 +760,8 @@ public sealed class TranscriptBuilderToolGroupTests
         var group = Assert.IsType<ToolGroupItem>(Assert.Single(turn.Items));
         Assert.True(group.IsActive);
         Assert.Equal(2, group.ToolCalls.Count);
+        Assert.Equal("dotnet test", Assert.Single(group.ActivityPreview).Detail);
+        Assert.Equal(50, group.ProgressValue);
         Assert.Equal(StrataTheme.Controls.StrataAiToolCallStatus.Completed, Assert.IsType<ToolCallItem>(group.ToolCalls[0]).Status);
         Assert.Equal(StrataTheme.Controls.StrataAiToolCallStatus.InProgress, Assert.IsType<TerminalPreviewItem>(group.ToolCalls[1]).Status);
     }
@@ -1437,7 +1485,7 @@ public sealed class TranscriptBuilderToolGroupTests
         var group = Assert.IsType<ToolGroupItem>(item);
         Assert.False(group.IsActive);
         Assert.False(group.IsExpanded);
-        Assert.Null(group.StreamingSummary);
+        Assert.Empty(group.ActivityPreview);
         Assert.Equal(expectedToolCalls, group.ToolCalls.Count);
     }
 

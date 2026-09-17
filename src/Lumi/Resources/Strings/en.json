@@ -649,6 +649,7 @@
   "ToolGroup_MetaRunning": "{0}/{1} done \u00b7 {2} running",
   "ToolGroup_MetaDone": "{0}/{1} done",
   "ToolGroup_MetaFailed": "{0}/{1} done \u00b7 {2} failed",
+  "ToolGroup_MoreRunning": "+{0} more running",
   "TurnSummary_ReasonedAndActions": "Reasoned \u00b7 {0} actions",
   "TurnSummary_ReasonedAndOneAction": "Reasoned \u00b7 1 action",
   "TurnSummary_Reasoned": "Reasoned",

@@ -1,9 +1,14 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Data;
+using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Input.Raw;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -28,6 +33,124 @@ namespace Lumi.Tests;
 [Collection("Headless UI")]
 public sealed class TranscriptCollapsibleToggleTests
 {
+    [Theory]
+    [InlineData(320, FlowDirection.LeftToRight)]
+    [InlineData(640, FlowDirection.LeftToRight)]
+    [InlineData(320, FlowDirection.RightToLeft)]
+    public async Task RunningToolGroup_PreviewsStackWithinColumnAndToggleToFullDetails(
+        double width, FlowDirection flowDirection)
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var group = new ToolGroupItem("Working")
+            {
+                IsActive = true,
+                Meta = "1/4 done - 3 running",
+                ProgressValue = 25,
+                ActivityPreview =
+                [
+                    new("Reading a file with a deliberately long name that exceeds the available column", "src\\ViewModels\\TranscriptBuilder.cs"),
+                    new("Checking focused tests", "dotnet test tests\\Lumi.Tests --filter TranscriptBuilderToolGroupTests"),
+                    new("Searching files", null),
+                ],
+            };
+            group.ToolCalls.Add(new ToolCallItem("Read README", StrataAiToolCallStatus.Completed));
+            group.ToolCalls.Add(new ToolCallItem("Reading file", StrataAiToolCallStatus.InProgress));
+            group.ToolCalls.Add(new TerminalPreviewItem("Checking tests", "dotnet test", StrataAiToolCallStatus.InProgress));
+            group.ToolCalls.Add(new ToolCallItem("Searching files", StrataAiToolCallStatus.InProgress));
+            var chatView = new ChatView();
+            var template = chatView.DataTemplates.Single(template => template.Match(group));
+            var view = template.Build(group)!;
+            view.DataContext = group;
+            var window = new Window { Width = width, Height = 600, FlowDirection = flowDirection, Content = view };
+            window.Show();
+            try
+            {
+                await PumpAsync();
+                window.UpdateLayout();
+                var card = Assert.Single(view.GetVisualDescendants().OfType<StrataThink>());
+                Assert.Null(card.HeaderExtra);
+                Assert.Null(card.DisplayedContent);
+                Assert.Same(card.PreviewContent, card.DisplayedPreviewContent);
+                var rows = view.GetVisualDescendants().OfType<Grid>()
+                    .Where(grid => grid.Classes.Contains("activity-preview-row")).ToArray();
+                Assert.Equal(3, rows.Length);
+                for (var index = 0; index < rows.Length; index++)
+                {
+                    var position = rows[index].TranslatePoint(default, window)!.Value;
+                    var farEdge = rows[index].TranslatePoint(new Point(rows[index].Bounds.Width, 0), window)!.Value;
+                    Assert.InRange(position.X, 0, width);
+                    Assert.InRange(farEdge.X, 0, width + 1);
+                    if (index > 0)
+                    {
+                        var previous = rows[index - 1].TranslatePoint(default, window)!.Value;
+                        Assert.True(position.Y >= previous.Y + rows[index - 1].Bounds.Height);
+                    }
+                }
+                Assert.Empty(view.GetVisualDescendants().OfType<StrataAiToolCall>());
+
+                var previewPoint = rows[0].TranslatePoint(
+                    new Point(rows[0].Bounds.Width / 2, rows[0].Bounds.Height / 2), window)!.Value;
+                window.MouseDown(previewPoint, MouseButton.Left, RawInputModifiers.None);
+                window.MouseUp(previewPoint, MouseButton.Left, RawInputModifiers.None);
+                await PumpAsync();
+                window.UpdateLayout();
+                Assert.True(group.IsExpanded);
+                Assert.Null(card.DisplayedPreviewContent);
+                Assert.Same(card.Content, card.DisplayedContent);
+                var details = view.GetVisualDescendants()
+                    .Where(control => control is StrataAiToolCall or StrataTerminalPreview).ToArray();
+                Assert.Equal(4, details.Length);
+                for (var index = 1; index < details.Length; index++)
+                {
+                    var previous = details[index - 1].TranslatePoint(default, window)!.Value;
+                    var position = details[index].TranslatePoint(default, window)!.Value;
+                    var farEdge = details[index].TranslatePoint(new Point(details[index].Bounds.Width, 0), window)!.Value;
+                    Assert.True(position.Y >= previous.Y + details[index - 1].Bounds.Height);
+                    Assert.InRange(position.X, 0, width + 1);
+                    Assert.InRange(farEdge.X, 0, width + 1);
+                }
+
+                card.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+                view.DataContext = null;
+                view.DataContext = group;
+                await PumpAsync();
+                Assert.False(group.IsExpanded);
+                Assert.Same(card.PreviewContent, card.DisplayedPreviewContent);
+
+                card.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Space });
+                await PumpAsync();
+                window.UpdateLayout();
+                Assert.True(group.IsExpanded);
+                var header = card.GetVisualDescendants().OfType<Border>()
+                    .First(border => border.Name == "PART_Header");
+                var headerPoint = header.TranslatePoint(
+                    new Point(header.Bounds.Width / 2, header.Bounds.Height / 2), window)!.Value;
+                window.MouseDown(headerPoint, MouseButton.Left, RawInputModifiers.None);
+                window.MouseUp(headerPoint, MouseButton.Left, RawInputModifiers.None);
+                Assert.False(group.IsExpanded);
+
+                group.IsActive = false;
+                group.ActivityPreview = [];
+                group.Label = "Finished 4 actions";
+                group.Meta = "4/4 done";
+                group.ProgressValue = 100;
+                await PumpAsync();
+                window.UpdateLayout();
+                Assert.Null(card.DisplayedPreviewContent);
+                Assert.Null(card.DisplayedContent);
+                Assert.DoesNotContain(":activity", card.Classes);
+                Assert.DoesNotContain(view.GetVisualDescendants().OfType<Grid>(),
+                    grid => grid.Classes.Contains("activity-preview-row"));
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task ToolGroupTemplate_SingleToolRendersAloneUntilSecondToolArrives()
     {

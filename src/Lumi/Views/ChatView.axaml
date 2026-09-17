@@ -180,6 +180,9 @@
       <Setter Property="HorizontalAlignment" Value="Left" />
       <Setter Property="MaxWidth" Value="760" />
     </Style>
+    <Style Selector="sc|StrataThink.activity-group">
+      <Setter Property="MaxWidth" Value="560" />
+    </Style>
 
     <!-- ── Sub-agent runs ──────────────────────────────────────────────
          Chat-side density: one collapsed row per agent. The row is a pure hit target — the Strata
@@ -1028,38 +1031,71 @@
       <Panel>
         <ContentControl Content="{Binding SingleTool}"
                         IsVisible="{Binding IsSingleTool}" />
-        <sc:StrataThink Label="{Binding Label}"
+        <sc:StrataThink x:Name="ToolGroupCard"
+                        Classes="activity-group"
+                        Label="{Binding Label}"
+                        AutomationProperties.Name="{Binding Label}"
                         IsVisible="{Binding !IsSingleTool}"
                         Meta="{Binding Meta}"
                         IsExpanded="{Binding IsExpanded}"
                         IsActive="{Binding IsActive}"
                         ProgressValue="{Binding ProgressValue}">
-          <sc:StrataThink.HeaderExtra>
-            <Border Classes="streaming-tool-summary"
-                    IsVisible="{Binding HasStreamingSummary}">
-              <TextBlock Text="{Binding StreamingSummary}" />
-            </Border>
-          </sc:StrataThink.HeaderExtra>
+          <sc:StrataThink.PreviewContent>
+            <StackPanel x:Name="ToolGroupActivityPreview"
+                        Spacing="{DynamicResource Space.S}"
+                        IsVisible="{Binding HasActivityPreview}">
+              <ItemsControl ItemsSource="{Binding ActivityPreview}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><StackPanel Spacing="{DynamicResource Space.M}" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="vm:ToolActivityPreviewItem">
+                    <Grid Classes="activity-preview-row" ColumnDefinitions="14,8,*">
+                      <PathIcon Width="12" Height="12" Margin="0,2,0,0"
+                                VerticalAlignment="Top"
+                                Foreground="{DynamicResource Brush.AccentDefault}"
+                                Data="M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8V2zm-1 5v6l5 3 1-1.7-4-2.3V7h-2z" />
+                      <StackPanel Grid.Column="2" Spacing="2">
+                        <TextBlock Text="{Binding Label}"
+                                   FontSize="{DynamicResource Font.SizeCaption}"
+                                   Foreground="{DynamicResource Brush.TextPrimary}"
+                                   TextTrimming="CharacterEllipsis" MaxLines="1"
+                                   ToolTip.Tip="{Binding Label}" />
+                        <TextBlock Text="{Binding Detail}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource Brush.TextSecondary}"
+                                   TextTrimming="CharacterEllipsis" MaxLines="1"
+                                   ToolTip.Tip="{Binding Detail}"
+                                   IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                      </StackPanel>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Text="{Binding AdditionalActivityLabel}"
+                         Margin="22,0,0,0" FontSize="11"
+                         Foreground="{DynamicResource Brush.TextSecondary}"
+                         TextTrimming="CharacterEllipsis" MaxLines="1"
+                         IsVisible="{Binding AdditionalActivityLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </StackPanel>
+          </sc:StrataThink.PreviewContent>
           <sc:StrataThink.Content>
             <ScrollViewer MaxHeight="{StaticResource Chat.ToolGroupContentMaxHeight}"
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled">
-              <ItemsControl ItemsSource="{Binding ToolCalls}">
+              <ItemsControl x:Name="ToolGroupDetails" ItemsSource="{Binding ToolCalls}">
                 <ItemsControl.Styles>
-                  <Style Selector="ContentPresenter">
-                    <Setter Property="Margin" Value="0,0,6,6" />
-                  </Style>
                   <Style Selector="sc|StrataAiToolCall">
-                    <Setter Property="MinWidth" Value="320" />
-                    <Setter Property="MaxWidth" Value="420" />
+                    <Setter Property="MinWidth" Value="0" />
+                    <Setter Property="MaxWidth" Value="Infinity" />
                   </Style>
                   <Style Selector="sc|StrataTerminalPreview">
-                    <Setter Property="MinWidth" Value="360" />
-                    <Setter Property="MaxWidth" Value="560" />
+                    <Setter Property="MinWidth" Value="0" />
+                    <Setter Property="MaxWidth" Value="Infinity" />
                   </Style>
                 </ItemsControl.Styles>
                 <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                  <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
               </ItemsControl>
             </ScrollViewer>

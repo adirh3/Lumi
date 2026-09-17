@@ -631,6 +631,24 @@ public static class DebugAgentHarness
             "The notes are updated. Use the **preview icon** after the divider on a file below to open it beside this conversation. "
             + "The updated notes should appear automatically with an **Edited** label."));
 
+        var activityUser = Message("user", "Show the running activity card with several operations in progress.");
+        activityUser.Author = userName;
+        chat.Messages.Add(activityUser);
+        chat.Messages.Add(Tool("view", JsonObject(
+            JsonProperty("path", JsonString("README.md"))), "Completed"));
+        chat.Messages.Add(Tool("view", JsonObject(
+            JsonProperty("path", JsonString("src\\Lumi\\ViewModels\\TranscriptBuilder.cs"))), "InProgress"));
+        chat.Messages.Add(Tool("powershell", JsonObject(
+            JsonProperty("description", JsonString("Checking transcript tests")),
+            JsonProperty("command", JsonString("dotnet test tests\\Lumi.Tests --filter TranscriptBuilderToolGroupTests"))), "InProgress"));
+        chat.Messages.Add(Tool("view", JsonObject(
+            JsonProperty("path", JsonString("Strata\\src\\StrataTheme\\Controls\\StrataThink.axaml"))), "InProgress"));
+        chat.Messages.Add(Tool("glob", JsonObject(
+            JsonProperty("pattern", JsonString("tests/**/*Transcript*"))), "InProgress"));
+        chat.Messages.Add(Tool("rg", JsonObject(
+            JsonProperty("pattern", JsonString("ActivityPreview")),
+            JsonProperty("glob", JsonString("*.cs"))), "InProgress"));
+
         return chat;
 
         void AddStandaloneSubagentFixture(
