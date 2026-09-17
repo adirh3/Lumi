@@ -949,6 +949,8 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
         var addedSummary = false;
         foreach (var item in Items)
         {
+            if (item is FileItemViewModel)
+                continue;
             if (_workSummary is not null && _workItemIds.Contains(item.Id))
             {
                 if (!addedSummary)
@@ -964,6 +966,8 @@ public sealed partial class TranscriptTurnViewModel : ObservableObject, IDisposa
             desired.Add(item);
         }
 
+        // Keep deliverables below the reply while preserving canonical order for streaming and paging.
+        desired.AddRange(Items.OfType<FileItemViewModel>());
         if (_workSummary is not null)
             SynchronizeDisplayItems(_workSummary.Items, workItems);
         SynchronizeDisplayItems(DisplayItems, desired);

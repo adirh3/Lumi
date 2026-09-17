@@ -17,6 +17,22 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Localization** — English and Hebrew, with easy extension to other languages
 - **Desktop notifications** — Toast notifications when responses complete in the background
 
+### Mobile conversations
+
+Announced files appear as readable attachment cards after the reply for their turn,
+including file-only replies, without changing transcript paging or download permissions.
+New chats show the desktop-resolved reasoning effort and context-window selection for
+the chosen model. Older desktop hosts remain compatible and show **Set by desktop**
+when they do not provide that metadata; unsupported settings are labelled explicitly.
+If backgrounding interrupts a send acknowledgement, resume checks for the original
+request ID in the desktop transcript before clearing its draft or adopting its new chat.
+This confirmation is read-only: it does not resend the message, and newer draft edits
+are preserved. Android uses the managed HTTP transport so stopping a live connection
+does not leave foreground reconnection waiting on a native streaming read.
+
+The PWA measures its actual dynamic-height canvas when applying keyboard overlap, so
+browser resizing does not add a second bottom gap. Home-indicator safe space is retained.
+
 ### Lumi tool availability
 
 Lumi preloads its own tool definitions for new, resumed, and helper sessions,

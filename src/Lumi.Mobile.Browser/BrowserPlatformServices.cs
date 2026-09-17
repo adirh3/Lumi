@@ -506,14 +506,16 @@ internal static partial class BrowserInterop
         double right,
         double bottom,
         double left,
-        double keyboardInset)
+        double keyboardInset,
+        double viewportHeight)
     {
         if (Avalonia.Application.Current?.ApplicationLifetime
             is ISingleViewApplicationLifetime { MainView: MobileShellView shell })
         {
             shell.ApplyPlatformInsets(
                 new Avalonia.Thickness(left, top, right, bottom),
-                keyboardInset);
+                keyboardInset,
+                viewportHeight);
         }
     }
 

@@ -1,16 +1,305 @@
 using System.Net;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
+using Avalonia.Controls;
 using Lumi.Mobile.Services;
 using Lumi.Mobile.ViewModels;
+using Lumi.Mobile.Views;
 using Lumi.Remote.Protocol;
 using Xunit;
 
 namespace Lumi.Mobile.Tests;
 
+[Collection("Headless mobile UI")]
 public sealed class MobileTransportScopeTests
 {
+    [Fact]
+    public async Task ResumeReconcilesWithTheRealDispatcherAndBoundShell()
+    {
+        using var session = HeadlessMobileSession.Start();
+        ExceptionDispatchInfo? failure = null;
+        await session.Dispatch(async () =>
+        {
+            Window? window = null;
+            try
+            {
+                await VerifyAcceptedSendResumeAsync(true, false, queuedPosts: true, shell =>
+                {
+                    window = new Window
+                    {
+                        Width = 412, Height = 892,
+                        Content = new MobileShellView { DataContext = shell }
+                    };
+                    window.Show();
+                });
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                window?.Close();
+            }
+        }, CancellationToken.None);
+        failure?.Throw();
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    public Task ResumeConfirmsAnAcceptedSendWhoseResponseWasClosedWithoutSendingAgain(
+        bool newChat, bool newerDraft) => VerifyAcceptedSendResumeAsync(newChat, newerDraft);
+
+    private async Task VerifyAcceptedSendResumeAsync(
+        bool newChat, bool newerDraft, bool queuedPosts = false,
+        Action<MobileShellViewModel>? showShell = null)
+    {
+        using var temp = new TempDirectory();
+        var chatId = Guid.NewGuid();
+        var unrelatedChatId = Guid.NewGuid();
+        var snapshot = new RemoteSnapshot
+        {
+            ActiveChatId = queuedPosts ? unrelatedChatId : newChat ? null : chatId,
+            ActiveChat = queuedPosts
+                ? new RemoteChat { Id = unrelatedChatId, Title = "Previous desktop chat", MessageCount = 5 }
+                : newChat ? null : new RemoteChat { Id = chatId, Title = "Existing", MessageCount = 5 }
+        };
+        var responseReading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        RemoteCommand? submitted = null;
+        var receiptReads = 0;
+        var handler = new TransportHandler(RemoteProtocol.Version, scopedEvents: true, compactTranscript: true)
+        {
+            SnapshotFactory = () => snapshot,
+            TranscriptFactory = (id, before) =>
+            {
+                var accepted = id == chatId && submitted is not null;
+                var receipt = accepted && before == (newChat ? 1 : 6);
+                if (receipt)
+                    Interlocked.Increment(ref receiptReads);
+                return new RemoteTranscript
+                {
+                    ChatId = id,
+                    Title = "Accepted mobile chat",
+                    RevisionEpoch = "desktop",
+                    Revision = accepted ? 2 : 1,
+                    TotalRawMessageCount = accepted ? 500 : 5,
+                    WindowStartMessageIndex = receipt ? (newChat ? 0 : 5) : accepted ? 450 : 0,
+                    WindowEndMessageIndex = receipt ? before!.Value : accepted ? 500 : 5,
+                    IsLatestWindow = !receipt,
+                    Status = new RemoteChatStatus { ChatId = id, IsBusy = accepted, IsSessionActive = accepted },
+                    Turns =
+                    [
+                        new()
+                        {
+                            Id = receipt ? "accepted-user-turn" : "latest-turn",
+                            Items =
+                            [
+                                new()
+                                {
+                                    Id = receipt ? "accepted-user" : "latest-answer",
+                                    Kind = receipt ? RemoteProtocol.ItemKinds.User : RemoteProtocol.ItemKinds.Assistant,
+                                    Text = receipt ? "Sent from my phone" : "Working on the accepted message",
+                                    RequestId = receipt ? submitted!.RequestId : null
+                                }
+                            ]
+                        }
+                    ]
+                };
+            },
+            CommandResponseFactory = command =>
+            {
+                if (command.Action != RemoteProtocol.Actions.SendMessage)
+                    return CommandResponse(command);
+
+                submitted = command;
+                var created = new RemoteChat
+                {
+                    Id = chatId, Title = "Accepted mobile chat", IsRunning = true,
+                    IsSessionActive = true, MessageCount = 500, UpdatedAt = DateTimeOffset.UtcNow
+                };
+                snapshot = new RemoteSnapshot
+                {
+                    // The desktop's active chat is not evidence that this phone's send was accepted.
+                    ActiveChatId = unrelatedChatId,
+                    ActiveChat = new RemoteChat { Id = unrelatedChatId, Title = "Other desktop work" },
+                    Chats = new RemoteChatPage
+                    {
+                        TotalCount = 1,
+                        Groups = [new() { Label = "Today", Chats = [created] }]
+                    }
+                };
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StreamContent(new PrefixBlockingStream(
+                        [],
+                        new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+                        socketErrorOnCancellation: true,
+                        readStarted: responseReading))
+                };
+            }
+        };
+        await using var client = CreateClient(handler);
+        await using var shell = new MobileShellViewModel(
+            client, store: CreatePairedStore(temp.Path), post: queuedPosts ? null : action => action());
+        showShell?.Invoke(shell);
+        await shell.StartAsync();
+        await WaitUntilAsync(() => shell.BootstrapSnapshotCount == 1 &&
+                                   ((!queuedPosts && newChat) || (!shell.Chat.IsLoading && shell.Chat.TotalRawMessageCount == 5)));
+        if (queuedPosts && newChat)
+        {
+            shell.ChatList.NewChatCommand.Execute(null);
+            await WaitUntilAsync(() => shell.Chat.ChatId == Guid.Empty);
+        }
+        shell.Chat.PromptText = "Sent from my phone";
+        var send = shell.Chat.SendCommand.ExecuteAsync(null);
+        await responseReading.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        if (newerDraft)
+            shell.Chat.PromptText = "Keep this next draft";
+
+        await shell.NotifyApplicationDeactivatedAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        await send.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.NotNull(shell.Chat.ErrorText);
+        Assert.Equal(newerDraft ? "Keep this next draft" : "Sent from my phone", shell.Chat.PromptText);
+
+        await shell.NotifyApplicationActivatedAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        await WaitUntilAsync(() => shell.BootstrapSnapshotCount == 2);
+        Assert.Contains(snapshot.Chats.Groups.SelectMany(group => group.Chats),
+            chat => chat.Id == chatId && chat.IsRunning);
+        try
+        {
+            await WaitUntilAsync(() => shell.Chat.ChatId == chatId && shell.Chat.ErrorText is null &&
+                                       shell.Chat.IsBusy && !shell.Chat.IsLoading);
+        }
+        catch (TimeoutException ex)
+        {
+            throw new InvalidOperationException(
+                $"Receipt recovery stalled: connected={shell.IsConnected}, client={client.State}, " +
+                $"running={shell.Chat.SendCommand.IsRunning}, pending={shell.Chat.GetPendingSendReconciliations().Count}, " +
+                $"receiptReads={receiptReads}, transcriptReads={handler.TranscriptRequests}, " +
+                $"chat={shell.Chat.ChatId}, error={shell.Chat.ErrorText}", ex);
+        }
+
+        Assert.Equal(newerDraft ? "Keep this next draft" : "", shell.Chat.PromptText);
+        Assert.Equal(chatId, shell.ChatList.SelectedChatId);
+        Assert.Contains(shell.ChatList.Groups.SelectMany(group => group.Chats),
+            chat => chat.Id == chatId && chat.IsRunning);
+        Assert.Single(shell.ChatList.Groups.SelectMany(group => group.Chats), chat => chat.Id == chatId);
+        Assert.True(receiptReads > 0, "The receipt is outside the latest transcript window.");
+        Assert.Single(handler.Commands, command => command.Action == RemoteProtocol.Actions.SendMessage);
+        Assert.DoesNotContain(handler.Commands, command => command.Action == RemoteProtocol.Actions.CreateChat);
+    }
+
+    [Fact]
+    public async Task ResumeDoesNotTreatAnUnrelatedRunningSidebarChatAsSendAcceptance()
+    {
+        using var temp = new TempDirectory();
+        var unrelatedId = Guid.NewGuid();
+        var responseReading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new TransportHandler(RemoteProtocol.Version, scopedEvents: true, compactTranscript: true)
+        {
+            SnapshotFactory = () => new RemoteSnapshot
+            {
+                Chats = new RemoteChatPage
+                {
+                    Groups = [new()
+                    {
+                        Label = "Today",
+                        Chats = [new() { Id = unrelatedId, Title = "Continue", IsRunning = true, MessageCount = 1 }]
+                    }]
+                }
+            },
+            TranscriptFactory = (id, _) => new RemoteTranscript
+            {
+                ChatId = id,
+                TotalRawMessageCount = 1,
+                Status = new RemoteChatStatus { ChatId = id, IsBusy = true },
+                Turns = [new()
+                {
+                    Id = "unrelated-turn",
+                    Items = [new()
+                    {
+                        Id = "unrelated-user", Kind = RemoteProtocol.ItemKinds.User,
+                        Text = "Continue", RequestId = "another-device-request"
+                    }]
+                }]
+            },
+            CommandResponseFactory = _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new PrefixBlockingStream(
+                    [],
+                    new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+                    socketErrorOnCancellation: false,
+                    readStarted: responseReading))
+            }
+        };
+        await using var client = CreateClient(handler);
+        await using var shell = new MobileShellViewModel(
+            client, store: CreatePairedStore(temp.Path), post: action => action());
+        await shell.StartAsync();
+        await WaitUntilAsync(() => shell.BootstrapSnapshotCount == 1);
+        shell.Chat.PromptText = "Continue";
+        var send = shell.Chat.SendCommand.ExecuteAsync(null);
+        await responseReading.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await shell.NotifyApplicationDeactivatedAsync();
+        await send;
+
+        await shell.NotifyApplicationActivatedAsync();
+        await WaitUntilAsync(() => shell.BootstrapSnapshotCount == 2);
+        await shell.ReconcilePendingSendsAsync();
+
+        Assert.True(handler.TranscriptRequests > 0);
+        Assert.Equal(Guid.Empty, shell.Chat.ChatId);
+        Assert.Equal("Continue", shell.Chat.PromptText);
+        Assert.NotNull(shell.Chat.ErrorText);
+        Assert.True(shell.Chat.SendCommand.CanExecute(null));
+        Assert.Single(shell.Chat.GetPendingSendReconciliations());
+        Assert.Single(handler.Commands, command => command.Action == RemoteProtocol.Actions.SendMessage);
+        Assert.Contains("chats=true", handler.LastEventQuery, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CancelledSocketFailureRetainsAnUnknownOutcomeAndDoesNotRetryInBackground()
+    {
+        var responseReading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new TransportHandler(RemoteProtocol.Version, scopedEvents: true, compactTranscript: true)
+        {
+            CommandResponseFactory = _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new PrefixBlockingStream(
+                    [],
+                    new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+                    socketErrorOnCancellation: true,
+                    readStarted: responseReading))
+            }
+        };
+        await using var client = CreateClient(handler);
+        client.Configure("http://100.85.249.111:47653", "token");
+        client.MarkProtocolCompatibleForTests();
+        using var cancellation = new CancellationTokenSource();
+        var command = new RemoteCommand(RemoteProtocol.Actions.SendMessage).With("message", "Hello");
+
+        var send = client.SendCommandAsync(command, cancellation.Token);
+        await responseReading.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        cancellation.Cancel();
+        var result = await send;
+
+        Assert.False(result.Ok);
+        Assert.True(result.IsOutcomeUnknown);
+        Assert.Equal(command.RequestId, result.RequestId);
+        Assert.Single(handler.Commands);
+    }
+
+    private static HttpResponseMessage CommandResponse(RemoteCommand command) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(JsonSerializer.Serialize(
+            new RemoteCommandResult { Ok = true, RequestId = command.RequestId },
+            RemoteJsonContext.Default.RemoteCommandResult))
+    };
+
     [Fact]
     public void PersistedCollapsedSidebarCanInitializeBeforeAnyConnection()
     {
@@ -321,6 +610,10 @@ public sealed class MobileTransportScopeTests
         public int SnapshotRequests { get; private set; }
         public int TranscriptRequests { get; private set; }
         public int ChatRequests { get; private set; }
+        public System.Collections.Concurrent.ConcurrentQueue<RemoteCommand> Commands { get; } = new();
+        public Func<RemoteSnapshot>? SnapshotFactory { get; init; }
+        public Func<Guid, int?, RemoteTranscript>? TranscriptFactory { get; init; }
+        public Func<RemoteCommand, HttpResponseMessage>? CommandResponseFactory { get; init; }
         public int EventRequests => Volatile.Read(ref _eventRequests);
         public string LastEventQuery { get; private set; } = "";
         public TaskCompletionSource EventRequested { get; } =
@@ -409,6 +702,11 @@ public sealed class MobileTransportScopeTests
                     out var parsed)
                     ? parsed
                     : Guid.Empty;
+                var before = int.TryParse(request.RequestUri?.Query
+                    .Split("beforeMessageIndex=", StringSplitOptions.RemoveEmptyEntries).LastOrDefault()?.Split('&')[0],
+                    out var beforeIndex) ? beforeIndex : (int?)null;
+                if (TranscriptFactory is { } transcriptFactory)
+                    return Json(transcriptFactory(chatId, before), RemoteJsonContext.Default.RemoteTranscript);
                 return Json(
                     new RemoteTranscript
                     {
@@ -423,6 +721,15 @@ public sealed class MobileTransportScopeTests
             {
                 ChatRequests++;
                 return Json(new RemoteChatPage(), RemoteJsonContext.Default.RemoteChatPage);
+            }
+
+            if (path == RemoteProtocol.Routes.Command)
+            {
+                var command = JsonSerializer.Deserialize(
+                    await request.Content!.ReadAsStringAsync(cancellationToken),
+                    RemoteJsonContext.Default.RemoteCommand)!;
+                Commands.Enqueue(command);
+                return CommandResponseFactory?.Invoke(command) ?? CommandResponse(command);
             }
 
             if (path == RemoteProtocol.Routes.Subscription)
@@ -456,12 +763,11 @@ public sealed class MobileTransportScopeTests
                 var frame = new RemoteEventFrame(
                     RemoteProtocol.Events.Snapshot,
                     JsonSerializer.Serialize(Snapshot(), RemoteJsonContext.Default.RemoteSnapshot));
-                var stream = new PrefixBlockingStream(
-                    Encoding.UTF8.GetBytes(frame.ToWire()),
-                    EventCancellationObserved);
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StreamContent(stream)
+                    Content = new StreamContent(new PrefixBlockingStream(
+                        Encoding.UTF8.GetBytes(frame.ToWire()),
+                        EventCancellationObserved))
                 };
             }
 
@@ -476,12 +782,13 @@ public sealed class MobileTransportScopeTests
             return completion;
         }
 
-        private RemoteSnapshot Snapshot() => new()
+        private RemoteSnapshot Snapshot()
         {
-            ProtocolVersion = protocolVersion,
-            Capabilities = Capabilities(),
-            HostName = "Lumi PC"
-        };
+            var snapshot = SnapshotFactory?.Invoke() ?? new RemoteSnapshot { HostName = "Lumi PC" };
+            snapshot.ProtocolVersion = protocolVersion;
+            snapshot.Capabilities = Capabilities();
+            return snapshot;
+        }
 
         private List<string> Capabilities()
         {
@@ -507,7 +814,9 @@ public sealed class MobileTransportScopeTests
 
     private sealed class PrefixBlockingStream(
         byte[] prefix,
-        TaskCompletionSource cancellationObserved) : Stream
+        TaskCompletionSource cancellationObserved,
+        bool socketErrorOnCancellation = false,
+        TaskCompletionSource? readStarted = null) : Stream
     {
         private int _offset;
 
@@ -545,12 +854,15 @@ public sealed class MobileTransportScopeTests
 
             try
             {
+                readStarted?.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
                 return 0;
             }
             catch (OperationCanceledException)
             {
                 cancellationObserved.TrySetResult();
+                if (socketErrorOnCancellation)
+                    throw new IOException("Socket closed");
                 throw;
             }
         }

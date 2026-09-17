@@ -443,7 +443,20 @@ internal static class RemoteProjector
                 .Select(model => $"{model}={ChatViewModel.FormatModelDisplay(model) ?? model}")
                 .ToList(),
             ModelReasoningEfforts = BuildReasoningEffortMap(models, chatVm),
-            ModelContextWindowTiers = BuildContextWindowTierMap(models, chatVm)
+            ModelContextWindowTiers = BuildContextWindowTierMap(models, chatVm),
+            ModelDefaults = chatVm is null
+                ? []
+                : models.Select(model =>
+                {
+                    var effort = chatVm.NormalizeReasoningEffortFor(model, settings.ReasoningEffort);
+                    var tier = chatVm.NormalizeContextWindowTierFor(model, settings.ContextWindowTier);
+                    return new RemoteModelDefaults
+                    {
+                        Model = model,
+                        Quality = effort is null ? null : ModelSelectionHelper.EffortToDisplay(effort),
+                        ContextWindowTier = tier is null ? null : ModelSelectionHelper.ContextWindowTierToDisplay(tier)
+                    };
+                }).ToList()
         };
     }
 

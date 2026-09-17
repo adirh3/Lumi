@@ -13,6 +13,13 @@ body,
   overflow: hidden;
 }
 
+#out {
+  position: fixed;
+  inset: 0;
+  /* Follow Safari's browser chrome without also shrinking for the software keyboard. */
+  height: 100dvh;
+}
+
 body {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -108,6 +115,8 @@ body {
 
 .safe-area-probe {
   position: fixed;
+  top: 0;
+  left: 0;
   width: 0;
   height: 0;
   padding:

@@ -14,6 +14,102 @@ namespace Lumi.Mobile.Tests;
 [Collection("Headless mobile UI")]
 public sealed class PlatformLayoutReviewFixTests
 {
+    [Theory]
+    [InlineData(810, 844, true)]
+    [InlineData(810, 844, false)]
+    [InlineData(844, 776, true)]
+    [InlineData(844, 776, false)]
+    public async Task BrowserViewportInsets_UseMeasuredHostHeightRegardlessOfResizeOrder(
+        double previousHeight,
+        double viewportHeight,
+        bool publishBeforeResize)
+    {
+        using var session = HeadlessMobileSession.Start();
+        ExceptionDispatchInfo? failure = null;
+
+        await session.Dispatch(async () =>
+        {
+            MobileShellViewModel? shell = null;
+            Window? window = null;
+
+            try
+            {
+                shell = new MobileShellViewModel(store: session.NewStore(), post: action => action())
+                {
+                    HostName = "Test PC",
+                    IsPaired = true
+                };
+                var shellView = new MobileShellView { DataContext = shell };
+                window = new Window
+                {
+                    Width = 390,
+                    Height = previousHeight,
+                    Content = shellView
+                };
+                window.Show();
+                Pump(window);
+
+                var safeArea = new Thickness(0, 47, 0, 34);
+                const double keyboardInset = 300;
+                shellView.ApplyPlatformInsets(safeArea);
+
+                if (!publishBeforeResize)
+                {
+                    window.Height = viewportHeight;
+                    Pump(window);
+                }
+
+                // The DOM measurement and visualViewport event can precede Avalonia's
+                // ResizeObserver. Both values belong to the new host, not the old layout.
+                shellView.ApplyPlatformInsets(safeArea, keyboardInset, viewportHeight);
+
+                if (publishBeforeResize)
+                    window.Height = viewportHeight;
+                Pump(window);
+
+                var chat = Required<ChatDetailView>(shellView, "ChatSurface");
+                var composerInset = Required<Border>(chat, "ComposerInset");
+                var composerContent = Required<Border>(chat, "ComposerSideInset");
+                AssertEdgeToEdge(chat, window);
+                Assert.Equal(default, shellView.Padding);
+                Assert.Equal(viewportHeight, shell.UsableContentHeight, 1);
+                Assert.True(shell.IsKeyboardOpen);
+                Assert.Equal(keyboardInset, shell.SafeAreaBottom.Bottom, 1);
+                Assert.Equal(shell.SafeAreaBottom, composerInset.Padding);
+
+                var composerBottom = composerContent.TranslatePoint(
+                    new Point(0, composerContent.Bounds.Height), composerInset)!.Value.Y;
+                Assert.Equal(composerInset.Bounds.Height - keyboardInset, composerBottom, 1);
+
+                // Closing the keyboard restores exactly one home-indicator inset without
+                // shortening the canvas, including after Safari/standalone height changes.
+                shellView.ApplyPlatformInsets(safeArea, viewportHeight: viewportHeight);
+                Pump(window);
+                Assert.False(shell.IsKeyboardOpen);
+                Assert.Equal(safeArea.Bottom, composerInset.Padding.Bottom, 1);
+                AssertEdgeToEdge(chat, window);
+
+                shellView.ApplyPlatformInsets(safeArea, keyboardInset, viewportHeight);
+                shellView.NotifyApplicationDeactivated();
+                Pump(window);
+                Assert.False(shell.IsKeyboardOpen);
+                Assert.Equal(safeArea.Bottom, composerInset.Padding.Bottom, 1);
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                window?.Close();
+                if (shell is not null)
+                    await shell.DisposeAsync();
+            }
+        }, CancellationToken.None);
+
+        failure?.Throw();
+    }
+
     [Fact]
     public async Task OverlayPages_ConsumeSafeAreaWithoutLetterboxingTheirSurfaces()
     {

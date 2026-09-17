@@ -173,24 +173,62 @@ public sealed class WorkTimelineTests
         ]);
         chat.ApplyTranscript(transcript);
         var turn = Assert.Single(chat.Turns);
-        Assert.Equal(new[] { "user", "work-preamble", "question", "error", "file", "answer" },
+        Assert.Equal(new[] { "user", "work-preamble", "question", "error", "answer", "file" },
             turn.DisplayItems.Select(item => item.Id));
         Assert.Single(Assert.IsType<UserTurnItemViewModel>(turn.DisplayItems[0]).Attachments);
         Assert.Equal("question-id", Assert.IsType<QuestionItemViewModel>(turn.DisplayItems[2]).QuestionId);
         Assert.Equal("Recovered issue", Assert.IsType<ErrorItemViewModel>(turn.DisplayItems[3]).Text);
-        Assert.NotNull(Assert.Single(Assert.IsType<FileItemViewModel>(turn.DisplayItems[4]).Files).MessageId);
+        Assert.NotNull(Assert.Single(Assert.IsType<FileItemViewModel>(turn.DisplayItems[^1]).Files).MessageId);
+        Assert.Equal("file", turn.Items[5].Id);
 
         var protectedRows = turn.DisplayItems.Where(item =>
             item is QuestionItemViewModel or ErrorItemViewModel or FileItemViewModel).ToArray();
         var work = Assert.IsType<WorkSummaryItemViewModel>(turn.DisplayItems[1]);
         work.ToggleCommand.Execute(null);
-        Assert.Equal(new[] { "user", "work-preamble", "question", "error", "file", "answer" },
+        Assert.Equal(new[] { "user", "work-preamble", "question", "error", "answer", "file" },
             turn.DisplayItems.Select(item => item.Id));
         Assert.Equal(protectedRows, turn.DisplayItems.Where(item =>
             item is QuestionItemViewModel or ErrorItemViewModel or FileItemViewModel));
         Assert.Equal(new[] { "preamble", "research", "interim", "verify" }, work.Items.Select(item => item.Id));
         Assert.DoesNotContain(work.Items, item =>
             item is UserTurnItemViewModel or QuestionItemViewModel or ErrorItemViewModel or FileItemViewModel);
+    }
+
+    [Fact]
+    public void AnnouncedFilesStayAfterTheReplyWithoutChangingCanonicalOrderOrIdentity()
+    {
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+        using var turn = new TranscriptTurnViewModel("deliverables");
+        var remote = new RemoteTranscriptTurn
+        {
+            Id = "deliverables",
+            Items =
+            [
+                new() { Id = "file-a", Kind = RemoteProtocol.ItemKinds.File,
+                    Attachments = [new() { MessageId = firstId, FileName = "report.pdf" }] },
+                new() { Id = "answer", Kind = RemoteProtocol.ItemKinds.Assistant, Text = "Your report is ready." },
+                new() { Id = "file-b", Kind = RemoteProtocol.ItemKinds.File,
+                    Attachments = [new() { MessageId = secondId, FileName = "data.xlsx" }] }
+            ]
+        };
+        turn.Apply(remote);
+        var first = Assert.IsType<FileItemViewModel>(turn.Items[0]);
+        var last = Assert.IsType<FileItemViewModel>(turn.Items[2]);
+        Assert.Equal(new[] { "file-a", "answer", "file-b" }, turn.Items.Select(item => item.Id));
+        Assert.Equal(new[] { "answer", "file-a", "file-b" }, turn.DisplayItems.Select(item => item.Id));
+
+        remote.Items.Add(new() { Id = "followup", Kind = RemoteProtocol.ItemKinds.Assistant, Text = "Both files include the totals." });
+        turn.Apply(remote);
+        Assert.Equal(new[] { "answer", "followup", "file-a", "file-b" }, turn.DisplayItems.Select(item => item.Id));
+        Assert.Same(first, turn.DisplayItems[^2]);
+        Assert.Same(last, turn.DisplayItems[^1]);
+        Assert.Equal(firstId, Assert.Single(first.Files).MessageId);
+        Assert.Equal(secondId, Assert.Single(last.Files).MessageId);
+
+        remote.Items.RemoveRange(1, 3);
+        turn.Apply(remote);
+        Assert.Same(first, Assert.Single(turn.DisplayItems));
     }
 
     [Fact]

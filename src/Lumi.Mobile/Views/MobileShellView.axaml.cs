@@ -272,13 +272,18 @@ public partial class MobileShellView : UserControl
     /// The single point where OS insets enter the view. Exposed so tests can stand in for the
     /// platform, which reports nothing in a headless run.
     /// </summary>
-    internal void ApplyPlatformInsets(Thickness safeArea, double keyboardInset = 0)
+    internal void ApplyPlatformInsets(
+        Thickness safeArea,
+        double keyboardInset = 0,
+        double? viewportHeight = null)
     {
         _safeArea = safeArea;
         _keyboardInset = keyboardInset;
-        var fullHeight = DataContext is MobileShellViewModel shell && shell.Layout.Height > 0
+        // Browser viewport events can arrive before Avalonia's ResizeObserver. Keep the keyboard
+        // edge in the measured host's coordinates rather than combining it with a stale height.
+        var fullHeight = viewportHeight ?? (DataContext is MobileShellViewModel shell && shell.Layout.Height > 0
             ? shell.Layout.Height
-            : _topLevel?.ClientSize.Height ?? Bounds.Height;
+            : _topLevel?.ClientSize.Height ?? Bounds.Height);
         _keyboardTop = keyboardInset > 0 ? Math.Max(0, fullHeight - keyboardInset) : double.NaN;
         ApplyInsets();
     }

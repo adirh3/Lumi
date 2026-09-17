@@ -75,6 +75,9 @@ public sealed partial class MobileShellViewModel :
     private CancellationTokenSource _connectionLifetime = new();
     private long _connectionGeneration;
     private readonly SemaphoreSlim _snapshotRefreshGate = new(1, 1);
+    private readonly SemaphoreSlim _sendReconciliationGate = new(1, 1);
+    private long _sendReconciliationVersion;
+    private IReadOnlyList<Guid> _sendReconciliationCandidates = [];
     private readonly SemaphoreSlim _startGate = new(1, 1);
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private long _snapshotRefreshVersion;
@@ -313,6 +316,15 @@ public sealed partial class MobileShellViewModel :
             {
                 _ = ChatList.RefreshFromServerAsync();
             });
+        Chat.SendCommand.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(Chat.SendCommand.IsRunning) && !Chat.SendCommand.IsRunning)
+                _post(() =>
+                {
+                    QueueSubscriptionUpdate();
+                    _ = ReconcilePendingSendsAsync();
+                });
+        };
 
         Library.CloseRequested += () => Page = MobilePage.Chat;
 
@@ -1325,7 +1337,8 @@ public sealed partial class MobileShellViewModel :
         ChatId = Page == MobilePage.Chat && Chat.ChatId != Guid.Empty
             ? Chat.ChatId
             : null,
-        IncludeChatList = IsDrawerVisible || Page == MobilePage.Search,
+        IncludeChatList = IsDrawerVisible || Page == MobilePage.Search ||
+                          Chat.GetPendingSendReconciliations().Any(send => send.ChatId == Guid.Empty),
         IncludeLibrary = Page == MobilePage.Library,
         CompactTranscript = Client.SupportsCompactTranscript,
         IsForeground = _isApplicationActive
@@ -1365,6 +1378,8 @@ public sealed partial class MobileShellViewModel :
 
     private void ResetHostScopedState()
     {
+        _sendReconciliationCandidates = [];
+        Interlocked.Increment(ref _sendReconciliationVersion);
         _readWatermarks.Clear();
         IsDisconnectConfirmationOpen = false;
         _canAdoptDesktopActiveChat = true;
@@ -1555,6 +1570,8 @@ public sealed partial class MobileShellViewModel :
         if (source == SnapshotSource.Bootstrap)
             BootstrapSnapshotCount++;
 
+        if (!snapshot.IsPartial)
+            UpdateSendReconciliationCandidates(snapshot.Chats, snapshot.ActiveChatId);
         QueueSubscriptionUpdate();
 
         if (Chat.ChatId != Guid.Empty
@@ -1562,6 +1579,85 @@ public sealed partial class MobileShellViewModel :
                 || (source == SnapshotSource.ManualRefresh && didAdoptDesktopChat)))
         {
             _ = RefreshTranscriptAsync();
+        }
+    }
+
+    private void UpdateSendReconciliationCandidates(RemoteChatPage page, Guid? activeChatId = null)
+    {
+        // These are candidates only. A running sidebar row or the desktop's active chat cannot
+        // acknowledge a send; only its matching persisted user-message request ID can.
+        _sendReconciliationCandidates = (activeChatId is { } active ? new[] { active } : [])
+            .Concat(page.Groups.SelectMany(group => group.Chats)
+                .OrderByDescending(chat => chat.UpdatedAt).Select(chat => chat.Id))
+            .Concat(_sendReconciliationCandidates)
+            .Where(id => id != Guid.Empty && !page.RemovedChatIds.Contains(id))
+            .Distinct()
+            .Take(8)
+            .ToArray();
+        _ = ReconcilePendingSendsAsync();
+    }
+
+    internal async Task ReconcilePendingSendsAsync()
+    {
+        if (!_isApplicationActive || !IsConnected || Chat.SendCommand.IsRunning)
+            return;
+
+        var version = Interlocked.Increment(ref _sendReconciliationVersion);
+        var generation = Volatile.Read(ref _connectionGeneration);
+        await _sendReconciliationGate.WaitAsync();
+        try
+        {
+            if (version != Volatile.Read(ref _sendReconciliationVersion) ||
+                generation != Volatile.Read(ref _connectionGeneration))
+                return;
+
+            var pending = Chat.GetPendingSendReconciliations();
+            using var request = CreateConnectionRequest();
+            foreach (var send in pending)
+            {
+                var candidates = send.ChatId == Guid.Empty
+                    ? _sendReconciliationCandidates
+                    : new[] { send.ChatId };
+                foreach (var chatId in candidates)
+                {
+                    if (version != Volatile.Read(ref _sendReconciliationVersion))
+                        return;
+
+                    // Read the send's position, not an arbitrarily large reply's latest tail.
+                    // A missing receipt stays ambiguous; this path never posts a command.
+                    var transcript = await Client.GetTranscriptAsync(
+                        chatId, send.BeforeMessageIndex, maxItems: 1, request.Token);
+                    if (transcript?.ChatId != chatId ||
+                        !transcript.Turns.SelectMany(turn => turn.Items).Any(item =>
+                            item.Kind == RemoteProtocol.ItemKinds.User &&
+                            string.Equals(item.RequestId, send.RequestId, StringComparison.Ordinal)))
+                        continue;
+
+                    PostForConnection(generation, () =>
+                    {
+                        if (Chat.TryReconcilePendingSend(send, transcript))
+                        {
+                            if (string.Equals(ConnectionMessage, send.ErrorText, StringComparison.Ordinal))
+                                ConnectionMessage = null;
+                            QueueSubscriptionUpdate();
+                        }
+                    });
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (
+            generation != Volatile.Read(ref _connectionGeneration) || _lifetime.IsCancellationRequested)
+        {
+            // Backgrounding or changing PCs superseded this read-only confirmation pass.
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"[Mobile] Send receipt reconciliation failed: {ex}");
+        }
+        finally
+        {
+            _sendReconciliationGate.Release();
         }
     }
 
@@ -2121,6 +2217,7 @@ public sealed partial class MobileShellViewModel :
                     {
                         foreach (var removedChatId in page.RemovedChatIds)
                             OnChatRemoved(removedChatId);
+                        UpdateSendReconciliationCandidates(page);
                         if (string.IsNullOrWhiteSpace(ChatList.SearchText)
                             && ChatList.ProjectFilterId is null)
                         {

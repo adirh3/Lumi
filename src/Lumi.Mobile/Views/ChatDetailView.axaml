@@ -113,6 +113,27 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="16" />
     </Style>
+
+    <Style Selector="sc|StrataFileAttachment.produced-file /template/ Border#PART_Root">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="MinHeight" Value="64" />
+    </Style>
+    <Style Selector="sc|StrataFileAttachment.produced-file /template/ Grid#PART_ContentGrid">
+      <Setter Property="Margin" Value="14,10" />
+    </Style>
+    <Style Selector="sc|StrataFileAttachment.produced-file /template/ Border#PART_IconBox">
+      <Setter Property="Width" Value="36" />
+      <Setter Property="Height" Value="36" />
+      <Setter Property="CornerRadius" Value="10" />
+    </Style>
+    <Style Selector="sc|StrataFileAttachment.produced-file /template/ TextBlock#PART_FileName">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeBody}" />
+      <Setter Property="MaxWidth" Value="Infinity" />
+    </Style>
+    <Style Selector="sc|StrataFileAttachment.produced-file /template/ StackPanel#PART_MetaRow TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource Font.SizeMeta}" />
+    </Style>
   </UserControl.Styles>
 
   <UserControl.DataTemplates>
@@ -336,20 +357,22 @@
                              AnswerSubmitted="OnQuestionAnswered" />
     </DataTemplate>
 
-    <!-- A file Lumi produced (announce_file). A deliverable is the point of the turn, so it gets a
-         chip of its own rather than being buried in a collapsed tool card. -->
+    <!-- Deliverables follow the reply, with a readable full-row target rather than compact input chips. -->
     <DataTemplate DataType="vm:FileItemViewModel">
-      <sc:StrataAttachmentList ItemsSource="{Binding Files}" ShowAddButton="False" Margin="0,6">
-        <sc:StrataAttachmentList.ItemTemplate>
+      <ItemsControl ItemsSource="{Binding Files}" Margin="0,6,0,0" MaxWidth="560"
+                    HorizontalAlignment="Stretch">
+        <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="proto:RemoteAttachment">
-            <sc:StrataFileAttachment FileName="{Binding FileName}"
-                                     Status="Completed"
-                                     IsCompact="True"
+            <sc:StrataFileAttachment Classes="produced-file" FileName="{Binding FileName}"
+                                     FileSize="{Binding Extension}"
+                                     Status="Completed" IsRemovable="False"
+                                     HorizontalAlignment="Stretch" MinHeight="64"
+                                     AutomationProperties.Name="{Binding FileName, StringFormat='Open {0}'}"
                                      OpenRequested="OnProducedFileOpenRequested"
-                                     Margin="0,0,6,4" />
+                                     Margin="0,0,0,8" />
           </DataTemplate>
-        </sc:StrataAttachmentList.ItemTemplate>
-      </sc:StrataAttachmentList>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
     </DataTemplate>
 
     <!-- Error -->

@@ -464,6 +464,19 @@ public sealed class PopulatedTemplateRenderTests
                 Assert.NotEmpty(window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataTerminalPreview>());
                 Assert.NotEmpty(window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataQuestionCard>());
                 Assert.NotEmpty(window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataFileAttachment>());
+                var deliverable = Assert.Single(window.GetVisualDescendants()
+                    .OfType<StrataTheme.Controls.StrataFileAttachment>(), file => file.Classes.Contains("produced-file"));
+                Assert.False(deliverable.IsCompact);
+                Assert.False(deliverable.IsRemovable);
+                Assert.True(deliverable.Bounds.Height >= 64);
+                Assert.True(deliverable.Bounds.Width >= 300);
+                var fileName = Assert.Single(deliverable.GetVisualDescendants().OfType<TextBlock>(),
+                    text => text.Name == "PART_FileName");
+                Assert.Equal(16, fileName.FontSize);
+                var fileOrigin = deliverable.TranslatePoint(default, window)!.Value;
+                var answer = window.GetVisualDescendants().OfType<StrataTheme.Controls.StrataMarkdown>()
+                    .Single(markdown => markdown.DataContext is AssistantItemViewModel);
+                Assert.True(fileOrigin.Y >= answer.TranslatePoint(new Point(0, answer.Bounds.Height), window)!.Value.Y);
                 foreach (var card in window.GetVisualDescendants().OfType<Control>()
                              .Where(control => control is StrataTheme.Controls.StrataAiToolCall
                                  or StrataTheme.Controls.StrataTerminalPreview))

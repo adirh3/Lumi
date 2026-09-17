@@ -99,6 +99,19 @@ public sealed class RemoteSettings
     /// <summary>Context-window tiers each model supports, as <c>model=Default,Long context</c>.</summary>
     public List<string> ModelContextWindowTiers { get; set; } = [];
 
+    /// <summary>
+    /// Effective new-chat selections, resolved by the desktop against each model's capabilities.
+    /// Labels use the same values as the option catalogs. An absent entry (older desktop) is unknown;
+    /// a present entry with a null selection means that setting is not configurable for the model.
+    /// </summary>
+    public List<RemoteModelDefaults> ModelDefaults { get; set; } = [];
+}
+
+public sealed class RemoteModelDefaults
+{
+    public string Model { get; set; } = "";
+    public string? Quality { get; set; }
+    public string? ContextWindowTier { get; set; }
 }
 
 /// <summary>Everything the phone needs to render its library tabs, refreshed as a unit.</summary>

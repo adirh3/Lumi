@@ -431,10 +431,14 @@ public sealed class LumiRemoteClient : IAsyncDisposable
                 cancellationToken)
             .ConfigureAwait(false);
         var result = firstAttempt.Result;
-        if (firstAttempt.IsAuthoritative
-            || cancellationToken.IsCancellationRequested
-            || command.Action == RemoteProtocol.Actions.RevokeDevice)
+        if (firstAttempt.IsAuthoritative || command.Action == RemoteProtocol.Actions.RevokeDevice)
             return result;
+        if (cancellationToken.IsCancellationRequested)
+        {
+            // Losing a canceled request's acknowledgement is not proof of rejection.
+            result.IsOutcomeUnknown = true;
+            return result;
+        }
 
         // The desktop owns remote commands after accepting their request ID. A phone can time out
         // while the original command is still opening a large chat or reconnecting Copilot; retrying

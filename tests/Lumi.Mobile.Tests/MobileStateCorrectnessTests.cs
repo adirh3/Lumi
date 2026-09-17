@@ -10,6 +10,258 @@ namespace Lumi.Mobile.Tests;
 
 public sealed class MobileStateCorrectnessTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void BlankChatDefaultsSelectDesktopValuesBeforeAChatExists(bool catalogBeforeReset)
+    {
+        var sink = new RecordingSink();
+        var chat = new MobileChatViewModel(sink);
+        if (catalogBeforeReset)
+            chat.ApplyCatalogs(NewChatDefaultSettings());
+
+        chat.Reset(Guid.Empty, "New chat");
+        if (!catalogBeforeReset)
+            chat.ApplyCatalogs(NewChatDefaultSettings());
+
+        Assert.Equal(Guid.Empty, chat.ChatId);
+        Assert.Equal("model-a", chat.Model);
+        Assert.Equal("Max", chat.Quality);
+        Assert.Equal("Max", chat.EffortLabel);
+        Assert.Equal(3, chat.EffortIndex);
+        Assert.Equal("Long", chat.ContextWindowLabel);
+        Assert.Equal("Max", Assert.Single(chat.QualityOptions, option => option.IsSelected).Name);
+        Assert.Equal("Long", Assert.Single(chat.ContextTierOptions, option => option.IsSelected).Name);
+        Assert.False(chat.HasPendingConfiguration);
+        Assert.False(chat.HasStagedBlankState);
+        Assert.Empty(sink.Commands);
+
+        chat.Quality = "Low";
+        chat.ContextWindowTier = "Default";
+        chat.Reset(Guid.Empty, "Another new chat");
+
+        Assert.Equal("Max", chat.Quality);
+        Assert.Equal("Long", chat.ContextWindowTier);
+        Assert.False(chat.HasPendingConfiguration);
+
+        var changedDefaults = NewChatDefaultSettings();
+        changedDefaults.PreferredModel = "model-b";
+        chat.ApplyCatalogs(changedDefaults);
+        Assert.Equal("model-b", chat.Model);
+        Assert.Equal("Medium", chat.Quality);
+        Assert.False(chat.HasPendingConfiguration);
+    }
+
+    [Fact]
+    public async Task BlankChatModelChangesUseDesktopDefaultsAndDropUnsupportedSettings()
+    {
+        var sink = new RecordingSink();
+        var chat = new MobileChatViewModel(sink);
+        chat.ApplyCatalogs(NewChatDefaultSettings());
+        chat.Reset(Guid.Empty, "New chat");
+
+        chat.Model = "model-b";
+        Assert.Equal("Medium", chat.Quality);
+        Assert.Equal(1, chat.EffortIndex);
+        Assert.Equal("Long", chat.ContextWindowTier);
+
+        chat.Quality = "Low";
+        chat.ContextWindowTier = "Default";
+        chat.Model = "model-a";
+        chat.ApplyCatalogs(NewChatDefaultSettings());
+        Assert.Equal("Low", chat.Quality);
+        Assert.Equal("Default", chat.ContextWindowTier);
+        Assert.Equal("Default", Assert.Single(chat.ContextTierOptions, option => option.IsSelected).Name);
+
+        chat.Quality = "Max";
+        chat.Model = "model-b";
+        Assert.Equal("Medium", chat.Quality);
+        Assert.Equal("Default", chat.ContextWindowTier);
+
+        chat.Model = "auto";
+        Assert.Null(chat.Quality);
+        Assert.Null(chat.ContextWindowTier);
+        Assert.Empty(chat.QualityLevels);
+        Assert.Empty(chat.ContextWindowTiers);
+        Assert.Equal("Not supported", chat.EffortLabel);
+        Assert.Equal("Not supported", chat.ContextWindowLabel);
+
+        chat.PromptText = "Start with the selected model";
+        await chat.SendCommand.ExecuteAsync(null);
+        var command = Assert.Single(sink.Commands);
+        Assert.Equal("auto", command.Get("model"));
+        Assert.Null(command.Get("quality"));
+        Assert.Null(command.Get("reasoningEffort"));
+        Assert.Null(command.Get("contextWindowTier"));
+    }
+
+    [Fact]
+    public async Task BlankChatDefaultRefreshPreservesAllExplicitChoicesAndDrafts()
+    {
+        var sink = new RecordingSink();
+        var chat = new MobileChatViewModel(sink);
+        chat.ApplyCatalogs(NewChatDefaultSettings());
+        chat.Reset(Guid.Empty, "New chat");
+        var projectId = Guid.NewGuid().ToString();
+        var agentId = Guid.NewGuid().ToString();
+        chat.Model = "model-b";
+        chat.Quality = "Low";
+        chat.ContextWindowTier = "Default";
+        chat.ProjectValue = projectId;
+        chat.AgentValue = agentId;
+        chat.SkillChips.Add(new StrataComposerChip("Documents", "✦"));
+        chat.McpChips.Add(new StrataComposerChip("Files", "⚙"));
+        chat.Attachments.Add(new PendingAttachment("notes.txt", @"C:\uploads\notes.txt"));
+        chat.PromptText = "Keep my choices";
+
+        chat.ApplyCatalogs(NewChatDefaultSettings());
+
+        Assert.Equal("model-b", chat.Model);
+        Assert.Equal("Low", chat.Quality);
+        Assert.Equal("Default", chat.ContextWindowTier);
+        Assert.Equal("Keep my choices", chat.PromptText);
+        Assert.Single(chat.Attachments);
+        await chat.SendCommand.ExecuteAsync(null);
+
+        var command = Assert.Single(sink.Commands);
+        Assert.Equal("model-b", command.Get("model"));
+        Assert.Equal("Low", command.Get("quality"));
+        Assert.Equal("Default", command.Get("contextWindowTier"));
+        Assert.Equal(projectId, command.Get("projectId"));
+        Assert.Equal(agentId, command.Get("agentId"));
+        Assert.Equal(["Documents"], Assert.IsType<string[]>(command.GetList("addSkills")));
+        Assert.Equal(["Files"], Assert.IsType<string[]>(command.GetList("addMcps")));
+        Assert.Contains(@"C:\uploads\notes.txt", command.Get("message"));
+    }
+
+    [Fact]
+    public async Task BlankFirstSendFreezesDisplayedDefaultsUntilDesktopAcceptance()
+    {
+        var sink = new ControllableSink();
+        var chat = new MobileChatViewModel(sink);
+        chat.ChatCreated += (id, generation) => chat.TryAdoptCreatedChat(id, generation);
+        chat.ApplyCatalogs(NewChatDefaultSettings());
+        chat.Reset(Guid.Empty, "New chat");
+        chat.PromptText = "First message";
+
+        var send = chat.SendCommand.ExecuteAsync(null);
+        var command = await sink.CommandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(Guid.Empty, chat.ChatId);
+        Assert.True(command.GetBool("newChat"));
+        Assert.Null(command.Get("chatId"));
+        Assert.Equal("model-a", command.Get("model"));
+        Assert.Equal("Max", command.Get("quality"));
+        Assert.Equal("Long", command.Get("contextWindowTier"));
+
+        var changedDefaults = NewChatDefaultSettings();
+        changedDefaults.PreferredModel = "model-b";
+        changedDefaults.ModelDefaults[0].Quality = "Low";
+        changedDefaults.ModelDefaults[0].ContextWindowTier = "Default";
+        chat.ApplyCatalogs(changedDefaults);
+        chat.PromptText = "My next draft";
+
+        Assert.Equal("model-a", chat.Model);
+        Assert.Equal("Max", chat.Quality);
+        Assert.Equal("Long", chat.ContextWindowTier);
+        var createdId = Guid.NewGuid();
+        sink.CommandResult.SetResult(new RemoteCommandResult { Ok = true, ChatId = createdId });
+        await send;
+
+        Assert.Equal(createdId, chat.ChatId);
+        Assert.Equal("My next draft", chat.PromptText);
+        Assert.False(chat.HasPendingConfiguration);
+    }
+
+    [Fact]
+    public async Task BlankFirstSendKeepsANewerModelSelectionAndItsDefaults()
+    {
+        var sink = new SequencedCommandSink(commandCount: 2);
+        var chat = new MobileChatViewModel(sink);
+        chat.ChatCreated += (id, generation) => chat.TryAdoptCreatedChat(id, generation);
+        chat.ApplyCatalogs(NewChatDefaultSettings());
+        chat.Reset(Guid.Empty, "New chat");
+        chat.PromptText = "First message";
+        var send = chat.SendCommand.ExecuteAsync(null);
+        var first = await sink.WaitForCommandAsync(0);
+
+        chat.Model = "model-b";
+        chat.PromptText = "Next draft";
+        Assert.Equal("Medium", chat.Quality);
+        Assert.Equal("model-a", first.Get("model"));
+        Assert.Equal("Max", first.Get("quality"));
+
+        var createdId = Guid.NewGuid();
+        sink.Complete(0, new RemoteCommandResult { Ok = true, ChatId = createdId });
+        await send;
+        var configure = await sink.WaitForCommandAsync(1);
+        Assert.Equal(RemoteProtocol.Actions.ConfigureChat, configure.Action);
+        Assert.Equal(createdId.ToString(), configure.Get("chatId"));
+        Assert.Equal("model-b", configure.Get("model"));
+        Assert.Equal("Medium", configure.Get("quality"));
+        Assert.Equal("Long", configure.Get("contextWindowTier"));
+        sink.Complete(1, new RemoteCommandResult { Ok = true });
+        await chat.FlushPendingConfigurationAsync();
+
+        Assert.Equal("Next draft", chat.PromptText);
+        Assert.Equal("model-b", chat.Model);
+        Assert.Equal("Medium", chat.Quality);
+        Assert.False(chat.HasPendingConfiguration);
+    }
+
+    [Fact]
+    public void HostResetClearsModelCatalogsAndEffectiveDefaults()
+    {
+        var chat = new MobileChatViewModel(new RecordingSink());
+        chat.ApplyCatalogs(NewChatDefaultSettings());
+        chat.ResetHostState();
+
+        Assert.Null(chat.Model);
+        Assert.Null(chat.Quality);
+        Assert.Null(chat.ContextWindowTier);
+        Assert.Empty(chat.AvailableModels);
+        Assert.Empty(chat.QualityLevels);
+        Assert.Empty(chat.ContextWindowTiers);
+        Assert.False(chat.HasPendingConfiguration);
+
+        var otherHost = NewChatDefaultSettings();
+        otherHost.PreferredModel = "model-b";
+        chat.ApplyCatalogs(otherHost);
+        Assert.Equal("model-b", chat.Model);
+        Assert.Equal("Medium", chat.Quality);
+    }
+
+    [Fact]
+    public void OlderDesktopDefaultsRemainUnknownRatherThanGuessingAnOption()
+    {
+        var chat = new MobileChatViewModel(new RecordingSink());
+        var settings = NewChatDefaultSettings();
+        settings.ModelDefaults.Clear();
+        settings.ReasoningEffort = "max";
+        chat.ApplyCatalogs(settings);
+        chat.Reset(Guid.Empty, "New chat");
+
+        Assert.Null(chat.Quality);
+        Assert.Null(chat.ContextWindowTier);
+        Assert.Equal("Set by desktop", chat.EffortLabel);
+        Assert.Equal("Set by desktop", chat.ContextWindowLabel);
+        Assert.DoesNotContain(chat.QualityOptions, option => option.IsSelected);
+        Assert.DoesNotContain(chat.ContextTierOptions, option => option.IsSelected);
+    }
+
+    private static RemoteSettings NewChatDefaultSettings() => new()
+    {
+        PreferredModel = "model-a",
+        AvailableModels = ["model-a", "model-b", "auto"],
+        ModelReasoningEfforts = ["model-a=Low,Medium,High,Max", "model-b=Low,Medium"],
+        ModelContextWindowTiers = ["model-a=Default,Long", "model-b=Default,Long"],
+        ModelDefaults =
+        [
+            new() { Model = "model-a", Quality = "Max", ContextWindowTier = "Long" },
+            new() { Model = "model-b", Quality = "Medium", ContextWindowTier = "Long" },
+            new() { Model = "auto" }
+        ]
+    };
+
     [Fact]
     public void HostResetClearsDraftsAttachmentsAndPendingConfiguration()
     {
@@ -703,6 +955,111 @@ public sealed class MobileStateCorrectnessTests
         Assert.Null(chat.ErrorText);
         Assert.Single(sink.Commands);
     }
+
+    [Fact]
+    public async Task AcceptedSendReceiptPreservesNewerComposerTextAttachmentsAndError()
+    {
+        var sink = new ScriptedCommandSink(new RemoteCommandResult
+        {
+            Error = "Socket closed", IsOutcomeUnknown = true
+        });
+        var chat = new MobileChatViewModel(sink);
+        var chatId = Guid.NewGuid();
+        chat.Reset(chatId, "Existing");
+        chat.PromptText = "Sent draft";
+        chat.Attachments.Add(new PendingAttachment("sent.txt", @"C:\sent.txt"));
+        await chat.SendCommand.ExecuteAsync(null);
+
+        chat.PromptText = "A newer draft";
+        var newerAttachment = new PendingAttachment("new.txt", @"C:\new.txt");
+        chat.Attachments.Add(newerAttachment);
+        chat.ErrorText = "A newer upload failed";
+        var request = Assert.Single(chat.GetPendingSendReconciliations());
+
+        Assert.True(chat.TryReconcilePendingSend(request, AcceptedSendReceipt(chatId, request.RequestId)));
+        Assert.Equal("A newer draft", chat.PromptText);
+        Assert.Equal(newerAttachment, Assert.Single(chat.Attachments));
+        Assert.Equal("A newer upload failed", chat.ErrorText);
+        Assert.Empty(chat.GetPendingSendReconciliations());
+        Assert.Single(sink.Commands);
+    }
+
+    [Fact]
+    public async Task AcceptedStoredBlankSendIsMappedWithoutStealingTheNewBlankSurface()
+    {
+        var chat = new MobileChatViewModel(new ScriptedCommandSink(new RemoteCommandResult
+        {
+            Error = "Socket closed", IsOutcomeUnknown = true
+        }));
+        chat.ChatCreated += (id, generation) => chat.TryAdoptCreatedChat(id, generation);
+        chat.Reset(Guid.Empty, "Original blank");
+        chat.PromptText = "Accepted first send";
+        await chat.SendCommand.ExecuteAsync(null);
+        var request = Assert.Single(chat.GetPendingSendReconciliations());
+
+        chat.Reset(Guid.Empty, "Another blank");
+        chat.PromptText = "Work on another chat";
+        var createdId = Guid.NewGuid();
+        Assert.True(chat.TryReconcilePendingSend(request, AcceptedSendReceipt(createdId, request.RequestId)));
+
+        Assert.Equal(Guid.Empty, chat.ChatId);
+        Assert.Equal("Work on another chat", chat.PromptText);
+        Assert.Null(chat.ErrorText);
+        Assert.Empty(chat.GetPendingSendReconciliations());
+        chat.Reset(createdId, "Accepted chat from the sidebar");
+        Assert.Equal("", chat.PromptText);
+        Assert.Null(chat.ErrorText);
+    }
+
+    [Fact]
+    public async Task PendingSendReceiptFromPreviousHostCannotApplyAfterHostReset()
+    {
+        var chat = new MobileChatViewModel(new ScriptedCommandSink(new RemoteCommandResult
+        {
+            Error = "Socket closed", IsOutcomeUnknown = true
+        }));
+        chat.PromptText = "PC A send";
+        await chat.SendCommand.ExecuteAsync(null);
+        var oldRequest = Assert.Single(chat.GetPendingSendReconciliations());
+
+        chat.ResetHostState();
+        chat.PromptText = "PC B draft";
+        Assert.False(chat.TryReconcilePendingSend(
+            oldRequest, AcceptedSendReceipt(Guid.NewGuid(), oldRequest.RequestId)));
+        Assert.Equal(Guid.Empty, chat.ChatId);
+        Assert.Equal("PC B draft", chat.PromptText);
+        Assert.Null(chat.ErrorText);
+    }
+
+    [Fact]
+    public async Task AuthoritativeSendRejectionRemainsAnExplicitRetryWithoutReceiptProbing()
+    {
+        var sink = new ScriptedCommandSink(new RemoteCommandResult { Error = "Turn could not start" });
+        var chat = new MobileChatViewModel(sink);
+        chat.PromptText = "Not accepted";
+        await chat.SendCommand.ExecuteAsync(null);
+
+        Assert.Equal("Not accepted", chat.PromptText);
+        Assert.Equal("Turn could not start", chat.ErrorText);
+        Assert.True(chat.SendCommand.CanExecute(null));
+        Assert.Empty(chat.GetPendingSendReconciliations());
+        Assert.Single(sink.Commands);
+    }
+
+    private static RemoteTranscript AcceptedSendReceipt(Guid chatId, string requestId) => new()
+    {
+        ChatId = chatId,
+        TotalRawMessageCount = 1,
+        Status = new RemoteChatStatus { ChatId = chatId },
+        Turns =
+        [
+            new()
+            {
+                Id = "accepted-turn",
+                Items = [new() { Id = "accepted-user", Kind = RemoteProtocol.ItemKinds.User, RequestId = requestId }]
+            }
+        ]
+    };
 
     [Fact]
     public async Task IdenticalHistoricalPromptDoesNotClearAnAmbiguousRetry()

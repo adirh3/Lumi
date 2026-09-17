@@ -320,9 +320,12 @@ export function publishViewportInsets(callback) {
     const right = parseFloat(style.paddingRight) || 0;
     const bottom = parseFloat(style.paddingBottom) || 0;
     const left = parseFloat(style.paddingLeft) || 0;
+    const bounds = document.getElementById('out').getBoundingClientRect();
     const viewport = window.visualViewport;
+    // The dynamic-height canvas can already exclude Safari chrome or a resized keyboard.
+    // Only inset what still overlaps it, using the same CSS-pixel coordinates as the editor.
     const keyboardInset = viewport
-        ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
+        ? Math.max(0, bounds.bottom - viewport.height - viewport.offsetTop)
         : 0;
-    callback(top, right, bottom, left, keyboardInset);
+    callback(top, right, bottom, left, keyboardInset, bounds.height);
 }

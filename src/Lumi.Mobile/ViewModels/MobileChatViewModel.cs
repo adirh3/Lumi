@@ -193,12 +193,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
         _supportsAtomicWorktreeSelection &&
         HasConfirmedEmptyHistory &&
         CanChangeProjectSelection &&
-        _pendingRetry is null &&
+        !HasPendingReplay &&
         TryGetSelectedProject(out var project) &&
         project.IsCodingProject;
 
     public bool CanChangeProjectSelection =>
-        _pendingRetry is null &&
+        !HasPendingReplay &&
         !IsCurrentBlankSendInFlight &&
         (ChatId != Guid.Empty || (!IsBusy && !IsStreaming)) &&
         !(ChatId != Guid.Empty &&
@@ -557,7 +557,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     public bool HasContextWindowTiers => ContextWindowTiers.Count > 1;
 
     public string ContextWindowLabel => string.IsNullOrWhiteSpace(ContextWindowTier)
-        ? "Default"
+        ? SelectedModelDefaults is { ContextWindowTier: null } ? "Not supported" : "Set by desktop"
         : ContextWindowTier!;
 
     public string RunSettingsSummary
@@ -568,7 +568,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
             if (HasQualityLevels)
                 parts.Add(EffortLabel);
             if (HasContextWindowTiers
-                && !string.Equals(ContextWindowLabel, "Default", StringComparison.OrdinalIgnoreCase))
+                && !string.IsNullOrWhiteSpace(ContextWindowTier)
+                && !string.Equals(ContextWindowTier, "Default", StringComparison.OrdinalIgnoreCase))
             {
                 parts.Add(ContextWindowLabel);
             }
@@ -776,7 +777,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     public string EffortLabel => Quality is { Length: > 0 } quality
         ? char.ToUpperInvariant(quality[0]) + quality[1..]
-        : "Default";
+        : SelectedModelDefaults is { Quality: null } ? "Not supported" : "Set by desktop";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasOpenSheet))]
@@ -1010,6 +1011,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // rather than waiting for a chat status that may never carry them.
         RefreshEffortLevels();
         RefreshContextWindowTiers();
+        RefreshBlankModelDefaults();
     }
 
     partial void OnQualityChanged(string? value)
@@ -1206,6 +1208,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// <summary>Choices made before the chat existed, replayed once it does.</summary>
     private readonly PendingChatConfiguration _pendingConfiguration = new();
     private PendingRetry? _pendingRetry;
+    private bool HasPendingReplay => _pendingRetry is { PayloadEdited: false };
 
     /// <summary>True when the user configured something the desktop has not been told about yet.</summary>
     public bool HasPendingConfiguration => !_pendingConfiguration.IsEmpty;
@@ -1445,7 +1448,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
         var retry = draft.PendingRetry;
         if (retry is not null && !retry.Payload.Matches(draft.PromptText, attachments))
-            retry = null;
+            retry = retry with { PayloadEdited = true };
 
         StoreDraft(surface, draft with
         {
@@ -1470,10 +1473,11 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     private void ClearPendingRetryIfPayloadChanged()
     {
-        if (_pendingRetry is { } pending &&
+        if (_pendingRetry is { PayloadEdited: false } pending &&
             !pending.Payload.Matches(PromptText, Attachments))
         {
-            _pendingRetry = null;
+            // Editing starts a new explicit send, but the old request still needs a receipt check.
+            _pendingRetry = pending with { PayloadEdited = true };
             OnPropertyChanged(nameof(CanChooseWorktree));
         }
     }
@@ -1631,6 +1635,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(HasContextWindowTiers));
         RefreshEffortLevels();
         RefreshContextWindowTiers();
+        RefreshBlankModelDefaults();
 
         if (ChatId != Guid.Empty && HasPendingConfiguration)
             _ = FlushPendingConfigurationAsync();
@@ -1642,6 +1647,12 @@ public sealed partial class MobileChatViewModel : ObservableObject
         _pendingStopRequestIds.Clear();
         _drafts.Clear();
         _surfaceMappings.Clear();
+        _preferredModel = null;
+        _modelDefaults.Clear();
+        _modelEfforts.Clear();
+        _modelContextTiers.Clear();
+        _modelDisplayNames.Clear();
+        AvailableModels.Clear();
         Reset(Guid.Empty, "New chat");
         _drafts.Clear();
         _surfaceMappings.Clear();
@@ -1853,53 +1864,90 @@ public sealed partial class MobileChatViewModel : ObservableObject
 
     private void ReconcilePendingRetry(RemoteTranscript transcript, bool epochChanged)
     {
-        if (_pendingRetry is not { } pending)
+        foreach (var request in GetPendingSendReconciliations())
+            TryReconcilePendingSend(request, transcript);
+
+        if (_pendingRetry is not { } pending || !epochChanged || SendCommand.IsRunning)
             return;
 
-        var wasAccepted = transcript.Turns
-            .SelectMany(static turn => turn.Items)
-            .Any(item =>
-                item.Kind == RemoteProtocol.ItemKinds.User &&
-                string.Equals(item.RequestId, pending.RequestId, StringComparison.Ordinal));
-        if (wasAccepted)
-        {
-            var draft = CaptureCurrentDraft();
-            var remainingConfiguration = draft.Configuration.Clone();
-            remainingConfiguration.RemoveApplied(pending.Configuration);
-            var remainingAttachments = draft.Attachments
-                .Where(attachment => !pending.Payload.Attachments.Contains(attachment))
-                .ToArray();
-            var completed = draft with
-            {
-                PromptText = string.Equals(
-                    draft.PromptText,
-                    pending.Payload.PromptText,
-                    StringComparison.Ordinal)
-                    ? ""
-                    : draft.PromptText,
-                Attachments = remainingAttachments,
-                ErrorText = null,
-                Configuration = remainingConfiguration,
-                PendingRetry = null
-            };
-
-            StoreDraft(CurrentSurface, completed);
-            ApplyDraft(completed, restoreSelections: true);
-            return;
-        }
-
-        if (!epochChanged)
-            return;
-
-        var unsafeRetry = pending with { ReplayAllowed = false };
+        const string error =
+            "Lumi restarted before confirming this send. Refresh the transcript before retrying, or edit the message to send it as a new request.";
+        var unsafeRetry = pending with { ReplayAllowed = false, ErrorText = error };
         var unresolved = CaptureCurrentDraft() with
         {
-            ErrorText =
-                "Lumi restarted before confirming this send. Refresh the transcript before retrying, or edit the message to send it as a new request.",
+            ErrorText = error,
             PendingRetry = unsafeRetry
         };
         StoreDraft(CurrentSurface, unresolved);
         ApplyDraft(unresolved, restoreSelections: true);
+    }
+
+    internal IReadOnlyList<PendingSendReconciliation> GetPendingSendReconciliations()
+    {
+        if (SendCommand.IsRunning)
+            return [];
+
+        var requests = new List<PendingSendReconciliation>();
+        Add(CurrentSurface, _pendingRetry);
+        foreach (var (surface, draft) in _drafts)
+        {
+            if (!IsCurrentSurface(surface))
+                Add(surface, draft.PendingRetry);
+        }
+        return requests.DistinctBy(request => request.RequestId).ToArray();
+
+        void Add(ChatSurfaceIdentity surface, PendingRetry? pending)
+        {
+            if (pending is not null)
+                requests.Add(new PendingSendReconciliation(
+                    surface.ChatId, surface.BlankGeneration, pending.RequestId,
+                    pending.Payload.BeforeMessageIndex, _hostGeneration, pending.ErrorText));
+        }
+    }
+
+    internal bool TryReconcilePendingSend(PendingSendReconciliation request, RemoteTranscript transcript)
+    {
+        if (SendCommand.IsRunning || !IsCurrentHost(request.HostGeneration) || transcript.ChatId == Guid.Empty)
+            return false;
+
+        var surface = ResolveSurface(new ChatSurfaceIdentity(request.ChatId, request.BlankGeneration));
+        if (surface.ChatId != Guid.Empty && surface.ChatId != transcript.ChatId)
+            return false;
+
+        var isCurrent = IsCurrentSurface(surface);
+        var draft = isCurrent ? CaptureCurrentDraft() : GetDraft(surface);
+        if (draft.PendingRetry is not { } pending ||
+            !string.Equals(pending.RequestId, request.RequestId, StringComparison.Ordinal) ||
+            !transcript.Turns.SelectMany(turn => turn.Items).Any(item =>
+                item.Kind == RemoteProtocol.ItemKinds.User &&
+                string.Equals(item.RequestId, request.RequestId, StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
+        var remainingConfiguration = draft.Configuration.Clone();
+        remainingConfiguration.RemoveApplied(pending.Configuration);
+        var completed = draft with
+        {
+            PromptText = !pending.PayloadEdited &&
+                         string.Equals(draft.PromptText, pending.Payload.PromptText, StringComparison.Ordinal)
+                ? ""
+                : draft.PromptText,
+            Attachments = draft.Attachments.Where(attachment => !pending.Payload.Attachments.Contains(attachment)).ToArray(),
+            ErrorText = string.Equals(draft.ErrorText, pending.ErrorText, StringComparison.Ordinal) ? null : draft.ErrorText,
+            Configuration = remainingConfiguration,
+            PendingRetry = null
+        };
+        StoreDraft(surface, completed);
+        if (isCurrent)
+            ApplyDraft(completed, restoreSelections: true);
+
+        if (surface.IsBlank)
+        {
+            MapSurfaceToChat(surface, transcript.ChatId);
+            ChatCreated?.Invoke(transcript.ChatId, surface.BlankGeneration);
+        }
+        return true;
     }
 
     public void MarkNewerActivityAvailable()
@@ -2110,15 +2158,32 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 entry[(separator + 1)..].Split(',', StringSplitOptions.RemoveEmptyEntries);
         }
 
+        _modelDefaults.Clear();
+        foreach (var defaults in settings.ModelDefaults)
+            _modelDefaults[defaults.Model] = defaults;
+
         RefreshEffortLevels();
         RefreshContextWindowTiers();
+        var wasApplyingServerState = _applyingServerState;
+        _applyingServerState = true;
+        try
+        {
+            if (ChatId == Guid.Empty && !IsCurrentBlankSendInFlight && !HasPendingReplay)
+            {
+                if (!_pendingConfiguration.TryGetScalar("model", out _))
+                    Model = _preferredModel;
+                RefreshBlankModelDefaults();
+            }
+        }
+        finally
+        {
+            _applyingServerState = wasApplyingServerState;
+        }
+
         RefreshPickerOptions();
         OnPropertyChanged(nameof(ModelDisplayName));
         OnPropertyChanged(nameof(ModelSummary));
         OnPropertyChanged(nameof(RunSettingsSummary));
-
-        if (ChatId == Guid.Empty && string.IsNullOrWhiteSpace(Model))
-            Model = _preferredModel;
     }
 
     public void ApplyLibraryCatalogs(RemoteLibrary library, bool reconcileProjectSelection = true)
@@ -2203,8 +2268,71 @@ public sealed partial class MobileChatViewModel : ObservableObject
     /// <summary>Which efforts each model supports, so a chat that does not exist yet can still offer them.</summary>
     private readonly Dictionary<string, string[]> _modelEfforts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string[]> _modelContextTiers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, RemoteModelDefaults> _modelDefaults = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<string, string> _modelDisplayNames = new(StringComparer.OrdinalIgnoreCase);
+
+    private RemoteModelDefaults? SelectedModelDefaults =>
+        Model is { Length: > 0 } model ? _modelDefaults.GetValueOrDefault(model) : null;
+
+    private void RefreshBlankModelDefaults()
+    {
+        if (ChatId != Guid.Empty)
+            return;
+
+        var defaults = SelectedModelDefaults;
+        var hasModelCatalog = defaults is not null ||
+                              AvailableModels.Contains(Model ?? "", StringComparer.OrdinalIgnoreCase);
+        var wasApplyingServerState = _applyingServerState;
+        _applyingServerState = true;
+        try
+        {
+            Quality = Select("quality", QualityLevels, defaults?.Quality);
+            ContextWindowTier = Select("contextWindowTier", ContextWindowTiers, defaults?.ContextWindowTier);
+        }
+        finally
+        {
+            _applyingServerState = wasApplyingServerState;
+        }
+        RefreshPickerOptions();
+
+        string? Select(string key, IReadOnlyList<string> options, string? effectiveDefault)
+        {
+            if (_pendingConfiguration.TryGetScalar(key, out var pending))
+            {
+                var supported = options.FirstOrDefault(option =>
+                    string.Equals(option, pending, StringComparison.OrdinalIgnoreCase));
+                if (supported is not null)
+                {
+                    _pendingConfiguration.SetScalar(key, supported);
+                    return supported;
+                }
+                if (!hasModelCatalog)
+                    return pending;
+
+                _pendingConfiguration.RemoveScalar(key);
+            }
+
+            // Only the desktop resolves fallbacks. Missing metadata from an older host is unknown,
+            // not the first slider position or a guess based on its unnormalized global preference.
+            return effectiveDefault;
+        }
+    }
+
+    private void CaptureBlankModelSelection(PendingChatConfiguration configuration)
+    {
+        Capture("model", Model);
+        Capture("quality", Quality);
+        Capture("contextWindowTier", ContextWindowTier);
+
+        void Capture(string key, string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                configuration.SetScalar(key, value);
+            else
+                configuration.RemoveScalar(key);
+        }
+    }
 
     /// <summary>
     /// Recomputes the effort levels for the selected model from the PC's model catalog.
@@ -2234,6 +2362,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
         OnPropertyChanged(nameof(HasQualityLevels));
         OnPropertyChanged(nameof(EffortMax));
         OnPropertyChanged(nameof(EffortIndex));
+        OnPropertyChanged(nameof(EffortLabel));
         OnPropertyChanged(nameof(ModelSummary));
         OnPropertyChanged(nameof(RunSettingsSummary));
     }
@@ -2455,8 +2584,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
             return;
 
         var attached = Attachments.ToArray();
-        var payload = new SendPayload(draftText, attached);
-        var matchingRetry = _pendingRetry is { } pendingRetry &&
+        var payload = new SendPayload(draftText, attached, TotalRawMessageCount + 1);
+        var matchingRetry = _pendingRetry is { PayloadEdited: false } pendingRetry &&
                             pendingRetry.Payload.Matches(draftText, attached)
             ? pendingRetry
             : null;
@@ -2468,6 +2597,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 "Lumi can no longer safely replay that send. Refresh the chat to confirm its outcome, or edit the message before sending again.";
             return;
         }
+        if (matchingRetry is not null)
+            payload = matchingRetry.Payload.Copy();
         if (surface.IsBlank && matchingRetry is null)
             _pendingStopBlankGeneration = null;
         var requestId = matchingRetry?.RequestId ?? Guid.NewGuid().ToString("N");
@@ -2475,6 +2606,8 @@ public sealed partial class MobileChatViewModel : ObservableObject
         // the timeout remains pending and is flushed after the original request is acknowledged.
         var pendingConfiguration = matchingRetry?.Configuration.Clone() ??
                                    _pendingConfiguration.Clone();
+        if (surface.IsBlank && matchingRetry is null)
+            CaptureBlankModelSelection(pendingConfiguration);
         var effectiveSteer = matchingRetry?.Steer ?? steer;
         var effectiveStopAndSend = matchingRetry?.StopAndSend ?? stopAndSend;
 
@@ -2647,7 +2780,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             sentConfiguration,
             overwriteScalars: false,
             overwriteCollectionValues: false);
-        var retry = preserveRequestIdentity && sentPayload.Matches(promptText, attachments)
+        var retry = preserveRequestIdentity
             ? new PendingRetry(
                 requestId,
                 sentPayload,
@@ -2656,6 +2789,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 stopAndSend,
                 _now(),
                 ReplayAllowed: true)
+            {
+                PayloadEdited = !sentPayload.Matches(promptText, attachments),
+                ErrorText = error
+            }
             : null;
         var restored = new DraftState(
             promptText,
@@ -2971,6 +3108,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
         var blankSurface = new ChatSurfaceIdentity(Guid.Empty, blankGeneration);
         MapSurfaceToChat(blankSurface, chatId);
         ReleaseBlankProjectSelection(blankSurface);
+        // A model picked while the creating send was pending belongs to the next configuration,
+        // including the effective defaults now displayed for that model, not the first send's.
+        if (_pendingConfiguration.TryGetScalar("model", out _))
+            CaptureBlankModelSelection(_pendingConfiguration);
         ChatId = chatId;
 
         return true;
@@ -3200,7 +3341,7 @@ public sealed partial class MobileChatViewModel : ObservableObject
             };
     }
 
-    private sealed record SendPayload(string PromptText, PendingAttachment[] Attachments)
+    private sealed record SendPayload(string PromptText, PendingAttachment[] Attachments, int BeforeMessageIndex)
     {
         public bool Matches(string promptText, IReadOnlyList<PendingAttachment> attachments) =>
             string.Equals(PromptText, promptText, StringComparison.Ordinal) &&
@@ -3232,6 +3373,9 @@ public sealed partial class MobileChatViewModel : ObservableObject
         DateTimeOffset CreatedAtUtc,
         bool ReplayAllowed)
     {
+        public bool PayloadEdited { get; init; }
+        public string? ErrorText { get; init; }
+
         public PendingRetry Copy() =>
             this with
             {
@@ -3239,6 +3383,10 @@ public sealed partial class MobileChatViewModel : ObservableObject
                 Configuration = Configuration.Clone()
             };
     }
+
+    internal readonly record struct PendingSendReconciliation(
+        Guid ChatId, long BlankGeneration, string RequestId, int BeforeMessageIndex,
+        long HostGeneration, string? ErrorText);
 
     private sealed class PendingChatConfiguration
     {

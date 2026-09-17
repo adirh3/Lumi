@@ -5,6 +5,8 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using GitHub.Copilot;
+using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
 using Lumi.Services;
@@ -1282,6 +1284,62 @@ public sealed class RemoteProjectionTests
         Assert.Equal(2, settings.AvailableModels.Count);
         Assert.Contains("claude-opus-5=Claude Opus 5", settings.ModelDisplayNames);
         Assert.Contains("gpt-5.6-sol=GPT 5.6 Sol", settings.ModelDisplayNames);
+        Assert.Empty(settings.ModelDefaults);
+    }
+
+    [Theory]
+    [InlineData("", "", "Default", "Low")]
+    [InlineData("max", "long_context", "Long", "Max")]
+    public void SettingsProjectEffectivePerModelDefaultsUsingDesktopResolution(
+        string storedEffort, string storedTier, string expectedTier, string expectedFallbackEffort)
+    {
+        Loc.Load("en");
+        var data = new AppData();
+        var store = new DataStore(data);
+        using var viewModel = new ChatViewModel(store, TestCopilot.Shared)
+        {
+            CurrentChat = new Chat { LastReasoningEffortUsed = "low", LastContextWindowTierUsed = "default" }
+        };
+        viewModel.UpdateModelCapabilities(
+        [
+            new ModelInfo
+            {
+                Id = "high-model", SupportedReasoningEfforts = ["low", "medium", "high"],
+                DefaultReasoningEffort = "medium"
+            },
+            new ModelInfo
+            {
+                Id = "catalog-default-model", SupportedReasoningEfforts = ["minimal", "max"],
+                DefaultReasoningEffort = "max"
+            },
+            new ModelInfo { Id = "no-catalog-default-model", SupportedReasoningEfforts = ["minimal", "low", "max"] },
+            new ModelInfo { Id = "auto" }
+        ],
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "high-model" });
+        data.Settings.PreferredModel = "high-model";
+        data.Settings.ReasoningEffort = storedEffort;
+        data.Settings.ContextWindowTier = storedTier;
+
+        var settings = RemoteProjector.BuildSettings(
+            store, ["high-model", "catalog-default-model", "no-catalog-default-model", "auto"], viewModel);
+        var defaults = settings.ModelDefaults.ToDictionary(item => item.Model);
+
+        Assert.Equal("High", defaults["high-model"].Quality);
+        Assert.Equal(expectedTier, defaults["high-model"].ContextWindowTier);
+        Assert.Equal("Max", defaults["catalog-default-model"].Quality);
+        Assert.Equal(expectedFallbackEffort, defaults["no-catalog-default-model"].Quality);
+        Assert.Null(defaults["catalog-default-model"].ContextWindowTier);
+        Assert.Null(defaults["auto"].Quality);
+        Assert.Null(defaults["auto"].ContextWindowTier);
+        Assert.Equal(storedEffort, data.Settings.ReasoningEffort);
+        Assert.Equal(storedTier, data.Settings.ContextWindowTier);
+        Assert.Equal("low", viewModel.CurrentChat.LastReasoningEffortUsed);
+        Assert.Equal("default", viewModel.CurrentChat.LastContextWindowTierUsed);
+
+        var json = JsonSerializer.Serialize(settings, RemoteJsonContext.Default.RemoteSettings);
+        var parsed = JsonSerializer.Deserialize(json, RemoteJsonContext.Default.RemoteSettings)!;
+        Assert.Equal(settings.ModelDefaults.Count, parsed.ModelDefaults.Count);
+        Assert.Equal(expectedTier, parsed.ModelDefaults[0].ContextWindowTier);
     }
 
     [Theory]

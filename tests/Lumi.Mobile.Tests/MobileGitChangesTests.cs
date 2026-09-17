@@ -4,13 +4,19 @@ using Lumi.Remote.Protocol;
 using System.Runtime.ExceptionServices;
 using Avalonia.Controls;
 using Avalonia;
+using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Input.Raw;
 using Avalonia.Logging;
 using Avalonia.Media;
+using Avalonia.Platform;
+using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Lumi.Mobile.Views;
 using StrataTheme.Controls;
 using Xunit;
+using System.Reflection;
 
 namespace Lumi.Mobile.Tests;
 
@@ -370,6 +376,105 @@ public sealed class MobileGitChangesTests
             }
         }, CancellationToken.None);
         failure?.Throw();
+    }
+
+    [Theory]
+    [InlineData(400)]
+    [InlineData(1000)]
+    public async Task LongFileListAndDiffConsumeTouchPansIncludingBoundaryDrift(double width)
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var files = Enumerable.Range(0, 100).Select(index => new RemoteGitFile
+            {
+                Path = $"File{index:000}.cs", Kind = "Modified", Status = " M"
+            }).ToArray();
+            var sink = new GitSink
+            {
+                Files = files,
+                DiffFactory = (chatId, scope, path) => Task.FromResult<RemoteGitDiff?>(new()
+                {
+                    ChatId = chatId, ScopeId = scope, Path = path,
+                    UnifiedDiff = "@@ -0,0 +1,150 @@\n" + string.Join('\n',
+                        Enumerable.Range(0, 150).Select(index => $"+// Line {index} " + new string('x', 150)))
+                })
+            };
+            var vm = new MobileChatViewModel(sink);
+            vm.Reset(Guid.NewGuid(), "Scrollable changes");
+            var view = new GitChangesView { DataContext = vm };
+            var window = new Window { Width = width, Height = 800, Content = view };
+            try
+            {
+                window.Show();
+                await vm.OpenGitChangesCommand.ExecuteAsync(null);
+                Dispatcher.UIThread.RunJobs();
+                var list = view.FindControl<ListBox>("GitFileList")!;
+                var listScroll = list.GetVisualDescendants().OfType<ScrollViewer>().First();
+                Assert.True(listScroll.Extent.Height > listScroll.Viewport.Height);
+                await PanAsync(listScroll, new Vector(4, -200));
+                Assert.True(listScroll.Offset.Y >= 180);
+                Assert.Null(vm.SelectedGitFile);
+
+                await vm.OpenGitFileCommand.ExecuteAsync(files[0]);
+                var diff = view.FindControl<StrataDiffView>("GitSharedDiff")!;
+                var scroll = diff.FindControl<ScrollViewer>("DiffScroller")!;
+                var deadline = DateTime.UtcNow.AddSeconds(5);
+                do
+                {
+                    await Task.Delay(15);
+                    Dispatcher.UIThread.RunJobs();
+                } while ((diff.IsRendering || scroll.Extent.Height <= scroll.Viewport.Height)
+                         && DateTime.UtcNow < deadline);
+                Assert.False(diff.IsRendering);
+                Assert.True(scroll.Extent.Height > scroll.Viewport.Height);
+                Assert.True(scroll.Extent.Width > scroll.Viewport.Width);
+                // Real finger motion is not perfectly horizontal. A vertical edge must not
+                // block a horizontal pan because the finger drifts a few pixels outward.
+                await PanAsync(scroll, new Vector(-160, 6));
+                Assert.True(scroll.Offset.X >= 140,
+                    $"Horizontal pan at the top edge was blocked: {scroll.Offset}.");
+                await PanAsync(scroll, new Vector(4, -250));
+                Assert.True(scroll.Offset.Y >= 230);
+                scroll.Offset = new Vector(scroll.Offset.X, scroll.Extent.Height - scroll.Viewport.Height);
+                Dispatcher.UIThread.RunJobs();
+                var previousX = scroll.Offset.X;
+                await PanAsync(scroll, new Vector(-160, -6));
+                Assert.True(scroll.Offset.X >= previousX + 140,
+                    $"Horizontal pan at the bottom edge was blocked: {scroll.Offset}.");
+                Assert.Equal(files[0].Path, vm.SelectedGitFilePath);
+            }
+            finally { window.Close(); }
+
+            async Task PanAsync(ScrollViewer scroll, Vector movement)
+            {
+                await ElementComposition.GetElementVisual(scroll)!.Compositor.RequestCommitAsync();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                var start = scroll.TranslatePoint(new Point(scroll.Bounds.Width / 2, scroll.Bounds.Height / 2), window)!.Value;
+                var hit = Assert.IsAssignableFrom<Control>(window.InputHitTest(start));
+                Assert.True(ReferenceEquals(hit, scroll) || hit.GetVisualAncestors().Contains(scroll));
+                // Invoke the same raw input callback as the platform; raising ScrollGesture
+                // directly skips the recognizer and cannot detect a blocked finger gesture.
+                using var touch = (TouchDevice)Activator.CreateInstance(typeof(TouchDevice), nonPublic: true)!;
+                var input = (Action<RawInputEventArgs>)typeof(ITopLevelImpl).GetProperty("Input")!
+                    .GetValue(window.PlatformImpl)!;
+                var inputRoot = typeof(TopLevel).GetProperty("InputRoot",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.GetValue(window)!;
+                Send(RawPointerEventType.TouchBegin, start, 1000);
+                for (var step = 1; step <= 12; step++)
+                {
+                    Send(RawPointerEventType.TouchUpdate, start + movement * (step / 12d), (ulong)(1000 + 20 * step));
+                    Dispatcher.UIThread.RunJobs();
+                }
+                Send(RawPointerEventType.TouchEnd, start + movement, 1600);
+                Dispatcher.UIThread.RunJobs();
+
+                void Send(RawPointerEventType type, Point point, ulong timestamp) =>
+                    input((RawInputEventArgs)Activator.CreateInstance(
+                        typeof(RawTouchEventArgs), BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                        binder: null, [touch, timestamp, inputRoot, type, point, RawInputModifiers.None, 1L], culture: null)!);
+            }
+        }, CancellationToken.None);
     }
 
     private static IReadOnlyList<RemoteGitFile> MultipleFiles() =>

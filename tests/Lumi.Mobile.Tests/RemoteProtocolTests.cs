@@ -98,6 +98,29 @@ public class RemoteProtocolTests
     }
 
     [Fact]
+    public void ModelDefaultsRoundTripWithoutReflectionAndRemainOptionalForOlderDesktops()
+    {
+        var settings = new RemoteSettings
+        {
+            ModelDefaults =
+            [
+                new() { Model = "reasoning", Quality = "Max", ContextWindowTier = "Long" },
+                new() { Model = "auto" }
+            ]
+        };
+
+        var json = JsonSerializer.Serialize(settings, RemoteJsonContext.Default.RemoteSettings);
+        var parsed = JsonSerializer.Deserialize(json, RemoteJsonContext.Default.RemoteSettings)!;
+
+        Assert.Equal("Max", parsed.ModelDefaults[0].Quality);
+        Assert.Equal("Long", parsed.ModelDefaults[0].ContextWindowTier);
+        Assert.Equal("auto", parsed.ModelDefaults[1].Model);
+        Assert.Null(parsed.ModelDefaults[1].Quality);
+        Assert.Null(parsed.ModelDefaults[1].ContextWindowTier);
+        Assert.Empty(JsonSerializer.Deserialize("{}", RemoteJsonContext.Default.RemoteSettings)!.ModelDefaults);
+    }
+
+    [Fact]
     public void SessionActivityRoundTripsSeparatelyFromAssistantActivity()
     {
         var chatId = Guid.NewGuid();
