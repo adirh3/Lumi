@@ -5,6 +5,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      experiment:
+        description: Diagnostic experiment (diagnostic branch only)
+        type: choice
+        default: startup
+        options: [startup, framework-versions]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -14,8 +20,56 @@ permissions:
   contents: read
 
 jobs:
+  framework-version-probe:
+    if: github.ref_name == 'diagnostics/macos-idle-87c79f2d' && inputs.experiment == 'framework-versions'
+    name: Avalonia version comparison (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel]
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      LUMI_IDLE_CPU_SAMPLE_COUNT: '5'
+      LUMI_IDLE_CPU_SAMPLE_SECONDS: '5'
+      LUMI_IDLE_CPU_SETTLE_SECONDS: '5'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+      - name: Build with released Avalonia version
+        run: dotnet build src/Lumi/Lumi.csproj -c Debug -p:PublishTrimmed=false -p:AvaloniaVersion=12.1.0 --nologo -v quiet
+      - name: Measure bare Avalonia 12.1.0
+        run: ./tools/Invoke-IdleCpuProbe.ps1 -Variant bare-12.1.0 -Bare -ExpectedAvaloniaVersion 12.1.0
+      - name: Measure Lumi with Avalonia 12.1.0
+        if: ${{ !cancelled() }}
+        run: ./tools/Invoke-IdleCpuProbe.ps1 -Variant lumi-12.1.0 -ExpectedAvaloniaVersion 12.1.0
+      - name: Build identical code with current Avalonia version
+        if: ${{ !cancelled() }}
+        run: dotnet build src/Lumi/Lumi.csproj -c Debug -p:PublishTrimmed=false -p:AvaloniaVersion=12.1.2 --nologo -v quiet
+      - name: Measure bare Avalonia 12.1.2
+        if: ${{ !cancelled() }}
+        run: ./tools/Invoke-IdleCpuProbe.ps1 -Variant bare-12.1.2 -Bare -ExpectedAvaloniaVersion 12.1.2
+      - name: Measure Lumi with Avalonia 12.1.2
+        if: ${{ !cancelled() }}
+        run: ./tools/Invoke-IdleCpuProbe.ps1 -Variant lumi-12.1.2 -ExpectedAvaloniaVersion 12.1.2
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: avalonia-versions-${{ matrix.os }}
+          path: IdleProbeResults
+          if-no-files-found: warn
+          retention-days: 3
+
   idle-probe:
-    if: github.ref_name == 'diagnostics/macos-idle-87c79f2d'
+    if: github.ref_name == 'diagnostics/macos-idle-87c79f2d' && inputs.experiment != 'framework-versions'
     name: Native idle probe (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20

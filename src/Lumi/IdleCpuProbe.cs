@@ -76,6 +76,9 @@ internal static class IdleCpuProbe
             var getService = resolver.GetType().GetMethod("GetService", [typeof(Type)])
                 ?? throw new MissingMethodException("AvaloniaLocator.GetService");
             var graphics = getService.Invoke(resolver, [typeof(IPlatformGraphics)]);
+            var sampleCount = ReadPositiveSetting("LUMI_IDLE_CPU_SAMPLE_COUNT", 3);
+            var sampleSeconds = ReadPositiveSetting("LUMI_IDLE_CPU_SAMPLE_SECONDS", 4);
+            var settleSeconds = ReadPositiveSetting("LUMI_IDLE_CPU_SETTLE_SECONDS", 3);
             var environment = new
             {
                 Variant = Environment.GetEnvironmentVariable("LUMI_IDLE_CPU_VARIANT"),
@@ -94,20 +97,23 @@ internal static class IdleCpuProbe
                 window.RenderScaling,
                 Transparency = window.ActualTransparencyLevel.ToString(),
                 CopilotStartupDisabled = true,
+                SampleCount = sampleCount,
+                SampleSeconds = sampleSeconds,
+                SettleSeconds = settleSeconds,
             };
             Console.WriteLine("IDLE_PROBE_ENV " + JsonSerializer.Serialize(environment, JsonOptions));
 
             async Task MeasureAsync(string name)
             {
-                await Task.Delay(3000);
+                await Task.Delay(TimeSpan.FromSeconds(settleSeconds));
                 var samples = new List<object>();
                 using var process = Process.GetCurrentProcess();
-                for (var index = 0; index < 3; index++)
+                for (var index = 0; index < sampleCount; index++)
                 {
                     process.Refresh();
                     var cpuStart = process.TotalProcessorTime.TotalMilliseconds;
                     var clock = Stopwatch.StartNew();
-                    await Task.Delay(4000);
+                    await Task.Delay(TimeSpan.FromSeconds(sampleSeconds));
                     process.Refresh();
                     var cpuMs = process.TotalProcessorTime.TotalMilliseconds - cpuStart;
                     var seconds = clock.Elapsed.TotalSeconds;
@@ -202,6 +208,16 @@ internal static class IdleCpuProbe
         => instance.GetType().GetField(name, Members)?.GetValue(instance)
             ?? instance.GetType().GetProperty(name, Members)?.GetValue(instance)
             ?? throw new MissingMemberException(instance.GetType().FullName, name);
+
+    private static int ReadPositiveSetting(string name, int defaultValue)
+    {
+        var text = Environment.GetEnvironmentVariable(name);
+        if (text is null)
+            return defaultValue;
+        return int.TryParse(text, out var value) && value is > 0 and <= 30
+            ? value
+            : throw new InvalidOperationException($"Invalid probe setting {name}: {text}");
+    }
 
     private static async Task CaptureNativeSampleAsync(string output, string name)
     {

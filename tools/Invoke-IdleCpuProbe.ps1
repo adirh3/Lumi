@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory)][string]$Variant,
     [switch]$Bare,
-    [ValidateSet('default', 'software')][string]$Renderer = 'default'
+    [ValidateSet('default', 'software')][string]$Renderer = 'default',
+    [string]$ExpectedAvaloniaVersion
 )
 
 $ErrorActionPreference = 'Stop'
@@ -48,4 +49,12 @@ finally {
 if (-not (Test-Path (Join-Path $output 'report.json'))) {
     throw "No CPU report was produced in $output."
 }
-Get-Content (Join-Path $output 'report.json')
+$json = Get-Content -Raw (Join-Path $output 'report.json')
+if ($ExpectedAvaloniaVersion) {
+    $report = $json | ConvertFrom-Json
+    $actual = ($report.Environment.AvaloniaVersion -split '\+', 2)[0]
+    if ($actual -ne $ExpectedAvaloniaVersion) {
+        throw "Framework comparison expected $ExpectedAvaloniaVersion but actually loaded $actual."
+    }
+}
+$json
