@@ -47,6 +47,81 @@ globally disabled. Preloading Lumi's tools adds their schemas to the model's
 context, trading some prompt size for reliable access. Website sign-in
 requirements are unchanged.
 
+### Private mobile web app with Microsoft Dev Tunnels
+
+The existing Avalonia mobile PWA also works over an **owner-only Microsoft Dev
+Tunnel**, without Tailscale on the phone. In **Settings > Mobile**, turn on phone
+access and select **Microsoft Dev Tunnel**, then **Web app**.
+
+Setup presents the three connection methods as matching choices: Tailscale,
+Dev Tunnel (Microsoft sign-in), and local Wi-Fi. They share one row on wider
+windows and all stack together on narrow windows. Each choice identifies its
+supported apps; Dev Tunnel explains the web-only restriction, and Retry appears
+only when a private tunnel actually needs attention.
+
+Desktop setup is guided after selecting **Dev Tunnel**:
+
+1. Lumi reuses the official CLI in its portable `tools\devtunnel` subdirectory
+   or on `PATH`. If none is installed, it first asks **Install Microsoft Dev
+   Tunnel?**, with **Install & continue** and **Cancel**. No download starts
+   without approval. Cancel or dismiss the dialog to leave it uninstalled;
+   Retry asks again. Existing installations skip this prompt.
+   After approval, the matching Microsoft binary is downloaded into
+   `tools\devtunnel` under Lumi's user-data directory. No administrator access,
+   system installation, or PATH changes are needed.
+2. If Microsoft sign-in is missing, Lumi opens the CLI's Microsoft browser
+   sign-in flow. Complete sign-in with the account you want to use on the phone.
+   Personal Microsoft and Microsoft Entra accounts work; GitHub authentication
+   is not accepted for this connection.
+3. Setup continues automatically and displays the verified account. Choose
+   **Web app** to get the HTTPS link and QR code.
+4. Open that link on your phone, sign in with **the same account**, and enter the
+   separate, single-use Lumi pairing code displayed on the PC.
+
+Downloads use fixed HTTPS URLs from Microsoft's official Dev Tunnel distribution
+account, with redirects disabled, size/time limits, and an executable-format check.
+On Windows, a valid Microsoft Authenticode signature is also required before the
+download is installed or executed. Other platforms authenticate the distribution
+through Microsoft's HTTPS endpoint; they do not claim Windows signature verification.
+The executable is published only after verification; canceled or failed downloads
+are discarded. Turning off phone access cancels download/sign-in, without closing
+the user's browser. Credentials remain in the CLI's standard platform credential
+store, not Lumi settings. Existing installed versions are not silently upgraded.
+Automatic acquisition supports Microsoft's Windows x64 binary (including Windows
+ARM64 emulation), macOS x64/ARM64, and Linux x64/ARM64 binaries. Linux still needs
+the system credential-store dependencies required by Microsoft's CLI (such as
+`libsecret`); Lumi does not install system packages with administrator privileges.
+For other systems, an existing CLI on `PATH` remains usable.
+
+Lumi creates its own new tunnel and verifies that **both the tunnel and its port
+have no additional access grants before hosting**. It never enables anonymous,
+organization/tenant-wide, or shared-token access, and never reuses an existing
+tunnel with unknown permissions. All PWA assets and API routes are behind
+Microsoft's sign-in gate; paired-device bearer authentication, expiry/attempt
+limits on pairing, and device revocation remain in force.
+
+This mode binds Lumi's listener to **127.0.0.1 only**, disables LAN discovery, and
+does not fall back to LAN or Tailscale if setup or hosting fails. Browser requests
+are restricted to their original origin and do not follow authentication
+redirects with Lumi credentials. Host-header validation is not relaxed to allow
+arbitrary public hostnames.
+
+The URL is reachable at Microsoft's public gateway, but Lumi is **not publicly
+accessible**: Microsoft authenticates and authorizes the tunnel owner first.
+HTTPS terminates at Microsoft's gateway and the relay connection to the PC is
+encrypted; this is not Tailscale's device-to-device WireGuard trust model.
+Do not manually broaden the managed tunnel's access rules or issue/share tunnel
+access tokens. Keep the PC and Lumi running. Turning off phone access or switching
+transport stops the owned relay and removes its tunnel; unused tunnel resources
+expire after one day if cleanup cannot reach Microsoft. Restarting creates a new
+link, which also requires fresh browser pairing for that origin.
+
+Dev Tunnels is a Microsoft preview service without a production SLA. This mode
+is for the **PWA**, not the native Android transport. Existing Tailscale and
+explicit local-network connections are unchanged and remain available separately.
+Developer builds need the browser assets published to the desktop executable's
+`remote-web` directory (or `LUMI_REMOTE_WEB_ROOT`); release packages include them.
+
 ### Lazy MCP initialization
 
 In **Settings > AI & Models > MCP Servers**, enable **Fast MCP Initialization**, then

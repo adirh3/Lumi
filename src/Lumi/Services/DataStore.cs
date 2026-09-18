@@ -312,6 +312,7 @@ public class DataStore
             _data.Settings.RemoteAccessEnabled = persisted.RemoteAccessEnabled;
             _data.Settings.RemoteAccessPort = persisted.RemoteAccessPort;
             _data.Settings.RemoteAllowInsecureLan = persisted.RemoteAllowInsecureLan;
+            _data.Settings.RemoteUseDevTunnel = persisted.RemoteUseDevTunnel;
             _data.Settings.RemotePairedDevices = persisted.RemotePairedDevices
                 .Select(CloneRemotePairedDevice)
                 .ToList();

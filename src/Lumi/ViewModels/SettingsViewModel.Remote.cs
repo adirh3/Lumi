@@ -34,6 +34,9 @@ public partial class SettingsViewModel
 
     [ObservableProperty] private bool _remoteAccessEnabled;
     [ObservableProperty] private bool _useLocalNetworkForMobile;
+    [ObservableProperty] private bool _useDevTunnelForMobile;
+    [ObservableProperty] private string _devTunnelStatusText = "";
+    [ObservableProperty] private bool _isDevTunnelInstallDialogOpen;
     [ObservableProperty] private string _remotePairingCode = "";
     [ObservableProperty] private bool _isRemotePairing;
     [ObservableProperty] private string _remotePairActionText = Loc.Get("Remote_PairButton");
@@ -57,9 +60,22 @@ public partial class SettingsViewModel
     public ObservableCollection<RemotePairedDeviceItem> RemoteDevices { get; } = [];
 
     public bool IsMobileTailscaleSelected =>
-        IsMobileTailscaleAvailable && !UseLocalNetworkForMobile;
+        IsMobileTailscaleAvailable && !UseLocalNetworkForMobile && !UseDevTunnelForMobile;
 
-    public bool IsMobileLocalNetworkSelected => UseLocalNetworkForMobile;
+    public bool IsMobileLocalNetworkSelected => UseLocalNetworkForMobile && !UseDevTunnelForMobile;
+
+    public bool IsMobileAndroidSetupChoiceEnabled => IsMobileSetupChoiceEnabled && !UseDevTunnelForMobile;
+
+    public string MobileExperienceDescription => Loc.Get(
+        UseDevTunnelForMobile ? "Remote_SetupWebOnlyDescription" : "SettingDesc_MobileChoose");
+
+    private MobileOnboardingTransport SelectedMobileTransport => UseDevTunnelForMobile
+        ? MobileOnboardingTransport.DevTunnel
+        : UseLocalNetworkForMobile ? MobileOnboardingTransport.LocalNetwork : MobileOnboardingTransport.Tailscale;
+
+    public bool CanRetryMobileDevTunnel =>
+        RemoteAccessEnabled && UseDevTunnelForMobile
+        && _remoteServer is { IsDevTunnelStarting: false, DevTunnelOrigin: null };
 
     internal void AttachRemoteServer(LumiRemoteServer server)
     {
@@ -76,6 +92,7 @@ public partial class SettingsViewModel
         {
             RemoteAccessEnabled = _dataStore.Data.Settings.RemoteAccessEnabled;
             UseLocalNetworkForMobile = _dataStore.Data.Settings.RemoteAllowInsecureLan;
+            UseDevTunnelForMobile = _dataStore.Data.Settings.RemoteUseDevTunnel;
         }
         finally
         {
@@ -117,6 +134,7 @@ public partial class SettingsViewModel
         {
             RemoteAccessEnabled = _dataStore.Data.Settings.RemoteAccessEnabled;
             UseLocalNetworkForMobile = _dataStore.Data.Settings.RemoteAllowInsecureLan;
+            UseDevTunnelForMobile = _dataStore.Data.Settings.RemoteUseDevTunnel;
         }
         finally
         {
@@ -127,6 +145,18 @@ public partial class SettingsViewModel
             IsMobileTailscaleAvailable
                 ? "Remote_TransportDetected"
                 : "Remote_TransportUnavailable");
+        DevTunnelStatusText = server switch
+        {
+            { DevTunnelError: { } error } => error,
+            { DevTunnelOrigin: not null, DevTunnelAccount: { } account } =>
+                Loc.Get("Remote_DevTunnelReady", account),
+            { DevTunnelSetupMessage: { } message } => message,
+            { IsDevTunnelStarting: true } => Loc.Get("Remote_DevTunnelStarting"),
+            _ => Loc.Get("Remote_DevTunnelInstall")
+        };
+        IsDevTunnelInstallDialogOpen = server?.RequiresDevTunnelInstallConfirmation == true;
+        RetryMobileDevTunnelCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(CanRetryMobileDevTunnel));
         var pairing = server is null
             ? (Code: (string?)null, ExpiresAt: (DateTimeOffset?)null)
             : server.GetPairingDisplayState(now);
@@ -191,7 +221,7 @@ public partial class SettingsViewModel
     private static string PreferredRemoteAddress(
         LumiRemoteServer server,
         bool useLocalNetwork) =>
-        MobileOnboardingLinks.SelectEndpoint(
+        server.DevTunnelOrigin ?? MobileOnboardingLinks.SelectEndpoint(
             server.ListenAddresses,
             useLocalNetwork
                 ? MobileOnboardingTransport.LocalNetwork
@@ -238,15 +268,56 @@ public partial class SettingsViewModel
             return;
         }
 
-        if (_dataStore.Data.Settings.RemoteAllowInsecureLan == value)
+        var leavingTunnel = _dataStore.Data.Settings.RemoteUseDevTunnel;
+        if (_dataStore.Data.Settings.RemoteAllowInsecureLan == value && !leavingTunnel)
             return;
 
+        if (leavingTunnel)
+        {
+            _remoteServer?.Stop();
+            ResetMobileOnboarding();
+        }
+        _dataStore.Data.Settings.RemoteUseDevTunnel = false;
         _dataStore.Data.Settings.RemoteAllowInsecureLan = value;
         _dataStore.MarkRemoteSecurityChanged();
         _ = PersistRemoteSettingsAsync();
-        _remoteServer?.RefreshNetworkPolicy();
+        if (leavingTunnel && RemoteAccessEnabled)
+            _remoteServer?.Start();
+        else
+            _remoteServer?.RefreshNetworkPolicy();
         RefreshRemoteState();
     }
+
+    partial void OnUseDevTunnelForMobileChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsMobileTailscaleSelected));
+        OnPropertyChanged(nameof(IsMobileLocalNetworkSelected));
+        OnPropertyChanged(nameof(IsMobileAndroidSetupChoiceEnabled));
+        OnPropertyChanged(nameof(MobileExperienceDescription));
+        if (_attachingRemoteServer)
+            return;
+        if (_remoteServer is { CanManageSecurityState: false })
+        {
+            RefreshRemoteState();
+            return;
+        }
+        if (_dataStore.Data.Settings.RemoteUseDevTunnel == value)
+            return;
+
+        _remoteServer?.Stop();
+        ResetMobileOnboarding();
+        _dataStore.Data.Settings.RemoteUseDevTunnel = value;
+        if (value)
+            _dataStore.Data.Settings.RemoteAllowInsecureLan = false;
+        _dataStore.MarkRemoteSecurityChanged();
+        _ = PersistRemoteSettingsAsync();
+        if (RemoteAccessEnabled)
+            _remoteServer?.Start();
+        RefreshRemoteState();
+    }
+
+    partial void OnIsMobileSetupChoiceEnabledChanged(bool value) =>
+        OnPropertyChanged(nameof(IsMobileAndroidSetupChoiceEnabled));
 
     partial void OnIsMobileTailscaleAvailableChanged(bool value) =>
         OnPropertyChanged(nameof(IsMobileTailscaleSelected));
@@ -268,8 +339,15 @@ public partial class SettingsViewModel
         StartMobileSetup(MobileSetupKind.Web);
 
     [RelayCommand]
-    private void StartMobileAndroidSetup() =>
+    private void StartMobileAndroidSetup()
+    {
+        if (UseDevTunnelForMobile)
+        {
+            MobileSetupDescription = Loc.Get("Remote_DevTunnelWebOnly");
+            return;
+        }
         StartMobileSetup(MobileSetupKind.Android);
+    }
 
     private void StartMobileSetup(MobileSetupKind kind)
     {
@@ -288,7 +366,10 @@ public partial class SettingsViewModel
     private void SelectMobileTailscale()
     {
         if (RemoteAccessEnabled && IsMobileTailscaleAvailable)
+        {
             UseLocalNetworkForMobile = false;
+            UseDevTunnelForMobile = false;
+        }
     }
 
     [RelayCommand]
@@ -296,6 +377,35 @@ public partial class SettingsViewModel
     {
         if (RemoteAccessEnabled)
             UseLocalNetworkForMobile = true;
+    }
+
+    [RelayCommand]
+    private void SelectMobileDevTunnel()
+    {
+        if (RemoteAccessEnabled)
+            UseDevTunnelForMobile = true;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRetryMobileDevTunnel))]
+    private void RetryMobileDevTunnel()
+    {
+        _remoteServer?.Stop();
+        _remoteServer?.Start();
+        RefreshRemoteState();
+    }
+
+    [RelayCommand]
+    private void ApproveDevTunnelInstall()
+    {
+        _remoteServer?.RespondToDevTunnelInstallConfirmation(true);
+        IsDevTunnelInstallDialogOpen = false;
+    }
+
+    [RelayCommand]
+    private void CancelDevTunnelInstall()
+    {
+        _remoteServer?.RespondToDevTunnelInstallConfirmation(false);
+        IsDevTunnelInstallDialogOpen = false;
     }
 
     [RelayCommand]
@@ -321,6 +431,8 @@ public partial class SettingsViewModel
             _activeMobileSetupKind == MobileSetupKind.Web
                 ? "Remote_SetupWebInstructions"
                 : "Remote_SetupAndroidInstructions");
+        if (UseDevTunnelForMobile)
+            MobileSetupInstructions = Loc.Get("Remote_DevTunnelInstructions") + " " + MobileSetupInstructions;
 
         if (server is not { IsRunning: true })
         {
@@ -336,9 +448,7 @@ public partial class SettingsViewModel
 
         var endpoint = MobileOnboardingLinks.SelectEndpoint(
             server.ListenAddresses,
-            UseLocalNetworkForMobile
-                ? MobileOnboardingTransport.LocalNetwork
-                : MobileOnboardingTransport.Tailscale);
+            SelectedMobileTransport);
         if (endpoint is null)
         {
             SetMobileSetupUnavailable(Loc.Get("Remote_SetupNoAddress"));
@@ -356,9 +466,13 @@ public partial class SettingsViewModel
                 ? "Remote_SetupWebPanelDesc"
                 : "Remote_SetupAndroidPanelDesc");
         MobileSetupConnectionText = Loc.Get(
-            endpoint.Transport == MobileOnboardingTransport.LocalNetwork
-                ? "Remote_SetupUsingWifi"
-                : "Remote_SetupUsingTailscale");
+            endpoint.Transport switch
+            {
+                MobileOnboardingTransport.DevTunnel => "Remote_DevTunnelReady",
+                MobileOnboardingTransport.LocalNetwork => "Remote_SetupUsingWifi",
+                _ => "Remote_SetupUsingTailscale"
+            },
+            server.DevTunnelAccount ?? "");
         IsMobileSetupReady = true;
     }
 

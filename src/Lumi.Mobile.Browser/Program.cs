@@ -28,7 +28,9 @@ internal static class Program
             var client = new LumiRemoteClient(
                 settings.DeviceId,
                 settings.DeviceName,
-                new HttpClientHandler(),
+                new BrowserSameOriginHandler(
+                    new Uri(host.FixedBaseUrl!),
+                    new HttpClientHandler { AllowAutoRedirect = false }),
                 downloads);
             return new MobileShellViewModel(
                 client,

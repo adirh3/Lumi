@@ -44,6 +44,22 @@ public sealed class MobileOnboardingTests
     }
 
     [Fact]
+    public void DevTunnelChoiceRequiresItsOwnHttpsOriginAndNeverFallsBack()
+    {
+        const string origin = "https://private-47654.uks1.devtunnels.ms";
+        var endpoint = MobileOnboardingLinks.SelectEndpoint(
+            ["http://192.168.1.42:47654", "http://100.64.0.10:47654", origin],
+            MobileOnboardingTransport.DevTunnel);
+        Assert.NotNull(endpoint);
+        Assert.Equal(MobileOnboardingTransport.DevTunnel, endpoint.Transport);
+        Assert.Equal(origin + "/app/", MobileOnboardingLinks.BuildWebAppUrl(endpoint.BaseUrl));
+        Assert.Null(MobileOnboardingLinks.SelectEndpoint(
+            ["http://192.168.1.42:47654", "http://private-47654.uks1.devtunnels.ms",
+                "https://private-47654.uks1.devtunnels.ms.attacker.test"],
+            MobileOnboardingTransport.DevTunnel));
+    }
+
+    [Fact]
     public void WebAndAndroidLinksTargetTheSelectedDesktop()
     {
         const string baseUrl = "http://192.168.1.42:62145";

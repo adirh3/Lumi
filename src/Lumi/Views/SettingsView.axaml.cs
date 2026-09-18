@@ -54,6 +54,25 @@ public partial class SettingsView : UserControl
 
     public bool IsRecordingHotkey => _isRecordingHotkey;
 
+    private void OnMobileTransportSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (sender is not Grid choices)
+            return;
+
+        var stacked = e.NewSize.Width < 500;
+        if (choices.ColumnDefinitions.Count == (stacked ? 1 : 3))
+            return;
+
+        choices.Classes.Set("stacked", stacked);
+        choices.ColumnDefinitions = ColumnDefinitions.Parse(stacked ? "*" : "*,*,*");
+        choices.RowDefinitions = RowDefinitions.Parse(stacked ? "Auto,Auto,Auto" : "Auto");
+        for (var index = 0; index < choices.Children.Count; index++)
+        {
+            Grid.SetColumn(choices.Children[index], stacked ? 0 : index);
+            Grid.SetRow(choices.Children[index], stacked ? index : 0);
+        }
+    }
+
     private async void OnByokApiKeyModeSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (DataContext is SettingsViewModel viewModel

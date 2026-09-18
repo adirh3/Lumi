@@ -1248,6 +1248,9 @@ public class UserSettings
     /// </summary>
     public bool RemoteAllowInsecureLan { get; set; }
 
+    /// <summary>Use an owner-only Microsoft Dev Tunnel with a loopback-only listener instead of LAN/Tailscale.</summary>
+    public bool RemoteUseDevTunnel { get; set; }
+
     /// <summary>Devices that completed pairing and hold a long-lived token.</summary>
     public List<RemotePairedDevice> RemotePairedDevices { get; set; } = [];
 

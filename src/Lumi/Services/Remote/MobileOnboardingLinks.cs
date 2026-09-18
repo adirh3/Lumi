@@ -8,7 +8,8 @@ namespace Lumi.Services.Remote;
 internal enum MobileOnboardingTransport
 {
     Tailscale,
-    LocalNetwork
+    LocalNetwork,
+    DevTunnel
 }
 
 internal sealed record MobileOnboardingEndpoint(
@@ -22,6 +23,20 @@ internal static class MobileOnboardingLinks
         MobileOnboardingTransport transport,
         IReadOnlySet<IPAddress>? preferredLocalAddresses = null)
     {
+        if (transport == MobileOnboardingTransport.DevTunnel)
+        {
+            var origin = addresses.FirstOrDefault(static address =>
+                Uri.TryCreate(address, UriKind.Absolute, out var uri)
+                && uri.Scheme == Uri.UriSchemeHttps
+                && uri.IsDefaultPort
+                && uri.UserInfo.Length == 0
+                && uri.AbsolutePath == "/"
+                && uri.Query.Length == 0
+                && uri.Fragment.Length == 0
+                && uri.IdnHost.EndsWith(".devtunnels.ms", StringComparison.Ordinal));
+            return origin is null ? null : new MobileOnboardingEndpoint(origin, transport);
+        }
+
         var parsed = addresses
             .Select(static address =>
                 Uri.TryCreate(address, UriKind.Absolute, out var uri)

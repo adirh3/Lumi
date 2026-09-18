@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Lumi.Mobile\Lumi.Mobile.csproj" />
     <ProjectReference Include="..\..\src\Lumi.Remote.Protocol\Lumi.Remote.Protocol.csproj" />
+    <Compile Include="..\..\src\Lumi.Mobile.Browser\BrowserSameOriginHandler.cs" Link="BrowserSameOriginHandler.cs" />
   </ItemGroup>
 
 </Project>

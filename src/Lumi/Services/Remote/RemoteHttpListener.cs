@@ -56,11 +56,11 @@ internal sealed class RemoteHttpListener : IDisposable
 
     public int Port { get; private set; }
 
-    public void Start(int port)
+    public void Start(int port, bool loopbackOnly = false)
     {
-        // IPv6Any with dual-mode accepts both IPv4 and IPv6 clients on one socket.
-        var listener = new TcpListener(IPAddress.IPv6Any, port);
-        listener.Server.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, false);
+        var listener = new TcpListener(loopbackOnly ? IPAddress.Loopback : IPAddress.IPv6Any, port);
+        if (!loopbackOnly)
+            listener.Server.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, false);
         listener.Start();
 
         _listener = listener;

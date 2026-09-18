@@ -51,6 +51,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     private readonly RemoteCommandRouter _router;
     private readonly RemoteHttpListener _listener;
     private readonly RemoteWebAppHandler _webApp;
+    private readonly RemoteDevTunnelHost _devTunnel = new();
     private readonly FileSearchService _fileSearchService = new();
     private readonly Func<IReadOnlySet<IPAddress>> _tailscaleAddressProvider;
     private readonly ConcurrentDictionary<Guid, RemoteEventClient> _streams = new();
@@ -117,6 +118,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         _router = new RemoteCommandRouter(dataStore, main);
         _listener = new RemoteHttpListener(HandleAsync, PreflightRequest);
         _webApp = new RemoteWebAppHandler(RemoteWebAssetProvider.TryCreate());
+        _devTunnel.StateChanged += OnDevTunnelStateChanged;
         _ownsPersistentSecurityState = !dataStore.UsesPersistentStorage || TryAcquireServerOwnership();
         _securityStateReady = !dataStore.UsesPersistentStorage;
     }
@@ -129,6 +131,15 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     public bool CanManageSecurityState => _ownsPersistentSecurityState;
     public bool IsSecurityStateReady => _securityStateReady;
     public bool IsWebAppAvailable => _webApp.IsAvailable;
+    public bool IsDevTunnelStarting => _devTunnel.State.IsStarting;
+    public string? DevTunnelAccount => _devTunnel.State.Account;
+    public string? DevTunnelOrigin => _devTunnel.State.Origin;
+    public string? DevTunnelError => _devTunnel.State.Error;
+    public string? DevTunnelSetupMessage => _devTunnel.State.SetupMessage;
+    public bool RequiresDevTunnelInstallConfirmation => _devTunnel.State.RequiresInstallConfirmation;
+
+    public void RespondToDevTunnelInstallConfirmation(bool approved) =>
+        _devTunnel.RespondToInstallConfirmation(approved);
     public bool IsTailscaleAvailable => VerifiedTailscaleAddresses.Count > 0;
     internal IReadOnlySet<IPAddress> VerifiedTailscaleAddresses => Volatile.Read(ref _tailscaleAddresses);
 
@@ -161,6 +172,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     {
         get
         {
+            if (_dataStore.Data.Settings.RemoteUseDevTunnel)
+                return DevTunnelOrigin is { } origin ? [origin] : [];
+
             if (_dataStore.Data.Settings.RemoteAllowInsecureLan)
             {
                 return SelectedLocalNetworkAddress is { } local
@@ -214,13 +228,13 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         {
             try
             {
-                _listener.Start(port);
+                _listener.Start(port, _dataStore.Data.Settings.RemoteUseDevTunnel);
             }
             catch (SocketException) when (configured <= 0)
             {
                 // The per-profile ownership lock rules out another Lumi process. An unrelated
                 // process may still own the default port, so fall back to an advertised ephemeral one.
-                _listener.Start(0);
+                _listener.Start(0, _dataStore.Data.Settings.RemoteUseDevTunnel);
             }
         }
         catch
@@ -237,6 +251,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             _instanceId);
         RefreshDiscovery();
         IsRunning = true;
+        if (_dataStore.Data.Settings.RemoteUseDevTunnel)
+            _devTunnel.Start(Port);
         WatchNetworkChanges();
         StateChanged?.Invoke();
         _ = InitializeRuntimeStateAsync();
@@ -247,7 +263,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         if (!IsRunning)
             return;
         IsRunning = false;
-        IsRunning = false;
+        _devTunnel.Stop();
         StopWatchingNetworkChanges();
         _discovery?.Dispose();
         _discovery = null;
@@ -259,6 +275,16 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         _hub?.Dispose();
         _hub = null;
         _listener.Dispose();
+        StateChanged?.Invoke();
+    }
+
+    private void OnDevTunnelStateChanged()
+    {
+        if (DevTunnelOrigin is null)
+        {
+            foreach (var stream in _streams.Values)
+                stream.Dispose();
+        }
         StateChanged?.Invoke();
     }
 
@@ -403,7 +429,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     {
         _discovery?.Dispose();
         _discovery = null;
-        if (!_dataStore.Data.Settings.RemoteAllowInsecureLan
+        if (_dataStore.Data.Settings.RemoteUseDevTunnel
+            || !_dataStore.Data.Settings.RemoteAllowInsecureLan
             || SelectedLocalNetworkAddress is not { } localAddress)
         {
             return;
@@ -455,6 +482,13 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         EndPoint? remoteEndPoint,
         EndPoint? localEndPoint)
     {
+        if (_dataStore.Data.Settings.RemoteUseDevTunnel
+            && !RemoteDevTunnelHost.IsAllowedOrigin(request.Header("Origin"), DevTunnelOrigin))
+        {
+            return RemoteHttpPreflightResult.Reject(
+                403, "Open the private Microsoft Dev Tunnel link and sign in to its owner account.");
+        }
+
         if (!IsAllowedHost(request, localEndPoint))
         {
             return RemoteHttpPreflightResult.Reject(
@@ -467,7 +501,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                 localEndPoint,
                 _dataStore.Data.Settings.RemoteAllowInsecureLan,
                 _tailscaleAddresses,
-                SelectedLocalNetworkAddress))
+                SelectedLocalNetworkAddress,
+                _dataStore.Data.Settings.RemoteUseDevTunnel))
         {
             return RemoteHttpPreflightResult.Reject(
                 403,
@@ -508,6 +543,16 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     {
         try
         {
+            if (_dataStore.Data.Settings.RemoteUseDevTunnel
+                && !RemoteDevTunnelHost.IsAllowedOrigin(context.Request.Header("Origin"), DevTunnelOrigin))
+            {
+                await WriteErrorAsync(
+                        context, 403, "Open the private Microsoft Dev Tunnel link and sign in to its owner account.",
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                return;
+            }
+
             if (!IsAllowedHost(context.Request, context.LocalEndPoint))
             {
                 await WriteErrorAsync(
@@ -530,7 +575,8 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                     context.LocalEndPoint,
                     _dataStore.Data.Settings.RemoteAllowInsecureLan,
                     _tailscaleAddresses,
-                    SelectedLocalNetworkAddress))
+                    SelectedLocalNetworkAddress,
+                    _dataStore.Data.Settings.RemoteUseDevTunnel))
             {
                 await WriteErrorAsync(
                         context,
@@ -2331,7 +2377,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
                     localEndPoint,
                     _dataStore.Data.Settings.RemoteAllowInsecureLan,
                     _tailscaleAddresses,
-                    SelectedLocalNetworkAddress))
+                    SelectedLocalNetworkAddress,
+                    _dataStore.Data.Settings.RemoteUseDevTunnel)
+                || (_dataStore.Data.Settings.RemoteUseDevTunnel && DevTunnelOrigin is null))
             {
                 return null;
             }
@@ -2410,12 +2458,20 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         EndPoint? localEndPoint,
         bool allowInsecureLan,
         IReadOnlySet<IPAddress>? verifiedTailscaleAddresses = null,
-        IPAddress? selectedLocalNetworkAddress = null)
+        IPAddress? selectedLocalNetworkAddress = null,
+        bool useDevTunnel = false)
     {
         if (remoteEndPoint is not IPEndPoint remoteIpEndPoint)
             return false;
 
         var remoteAddress = NormalizeAddress(remoteIpEndPoint.Address);
+
+        if (useDevTunnel)
+        {
+            return IPAddress.IsLoopback(remoteAddress)
+                   && localEndPoint is IPEndPoint local
+                   && IPAddress.IsLoopback(NormalizeAddress(local.Address));
+        }
 
         if (IPAddress.IsLoopback(remoteAddress))
             return true;
@@ -2668,17 +2724,18 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             status);
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_disposed)
-            return ValueTask.CompletedTask;
+            return;
 
         _disposed = true;
         _cts.Cancel();
         Stop();
         _listener.Dispose();
+        _devTunnel.StateChanged -= OnDevTunnelStateChanged;
+        await _devTunnel.DisposeAsync().ConfigureAwait(false);
         ReleaseServerOwnership();
         _cts.Dispose();
-        return ValueTask.CompletedTask;
     }
 }

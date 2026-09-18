@@ -39,12 +39,25 @@
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="Button.mobile-transport.selected /template/ Border#PART_Surface">
+    <Style Selector="Button.mobile-transport">
+      <Setter Property="Padding" Value="14" />
+      <Setter Property="MinHeight" Value="156" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.mobile-transport /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+    </Style>
+    <Style Selector="Button.mobile-transport.selected /template/ Border#PART_Surface, Button.mobile-experience.selected /template/ Border#PART_Surface">
       <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
       <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
     </Style>
     <Style Selector="Button.mobile-transport.selected TextBlock.mobile-transport-title">
       <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Grid#MobileTransportChoices.stacked Button.mobile-transport">
+      <Setter Property="MinHeight" Value="0" />
     </Style>
     <Style Selector="sc|StrataSetting.stacked-content /template/ Grid#PART_Row > Border#PART_HighlightBar">
       <Setter Property="Grid.RowSpan" Value="2" />
@@ -177,7 +190,7 @@
       </StackPanel>
 
     <!-- ═══ Page 2: Mobile ═══ -->
-      <StackPanel x:Name="PageMobile" Classes="motion-surface" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="560">
+      <StackPanel x:Name="PageMobile" Classes="motion-surface" IsVisible="False" Spacing="20" Margin="36,24,36,36" MaxWidth="680">
         <StackPanel Spacing="4">
           <TextBlock Text="{loc:Str Settings_Mobile}" FontSize="{DynamicResource Font.SizeTitle}" FontWeight="SemiBold" />
           <TextBlock Text="{loc:Str Settings_MobileDesc}" FontSize="{DynamicResource Font.SizeCaption}"
@@ -195,67 +208,137 @@
                             Header="{loc:Str Setting_MobileConnection}"
                             Description="{Binding MobileTransportDescription}"
                             IsVisible="{Binding RemoteAccessEnabled}">
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+            <StackPanel Spacing="12">
+            <Grid x:Name="MobileTransportChoices"
+                  ColumnDefinitions="*,*,*" RowDefinitions="Auto"
+                  ColumnSpacing="10" RowSpacing="10"
+                  SizeChanged="OnMobileTransportSizeChanged">
               <Button x:Name="MobileUseTailscaleButton"
                       Grid.Column="0"
                       Classes="subtle motion-action mobile-transport"
                       Classes.selected="{Binding IsMobileTailscaleSelected}"
-                      MinHeight="92"
-                      Padding="14"
-                      HorizontalContentAlignment="Stretch"
-                      VerticalContentAlignment="Stretch"
+                      AutomationProperties.Name="{loc:Str Remote_TransportTailscaleTitle}"
                       IsEnabled="{Binding IsMobileTailscaleAvailable}"
                       Command="{Binding SelectMobileTailscaleCommand}">
-                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-                  <PathIcon Width="22" Height="22"
-                            Foreground="{DynamicResource Brush.AccentDefault}"
-                            Data="M12 2 4 6v6c0 4.42 3.05 8.44 8 9.8 4.95-1.36 8-5.38 8-9.8V6l-8-4zm0 4.5 4 2v3.5c0 2.5-1.7 4.8-4 5.7-2.3-.9-4-3.2-4-5.7V8.5l4-2z" />
-                  <StackPanel Grid.Column="1" Spacing="4">
-                    <TextBlock Classes="mobile-transport-title"
-                               Text="{loc:Str Remote_TransportTailscaleTitle}"
-                               FontWeight="SemiBold" />
-                    <TextBlock Text="{loc:Str Remote_TransportTailscaleDesc}"
-                               TextWrapping="Wrap"
+                <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+                  <Grid ColumnDefinitions="24,*,20" Height="24">
+                    <PathIcon Width="22" Height="22"
+                              Foreground="{DynamicResource Brush.AccentDefault}"
+                              Data="M12 2 4 6v6c0 4.42 3.05 8.44 8 9.8 4.95-1.36 8-5.38 8-9.8V6l-8-4zm0 4.5 4 2v3.5c0 2.5-1.7 4.8-4 5.7-2.3-.9-4-3.2-4-5.7V8.5l4-2z" />
+                    <PathIcon Grid.Column="2" Width="16" Height="16"
+                              IsVisible="{Binding IsMobileTailscaleSelected}"
+                              Foreground="{DynamicResource Brush.AccentDefault}"
+                              Data="M9 16.2 4.8 12 3.4 13.4 9 19 21 7 19.6 5.6z" />
+                  </Grid>
+                  <TextBlock Grid.Row="1" Classes="mobile-transport-title"
+                             Text="{loc:Str Remote_TransportTailscaleTitle}"
+                             TextWrapping="Wrap" FontWeight="SemiBold" />
+                  <TextBlock Grid.Row="2" Text="{loc:Str Remote_TransportTailscaleDesc}"
+                             MinHeight="32" TextWrapping="Wrap"
+                             FontSize="{DynamicResource Font.SizeCaption}"
+                             Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <Panel Grid.Row="3">
+                    <TextBlock Text="{loc:Str Remote_TransportWebAndAndroid}"
+                               IsVisible="{Binding IsMobileTailscaleAvailable}"
                                FontSize="{DynamicResource Font.SizeCaption}"
-                               Foreground="{DynamicResource Brush.TextSecondary}" />
-                  </StackPanel>
+                               Foreground="{DynamicResource Brush.TextTertiary}" />
+                    <TextBlock Text="{loc:Str Remote_TransportNotConnected}"
+                               IsVisible="{Binding !IsMobileTailscaleAvailable}"
+                               FontSize="{DynamicResource Font.SizeCaption}"
+                               Foreground="{DynamicResource Brush.TextTertiary}" />
+                  </Panel>
+                </Grid>
+              </Button>
+              <Button x:Name="MobileUseDevTunnelButton"
+                      Grid.Column="1"
+                      Classes="subtle motion-action mobile-transport"
+                      Classes.selected="{Binding UseDevTunnelForMobile}"
+                      AutomationProperties.Name="{loc:Str Remote_TransportDevTunnelTitle}"
+                      Command="{Binding SelectMobileDevTunnelCommand}">
+                <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+                  <Grid ColumnDefinitions="24,*,20" Height="24">
+                    <PathIcon Width="22" Height="22"
+                              Foreground="{DynamicResource Brush.AccentDefault}"
+                              Data="M2 2h9v9H2V2zm11 0h9v9h-9V2zM2 13h9v9H2v-9zm11 0h9v9h-9v-9z" />
+                    <PathIcon Grid.Column="2" Width="16" Height="16"
+                              IsVisible="{Binding UseDevTunnelForMobile}"
+                              Foreground="{DynamicResource Brush.AccentDefault}"
+                              Data="M9 16.2 4.8 12 3.4 13.4 9 19 21 7 19.6 5.6z" />
+                  </Grid>
+                  <TextBlock Grid.Row="1" Classes="mobile-transport-title"
+                             Text="{loc:Str Remote_TransportDevTunnelShortTitle}"
+                             TextWrapping="Wrap" FontWeight="SemiBold" />
+                  <TextBlock Grid.Row="2" Text="{loc:Str Remote_TransportDevTunnelDesc}"
+                             MinHeight="32" TextWrapping="Wrap"
+                             FontSize="{DynamicResource Font.SizeCaption}"
+                             Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <TextBlock Grid.Row="3" Text="{loc:Str Remote_TransportWebOnly}"
+                             FontSize="{DynamicResource Font.SizeCaption}"
+                             Foreground="{DynamicResource Brush.TextTertiary}" />
                 </Grid>
               </Button>
               <Button x:Name="MobileUseLocalNetworkButton"
-                      Grid.Column="1"
+                      Grid.Column="2"
                       Classes="subtle motion-action mobile-transport"
                       Classes.selected="{Binding IsMobileLocalNetworkSelected}"
-                      MinHeight="92"
-                      Padding="14"
-                      HorizontalContentAlignment="Stretch"
-                      VerticalContentAlignment="Stretch"
+                      AutomationProperties.Name="{loc:Str Remote_TransportLocalTitle}"
                       Command="{Binding SelectMobileLocalNetworkCommand}">
-                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-                  <PathIcon Width="22" Height="22"
-                            Foreground="{DynamicResource Brush.AccentDefault}"
-                            Data="M1 9l2 2c5-5 13-5 18 0l2-2C16.85 2.85 7.15 2.85 1 9zm4 4 2 2c2.76-2.76 7.24-2.76 10 0l2-2c-3.87-3.87-10.13-3.87-14 0zm4 4 3 3 3-3c-1.66-1.66-4.34-1.66-6 0z" />
-                  <StackPanel Grid.Column="1" Spacing="4">
-                    <TextBlock Classes="mobile-transport-title"
-                               Text="{loc:Str Remote_TransportLocalTitle}"
-                               FontWeight="SemiBold" />
-                    <TextBlock Text="{loc:Str Remote_TransportLocalDesc}"
-                               TextWrapping="Wrap"
-                               FontSize="{DynamicResource Font.SizeCaption}"
-                               Foreground="{DynamicResource Brush.TextSecondary}" />
-                  </StackPanel>
+                <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+                  <Grid ColumnDefinitions="24,*,20" Height="24">
+                    <PathIcon Width="22" Height="22"
+                              Foreground="{DynamicResource Brush.AccentDefault}"
+                              Data="M1 9l2 2c5-5 13-5 18 0l2-2C16.85 2.85 7.15 2.85 1 9zm4 4 2 2c2.76-2.76 7.24-2.76 10 0l2-2c-3.87-3.87-10.13-3.87-14 0zm4 4 3 3 3-3c-1.66-1.66-4.34-1.66-6 0z" />
+                    <PathIcon Grid.Column="2" Width="16" Height="16"
+                              IsVisible="{Binding IsMobileLocalNetworkSelected}"
+                              Foreground="{DynamicResource Brush.AccentDefault}"
+                              Data="M9 16.2 4.8 12 3.4 13.4 9 19 21 7 19.6 5.6z" />
+                  </Grid>
+                  <TextBlock Grid.Row="1" Classes="mobile-transport-title"
+                             Text="{loc:Str Remote_TransportLocalTitle}"
+                             TextWrapping="Wrap" FontWeight="SemiBold" />
+                  <TextBlock Grid.Row="2" Text="{loc:Str Remote_TransportLocalDesc}"
+                             MinHeight="32" TextWrapping="Wrap"
+                             FontSize="{DynamicResource Font.SizeCaption}"
+                             Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <TextBlock Grid.Row="3" Text="{loc:Str Remote_TransportWebAndAndroid}"
+                             FontSize="{DynamicResource Font.SizeCaption}"
+                             Foreground="{DynamicResource Brush.TextTertiary}" />
                 </Grid>
               </Button>
             </Grid>
+            <Border IsVisible="{Binding UseDevTunnelForMobile}"
+                    Background="{DynamicResource Brush.Surface2}"
+                    CornerRadius="{DynamicResource Radius.Interactive}" Padding="12">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <TextBlock x:Name="MobileDevTunnelStatus"
+                           Text="{Binding DevTunnelStatusText}"
+                           VerticalAlignment="Center" TextWrapping="Wrap"
+                           FontSize="{DynamicResource Font.SizeCaption}"
+                           Foreground="{DynamicResource Brush.TextSecondary}" />
+                <Button x:Name="MobileDevTunnelRetryButton" Grid.Column="1"
+                        Classes="subtle motion-action"
+                        IsVisible="{Binding CanRetryMobileDevTunnel}"
+                        VerticalAlignment="Center"
+                        Command="{Binding RetryMobileDevTunnelCommand}"
+                        Content="{loc:Str Remote_DevTunnelRetry}" />
+              </Grid>
+            </Border>
+            <TextBlock IsVisible="{Binding IsMobileLocalNetworkSelected}"
+                       Text="{loc:Str Remote_TransportLocalWarning}"
+                       TextWrapping="Wrap" FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextSecondary}" />
+            </StackPanel>
           </sc:StrataSetting>
           <sc:StrataSetting Classes="stacked-content"
                            Header="{loc:Str Setting_MobileChoose}"
-                           Description="{loc:Str SettingDesc_MobileChoose}"
+                           Description="{Binding MobileExperienceDescription}"
                            IsVisible="{Binding RemoteAccessEnabled}">
             <StackPanel Spacing="14">
               <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
                 <Button x:Name="MobileWebSetupButton"
                         Grid.Column="0"
-                        Classes="subtle motion-action"
+                        Classes="subtle motion-action mobile-experience"
+                        Classes.selected="{Binding IsMobileWebSetup}"
                         MinHeight="112"
                         Padding="14"
                         HorizontalContentAlignment="Stretch"
@@ -276,12 +359,13 @@
                 </Button>
                 <Button x:Name="MobileAndroidSetupButton"
                         Grid.Column="1"
-                        Classes="subtle motion-action"
+                        Classes="subtle motion-action mobile-experience"
+                        Classes.selected="{Binding IsMobileAndroidSetup}"
                         MinHeight="112"
                         Padding="14"
                         HorizontalContentAlignment="Stretch"
                         VerticalContentAlignment="Stretch"
-                        IsEnabled="{Binding IsMobileSetupChoiceEnabled}"
+                        IsEnabled="{Binding IsMobileAndroidSetupChoiceEnabled}"
                         Command="{Binding StartMobileAndroidSetupCommand}">
                   <StackPanel Spacing="8">
                     <PathIcon Width="24" Height="24"

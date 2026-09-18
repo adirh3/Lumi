@@ -228,6 +228,35 @@ public sealed class RemoteEndToEndTests
         }
     }
 
+    [Fact]
+    public Task DevTunnelWithoutVerifiedHostRejectsAssetsHandshakeAndPairedApi() => RunAsync(async rig =>
+    {
+        await PairAsync(rig);
+        rig.DataStore.Data.Settings.RemoteUseDevTunnel = true;
+        rig.DataStore.Data.Settings.RemoteAllowInsecureLan = true;
+        Assert.Empty(rig.Server.ListenAddresses);
+        rig.Main.SettingsVM.RefreshRemoteState(DateTimeOffset.UtcNow);
+        Assert.False(rig.Main.SettingsVM.IsMobileSetupChoiceEnabled);
+        Assert.False(rig.Main.SettingsVM.IsMobileAndroidSetupChoiceEnabled);
+        Assert.False(rig.Main.SettingsVM.IsMobileLocalNetworkSelected);
+
+        using var http = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false });
+        http.DefaultRequestHeaders.Add(RemoteProtocol.DeviceTokenHeader, Assert.IsType<string>(rig.Client.Token));
+        http.DefaultRequestHeaders.Add(RemoteProtocol.DeviceIdHeader, rig.Client.DeviceId);
+        foreach (var path in new[] { "/app/", RemoteProtocol.Routes.Hello, RemoteProtocol.Routes.Snapshot })
+        {
+            using var response = await http.GetAsync(rig.BaseUrl + path);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        using var request = new HttpRequestMessage(HttpMethod.Post, rig.BaseUrl + RemoteProtocol.Routes.Pair)
+        {
+            Content = new StringContent("{}", Encoding.UTF8, "application/json")
+        };
+        request.Headers.ExpectContinue = true;
+        using var pairing = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        Assert.Equal(HttpStatusCode.Forbidden, pairing.StatusCode);
+    });
+
     private static async Task WaitAsync(Func<bool> condition, string because)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
@@ -2086,7 +2115,7 @@ public sealed class RemoteEndToEndTests
         secondary.SettingsVM.AttachRemoteServer(rig.Server);
 
         Assert.True(secondary.SettingsVM.RemoteAccessEnabled);
-        Assert.Contains("Choose Tailscale or Local network", secondary.SettingsVM.RemoteStatusText);
+        Assert.Equal(Loc.Get("Remote_WaitingForConnection"), secondary.SettingsVM.RemoteStatusText);
 
         rig.Main.SettingsVM.UseLocalNetworkForMobile = true;
         await WaitAsync(

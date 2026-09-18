@@ -2627,6 +2627,46 @@
       </Border>
     </Panel>
 
+    <sc:StrataDialog x:Name="DevTunnelInstallDialog"
+                     Title="{loc:Str Remote_DevTunnelInstallTitle}"
+                     IsDialogOpen="{Binding SettingsVM.IsDevTunnelInstallDialogOpen}"
+                     CloseCommand="{Binding SettingsVM.CancelDevTunnelInstallCommand}"
+                     PropertyChanged="OnDevTunnelInstallDialogPropertyChanged"
+                     MaxDialogWidth="500"
+                     ZIndex="210">
+      <sc:StrataDialog.DialogContent>
+        <StackPanel Spacing="16">
+          <TextBlock Text="{loc:Str Remote_DevTunnelInstallDescription}"
+                     TextWrapping="Wrap"
+                     Foreground="{DynamicResource Brush.TextSecondary}" />
+          <Border Background="{DynamicResource Brush.Surface2}"
+                  CornerRadius="{DynamicResource Radius.Interactive}" Padding="12">
+            <TextBlock Text="{loc:Str Remote_DevTunnelInstallLocation}"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource Font.SizeCaption}"
+                       Foreground="{DynamicResource Brush.TextSecondary}" />
+          </Border>
+          <TextBlock Text="{loc:Str Remote_DevTunnelInstallNext}"
+                     TextWrapping="Wrap"
+                     FontSize="{DynamicResource Font.SizeCaption}"
+                     Foreground="{DynamicResource Brush.TextTertiary}" />
+          <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+            <Button x:Name="DevTunnelInstallCancelButton"
+                    Classes="subtle"
+                    Content="{loc:Str Common_Cancel}"
+                    Command="{Binding SettingsVM.CancelDevTunnelInstallCommand}"
+                    IsCancel="True"
+                    MinHeight="48" HorizontalContentAlignment="Center" />
+            <Button x:Name="DevTunnelInstallContinueButton" Grid.Column="1"
+                    Classes="accent"
+                    Content="{loc:Str Remote_DevTunnelInstallContinue}"
+                    Command="{Binding SettingsVM.ApproveDevTunnelInstallCommand}"
+                    MinHeight="48" HorizontalContentAlignment="Center" />
+          </Grid>
+        </StackPanel>
+      </sc:StrataDialog.DialogContent>
+    </sc:StrataDialog>
+
     <!-- ═══ Update Blocker Dialog ═══ -->
     <sc:StrataDialog x:Name="UpdateBlockerDialog"
                      Title="{loc:Str Update_BlockersTitle}"

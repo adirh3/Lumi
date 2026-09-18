@@ -29,6 +29,7 @@ using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
 using StrataTheme;
+using StrataTheme.Controls;
 
 namespace Lumi.Views;
 
@@ -123,6 +124,18 @@ public partial class MainWindow : Window
     public bool IsPrimaryWindow { get; set; } = true;
     public int SecondaryWindowCascadeIndex { get; set; }
     public PixelPoint? SecondaryWindowAnchorPosition { get; set; }
+
+    private void OnDevTunnelInstallDialogPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == StrataDialog.IsDialogOpenProperty && sender is StrataDialog { IsDialogOpen: true } dialog)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (dialog.IsDialogOpen)
+                    this.FindControl<Button>("DevTunnelInstallCancelButton")?.Focus();
+            }, DispatcherPriority.Loaded);
+        }
+    }
 
     public MainWindow()
     {
