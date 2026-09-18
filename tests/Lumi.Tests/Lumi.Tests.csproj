@@ -35,4 +35,10 @@
     <ProjectReference Include="..\..\src\Lumi.Mobile\Lumi.Mobile.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\..\src\Lumi.Mobile.Browser\wwwroot\index.html"
+             Link="BrowserAssets\index.html"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

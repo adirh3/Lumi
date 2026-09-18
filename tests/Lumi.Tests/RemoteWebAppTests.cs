@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using Lumi.Services.Remote;
 using Xunit;
 
@@ -7,6 +8,18 @@ namespace Lumi.Tests;
 
 public sealed class RemoteWebAppTests
 {
+    [Fact]
+    public void AppShellRequestsTheInstallManifestWithAuthentication()
+    {
+        var html = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "BrowserAssets", "index.html"));
+        var link = Assert.Single(Regex.Matches(html, @"<link\b[^>]*>", RegexOptions.IgnoreCase)
+            .Cast<Match>()
+            .Select(match => match.Value),
+            tag => Regex.IsMatch(tag, """\brel\s*=\s*["']manifest["']""", RegexOptions.IgnoreCase));
+
+        Assert.Matches("""\bcrossorigin\s*=\s*["']use-credentials["']""", link);
+    }
+
     [Fact]
     public void DefaultAssetRootUsesExecutableDirectoryInsteadOfExtractionDirectory()
     {

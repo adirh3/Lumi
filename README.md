@@ -100,6 +100,11 @@ tunnel with unknown permissions. All PWA assets and API routes are behind
 Microsoft's sign-in gate; paired-device bearer authentication, expiry/attempt
 limits on pairing, and device revocation remain in force.
 
+The PWA manifest link uses `crossorigin="use-credentials"` so Edge/Chromium
+includes the signed-in Microsoft session when checking installability. Browsers
+otherwise fetch even a same-origin manifest without cookies and receive a sign-in
+page instead of the manifest. No manifest or icon is made public for installation.
+
 This mode binds Lumi's listener to **127.0.0.1 only**, disables LAN discovery, and
 does not fall back to LAN or Tailscale if setup or hosting fails. Browser requests
 are restricted to their original origin and do not follow authentication
