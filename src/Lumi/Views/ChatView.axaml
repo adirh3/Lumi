@@ -2192,6 +2192,7 @@
                              AgentName="{Binding SelectedAgentName, Mode=TwoWay}"
                              AgentGlyph="{Binding SelectedAgentGlyph}"
                              ProjectName="{Binding SelectedProjectName, Mode=TwoWay}"
+                             ProjectValue="{Binding SelectedProjectValue, Mode=TwoWay}"
                              SkillItems="{Binding ActiveSkillChips}"
                              McpItems="{Binding ActiveMcpChips}"
                              AvailableAgents="{Binding AvailableAgentChips}"

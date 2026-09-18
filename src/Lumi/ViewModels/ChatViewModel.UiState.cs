@@ -44,6 +44,7 @@ public partial class ChatViewModel
     [ObservableProperty] private string? _selectedAgentName;
     [ObservableProperty] private string _selectedAgentGlyph = "◉";
     [ObservableProperty] private string? _selectedProjectName;
+    [ObservableProperty] private string? _selectedProjectValue;
     [ObservableProperty] private string? _projectBadgeText;
     [ObservableProperty] private string? _agentBadgeText;
     [ObservableProperty] private string[]? _qualityLevels;
@@ -1275,12 +1276,15 @@ public partial class ChatViewModel
         }
     }
 
+    /// <summary>Keeps the project label and suggestion-filtering identity aligned with chat context.</summary>
     public void SyncComposerProjectSelectionFromState()
     {
         _suppressComposerProjectSync = true;
         try
         {
-            SelectedProjectName = GetCurrentProjectName();
+            var project = GetCurrentProject();
+            SelectedProjectValue = project?.Id.ToString();
+            SelectedProjectName = project?.Name;
         }
         finally
         {

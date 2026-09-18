@@ -1,25 +1,104 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
+using Lumi.Views;
+using StrataTheme.Controls;
 using Xunit;
 
 namespace Lumi.Tests;
 
 /// <summary>
 /// Regression coverage for moving a chat between projects from the sidebar while that chat is the
-/// live/active surface. Moving must propagate to the open surface: the composer project chip updates,
+/// live/active surface. Moving must propagate to the open surface: the composer project chip and
+/// suggestion exclusion update together,
 /// and an established Copilot session is resumed with the new system prompt and working directory
 /// without losing native history or replaying the transcript.
 /// </summary>
 [Collection("Headless UI")]
 public sealed class MoveChatProjectSyncTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SidebarProjectChange_AfterComposerSelection_UpdatesProjectSuggestions(bool clearFilter)
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            var work = new Project { Name = "Work" };
+            var personal = new Project { Name = "Personal" };
+            using var viewModel = CreateViewModel([work, personal]);
+            var view = new ChatView { DataContext = viewModel.ChatVM };
+            var window = new Window { Width = 1000, Height = 720, Content = view };
+            window.Show();
+            try
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                var composer = view.FindControl<StrataChatComposer>("Composer")!;
+                var input = composer.GetVisualDescendants().OfType<TextBox>()
+                    .Single(control => control.Name == "PART_Input");
+                var popup = composer.GetVisualDescendants().OfType<Popup>()
+                    .Single(control => control.Name == "PART_AutoCompletePopup");
+
+                input.Text = "$Work";
+                input.CaretIndex = input.Text.Length;
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                Assert.True(popup.IsOpen);
+
+                var confirm = new KeyEventArgs
+                {
+                    RoutedEvent = InputElement.KeyDownEvent,
+                    Key = Key.Enter,
+                };
+                input.RaiseEvent(confirm);
+                Assert.True(confirm.Handled);
+                Assert.Equal(work.Id, viewModel.SelectedProjectFilter);
+                Assert.Equal(work.Id.ToString(), composer.ProjectValue);
+                Assert.Equal(work.Name, composer.ProjectName);
+
+                if (clearFilter)
+                    viewModel.ClearProjectFilterCommand.Execute(null);
+                else
+                    viewModel.SelectProjectFilterCommand.Execute(personal);
+
+                input.Text = "$";
+                input.CaretIndex = input.Text.Length;
+                await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                Assert.True(popup.IsOpen);
+                var suggestions = popup.Child!.GetVisualDescendants().OfType<TextBlock>()
+                    .Select(control => control.Text).ToArray();
+
+                Assert.Contains(work.Name, suggestions);
+                if (clearFilter)
+                    Assert.Contains(personal.Name, suggestions);
+                else
+                    Assert.DoesNotContain(personal.Name, suggestions);
+
+                Assert.Equal(clearFilter ? null : personal.Id.ToString(), composer.ProjectValue);
+                Assert.Equal(clearFilter ? null : personal.Name, composer.ProjectName);
+            }
+            finally
+            {
+                window.Close();
+                view.DataContext = null;
+            }
+        }, CancellationToken.None);
+    }
+
     [Fact]
     public async Task AssignChatToProject_ForActiveChat_UpdatesComposerProjectChip()
     {
@@ -39,6 +118,7 @@ public sealed class MoveChatProjectSyncTests
             Assert.Equal(work.Id, chat.ProjectId);
             Assert.Equal("Work", viewModel.ChatVM.ProjectBadgeText);
             Assert.Equal("Work", viewModel.ChatVM.SelectedProjectName);
+            Assert.Equal(work.Id.ToString(), viewModel.ChatVM.SelectedProjectValue);
 
             viewModel.Dispose();
         }, CancellationToken.None);
@@ -66,6 +146,7 @@ public sealed class MoveChatProjectSyncTests
             Assert.Null(chat.ProjectId);
             Assert.Null(viewModel.ChatVM.ProjectBadgeText);
             Assert.Null(viewModel.ChatVM.SelectedProjectName);
+            Assert.Null(viewModel.ChatVM.SelectedProjectValue);
 
             viewModel.Dispose();
         }, CancellationToken.None);
