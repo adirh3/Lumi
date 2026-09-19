@@ -29,7 +29,7 @@ public sealed partial class LazyMcpRuntimeTests
         public string CacheDirectory => Path.Combine(Root, "cache");
         private string ScriptPath => Path.Combine(Root, "fake-mcp.ps1");
         public string[] Starts => File.Exists(Path.Combine(Root, "starts.log"))
-            ? File.ReadAllLines(Path.Combine(Root, "starts.log")) : [];
+            ? ReadAllLinesShared(Path.Combine(Root, "starts.log")) : [];
 
         public FakeMcp(string behavior = "static")
         {
@@ -80,7 +80,8 @@ public sealed partial class LazyMcpRuntimeTests
                             serverInfo = @{ name = "lazy-test-mcp"; version = $version }; instructions = $instructions
                         } }
                     } elseif ($msg.method -eq "tools/list") {
-                        if ($mode -eq "discovery-session-lost" -and -not [System.IO.File]::Exists("session-lost")) {
+                        if (($mode -eq "discovery-session-lost" -or $mode -eq "recovery-selected-missing") -and
+                            -not [System.IO.File]::Exists("session-lost")) {
                             [System.IO.File]::WriteAllText("session-lost", "")
                             Write-Json @{ jsonrpc = "2.0"; id = $msg.id; error = @{ code = -32001; message = "Session not found" } }
                             continue
@@ -115,12 +116,22 @@ public sealed partial class LazyMcpRuntimeTests
                         if ($mode -eq "meta-drift") { $tool._meta.test = "changed" }
                         $other = @{ name = "other"; description = "Unchanged tool"; inputSchema = @{ type = "object" } }
                         $result = @{ tools = @($tool, $other) }
+                        if ($mode -eq "paginated-later-tool") {
+                            if ($null -ne $msg.params.cursor) {
+                                $result.tools = @($tool)
+                            } else {
+                                $result.tools = @($other)
+                                $result.nextCursor = "page-2"
+                            }
+                        }
                         if ($mode -eq "list-reordered") { $result.tools = @($other, $tool) }
                         if ($mode -eq "unrelated-added") {
                             $result.tools += @{ name = "extra"; inputSchema = @{ type = "object" } }
                         }
                         if ($mode -eq "unrelated-removed") { $result.tools = @($tool) }
-                        if ($mode -eq "selected-missing") { $result.tools = @($other) }
+                        if ($mode -eq "selected-missing" -or $mode -eq "recovery-selected-missing") {
+                            $result.tools = @($other)
+                        }
                         if ($mode -eq "paginated") { $result.nextCursor = "page-2" }
                         Write-Json @{ jsonrpc = "2.0"; id = $msg.id; result = $result }
                     } elseif ($msg.method -eq "tools/call") {
@@ -162,7 +173,9 @@ public sealed partial class LazyMcpRuntimeTests
 
         public void SetBehavior(string behavior) => File.WriteAllText(Path.Combine(Root, "behavior.txt"), behavior);
 
-        public McpProxyServerDefinition Definition(bool lazy = true) => new(
+        public McpProxyServerDefinition Definition(
+            bool lazy = true,
+            McpToolCallPreflightPolicy toolCallPreflightPolicy = McpToolCallPreflightPolicy.None) => new(
             "test:lazy",
             "lazy-test",
             new McpStdioServerConfig
@@ -180,7 +193,8 @@ public sealed partial class LazyMcpRuntimeTests
                 Tools = ["*"],
                 Timeout = 10_000
             },
-            lazy);
+            lazy,
+            toolCallPreflightPolicy);
 
         public static JsonNode ClientInitialize() => JsonNode.Parse(
             """{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}""")!;
@@ -209,6 +223,14 @@ public sealed partial class LazyMcpRuntimeTests
         }
 
         public async Task<JsonElement> RequestAsync(string url, string method, object? parameters = null, string? id = null)
+            => await RequestCoreAsync(url, method, parameters, id, CancellationToken.None);
+
+        private async Task<JsonElement> RequestCoreAsync(
+            string url,
+            string method,
+            object? parameters,
+            string? id,
+            CancellationToken cancellationToken)
         {
             var request = new Dictionary<string, object?>
             {
@@ -217,7 +239,7 @@ public sealed partial class LazyMcpRuntimeTests
             if (parameters is not null)
                 request["params"] = parameters;
             using var body = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
-            using var response = await _http.PostAsync(url, body);
+            using var response = await _http.PostAsync(url, body, cancellationToken);
             response.EnsureSuccessStatusCode();
             using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             return json.RootElement.Clone();
@@ -274,6 +296,20 @@ public sealed partial class LazyMcpRuntimeTests
                 .Select(line => JsonSerializer.Deserialize<JsonElement>(line))
                 .Where(message => method is null || (message.TryGetProperty("method", out var value) && value.GetString() == method))
                 .ToArray();
+        }
+
+        private static string[] ReadAllLinesShared(string path)
+        {
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            var lines = new List<string>();
+            while (reader.ReadLine() is { } line)
+                lines.Add(line);
+            return lines.ToArray();
         }
 
         public void Dispose()

@@ -14,11 +14,20 @@ using GitHub.Copilot;
 
 namespace Lumi.Services;
 
+[Flags]
+public enum McpToolCallPreflightPolicy
+{
+    None = 0,
+    ToolsListSessionHealth = 1,
+    AgencyNotDispatchedSignal = 2
+}
+
 public sealed record McpProxyServerDefinition(
     string Key,
     string Name,
     McpStdioServerConfig Config,
-    bool UseLazyInitialization = false);
+    bool UseLazyInitialization = false,
+    McpToolCallPreflightPolicy ToolCallPreflightPolicy = McpToolCallPreflightPolicy.None);
 
 public sealed partial class McpProxyRuntime : IAsyncDisposable
 {
@@ -64,7 +73,10 @@ public sealed partial class McpProxyRuntime : IAsyncDisposable
             EnsureListenerStartedLocked();
 
             var fingerprint = ComputeFingerprint(definition.Config);
-            var identity = ComputeRegistrationIdentity(definition.Key, fingerprint);
+            var identity = ComputeRegistrationIdentity(
+                definition.Key,
+                fingerprint,
+                definition.ToolCallPreflightPolicy);
             if (_persistentIdentityByKey.TryGetValue(definition.Key, out var previousIdentity)
                 && !string.Equals(previousIdentity, identity, StringComparison.Ordinal)
                 && _registrationsByIdentity.TryGetValue(previousIdentity, out var previousRegistration))
@@ -86,8 +98,10 @@ public sealed partial class McpProxyRuntime : IAsyncDisposable
                     ? null
                     : legacyRouteId);
             activeRegistration.HasPersistentOwner = true;
-            clientToken = definition.UseLazyInitialization
-                ? activeRegistration.GetPersistentClientToken(cacheRevision)
+            clientToken = RequiresDedicatedClient(definition)
+                ? activeRegistration.GetPersistentClientToken(
+                    cacheRevision,
+                    definition.UseLazyInitialization)
                 : null;
             _persistentIdentityByKey[definition.Key] = identity;
             port = _port;
@@ -113,10 +127,15 @@ public sealed partial class McpProxyRuntime : IAsyncDisposable
             EnsureListenerStartedLocked();
 
             var fingerprint = ComputeFingerprint(definition.Config);
-            var identity = ComputeRegistrationIdentity(definition.Key, fingerprint);
+            var identity = ComputeRegistrationIdentity(
+                definition.Key,
+                fingerprint,
+                definition.ToolCallPreflightPolicy);
             var registration = GetOrCreateRegistrationLocked(definition, identity, fingerprint);
             registration.SessionLeaseCount++;
-            var clientToken = definition.UseLazyInitialization ? registration.AddClient() : null;
+            var clientToken = RequiresDedicatedClient(definition)
+                ? registration.AddClient(definition.UseLazyInitialization)
+                : null;
             return new SessionRegistrationLease(
                 () => ReleaseSessionRegistrationAsync(registration, clientToken),
                 BuildServerConfig(definition, registration, _port, clientToken));
@@ -477,8 +496,15 @@ public sealed partial class McpProxyRuntime : IAsyncDisposable
         builder.Append(';');
     }
 
-    private static string ComputeRegistrationIdentity(string key, string fingerprint)
-        => key + "\n" + fingerprint;
+    private static string ComputeRegistrationIdentity(
+        string key,
+        string fingerprint,
+        McpToolCallPreflightPolicy toolCallPreflightPolicy)
+        => key + "\n" + fingerprint + "\npreflight:" + (int)toolCallPreflightPolicy;
+
+    private static bool RequiresDedicatedClient(McpProxyServerDefinition definition)
+        => definition.UseLazyInitialization
+            || definition.ToolCallPreflightPolicy != McpToolCallPreflightPolicy.None;
 
     private static string NormalizeWorkingDirectory(string? workingDirectory)
     {

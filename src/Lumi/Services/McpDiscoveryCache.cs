@@ -156,7 +156,7 @@ internal sealed class McpDiscoveryCache(string? directory)
         return JsonElement.DeepEquals(expected, actual);
     }
 
-    private static bool TryFindTool(JsonElement list, string toolName, out JsonElement result)
+    internal static bool TryFindTool(JsonElement list, string toolName, out JsonElement result)
     {
         result = default;
         if (list.ValueKind != JsonValueKind.Object || !list.TryGetProperty("tools", out var tools)
