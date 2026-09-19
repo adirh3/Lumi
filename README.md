@@ -242,6 +242,14 @@ dotnet build src/Lumi/Lumi.csproj
 cd src/Lumi && dotnet run
 ```
 
+### Windows Installer
+
+Windows releases use the standard Velopack installer with the branded
+`src\Lumi\Assets\installer-splash.png` image, configured through `--splashImage`
+in the release workflow. Velopack displays progress and launches Lumi when
+installation completes. This is presentation-only: installer locking, repair,
+command-line options, code signing, and automatic updates are unchanged.
+
 ### Linux Release Packages
 
 The auto-updating Linux release is an AppImage. Make it executable before launching:

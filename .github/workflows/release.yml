@@ -278,6 +278,7 @@ jobs:
           -p publish
           --mainExe Lumi.exe
           --icon src/Lumi/Assets/lumi-icon.ico
+          --splashImage src\Lumi\Assets\installer-splash.png
           --channel win
 
       - name: Sign Setup.exe
