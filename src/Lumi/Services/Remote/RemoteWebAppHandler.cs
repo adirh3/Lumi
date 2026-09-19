@@ -25,6 +25,13 @@ internal sealed class RemoteWebAppHandler(RemoteWebAssetProvider? assets)
         path is "/" or "/app"
         || path.StartsWith(AppPrefix, StringComparison.Ordinal);
 
+    // A sign-in return can navigate to an API URL, but a document cannot carry the PWA's device header.
+    public static bool IsApiDocumentNavigation(RemoteHttpRequest request) =>
+        request.Method == "GET"
+        && request.Path.StartsWith("/lumi/", StringComparison.Ordinal)
+        && request.Header("Sec-Fetch-Mode") == "navigate"
+        && request.Header("Sec-Fetch-Dest") == "document";
+
     public async Task HandleAsync(RemoteHttpContext context, CancellationToken cancellationToken)
     {
         var method = context.Request.Method;

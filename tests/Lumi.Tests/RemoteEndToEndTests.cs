@@ -184,6 +184,52 @@ public sealed class RemoteEndToEndTests
     private static string NewTempDir() =>
         System.IO.Path.Combine(System.IO.Path.GetTempPath(), "lumi-remote-e2e", Guid.NewGuid().ToString("n"));
 
+    [Fact]
+    public Task BrowserSignInReturnToApiOpensThePwaWithoutAuthorizingTheDevice() => RunAsync(async rig =>
+    {
+        using var http = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false });
+        using var navigation = new HttpRequestMessage(HttpMethod.Get, rig.BaseUrl + RemoteProtocol.Routes.Snapshot);
+        navigation.Headers.Add("Sec-Fetch-Mode", "navigate");
+        navigation.Headers.Add("Sec-Fetch-Dest", "document");
+        navigation.Headers.Accept.ParseAdd("text/html,application/xhtml+xml");
+        using var landing = await http.SendAsync(navigation);
+
+        Assert.Equal(HttpStatusCode.Found, landing.StatusCode);
+        Assert.Equal("/app/", landing.Headers.Location?.OriginalString);
+        Assert.Contains("no-store", landing.Headers.CacheControl?.ToString());
+        Assert.Empty(rig.DataStore.SnapshotRemotePairedDevices());
+
+        using var api = await http.GetAsync(rig.BaseUrl + RemoteProtocol.Routes.Snapshot);
+        Assert.Equal(HttpStatusCode.Unauthorized, api.StatusCode);
+        Assert.Null(api.Headers.Location);
+        using var events = await http.GetAsync(rig.BaseUrl + RemoteProtocol.Routes.Events);
+        Assert.Equal(HttpStatusCode.Unauthorized, events.StatusCode);
+        using var htmlFetch = new HttpRequestMessage(HttpMethod.Get, rig.BaseUrl + RemoteProtocol.Routes.Snapshot);
+        htmlFetch.Headers.Add("Sec-Fetch-Mode", "cors");
+        htmlFetch.Headers.Add("Sec-Fetch-Dest", "empty");
+        htmlFetch.Headers.Accept.ParseAdd("text/html");
+        using var deniedFetch = await http.SendAsync(htmlFetch);
+        Assert.Equal(HttpStatusCode.Unauthorized, deniedFetch.StatusCode);
+        using var wrongHost = new HttpRequestMessage(HttpMethod.Get, rig.BaseUrl + RemoteProtocol.Routes.Snapshot);
+        wrongHost.Headers.Host = "untrusted.example";
+        wrongHost.Headers.Add("Sec-Fetch-Mode", "navigate");
+        wrongHost.Headers.Add("Sec-Fetch-Dest", "document");
+        using var deniedHost = await http.SendAsync(wrongHost);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedHost.StatusCode);
+        using var command = new HttpRequestMessage(HttpMethod.Post, rig.BaseUrl + RemoteProtocol.Routes.Command)
+        {
+            Content = new StringContent("{}", Encoding.UTF8, "application/json")
+        };
+        command.Headers.Add("Sec-Fetch-Mode", "navigate");
+        command.Headers.Add("Sec-Fetch-Dest", "document");
+        command.Headers.ExpectContinue = true;
+        using var deniedCommand = await http.SendAsync(command, HttpCompletionOption.ResponseHeadersRead);
+        Assert.Equal(HttpStatusCode.Unauthorized, deniedCommand.StatusCode);
+
+        await PairAsync(rig);
+        Assert.NotNull(await rig.Client.GetSnapshotAsync(CancellationToken.None));
+    });
+
     /// <summary>Reserves a port from the OS ephemeral range so parallel runs never collide.</summary>
     private static int FreePort()
     {
@@ -255,6 +301,13 @@ public sealed class RemoteEndToEndTests
         request.Headers.ExpectContinue = true;
         using var pairing = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
         Assert.Equal(HttpStatusCode.Forbidden, pairing.StatusCode);
+
+        using var browserNavigation = new HttpRequestMessage(HttpMethod.Get, rig.BaseUrl + RemoteProtocol.Routes.Snapshot);
+        browserNavigation.Headers.Add("Sec-Fetch-Mode", "navigate");
+        browserNavigation.Headers.Add("Sec-Fetch-Dest", "document");
+        using var closedTunnelNavigation = await http.SendAsync(browserNavigation);
+        Assert.Equal(HttpStatusCode.Forbidden, closedTunnelNavigation.StatusCode);
+        Assert.Null(closedTunnelNavigation.Headers.Location);
     });
 
     private static async Task WaitAsync(Func<bool> condition, string because)

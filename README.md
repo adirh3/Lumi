@@ -105,6 +105,18 @@ includes the signed-in Microsoft session when checking installability. Browsers
 otherwise fetch even a same-origin manifest without cookies and receive a sign-in
 page instead of the manifest. No manifest or icon is made public for installation.
 
+When Microsoft sign-in returns a top-level browser navigation to a Lumi API URL,
+the server sends the browser to `/app/` instead of displaying the raw pairing
+error. Only GET document navigations receive that handoff; API fetches, streams,
+and commands still require the paired-device token, and the tunnel/network
+checks still run first.
+
+The PWA uses the Android app's launcher artwork, with separate normal and opaque
+maskable icons so Android does not crop a transparent rounded-square icon as if
+it were full-bleed artwork. Installed launchers can cache old icons; remove the
+old PWA shortcut and install again from the current `/app/` link if the icon has
+not refreshed after updating Lumi.
+
 This mode binds Lumi's listener to **127.0.0.1 only**, disables LAN discovery, and
 does not fall back to LAN or Tailscale if setup or hosting fails. Browser requests
 are restricted to their original origin and do not follow authentication

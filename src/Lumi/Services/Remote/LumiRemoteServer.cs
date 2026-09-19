@@ -513,6 +513,9 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         if (path.Length == 0)
             path = "/";
 
+        if (RemoteWebAppHandler.IsApiDocumentNavigation(request))
+            return RemoteHttpPreflightResult.Allow(0);
+
         if (path is RemoteProtocol.Routes.Hello or RemoteProtocol.Routes.Pair
             || string.Equals(request.Method, "OPTIONS", StringComparison.OrdinalIgnoreCase))
         {
@@ -590,6 +593,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             var path = context.Request.Path.TrimEnd('/');
             if (path.Length == 0)
                 path = "/";
+
+            if (RemoteWebAppHandler.IsApiDocumentNavigation(context.Request))
+            {
+                await context.WriteRedirectAsync("/app/", cancellationToken).ConfigureAwait(false);
+                return;
+            }
 
             if (RemoteWebAppHandler.IsWebPath(path))
             {

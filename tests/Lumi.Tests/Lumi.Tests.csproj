@@ -39,6 +39,15 @@
     <Content Include="..\..\src\Lumi.Mobile.Browser\wwwroot\index.html"
              Link="BrowserAssets\index.html"
              CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\Lumi.Mobile.Browser\wwwroot\manifest.webmanifest"
+             Link="BrowserAssets\manifest.webmanifest"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\Lumi.Mobile.Browser\wwwroot\icons\*.png"
+             Link="BrowserAssets\icons\%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\Lumi.Mobile.Android\Resources\mipmap-xxxhdpi\ic_launcher.png"
+             Link="BrowserAssets\android-launcher.png"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

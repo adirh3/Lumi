@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Lumi.Services.Remote;
 using Xunit;
@@ -18,6 +19,71 @@ public sealed class RemoteWebAppTests
             tag => Regex.IsMatch(tag, """\brel\s*=\s*["']manifest["']""", RegexOptions.IgnoreCase));
 
         Assert.Matches("""\bcrossorigin\s*=\s*["']use-credentials["']""", link);
+    }
+
+    [Theory]
+    [InlineData("GET", "/lumi/snapshot", "navigate", "document", true)]
+    [InlineData("GET", "/lumi/events", "navigate", "document", true)]
+    [InlineData("GET", "/lumi/transcript", "navigate", "document", true)]
+    [InlineData("POST", "/lumi/command", "navigate", "document", false)]
+    [InlineData("GET", "/lumi/snapshot", "cors", "empty", false)]
+    [InlineData("GET", "/lumi/snapshot", "same-origin", "empty", false)]
+    [InlineData("GET", "/lumi/snapshot", "navigate", "iframe", false)]
+    [InlineData("GET", "/lumi/snapshot", null, null, false)]
+    [InlineData("GET", "/app/manifest.webmanifest", "navigate", "document", false)]
+    [InlineData("GET", "/unrelated", "navigate", "document", false)]
+    public void OnlyTopLevelApiGetNavigationsReturnToThePwa(
+        string method, string path, string? mode, string? destination, bool expected)
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (mode is not null)
+            headers.Add("Sec-Fetch-Mode", mode);
+        if (destination is not null)
+            headers.Add("Sec-Fetch-Dest", destination);
+        var request = new RemoteHttpRequest(method, path, "", headers, "", false);
+
+        Assert.Equal(expected, RemoteWebAppHandler.IsApiDocumentNavigation(request));
+    }
+
+    [Fact]
+    public void PwaUsesAndroidArtworkAndSeparateMaskableIcons()
+    {
+        var assets = Path.Combine(AppContext.BaseDirectory, "BrowserAssets");
+        using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(assets, "manifest.webmanifest")));
+        Assert.Equal("./", manifest.RootElement.GetProperty("start_url").GetString());
+        Assert.Equal("./", manifest.RootElement.GetProperty("scope").GetString());
+
+        var icons = manifest.RootElement.GetProperty("icons").EnumerateArray().ToArray();
+        var normal = icons.Where(icon => icon.GetProperty("purpose").GetString() == "any").ToArray();
+        Assert.Equal(2, normal.Length);
+        Assert.Contains(normal, icon => icon.GetProperty("sizes").GetString() == "192x192");
+        Assert.Contains(normal, icon => icon.GetProperty("sizes").GetString() == "512x512");
+        Assert.Equal(
+            File.ReadAllBytes(Path.Combine(assets, "android-launcher.png")),
+            File.ReadAllBytes(Path.Combine(assets, "icons", "lumi-192.png")));
+
+        var maskable = Assert.Single(icons, icon => icon.GetProperty("purpose").GetString() == "maskable");
+        Assert.Equal("./icons/lumi-maskable-512.png", maskable.GetProperty("src").GetString());
+        using var bitmap = SkiaSharp.SKBitmap.Decode(Path.Combine(assets, "icons", "lumi-maskable-512.png"));
+        Assert.NotNull(bitmap);
+        Assert.Equal(512, bitmap.Width);
+        Assert.Equal(512, bitmap.Height);
+        var foregroundPixels = 0;
+        for (var y = 0; y < bitmap.Height; y++)
+        for (var x = 0; x < bitmap.Width; x++)
+        {
+            var pixel = bitmap.GetPixel(x, y);
+            Assert.Equal(255, pixel.Alpha);
+            if (pixel.Red >= 200 && pixel.Green >= 175 && pixel.Blue >= 225)
+            {
+                foregroundPixels++;
+                var dx = x + 0.5 - bitmap.Width / 2.0;
+                var dy = y + 0.5 - bitmap.Height / 2.0;
+                Assert.True(dx * dx + dy * dy <= Math.Pow(bitmap.Width * 0.4, 2),
+                    "Maskable foreground must remain inside the Android safe-area circle.");
+            }
+        }
+        Assert.True(foregroundPixels > 1000);
     }
 
     [Fact]
