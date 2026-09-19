@@ -136,6 +136,9 @@ def capture(executable, pid, output, phase):
 
 def measure(executable, pid, output, name, count=12, settle=20):
     time.sleep(settle)
+    if name != "hidden":
+        inspector(executable, "activate", pid)
+        time.sleep(2)
     state = capture(executable, pid, output, name + "-before")
     previous = process_tree(pid)
     previous_time = time.monotonic()
@@ -268,25 +271,30 @@ def main(args):
         if name == "onboarded-profile":
             data_path = profile_file()
             data = json.loads(data_path.read_text(encoding="utf-8-sig"))
-            settings = data.setdefault("settings", {})
-            old = {key: settings.get(key) for key in ["isOnboarded", "userName"]}
-            settings["isOnboarded"] = True
-            settings["userName"] = "Release Test"
-            data_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            settings = data["settings"]
+            if settings.get("isOnboarded") is not True or settings.get("userName") != "Release Test":
+                raise RuntimeError("Normal UI onboarding did not persist the expected profile.")
             write_json(phase_dir / "profile-preparation.json", {
-                "path": str(data_path), "before": old,
-                "changes": {"isOnboarded": True, "userName": "Release Test"},
-                "reason": "Separate normal-main-screen measurement without signing into a personal account or running onboarding discovery.",
-                "allOtherSettingsPreserved": True,
+                "path": str(data_path), "changes": {},
+                "reason": "Relaunch after completing real onboarding with the normal Skip for now option.",
                 "backendInitializationDisabled": False,
-                "uiOnboardingCompletedInteractively": False,
+                "uiOnboardingCompletedInteractively": True,
             })
         pid = launch(bundle, helper, phase_dir,
                      allow_installer_launch=args.distribution == "pkg" and name == "fresh-install")
         try:
             samples = measure(helper, pid, phase_dir, "visible")
             summary = {"name": name, "pid": pid, "samples": samples}
+            if name == "fresh-install":
+                for action in ["onboarding-name", "continue-onboarding", "skip-learning", "finish-onboarding"]:
+                    write_json(phase_dir / f"{action}.json", inspector(helper, action, pid))
+                    time.sleep(3)
+                    capture(helper, pid, phase_dir, action)
+                write_json(phase_dir / "focus-composer.json", inspector(helper, "focus-composer", pid))
+                summary["afterOnboardingSamples"] = measure(helper, pid, phase_dir, "onboarded-focused")
             if name == "onboarded-profile":
+                write_json(phase_dir / "focus-composer.json", inspector(helper, "focus-composer", pid))
+                summary["focusedSamples"] = measure(helper, pid, phase_dir, "focused", count=6, settle=5)
                 write_json(phase_dir / "hide-request.json", inspector(helper, "hide", pid))
                 summary["hiddenSamples"] = measure(helper, pid, phase_dir, "hidden", count=6, settle=5)
             sessions.append(summary)
@@ -302,7 +310,7 @@ def main(args):
             "Installer CLI installs the official package; the interactive Installer wizard is not driven.",
             "CLI download does not reproduce browser-added quarantine or first-open approval.",
             "No personal GitHub/Copilot credentials, real chats, or model requests.",
-            "Second launch uses the app-created profile with only onboarding completion/name seeded.",
+            "Onboarding completed through the released UI using Skip for now; no profile files edited.",
         ],
     })
     print("RELEASE_ARTIFACT_PROBE_COMPLETE", flush=True)

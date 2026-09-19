@@ -41,7 +41,7 @@ func describe(_ element: AXUIElement, depth: Int, budget: inout Int) -> [String:
             result[name] = value
         }
     }
-    if depth < 8, budget > 0, let children = attribute(element, "AXChildren") as? [AXUIElement] {
+    if depth < 28, budget > 0, let children = attribute(element, "AXChildren") as? [AXUIElement] {
         var nodes: [[String: Any]] = []
         for child in children.prefix(80) where budget > 0 {
             nodes.append(describe(child, depth: depth + 1, budget: &budget))
@@ -49,6 +49,23 @@ func describe(_ element: AXUIElement, depth: Int, budget: inout Int) -> [String:
         result["children"] = nodes
     }
     return result
+}
+
+func findControl(_ element: AXUIElement, identifier: String?, title: String?, depth: Int = 0) -> AXUIElement? {
+    if depth > 40 { return nil }
+    if let identifier = identifier, attribute(element, "AXIdentifier") as? String == identifier {
+        return element
+    }
+    if let title = title, attribute(element, "AXRole") as? String == "AXButton",
+       attribute(element, "AXTitle") as? String == title {
+        return element
+    }
+    for child in attribute(element, "AXChildren") as? [AXUIElement] ?? [] {
+        if let match = findControl(child, identifier: identifier, title: title, depth: depth + 1) {
+            return match
+        }
+    }
+    return nil
 }
 
 let arguments = CommandLine.arguments
@@ -79,6 +96,33 @@ case "hide":
     emit(["requested": app.hide()])
 case "quit":
     emit(["requested": app.terminate()])
+case "onboarding-name", "continue-onboarding", "skip-learning", "finish-onboarding", "focus-composer":
+    guard AXIsProcessTrusted() else {
+        fputs("The runner has not granted accessibility access.\n", stderr)
+        exit(3)
+    }
+    app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+    let root = AXUIElementCreateApplication(pid)
+    let titles = ["continue-onboarding": "Continue", "skip-learning": "Skip for now", "finish-onboarding": "Get Started"]
+    let identifier = action == "onboarding-name" ? "OnboardingNameBox" :
+        action == "focus-composer" ? "PART_Input" : nil
+    let windows = attribute(root, "AXWindows") as? [AXUIElement] ?? []
+    guard let control = windows.compactMap({
+        findControl($0, identifier: identifier, title: titles[action])
+    }).first else {
+        fputs("The expected \(action) control was not found.\n", stderr)
+        exit(4)
+    }
+    let result: AXError
+    if action == "onboarding-name" {
+        result = AXUIElementSetAttributeValue(control, "AXValue" as CFString, "Release Test" as CFString)
+    } else if action == "focus-composer" {
+        result = AXUIElementSetAttributeValue(control, "AXFocused" as CFString, kCFBooleanTrue)
+    } else {
+        result = AXUIElementPerformAction(control, kAXPressAction as CFString)
+    }
+    emit(["action": action, "result": result.rawValue])
+    if result != .success { exit(5) }
 case "inspect":
     var result = appInfo(app)
     let windows = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
@@ -88,8 +132,10 @@ case "inspect":
     result["accessibilityTrusted"] = AXIsProcessTrusted()
     result["screenCaptureAccess"] = CGPreflightScreenCaptureAccess()
     if AXIsProcessTrusted() {
-        var budget = 350
-        result["accessibility"] = describe(AXUIElementCreateApplication(pid), depth: 0, budget: &budget)
+        var budget = 1200
+        let root = AXUIElementCreateApplication(pid)
+        let windows = attribute(root, "AXWindows") as? [AXUIElement] ?? []
+        result["accessibilityWindows"] = windows.map { describe($0, depth: 0, budget: &budget) }
     }
     emit(result)
 default:
