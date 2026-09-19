@@ -17,6 +17,16 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Localization** — English and Hebrew, with easy extension to other languages
 - **Desktop notifications** — Toast notifications when responses complete in the background
 
+### Desktop motion
+
+The composer keeps its thin Stratum underline, drawing it from left to right on focus and
+showing a visible travelling highlight while focused. Newly sent messages and live assistant
+replies rise into place once, without moving transcript layout or replaying on
+history rebuilds, paging, or chat switches. Section navigation and the coding strip use the
+same short, interruptible motion, and the welcome-to-chat handoff has no delayed fade.
+The existing **Show Animations** setting disables the new message/section entrances and
+composer focus motion; the static underline remains visible.
+
 ### Mobile conversations
 
 Announced files appear as readable attachment cards after the reply for their turn,
@@ -252,6 +262,18 @@ Lumi's skill storage and editing behavior are unchanged.
 ```bash
 dotnet build src/Lumi/Lumi.csproj
 cd src/Lumi && dotnet run
+```
+
+The composer's real-pixel animation checks run in an isolated Skia test process;
+the ordinary drawing-free headless suite skips them to avoid mixing graphics backends:
+
+```powershell
+$env:LUMI_COMPOSER_MOTION_RENDER = "1"
+try {
+    dotnet test tests\Lumi.Tests\Lumi.Tests.csproj --filter "FullyQualifiedName~ComposerFocusLine_UsesVisibleMotionWithRealThemeBrushes"
+} finally {
+    Remove-Item Env:\LUMI_COMPOSER_MOTION_RENDER
+}
 ```
 
 ### Windows Installer

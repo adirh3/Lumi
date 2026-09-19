@@ -27,6 +27,7 @@ using Avalonia.VisualTree;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.ViewModels;
+using StrataTheme.Animation;
 using StrataTheme.Controls;
 
 namespace Lumi.Views;
@@ -157,8 +158,9 @@ public partial class ChatView : UserControl
         {
             codingStrip.PropertyChanged += (_, e) =>
             {
-                if (e.Property == IsVisibleProperty && codingStrip.IsVisible)
-                    PlaySlideUpAnimation(codingStrip);
+                if (e.Property == IsVisibleProperty && codingStrip.IsVisible
+                    && _subscribedVm?.AreAnimationsEnabled != false)
+                    SlideFadeEntrance.Play(codingStrip, offsetY: 6);
             };
         }
 
@@ -1998,28 +2000,6 @@ public partial class ChatView : UserControl
         }
 
         FocusComposer();
-    }
-
-    private static async void PlaySlideUpAnimation(Control target)
-    {
-        target.Opacity = 0;
-        target.RenderTransform = new Avalonia.Media.TranslateTransform(0, 6);
-
-        var anim = new Avalonia.Animation.Animation
-        {
-            Duration = TimeSpan.FromMilliseconds(250),
-            Easing = new Avalonia.Animation.Easings.CubicEaseOut(),
-            FillMode = Avalonia.Animation.FillMode.Forward,
-            Children =
-            {
-                new Avalonia.Animation.KeyFrame { Cue = new Avalonia.Animation.Cue(0), Setters = { new Avalonia.Styling.Setter(OpacityProperty, 0.0), new Avalonia.Styling.Setter(Avalonia.Media.TranslateTransform.YProperty, 6.0) } },
-                new Avalonia.Animation.KeyFrame { Cue = new Avalonia.Animation.Cue(1), Setters = { new Avalonia.Styling.Setter(OpacityProperty, 1.0), new Avalonia.Styling.Setter(Avalonia.Media.TranslateTransform.YProperty, 0.0) } },
-            }
-        };
-
-        try { await anim.RunAsync(target); } catch { }
-        target.Opacity = 1;
-        target.RenderTransform = null;
     }
 
     private void UpdateWorktreeToggleHighlight()

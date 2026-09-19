@@ -27,6 +27,7 @@ internal static class TranscriptIds
 public abstract partial class TranscriptItem : ObservableObject
 {
     private bool _isItemVisible = true;
+    private long? _entranceRequestedAt;
 
     protected TranscriptItem(string stableId)
     {
@@ -35,6 +36,20 @@ public abstract partial class TranscriptItem : ObservableObject
 
     public string StableId { get; }
 
+    internal bool HasPendingEntranceAnimation => _entranceRequestedAt.HasValue;
+
+    internal void RequestEntranceAnimation() => _entranceRequestedAt = Stopwatch.GetTimestamp();
+
+    internal bool TryConsumeEntranceAnimation()
+    {
+        var requestedAt = _entranceRequestedAt;
+        _entranceRequestedAt = null;
+
+        // Background/offscreen arrivals must not replay when their history is opened later.
+        return requestedAt is { } timestamp
+            && Stopwatch.GetElapsedTime(timestamp) <= TimeSpan.FromSeconds(2);
+    }
+
     /// <summary>
     /// Controls visibility of the host container in the turn layout.
     /// When false, the item takes zero space (no gap from StackPanel spacing).
@@ -42,7 +57,13 @@ public abstract partial class TranscriptItem : ObservableObject
     public bool IsItemVisible
     {
         get => _isItemVisible;
-        set => SetProperty(ref _isItemVisible, value);
+        set
+        {
+            if (value && !_isItemVisible && HasPendingEntranceAnimation)
+                RequestEntranceAnimation();
+
+            SetProperty(ref _isItemVisible, value);
+        }
     }
 }
 

@@ -1427,6 +1427,8 @@ public class TranscriptBuilder
                 (msg, edited) => _ = _resendFromMessageAction(msg, edited),
                 _openSkillAction,
                 _sendSteeredNowAsync);
+            if (!IsRebuildingTranscript && _dataStore.Data.Settings.ShowAnimations)
+                userItem.RequestEntranceAnimation();
             AppendToCurrentTurn(userItem, TurnStableIdFor($"message:{msgVm.Message.Id}"));
             BeginFileChipTurn(msgVm.Message.Id);
             FinalizeCurrentTurn();
@@ -1440,6 +1442,8 @@ public class TranscriptBuilder
         }
 
         var assistantItem = new AssistantMessageItem(msgVm, showTimestamps, _openSkillAction);
+        if (!IsRebuildingTranscript && _dataStore.Data.Settings.ShowAnimations)
+            assistantItem.RequestEntranceAnimation();
         var chipTurn = _fileChipTurn;
         chipTurn.LastAssistant = assistantItem;
         _pendingModelName = ChatViewModel.FormatModelDisplay(msgVm.Message.Model);

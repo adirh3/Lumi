@@ -29,6 +29,7 @@ using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
 using StrataTheme;
+using StrataTheme.Animation;
 using StrataTheme.Controls;
 
 namespace Lumi.Views;
@@ -103,7 +104,6 @@ public partial class MainWindow : Window
     private bool _isProjectSwitcherOpen;
     private bool _isUnreadPanelOpen;
     private int _chatListRevealVersion;
-    private CancellationTokenSource? _shellAnimCts;
     private int _currentShellIndex = -1;
     private int _activeNavIndex = -1;
     private int _hoveredNavIndex = -1;
@@ -190,7 +190,6 @@ public partial class MainWindow : Window
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
-        DisposeCancellationTokenSource(ref _shellAnimCts);
         DisposeCancellationTokenSource(ref _sidebarAnimCts);
         DisposeCancellationTokenSource(ref _navHoverIntentCts);
         DisposeCancellationTokenSource(ref _titleAnimCts);
@@ -1174,7 +1173,7 @@ public partial class MainWindow : Window
         if (isOnboarded && _mainPanel is not null)
         {
             AnimateShellSectionChange(_pages.FirstOrDefault(p => p?.IsVisible == true),
-                _sidebarPanels.FirstOrDefault(p => p?.IsVisible == true), CancellationToken.None);
+                _sidebarPanels.FirstOrDefault(p => p?.IsVisible == true));
         }
     }
 
@@ -1239,76 +1238,19 @@ public partial class MainWindow : Window
 
         if (sectionChanged && _mainPanel?.IsVisible == true)
         {
-            var shellCt = ReplaceCancellationTokenSource(ref _shellAnimCts).Token;
-            AnimateShellSectionChange(_pages[index], _sidebarPanels[index], shellCt);
+            AnimateShellSectionChange(_pages[index], _sidebarPanels[index]);
         }
     }
 
-    private async void AnimateShellSectionChange(Control? page, Control? sidebar, CancellationToken ct)
+    private void AnimateShellSectionChange(Control? page, Control? sidebar)
     {
-        await Task.WhenAll(
-            AnimateShellEntranceAsync(page, 10.0, TimeSpan.FromMilliseconds(240), ct),
-            AnimateShellEntranceAsync(sidebar, 6.0, TimeSpan.FromMilliseconds(190), ct));
-    }
+        if (DataContext is MainViewModel { SettingsVM.ShowAnimations: false })
+            return;
 
-    private static async Task AnimateShellEntranceAsync(
-        Control? control,
-        double offsetY,
-        TimeSpan duration,
-        CancellationToken ct)
-    {
-        if (control is null || !control.IsVisible) return;
-
-        control.RenderTransform = new TranslateTransform(0, offsetY);
-        control.Opacity = 0;
-
-        var anim = new Avalonia.Animation.Animation
-        {
-            Duration = duration,
-            Easing = new SplineEasing(0.24, 0.08, 0.24, 1.0),
-            FillMode = FillMode.Forward,
-            Children =
-            {
-                new KeyFrame
-                {
-                    Cue = new Cue(0),
-                    Setters =
-                    {
-                        new Setter(OpacityProperty, 0.0),
-                        new Setter(TranslateTransform.YProperty, offsetY),
-                    }
-                },
-                new KeyFrame
-                {
-                    Cue = new Cue(1),
-                    Setters =
-                    {
-                        new Setter(OpacityProperty, 1.0),
-                        new Setter(TranslateTransform.YProperty, 0.0),
-                    }
-                },
-            }
-        };
-
-        try
-        {
-            await anim.RunAsync(control, ct);
-        }
-        catch (OperationCanceledException)
-        {
-            // Ignore; next navigation animation takes over.
-        }
-        catch (ObjectDisposedException)
-        {
-            // Ignore; control was disposed during a rapid section transition.
-        }
-        catch (InvalidOperationException)
-        {
-            // Ignore; visual tree changed while the animation was running.
-        }
-
-        control.Opacity = 1;
-        control.RenderTransform = null;
+        if (page is not null)
+            SlideFadeEntrance.Play(page, 10, TimeSpan.FromMilliseconds(240));
+        if (sidebar is not null)
+            SlideFadeEntrance.Play(sidebar, 6, TimeSpan.FromMilliseconds(190));
     }
 
     private async void AnimateSidebarCollapse(bool collapse)

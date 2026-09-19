@@ -419,7 +419,7 @@
     <Style Selector="Panel#WelcomePanel">
       <Setter Property="Transitions">
         <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.35" Easing="CubicEaseOut" />
+          <DoubleTransition Property="Opacity" Duration="0:0:0.18" Easing="CubicEaseOut" />
         </Transitions>
       </Setter>
       <Setter Property="Opacity" Value="0" />
@@ -435,7 +435,7 @@
       <Setter Property="RenderTransform" Value="translateY(16px)" />
       <Setter Property="Transitions">
         <Transitions>
-          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.5" Easing="0.2,0 0,1" />
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.26" Easing="CubicEaseOut" />
         </Transitions>
       </Setter>
     </Style>
@@ -447,7 +447,7 @@
     <Style Selector="Panel#ChatPanel">
       <Setter Property="Transitions">
         <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.45" Easing="CubicEaseOut" Delay="0:0:0.1" />
+          <DoubleTransition Property="Opacity" Duration="0:0:0.16" Easing="CubicEaseOut" />
         </Transitions>
       </Setter>
       <Setter Property="Opacity" Value="0" />
@@ -462,8 +462,8 @@
     <Style Selector="StackPanel#ComposerContainer">
       <Setter Property="Transitions">
         <Transitions>
-          <DoubleTransition Property="MaxWidth" Duration="0:0:0.55" Easing="0.2,0 0,1" />
-          <ThicknessTransition Property="Margin" Duration="0:0:0.55" Easing="0.2,0 0,1" />
+          <DoubleTransition Property="MaxWidth" Duration="0:0:0.32" Easing="CubicEaseOut" />
+          <ThicknessTransition Property="Margin" Duration="0:0:0.32" Easing="CubicEaseOut" />
         </Transitions>
       </Setter>
       <!-- Default (active chat) state — capped to the reading column so the composer
@@ -2158,6 +2158,7 @@
       </Border>
 
       <sc:StrataChatComposer x:Name="Composer"
+                             Classes.motion-disabled="{Binding !AreAnimationsEnabled}"
                              Placeholder="{Binding ComposerPlaceholder}"
                              PromptText="{Binding PromptText, Mode=TwoWay}"
                              IsBusy="{Binding IsBusy}"

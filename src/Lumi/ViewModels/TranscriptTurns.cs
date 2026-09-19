@@ -13,6 +13,7 @@ using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using CommunityToolkit.Mvvm.ComponentModel;
+using StrataTheme.Animation;
 using StrataTheme.Controls;
 
 namespace Lumi.ViewModels;
@@ -629,11 +630,45 @@ public sealed class TranscriptTurnControl : UserControl
             });
         host.SetValue(ItemVisibilityBindingProperty, binding);
 
+        if (item.HasPendingEntranceAnimation)
+        {
+            host.SetCurrentValue(OpacityProperty, 0d);
+            host.Loaded += OnMessageHostLoaded;
+            host.PropertyChanged += OnMessageHostVisibilityChanged;
+        }
+
         return host;
+    }
+
+    private static void OnMessageHostLoaded(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is Control { IsVisible: true } host)
+            RevealMessageHost(host);
+    }
+
+    private static void OnMessageHostVisibilityChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == IsVisibleProperty && sender is Control { IsVisible: true, IsLoaded: true } host)
+            RevealMessageHost(host);
+    }
+
+    private static void RevealMessageHost(Control host)
+    {
+        host.Loaded -= OnMessageHostLoaded;
+        host.PropertyChanged -= OnMessageHostVisibilityChanged;
+        host.SetCurrentValue(OpacityProperty, 1d);
+        if (GetHostedItem(host)?.TryConsumeEntranceAnimation() != true)
+            return;
+
+        var shell = host.GetVisualAncestors().OfType<StrataChatShell>().FirstOrDefault();
+        if (shell?.IsFollowingTail != false)
+            SlideFadeEntrance.Play(host);
     }
 
     private static void ReleaseItemHost(Control host)
     {
+        host.Loaded -= OnMessageHostLoaded;
+        host.PropertyChanged -= OnMessageHostVisibilityChanged;
         var markdownControls = host is StrataMarkdown markdown
             ? [markdown]
             : host.GetVisualDescendants().OfType<StrataMarkdown>().ToArray();

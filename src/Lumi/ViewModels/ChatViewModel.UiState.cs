@@ -37,6 +37,8 @@ public partial class ChatViewModel
     /// Bound to the composer so the mic button is hidden on Linux/macOS.</summary>
     public bool IsVoiceAvailable => _voiceService.IsAvailable;
 
+    public bool AreAnimationsEnabled => _dataStore.Data.Settings.ShowAnimations;
+
     [ObservableProperty] private bool _sendWithEnter = true;
     [ObservableProperty] private bool _showAmbientPresence = true;
     [ObservableProperty] private bool _animatePresenceWhileWorking;
