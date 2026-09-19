@@ -10,7 +10,7 @@ on:
         description: Diagnostic experiment (diagnostic branch only)
         type: choice
         default: startup
-        options: [startup, framework-versions]
+        options: [startup, framework-versions, release-artifact]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -20,6 +20,60 @@ permissions:
   contents: read
 
 jobs:
+  release-artifact-probe:
+    if: github.ref_name == 'diagnostics/macos-idle-87c79f2d' && inputs.experiment == 'release-artifact'
+    name: Official 0.9.8 (${{ matrix.arch }}, ${{ matrix.distribution }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            arch: arm64
+            distribution: pkg
+          - os: macos-latest
+            arch: arm64
+            distribution: portable
+          - os: macos-15-intel
+            arch: x64
+            distribution: pkg
+          - os: macos-15-intel
+            arch: x64
+            distribution: portable
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download existing official release (no build)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release098"
+          gh api repos/adirh3/Lumi/releases/tags/v0.9.8 > "$RUNNER_TEMP/release098/release.json"
+          suffix="Portable.zip"
+          if [ "${{ matrix.distribution }}" = "pkg" ]; then suffix="Setup.pkg"; fi
+          gh release download v0.9.8 --repo adirh3/Lumi \
+            --pattern "Lumi-osx-${{ matrix.arch }}-$suffix" --dir "$RUNNER_TEMP/release098"
+      - name: Compile external window inspector
+        shell: bash
+        run: xcrun swiftc tools/MacReleaseInspector.swift -o "$RUNNER_TEMP/release-inspector"
+      - name: Install, launch normally and measure unchanged release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/Test-MacRelease.py \
+            --architecture "${{ matrix.arch }}" --distribution "${{ matrix.distribution }}" \
+            --assets "$RUNNER_TEMP/release098" --inspector "$RUNNER_TEMP/release-inspector" \
+            --output "$GITHUB_WORKSPACE/ReleaseProbeResults"
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: official-098-${{ matrix.arch }}-${{ matrix.distribution }}
+          path: ReleaseProbeResults
+          if-no-files-found: warn
+          retention-days: 3
+
   framework-version-probe:
     if: github.ref_name == 'diagnostics/macos-idle-87c79f2d' && inputs.experiment == 'framework-versions'
     name: Avalonia version comparison (${{ matrix.os }})
@@ -69,7 +123,7 @@ jobs:
           retention-days: 3
 
   idle-probe:
-    if: github.ref_name == 'diagnostics/macos-idle-87c79f2d' && inputs.experiment != 'framework-versions'
+    if: github.ref_name == 'diagnostics/macos-idle-87c79f2d' && inputs.experiment == 'startup'
     name: Native idle probe (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
