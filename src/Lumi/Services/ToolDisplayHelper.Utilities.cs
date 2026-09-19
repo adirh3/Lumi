@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using GitHub.Copilot;
 using Lumi.Localization;
@@ -135,11 +136,35 @@ public static partial class ToolDisplayHelper
 
     public static string TruncateInlineLabel(string text, int maxLength)
     {
-        var compact = Regex.Replace(text, @"\s+", " ", RegexOptions.CultureInvariant, RegexTimeout).Trim();
-        if (compact.Length <= maxLength)
-            return compact;
+        ArgumentNullException.ThrowIfNull(text);
 
-        return compact[..Math.Max(1, maxLength - 1)].TrimEnd() + "…";
+        var compact = new StringBuilder(Math.Min(text.Length, Math.Max(1, maxLength)));
+        var pendingSpace = false;
+        // Tool labels are formatted on the UI thread; stop once truncation is certain.
+        foreach (var character in text)
+        {
+            if (char.IsWhiteSpace(character))
+            {
+                pendingSpace = compact.Length > 0;
+                continue;
+            }
+
+            if (pendingSpace)
+            {
+                compact.Append(' ');
+                pendingSpace = false;
+            }
+
+            compact.Append(character);
+            if (compact.Length > maxLength)
+                break;
+        }
+
+        var label = compact.ToString();
+        if (label.Length <= maxLength)
+            return label;
+
+        return label[..Math.Max(1, maxLength - 1)].TrimEnd() + "…";
     }
 
     /// <summary>Returns true if the tool creates files (for resource link detection).</summary>

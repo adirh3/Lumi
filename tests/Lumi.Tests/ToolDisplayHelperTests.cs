@@ -202,6 +202,35 @@ public class ToolDisplayHelperTests
         Assert.Equal("Reading a very lo…", label);
     }
 
+    [Theory]
+    [InlineData("", 28, "")]
+    [InlineData("\t \r\n\u0085\u00a0\u2003\u2028\u2029\u3000", 28, "")]
+    [InlineData("  Reading\t\r\nfile.txt  ", 28, "Reading file.txt")]
+    [InlineData("\u00a0Read\u0085a\u2003file\u2028now\u3000", 28, "Read a file now")]
+    [InlineData("Read\u200bfile", 28, "Read\u200bfile")]
+    [InlineData("abc", 3, "abc")]
+    [InlineData("abc\t \r\n", 3, "abc")]
+    [InlineData("ab\t\tc", 3, "ab…")]
+    [InlineData("ab  c", 4, "ab c")]
+    [InlineData("ab  cd", 4, "ab…")]
+    [InlineData("abcd", 3, "ab…")]
+    [InlineData("a", 1, "a")]
+    [InlineData("ab", 1, "a…")]
+    [InlineData("", 0, "")]
+    [InlineData("ab", 0, "a…")]
+    public void TruncateInlineLabel_PreservesWhitespaceAndLengthBoundaries(string text, int maxLength, string expected)
+    {
+        Assert.Equal(expected, ToolDisplayHelper.TruncateInlineLabel(text, maxLength));
+    }
+
+    [Fact]
+    public void TruncateInlineLabel_LargeWhitespaceRichInput_DoesNotTimeout()
+    {
+        var text = string.Concat(Enumerable.Repeat("word\t", 2_000_000));
+
+        Assert.Equal("word word word word word wo…", ToolDisplayHelper.TruncateInlineLabel(text, 28));
+    }
+
     [Fact]
     public void IsSearchTool_RecognizesBuiltInWebSearch()
     {

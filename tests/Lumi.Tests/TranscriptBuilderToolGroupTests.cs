@@ -605,6 +605,33 @@ public sealed class TranscriptBuilderToolGroupTests
     }
 
     [Fact]
+    public void ProcessMessageToTranscript_LongToolDetails_PreservesActivityPreviewAndToolDetails()
+    {
+        var builder = CreateBuilder();
+        var liveTurns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(liveTurns);
+        var query = string.Concat(Enumerable.Repeat("word\t", 20_000));
+        var message = CreateToolVm("search-1", "web_search", "InProgress", JsonSerializer.Serialize(new { query }));
+
+        builder.ProcessMessageToTranscript(message);
+
+        var group = Assert.IsType<ToolGroupItem>(Assert.Single(Assert.Single(liveTurns).Items));
+        var call = Assert.IsType<ToolCallItem>(Assert.Single(group.ToolCalls));
+        Assert.True(group.IsActive);
+        var activity = Assert.Single(group.ActivityPreview);
+        Assert.Equal(call.ToolName, activity.Label);
+        Assert.Equal(query, activity.Detail);
+        Assert.Equal(query, call.MoreInfo);
+
+        message.Message.ToolStatus = "Completed";
+        message.NotifyToolStatusChanged();
+
+        Assert.False(group.IsActive);
+        Assert.Empty(group.ActivityPreview);
+        Assert.Equal(query, call.MoreInfo);
+    }
+
+    [Fact]
     public void ToolGroup_Expanding_CollapsesNestedTools()
     {
         var group = new ToolGroupItem("Finished");
