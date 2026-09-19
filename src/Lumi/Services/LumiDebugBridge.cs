@@ -228,6 +228,7 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             "read_transcript" => ReadTranscriptAsync(arguments),
             "read_activity" => ReadActivityAsync(arguments),
             "load_fixture" => InvokeUiAsync(LoadFixture),
+            "load_browser_fixture" => InvokeUiAsync(() => LoadBrowserFixtureAsync(arguments)),
             "load_background_shell" => InvokeUiAsync(LoadBackgroundShellFixture),
             "list_features" => InvokeUiAsync(() => ListFeatures(arguments)),
             "configure_feature" => InvokeUiAsync(() => ConfigureFeatureAsync(arguments)),
@@ -919,6 +920,14 @@ internal sealed class LumiDebugBridge : IAsyncDisposable
             mountedTranscriptTurnCount = _mainViewModel.ChatVM.MountedTranscriptTurns.Count,
             transcriptItemCount = _mainViewModel.ChatVM.TranscriptTurns.Count
         };
+    }
+
+    private async Task<object> LoadBrowserFixtureAsync(JsonElement? arguments)
+    {
+        _mainViewModel.SelectedNavIndex = 0;
+        var snapshot = await _mainViewModel.ChatVM.LoadDebugBrowserFixtureAsync(
+            RequireString(arguments ?? default, "url"));
+        return new { loaded = true, snapshot };
     }
 
     private object LoadBackgroundShellFixture()

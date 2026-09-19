@@ -126,6 +126,8 @@ public partial class AgentsViewModel : ObservableObject
         (ToolDisplayHelper.BrowserFindToolName, "Browser Find", "Browser", "Find and rank interactive elements by query."),
         (ToolDisplayHelper.BrowserDoToolName, "Browser Interact", "Browser", "Click, type, press keys, select, scroll in the browser."),
         (ToolDisplayHelper.BrowserJsToolName, "Browser JavaScript", "Browser", "Run JavaScript in the browser page context."),
+        (ToolDisplayHelper.BrowserTabsToolName, "Browser Tabs", "Browser", "List, create, switch, and close browser tabs using stable tab IDs."),
+        (ToolDisplayHelper.BrowserScreenshotToolName, "Browser Screenshot", "Browser", "Inspect a browser viewport image for visual layout, canvas content, and icons."),
         ("ui_list_windows", "List Windows", "Desktop", "List all visible windows on the desktop."),
         ("ui_inspect", "Inspect Window", "Desktop", "Inspect the UI element tree of a window."),
         ("ui_find", "Find UI Element", "Desktop", "Find UI elements matching a search query."),
