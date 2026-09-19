@@ -1224,52 +1224,56 @@
                                   </ContextMenu>
                                 </Panel.ContextMenu>
                                 <DockPanel>
-                                  <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="5">
+                                  <Grid DockPanel.Dock="Bottom" ColumnDefinitions="Auto,*">
                                     <Border x:Name="ChatTagBadge"
+                                            Grid.Column="0"
                                             IsVisible="{Binding HasTag}"
                                             ToolTip.Tip="{Binding TagName}"
                                             HorizontalAlignment="Left"
                                             MaxWidth="105"
-                                            Margin="0,5,0,1"
+                                            Margin="0,5,5,1"
                                             Padding="7,2,9,2"
                                             CornerRadius="{DynamicResource Radius.Full}"
                                             Background="{Binding TagColor, Converter={StaticResource ChatTagBrush}, ConverterParameter=subtle}">
-                                      <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                        <Border Width="6" Height="6" CornerRadius="3"
+                                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="4" VerticalAlignment="Center">
+                                        <Border Grid.Column="0" Width="6" Height="6" CornerRadius="3"
                                                 VerticalAlignment="Center"
                                                 Background="{Binding TagColor, Converter={StaticResource ChatTagBrush}}" />
-                                        <TextBlock Text="{Binding TagName}"
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding TagName}"
                                                    FontSize="10.5"
                                                    FontWeight="SemiBold"
                                                    VerticalAlignment="Center"
                                                    Foreground="{DynamicResource Brush.TextPrimary}"
                                                    TextTrimming="CharacterEllipsis" />
-                                      </StackPanel>
+                                      </Grid>
                                     </Border>
                                     <Border x:Name="ProjectBadge"
+                                            Grid.Column="1"
                                             IsVisible="{Binding ShowProjectBadge}"
                                             ToolTip.Tip="{Binding ProjectBadgeText}"
                                             HorizontalAlignment="Left"
-                                            MaxWidth="115"
                                             Margin="0,5,0,1"
                                             Padding="7,2,9,2"
                                             CornerRadius="{DynamicResource Radius.Full}"
                                             Background="{DynamicResource Brush.AccentSubtle}">
-                                      <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                        <PathIcon Data="{StaticResource Icon.Folder}"
+                                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="4" VerticalAlignment="Center">
+                                        <PathIcon Grid.Column="0"
+                                                  Data="{StaticResource Icon.Folder}"
                                                   Width="10" Height="10"
                                                   VerticalAlignment="Center"
                                                   Foreground="{DynamicResource Brush.AccentDefault}" />
                                         <TextBlock x:Name="ProjectLabel"
+                                                   Grid.Column="1"
                                                    Text="{Binding ProjectBadgeText}"
                                                    FontSize="10.5"
                                                    FontWeight="Medium"
                                                    VerticalAlignment="Center"
                                                    Foreground="{DynamicResource Brush.AccentDefault}"
                                                    TextTrimming="CharacterEllipsis" />
-                                      </StackPanel>
+                                      </Grid>
                                     </Border>
-                                  </StackPanel>
+                                  </Grid>
                                   <Border x:Name="UnreadIndicator" DockPanel.Dock="Left"
                                           Width="6" Height="6" CornerRadius="3"
                                           Background="{DynamicResource Brush.AccentDefault}"
