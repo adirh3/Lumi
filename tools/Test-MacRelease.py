@@ -79,11 +79,14 @@ def inspector(executable, action, target):
     return json.loads(command([executable, action, str(target)]).stdout)
 
 
-def launch(bundle, executable, output):
+def launch(bundle, executable, output, allow_installer_launch=False):
     existing = inspector(executable, "locate", bundle)
-    if existing:
+    if existing and not allow_installer_launch:
         raise RuntimeError(f"The target bundle is already running: {existing}")
-    command(["open", "-n", bundle], output / "launchservices-open.log")
+    if existing:
+        write_json(output / "installer-auto-launch.json", existing)
+    else:
+        command(["open", "-n", bundle], output / "launchservices-open.log")
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         apps = inspector(executable, "locate", bundle)
@@ -278,7 +281,8 @@ def main(args):
                 "backendInitializationDisabled": False,
                 "uiOnboardingCompletedInteractively": False,
             })
-        pid = launch(bundle, helper, phase_dir)
+        pid = launch(bundle, helper, phase_dir,
+                     allow_installer_launch=args.distribution == "pkg" and name == "fresh-install")
         try:
             samples = measure(helper, pid, phase_dir, "visible")
             summary = {"name": name, "pid": pid, "samples": samples}
