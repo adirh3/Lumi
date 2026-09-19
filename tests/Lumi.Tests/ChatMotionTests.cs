@@ -73,7 +73,7 @@ public sealed class ChatMotionTests
         Skip.IfNot(Environment.GetEnvironmentVariable("LUMI_COMPOSER_MOTION_RENDER") == "1",
             "Run this method alone with LUMI_COMPOSER_MOTION_RENDER=1 for real-pixel verification.");
         using var session = HeadlessTestSession.Start(typeof(SkiaHeadlessTestApp));
-        await session.Dispatch(() =>
+        await session.Dispatch(async () =>
         {
             var composer = new StrataChatComposer { Width = 400, Margin = new Thickness(20) };
             var outside = new Button { Content = "Outside" };
@@ -93,7 +93,7 @@ public sealed class ChatMotionTests
                 var sweep = composer.GetVisualDescendants().OfType<Border>().Single(x => x.Name == "PART_FocusSweep");
                 Assert.True(outside.Focus());
                 _ = CaptureLinePixels(window, line);
-                Thread.Sleep(450);
+                await Task.Delay(450);
                 var unfocused = CaptureLinePixels(window, line);
                 var trackBounds = line.Bounds;
 
@@ -105,7 +105,7 @@ public sealed class ChatMotionTests
                 var revealSamples = new List<string>();
                 for (var i = 0; i < 10; i++)
                 {
-                    Thread.Sleep(25);
+                    await Task.Delay(25);
                     var pixels = CaptureLinePixels(window, line);
                     var changed = Enumerable.Range(2, pixels.Length - 4)
                         .Where(x => ColorDistance(pixels[x], unfocused[x]) > 45)
@@ -123,7 +123,7 @@ public sealed class ChatMotionTests
                     string.Join("; ", revealSamples));
                 Assert.True(revealedEdges[^1] > revealedEdges[0] + trackBounds.Width * 0.15);
 
-                Thread.Sleep(450);
+                await Task.Delay(450);
                 sweep.IsVisible = false;
                 var resting = CaptureLinePixels(window, line);
                 sweep.ClearValue(Visual.IsVisibleProperty);
@@ -133,7 +133,7 @@ public sealed class ChatMotionTests
                 var peakContrast = 0;
                 for (var i = 0; i < 10; i++)
                 {
-                    Thread.Sleep(100);
+                    await Task.Delay(100);
                     var pixels = CaptureLinePixels(window, line);
                     var weight = 0d;
                     var weightedX = 0d;
@@ -159,6 +159,14 @@ public sealed class ChatMotionTests
                     $"Expected visible left-to-right travel: {string.Join(", ", positions)}");
                 for (var i = 1; i < positions.Count; i++)
                     Assert.True(positions[i] >= positions[i - 1] - 1);
+
+                await Task.Delay(1200);
+                var stopped = CaptureLinePixels(window, line);
+                Assert.False(LifecycleOffsetSweep.IsRunning(sweep));
+                Assert.Equal(0, sweep.Opacity);
+                Assert.Equal(1, line.Opacity);
+                await Task.Delay(250);
+                Assert.Equal(stopped, CaptureLinePixels(window, line));
             }
             finally
             {
@@ -229,6 +237,10 @@ public sealed class ChatMotionTests
 
                 Assert.True(input.Focus());
                 Dispatcher.UIThread.RunJobs();
+                Assert.False(LifecycleOffsetSweep.IsRunning(sweep));
+                Assert.Equal(0, sweep.Opacity);
+                await Task.Delay(500);
+                Dispatcher.UIThread.RunJobs();
                 Assert.True(LifecycleOffsetSweep.GetIsActive(sweep));
                 Assert.True(LifecycleOffsetSweep.IsRunning(sweep));
                 Assert.Equal(2, line.Bounds.Height);
@@ -245,6 +257,7 @@ public sealed class ChatMotionTests
                 Assert.False(LifecycleOffsetSweep.IsRunning(sweep));
                 panel.IsVisible = true;
                 Assert.True(input.Focus());
+                await Task.Delay(500);
                 Dispatcher.UIThread.RunJobs();
                 Assert.True(LifecycleOffsetSweep.IsRunning(sweep));
 

@@ -20,7 +20,8 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 ### Desktop motion
 
 The composer keeps its thin Stratum underline, drawing it from left to right on focus and
-showing a visible travelling highlight while focused. Newly sent messages and live assistant
+then showing a travelling highlight for two seconds before resting. Refocusing replays it.
+Newly sent messages and live assistant
 replies rise into place once, without moving transcript layout or replaying on
 history rebuilds, paging, or chat switches. Section navigation and the coding strip use the
 same short, interruptible motion, and the welcome-to-chat handoff has no delayed fade.
