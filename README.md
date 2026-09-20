@@ -17,6 +17,15 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Localization** — English and Hebrew, with easy extension to other languages
 - **Desktop notifications** — Toast notifications when responses complete in the background
 
+### Unread chats
+
+Right-click a sidebar chat and choose **Mark as unread** to add it to the unread
+inbox without leaving your current conversation. For unread chats, the menu
+instead offers **Mark as read**, which clears only that chat's mark without
+opening it. Closed/open envelope icons distinguish the two actions. Opening the
+chat or choosing **Mark all as read** also clears the mark. Like automatic unread
+indicators, these marks last for the current app session.
+
 ### Desktop motion
 
 The composer keeps its thin Stratum underline, drawing it from left to right on focus and

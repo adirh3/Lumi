@@ -204,6 +204,8 @@
   "Menu_ChatTag": "תגית",
   "Menu_Pin": "הצמדה",
   "Menu_Unpin": "ביטול הצמדה",
+  "Menu_MarkAsUnread": "סמן כלא נקרא",
+  "Menu_MarkAsRead": "סמן כנקרא",
   "Menu_Delete": "מחיקה",
 
   "Common_Save": "שמירה",

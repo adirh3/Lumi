@@ -500,6 +500,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             // Already this window's surface, so it already holds this window's display host.
             _chatSessionStore.Release(surface);
+            if (surface.CurrentChat is { } chat)
+                chat.HasUnreadMessages = false;
             ActiveChatId = surface.CurrentChat?.Id;
             return;
         }
@@ -1259,6 +1261,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             if (handler(chat))
             {
+                chat.HasUnreadMessages = false;
                 SelectedNavIndex = 0;
                 ChatSelectionSyncRequested?.Invoke(ActiveChatId);
                 return true;

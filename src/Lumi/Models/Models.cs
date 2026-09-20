@@ -669,7 +669,7 @@ public class Chat : INotifyPropertyChanged
     [JsonIgnore]
     public bool HasBackgroundActivity => IsSessionActive && !IsRunning;
 
-    /// <summary>Runtime-only flag indicating this chat has unread messages from an auto-triggered background task response.</summary>
+    /// <summary>Runtime-only flag for an unseen reply or a chat manually marked as unread.</summary>
     [JsonIgnore]
     public bool HasUnreadMessages
     {

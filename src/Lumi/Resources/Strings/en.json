@@ -204,6 +204,8 @@
   "Menu_ChatTag": "Tag",
   "Menu_Pin": "Pin",
   "Menu_Unpin": "Unpin",
+  "Menu_MarkAsUnread": "Mark as unread",
+  "Menu_MarkAsRead": "Mark as read",
   "Menu_Delete": "Delete",
 
   "Common_Save": "Save",

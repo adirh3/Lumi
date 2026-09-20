@@ -4,11 +4,14 @@ using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Controls;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Services;
 using Lumi.ViewModels;
+using Lumi.Views;
 using Xunit;
 
 namespace Lumi.Tests;
@@ -58,6 +61,220 @@ public sealed class UnreadInboxTests
             Assert.True(vm.HasUnreadChats);
             Assert.Equal(1, vm.UnreadChatCount);
             Assert.Equal(Loc.Unread_SummaryOne, vm.UnreadSummaryText);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MarkChatUnread_KeepsTheCurrentChatAndUpdatesTheInboxUntilReopened(bool markCurrentChat)
+    {
+        await RunAsync(async () =>
+        {
+            var project = new Project { Name = "Work" };
+            var target = new Chat { Title = "Read later", ProjectId = project.Id };
+            var other = new Chat { Title = "Other chat" };
+            using var vm = CreateViewModel([project], target, other);
+            var current = markCurrentChat ? target : other;
+            Assert.True(await vm.OpenChatByIdAsync(current.Id));
+            var surface = vm.ChatVM;
+            var updatedAt = target.UpdatedAt;
+            var chatOrder = vm.ChatGroups.SelectMany(group => group.Chats).ToArray();
+            var changedChats = new List<Guid>();
+            vm.ChatActivityOrReadStateChanged += changedChats.Add;
+
+            vm.MarkChatUnreadCommand.Execute(target);
+            vm.MarkChatUnreadCommand.Execute(target);
+            await DrainUiThreadAsync();
+
+            Assert.True(target.HasUnreadMessages);
+            Assert.False(other.HasUnreadMessages);
+            Assert.Same(surface, vm.ChatVM);
+            Assert.Equal(current.Id, vm.ActiveChatId);
+            Assert.Equal(updatedAt, target.UpdatedAt);
+            Assert.Equal(chatOrder, vm.ChatGroups.SelectMany(group => group.Chats).ToArray());
+            Assert.Equal([target.Id], changedChats);
+            Assert.True(vm.HasUnreadChats);
+            Assert.Equal(1, vm.UnreadChatCount);
+            Assert.Equal("1", vm.UnreadBadgeText);
+            Assert.Equal(1, vm.GetProjectUnreadCount(project.Id));
+            var entry = Assert.Single(vm.UnreadChats);
+            Assert.Same(target, entry.Chat);
+
+            await vm.OpenUnreadChatCommand.ExecuteAsync(entry);
+
+            Assert.Equal(target.Id, vm.ActiveChatId);
+            Assert.False(target.HasUnreadMessages);
+            Assert.False(vm.HasUnreadChats);
+            Assert.Empty(vm.UnreadChats);
+        });
+    }
+
+    [Fact]
+    public async Task MarkChatUnread_TracksAChatAddedAfterTheViewModelWasCreated()
+    {
+        await RunAsync(async () =>
+        {
+            using var vm = CreateViewModel([]);
+            var chat = new Chat { Title = "New chat" };
+            vm.DataStore.Data.Chats.Add(chat);
+            vm.RefreshChatList();
+
+            vm.MarkChatUnreadCommand.Execute(chat);
+
+            Assert.True(chat.HasUnreadMessages);
+            Assert.Equal(1, vm.UnreadChatCount);
+            Assert.Same(chat, Assert.Single(vm.UnreadChats).Chat);
+
+            Assert.True(await vm.OpenChatByIdAsync(chat.Id));
+
+            Assert.False(chat.HasUnreadMessages);
+            Assert.False(vm.HasUnreadChats);
+            Assert.Empty(vm.UnreadChats);
+        });
+    }
+
+    [Fact]
+    public async Task OpeningAManuallyUnreadDetachedChatClearsItsMarkWhenFocused()
+    {
+        await RunAsync(async () =>
+        {
+            var target = new Chat { Title = "Detached chat" };
+            using var vm = CreateViewModel([], target);
+            var focused = false;
+            vm.DetachedChatFocusRequested += chat => focused = ReferenceEquals(chat, target);
+
+            vm.MarkChatUnreadCommand.Execute(target);
+            Assert.True(target.HasUnreadMessages);
+
+            Assert.True(await vm.OpenChatByIdAsync(target.Id));
+
+            Assert.True(focused);
+            Assert.False(target.HasUnreadMessages);
+            Assert.False(vm.HasUnreadChats);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReadStateCommands_WithoutATargetDoNotChangeUnreadState(bool isUnread)
+    {
+        await RunAsync(() =>
+        {
+            var chat = new Chat { Title = "Chat", HasUnreadMessages = isUnread };
+            using var vm = CreateViewModel([], chat);
+
+            vm.MarkChatUnreadCommand.Execute(null);
+            vm.MarkChatReadCommand.Execute(null);
+
+            Assert.Equal(isUnread, chat.HasUnreadMessages);
+            Assert.Equal(isUnread, vm.HasUnreadChats);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MarkChatRead_ClearsOnlyTheTargetWithoutNavigation(bool markCurrentChat)
+    {
+        await RunAsync(async () =>
+        {
+            var project = new Project { Name = "Work" };
+            var target = new Chat { Title = "Read now", ProjectId = project.Id };
+            var other = new Chat { Title = "Read later" };
+            using var vm = CreateViewModel([project], target, other);
+            var current = markCurrentChat ? target : other;
+            Assert.True(await vm.OpenChatByIdAsync(current.Id));
+            var surface = vm.ChatVM;
+            var updatedAt = target.UpdatedAt;
+            var chatOrder = vm.ChatGroups.SelectMany(group => group.Chats).ToArray();
+            vm.MarkChatUnreadCommand.Execute(target);
+            vm.MarkChatUnreadCommand.Execute(other);
+            vm.ToggleUnreadPanelCommand.Execute(null);
+            var changedChats = new List<Guid>();
+            vm.ChatActivityOrReadStateChanged += changedChats.Add;
+
+            vm.MarkChatReadCommand.Execute(target);
+            vm.MarkChatReadCommand.Execute(target);
+            await DrainUiThreadAsync();
+
+            Assert.False(target.HasUnreadMessages);
+            Assert.True(other.HasUnreadMessages);
+            Assert.Same(surface, vm.ChatVM);
+            Assert.Equal(current.Id, vm.ActiveChatId);
+            Assert.Equal(updatedAt, target.UpdatedAt);
+            Assert.Equal(chatOrder, vm.ChatGroups.SelectMany(group => group.Chats).ToArray());
+            Assert.Equal([target.Id], changedChats);
+            Assert.Equal(1, vm.UnreadChatCount);
+            Assert.Equal(0, vm.GetProjectUnreadCount(project.Id));
+            Assert.Same(other, Assert.Single(vm.UnreadChats).Chat);
+            Assert.True(vm.IsUnreadPanelOpen);
+
+            vm.MarkChatReadCommand.Execute(other);
+
+            Assert.False(vm.HasUnreadChats);
+            Assert.Empty(vm.UnreadChats);
+            Assert.False(vm.IsUnreadPanelOpen);
+        });
+    }
+
+    [Fact]
+    public async Task ReadStateMenu_ShowsOnlyTheApplicableActionAndTracksChangesWhileOpen()
+    {
+        await RunAsync(async () =>
+        {
+            var chat = new Chat { Title = "Read state menu" };
+            using var vm = CreateViewModel([], chat);
+            vm.IsOnboarded = true;
+            var window = new MainWindow { DataContext = vm };
+            window.Show();
+            try
+            {
+                await DrainUiThreadAsync();
+                window.UpdateLayout();
+                var row = window.GetVisualDescendants().OfType<ListBoxItem>()
+                    .Single(item => ReferenceEquals(item.DataContext, chat));
+                var owner = row.GetVisualDescendants().OfType<Panel>()
+                    .Single(panel => panel.ContextMenu is not null);
+                var menu = owner.ContextMenu!;
+                menu.Open(owner);
+                await DrainUiThreadAsync();
+
+                var markUnread = menu.Items.OfType<MenuItem>()
+                    .Single(item => item.Name == "MarkChatUnreadMenuItem");
+                var markRead = menu.Items.OfType<MenuItem>()
+                    .Single(item => item.Name == "MarkChatReadMenuItem");
+                Assert.Equal(Loc.Menu_MarkAsUnread, markUnread.Header);
+                Assert.Equal(Loc.Menu_MarkAsRead, markRead.Header);
+                Assert.Same(vm.MarkChatUnreadCommand, markUnread.Command);
+                Assert.Same(vm.MarkChatReadCommand, markRead.Command);
+                Assert.Same(chat, markUnread.CommandParameter);
+                Assert.Same(chat, markRead.CommandParameter);
+                Assert.Same(window.Resources["Icon.MailClosed"], Assert.IsType<PathIcon>(markUnread.Icon).Data);
+                Assert.Same(window.Resources["Icon.MailOpen"], Assert.IsType<PathIcon>(markRead.Icon).Data);
+                Assert.True(markUnread.IsVisible);
+                Assert.False(markRead.IsVisible);
+
+                markUnread.Command!.Execute(markUnread.CommandParameter);
+                await DrainUiThreadAsync();
+
+                Assert.True(chat.HasUnreadMessages);
+                Assert.False(markUnread.IsVisible);
+                Assert.True(markRead.IsVisible);
+
+                markRead.Command!.Execute(markRead.CommandParameter);
+                await DrainUiThreadAsync();
+
+                Assert.False(chat.HasUnreadMessages);
+                Assert.True(markUnread.IsVisible);
+                Assert.False(markRead.IsVisible);
+                Assert.False(vm.HasUnreadChats);
+            }
+            finally
+            {
+                window.Close();
+            }
         });
     }
 

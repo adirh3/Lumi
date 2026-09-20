@@ -225,6 +225,21 @@ public partial class MainViewModel
     }
 
     [RelayCommand]
+    private void MarkChatUnread(Chat? chat) => SetChatUnread(chat, true);
+
+    [RelayCommand]
+    private void MarkChatRead(Chat? chat) => SetChatUnread(chat, false);
+
+    private void SetChatUnread(Chat? chat, bool isUnread)
+    {
+        if (chat is null)
+            return;
+
+        SubscribeChatRunningState();
+        chat.HasUnreadMessages = isUnread;
+    }
+
+    [RelayCommand]
     private void MarkAllChatsRead()
     {
         foreach (var chat in _dataStore.Data.Chats)
