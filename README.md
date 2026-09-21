@@ -52,6 +52,9 @@ does not leave foreground reconnection waiting on a native streaming read.
 
 The PWA measures its actual dynamic-height canvas when applying keyboard overlap, so
 browser resizing does not add a second bottom gap. Home-indicator safe space is retained.
+Release PWA publishes ahead-of-time compiled WebAssembly. The mobile transcript realizes
+only turns near the viewport while retaining the full loaded page and offscreen streaming
+updates, avoiding eager layout of every markdown answer when opening a conversation.
 
 ### Lumi tool availability
 

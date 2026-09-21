@@ -16,6 +16,117 @@ namespace Lumi.Mobile.Tests;
 [Collection("Headless mobile UI")]
 public sealed class ChatInitialBottomTests(ITestOutputHelper output)
 {
+    [Fact]
+    public async Task EmptyTurnRealizesWhenItsFirstContentArrives()
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            await using var model = new MobileShellViewModel(
+                store: session.NewStore(), post: action => action());
+            var view = new ChatDetailView { DataContext = model };
+            var window = new Window { Width = 412, Height = 892, Content = view };
+            window.Show();
+            try
+            {
+                var chatId = Guid.NewGuid();
+                model.Chat.Reset(chatId, "Starting", isLoading: true);
+                var transcript = new RemoteTranscript
+                {
+                    ChatId = chatId, Revision = 1, IsLatestWindow = true,
+                    Status = new RemoteChatStatus { ChatId = chatId, IsBusy = true },
+                    Turns = [new() { Id = "starting-turn" }]
+                };
+                model.Chat.ApplyTranscript(transcript);
+                model.Chat.IsLoading = false;
+                await PumpAsync();
+
+                transcript.Revision = 2;
+                transcript.TotalRawMessageCount = 1;
+                transcript.WindowEndMessageIndex = 1;
+                transcript.Turns[0].Items.Add(new()
+                {
+                    Id = "first-answer", Kind = RemoteProtocol.ItemKinds.Assistant,
+                    Text = "The first answer arrived."
+                });
+                model.Chat.ApplyTranscript(transcript);
+                await PumpAsync();
+
+                Assert.Contains(view.GetVisualDescendants().OfType<StrataMarkdown>(),
+                    markdown => markdown.Markdown == "The first answer arrived.");
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(412)]
+    [InlineData(1000)]
+    public async Task TranscriptRealizesOnlyNearbyTurnsAndKeepsOffscreenStreamingContent(double width)
+    {
+        using var session = HeadlessMobileSession.Start();
+        await session.Dispatch(async () =>
+        {
+            await using var model = new MobileShellViewModel(
+                store: session.NewStore(), post: action => action());
+            var view = new ChatDetailView { DataContext = model };
+            var window = new Window { Width = width, Height = 892, Content = view };
+            window.Show();
+            try
+            {
+                var initializedAnswers = new HashSet<string>(StringComparer.Ordinal);
+                using var subscription = StrataMarkdown.MarkdownProperty.Changed.AddClassHandler<StrataMarkdown>(
+                    (markdown, _) =>
+                    {
+                        if (markdown.Markdown?.StartsWith("### Step ", StringComparison.Ordinal) == true)
+                            initializedAnswers.Add(markdown.Markdown);
+                    });
+                var chatId = Guid.NewGuid();
+                await OpenChatAsync(model, chatId);
+                var shell = view.FindControl<StrataChatShell>("ChatShell")!;
+                var transcript = view.FindControl<ItemsControl>("Transcript")!;
+                Assert.Equal(48, model.Chat.Turns.Sum(turn => turn.Items.Count));
+                Assert.InRange(RealizedTurns(transcript), 1, 8);
+                Assert.NotNull(TurnView(transcript, 23).Child);
+                Assert.Null(TurnView(transcript, 0).Child);
+                AssertAtBottom(shell, "virtualized initial landing");
+                Assert.InRange(initializedAnswers.Count, 1, 8);
+
+                shell.PreserveViewport();
+                transcript.ScrollIntoView(0);
+                await PumpAsync();
+                var first = Assert.IsAssignableFrom<Control>(transcript.ContainerFromIndex(0));
+                var readerPosition = first.TranslatePoint(default, shell)!.Value.Y;
+                Assert.Null(TurnView(transcript, 23).Child);
+                Assert.InRange(RealizedTurns(transcript), 1, 8);
+                Assert.False(shell.IsFollowingTail);
+
+                const string tail = "## Updated while offscreen\n\nThis answer remains available after scrolling back.";
+                Assert.True(model.Chat.ApplyDelta(new RemoteStreamDelta
+                {
+                    ChatId = chatId, ItemId = "answer-23", Text = tail, Offset = -1
+                }));
+                await PumpAsync();
+                Assert.False(shell.IsFollowingTail);
+                Assert.Null(TurnView(transcript, 23).Child);
+                Assert.InRange(Math.Abs(first.TranslatePoint(default, shell)!.Value.Y - readerPosition), 0, 1);
+
+                shell.JumpToLatest();
+                await PumpAsync();
+                AssertAtBottom(shell, "return to updated tail");
+                var last = Assert.IsAssignableFrom<Control>(transcript.ContainerFromIndex(23));
+                Assert.Contains(last.GetVisualDescendants().OfType<StrataMarkdown>(),
+                    markdown => markdown.Markdown == tail);
+                Assert.InRange(RealizedTurns(transcript), 1, 8);
+                Assert.Equal(48, model.Chat.Turns.Sum(turn => turn.Items.Count));
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
     [Theory]
     [InlineData("composer-growth")]
     [InlineData("composer-collapse")]
@@ -130,14 +241,14 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
                 Assert.True(shell.ScrollGeneration > generation);
                 Assert.False(shell.IsFollowingTail);
                 Assert.True(shell.VerticalOffset < bottomOffset - 10);
-                var readerOffset = shell.VerticalOffset;
+                var readerAnchor = CaptureReaderAnchor(view);
 
                 var composer = view.FindControl<StrataChatComposer>("Composer")!;
                 composer.Height = composer.Bounds.Height + 32;
                 GrowLastMarkdown(view);
                 await PumpAsync();
                 Assert.False(shell.IsFollowingTail);
-                Assert.InRange(Math.Abs(shell.VerticalOffset - readerOffset), 0, 1);
+                AssertReaderAnchor(view, readerAnchor);
                 Assert.False(shell.HasNewContent); // Layout alone is not unread content.
 
                 var refreshed = Transcript(chatId, revision: 2);
@@ -150,17 +261,17 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
                 await PumpAsync();
                 Assert.False(shell.IsFollowingTail);
                 Assert.True(shell.HasNewContent);
-                Assert.InRange(Math.Abs(shell.VerticalOffset - readerOffset), 0, 1);
+                AssertReaderAnchor(view, readerAnchor);
 
                 model.Chat.ApplyTranscript(Transcript(chatId, revision: 3, latest: false));
                 await PumpAsync();
-                var pageOffset = shell.VerticalOffset;
+                var pageAnchor = CaptureReaderAnchor(view);
                 Assert.False(model.Chat.IsLatestWindow);
                 composer.Height += 24;
                 GrowLastMarkdown(view);
                 await PumpAsync();
                 Assert.False(shell.IsFollowingTail);
-                Assert.InRange(Math.Abs(shell.VerticalOffset - pageOffset), 0, 1);
+                AssertReaderAnchor(view, pageAnchor);
             }
             finally
             {
@@ -356,10 +467,48 @@ public sealed class ChatInitialBottomTests(ITestOutputHelper output)
             + "\n\n- A late detail\n- One more late detail";
     }
 
-    private static StrataMarkdown LastMarkdown(ChatDetailView view) =>
-        view.FindControl<StrataChatShell>("ChatShell")!.TranscriptScrollViewer!
-            .GetVisualDescendants().OfType<StrataMarkdown>()
-            .Last(control => control.IsEffectivelyVisible);
+    private static StrataMarkdown LastMarkdown(ChatDetailView view)
+    {
+        var scroll = view.FindControl<StrataChatShell>("ChatShell")!.TranscriptScrollViewer!;
+        return scroll.GetVisualDescendants().OfType<StrataMarkdown>()
+            .Where(control => control.IsEffectivelyVisible)
+            .OrderBy(control => control.TranslatePoint(default, scroll)!.Value.Y)
+            .Last();
+    }
+
+    private static int RealizedTurns(ItemsControl transcript) =>
+        transcript.GetVisualDescendants().OfType<TranscriptTurnView>().Count(turn => turn.Child is not null);
+
+    private static TranscriptTurnView TurnView(ItemsControl transcript, int index) =>
+        transcript.ContainerFromIndex(index)!.GetVisualDescendants().OfType<TranscriptTurnView>().Single();
+
+    private (string TurnId, double Y) CaptureReaderAnchor(ChatDetailView view)
+    {
+        var scroll = view.FindControl<StrataChatShell>("ChatShell")!.TranscriptScrollViewer!;
+        var transcript = view.FindControl<ItemsControl>("Transcript")!;
+        var anchor = transcript.GetRealizedContainers()
+            .Select(control => (Control: control, Y: control.TranslatePoint(default, scroll)!.Value.Y))
+            .Where(item => item.Y < scroll.Viewport.Height && item.Y + item.Control.Bounds.Height > 0)
+            .OrderBy(item => item.Y)
+            .First();
+        var id = ((TranscriptTurnViewModel)anchor.Control.DataContext!).Id;
+        output.WriteLine($"Reader {id}: y={anchor.Y:F1}, offset={scroll.Offset.Y:F1}, " +
+            $"extent={scroll.Extent.Height:F1}, anchor={(scroll.CurrentAnchor?.DataContext as TranscriptTurnViewModel)?.Id}");
+        return (id, anchor.Y);
+    }
+
+    private void AssertReaderAnchor(ChatDetailView view, (string TurnId, double Y) expected)
+    {
+        var scroll = view.FindControl<StrataChatShell>("ChatShell")!.TranscriptScrollViewer!;
+        var anchor = view.FindControl<ItemsControl>("Transcript")!.GetRealizedContainers()
+            .Single(control => control.DataContext is TranscriptTurnViewModel turn && turn.Id == expected.TurnId);
+        // Estimated heights outside a virtualized viewport may change its numeric offset.
+        // The reader's actual message must stay at the same screen position.
+        var y = anchor.TranslatePoint(default, scroll)!.Value.Y;
+        output.WriteLine($"Reader {expected.TurnId}: y={y:F1} (was {expected.Y:F1}), offset={scroll.Offset.Y:F1}, " +
+            $"extent={scroll.Extent.Height:F1}, anchor={(scroll.CurrentAnchor?.DataContext as TranscriptTurnViewModel)?.Id}");
+        Assert.InRange(Math.Abs(y - expected.Y), 0, 1);
+    }
 
     private static void AssertAtBottom(StrataChatShell shell, string stage)
     {

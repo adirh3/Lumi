@@ -192,6 +192,7 @@
              pinned to it, and a card border here would just be a bubble by another name. -->
         <sc:StrataMarkdown Markdown="{Binding Text}"
                            IsInline="True"
+                           RetainContentOnDetach="True"
                            behaviors:NativeTextSelection.IsEnabled="True"
                            behaviors:NativeTextSelection.Text="{Binding SelectionText}" />
 
@@ -509,7 +510,7 @@
           <ItemsControl x:Name="Transcript" ItemsSource="{Binding Chat.Turns}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:TranscriptTurnViewModel">
-                <ItemsControl ItemsSource="{Binding DisplayItems}" Margin="0,0,0,10" />
+                <views:TranscriptTurnView Margin="0,0,0,10" />
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>

@@ -587,8 +587,12 @@ public sealed class MobileExperiencePolishTests(Xunit.Abstractions.ITestOutputHe
             await AssertDockedCanvasGeometry(view, drawer, "heavy button reopened");
             Assert.False(chatShell.IsFollowingTail);
             Assert.Equal(turns, shell.Chat.Turns);
-            Assert.Equal(messages, transcript.GetVisualDescendants().OfType<StrataChatMessage>());
-            Assert.Equal(markdown, transcript.GetVisualDescendants().OfType<StrataMarkdown>());
+            // Reflow may reveal another turn; already-visible content must still be reused.
+            var visibleMessages = transcript.GetVisualDescendants().OfType<StrataChatMessage>().ToArray();
+            var visibleMarkdown = transcript.GetVisualDescendants().OfType<StrataMarkdown>().ToArray();
+            Assert.All(messages, message => Assert.Contains(message, visibleMessages));
+            Assert.All(markdown, item => Assert.Contains(item, visibleMarkdown));
+            Assert.InRange(visibleMarkdown.Length, 1, 8);
             Assert.Equal("Keep the native draft through every frame.", editor.Text);
             output.WriteLine($"Bounded history: total=20000, turns={turns.Length}, messageControls={messages.Length}, "
                 + $"markdownControls={markdown.Length}; {frameTimes.Count} touch+layout frames "

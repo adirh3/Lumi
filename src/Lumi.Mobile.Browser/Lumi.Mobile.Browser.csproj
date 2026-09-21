@@ -12,6 +12,7 @@
     <PublishTrimmed>true</PublishTrimmed>
     <WasmEnableThreads>false</WasmEnableThreads>
     <WasmBuildNative>true</WasmBuildNative>
+    <RunAOTCompilation Condition="'$(Configuration)' == 'Release'">true</RunAOTCompilation>
     <EnableDefaultCompressionFormats Condition="'$(Configuration)' == 'Release'">false</EnableDefaultCompressionFormats>
     <PublishCompressionFormats Condition="'$(Configuration)' == 'Release'">brotli</PublishCompressionFormats>
   </PropertyGroup>
