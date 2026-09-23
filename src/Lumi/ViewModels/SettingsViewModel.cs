@@ -20,6 +20,7 @@ public sealed record ByokApiKeyModeOption(ByokApiKeyMode Value, string DisplayNa
 
 public partial class SettingsViewModel : ObservableObject, IDisposable
 {
+    public const int AiModelsPageIndex = 5;
     public const int AboutPageIndex = 7;
 
     private readonly DataStore _dataStore;
@@ -55,6 +56,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
         if (value == AboutPageIndex)
             ShouldAutoNavigateToUpdateCenter = false;
+        else if (value == AiModelsPageIndex)
+            _ = RefreshAuthStatusAsync();
     }
 
     public ObservableCollection<string> Pages { get; } =
@@ -243,8 +246,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     private void OnLoginAuthChanged(bool isAuth)
     {
-        IsAuthenticated = isAuth;
         GitHubLogin = _loginVM?.GitHubLogin ?? "";
+        IsAuthenticated = isAuth;
+        if (!isAuth)
+            QuotaDisplayText = null;
     }
 
     // ── Privacy & Data ──
@@ -1649,13 +1654,26 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     {
         try
         {
-            var status = await _copilotService.GetAuthStatusAsync();
-            IsAuthenticated = status.IsAuthenticated == true;
-            GitHubLogin = status.Login ?? _copilotService.GetStoredLogin() ?? "";
+            if (_loginVM is not null)
+            {
+                if (!await _loginVM.RefreshAsync())
+                    return;
+
+                GitHubLogin = _loginVM.GitHubLogin;
+                IsAuthenticated = _loginVM.IsAuthenticated;
+            }
+            else
+            {
+                var status = await _copilotService.GetAuthStatusAsync();
+                GitHubLogin = status.IsAuthenticated == true
+                    ? status.Login ?? _copilotService.GetStoredLogin() ?? ""
+                    : "";
+                IsAuthenticated = status.IsAuthenticated == true;
+            }
             if (IsAuthenticated)
                 GitHubAuthErrorText = null;
         }
-        catch
+        catch (Exception ex)
         {
             // A failed status RPC is INDETERMINATE: it is not proof of a logout (a brief backend or
             // transport hiccup throws here) and not proof of a valid session. Do not flip the UI
@@ -1665,6 +1683,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             // real logout. Preserving the last LIVE-confirmed value (set only by the try block
             // above) also avoids spurious connect/disconnect churn in MainViewModel, which mirrors
             // this flag.
+            Debug.WriteLine($"[Lumi] Could not check GitHub authentication ({ex.GetType().Name}).");
             return;
         }
 

@@ -25,8 +25,13 @@ package and the official SDK package together.
 ## Consuming and updating
 
 Normal `dotnet restore`, `dotnet build`, and CI use this local feed automatically.
-The SDK's normal runtime acquisition verifies the matching CLI release's checksum.
-The `.nupkg` contains the compiled SDK, not a source checkout or a patch to apply.
+The SDK selects the compatible CLI version. Lumi disables its default headless
+runtime acquisition and packages the matching official full CLI through
+[`build/Lumi.FullCopilotCli.targets`](../../build/Lumi.FullCopilotCli.targets),
+with archive and executable checksums pinned in `build/CopilotCliPins.props`.
+That one executable supplies both SDK stdio and first-party sign-in; the managed
+SDK package is unchanged. The `.nupkg` contains the compiled SDK, not a source
+checkout or a patch to apply.
 
 Package production belongs outside Lumi's build. A maintainer updating it should
 build a new immutable version from an explicit reviewed SDK commit, retain the

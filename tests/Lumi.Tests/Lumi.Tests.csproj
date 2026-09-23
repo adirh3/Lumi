@@ -8,6 +8,8 @@
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Features>$(Features);runtime-async=on</Features>
+    <!-- Receive Lumi's verified full CLI through the project reference, not the SDK bundle. -->
+    <CopilotSkipCliDownload>true</CopilotSkipCliDownload>
   </PropertyGroup>
 
   <!-- Match Lumi's platform-conditional TFM -->
@@ -33,6 +35,15 @@
     <ProjectReference Include="..\..\src\Lumi.Mcp\Lumi.Mcp.csproj" />
     <!-- The phone client, so the remote protocol can be exercised end to end against the real server. -->
     <ProjectReference Include="..\..\src\Lumi.Mobile\Lumi.Mobile.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\build\AcquireFullCopilotCli.cs" Link="Packaging\AcquireFullCopilotCli.cs" />
+    <Reference Include="Microsoft.Build.Framework" HintPath="$(MSBuildToolsPath)\Microsoft.Build.Framework.dll" />
+    <Reference Include="Microsoft.Build.Utilities.Core" HintPath="$(MSBuildToolsPath)\Microsoft.Build.Utilities.Core.dll" />
+    <Content Include="..\..\build\CopilotCliPins.props"
+             Link="Packaging\CopilotCliPins.props"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

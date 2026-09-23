@@ -74,6 +74,10 @@ jobs:
           --results-directory TestResults
           --filter
           "(FullyQualifiedName~Lumi.Tests.UnixShellPathTests
+          |FullyQualifiedName~Lumi.Tests.CopilotPackagingTests
+          |FullyQualifiedName~Lumi.Tests.CopilotAuthenticationTests
+          |FullyQualifiedName~Lumi.Tests.CopilotProcessEnvironmentTests
+          |FullyQualifiedName~Lumi.Tests.GitHubLoginViewTests
           |FullyQualifiedName~Lumi.Tests.AppIconTests
           |FullyQualifiedName~Lumi.Tests.McpProxyRuntimeTests.Proxy_ResolvesPathCommandBeforeStartingStdioServer_OnUnix
           |FullyQualifiedName~Lumi.Tests.SystemPromptBuilderTests
@@ -86,6 +90,18 @@ jobs:
           |FullyQualifiedName~Lumi.Tests.LocKeyboardHintTests
           |FullyQualifiedName~Lumi.Tests.SingleInstanceCoordinatorTests
           |FullyQualifiedName~Lumi.Tests.UpdateServiceSafetyTests.UpdateChannel_)"
+
+      - name: Test (packaged runtime skills and isolated logout)
+        env:
+          LUMI_INTEGRATION_TESTS: '1'
+        run: >
+          dotnet test tests/Lumi.Tests/Lumi.Tests.csproj
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=native-skill-provider.trx"
+          --results-directory TestResults
+          --filter "(FullyQualifiedName~Lumi.Tests.NativeSkillProviderIntegrationTests
+          |FullyQualifiedName~Lumi.Tests.CopilotIntegrationTests.Authentication_SdkLogoutWorksWithoutAccessToTheOsVault)"
 
       - name: Upload test results
         if: ${{ always() }}

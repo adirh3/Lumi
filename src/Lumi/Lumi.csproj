@@ -8,6 +8,9 @@
     <ApplicationIcon>Assets\lumi-icon.ico</ApplicationIcon>
     <Version>0.9.8</Version>
 
+    <!-- One official full CLI is used for both SDK stdio and interactive login. -->
+    <CopilotSkipCliDownload>true</CopilotSkipCliDownload>
+
     <!-- Publishing -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
@@ -101,5 +104,7 @@
          break the Release test compile. They are unreachable from production code (every caller in
          Program.cs/App is #if DEBUG), so they are inert dead code in the shipped app. -->
   </ItemGroup>
+
+  <Import Project="..\..\build\Lumi.FullCopilotCli.targets" />
 
 </Project>

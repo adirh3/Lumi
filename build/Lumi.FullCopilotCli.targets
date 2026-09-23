@@ -1,0 +1,70 @@
+<Project>
+  <Import Project="$(MSBuildThisFileDirectory)CopilotCliPins.props" />
+
+  <UsingTask TaskName="Lumi.Build.AcquireFullCopilotCli"
+             TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Version ParameterType="System.String" Required="true" />
+      <AssetName ParameterType="System.String" Required="true" />
+      <ArchiveSha256 ParameterType="System.String" Required="true" />
+      <ExecutableSha256 ParameterType="System.String" Required="true" />
+      <CacheDirectory ParameterType="System.String" Required="true" />
+      <DownloadTimeoutSeconds ParameterType="System.Int32" />
+      <CliPath ParameterType="System.String" Output="true" />
+    </ParameterGroup>
+    <Task>
+      <Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)AcquireFullCopilotCli.cs" />
+    </Task>
+  </UsingTask>
+
+  <Target Name="AcquireLumiFullCopilotCli"
+          BeforeTargets="BeforeBuild;GetCopyToOutputDirectoryItems;GetCopyToPublishDirectoryItems"
+          Condition="'$(TargetFramework)' != '' And '$(DesignTimeBuild)' != 'true'">
+    <Error Condition="'$(CopilotSkipCliDownload)' != 'true' Or '$(CopilotCliBinaryPath)' != ''"
+           Text="Lumi packages one official full Copilot CLI. Set CopilotSkipCliDownload=true and leave CopilotCliBinaryPath unset so the SDK cannot copy a second headless runtime." />
+    <Error Condition="'$(CopilotCliVersion)' == ''"
+           Text="The managed Copilot SDK did not select CopilotCliVersion. Restore the SDK before building Lumi." />
+    <PropertyGroup>
+      <_LumiCliRequestedRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_LumiCliRequestedRid>
+      <_LumiCliRequestedRid Condition="'$(RuntimeIdentifier)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</_LumiCliRequestedRid>
+      <_LumiCliOs Condition="$(_LumiCliRequestedRid.StartsWith('win'))">win</_LumiCliOs>
+      <_LumiCliOs Condition="$(_LumiCliRequestedRid.StartsWith('osx')) Or $(_LumiCliRequestedRid.StartsWith('maccatalyst'))">osx</_LumiCliOs>
+      <_LumiCliOs Condition="$(_LumiCliRequestedRid.StartsWith('linux'))">linux</_LumiCliOs>
+      <_LumiCliOs Condition="$(_LumiCliRequestedRid.StartsWith('linux-musl'))">linux-musl</_LumiCliOs>
+      <_LumiCliArch Condition="$(_LumiCliRequestedRid.EndsWith('-x64'))">x64</_LumiCliArch>
+      <_LumiCliArch Condition="$(_LumiCliRequestedRid.EndsWith('-arm64'))">arm64</_LumiCliArch>
+      <_LumiCliRid>$(_LumiCliOs)-$(_LumiCliArch)</_LumiCliRid>
+      <_LumiCliName Condition="'$(_LumiCliOs)' == 'win'">copilot.exe</_LumiCliName>
+      <_LumiCliName Condition="'$(_LumiCliOs)' != 'win'">copilot</_LumiCliName>
+      <_LumiCliCache>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(BaseIntermediateOutputPath)', 'copilot-full', '$(CopilotCliVersion)', '$(_LumiCliRid)'))</_LumiCliCache>
+      <_LumiCliDownloadTimeout Condition="'$(CopilotCliDownloadTimeout)' != ''">$(CopilotCliDownloadTimeout)</_LumiCliDownloadTimeout>
+      <_LumiCliDownloadTimeout Condition="'$(_LumiCliDownloadTimeout)' == ''">600</_LumiCliDownloadTimeout>
+    </PropertyGroup>
+    <ItemGroup>
+      <_LumiCliPin Include="@(LumiCopilotCliPin)"
+                   Condition="'%(Identity)' == '$(CopilotCliVersion)/$(_LumiCliRid)'" />
+    </ItemGroup>
+    <Error Condition="'$(_LumiCliOs)' == '' Or '$(_LumiCliArch)' == ''"
+           Text="Unsupported full Copilot CLI RID '$(_LumiCliRequestedRid)'. Supported RIDs: win-x64, win-arm64, linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64, osx-x64, osx-arm64." />
+    <Error Condition="'@(_LumiCliPin->Count())' != '1'"
+           Text="No unique reviewed full Copilot CLI pin for SDK-selected $(CopilotCliVersion)/$(_LumiCliRid). Update build/CopilotCliPins.props from the official release and validate the new runtime before upgrading." />
+    <Lumi.Build.AcquireFullCopilotCli
+        Version="$(CopilotCliVersion)"
+        AssetName="@(_LumiCliPin->'%(AssetName)')"
+        ArchiveSha256="@(_LumiCliPin->'%(ArchiveSha256)')"
+        ExecutableSha256="@(_LumiCliPin->'%(ExecutableSha256)')"
+        CacheDirectory="$(_LumiCliCache)"
+        DownloadTimeoutSeconds="$(_LumiCliDownloadTimeout)">
+      <Output TaskParameter="CliPath" PropertyName="_LumiVerifiedCliPath" />
+    </Lumi.Build.AcquireFullCopilotCli>
+    <ItemGroup>
+      <!-- One content item serves build, project-reference consumers and publish.
+           Keep the existing single-file/signing policy; do not add an FFI payload. -->
+      <ContentWithTargetPath Include="$(_LumiVerifiedCliPath)"
+                             TargetPath="runtimes/$(_LumiCliRid)/native/$(_LumiCliName)"
+                             CopyToOutputDirectory="PreserveNewest"
+                             CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+</Project>

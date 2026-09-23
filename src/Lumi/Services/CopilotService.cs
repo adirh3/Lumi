@@ -74,6 +74,7 @@ public class CopilotService : IAsyncDisposable
         modifiers: null);
 
     private CopilotClient? _client;
+    private (CopilotClient Client, GitHub.Copilot.Rpc.AuthInfoUser User)? _selectedStoredUser;
     /// <summary>Exposes the underlying CopilotClient for advanced usage (e.g. test harness).</summary>
     public CopilotClient? Client => _client;
     private readonly ModelCatalogCache _modelCatalog;
@@ -185,7 +186,7 @@ public class CopilotService : IAsyncDisposable
             "endpoint URL was configured for it. Select a BYOK model or turn it off in Settings → BYOK.");
     }
 
-    /// <summary>Fires after the CopilotClient has been replaced (reconnection).
+    /// <summary>Fires after the CopilotClient has been replaced or disconnected.
     /// Consumers should discard any cached CopilotSession objects.</summary>
     public event Action? Reconnected;
 
@@ -262,12 +263,13 @@ public class CopilotService : IAsyncDisposable
                 LogLevel = CopilotLogLevel.Error,
             };
 
-            ConfigureAuthentication(clientOptions);
+            var storedUser = ConfigureAuthentication(clientOptions);
 
             var newClient = new CopilotClient(clientOptions);
             await newClient.StartAsync(ct);
 
             _client = newClient;
+            _selectedStoredUser = storedUser is null ? null : (newClient, storedUser);
             _state = ConnectionState.Connected;
             InvalidateModelCatalog();
             await _suggestionGate.WaitAsync(ct).ConfigureAwait(false);
@@ -337,6 +339,7 @@ public class CopilotService : IAsyncDisposable
 
             oldClient = _client;
             _client = null;
+            _selectedStoredUser = null;
             _state = ConnectionState.Disconnected;
             InvalidateModelCatalog();
             Interlocked.Increment(ref _connectionGeneration);
@@ -345,6 +348,9 @@ public class CopilotService : IAsyncDisposable
         {
             _connectGate.Release();
         }
+
+        if (oldClient is not null)
+            Reconnected?.Invoke();
 
         await _suggestionGate.WaitAsync().ConfigureAwait(false);
         try
@@ -1053,8 +1059,14 @@ public class CopilotService : IAsyncDisposable
 
     public async Task<GetAuthStatusResponse> GetAuthStatusAsync(CancellationToken ct = default)
     {
-        if (_client is null) throw new InvalidOperationException("Not connected");
-        return await _client.GetAuthStatusAsync(ct);
+        if (!IsConnected)
+            await ConnectAsync(ct);
+
+        var client = _client ?? throw new InvalidOperationException("Not connected");
+        var status = await client.GetAuthStatusAsync(ct);
+        if (!ReferenceEquals(client, _client))
+            throw new InvalidOperationException("The Copilot connection changed while checking authentication.");
+        return status;
     }
 
     public string? GetStoredLogin()
@@ -1132,7 +1144,7 @@ public class CopilotService : IAsyncDisposable
             var legacyPsi = new ProcessStartInfo
             {
                 FileName = cliPath,
-                Arguments = "login",
+                Arguments = "--no-auto-update login",
                 UseShellExecute = true,
             };
             using var legacyProcess = Process.Start(legacyPsi);
@@ -1148,7 +1160,7 @@ public class CopilotService : IAsyncDisposable
         var psi = new ProcessStartInfo
         {
             FileName = cliPath,
-            Arguments = "login",
+            Arguments = "--no-auto-update login",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -1158,6 +1170,19 @@ public class CopilotService : IAsyncDisposable
 
         using var process = Process.Start(psi);
         if (process is null) return CopilotSignInResult.Failed;
+        using var cancelLogin = ct.Register(() =>
+        {
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill();
+            }
+            catch (InvalidOperationException) when (process.HasExited) { }
+            catch (System.ComponentModel.Win32Exception ex)
+            {
+                Debug.WriteLine($"[Lumi] Could not stop the cancelled Copilot login: {ex.Message}");
+            }
+        });
 
         string? deviceCode = null;
         string? verificationUrl = null;
@@ -1281,27 +1306,26 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
-    /// Launches the Copilot CLI logout flow and reconnects without credentials.
+    /// Removes only the selected stored Copilot account through the SDK and reconnects.
     /// </summary>
     public async Task<bool> SignOutAsync(CancellationToken ct = default)
     {
-        var cliPath = FindCliPath();
-        if (cliPath is null) return false;
+        await ConnectAsync(ct);
+        var client = _client ?? throw new InvalidOperationException("Not connected");
+        var status = await client.GetAuthStatusAsync(ct);
+        if (!ReferenceEquals(client, _client))
+            throw new InvalidOperationException("The Copilot connection changed while signing out.");
 
-        var psi = new ProcessStartInfo
+        var selected = _selectedStoredUser;
+        var identity = GetSignOutIdentity(status,
+            ReferenceEquals(selected?.Client, client) ? selected?.User : null);
+        if (identity is null)
         {
-            FileName = cliPath,
-            Arguments = "logout",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-
-        using var process = Process.Start(psi);
-        if (process is null) return false;
-
-        await process.WaitForExitAsync(ct);
-        if (process.ExitCode != 0)
+            Debug.WriteLine("[Lumi] The active Copilot credential is not a stored user login.");
             return false;
+        }
+
+        await client.Rpc.Account.LogoutAsync(authInfo: identity, cancellationToken: ct);
 
         // Logout succeeded: the stored credential is gone, so the user IS signed out regardless of
         // what happens next. Tear down the authenticated client immediately so a signed-in session
@@ -1313,11 +1337,26 @@ public class CopilotService : IAsyncDisposable
         {
             await ReconnectForCredentialChangeAsync(ct);
         }
-        catch
+        catch (Exception ex)
         {
-            // Best-effort: already disconnected above, so any reconnect failure is safe to ignore.
+            Debug.WriteLine($"[Lumi] Could not reconnect after GitHub sign-out ({ex.GetType().Name}).");
         }
         return true;
+    }
+
+    internal static GitHub.Copilot.Rpc.AuthInfoUser? GetSignOutIdentity(
+        GetAuthStatusResponse status, GitHub.Copilot.Rpc.AuthInfoUser? selectedStoredUser)
+    {
+        if (status.IsAuthenticated != true)
+            return null;
+        if (status.AuthType == "token")
+            return selectedStoredUser;
+        if (status.AuthType != "user"
+            || string.IsNullOrWhiteSpace(status.Login)
+            || string.IsNullOrWhiteSpace(status.Host))
+            return null;
+
+        return new GitHub.Copilot.Rpc.AuthInfoUser { Host = status.Host, Login = status.Login };
     }
 
     private static string? FindCliPath()
@@ -1375,18 +1414,32 @@ public class CopilotService : IAsyncDisposable
         return path;
     }
 
-    private static void ConfigureAuthentication(CopilotClientOptions options)
+    private static GitHub.Copilot.Rpc.AuthInfoUser? ConfigureAuthentication(CopilotClientOptions options)
     {
-        var token = TryGetGitHubTokenForMcp();
+        var explicitToken = TryGetGitHubTokenFromEnvironment();
+        return ConfigureAuthenticationSelection(options, explicitToken,
+            explicitToken is null ? TryReadStoredGitHubCredential() : null);
+    }
+
+    internal static GitHub.Copilot.Rpc.AuthInfoUser? ConfigureAuthenticationSelection(
+        CopilotClientOptions options,
+        string? explicitToken,
+        (string Token, string Host, string Login)? storedCredential)
+    {
+        var selectedStoredCredential = string.IsNullOrWhiteSpace(explicitToken) ? storedCredential : null;
+        var token = selectedStoredCredential?.Token ?? explicitToken;
         options.Environment = BuildCliEnvironment(token);
         if (!string.IsNullOrWhiteSpace(token))
         {
             options.GitHubToken = token;
             options.UseLoggedInUser = false;
-            return;
+            return selectedStoredCredential is { } stored
+                ? new GitHub.Copilot.Rpc.AuthInfoUser { Host = stored.Host, Login = stored.Login }
+                : null;
         }
 
         options.UseLoggedInUser = true;
+        return null;
     }
 
     /// <summary>
@@ -1635,6 +1688,9 @@ public class CopilotService : IAsyncDisposable
     }
 
     internal static string? TryGetGitHubTokenForMcp()
+        => TryGetGitHubTokenFromEnvironment() ?? TryReadStoredGitHubToken();
+
+    private static string? TryGetGitHubTokenFromEnvironment()
     {
         foreach (var name in new[]
         {
@@ -1647,7 +1703,7 @@ public class CopilotService : IAsyncDisposable
                 return token;
         }
 
-        return TryReadStoredGitHubToken();
+        return null;
     }
 
     private static IReadOnlyDictionary<string, string> BuildCliEnvironment(string? token)
@@ -1685,6 +1741,9 @@ public class CopilotService : IAsyncDisposable
     }
 
     internal static string? TryReadStoredGitHubToken()
+        => TryReadStoredGitHubCredential()?.Token;
+
+    private static (string Token, string Host, string Login)? TryReadStoredGitHubCredential()
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             return null;
@@ -1696,7 +1755,10 @@ public class CopilotService : IAsyncDisposable
                 return null;
 
             var credentialBytes = ReadGenericCredential($"copilot-cli/{identity.Host}:{identity.Login}");
-            return ExtractTokenFromCredential(credentialBytes);
+            var token = ExtractTokenFromCredential(credentialBytes);
+            return string.IsNullOrWhiteSpace(token)
+                ? null
+                : (token, identity.Host, identity.Login);
         }
         catch
         {

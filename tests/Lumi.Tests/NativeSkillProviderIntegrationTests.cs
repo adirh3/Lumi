@@ -56,7 +56,10 @@ public sealed class NativeSkillProviderIntegrationTests
                 BaseDirectory = Path.Combine(root, "copilot"),
                 WorkingDirectory = root,
                 UseLoggedInUser = false,
-                Connection = RuntimeConnection.ForStdio(),
+                Connection = RuntimeConnection.ForStdio(Path.Combine(
+                    AppContext.BaseDirectory, "runtimes",
+                    System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier,
+                    "native", OperatingSystem.IsWindows() ? "copilot.exe" : "copilot")),
                 RequestHandler = handler,
                 LogLevel = CopilotLogLevel.Error,
             });

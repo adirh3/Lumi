@@ -50,8 +50,10 @@ public partial class GitHubLoginView : UserControl
 
     private void UpdateSuccessText(GitHubLoginViewModel vm)
     {
-        if (_successText is not null && !string.IsNullOrEmpty(vm.GitHubLogin))
-            _successText.Text = string.Format(Loc.Onboarding_SignInSuccess, vm.GitHubLogin);
+        if (_successText is not null)
+            _successText.Text = string.IsNullOrEmpty(vm.GitHubLogin)
+                ? Loc.Status_Connected
+                : string.Format(Loc.Onboarding_SignInSuccess, vm.GitHubLogin);
     }
 
     private async void OnCopyToClipboard(string text)
