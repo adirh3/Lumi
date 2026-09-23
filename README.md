@@ -7,6 +7,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 ## Features
 
 - **Streaming chat** — Real-time streamed responses with tool call visualization, reasoning display, and typing indicators
+- **Copy responses and cards** — A copy button below assistant responses, selectable card text, and a separate card copy action
 - **Agents (Lumis)** — Create custom agent personas with their own system prompts, skills, and tools
 - **Skills** — Reusable capability definitions in markdown that teach the assistant new abilities
 - **Projects** — Organize chats with custom instructions that shape Lumi's behavior
