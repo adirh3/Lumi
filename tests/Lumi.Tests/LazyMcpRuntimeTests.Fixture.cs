@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
 using GitHub.Copilot;
 using Lumi.Services;
 using Xunit;
@@ -20,6 +21,25 @@ public sealed partial class LazyMcpRuntimeTests
     private static void AssertJsonEqual(JsonElement expected, JsonElement actual)
         => Assert.True(JsonNode.DeepEquals(JsonNode.Parse(expected.GetRawText()), JsonNode.Parse(actual.GetRawText())),
             $"Expected {expected.GetRawText()}, got {actual.GetRawText()}");
+
+    [SkippableFact]
+    public async Task FakeMcp_BehaviorUpdateWaitsForActiveReader()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows file sharing is required.");
+        using var fake = new FakeMcp();
+        var path = Path.Combine(fake.Root, "behavior.txt");
+        using var reader = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var collision = Assert.Throws<IOException>(() => File.WriteAllText(path, "dynamic"));
+        Assert.Equal(32, collision.HResult & 0xFFFF);
+        var write = Task.Run(() => fake.SetBehavior("dynamic"));
+
+        await Task.Delay(60);
+        Assert.False(write.IsCompleted);
+        reader.Dispose();
+
+        await write.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("dynamic", File.ReadAllText(path));
+    }
 
     // Shared only with the gated CLI capture test: no SDK/LLM is needed for the proxy tests.
     internal sealed class FakeMcp : IDisposable
@@ -160,7 +180,23 @@ public sealed partial class LazyMcpRuntimeTests
                 """);
         }
 
-        public void SetBehavior(string behavior) => File.WriteAllText(Path.Combine(Root, "behavior.txt"), behavior);
+        public void SetBehavior(string behavior)
+        {
+            var path = Path.Combine(Root, "behavior.txt");
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    File.WriteAllText(path, behavior);
+                    return;
+                }
+                catch (IOException ex) when (OperatingSystem.IsWindows()
+                    && (ex.HResult & 0xFFFF) == 32 && attempt < 49)
+                {
+                    Thread.Sleep(10);
+                }
+            }
+        }
 
         public McpProxyServerDefinition Definition(bool lazy = true) => new(
             "test:lazy",
