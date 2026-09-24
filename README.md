@@ -272,14 +272,14 @@ is proposed upstream in [github/copilot-sdk#2672](https://github.com/github/copi
 See [package provenance](vendor/nuget/README.md) for the exact source commit and checksum.
 Lumi's skill storage and editing behavior are unchanged.
 
-**GitHub sign-in:** The SDK now acquires a headless-only runtime, so Lumi packages
-one checksum-pinned, matching official full Copilot CLI instead. The SDK uses it
-over stdio, and GitHub's `copilot login` handles browser/device authorization.
+**GitHub sign-in:** The custom SDK package supplies one checksum-pinned, matching
+official full Copilot CLI during build and publish. Lumi needs no separate CLI
+download targets. The SDK uses it over stdio, and GitHub's `copilot login` handles browser/device authorization.
 The current full CLI does not expose `logout`, so Lumi uses the SDK account API
 to remove only the selected stored user. Existing credential selection and
 storage are unchanged; AI Models refreshes the shared sign-in display.
 No additional CLI, OAuth app, token store, or Node.js installation is required.
-See [CLI packaging](build/README.md).
+See [package provenance and reproduction](vendor/nuget/README.md).
 
 ```bash
 dotnet build src/Lumi/Lumi.csproj

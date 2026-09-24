@@ -42,7 +42,6 @@ if ($classes.Count -eq 0) {
 $isolatedClasses = @(
     "Lumi.Tests.AnimationLifecycleRegressionTests",
     "Lumi.Tests.ChatViewScrollBehaviorTests",
-    "Lumi.Tests.SearchOverlayKeyboardTests",
     "Lumi.Tests.SearchOverlayLayoutTests"
 ) | Where-Object { $classes -contains $_ }
 $batchedClasses = @($classes | Where-Object { $_ -notin $isolatedClasses })

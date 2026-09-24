@@ -8,9 +8,6 @@
     <ApplicationIcon>Assets\lumi-icon.ico</ApplicationIcon>
     <Version>0.9.8</Version>
 
-    <!-- One official full CLI is used for both SDK stdio and interactive login. -->
-    <CopilotSkipCliDownload>true</CopilotSkipCliDownload>
-
     <!-- Publishing -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
@@ -56,7 +53,7 @@
     <PackageReference Include="Avalonia.Themes.Simple" Version="$(AvaloniaVersion)" />
     <PackageReference Include="Avalonia.Controls.DataGrid" Version="$(AvaloniaVersion)" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
-    <PackageReference Include="Lumi.Copilot.SDK" Version="1.0.14-preview.1.lumi.1" />
+    <PackageReference Include="Lumi.Copilot.SDK" Version="1.0.14-preview.1.lumi.2" />
     <PackageReference Include="StreamJsonRpc" Version="2.25.29" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.5" />
     <!-- Override the transitive SQLitePCLRaw.bundle_e_sqlite3 2.1.10 (vulnerable SQLite < 3.50.2, CVE-2025-6965 / GHSA-2m69-gcr7-jv3q).
@@ -104,7 +101,5 @@
          break the Release test compile. They are unreachable from production code (every caller in
          Program.cs/App is #if DEBUG), so they are inert dead code in the shipped app. -->
   </ItemGroup>
-
-  <Import Project="..\..\build\Lumi.FullCopilotCli.targets" />
 
 </Project>
