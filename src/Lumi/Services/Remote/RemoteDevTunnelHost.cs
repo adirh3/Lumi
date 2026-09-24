@@ -63,7 +63,7 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
             _worker = Task.Run(async () =>
             {
                 await previous.ConfigureAwait(false);
-                await RunAsync(port, lifetime).ConfigureAwait(false);
+                await RunAsync(port, requestedTunnelId, lifetime).ConfigureAwait(false);
             });
         }
         StateChanged?.Invoke();
@@ -119,7 +119,10 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
         }
     }
 
-    private async Task RunAsync(int port, CancellationTokenSource lifetime)
+    private async Task RunAsync(
+        int port,
+        string requestedTunnelId,
+        CancellationTokenSource lifetime)
     {
         string? tunnelId = null;
         string? account = null;
