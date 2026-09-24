@@ -48,6 +48,96 @@ public sealed class ModelSelectionCatalogTests
     }
 
     [Fact]
+    public async Task UpdateModelCapabilities_ByokMergeAddsAndRemovesOnlyByokCapabilities()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            var viewModel = CreateViewModel(out _);
+            SeedCatalog(viewModel);
+            const string byokId = "byok:endpoint:model";
+
+            viewModel.UpdateModelCapabilities(
+                [new ModelInfo
+                {
+                    Id = byokId,
+                    Name = "BYOK model",
+                    SupportedReasoningEfforts = ["low", "high"],
+                    DefaultReasoningEffort = "low"
+                }],
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { byokId },
+                new Dictionary<string, ModelContextWindowLimits>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [byokId] = new(128_000, 256_000)
+                },
+                merge: true);
+            viewModel.SelectedModel = byokId;
+
+            Assert.Equal(["Low", "High"], viewModel.QualityLevels!);
+            Assert.Equal(["Default", "Long"], viewModel.ContextWindowTiers!);
+
+            viewModel.UpdateModelCapabilities(
+                [new ModelInfo { Id = byokId }],
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                new Dictionary<string, ModelContextWindowLimits>(StringComparer.OrdinalIgnoreCase),
+                merge: true);
+
+            Assert.Null(viewModel.QualityLevels);
+            Assert.Null(viewModel.ContextWindowTiers);
+            viewModel.SelectedModel = "gpt-5.5";
+            Assert.Equal(["Low", "Medium", "High"], viewModel.QualityLevels!);
+            Assert.Equal(["Default", "Long"], viewModel.ContextWindowTiers!);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ByokDefaultEffort_FollowsChatChoiceAndPrecedesGlobalPreference()
+    {
+        using var session = HeadlessTestSession.Start();
+
+        string? selectedQuality = null;
+        string? resolvedDefault = null;
+        string? resolvedExplicitChoice = null;
+
+        await session.Dispatch(async () =>
+        {
+            var chat = new Chat { Title = "BYOK reasoning default" };
+            var data = new AppData
+            {
+                Settings = new UserSettings
+                {
+                    AutoSaveChats = false,
+                    EnableMemoryAutoSave = false,
+                    ReasoningEffort = "high"
+                },
+                Chats = [chat]
+            };
+            var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+            const string byokId = "byok:endpoint:model";
+            viewModel.UpdateModelCapabilities(
+                [new ModelInfo
+                {
+                    Id = byokId,
+                    SupportedReasoningEfforts = ["low", "high"],
+                    DefaultReasoningEffort = "low"
+                }]);
+            await viewModel.LoadChatAsync(chat);
+            viewModel.SelectedModel = byokId;
+
+            selectedQuality = viewModel.SelectedQuality;
+            resolvedDefault = viewModel.ResolvePersistedReasoningEffortForChat(chat, byokId);
+
+            viewModel.SelectedQuality = "High";
+            resolvedExplicitChoice = viewModel.ResolvePersistedReasoningEffortForChat(chat, byokId);
+        }, CancellationToken.None);
+
+        Assert.Equal("Low", selectedQuality);
+        Assert.Equal("low", resolvedDefault);
+        Assert.Equal("high", resolvedExplicitChoice);
+    }
+
+    [Fact]
     public async Task ApplySessionModelState_WithoutContextTierKeepsLongContextSelection()
     {
         using var session = HeadlessTestSession.Start();

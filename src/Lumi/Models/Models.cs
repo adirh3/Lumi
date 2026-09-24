@@ -341,6 +341,11 @@ public sealed class ByokModel : INotifyPropertyChanged
     private string _modelId = "";
     private string _displayName = "";
     private bool _isEnabled = true;
+    private bool _supportsReasoningEffort;
+    private List<string> _supportedReasoningEfforts = [];
+    private string? _defaultReasoningEffort;
+    private int? _defaultContextWindowTokens;
+    private int? _longContextWindowTokens;
     private int? _maxOutputTokens;
     private int? _maxPromptTokens;
     private int? _maxRequestsPerMinute;
@@ -375,6 +380,38 @@ public sealed class ByokModel : INotifyPropertyChanged
     {
         get => _isEnabled;
         set { if (_isEnabled != value) { _isEnabled = value; OnPropertyChanged(nameof(IsEnabled)); } }
+    }
+
+    public bool SupportsReasoningEffort
+    {
+        get => _supportsReasoningEffort;
+        set { if (_supportsReasoningEffort != value) { _supportsReasoningEffort = value; OnPropertyChanged(nameof(SupportsReasoningEffort)); } }
+    }
+
+    public List<string> SupportedReasoningEfforts
+    {
+        get => _supportedReasoningEfforts;
+        set { _supportedReasoningEfforts = value ?? []; OnPropertyChanged(nameof(SupportedReasoningEfforts)); }
+    }
+
+    public string? DefaultReasoningEffort
+    {
+        get => _defaultReasoningEffort;
+        set { if (_defaultReasoningEffort != value) { _defaultReasoningEffort = value; OnPropertyChanged(nameof(DefaultReasoningEffort)); } }
+    }
+
+    /// <summary>Total context-window capacity for the Default tier, not the prompt/compaction cap.</summary>
+    public int? DefaultContextWindowTokens
+    {
+        get => _defaultContextWindowTokens;
+        set { if (!Nullable.Equals(_defaultContextWindowTokens, value)) { _defaultContextWindowTokens = value; OnPropertyChanged(nameof(DefaultContextWindowTokens)); } }
+    }
+
+    /// <summary>Total context-window capacity for the Long tier, not the prompt/compaction cap.</summary>
+    public int? LongContextWindowTokens
+    {
+        get => _longContextWindowTokens;
+        set { if (!Nullable.Equals(_longContextWindowTokens, value)) { _longContextWindowTokens = value; OnPropertyChanged(nameof(LongContextWindowTokens)); } }
     }
 
     /// <summary>

@@ -1020,6 +1020,85 @@ public sealed class ByokConfigHelperTests
         Assert.DoesNotContain("super-secret-credential-Fa36A6fO", sig);
     }
 
+#pragma warning disable GHCP001
+    [Fact]
+    public void BuildModelCapabilitiesOverride_OmitsUnconfiguredOptions()
+    {
+        var capabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
+            new ByokModel { ModelId = "model" },
+            ModelContextWindowTiers.Default);
+
+        Assert.Null(capabilities);
+    }
+
+    [Fact]
+    public void BuildModelCapabilitiesOverride_UsesReasoningAndSelectedTotalContextLimit()
+    {
+        var model = new ByokModel
+        {
+            ModelId = "model",
+            SupportsReasoningEffort = true,
+            SupportedReasoningEfforts = ["low", "high"],
+            DefaultReasoningEffort = "low",
+            DefaultContextWindowTokens = 128_000,
+            LongContextWindowTokens = 256_000,
+            MaxPromptTokens = 96_000,
+            MaxOutputTokens = 8_000
+        };
+
+        var defaultCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
+            model,
+            ModelContextWindowTiers.Default);
+        var longCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
+            model,
+            ModelContextWindowTiers.LongContext);
+
+        Assert.Equal(true, defaultCapabilities?.Supports?.ReasoningEffort);
+        Assert.Equal(128_000, defaultCapabilities?.Limits?.MaxContextWindowTokens);
+        Assert.Equal(256_000, longCapabilities?.Limits?.MaxContextWindowTokens);
+        Assert.Null(defaultCapabilities?.Limits?.MaxPromptTokens);
+        Assert.Null(defaultCapabilities?.Limits?.MaxOutputTokens);
+    }
+#pragma warning restore GHCP001
+
+    [Fact]
+    public void BuildProviderSignature_ChangesForActiveModelCapabilitiesOnly()
+    {
+        var endpoint = MakeValidEndpoint("caps");
+        var provider = ByokConfigHelper.BuildProviderConfig(endpoint);
+        var unconfigured = new ByokModel { ModelId = "model" };
+        var configured = new ByokModel
+        {
+            ModelId = "model",
+            SupportsReasoningEffort = true,
+            SupportedReasoningEfforts = ["low", "high"],
+            DefaultReasoningEffort = "low",
+            DefaultContextWindowTokens = 128_000,
+            LongContextWindowTokens = 256_000
+        };
+
+        Assert.Equal(
+            ByokConfigHelper.BuildProviderSignature(provider),
+            ByokConfigHelper.BuildProviderSignature(provider, unconfigured));
+        Assert.NotEqual(
+            ByokConfigHelper.BuildProviderSignature(provider),
+            ByokConfigHelper.BuildProviderSignature(provider, configured));
+
+        var changed = new ByokModel
+        {
+            Id = configured.Id,
+            ModelId = configured.ModelId,
+            SupportsReasoningEffort = configured.SupportsReasoningEffort,
+            SupportedReasoningEfforts = ["low", "high"],
+            DefaultReasoningEffort = "high",
+            DefaultContextWindowTokens = configured.DefaultContextWindowTokens,
+            LongContextWindowTokens = configured.LongContextWindowTokens
+        };
+        Assert.NotEqual(
+            ByokConfigHelper.BuildProviderSignature(provider, configured),
+            ByokConfigHelper.BuildProviderSignature(provider, changed));
+    }
+
     // ── Advanced token limits (MaxOutputTokens / MaxPromptTokens / MaxRequestsPerMinute) ──
 
     [Fact]

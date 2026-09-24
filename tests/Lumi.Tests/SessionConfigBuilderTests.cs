@@ -441,6 +441,49 @@ public sealed class SessionConfigBuilderTests
         Assert.Equal(ModelContextWindowTiers.Default, config.ContextTier?.Value);
     }
 
+#pragma warning disable GHCP001
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SessionConfigs_ApplyModelCapabilitiesOverride(bool resume)
+    {
+        var modelCapabilities = new GitHub.Copilot.Rpc.ModelCapabilitiesOverride
+        {
+            Supports = new GitHub.Copilot.Rpc.ModelCapabilitiesOverrideSupports { ReasoningEffort = true },
+            Limits = new GitHub.Copilot.Rpc.ModelCapabilitiesOverrideLimits { MaxContextWindowTokens = 128_000 }
+        };
+        SessionConfigBase config = resume
+            ? SessionConfigBuilder.BuildForResume(
+                systemPrompt: "prompt",
+                model: "byok/test-model",
+                workingDirectory: null,
+                mcpPlan: null,
+                skillDirectories: null,
+                customAgents: [],
+                tools: [],
+                reasoningEffort: "high",
+                userInputHandler: null,
+                onPermission: null,
+                hooks: null,
+                modelCapabilities: modelCapabilities)
+            : SessionConfigBuilder.Build(
+                systemPrompt: "prompt",
+                model: "byok/test-model",
+                workingDirectory: null,
+                mcpPlan: null,
+                skillDirectories: null,
+                customAgents: [],
+                tools: [],
+                reasoningEffort: "high",
+                userInputHandler: null,
+                onPermission: null,
+                hooks: null,
+                modelCapabilities: modelCapabilities);
+
+        Assert.Same(modelCapabilities, config.ModelCapabilities);
+    }
+#pragma warning restore GHCP001
+
     [Fact]
     public void BuildLightweight_UsesLumiCopilotConfigDirByDefault()
     {

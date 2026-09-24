@@ -903,6 +903,40 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var tokens = validModels
             .Select(ByokConfigHelper.BuildModelToken)
             .ToList();
+        var byokModelCatalog = validModels
+            .Select(model =>
+            {
+                var supportedEfforts = model.SupportsReasoningEffort
+                    ? (model.SupportedReasoningEfforts ?? [])
+                        .Where(static effort => !string.IsNullOrWhiteSpace(effort))
+                        .Select(static effort => effort.Trim())
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList()
+                    : [];
+                var defaultEffort = supportedEfforts.FirstOrDefault(effort =>
+                    string.Equals(effort, model.DefaultReasoningEffort?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+                return new ModelInfo
+                {
+                    Id = ByokConfigHelper.BuildModelToken(model),
+                    Name = model.DisplayName,
+                    SupportedReasoningEfforts = supportedEfforts,
+                    DefaultReasoningEffort = defaultEffort,
+                };
+            })
+            .ToList();
+        var byokLongContextModelIds = validModels
+            .Where(static model => model.LongContextWindowTokens is > 0)
+            .Select(ByokConfigHelper.BuildModelToken)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var byokContextWindowLimits = validModels
+            .Where(static model => model.DefaultContextWindowTokens is > 0 || model.LongContextWindowTokens is > 0)
+            .ToDictionary(
+                ByokConfigHelper.BuildModelToken,
+                static model => new ModelContextWindowLimits(
+                    model.DefaultContextWindowTokens is > 0 ? model.DefaultContextWindowTokens.Value : 0,
+                    model.LongContextWindowTokens is > 0 ? model.LongContextWindowTokens.Value : null),
+                StringComparer.OrdinalIgnoreCase);
 
         // Rebuild the display cache (idempotent — adds, replaces, and prunes missing entries).
         var newCacheEntries = validModels.ToDictionary(
@@ -936,20 +970,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 if (!surface.AvailableModels.Contains(t))
                     surface.AvailableModels.Add(t);
 
-            // BYOK models are not in the SDK's GetModelsAsync() response, so UpdateModelCapabilities
-            // doesn't see them. Merge them into the existing capability catalog (never replace it, or
-            // every Copilot model would lose its reasoning efforts and long-context tier) so the UI
-            // doesn't flag "no context window" / "no reasoning". If we later add per-model
-            // capability overrides in ByokModel, they'll flow through here.
-            //
-            // MERGED, not replaced: this call describes only the BYOK tokens, so a wholesale swap
-            // erased every SDK-provided reasoning effort and context limit for the real catalog —
-            // and with no BYOK models configured it passed an empty list and wiped it outright,
-            // which is what left the composer with no reasoning-effort picker.
             surface.UpdateModelCapabilities(
-                tokens.Select(t => new ModelInfo { Id = t }).ToList(),
-                longContextModelIds: null,
-                contextWindowLimits: null,
+                byokModelCatalog,
+                longContextModelIds: byokLongContextModelIds,
+                contextWindowLimits: byokContextWindowLimits,
                 merge: true);
 
             // Only fix stale/invalid selections — never overwrite a valid non-BYOK pick.
@@ -983,6 +1007,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             SettingsVM.PreferredModel = ResolveFallbackModel(combined) ?? "";
         }
         SettingsVM.UpdateAvailableModels(combined);
+        SettingsVM.UpdateModelCapabilities(byokModelCatalog, byokLongContextModelIds, merge: true);
 
         // 3. Clean up stale LastModelUsed references in chat history.
         CleanupStaleByokLastModels(tokens);

@@ -72,6 +72,11 @@ internal static class AppDataSnapshotFactory
                         ModelId = m.ModelId,
                         DisplayName = m.DisplayName,
                         IsEnabled = m.IsEnabled,
+                        SupportsReasoningEffort = m.SupportsReasoningEffort,
+                        SupportedReasoningEfforts = m.SupportedReasoningEfforts?.ToList() ?? [],
+                        DefaultReasoningEffort = m.DefaultReasoningEffort,
+                        DefaultContextWindowTokens = m.DefaultContextWindowTokens,
+                        LongContextWindowTokens = m.LongContextWindowTokens,
                         // Advanced inference / rate-limit settings must be carried into the
                         // persisted snapshot — omitting them here silently drops the values on
                         // every save, so the in-memory model keeps the value but data.json always

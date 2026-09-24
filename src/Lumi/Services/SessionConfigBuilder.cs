@@ -93,7 +93,8 @@ public sealed class LightweightSessionOptions
         string? contextTier = null,
         GitHub.Copilot.ProviderConfig? provider = null,
         bool enableCapabilityDiscovery = true,
-        SkillProvider? skillProvider = null)
+        SkillProvider? skillProvider = null,
+        ModelCapabilitiesOverride? modelCapabilities = null)
     {
         var config = new SessionConfig
         {
@@ -111,6 +112,7 @@ public sealed class LightweightSessionOptions
             ContextTier = CreateContextTier(contextTier),
             McpOAuthTokenStorage = McpOAuthTokenStorage,
             Provider = provider,
+            ModelCapabilities = modelCapabilities,
             RequestExtensions = EnableStandaloneExtensions,
         };
 
@@ -139,7 +141,8 @@ public sealed class LightweightSessionOptions
         string? contextTier = null,
         GitHub.Copilot.ProviderConfig? provider = null,
         bool enableCapabilityDiscovery = true,
-        SkillProvider? skillProvider = null)
+        SkillProvider? skillProvider = null,
+        ModelCapabilitiesOverride? modelCapabilities = null)
     {
         var config = new ResumeSessionConfig
         {
@@ -157,6 +160,7 @@ public sealed class LightweightSessionOptions
             ContextTier = CreateContextTier(contextTier),
             McpOAuthTokenStorage = McpOAuthTokenStorage,
             Provider = provider,
+            ModelCapabilities = modelCapabilities,
             RequestExtensions = EnableStandaloneExtensions,
         };
 

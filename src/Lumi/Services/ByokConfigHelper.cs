@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using GitHub.Copilot;
@@ -120,6 +121,16 @@ public static class ByokConfigHelper
         model.EndpointId = (model.EndpointId ?? string.Empty).Trim();
         model.ModelId = (model.ModelId ?? string.Empty).Trim();
         model.DisplayName = (model.DisplayName ?? string.Empty).Trim();
+        model.SupportedReasoningEfforts = (model.SupportedReasoningEfforts ?? [])
+            .Where(static effort => !string.IsNullOrWhiteSpace(effort))
+            .Select(static effort => effort.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var defaultEffort = model.DefaultReasoningEffort?.Trim();
+        model.DefaultReasoningEffort = model.SupportedReasoningEfforts.FirstOrDefault(effort =>
+            string.Equals(effort, defaultEffort, StringComparison.OrdinalIgnoreCase));
+        model.DefaultContextWindowTokens = NormalizePositiveTokenLimit(model.DefaultContextWindowTokens);
+        model.LongContextWindowTokens = NormalizePositiveTokenLimit(model.LongContextWindowTokens);
         // Advanced token/rate limits: negative or zero values are meaningless (0 RPM means
         // "unlimited", not "never allow"), so normalize them to null ("inherit default").
         // This keeps persisted JSON tidy and lets the rate limiter treat null as a pure
@@ -498,10 +509,55 @@ public static class ByokConfigHelper
             ModelId = model.ModelId,
             DisplayName = model.DisplayName,
             IsEnabled = model.IsEnabled,
+            SupportsReasoningEffort = model.SupportsReasoningEffort,
+            SupportedReasoningEfforts = model.SupportedReasoningEfforts?.ToList() ?? [],
+            DefaultReasoningEffort = model.DefaultReasoningEffort,
+            DefaultContextWindowTokens = model.DefaultContextWindowTokens,
+            LongContextWindowTokens = model.LongContextWindowTokens,
             MaxOutputTokens = model.MaxOutputTokens,
             MaxPromptTokens = model.MaxPromptTokens,
             MaxRequestsPerMinute = model.MaxRequestsPerMinute,
         };
+
+    private static ByokModel NormalizeModelCopy(ByokModel model)
+    {
+        var copy = CloneModel(model);
+        NormalizeModel(copy);
+        return copy;
+    }
+
+    public static GitHub.Copilot.Rpc.ModelCapabilitiesOverride? BuildModelCapabilitiesOverride(
+        ByokModel? model,
+        string? contextTier)
+    {
+        if (model is null)
+            return null;
+
+        var normalized = NormalizeModelCopy(model);
+        var maxContextWindowTokens = string.Equals(
+                contextTier,
+                ModelContextWindowTiers.LongContext,
+                StringComparison.OrdinalIgnoreCase)
+            ? normalized.LongContextWindowTokens
+            : normalized.DefaultContextWindowTokens;
+        var supports = normalized.SupportsReasoningEffort
+            ? new GitHub.Copilot.Rpc.ModelCapabilitiesOverrideSupports { ReasoningEffort = true }
+            : null;
+        var limits = maxContextWindowTokens is > 0
+            ? new GitHub.Copilot.Rpc.ModelCapabilitiesOverrideLimits
+            {
+                MaxContextWindowTokens = maxContextWindowTokens
+            }
+            : null;
+
+        return supports is null && limits is null
+            ? null
+            : new GitHub.Copilot.Rpc.ModelCapabilitiesOverride
+            {
+                Supports = supports,
+                Limits = limits
+            };
+    }
 
     /// <summary>
     /// Computes a stable, comparable signature for a <see cref="ProviderConfig"/> that
@@ -512,7 +568,9 @@ public static class ByokConfigHelper
     /// The ApiKey/BearerToken values are hashed (not stored in cleartext) so the signature
     /// is safe to log for diagnostics.
     /// </summary>
-    public static string? BuildProviderSignature(ProviderConfig? provider)
+    public static string? BuildProviderSignature(
+        ProviderConfig? provider,
+        ByokModel? model = null)
     {
         if (provider is null) return null;
 
@@ -533,7 +591,7 @@ public static class ByokConfigHelper
         var maxOutputTokens = provider.MaxOutputTokens?.ToString() ?? "";
         var maxPromptTokens = provider.MaxPromptTokens?.ToString() ?? "";
 
-        return string.Join(
+        var signature = string.Join(
             "|",
             provider.Type?.Trim() ?? "",
             provider.BaseUrl?.Trim() ?? "",
@@ -544,6 +602,35 @@ public static class ByokConfigHelper
             headers,
             $"out={maxOutputTokens}",
             $"in={maxPromptTokens}");
+
+        if (model is null)
+            return signature;
+
+        var normalizedModel = NormalizeModelCopy(model);
+        if (!normalizedModel.SupportsReasoningEffort
+            && normalizedModel.DefaultContextWindowTokens is not > 0
+            && normalizedModel.LongContextWindowTokens is not > 0)
+        {
+            return signature;
+        }
+
+        static string EncodeSignatureValue(string? value)
+            => value is null ? "-" : $"{value.Length}:{value}";
+
+        var supportedEfforts = normalizedModel.SupportsReasoningEffort
+            ? normalizedModel.SupportedReasoningEfforts
+            : [];
+        var supportedEffortSignature = string.Concat(
+            supportedEfforts.Select(static effort => $"{effort.Length}:{effort}"));
+        var modelCapabilitiesSignature = string.Join(
+            ";",
+            $"reasoning={normalizedModel.SupportsReasoningEffort}",
+            $"efforts={supportedEfforts.Count}:{supportedEffortSignature}",
+            $"default={EncodeSignatureValue(normalizedModel.SupportsReasoningEffort ? normalizedModel.DefaultReasoningEffort : null)}",
+            $"defaultContext={normalizedModel.DefaultContextWindowTokens?.ToString(CultureInfo.InvariantCulture) ?? "-"}",
+            $"longContext={normalizedModel.LongContextWindowTokens?.ToString(CultureInfo.InvariantCulture) ?? "-"}");
+
+        return $"{signature}|capabilities={modelCapabilitiesSignature}";
     }
 
     /// <summary>
