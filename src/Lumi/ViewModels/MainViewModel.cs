@@ -139,6 +139,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             _ = LibraryVM.EnsureLoadedAsync();
         }
+        else if (value == 7 && SettingsVM is not null
+                 && SettingsVM.SelectedPageIndex == SettingsViewModel.AiModelsPageIndex)
+        {
+            _ = SettingsVM.RefreshAuthStatusAsync();
+        }
     }
 
     /// <summary>Nav index of the Library page. It is reached from the chat sidebar, not the nav pill.</summary>
@@ -764,6 +769,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _chatOrchestrationService.ChatsChanged -= OnOrchestrationChatsChanged;
         if (_ownsBackgroundJobService)
             _backgroundJobService.Dispose();
+        LoginVM.CancelSignIn();
         DetachChatViewModel(ChatVM);
         ChatVM.RemoveDisplayHost();
         _chatSessionStore.Release(ChatVM);

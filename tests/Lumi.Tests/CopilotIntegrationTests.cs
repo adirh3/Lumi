@@ -86,6 +86,103 @@ public class CopilotIntegrationTests : IAsyncLifetime
     private void SkipIfDisabled() =>
         Skip.If(!IsEnabled, "Set LUMI_INTEGRATION_TESTS=1 to run SDK integration tests.");
 
+    [SkippableFact]
+    public async Task Authentication_RefreshUpdatesSharedLoginPanel()
+    {
+        SkipIfDisabled();
+        var status = await _service.GetAuthStatusAsync();
+        Skip.If(status.IsAuthenticated != true, "Requires an already authenticated Copilot account.");
+
+        await using var browser = new BrowserService();
+        using var settings = new SettingsViewModel(
+            new DataStore(new AppData()), _service, browser, new UpdateService());
+        var login = new GitHubLoginViewModel(_service);
+        settings.LoginVM = login;
+
+        await settings.RefreshAuthStatusAsync();
+
+        Assert.True(settings.IsAuthenticated);
+        Assert.True(login.IsAuthenticated);
+        Assert.Equal(settings.GitHubLogin, login.GitHubLogin);
+        Assert.NotEmpty(login.GitHubLogin);
+    }
+
+    [SkippableFact]
+    public async Task Authentication_DisconnectInvalidatesOwnedSessions()
+    {
+        SkipIfDisabled();
+        var before = await _service.GetAuthStatusAsync();
+        var notifications = 0;
+        _service.Reconnected += OnReconnected;
+        try
+        {
+            await _service.DisconnectAsync();
+            Assert.Equal(1, notifications);
+            var refreshed = await _service.GetAuthStatusAsync();
+            Assert.True(_service.IsConnected);
+            Assert.Equal(before.IsAuthenticated, refreshed.IsAuthenticated);
+            Assert.Equal(1, notifications);
+        }
+        finally
+        {
+            _service.Reconnected -= OnReconnected;
+        }
+
+        void OnReconnected() => notifications++;
+    }
+
+#pragma warning disable GHCP001 // Vault-disabled SDK fixture never targets a real user.
+    [SkippableFact]
+    public async Task Authentication_SdkLogoutWorksWithoutAccessToTheOsVault()
+    {
+        SkipIfDisabled();
+        var profile = Directory.CreateTempSubdirectory("Lumi-logout-fixture-");
+        try
+        {
+            var environment = Environment.GetEnvironmentVariables()
+                .Cast<System.Collections.DictionaryEntry>()
+                .Where(entry => entry.Key is string key
+                    && !key.Contains("TOKEN", StringComparison.OrdinalIgnoreCase)
+                    && !key.StartsWith("COPILOT_", StringComparison.OrdinalIgnoreCase)
+                    && !key.StartsWith("GITHUB_", StringComparison.OrdinalIgnoreCase))
+                .ToDictionary(entry => (string)entry.Key, entry => (string)entry.Value!,
+                    OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+            environment["PATH"] = "";
+            var binary = OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
+            var cli = Path.Combine(AppContext.BaseDirectory, "runtimes",
+                System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier, "native", binary);
+            await using var client = new CopilotClient(new CopilotClientOptions
+            {
+                Mode = CopilotClientMode.Empty,
+                Connection = RuntimeConnection.ForStdio(cli),
+                BaseDirectory = profile.FullName,
+                Environment = environment,
+                UseLoggedInUser = false
+            });
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            await client.StartAsync(timeout.Token);
+            Assert.False((await client.GetAuthStatusAsync(timeout.Token)).IsAuthenticated);
+            Assert.Empty((await client.Rpc.Account.GetAllUsersAsync(timeout.Token))!);
+
+            var result = await client.Rpc.Account.LogoutAsync(
+                authInfo: new GitHub.Copilot.Rpc.AuthInfoUser
+                {
+                    Host = "https://github.com",
+                    Login = $"lumi-fixture-{Guid.NewGuid():N}"
+                },
+                cancellationToken: timeout.Token);
+
+            Assert.NotNull(result);
+            Assert.False(result.HasMoreUsers);
+            Assert.False((await client.GetAuthStatusAsync(timeout.Token)).IsAuthenticated);
+        }
+        finally
+        {
+            profile.Delete(recursive: true);
+        }
+    }
+#pragma warning restore GHCP001
+
     // ═══════════════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════════════

@@ -317,13 +317,16 @@ public sealed class MobileSpatialDisciplineTests
                 var focusAccentBar = input.GetVisualDescendants()
                     .OfType<Border>()
                     .Single(border => border.Name == "FocusAccentBar");
-                Assert.True(
+                Assert.False(
                     focusAccentBar.IsVisible,
-                    "the input underline is the intended accent; only the outer composer border should stay neutral");
-                var focusedUnderlineOpacity = focusAccentBar.GetBaseValue(Visual.OpacityProperty);
+                    "the embedded input must not draw a second focus indicator inside the composer");
+                var focusLine = Required<Border>(composer, "PART_FocusLine");
+                Assert.True(focusLine.IsEffectivelyVisible);
+                Assert.Equal(2, focusLine.Bounds.Height);
+                var focusedUnderlineOpacity = focusLine.GetBaseValue(Visual.OpacityProperty);
                 Assert.True(
                     focusedUnderlineOpacity.HasValue && focusedUnderlineOpacity.Value > 0.9,
-                    $"the focused underline target stayed at {focusedUnderlineOpacity.GetValueOrDefault():0.##}");
+                    $"the composer underline target stayed at {focusedUnderlineOpacity.GetValueOrDefault():0.##}");
 
                 _output.WriteLine(
                     "Phone chat: composer {0:0.#}; transcript {1:0.#}; " +

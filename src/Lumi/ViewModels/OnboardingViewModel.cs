@@ -219,6 +219,7 @@ public partial class OnboardingViewModel : ObservableObject
     [RelayCommand]
     private void SkipLearning()
     {
+        LoginVM?.CancelSignIn();
         LearningWasSkipped = true;
         CurrentStep = 4;
     }
@@ -232,6 +233,7 @@ public partial class OnboardingViewModel : ObservableObject
     [RelayCommand]
     private async Task FinishOnboarding()
     {
+        LoginVM?.CancelSignIn();
         var settings = _dataStore.Data.Settings;
         settings.UserName = UserName.Trim();
         settings.UserSex = SexIndex switch { 0 => "male", 1 => "female", _ => null };
