@@ -1251,6 +1251,12 @@ public class UserSettings
     /// <summary>Use an owner-only Microsoft Dev Tunnel with a loopback-only listener instead of LAN/Tailscale.</summary>
     public bool RemoteUseDevTunnel { get; set; }
 
+    /// <summary>
+    /// Stable, random Dev Tunnel name for this Lumi profile. Reusing the name keeps the web-app URL
+    /// unchanged when the desktop restarts while the tunnel itself remains short-lived.
+    /// </summary>
+    public string RemoteDevTunnelId { get; set; } = "";
+
     /// <summary>Devices that completed pairing and hold a long-lived token.</summary>
     public List<RemotePairedDevice> RemotePairedDevices { get; set; } = [];
 

@@ -202,6 +202,12 @@ public sealed class LumiRemoteServer : IAsyncDisposable
             return;
 
         await _dataStore.RefreshRemoteSecurityFromDiskAsync(cancellationToken).ConfigureAwait(false);
+        if (_dataStore.Data.Settings is { RemoteAccessEnabled: true, RemoteUseDevTunnel: true }
+            && !RemoteDevTunnelHost.IsValidProfileTunnelId(_dataStore.Data.Settings.RemoteDevTunnelId))
+        {
+            EnsureDevTunnelId();
+            await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(false);
+        }
         _securityStateReady = true;
         StateChanged?.Invoke();
 
@@ -252,10 +258,20 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         RefreshDiscovery();
         IsRunning = true;
         if (_dataStore.Data.Settings.RemoteUseDevTunnel)
-            _devTunnel.Start(Port);
+            _devTunnel.Start(Port, EnsureDevTunnelId());
         WatchNetworkChanges();
         StateChanged?.Invoke();
         _ = InitializeRuntimeStateAsync();
+    }
+
+    internal string EnsureDevTunnelId()
+    {
+        if (RemoteDevTunnelHost.IsValidProfileTunnelId(_dataStore.Data.Settings.RemoteDevTunnelId))
+            return _dataStore.Data.Settings.RemoteDevTunnelId;
+
+        _dataStore.Data.Settings.RemoteDevTunnelId = RemoteDevTunnelHost.CreateProfileTunnelId();
+        _dataStore.MarkRemoteSecurityChanged();
+        return _dataStore.Data.Settings.RemoteDevTunnelId;
     }
 
     public void Stop()

@@ -18,6 +18,8 @@ internal sealed record RemoteDevTunnelState(
 
 internal sealed class RemoteDevTunnelHost : IAsyncDisposable
 {
+    internal const string TunnelDescription = "Lumi private web app";
+
     private readonly object _gate = new();
     private CancellationTokenSource? _lifetime;
     private TaskCompletionSource<bool>? _installApproval;
@@ -27,19 +29,29 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
     public RemoteDevTunnelState State => Volatile.Read(ref _state);
     public event Action? StateChanged;
 
-    internal static string[] CreateArguments =>
+    internal static string[] CreateArguments(string requestedTunnelId) =>
     [
-        "create", "--expiration", "1d", "--description", "Lumi private web app",
+        "create", requestedTunnelId, "--expiration", "1d", "--description", TunnelDescription,
         "--host-header", "localhost", "--origin-header", "unchanged", "--json"
     ];
 
     internal static string[] HostArguments(string tunnelId) =>
         ["host", tunnelId, "--host-header", "localhost", "--origin-header", "unchanged"];
 
-    internal static string[] SignInArguments =>
+    internal static string[] BrowserSignInArguments =>
         ["user", "login", "--entra", "--use-browser-auth", "--json"];
 
-    public void Start(int port)
+    internal static string[] IntegratedWindowsSignInArguments =>
+        ["user", "login", "--entra", "--use-integrated-windows-auth", "--json"];
+
+    internal static string CreateProfileTunnelId() =>
+        $"lumi-{Guid.NewGuid():N}";
+
+    internal static bool IsValidProfileTunnelId(string? tunnelId) =>
+        tunnelId is { Length: 37 }
+        && Regex.IsMatch(tunnelId, "^lumi-[0-9a-f]{32}$", RegexOptions.CultureInvariant);
+
+    public void Start(int port, string requestedTunnelId)
     {
         Stop();
         lock (_gate)
@@ -131,14 +143,28 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
                     (arguments, ct) => RemoteDevTunnelCli.RunAsync(executablePath, arguments, ct),
                     () => Publish(lifetime, new RemoteDevTunnelState(
                         IsStarting: true, SetupMessage: Loc.Get("Remote_DevTunnelSigningIn"))),
-                    token)
+                    token,
+                    preferIntegratedWindowsAuth: OperatingSystem.IsWindows())
                 .ConfigureAwait(false);
             account = identity.Username;
             Publish(lifetime, new RemoteDevTunnelState(IsStarting: true, Account: account));
 
-            // Always create a new owner-only tunnel. Never reuse a last-used tunnel or grant an ACE.
+            var existingTunnelId = FindExistingProfileTunnelId(
+                await RemoteDevTunnelCli.RunAsync(
+                    executablePath, ["list", "--json"], token).ConfigureAwait(false),
+                requestedTunnelId);
+            if (existingTunnelId is not null)
+            {
+                await RemoteDevTunnelCli.RunAsync(
+                        executablePath, ["delete", existingTunnelId], token)
+                    .ConfigureAwait(false);
+            }
+
+            // Recreate the profile-owned name from scratch so stale relay state cannot survive a
+            // reboot. The name is stable, but ACLs and ports are verified anew on every launch.
             using (var created = JsonDocument.Parse(
-                       await RemoteDevTunnelCli.RunAsync(executablePath, CreateArguments, token).ConfigureAwait(false)))
+                       await RemoteDevTunnelCli.RunAsync(
+                           executablePath, CreateArguments(requestedTunnelId), token).ConfigureAwait(false)))
             {
                 if (!created.RootElement.TryGetProperty("tunnel", out var tunnel)
                     || !tunnel.TryGetProperty("tunnelId", out var id)
@@ -262,7 +288,8 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
     internal static async Task<(string Username, string ObjectId, string TenantId)> EnsureMicrosoftIdentityAsync(
         Func<string[], CancellationToken, Task<string>> runCli,
         Action reportSigningIn,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool preferIntegratedWindowsAuth = false)
     {
         var json = await runCli(["user", "show", "--json"], cancellationToken).ConfigureAwait(false);
         using (var document = JsonDocument.Parse(json))
@@ -275,7 +302,21 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
             if (signedOut || github)
             {
                 reportSigningIn();
-                await runCli(SignInArguments, cancellationToken).ConfigureAwait(false);
+                if (preferIntegratedWindowsAuth)
+                {
+                    try
+                    {
+                        await runCli(IntegratedWindowsSignInArguments, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        await runCli(BrowserSignInArguments, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                else
+                {
+                    await runCli(BrowserSignInArguments, cancellationToken).ConfigureAwait(false);
+                }
                 json = await runCli(["user", "show", "--json"], cancellationToken).ConfigureAwait(false);
             }
         }
@@ -295,6 +336,34 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
             throw new InvalidOperationException(Loc.Get("Remote_DevTunnelSignIn"));
         }
         return (name, id, tenant);
+    }
+
+    internal static string? FindExistingProfileTunnelId(string json, string requestedTunnelId)
+    {
+        using var document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty("tunnels", out var tunnels)
+            || tunnels.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidOperationException(Loc.Get("Remote_DevTunnelInvalidResponse"));
+        }
+
+        foreach (var tunnel in tunnels.EnumerateArray())
+        {
+            if (!tunnel.TryGetProperty("tunnelId", out var id)
+                || id.GetString() is not { Length: > 0 } tunnelId
+                || !tunnel.TryGetProperty("description", out var description)
+                || description.GetString() != TunnelDescription)
+            {
+                continue;
+            }
+
+            var separator = tunnelId.IndexOf('.');
+            var baseId = separator < 0 ? tunnelId : tunnelId[..separator];
+            if (string.Equals(baseId, requestedTunnelId, StringComparison.Ordinal))
+                return tunnelId;
+        }
+
+        return null;
     }
 
     internal static void RequireOwnerOnlyAccess(string json)
