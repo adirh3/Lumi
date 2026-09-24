@@ -12,6 +12,9 @@ namespace Lumi.Services;
 
 internal sealed partial class McpStdioServerConnection : IAsyncDisposable
 {
+    internal const int FrontendRediscoveryRequiredCode = -32_002;
+    internal const string FrontendRediscoveryRequiredMessage =
+        "MCP frontend rediscovery required. No tool was called.";
     private const int InitializeTimeoutMilliseconds = 45_000;
     private const int DiagnosticLineLimit = 8;
     private const int DiagnosticLineMaxLength = 500;
@@ -194,6 +197,13 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
                 clientId,
                 -32000,
                 $"MCP server '{_definition.Name}' restarted while '{method ?? "unknown"}' was in flight. Its outcome is unknown, so Lumi did not retry it.");
+        }
+        catch (McpFrontendRediscoveryRequiredException)
+        {
+            return JsonRpc.Error(
+                clientId,
+                FrontendRediscoveryRequiredCode,
+                FrontendRediscoveryRequiredMessage);
         }
         catch (Exception ex)
         {

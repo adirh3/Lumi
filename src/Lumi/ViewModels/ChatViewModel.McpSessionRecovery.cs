@@ -3,6 +3,7 @@ using Avalonia.Threading;
 using GitHub.Copilot;
 using GitHub.Copilot.Rpc;
 using Lumi.Models;
+using Lumi.Services;
 
 namespace Lumi.ViewModels;
 
@@ -18,12 +19,14 @@ public partial class ChatViewModel
     private readonly Dictionary<Guid, HashSet<string>> _degradedMcpProviders = [];
     private readonly HashSet<Guid> _postSendMcpCatalogObservations = [];
     private readonly HashSet<Guid> _mcpCatalogRecoveryReplayPending = [];
+    private readonly Dictionary<Guid, McpCatalogRecoveryBarrier> _mcpCatalogRecoveryBarriers = [];
 
     internal enum McpCatalogRecoverySignal
     {
         SessionResumed,
         ToolsListChanged,
         ExactSessionLoss,
+        FrontendRediscoveryRequired,
         ProviderDegradedBeforeSend
     }
 
@@ -42,13 +45,35 @@ public partial class ChatViewModel
         CancellationTokenSource cancellation,
         Task completion)
     {
+        private int _requiresSessionReplacement;
+
         public CopilotSession Session { get; } = session;
         public CancellationTokenSource Cancellation { get; } = cancellation;
         public Task Completion { get; } = completion;
+        public bool RequiresSessionReplacement
+            => Volatile.Read(ref _requiresSessionReplacement) != 0;
         public bool RerunRequested { get; set; }
         public CopilotSession? RerunSession { get; set; }
         public McpCatalogRecoverySignal? RerunSignal { get; set; }
         public McpCatalogRecoveryOperations? RerunOperations { get; set; }
+
+        public void RequireSessionReplacement()
+            => Interlocked.Exchange(ref _requiresSessionReplacement, 1);
+    }
+
+    internal sealed class McpCatalogRecoveryBarrier(CopilotSession session)
+    {
+        private int _pendingSignals = 1;
+
+        public CopilotSession Session { get; } = session;
+        public TaskCompletionSource Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void AddPendingSignal()
+            => Interlocked.Increment(ref _pendingSignals);
+
+        public bool ReleasePendingSignal()
+            => Interlocked.Decrement(ref _pendingSignals) == 0;
     }
 
     internal static bool IsExactMcpSessionLoss(
@@ -64,6 +89,37 @@ public partial class ChatViewModel
                 McpSessionNotFoundMessage,
                 StringComparison.OrdinalIgnoreCase);
     }
+
+    internal static bool IsMcpFrontendRediscoveryRequired(
+        int? statusCode,
+        string? errorCode,
+        string? message)
+    {
+        var hasExpectedCode = statusCode == McpStdioServerConnection.FrontendRediscoveryRequiredCode
+            || (int.TryParse(errorCode, out var parsedCode)
+                && parsedCode == McpStdioServerConnection.FrontendRediscoveryRequiredCode);
+        return hasExpectedCode
+            && string.Equals(
+                message?.Trim(),
+                McpStdioServerConnection.FrontendRediscoveryRequiredMessage,
+                StringComparison.Ordinal);
+    }
+
+    internal static McpCatalogRecoverySignal? ClassifyMcpCatalogRecoverySignal(
+        int? statusCode,
+        string? errorCode,
+        string? message)
+    {
+        if (IsExactMcpSessionLoss(statusCode, errorCode, message))
+            return McpCatalogRecoverySignal.ExactSessionLoss;
+        if (IsMcpFrontendRediscoveryRequired(statusCode, errorCode, message))
+            return McpCatalogRecoverySignal.FrontendRediscoveryRequired;
+        return null;
+    }
+
+    private static bool RequiresMcpSessionReplacement(McpCatalogRecoverySignal signal)
+        => signal is McpCatalogRecoverySignal.ExactSessionLoss
+            or McpCatalogRecoverySignal.FrontendRediscoveryRequired;
 
     internal static McpCatalogEvaluation EvaluateMcpCatalog(
         IEnumerable<string> baselineProviders,
@@ -124,6 +180,8 @@ public partial class ChatViewModel
             if (_mcpCatalogRecoveries.TryGetValue(chat.Id, out var currentRecovery))
             {
                 currentRecovery.RerunRequested = true;
+                if (RequiresMcpSessionReplacement(signal))
+                    currentRecovery.RequireSessionReplacement();
                 if (!ReferenceEquals(currentRecovery.Session, session))
                 {
                     currentRecovery.RerunSession = session;
@@ -137,6 +195,8 @@ public partial class ChatViewModel
             var cancellation = new CancellationTokenSource();
             var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var recovery = new McpCatalogRecovery(session, cancellation, completion.Task);
+            if (RequiresMcpSessionReplacement(signal))
+                recovery.RequireSessionReplacement();
             _mcpCatalogRecoveries[chat.Id] = recovery;
             recoveryTask = completion.Task;
 
@@ -160,6 +220,7 @@ public partial class ChatViewModel
         if (!_mcpProxyLeasesBySession.TryGetValue(session, out var proxyLease)
             || !proxyLease.UsesLazyInitialization
             || signal is McpCatalogRecoverySignal.ExactSessionLoss
+                or McpCatalogRecoverySignal.FrontendRediscoveryRequired
                 or McpCatalogRecoverySignal.ProviderDegradedBeforeSend)
         {
             return false;
@@ -307,7 +368,8 @@ public partial class ChatViewModel
                 providersToReport = evaluation.MissingProviders;
                 signal = McpCatalogRecoverySignal.ToolsListChanged;
 
-                if (evaluation.MissingProviders.Count == 0)
+                if (evaluation.MissingProviders.Count == 0
+                    && !recovery.RequiresSessionReplacement)
                 {
                     ClearMcpCatalogDegradation(chat.Id);
                     if (TryCompleteMcpCatalogRecovery(chat.Id, recovery, completion))
@@ -575,11 +637,25 @@ public partial class ChatViewModel
 
     private void RecordMcpProviderStatus(Guid chatId, string serverName, McpServerStatus status)
     {
-        if (status == McpServerStatus.Connected || string.IsNullOrWhiteSpace(serverName))
+        if (string.IsNullOrWhiteSpace(serverName))
             return;
 
         lock (_mcpCatalogRecoveryLock)
         {
+            if (status == McpServerStatus.Connected)
+            {
+                if (_degradedMcpProviders.TryGetValue(chatId, out var recovered))
+                {
+                    recovered.Remove(serverName);
+                    if (recovered.Count == 0)
+                        _degradedMcpProviders.Remove(chatId);
+                }
+                return;
+            }
+
+            if (!IsMcpProviderFailureStatus(status))
+                return;
+
             if (!_visibleMcpProviderBaselines.TryGetValue(chatId, out var baseline)
                 || !baseline.Contains(serverName)
                 || !GetSelectedMcpProviders(chatId).Contains(serverName))
@@ -593,6 +669,120 @@ public partial class ChatViewModel
                 _degradedMcpProviders[chatId] = degraded;
             }
             degraded.Add(serverName);
+        }
+    }
+
+    internal static bool IsMcpProviderFailureStatus(McpServerStatus status)
+        => status == McpServerStatus.Failed;
+
+    internal McpCatalogRecoveryBarrier PublishMcpCatalogRecoveryBarrier(
+        Guid chatId,
+        CopilotSession session)
+    {
+        lock (_mcpCatalogRecoveryLock)
+        {
+            if (_mcpCatalogRecoveryBarriers.TryGetValue(chatId, out var current))
+            {
+                if (ReferenceEquals(current.Session, session))
+                {
+                    current.AddPendingSignal();
+                    return current;
+                }
+                current.Completion.TrySetResult();
+            }
+
+            var barrier = new McpCatalogRecoveryBarrier(session);
+            _mcpCatalogRecoveryBarriers[chatId] = barrier;
+            return barrier;
+        }
+    }
+
+    internal void ScheduleMcpCatalogRecoveryFromBarrier(
+        Chat chat,
+        CopilotSession session,
+        McpCatalogRecoverySignal signal,
+        McpCatalogRecoveryBarrier barrier,
+        McpCatalogRecoveryOperations? operationsOverride = null)
+    {
+        try
+        {
+            TryScheduleMcpCatalogReconciliation(
+                chat,
+                session,
+                signal,
+                out var recoveryTask,
+                operationsOverride);
+            CompleteMcpCatalogRecoveryBarrierAfter(chat.Id, barrier, recoveryTask);
+        }
+        catch (Exception ex)
+        {
+            CompleteMcpCatalogRecoveryBarrier(chat.Id, barrier, ex);
+        }
+    }
+
+    internal void CompleteMcpCatalogRecoveryBarrier(
+        Guid chatId,
+        McpCatalogRecoveryBarrier barrier,
+        Exception? error = null)
+    {
+        var shouldComplete = error is not null || barrier.ReleasePendingSignal();
+        if (!shouldComplete)
+            return;
+
+        lock (_mcpCatalogRecoveryLock)
+        {
+            if (_mcpCatalogRecoveryBarriers.TryGetValue(chatId, out var current)
+                && ReferenceEquals(current, barrier))
+            {
+                _mcpCatalogRecoveryBarriers.Remove(chatId);
+            }
+        }
+
+        if (error is null)
+            barrier.Completion.TrySetResult();
+        else
+            barrier.Completion.TrySetException(error);
+    }
+
+    private void CompleteMcpCatalogRecoveryBarrierAfter(
+        Guid chatId,
+        McpCatalogRecoveryBarrier barrier,
+        Task? recoveryTask)
+    {
+        if (recoveryTask is null)
+        {
+            CompleteMcpCatalogRecoveryBarrier(chatId, barrier);
+            return;
+        }
+
+        _ = CompleteMcpCatalogRecoveryBarrierAfterAsync(chatId, barrier, recoveryTask);
+    }
+
+    private async Task CompleteMcpCatalogRecoveryBarrierAfterAsync(
+        Guid chatId,
+        McpCatalogRecoveryBarrier barrier,
+        Task recoveryTask)
+    {
+        try
+        {
+            await recoveryTask.ConfigureAwait(false);
+            CompleteMcpCatalogRecoveryBarrier(chatId, barrier);
+        }
+        catch (OperationCanceledException)
+        {
+            lock (_mcpCatalogRecoveryLock)
+            {
+                if (_mcpCatalogRecoveryBarriers.TryGetValue(chatId, out var current)
+                    && ReferenceEquals(current, barrier))
+                {
+                    _mcpCatalogRecoveryBarriers.Remove(chatId);
+                }
+            }
+            barrier.Completion.TrySetCanceled();
+        }
+        catch (Exception ex)
+        {
+            CompleteMcpCatalogRecoveryBarrier(chatId, barrier, ex);
         }
     }
 
@@ -719,9 +909,19 @@ public partial class ChatViewModel
     {
         while (true)
         {
+            Task? barrierTask;
             Task? recoveryTask;
             lock (_mcpCatalogRecoveryLock)
+            {
+                barrierTask = _mcpCatalogRecoveryBarriers.GetValueOrDefault(chatId)?.Completion.Task;
                 recoveryTask = _mcpCatalogRecoveries.GetValueOrDefault(chatId)?.Completion;
+            }
+
+            if (barrierTask is not null)
+            {
+                await barrierTask.WaitAsync(cancellationToken);
+                continue;
+            }
 
             if (recoveryTask is null)
                 return;
@@ -801,17 +1001,20 @@ public partial class ChatViewModel
     internal bool HasPendingMcpCatalogRecovery(Guid chatId)
     {
         lock (_mcpCatalogRecoveryLock)
-            return _mcpCatalogRecoveries.ContainsKey(chatId);
+            return _mcpCatalogRecoveries.ContainsKey(chatId)
+                || _mcpCatalogRecoveryBarriers.ContainsKey(chatId);
     }
 
     internal void CancelMcpCatalogRecovery(Guid chatId)
     {
         McpCatalogRecovery? recovery;
+        McpCatalogRecoveryBarrier? barrier;
         lock (_mcpCatalogRecoveryLock)
         {
             _degradedMcpProviders.Remove(chatId);
             _postSendMcpCatalogObservations.Remove(chatId);
             _mcpCatalogRecoveries.Remove(chatId, out recovery);
+            _mcpCatalogRecoveryBarriers.Remove(chatId, out barrier);
         }
 
         try
@@ -821,24 +1024,31 @@ public partial class ChatViewModel
         catch (ObjectDisposedException)
         {
         }
+        barrier?.Completion.TrySetCanceled();
     }
 
     private void ForgetMcpCatalogState(Guid chatId)
     {
+        McpCatalogRecoveryBarrier? barrier;
         lock (_mcpCatalogRecoveryLock)
         {
             _visibleMcpProviderBaselines.Remove(chatId);
             _degradedMcpProviders.Remove(chatId);
             _postSendMcpCatalogObservations.Remove(chatId);
             _mcpCatalogRecoveryReplayPending.Remove(chatId);
+            _mcpCatalogRecoveryBarriers.Remove(chatId, out barrier);
         }
+        barrier?.Completion.TrySetCanceled();
     }
 
     private void CancelAllMcpCatalogRecoveries()
     {
         Guid[] chatIds;
         lock (_mcpCatalogRecoveryLock)
-            chatIds = _mcpCatalogRecoveries.Keys.ToArray();
+            chatIds = _mcpCatalogRecoveries.Keys
+                .Concat(_mcpCatalogRecoveryBarriers.Keys)
+                .Distinct()
+                .ToArray();
         foreach (var chatId in chatIds)
             CancelMcpCatalogRecovery(chatId);
         // A reconnect invalidates runtime sessions, not the fact that a replacement session has no

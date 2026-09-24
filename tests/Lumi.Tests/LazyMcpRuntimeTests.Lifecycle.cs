@@ -302,7 +302,11 @@ public sealed partial class LazyMcpRuntimeTests
             new { name = "echo", arguments = new { value = "blocked" } });
 
         AssertError(response);
-        Assert.Contains("changed its advertised discovery",
+        Assert.Equal(
+            McpStdioServerConnection.FrontendRediscoveryRequiredCode,
+            response.GetProperty("error").GetProperty("code").GetInt32());
+        Assert.Equal(
+            McpStdioServerConnection.FrontendRediscoveryRequiredMessage,
             response.GetProperty("error").GetProperty("message").GetString());
         Assert.Single(fake.Messages("tools/call"));
         Assert.Equal(3, fake.Starts.Length);
@@ -402,7 +406,11 @@ public sealed partial class LazyMcpRuntimeTests
             new { name = "echo", arguments = new { value = "not-advertised" } });
 
         AssertError(response);
-        Assert.Contains("changed its advertised discovery",
+        Assert.Equal(
+            McpStdioServerConnection.FrontendRediscoveryRequiredCode,
+            response.GetProperty("error").GetProperty("code").GetInt32());
+        Assert.Equal(
+            McpStdioServerConnection.FrontendRediscoveryRequiredMessage,
             response.GetProperty("error").GetProperty("message").GetString());
         Assert.Empty(fake.Messages("tools/call"));
     }
