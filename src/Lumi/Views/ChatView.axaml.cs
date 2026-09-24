@@ -1529,6 +1529,14 @@ public partial class ChatView : UserControl
                 return;
             }
 
+            // Office apps also copy an image of selected text; prefer the text representation.
+            if (!string.IsNullOrEmpty(clipboardText))
+            {
+                _composer?.InsertTextAtSelection(clipboardText);
+                FocusComposer();
+                return;
+            }
+
             // Skia can't decode macOS clipboard TIFF; supply the AppKit transcoder on macOS so those
             // (e.g. screenshots) still paste. Null elsewhere — the built-in decode path is used as before.
             Func<byte[], byte[]?>? nativeImageToPng = null;
@@ -1546,12 +1554,6 @@ public partial class ChatView : UserControl
                 vm.AddAttachment(filePath);
                 FocusComposer();
                 return;
-            }
-
-            if (!string.IsNullOrEmpty(clipboardText))
-            {
-                _composer?.InsertTextAtSelection(clipboardText);
-                FocusComposer();
             }
         }
         catch
