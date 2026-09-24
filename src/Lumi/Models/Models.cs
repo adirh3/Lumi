@@ -1252,8 +1252,8 @@ public class UserSettings
     public bool RemoteUseDevTunnel { get; set; }
 
     /// <summary>
-    /// Stable, random Dev Tunnel name for this Lumi profile. Reusing the name keeps the web-app URL
-    /// unchanged when the desktop restarts while the tunnel itself remains short-lived.
+    /// Stable, random Dev Tunnel route for this Lumi profile. Once assigned, the cluster-qualified
+    /// ID keeps the web-app URL unchanged while the tunnel itself remains short-lived.
     /// </summary>
     public string RemoteDevTunnelId { get; set; } = "";
 

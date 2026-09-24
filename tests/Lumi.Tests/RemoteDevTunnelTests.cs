@@ -27,12 +27,36 @@ public sealed class RemoteDevTunnelTests
     }
 
     [Fact]
+    public void ClusterQualifiedTunnelRoutePinsRecreationAndRejectsRelocation()
+    {
+        const string baseId = "lumi-0123456789abcdef0123456789abcdef";
+        const string routedId = baseId + ".uks1";
+        Assert.Equal(
+            ["create", baseId, "--service-uri", "https://uks1.rel.tunnels.api.visualstudio.com",
+                "--expiration", "1d", "--description", RemoteDevTunnelHost.TunnelDescription,
+                "--host-header", "localhost", "--origin-header", "unchanged", "--json"],
+            RemoteDevTunnelHost.CreateArguments(routedId));
+        Assert.Equal(routedId, RemoteDevTunnelHost.RequireExpectedTunnelId(routedId, routedId));
+        Assert.Throws<InvalidOperationException>(() =>
+            RemoteDevTunnelHost.RequireExpectedTunnelId(baseId + ".euw", routedId));
+        Assert.Throws<InvalidOperationException>(() =>
+            RemoteDevTunnelHost.CreateArguments(routedId + ".invalid"));
+        Assert.Equal(
+            "https://lumi-0123456789abcdef0123456789abcdef-47654.uks1.devtunnels.ms",
+            RemoteDevTunnelHost.FindWebOrigin(
+                "Hosting port 47654 at https://lumi-0123456789abcdef0123456789abcdef-47654.uks1.devtunnels.ms/",
+                47654));
+    }
+
+    [Fact]
     public void ProfileTunnelIdIsStableFormatAndOnlyMatchesLumiOwnedTunnel()
     {
         var requestedTunnelId = RemoteDevTunnelHost.CreateProfileTunnelId();
         Assert.True(RemoteDevTunnelHost.IsValidProfileTunnelId(requestedTunnelId));
+        Assert.True(RemoteDevTunnelHost.IsValidProfileTunnelId(requestedTunnelId + ".uks1"));
         Assert.False(RemoteDevTunnelHost.IsValidProfileTunnelId(""));
         Assert.False(RemoteDevTunnelHost.IsValidProfileTunnelId("lumi-not-a-guid"));
+        Assert.False(RemoteDevTunnelHost.IsValidProfileTunnelId(requestedTunnelId + ".uks1.invalid"));
 
         var json = $$"""
             {
@@ -56,6 +80,11 @@ public sealed class RemoteDevTunnelTests
         Assert.Equal(
             $"{requestedTunnelId}.uks1",
             RemoteDevTunnelHost.FindExistingProfileTunnelId(json, requestedTunnelId));
+        Assert.Equal(
+            $"{requestedTunnelId}.uks1",
+            RemoteDevTunnelHost.FindExistingProfileTunnelId(json, $"{requestedTunnelId}.uks1"));
+        Assert.Null(
+            RemoteDevTunnelHost.FindExistingProfileTunnelId(json, $"{requestedTunnelId}.euw"));
         Assert.Null(RemoteDevTunnelHost.FindExistingProfileTunnelId(json, "lumi-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
     }
 

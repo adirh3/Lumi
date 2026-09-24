@@ -29,11 +29,27 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
     public RemoteDevTunnelState State => Volatile.Read(ref _state);
     public event Action? StateChanged;
 
-    internal static string[] CreateArguments(string requestedTunnelId) =>
-    [
-        "create", requestedTunnelId, "--expiration", "1d", "--description", TunnelDescription,
-        "--host-header", "localhost", "--origin-header", "unchanged", "--json"
-    ];
+    internal static string[] CreateArguments(string requestedTunnelId)
+    {
+        if (!IsValidProfileTunnelId(requestedTunnelId))
+            throw new InvalidOperationException(Loc.Get("Remote_DevTunnelInvalidResponse"));
+
+        var separator = requestedTunnelId.IndexOf('.');
+        var baseId = separator < 0 ? requestedTunnelId : requestedTunnelId[..separator];
+        var arguments = new List<string> { "create", baseId };
+        if (separator >= 0)
+        {
+            var clusterId = requestedTunnelId[(separator + 1)..];
+            arguments.AddRange([
+                "--service-uri", $"https://{clusterId}.rel.tunnels.api.visualstudio.com"
+            ]);
+        }
+        arguments.AddRange([
+            "--expiration", "1d", "--description", TunnelDescription,
+            "--host-header", "localhost", "--origin-header", "unchanged", "--json"
+        ]);
+        return arguments.ToArray();
+    }
 
     internal static string[] HostArguments(string tunnelId) =>
         ["host", tunnelId, "--host-header", "localhost", "--origin-header", "unchanged"];
@@ -48,10 +64,16 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
         $"lumi-{Guid.NewGuid():N}";
 
     internal static bool IsValidProfileTunnelId(string? tunnelId) =>
-        tunnelId is { Length: 37 }
-        && Regex.IsMatch(tunnelId, "^lumi-[0-9a-f]{32}$", RegexOptions.CultureInvariant);
+        tunnelId is not null
+        && Regex.IsMatch(
+            tunnelId,
+            "^lumi-[0-9a-f]{32}(?:\\.[a-z0-9]+)?$",
+            RegexOptions.CultureInvariant);
 
-    public void Start(int port, string requestedTunnelId)
+    public void Start(
+        int port,
+        string requestedTunnelId,
+        Func<string, CancellationToken, Task> persistTunnelId)
     {
         Stop();
         lock (_gate)
@@ -63,7 +85,7 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
             _worker = Task.Run(async () =>
             {
                 await previous.ConfigureAwait(false);
-                await RunAsync(port, requestedTunnelId, lifetime).ConfigureAwait(false);
+                await RunAsync(port, requestedTunnelId, persistTunnelId, lifetime).ConfigureAwait(false);
             });
         }
         StateChanged?.Invoke();
@@ -122,6 +144,7 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
     private async Task RunAsync(
         int port,
         string requestedTunnelId,
+        Func<string, CancellationToken, Task> persistTunnelId,
         CancellationTokenSource lifetime)
     {
         string? tunnelId = null;
@@ -163,11 +186,13 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
                     .ConfigureAwait(false);
             }
 
-            // Recreate the profile-owned name from scratch so stale relay state cannot survive a
-            // reboot. The name is stable, but ACLs and ports are verified anew on every launch.
+            var requestedRoute = existingTunnelId ?? requestedTunnelId;
+
+            // Recreate the profile-owned route from scratch so stale relay state cannot survive a
+            // reboot. The cluster is pinned, but ACLs and ports are verified anew on every launch.
             using (var created = JsonDocument.Parse(
                        await RemoteDevTunnelCli.RunAsync(
-                           executablePath, CreateArguments(requestedTunnelId), token).ConfigureAwait(false)))
+                           executablePath, CreateArguments(requestedRoute), token).ConfigureAwait(false)))
             {
                 if (!created.RootElement.TryGetProperty("tunnel", out var tunnel)
                     || !tunnel.TryGetProperty("tunnelId", out var id)
@@ -176,8 +201,9 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
                 {
                     throw new InvalidOperationException(Loc.Get("Remote_DevTunnelInvalidResponse"));
                 }
-                tunnelId = value;
+                tunnelId = RequireExpectedTunnelId(value, requestedRoute);
             }
+            await persistTunnelId(tunnelId, token).ConfigureAwait(false);
 
             await RemoteDevTunnelCli.RunAsync(executablePath,
                     ["port", "create", tunnelId, "-p", port.ToString(CultureInfo.InvariantCulture),
@@ -315,6 +341,10 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
                     {
                         await runCli(BrowserSignInArguments, cancellationToken).ConfigureAwait(false);
                     }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        await runCli(BrowserSignInArguments, cancellationToken).ConfigureAwait(false);
+                    }
                 }
                 else
                 {
@@ -360,13 +390,41 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
                 continue;
             }
 
+            var requestedHasCluster = requestedTunnelId.IndexOf('.') >= 0;
             var separator = tunnelId.IndexOf('.');
             var baseId = separator < 0 ? tunnelId : tunnelId[..separator];
-            if (string.Equals(baseId, requestedTunnelId, StringComparison.Ordinal))
+            if (IsValidProfileTunnelId(tunnelId)
+                && (requestedHasCluster
+                    ? string.Equals(tunnelId, requestedTunnelId, StringComparison.Ordinal)
+                    : string.Equals(baseId, requestedTunnelId, StringComparison.Ordinal)))
                 return tunnelId;
         }
 
         return null;
+    }
+
+    internal static string RequireExpectedTunnelId(string createdTunnelId, string requestedTunnelId)
+    {
+        if (!IsValidProfileTunnelId(createdTunnelId)
+            || !IsValidProfileTunnelId(requestedTunnelId))
+            throw new InvalidOperationException(Loc.Get("Remote_DevTunnelInvalidResponse"));
+
+        var requestedSeparator = requestedTunnelId.IndexOf('.');
+        var requestedBaseId = requestedSeparator < 0
+            ? requestedTunnelId
+            : requestedTunnelId[..requestedSeparator];
+        var createdSeparator = createdTunnelId.IndexOf('.');
+        var createdBaseId = createdSeparator < 0
+            ? createdTunnelId
+            : createdTunnelId[..createdSeparator];
+        if (!string.Equals(createdBaseId, requestedBaseId, StringComparison.Ordinal)
+            || requestedSeparator >= 0
+            && !string.Equals(createdTunnelId, requestedTunnelId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(Loc.Get("Remote_DevTunnelInvalidResponse"));
+        }
+
+        return createdTunnelId;
     }
 
     internal static void RequireOwnerOnlyAccess(string json)
