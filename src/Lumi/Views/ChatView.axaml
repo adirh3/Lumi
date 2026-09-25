@@ -165,9 +165,15 @@
     <Style Selector="sc|StrataChatMessage:user /template/ Button#PART_RegenerateButton">
       <Setter Property="IsVisible" Value="True" />
     </Style>
-    <!-- Hide entire action toolbar on assistant messages -->
+    <!-- Keep response copying discoverable without hover or a context menu. -->
     <Style Selector="sc|StrataChatMessage:assistant /template/ Border#PART_ActionLayer">
-      <Setter Property="IsVisible" Value="False" />
+      <Setter Property="Grid.Row" Value="1" />
+      <Setter Property="Grid.Column" Value="1" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Margin" Value="0,4,0,0" />
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="IsHitTestVisible" Value="True" />
+      <Setter Property="RenderTransform" Value="translateX(0)" />
     </Style>
     <!-- Compact tool calls: hide the status pill and reduce padding -->
     <Style Selector="sc|StrataAiToolCall.compact /template/ Border#PART_StatusPill">
@@ -818,6 +824,8 @@
     <!-- ── Assistant message ────────────────────────── -->
     <DataTemplate DataType="vm:AssistantMessageItem">
       <sc:StrataChatMessage Role="Assistant"
+                            IsEditable="False"
+                            CanRegenerate="False"
                             HorizontalAlignment="Left"
                             MaxWidth="900"
                             Author="{Binding Author}"
