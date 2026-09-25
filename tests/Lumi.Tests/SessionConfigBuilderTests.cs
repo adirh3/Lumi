@@ -443,44 +443,55 @@ public sealed class SessionConfigBuilderTests
 
 #pragma warning disable GHCP001
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void SessionConfigs_ApplyModelCapabilitiesOverride(bool resume)
+    [InlineData(false, "default", 256_000)]
+    [InlineData(true, "default", 256_000)]
+    [InlineData(false, "long_context", 640_000)]
+    [InlineData(true, "long_context", 640_000)]
+    public void SessionConfigs_ApplyModelCapabilitiesOverride(bool resume, string contextTier, long expectedLimit)
     {
-        var modelCapabilities = new GitHub.Copilot.Rpc.ModelCapabilitiesOverride
+        var modelCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(new ByokModel
         {
-            Supports = new GitHub.Copilot.Rpc.ModelCapabilitiesOverrideSupports { ReasoningEffort = true },
-            Limits = new GitHub.Copilot.Rpc.ModelCapabilitiesOverrideLimits { MaxContextWindowTokens = 128_000 }
-        };
+            SupportsReasoningEffort = true,
+            SupportedReasoningEfforts = ["low", "high", "max"],
+            DefaultContextWindowTokens = 256_000,
+            LongContextWindowTokens = 640_000
+        }, contextTier);
         SessionConfigBase config = resume
             ? SessionConfigBuilder.BuildForResume(
                 systemPrompt: "prompt",
-                model: "byok/test-model",
+                model: "gpt-6-luna",
                 workingDirectory: null,
                 mcpPlan: null,
                 skillDirectories: null,
                 customAgents: [],
                 tools: [],
-                reasoningEffort: "high",
+                reasoningEffort: "max",
                 userInputHandler: null,
                 onPermission: null,
                 hooks: null,
+                contextTier: contextTier,
                 modelCapabilities: modelCapabilities)
             : SessionConfigBuilder.Build(
                 systemPrompt: "prompt",
-                model: "byok/test-model",
+                model: "gpt-6-luna",
                 workingDirectory: null,
                 mcpPlan: null,
                 skillDirectories: null,
                 customAgents: [],
                 tools: [],
-                reasoningEffort: "high",
+                reasoningEffort: "max",
                 userInputHandler: null,
                 onPermission: null,
                 hooks: null,
+                contextTier: contextTier,
                 modelCapabilities: modelCapabilities);
 
         Assert.Same(modelCapabilities, config.ModelCapabilities);
+            Assert.Equal("gpt-6-luna", config.Model);
+            Assert.Equal("max", config.ReasoningEffort);
+            Assert.Equal(contextTier, config.ContextTier?.Value);
+            Assert.True(config.ModelCapabilities?.Supports?.ReasoningEffort);
+            Assert.Equal(expectedLimit, config.ModelCapabilities?.Limits?.MaxContextWindowTokens);
     }
 #pragma warning restore GHCP001
 

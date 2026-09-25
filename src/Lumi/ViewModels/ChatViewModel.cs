@@ -1145,6 +1145,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (route.IsByok)
                 persistedModel = route.SelectionToken;
         }
+        effectiveModel = persistedModel;
         var effectiveContextTier = ResolveSessionContextWindowTier(
             effectiveModel,
             sessionContextTier,
@@ -2642,11 +2643,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var currentSignature = _activeSession is not null
                     ? _sessionProviderSignatures.GetValueOrDefault(chat.Id)
                     : chat.SessionProviderSignature;
+                var expectedRoute = ResolveModelRouteForChat(
+                    ResolveSelectedModelForChat(chat),
+                    chat,
+                    allowLegacyByWireId: true);
                 var expectedSignature = ByokConfigHelper.BuildProviderSignature(
-                    ResolveModelRouteForChat(
-                        ResolveSelectedModelForChat(chat),
-                        chat,
-                        allowLegacyByWireId: true).Provider);
+                    expectedRoute.Provider, expectedRoute.ByokModel);
                 if (!string.Equals(currentSignature, expectedSignature, StringComparison.Ordinal))
                 {
                     InvalidateLocalSessionCache(chat);
@@ -3413,7 +3415,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (_dataStore.Data.Settings.UseBYOKOnly && !modelRoute.IsByok)
             throw new ByokOnlyRequestBlockedException(Loc.Byok_Error_ByokOnly);
 
-        var requestedProviderSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider);
+        var requestedProviderSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider, modelRoute.ByokModel);
         if (HasActiveSessionConfigurationConflict(targetChat, requestedProviderSignature))
         {
             throw new InvalidOperationException("Stop this session's background work before changing its configuration.");

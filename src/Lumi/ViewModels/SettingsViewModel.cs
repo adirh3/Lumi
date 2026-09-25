@@ -145,6 +145,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string[] _editingByokReasoningEffortOptions = [];
     private bool _suppressByokModelEditorOpen;
 
+    public string ByokModelTokenLimitWarning => string.Join(
+        Environment.NewLine,
+        ByokConfigHelper.GetTokenLimitWarnings(EditingByokModel).Select(FormatByokTokenLimitWarning));
+
     [ObservableProperty] private string? _byokValidationMessage;
     [ObservableProperty] private bool _isByokValidationVisible;
 
@@ -1387,6 +1391,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         if (source is null) return;
 
         var copy = CloneByokModel(source);
+        copy.SupportedReasoningEfforts = ParseReasoningEfforts(EditingByokSupportedReasoningEffortsText);
         copy.Id = Guid.NewGuid().ToString("N");
         copy.DisplayName += " (copy)";
         BeginByokModelEdit(copy, isNew: true);
@@ -1445,6 +1450,44 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         SelectedByokEndpoint = null;
         IsByokModelEditorOpen = true;
     }
+
+    partial void OnEditingByokModelChanging(ByokModel? oldValue, ByokModel? newValue)
+    {
+        if (oldValue is not null)
+            oldValue.PropertyChanged -= OnEditingByokModelPropertyChanged;
+        if (newValue is not null)
+            newValue.PropertyChanged += OnEditingByokModelPropertyChanged;
+    }
+
+    partial void OnEditingByokModelChanged(ByokModel? value)
+        => OnPropertyChanged(nameof(ByokModelTokenLimitWarning));
+
+    private void OnEditingByokModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ByokModel.DefaultContextWindowTokens)
+            or nameof(ByokModel.LongContextWindowTokens)
+            or nameof(ByokModel.MaxPromptTokens)
+            or nameof(ByokModel.MaxOutputTokens))
+        {
+            OnPropertyChanged(nameof(ByokModelTokenLimitWarning));
+        }
+    }
+
+    private static string FormatByokTokenLimitWarning(ByokTokenLimitWarning warning)
+        => warning.Kind switch
+        {
+            ByokTokenLimitWarningKind.LongContextWindowBelowDefault =>
+                Loc.Get("Settings_Byok_WarningLongContextBelowDefault"),
+            ByokTokenLimitWarningKind.TokenBudgetExceedsContextWindow =>
+                Loc.Get(
+                    "Settings_Byok_WarningTokenBudgetExceedsContextWindow",
+                    warning.ConfiguredTokenBudget ?? 0,
+                    string.Equals(warning.ContextTier, ModelContextWindowTiers.LongContext, StringComparison.Ordinal)
+                        ? Loc.Get("Settings_Byok_LongContextTier")
+                        : Loc.Get("Settings_Byok_DefaultContextTier"),
+                    warning.ContextWindowTokens ?? 0),
+            _ => string.Empty
+        };
 
     private static List<string> ParseReasoningEfforts(string? value)
         => (value ?? "")

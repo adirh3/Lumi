@@ -235,6 +235,41 @@ public sealed class SettingsViewModelCredentialStoreTests
     }
 
     [Fact]
+    public void DuplicateByokModel_PreservesUnsavedEffortsWithoutChangingOriginal()
+    {
+        var data = new AppData();
+        var model = new ByokModel
+        {
+            Id = "original",
+            ModelId = "wire-model",
+            DisplayName = "Original",
+            SupportsReasoningEffort = true,
+            SupportedReasoningEfforts = ["low", "high"]
+        };
+        data.Settings.ByokModels.Add(model);
+        using var vm = CreateVm(data: data);
+        vm.SelectedByokModel = model;
+        vm.EditingByokSupportedReasoningEffortsText = " low, high, max, low ";
+        vm.EditingByokModel!.DefaultReasoningEffort = "max";
+
+        vm.DuplicateByokModelCommand.Execute(null);
+
+        Assert.Equal("low, high, max", vm.EditingByokSupportedReasoningEffortsText);
+        Assert.Equal("max", vm.EditingByokModel!.DefaultReasoningEffort);
+        Assert.NotEqual(model.Id, vm.EditingByokModel.Id);
+        Assert.Equal(["low", "high"], model.SupportedReasoningEfforts);
+        Assert.Single(data.Settings.ByokModels);
+
+        vm.SaveByokModelCommand.Execute(null);
+
+        var copy = Assert.Single(data.Settings.ByokModels, candidate => candidate.Id != model.Id);
+        Assert.Equal(["low", "high", "max"], copy.SupportedReasoningEfforts);
+        Assert.Equal("max", copy.DefaultReasoningEffort);
+        Assert.Equal(["low", "high"], model.SupportedReasoningEfforts);
+        Assert.Null(model.DefaultReasoningEffort);
+    }
+
+    [Fact]
     public void AddByokModel_IsPersistedOnlyAfterSaveWithNormalizedCapabilities()
     {
         var data = new AppData();

@@ -19,6 +19,18 @@ public sealed record SessionModelRoute(
     public bool IsByok => Provider is not null;
 }
 
+public enum ByokTokenLimitWarningKind
+{
+    LongContextWindowBelowDefault,
+    TokenBudgetExceedsContextWindow
+}
+
+public sealed record ByokTokenLimitWarning(
+    ByokTokenLimitWarningKind Kind,
+    string? ContextTier = null,
+    long? ConfiguredTokenBudget = null,
+    int? ContextWindowTokens = null);
+
 /// <summary>
 /// Helper for Lumi's BYOK2 (Endpoint + Models) configuration.
 ///
@@ -559,6 +571,57 @@ public static class ByokConfigHelper
             };
     }
 
+    /// <summary>Finds configured BYOK token limits that conflict with declared context windows.</summary>
+    public static IReadOnlyList<ByokTokenLimitWarning> GetTokenLimitWarnings(ByokModel? model)
+    {
+        if (model is null)
+            return [];
+
+        var normalized = NormalizeModelCopy(model);
+        var warnings = new List<ByokTokenLimitWarning>();
+
+        if (normalized.DefaultContextWindowTokens is int defaultWindow
+            && normalized.LongContextWindowTokens is int longWindow
+            && longWindow < defaultWindow)
+        {
+            warnings.Add(new(ByokTokenLimitWarningKind.LongContextWindowBelowDefault));
+        }
+
+        long? configuredTokenBudget = null;
+        if (normalized.MaxPromptTokens is int maxPromptTokens
+            && normalized.MaxOutputTokens is int maxOutputTokens)
+        {
+            configuredTokenBudget = (long)maxPromptTokens + maxOutputTokens;
+        }
+        else if (normalized.MaxPromptTokens is int promptTokens)
+        {
+            configuredTokenBudget = promptTokens;
+        }
+        else if (normalized.MaxOutputTokens is int outputTokens)
+        {
+            configuredTokenBudget = outputTokens;
+        }
+
+        if (configuredTokenBudget is not long tokenBudget)
+            return warnings;
+
+        AddContextWindowWarning(ModelContextWindowTiers.Default, normalized.DefaultContextWindowTokens);
+        AddContextWindowWarning(ModelContextWindowTiers.LongContext, normalized.LongContextWindowTokens);
+        return warnings;
+
+        void AddContextWindowWarning(string tier, int? contextWindowTokens)
+        {
+            if (contextWindowTokens is not int contextWindow || tokenBudget <= contextWindow)
+                return;
+
+            warnings.Add(new(
+                ByokTokenLimitWarningKind.TokenBudgetExceedsContextWindow,
+                tier,
+                tokenBudget,
+                contextWindow));
+        }
+    }
+
     /// <summary>
     /// Computes a stable, comparable signature for a <see cref="ProviderConfig"/> that
     /// captures every field the SDK uses to route requests. Two provider configs are
@@ -679,6 +742,17 @@ public static class ByokConfigHelper
         endpoint = foundEndpoint;
         actualModelId = foundModel.ModelId;
         return true;
+    }
+
+    /// <summary>Returns true when an SDK-reported model id matches the selected BYOK model's wire id.</summary>
+    public static bool MatchesWireModelId(
+        UserSettings settings,
+        string? selectedModel,
+        string? reportedModelId)
+    {
+        return !string.IsNullOrWhiteSpace(reportedModelId)
+            && TryResolveModel(settings, selectedModel, out _, out _, out var wireModelId)
+            && string.Equals(wireModelId, reportedModelId, StringComparison.Ordinal);
     }
 
     /// <summary>

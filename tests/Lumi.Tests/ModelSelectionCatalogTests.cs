@@ -315,6 +315,86 @@ public sealed class ModelSelectionCatalogTests
         Assert.Null(resolvedForUnsupportedModel);
     }
 
+    [Theory]
+    [InlineData("gpt-6-luna", null, null, "long_context", "max", 640_000)]
+    [InlineData("gpt-6-luna", "default", "low", "default", "low", 256_000)]
+    [InlineData("gpt-5.5", "long_context", "max", "long_context", "max", 640_000)]
+    [InlineData("gpt-5.5", "default", null, "default", "max", 256_000)]
+    public async Task ApplySessionModelState_ByokWireIdUsesSelectedModelCapabilities(
+        string wireModelId,
+        string? eventTier,
+        string? eventEffort,
+        string expectedTier,
+        string expectedEffort,
+        long expectedLimit)
+    {
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            var model = new ByokModel
+            {
+                Id = "custom-model",
+                EndpointId = "custom-endpoint",
+                ModelId = wireModelId,
+                DisplayName = "Custom model"
+            };
+            var token = ByokConfigHelper.BuildModelToken(model);
+            var chat = new Chat
+            {
+                LastModelUsed = token,
+                LastReasoningEffortUsed = "max",
+                LastContextWindowTierUsed = ModelContextWindowTiers.LongContext
+            };
+            var settings = new UserSettings { AutoSaveChats = false, EnableMemoryAutoSave = false };
+            settings.ByokModels.Add(model);
+            settings.ByokEndpoints.Add(new ByokEndpoint
+            {
+                Id = model.EndpointId,
+                Name = "Test endpoint",
+                BaseUrl = "http://localhost:11434/v1",
+                ProviderType = "openai",
+                ApiKeyMode = ByokApiKeyMode.None
+            });
+            var viewModel = new ChatViewModel(
+                new DataStore(new AppData { Settings = settings, Chats = [chat] }),
+                TestCopilot.Shared);
+            SeedCatalog(viewModel);
+            viewModel.UpdateModelCapabilities(
+                [new ModelInfo
+                {
+                    Id = token,
+                    SupportedReasoningEfforts = ["low", "high", "max"],
+                    DefaultReasoningEffort = "high"
+                }],
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { token },
+                new Dictionary<string, ModelContextWindowLimits>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [token] = new(256_000, 640_000)
+                },
+                merge: true);
+            var runtime = new ChatRuntimeState
+            {
+                ActiveModelId = token,
+                ActiveContextWindowTier = ModelContextWindowTiers.LongContext,
+                ContextTokenLimit = 640_000,
+                ContextTokenLimitSource = ContextTokenLimitSource.Session
+            };
+
+            InvokeApplySessionModelState(viewModel, chat, runtime, wireModelId, eventTier, eventEffort);
+
+            Assert.Equal(token, chat.LastModelUsed);
+            Assert.Equal(token, runtime.ActiveModelId);
+            Assert.Equal(expectedTier, chat.LastContextWindowTierUsed);
+            Assert.Equal(expectedTier, runtime.ActiveContextWindowTier);
+            Assert.Equal(expectedEffort, chat.LastReasoningEffortUsed);
+            Assert.Equal(expectedLimit, runtime.ContextTokenLimit);
+            Assert.Equal(token, viewModel.SelectedModel);
+            Assert.Equal(expectedEffort == "max" ? "Max" : "Low", viewModel.SelectedQuality);
+            Assert.Equal(expectedTier == "default" ? "Default" : "Long", viewModel.SelectedContextWindowTier);
+        }, CancellationToken.None);
+    }
+
     private static ChatViewModel CreateViewModel(out Chat chat)
     {
         chat = new Chat { Title = "Model selection" };
@@ -356,13 +436,14 @@ public sealed class ModelSelectionCatalogTests
         Chat chat,
         ChatRuntimeState runtime,
         string modelId,
-        string? sessionContextTier)
+        string? sessionContextTier,
+        string? reasoningEffort = null)
     {
         var method = typeof(ChatViewModel).GetMethod(
             "ApplySessionModelState",
             BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("ApplySessionModelState was not found.");
 
-        method.Invoke(viewModel, [chat, runtime, modelId, null, sessionContextTier, true]);
+        method.Invoke(viewModel, [chat, runtime, modelId, reasoningEffort, sessionContextTier, true]);
     }
 }

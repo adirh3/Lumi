@@ -397,6 +397,21 @@ public sealed class ByokConfigHelperTests
     }
 
     [Fact]
+    public void MatchesWireModelId_ResolvesSelectedByokTokenAndRejectsOtherModels()
+    {
+        var settings = new UserSettings();
+        var endpoint = MakeValidEndpoint("e1");
+        var model = new ByokModel { Id = "m1", EndpointId = "e1", ModelId = "gpt-6-luna", DisplayName = "GPT-6 Luna" };
+        settings.ByokEndpoints.Add(endpoint);
+        settings.ByokModels.Add(model);
+        var selectedToken = ByokConfigHelper.BuildModelToken(model);
+
+        Assert.True(ByokConfigHelper.MatchesWireModelId(settings, selectedToken, "gpt-6-luna"));
+        Assert.False(ByokConfigHelper.MatchesWireModelId(settings, selectedToken, "gpt-5"));
+        Assert.False(ByokConfigHelper.MatchesWireModelId(settings, "byok:missing", "gpt-6-luna"));
+    }
+
+    [Fact]
     public void TryBuildProviderConfig_BuildsProviderWithExpectedFields()
     {
         var settings = new UserSettings();
@@ -1058,6 +1073,49 @@ public sealed class ByokConfigHelperTests
         Assert.Equal(256_000, longCapabilities?.Limits?.MaxContextWindowTokens);
         Assert.Null(defaultCapabilities?.Limits?.MaxPromptTokens);
         Assert.Null(defaultCapabilities?.Limits?.MaxOutputTokens);
+    }
+
+    [Fact]
+    public void GetTokenLimitWarnings_ReportsLongWindowAndAdvancedBudgetConflicts()
+    {
+        var model = new ByokModel
+        {
+            DefaultContextWindowTokens = 128_000,
+            LongContextWindowTokens = 64_000,
+            MaxPromptTokens = 100_000,
+            MaxOutputTokens = 30_000
+        };
+
+        var warnings = ByokConfigHelper.GetTokenLimitWarnings(model);
+
+        Assert.Contains(warnings, warning =>
+            warning.Kind == ByokTokenLimitWarningKind.LongContextWindowBelowDefault);
+        Assert.Contains(warnings, warning =>
+            warning.Kind == ByokTokenLimitWarningKind.TokenBudgetExceedsContextWindow
+            && warning.ContextTier == ModelContextWindowTiers.Default
+            && warning.ConfiguredTokenBudget == 130_000
+            && warning.ContextWindowTokens == 128_000);
+        Assert.Contains(warnings, warning =>
+            warning.Kind == ByokTokenLimitWarningKind.TokenBudgetExceedsContextWindow
+            && warning.ContextTier == ModelContextWindowTiers.LongContext
+            && warning.ConfiguredTokenBudget == 130_000
+            && warning.ContextWindowTokens == 64_000);
+    }
+
+    [Fact]
+    public void GetTokenLimitWarnings_DoesNotWarnWhenUnsetOrWithinWindows()
+    {
+        Assert.Empty(ByokConfigHelper.GetTokenLimitWarnings(new ByokModel()));
+
+        var model = new ByokModel
+        {
+            DefaultContextWindowTokens = 128_000,
+            LongContextWindowTokens = 256_000,
+            MaxPromptTokens = 96_000,
+            MaxOutputTokens = 8_000
+        };
+
+        Assert.Empty(ByokConfigHelper.GetTokenLimitWarnings(model));
     }
 #pragma warning restore GHCP001
 
