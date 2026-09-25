@@ -140,6 +140,15 @@ internal static class ModelSelectionHelper
                 return explicitMatch;
         }
 
+        if (Lumi.Services.ByokConfigHelper.IsByokModel(modelId)
+            && defaultEfforts.TryGetValue(modelId, out var byokDefaultEffort))
+        {
+            var defaultMatch = supportedEfforts.FirstOrDefault(candidate =>
+                string.Equals(candidate, byokDefaultEffort, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(defaultMatch))
+                return defaultMatch;
+        }
+
         var preferredHighMatch = supportedEfforts.FirstOrDefault(candidate =>
             string.Equals(candidate, "high", StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrWhiteSpace(preferredHighMatch))

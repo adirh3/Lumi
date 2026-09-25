@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Lumi.Models;
 using Lumi.Services;
@@ -19,7 +20,7 @@ public sealed class SettingsViewModelCredentialStoreTests
         var dataStore = new DataStore(data ?? new AppData());
         return new SettingsViewModel(
             dataStore,
-            new CopilotService(),
+            TestCopilot.Shared,
             new BrowserService(),
             new UpdateService(),
             secureKeyStore: store ?? new FakeSecureKeyStore());
@@ -196,6 +197,148 @@ public sealed class SettingsViewModelCredentialStoreTests
         Assert.Equal(0, configurationChangeCount);
         Assert.True(vm.IsByokValidationVisible);
         Assert.False(string.IsNullOrEmpty(vm.ByokValidationMessage));
+    }
+
+    [Fact]
+    public void EditingByokModel_CancelDiscardsDraftAndClosesEndpointEditor()
+    {
+        var endpoint = new ByokEndpoint { Id = "endpoint-1", Name = "Test endpoint" };
+        var model = new ByokModel
+        {
+            Id = "model-1",
+            EndpointId = endpoint.Id,
+            ModelId = "wire-model",
+            DisplayName = "Original"
+        };
+        var data = new AppData();
+        data.Settings.ByokEndpoints.Add(endpoint);
+        data.Settings.ByokModels.Add(model);
+        using var vm = CreateVm(data: data);
+        var configurationChangeCount = 0;
+        vm.ByokConfigurationChanged += () => configurationChangeCount++;
+
+        vm.SelectedByokEndpoint = endpoint;
+        vm.SelectedByokModel = model;
+        vm.EditingByokModel!.DisplayName = "Draft";
+        vm.EditingByokModel.MaxPromptTokens = 96_000;
+
+        Assert.True(vm.IsByokModelEditorOpen);
+        Assert.False(vm.IsByokEndpointSelected);
+        Assert.NotSame(model, vm.EditingByokModel);
+
+        vm.CloseByokModelCommand.Execute(null);
+
+        Assert.False(vm.IsByokModelEditorOpen);
+        Assert.Equal("Original", model.DisplayName);
+        Assert.Null(model.MaxPromptTokens);
+        Assert.Equal(0, configurationChangeCount);
+    }
+
+    [Fact]
+    public void DuplicateByokModel_PreservesUnsavedEffortsWithoutChangingOriginal()
+    {
+        var data = new AppData();
+        var model = new ByokModel
+        {
+            Id = "original",
+            ModelId = "wire-model",
+            DisplayName = "Original",
+            SupportsReasoningEffort = true,
+            SupportedReasoningEfforts = ["low", "high"]
+        };
+        data.Settings.ByokModels.Add(model);
+        using var vm = CreateVm(data: data);
+        vm.SelectedByokModel = model;
+        vm.EditingByokSupportedReasoningEffortsText = " low, high, max, low ";
+        vm.EditingByokModel!.DefaultReasoningEffort = "max";
+
+        vm.DuplicateByokModelCommand.Execute(null);
+
+        Assert.Equal("low, high, max", vm.EditingByokSupportedReasoningEffortsText);
+        Assert.Equal("max", vm.EditingByokModel!.DefaultReasoningEffort);
+        Assert.NotEqual(model.Id, vm.EditingByokModel.Id);
+        Assert.Equal(["low", "high"], model.SupportedReasoningEfforts);
+        Assert.Single(data.Settings.ByokModels);
+
+        vm.SaveByokModelCommand.Execute(null);
+
+        var copy = Assert.Single(data.Settings.ByokModels, candidate => candidate.Id != model.Id);
+        Assert.Equal(["low", "high", "max"], copy.SupportedReasoningEfforts);
+        Assert.Equal("max", copy.DefaultReasoningEffort);
+        Assert.Equal(["low", "high"], model.SupportedReasoningEfforts);
+        Assert.Null(model.DefaultReasoningEffort);
+    }
+
+    [Fact]
+    public void AddByokModel_IsPersistedOnlyAfterSaveWithNormalizedCapabilities()
+    {
+        var data = new AppData();
+        data.Settings.ByokEndpoints.Add(new ByokEndpoint { Id = "endpoint-1", Name = "Test endpoint" });
+        using var vm = CreateVm(data: data);
+        var configurationChangeCount = 0;
+        vm.ByokConfigurationChanged += () => configurationChangeCount++;
+
+        vm.AddByokModelCommand.Execute(null);
+        var draft = vm.EditingByokModel!;
+        Assert.Empty(data.Settings.ByokModels);
+
+        draft.ModelId = " wire-model ";
+        draft.DisplayName = " Test model ";
+        draft.SupportsReasoningEffort = true;
+        draft.DefaultReasoningEffort = "HIGH";
+        draft.DefaultContextWindowTokens = 128_000;
+        draft.LongContextWindowTokens = 256_000;
+        vm.EditingByokSupportedReasoningEffortsText = " low, high, low ";
+
+        vm.SaveByokModelCommand.Execute(null);
+
+        var saved = Assert.Single(data.Settings.ByokModels);
+        Assert.Equal("wire-model", saved.ModelId);
+        Assert.Equal("Test model", saved.DisplayName);
+        Assert.True(saved.SupportsReasoningEffort);
+        Assert.Equal(["low", "high"], saved.SupportedReasoningEfforts);
+        Assert.Equal("high", saved.DefaultReasoningEffort);
+        Assert.Equal(128_000, saved.DefaultContextWindowTokens);
+        Assert.Equal(256_000, saved.LongContextWindowTokens);
+        Assert.False(vm.IsByokModelEditorOpen);
+        Assert.Equal(1, configurationChangeCount);
+    }
+
+    [Fact]
+    public void SettingsModelCapabilities_ByokMergePreservesNativeCatalogAndUsesByokDefault()
+    {
+        var data = new AppData();
+        data.Settings.ReasoningEffort = "high";
+        data.Settings.PreferredModel = "byok:model-1";
+        using var vm = CreateVm(data: data);
+
+        vm.UpdateModelCapabilities(
+            [new GitHub.Copilot.ModelInfo
+            {
+                Id = "native:model",
+                SupportedReasoningEfforts = ["low", "medium", "high"],
+                DefaultReasoningEffort = "medium"
+            }],
+            new HashSet<string> { "native:model" });
+        vm.UpdateModelCapabilities(
+            [new GitHub.Copilot.ModelInfo
+            {
+                Id = "byok:model-1",
+                SupportedReasoningEfforts = ["low", "high"],
+                DefaultReasoningEffort = "low"
+            }],
+            new HashSet<string> { "byok:model-1" },
+            merge: true);
+
+        Assert.Equal(["Low", "High"], vm.QualityLevels!);
+        Assert.Equal("Low", vm.SelectedQuality);
+        Assert.Equal(["Default", "Long"], vm.ContextWindowTiers!);
+
+        vm.PreferredModel = "native:model";
+
+        Assert.Equal(["Low", "Medium", "High"], vm.QualityLevels!);
+        Assert.Equal("High", vm.SelectedQuality);
+        Assert.Equal(["Default", "Long"], vm.ContextWindowTiers!);
     }
 
     [Fact]

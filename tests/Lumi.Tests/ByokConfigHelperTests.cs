@@ -397,6 +397,21 @@ public sealed class ByokConfigHelperTests
     }
 
     [Fact]
+    public void MatchesWireModelId_ResolvesSelectedByokTokenAndRejectsOtherModels()
+    {
+        var settings = new UserSettings();
+        var endpoint = MakeValidEndpoint("e1");
+        var model = new ByokModel { Id = "m1", EndpointId = "e1", ModelId = "gpt-6-luna", DisplayName = "GPT-6 Luna" };
+        settings.ByokEndpoints.Add(endpoint);
+        settings.ByokModels.Add(model);
+        var selectedToken = ByokConfigHelper.BuildModelToken(model);
+
+        Assert.True(ByokConfigHelper.MatchesWireModelId(settings, selectedToken, "gpt-6-luna"));
+        Assert.False(ByokConfigHelper.MatchesWireModelId(settings, selectedToken, "gpt-5"));
+        Assert.False(ByokConfigHelper.MatchesWireModelId(settings, "byok:missing", "gpt-6-luna"));
+    }
+
+    [Fact]
     public void TryBuildProviderConfig_BuildsProviderWithExpectedFields()
     {
         var settings = new UserSettings();
@@ -1018,6 +1033,128 @@ public sealed class ByokConfigHelperTests
 
         Assert.NotNull(sig);
         Assert.DoesNotContain("super-secret-credential-Fa36A6fO", sig);
+    }
+
+#pragma warning disable GHCP001
+    [Fact]
+    public void BuildModelCapabilitiesOverride_OmitsUnconfiguredOptions()
+    {
+        var capabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
+            new ByokModel { ModelId = "model" },
+            ModelContextWindowTiers.Default);
+
+        Assert.Null(capabilities);
+    }
+
+    [Fact]
+    public void BuildModelCapabilitiesOverride_UsesReasoningAndSelectedTotalContextLimit()
+    {
+        var model = new ByokModel
+        {
+            ModelId = "model",
+            SupportsReasoningEffort = true,
+            SupportedReasoningEfforts = ["low", "high"],
+            DefaultReasoningEffort = "low",
+            DefaultContextWindowTokens = 128_000,
+            LongContextWindowTokens = 256_000,
+            MaxPromptTokens = 96_000,
+            MaxOutputTokens = 8_000
+        };
+
+        var defaultCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
+            model,
+            ModelContextWindowTiers.Default);
+        var longCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
+            model,
+            ModelContextWindowTiers.LongContext);
+
+        Assert.Equal(true, defaultCapabilities?.Supports?.ReasoningEffort);
+        Assert.Equal(128_000, defaultCapabilities?.Limits?.MaxContextWindowTokens);
+        Assert.Equal(256_000, longCapabilities?.Limits?.MaxContextWindowTokens);
+        Assert.Null(defaultCapabilities?.Limits?.MaxPromptTokens);
+        Assert.Null(defaultCapabilities?.Limits?.MaxOutputTokens);
+    }
+
+    [Fact]
+    public void GetTokenLimitWarnings_ReportsLongWindowAndAdvancedBudgetConflicts()
+    {
+        var model = new ByokModel
+        {
+            DefaultContextWindowTokens = 128_000,
+            LongContextWindowTokens = 64_000,
+            MaxPromptTokens = 100_000,
+            MaxOutputTokens = 30_000
+        };
+
+        var warnings = ByokConfigHelper.GetTokenLimitWarnings(model);
+
+        Assert.Contains(warnings, warning =>
+            warning.Kind == ByokTokenLimitWarningKind.LongContextWindowBelowDefault);
+        Assert.Contains(warnings, warning =>
+            warning.Kind == ByokTokenLimitWarningKind.TokenBudgetExceedsContextWindow
+            && warning.ContextTier == ModelContextWindowTiers.Default
+            && warning.ConfiguredTokenBudget == 130_000
+            && warning.ContextWindowTokens == 128_000);
+        Assert.Contains(warnings, warning =>
+            warning.Kind == ByokTokenLimitWarningKind.TokenBudgetExceedsContextWindow
+            && warning.ContextTier == ModelContextWindowTiers.LongContext
+            && warning.ConfiguredTokenBudget == 130_000
+            && warning.ContextWindowTokens == 64_000);
+    }
+
+    [Fact]
+    public void GetTokenLimitWarnings_DoesNotWarnWhenUnsetOrWithinWindows()
+    {
+        Assert.Empty(ByokConfigHelper.GetTokenLimitWarnings(new ByokModel()));
+
+        var model = new ByokModel
+        {
+            DefaultContextWindowTokens = 128_000,
+            LongContextWindowTokens = 256_000,
+            MaxPromptTokens = 96_000,
+            MaxOutputTokens = 8_000
+        };
+
+        Assert.Empty(ByokConfigHelper.GetTokenLimitWarnings(model));
+    }
+#pragma warning restore GHCP001
+
+    [Fact]
+    public void BuildProviderSignature_ChangesForActiveModelCapabilitiesOnly()
+    {
+        var endpoint = MakeValidEndpoint("caps");
+        var provider = ByokConfigHelper.BuildProviderConfig(endpoint);
+        var unconfigured = new ByokModel { ModelId = "model" };
+        var configured = new ByokModel
+        {
+            ModelId = "model",
+            SupportsReasoningEffort = true,
+            SupportedReasoningEfforts = ["low", "high"],
+            DefaultReasoningEffort = "low",
+            DefaultContextWindowTokens = 128_000,
+            LongContextWindowTokens = 256_000
+        };
+
+        Assert.Equal(
+            ByokConfigHelper.BuildProviderSignature(provider),
+            ByokConfigHelper.BuildProviderSignature(provider, unconfigured));
+        Assert.NotEqual(
+            ByokConfigHelper.BuildProviderSignature(provider),
+            ByokConfigHelper.BuildProviderSignature(provider, configured));
+
+        var changed = new ByokModel
+        {
+            Id = configured.Id,
+            ModelId = configured.ModelId,
+            SupportsReasoningEffort = configured.SupportsReasoningEffort,
+            SupportedReasoningEfforts = ["low", "high"],
+            DefaultReasoningEffort = "high",
+            DefaultContextWindowTokens = configured.DefaultContextWindowTokens,
+            LongContextWindowTokens = configured.LongContextWindowTokens
+        };
+        Assert.NotEqual(
+            ByokConfigHelper.BuildProviderSignature(provider, configured),
+            ByokConfigHelper.BuildProviderSignature(provider, changed));
     }
 
     // ── Advanced token limits (MaxOutputTokens / MaxPromptTokens / MaxRequestsPerMinute) ──

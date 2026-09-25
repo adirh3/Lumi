@@ -138,6 +138,16 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     [ObservableProperty] private ByokEndpoint? _selectedByokEndpoint;
     [ObservableProperty] private ByokModel? _selectedByokModel;
+    [ObservableProperty] private ByokModel? _editingByokModel = new();
+    [ObservableProperty] private bool _isByokModelEditorOpen;
+    [ObservableProperty] private bool _isEditingExistingByokModel;
+    [ObservableProperty] private string _editingByokSupportedReasoningEffortsText = "";
+    [ObservableProperty] private string[] _editingByokReasoningEffortOptions = [];
+    private bool _suppressByokModelEditorOpen;
+
+    public string ByokModelTokenLimitWarning => string.Join(
+        Environment.NewLine,
+        ByokConfigHelper.GetTokenLimitWarnings(EditingByokModel).Select(FormatByokTokenLimitWarning));
 
     [ObservableProperty] private string? _byokValidationMessage;
     [ObservableProperty] private bool _isByokValidationVisible;
@@ -965,9 +975,18 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var selectedModelId = modelId ?? PreferredModel;
+        var effectiveEffort = preferredEffort;
+        if (string.IsNullOrWhiteSpace(effectiveEffort)
+            && Lumi.Services.ByokConfigHelper.IsByokModel(selectedModelId)
+            && _modelDefaultEfforts.TryGetValue(selectedModelId!, out var byokDefaultEffort))
+        {
+            effectiveEffort = byokDefaultEffort;
+        }
+
         var display = ModelSelectionHelper.ResolveSelectedQualityDisplay(
-            preferredEffort ?? (string.IsNullOrWhiteSpace(ReasoningEffort) ? null : ReasoningEffort),
-            modelId ?? PreferredModel,
+            effectiveEffort ?? (string.IsNullOrWhiteSpace(ReasoningEffort) ? null : ReasoningEffort),
+            selectedModelId,
             _modelReasoningEfforts,
             _modelDefaultEfforts);
 
@@ -1161,10 +1180,36 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     public void UpdateModelCapabilities(
         List<GitHub.Copilot.ModelInfo> models,
-        IReadOnlySet<string>? longContextModelIds = null)
+        IReadOnlySet<string>? longContextModelIds = null,
+        bool merge = false)
     {
-        ModelSelectionHelper.ApplyModelCapabilities(models, _modelReasoningEfforts, _modelDefaultEfforts);
-        _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
+        if (merge)
+        {
+            foreach (var modelId in _modelReasoningEfforts.Keys
+                         .Where(Lumi.Services.ByokConfigHelper.IsByokModel)
+                         .ToList())
+                _modelReasoningEfforts.Remove(modelId);
+            foreach (var modelId in _modelDefaultEfforts.Keys
+                         .Where(Lumi.Services.ByokConfigHelper.IsByokModel)
+                         .ToList())
+                _modelDefaultEfforts.Remove(modelId);
+
+            var mergedLongContextIds = CopyModelIdSet(
+                _modelsWithLongContext.Where(static id => !Lumi.Services.ByokConfigHelper.IsByokModel(id)));
+            if (longContextModelIds is not null)
+                mergedLongContextIds.UnionWith(longContextModelIds);
+            _modelsWithLongContext = mergedLongContextIds;
+        }
+        else
+        {
+            _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
+        }
+
+        ModelSelectionHelper.ApplyModelCapabilities(
+            models,
+            _modelReasoningEfforts,
+            _modelDefaultEfforts,
+            replaceExisting: !merge);
         UpdateQualityLevels(PreferredModel);
         UpdateContextWindowTiers(PreferredModel);
     }
@@ -1280,13 +1325,18 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Closes the model editor without deleting the model: simply deselects it so the
-    /// detail panel collapses. Pending edits are already persisted to the data store.
+    /// Discards the model draft and closes the editor without changing persisted settings.
     /// </summary>
     [RelayCommand]
     private void CloseByokModel()
     {
-        SelectedByokModel = null;
+        IsByokModelEditorOpen = false;
+        EditingByokModel = new ByokModel();
+        EditingByokSupportedReasoningEffortsText = "";
+        EditingByokReasoningEffortOptions = [];
+        IsEditingExistingByokModel = false;
+        if (SelectedByokModel is not null)
+            SelectedByokModel = null;
     }
 
     [RelayCommand]
@@ -1318,21 +1368,16 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             DisplayName = Loc.Settings_Byok_ModelName,
             IsEnabled = true,
         };
-        ByokModels.Add(model);
-        SelectedByokModel = model;
-        SyncByokToDataStore();
-        Save();
-        NotifyModified();
-        ByokConfigurationChanged?.Invoke();
+        BeginByokModelEdit(model, isNew: true);
     }
 
     [RelayCommand]
     private void DeleteByokModel()
     {
         var model = SelectedByokModel;
-        if (model is null) return;
+        if (!IsEditingExistingByokModel || model is null) return;
         ByokModels.Remove(model);
-        SelectedByokModel = null;
+        CloseByokModel();
         SyncByokToDataStore();
         Save();
         NotifyModified();
@@ -1342,27 +1387,146 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void DuplicateByokModel()
     {
-        var source = SelectedByokModel;
+        var source = EditingByokModel ?? SelectedByokModel;
         if (source is null) return;
 
-        var copy = new ByokModel
+        var copy = CloneByokModel(source);
+        copy.SupportedReasoningEfforts = ParseReasoningEfforts(EditingByokSupportedReasoningEffortsText);
+        copy.Id = Guid.NewGuid().ToString("N");
+        copy.DisplayName += " (copy)";
+        BeginByokModelEdit(copy, isNew: true);
+    }
+
+    [RelayCommand]
+    private void SaveByokModel()
+    {
+        var draft = EditingByokModel;
+        if (draft is null)
+            return;
+
+        draft.SupportedReasoningEfforts = ParseReasoningEfforts(EditingByokSupportedReasoningEffortsText);
+        ByokConfigHelper.NormalizeModel(draft);
+
+        if (IsEditingExistingByokModel
+            && SelectedByokModel is { } existing
+            && string.Equals(existing.Id, draft.Id, StringComparison.Ordinal))
         {
-            Id = Guid.NewGuid().ToString("N"),
-            EndpointId = source.EndpointId,
-            ModelId = source.ModelId,
-            DisplayName = source.DisplayName + " (copy)",
-            IsEnabled = source.IsEnabled,
-            // Carry over advanced inference/rate-limit settings so a duplicate is a true clone.
-            MaxOutputTokens = source.MaxOutputTokens,
-            MaxPromptTokens = source.MaxPromptTokens,
-            MaxRequestsPerMinute = source.MaxRequestsPerMinute,
-        };
-        ByokModels.Add(copy);
-        SelectedByokModel = copy;
+            CopyByokModel(existing, draft);
+        }
+        else
+        {
+            ByokModels.Add(draft);
+            _suppressByokModelEditorOpen = true;
+            try
+            {
+                SelectedByokModel = draft;
+            }
+            finally
+            {
+                _suppressByokModelEditorOpen = false;
+            }
+        }
+
         SyncByokToDataStore();
         Save();
         NotifyModified();
+        IsByokModelEditorOpen = false;
+        EditingByokModel = new ByokModel();
+        EditingByokSupportedReasoningEffortsText = "";
+        EditingByokReasoningEffortOptions = [];
+        IsEditingExistingByokModel = false;
+        SelectedByokModel = null;
         ByokConfigurationChanged?.Invoke();
+    }
+
+    partial void OnEditingByokSupportedReasoningEffortsTextChanged(string value)
+        => EditingByokReasoningEffortOptions = ParseReasoningEfforts(value).ToArray();
+
+    private void BeginByokModelEdit(ByokModel model, bool isNew)
+    {
+        EditingByokModel = CloneByokModel(model);
+        IsEditingExistingByokModel = !isNew;
+        EditingByokSupportedReasoningEffortsText = string.Join(", ", EditingByokModel.SupportedReasoningEfforts);
+        SelectedByokEndpoint = null;
+        IsByokModelEditorOpen = true;
+    }
+
+    partial void OnEditingByokModelChanging(ByokModel? oldValue, ByokModel? newValue)
+    {
+        if (oldValue is not null)
+            oldValue.PropertyChanged -= OnEditingByokModelPropertyChanged;
+        if (newValue is not null)
+            newValue.PropertyChanged += OnEditingByokModelPropertyChanged;
+    }
+
+    partial void OnEditingByokModelChanged(ByokModel? value)
+        => OnPropertyChanged(nameof(ByokModelTokenLimitWarning));
+
+    private void OnEditingByokModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ByokModel.DefaultContextWindowTokens)
+            or nameof(ByokModel.LongContextWindowTokens)
+            or nameof(ByokModel.MaxPromptTokens)
+            or nameof(ByokModel.MaxOutputTokens))
+        {
+            OnPropertyChanged(nameof(ByokModelTokenLimitWarning));
+        }
+    }
+
+    private static string FormatByokTokenLimitWarning(ByokTokenLimitWarning warning)
+        => warning.Kind switch
+        {
+            ByokTokenLimitWarningKind.LongContextWindowBelowDefault =>
+                Loc.Get("Settings_Byok_WarningLongContextBelowDefault"),
+            ByokTokenLimitWarningKind.TokenBudgetExceedsContextWindow =>
+                Loc.Get(
+                    "Settings_Byok_WarningTokenBudgetExceedsContextWindow",
+                    warning.ConfiguredTokenBudget ?? 0,
+                    string.Equals(warning.ContextTier, ModelContextWindowTiers.LongContext, StringComparison.Ordinal)
+                        ? Loc.Get("Settings_Byok_LongContextTier")
+                        : Loc.Get("Settings_Byok_DefaultContextTier"),
+                    warning.ContextWindowTokens ?? 0),
+            _ => string.Empty
+        };
+
+    private static List<string> ParseReasoningEfforts(string? value)
+        => (value ?? "")
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static ByokModel CloneByokModel(ByokModel model)
+        => new()
+        {
+            Id = model.Id,
+            EndpointId = model.EndpointId,
+            ModelId = model.ModelId,
+            DisplayName = model.DisplayName,
+            IsEnabled = model.IsEnabled,
+            SupportsReasoningEffort = model.SupportsReasoningEffort,
+            SupportedReasoningEfforts = model.SupportedReasoningEfforts?.ToList() ?? [],
+            DefaultReasoningEffort = model.DefaultReasoningEffort,
+            DefaultContextWindowTokens = model.DefaultContextWindowTokens,
+            LongContextWindowTokens = model.LongContextWindowTokens,
+            MaxOutputTokens = model.MaxOutputTokens,
+            MaxPromptTokens = model.MaxPromptTokens,
+            MaxRequestsPerMinute = model.MaxRequestsPerMinute,
+        };
+
+    private static void CopyByokModel(ByokModel target, ByokModel source)
+    {
+        target.EndpointId = source.EndpointId;
+        target.ModelId = source.ModelId;
+        target.DisplayName = source.DisplayName;
+        target.IsEnabled = source.IsEnabled;
+        target.SupportsReasoningEffort = source.SupportsReasoningEffort;
+        target.SupportedReasoningEfforts = source.SupportedReasoningEfforts.ToList();
+        target.DefaultReasoningEffort = source.DefaultReasoningEffort;
+        target.DefaultContextWindowTokens = source.DefaultContextWindowTokens;
+        target.LongContextWindowTokens = source.LongContextWindowTokens;
+        target.MaxOutputTokens = source.MaxOutputTokens;
+        target.MaxPromptTokens = source.MaxPromptTokens;
+        target.MaxRequestsPerMinute = source.MaxRequestsPerMinute;
     }
 
     /// <summary>
@@ -1585,35 +1749,10 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ByokConfigurationChanged?.Invoke();
     }
 
-    private ByokModel? _subscribedByokModel;
-
     partial void OnSelectedByokModelChanged(ByokModel? value)
     {
-        if (_subscribedByokModel is not null)
-            _subscribedByokModel.PropertyChanged -= OnSelectedByokModelPropertyChanged;
-
-        _subscribedByokModel = value;
-
-        if (_subscribedByokModel is not null)
-            _subscribedByokModel.PropertyChanged += OnSelectedByokModelPropertyChanged;
-
-        // Keep the endpoint dropdown in sync with the selected model so editing a model in the
-        // UI immediately shows which endpoint it belongs to. Without this, the dropdown keeps
-        // showing the previously-selected endpoint, which is confusing when you open a model
-        // belonging to a different endpoint.
-        var desiredEndpoint = value is null
-            ? null
-            : ByokEndpoints.FirstOrDefault(e => e.Id == value.EndpointId);
-        if (!ReferenceEquals(desiredEndpoint, SelectedByokEndpoint))
-            SelectedByokEndpoint = desiredEndpoint;
-    }
-
-    private void OnSelectedByokModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        SyncByokToDataStore();
-        Save();
-        NotifyModified();
-        ByokConfigurationChanged?.Invoke();
+        if (value is not null && !_suppressByokModelEditorOpen)
+            BeginByokModelEdit(value, isNew: false);
     }
 
     [RelayCommand]

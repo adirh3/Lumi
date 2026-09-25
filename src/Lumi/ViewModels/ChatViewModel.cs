@@ -1145,6 +1145,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             if (route.IsByok)
                 persistedModel = route.SelectionToken;
         }
+        effectiveModel = persistedModel;
         var effectiveContextTier = ResolveSessionContextWindowTier(
             effectiveModel,
             sessionContextTier,
@@ -2349,7 +2350,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // fresh session is created against the correct endpoint. This check is critical after an
         // app restart, when in-memory signature caches (_sessionProviderSignatures) are empty and
         // only the persisted SessionProviderSignature on the Chat survives.
-        var currentByokSignature = ByokConfigHelper.BuildProviderSignature(byokProvider);
+        var currentByokSignature = ByokConfigHelper.BuildProviderSignature(byokProvider, modelRoute.ByokModel);
         if (chat.CopilotSessionId is not null
             && !string.Equals(chat.SessionProviderSignature, currentByokSignature, StringComparison.Ordinal))
         {
@@ -2372,18 +2373,23 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // from an unresolved one would start the very servers the user deselected. Running without
         // discovery degrades the session; running with it on a partial view is unsafe.
         var capabilitiesResolved = capabilities.IsComplete;
+        var byokModelCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
+            modelRoute.ByokModel,
+            contextTier);
 
         SessionConfig buildSessionConfig() =>
             SessionConfigBuilder.Build(
                 systemPrompt, selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
                 effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
-                provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider);
+                provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
+                modelCapabilities: byokModelCapabilities);
 
         ResumeSessionConfig buildResumeConfig() =>
             SessionConfigBuilder.BuildForResume(
                 systemPrompt, selectedModel, workDir, mcpPlan, skillRoots, customAgents, customTools,
                 effort, userInputHandler, onPermission: null, hooks, agentName, contextTier,
-                provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider);
+                provider: byokProvider, enableCapabilityDiscovery: capabilitiesResolved, skillProvider: skillProvider,
+                modelCapabilities: byokModelCapabilities);
 
         if (chat.CopilotSessionId is not null)
             await AwaitPendingSessionReleaseAsync(chat.Id, sessionCt);
@@ -2476,7 +2482,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                             {
                                 ReasoningEffort = effort,
                                 ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
-                                ContextTier = SessionConfigBuilder.CreateContextTier(contextTier)
+                                ContextTier = SessionConfigBuilder.CreateContextTier(contextTier),
+                                ModelCapabilities = byokModelCapabilities
                             },
                             sessionCt);
                     }
@@ -2636,11 +2643,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 var currentSignature = _activeSession is not null
                     ? _sessionProviderSignatures.GetValueOrDefault(chat.Id)
                     : chat.SessionProviderSignature;
+                var expectedRoute = ResolveModelRouteForChat(
+                    ResolveSelectedModelForChat(chat),
+                    chat,
+                    allowLegacyByWireId: true);
                 var expectedSignature = ByokConfigHelper.BuildProviderSignature(
-                    ResolveModelRouteForChat(
-                        ResolveSelectedModelForChat(chat),
-                        chat,
-                        allowLegacyByWireId: true).Provider);
+                    expectedRoute.Provider, expectedRoute.ByokModel);
                 if (!string.Equals(currentSignature, expectedSignature, StringComparison.Ordinal))
                 {
                     InvalidateLocalSessionCache(chat);
@@ -3407,7 +3415,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (_dataStore.Data.Settings.UseBYOKOnly && !modelRoute.IsByok)
             throw new ByokOnlyRequestBlockedException(Loc.Byok_Error_ByokOnly);
 
-        var requestedProviderSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider);
+        var requestedProviderSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider, modelRoute.ByokModel);
         if (HasActiveSessionConfigurationConflict(targetChat, requestedProviderSignature))
         {
             throw new InvalidOperationException("Stop this session's background work before changing its configuration.");
@@ -3637,7 +3645,10 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                         {
                             ReasoningEffort = string.IsNullOrWhiteSpace(overrideEffort) ? null : overrideEffort,
                             ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
-                            ContextTier = SessionConfigBuilder.CreateContextTier(overrideContextTier)
+                            ContextTier = SessionConfigBuilder.CreateContextTier(overrideContextTier),
+                            ModelCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
+                                overrideRoute.ByokModel,
+                                overrideContextTier)
                         });
                 }
                 catch

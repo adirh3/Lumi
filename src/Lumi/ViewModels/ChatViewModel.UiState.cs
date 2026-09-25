@@ -316,22 +316,32 @@ public partial class ChatViewModel
         // ones. A catalog refresh now lands while the user is interacting, so another surface may be
         // copying this catalog at the same time and must never observe a half-filled dictionary.
         var reasoningEfforts = merge
-            ? _modelReasoningEfforts.ToDictionary(
+            ? _modelReasoningEfforts
+                .Where(static kvp => !Lumi.Services.ByokConfigHelper.IsByokModel(kvp.Key))
+                .ToDictionary(
                 static kvp => kvp.Key,
                 static kvp => kvp.Value.ToList(),
                 StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         var defaultEfforts = merge
-            ? new Dictionary<string, string>(_modelDefaultEfforts, StringComparer.OrdinalIgnoreCase)
+            ? _modelDefaultEfforts
+                .Where(static kvp => !Lumi.Services.ByokConfigHelper.IsByokModel(kvp.Key))
+                .ToDictionary(static kvp => kvp.Key, static kvp => kvp.Value, StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var contextTokenLimits = merge
-            ? new Dictionary<string, long>(_modelContextTokenLimits, StringComparer.OrdinalIgnoreCase)
+            ? _modelContextTokenLimits
+                .Where(static kvp => !Lumi.Services.ByokConfigHelper.IsByokModel(kvp.Key))
+                .ToDictionary(static kvp => kvp.Key, static kvp => kvp.Value, StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         var longContextTokenLimits = merge
-            ? new Dictionary<string, long>(_modelLongContextTokenLimits, StringComparer.OrdinalIgnoreCase)
+            ? _modelLongContextTokenLimits
+                .Where(static kvp => !Lumi.Services.ByokConfigHelper.IsByokModel(kvp.Key))
+                .ToDictionary(static kvp => kvp.Key, static kvp => kvp.Value, StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         var optionMetadata = merge
-            ? new Dictionary<string, ModelOptionMetadata>(_modelOptionMetadata, StringComparer.OrdinalIgnoreCase)
+            ? _modelOptionMetadata
+                .Where(static kvp => !Lumi.Services.ByokConfigHelper.IsByokModel(kvp.Key))
+                .ToDictionary(static kvp => kvp.Key, static kvp => kvp.Value, StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, ModelOptionMetadata>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var (id, metadata) in ModelOptionCatalog.BuildMetadata(models))
@@ -345,20 +355,6 @@ public partial class ChatViewModel
             replaceExisting: !merge);
         ApplyContextWindowLimits(contextWindowLimits, contextTokenLimits, longContextTokenLimits);
 
-        if (merge)
-        {
-            // Existing entries win only where the incoming set says nothing: a caller describing a
-            // model is still authoritative for that model.
-            foreach (var (key, value) in _modelReasoningEfforts)
-                reasoningEfforts.TryAdd(key, value);
-            foreach (var (key, value) in _modelDefaultEfforts)
-                defaultEfforts.TryAdd(key, value);
-            foreach (var (key, value) in _modelContextTokenLimits)
-                contextTokenLimits.TryAdd(key, value);
-            foreach (var (key, value) in _modelLongContextTokenLimits)
-                longContextTokenLimits.TryAdd(key, value);
-        }
-
         ApplyModelOptionContextLimits(optionMetadata, contextTokenLimits, longContextTokenLimits);
 
         _modelReasoningEfforts = reasoningEfforts;
@@ -366,8 +362,18 @@ public partial class ChatViewModel
         _modelContextTokenLimits = contextTokenLimits;
         _modelLongContextTokenLimits = longContextTokenLimits;
         _modelOptionMetadata = optionMetadata;
-        if (longContextModelIds is not null || !merge)
+        if (merge)
+        {
+            var mergedLongContextIds = CopyModelIdSet(
+                _modelsWithLongContext.Where(static id => !Lumi.Services.ByokConfigHelper.IsByokModel(id)));
+            if (longContextModelIds is not null)
+                mergedLongContextIds.UnionWith(longContextModelIds);
+            _modelsWithLongContext = mergedLongContextIds;
+        }
+        else
+        {
             _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
+        }
         ModelCatalogVersion++;
         OnPropertyChanged(nameof(ModelCatalogVersion));
 
@@ -630,11 +636,32 @@ public partial class ChatViewModel
         // the target chat is loaded as the executor surface's CurrentChat, so this takes the
         // CurrentChat branch — and without the shared validation a stale effort (e.g. "low") would
         // reach an effort-less model such as claude-sonnet-4.5 and error the session on setup.
-        var storedEffort = CurrentChat?.Id == chat.Id
+        if (!Lumi.Services.ByokConfigHelper.IsByokModel(modelId))
+        {
+            var nativeStoredEffort = CurrentChat?.Id == chat.Id
+                ? GetPersistedReasoningEffortPreference()
+                : !string.IsNullOrWhiteSpace(chat.LastReasoningEffortUsed)
+                    ? chat.LastReasoningEffortUsed
+                    : _dataStore.Data.Settings.ReasoningEffort;
+
+            return string.IsNullOrWhiteSpace(nativeStoredEffort)
+                ? null
+                : ResolveReasoningEffortForModel(nativeStoredEffort, modelId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(chat.LastReasoningEffortUsed))
+            return ResolveReasoningEffortForModel(chat.LastReasoningEffortUsed, modelId);
+
+        if (_modelDefaultEfforts.TryGetValue(modelId!, out var byokDefaultEffort))
+        {
+            return ResolveReasoningEffortForModel(byokDefaultEffort, modelId);
+        }
+
+        var isCurrentModel = CurrentChat?.Id == chat.Id
+            && string.Equals(SelectedModel, modelId, StringComparison.Ordinal);
+        var storedEffort = isCurrentModel
             ? GetPersistedReasoningEffortPreference()
-            : !string.IsNullOrWhiteSpace(chat.LastReasoningEffortUsed)
-                ? chat.LastReasoningEffortUsed
-                : _dataStore.Data.Settings.ReasoningEffort;
+            : _dataStore.Data.Settings.ReasoningEffort;
 
         if (string.IsNullOrWhiteSpace(storedEffort))
             return null;
@@ -690,9 +717,19 @@ public partial class ChatViewModel
             return;
         }
 
+        var selectedModelId = modelId ?? SelectedModel;
+        var effectiveEffort = preferredEffort;
+        if (string.IsNullOrWhiteSpace(effectiveEffort)
+            && Lumi.Services.ByokConfigHelper.IsByokModel(selectedModelId)
+            && string.IsNullOrWhiteSpace(CurrentChat?.LastReasoningEffortUsed)
+            && _modelDefaultEfforts.TryGetValue(selectedModelId!, out var byokDefaultEffort))
+        {
+            effectiveEffort = byokDefaultEffort;
+        }
+
         var display = ModelSelectionHelper.ResolveSelectedQualityDisplay(
-            preferredEffort ?? GetStoredReasoningEffortPreference(),
-            modelId ?? SelectedModel,
+            effectiveEffort ?? GetStoredReasoningEffortPreference(),
+            selectedModelId,
             _modelReasoningEfforts,
             _modelDefaultEfforts);
 
@@ -760,11 +797,24 @@ public partial class ChatViewModel
 
         if (CurrentChat is null || CurrentChat.Messages.Count == 0)
         {
+            var shouldSave = false;
             if (_dataStore.Data.Settings.ReasoningEffort != persistedEffort)
             {
                 _dataStore.Data.Settings.ReasoningEffort = persistedEffort;
-                _dataStore.Save();
+                shouldSave = true;
             }
+
+            if (CurrentChat is { } emptyChat
+                && Lumi.Services.ByokConfigHelper.IsByokModel(SelectedModel)
+                && !string.IsNullOrWhiteSpace(effort)
+                && emptyChat.LastReasoningEffortUsed != effort)
+            {
+                emptyChat.LastReasoningEffortUsed = effort;
+                shouldSave = true;
+            }
+
+            if (shouldSave)
+                _dataStore.Save();
 
             DefaultModelSelectionChanged?.Invoke(SelectedModel ?? string.Empty, effort, GetSelectedContextWindowTier());
             return;

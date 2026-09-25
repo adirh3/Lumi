@@ -406,7 +406,8 @@ public partial class ChatViewModel
             // Null = GitHub default backend; non-null = BYOK endpoint. Different values
             // mean the existing session would route to the wrong backend and must be recreated.
             var previousSignature = chat.SessionProviderSignature;
-            var newSignature = ByokConfigHelper.BuildProviderSignature(ResolveModelRouteForChat(value, chat).Provider);
+            var selectedRoute = ResolveModelRouteForChat(value, chat);
+            var newSignature = ByokConfigHelper.BuildProviderSignature(selectedRoute.Provider, selectedRoute.ByokModel);
 
             chat.LastModelUsed = value;
             chat.LastReasoningEffortUsed = reasoningEffort;
@@ -489,7 +490,7 @@ public partial class ChatViewModel
             return false;
         }
 
-        var newSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider);
+        var newSignature = ByokConfigHelper.BuildProviderSignature(modelRoute.Provider, modelRoute.ByokModel);
         if (!string.Equals(newSignature, _activeSessionProviderSignature, StringComparison.Ordinal))
         {
             InvalidateCurrentSessionForModelSwitch();
@@ -504,7 +505,10 @@ public partial class ChatViewModel
                 {
                     ReasoningEffort = string.IsNullOrWhiteSpace(reasoningEffort) ? null : reasoningEffort,
                     ReasoningSummary = SessionConfigBuilder.DefaultReasoningSummary,
-                    ContextTier = SessionConfigBuilder.CreateContextTier(contextTier)
+                    ContextTier = SessionConfigBuilder.CreateContextTier(contextTier),
+                    ModelCapabilities = ByokConfigHelper.BuildModelCapabilitiesOverride(
+                        modelRoute.ByokModel,
+                        contextTier)
                 });
             return true;
         }

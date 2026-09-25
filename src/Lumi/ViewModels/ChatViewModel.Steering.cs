@@ -356,7 +356,7 @@ public partial class ChatViewModel
             return false;
 
         var selectedRoute = ResolveModelRouteForChat(ResolveSelectedModelForChat(chat), chat);
-        var selectedSignature = ByokConfigHelper.BuildProviderSignature(selectedRoute.Provider);
+        var selectedSignature = ByokConfigHelper.BuildProviderSignature(selectedRoute.Provider, selectedRoute.ByokModel);
 
         // The signature of the session that will actually carry the steer.
         var activeSignature = session == _activeSession

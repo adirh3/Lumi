@@ -484,7 +484,12 @@ public class AppDataSnapshotFactoryTests
                         DisplayName = "Test",
                         MaxOutputTokens = 4096,
                         MaxPromptTokens = 128000,
-                        MaxRequestsPerMinute = 60
+                        MaxRequestsPerMinute = 60,
+                        SupportsReasoningEffort = true,
+                        SupportedReasoningEfforts = ["low", "high"],
+                        DefaultReasoningEffort = "low",
+                        DefaultContextWindowTokens = 128000,
+                        LongContextWindowTokens = 200000
                     }
                 ]
             }
@@ -496,6 +501,11 @@ public class AppDataSnapshotFactoryTests
         Assert.Equal(4096, model.MaxOutputTokens);
         Assert.Equal(128000, model.MaxPromptTokens);
         Assert.Equal(60, model.MaxRequestsPerMinute);
+        Assert.True(model.SupportsReasoningEffort);
+        Assert.Equal(["low", "high"], model.SupportedReasoningEfforts);
+        Assert.Equal("low", model.DefaultReasoningEffort);
+        Assert.Equal(128000, model.DefaultContextWindowTokens);
+        Assert.Equal(200000, model.LongContextWindowTokens);
     }
 
     [Fact]
