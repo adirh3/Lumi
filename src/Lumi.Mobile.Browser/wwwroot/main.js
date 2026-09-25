@@ -16,10 +16,14 @@ window.addEventListener('error', event => showFatalError(event.error || event.me
 window.addEventListener('unhandledrejection', event => showFatalError(event.reason));
 
 try {
-    const { dotnet } = await import('./_framework/dotnet.js');
+    const [{ dotnet }, { loadRuntimeResource }] = await Promise.all([
+        import('./_framework/dotnet.js'),
+        import('./runtimeResourceCache.js')
+    ]);
     const runtime = await dotnet
         .withDiagnosticTracing(false)
         .withApplicationArgumentsFromQuery()
+        .withResourceLoader(loadRuntimeResource)
         .create();
     const config = runtime.getConfig();
 

@@ -128,6 +128,17 @@ includes the signed-in Microsoft session when checking installability. Browsers
 otherwise fetch even a same-origin manifest without cookies and receive a sign-in
 page instead of the manifest. No manifest or icon is made public for installation.
 
+The PWA keeps its integrity-checked native WebAssembly runtime in browser Cache
+Storage so reopening it does not repeatedly download this large file when it
+exceeds the browser's normal HTTP cache limits. Only that static runtime is stored,
+keyed by its URL and build hash; a new build replaces the previous cached runtime.
+Chat data, pairing tokens, API responses, and sign-in pages are not put in this
+cache. If storage is unavailable or full, startup uses the normal verified
+download. The PC and its authenticated tunnel must still be reachable. The first
+launch, a new runtime build, or cleared browser storage still requires a download.
+Run the focused loader tests with
+`node --test tests/Lumi.Mobile.Tests/BrowserRuntimeCache.test.mjs` (Node.js 22+).
+
 When Microsoft sign-in returns a top-level browser navigation to a Lumi API URL,
 the server sends the browser to `/app/` instead of displaying the raw pairing
 error. Only GET document navigations receive that handoff; API fetches, streams,

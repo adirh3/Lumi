@@ -186,6 +186,14 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Test browser runtime cache
+        run: node --test tests/Lumi.Mobile.Tests/BrowserRuntimeCache.test.mjs
+
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
@@ -216,6 +224,7 @@ jobs:
             "$root/android-install.css",
             "$root/android-install.js",
             "$root/manifest.webmanifest",
+            "$root/runtimeResourceCache.js",
             "$root/_framework/dotnet.js"
           )
           $missing = $required | Where-Object { -not (Test-Path $_) }
