@@ -477,10 +477,20 @@ public sealed class BackgroundJobService : IDisposable
 
                     if (!JobHasValidChat(job))
                     {
+                        const string unavailableChatSummary = "Linked source or target chat is unavailable.";
+                        // Saving also wakes the scheduler, so only persist a real state transition.
+                        if (!job.IsEnabled
+                            && job.NextRunAt is null
+                            && job.LastRunStatus == BackgroundJobRunStatuses.Failed
+                            && job.LastRunSummary == unavailableChatSummary)
+                        {
+                            continue;
+                        }
+
                         job.IsEnabled = false;
                         job.NextRunAt = null;
                         job.LastRunStatus = BackgroundJobRunStatuses.Failed;
-                        job.LastRunSummary = "Linked source or target chat is unavailable.";
+                        job.LastRunSummary = unavailableChatSummary;
                         job.UpdatedAt = now;
                         changed = true;
                         continue;
