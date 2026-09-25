@@ -98,9 +98,9 @@ public sealed class PresenceController : IDisposable
             Intensity = 1.35,
         };
 
-        // One continuous field spanning every column: behind the chat island, the seam, the
-        // preview island and the workspace rail at once. As columns open/close the same field is
-        // already there to "split" across — no second control, no hand-off illusion.
+        // One continuous field spanning every column: behind the chat island, the splitter and the
+        // Workspace panel at once. As columns open/close the same field is already there to "split"
+        // across — no second control, no hand-off illusion.
         Grid.SetColumn(_presence, 0);
         Grid.SetColumnSpan(_presence, Math.Max(1, host.ColumnDefinitions.Count));
 
@@ -185,7 +185,7 @@ public sealed class PresenceController : IDisposable
     /// <summary>
     /// Re-point the SAME persistent field at a different chat surface. The app swaps the entire
     /// <see cref="ChatViewModel"/> instance on a chat open (each chat gets its own surface), so the
-    /// host view re-creates its preview panel — but the glow must NOT be torn down with it. Unlike
+    /// host view re-creates its Workspace panel controller — but the glow must NOT be torn down with it. Unlike
     /// <see cref="Attach"/> this preserves <see cref="_lastObservedChat"/>, so the welcome(null) ->
     /// existing transition is still recognised across the surface swap and the one continuous field
     /// GLIDES from the hero down to the composer, instead of the welcome glow being destroyed and a
@@ -376,8 +376,7 @@ public sealed class PresenceController : IDisposable
         }, DispatcherPriority.Background);
     }
 
-    private static bool AnyIslandOpen(ChatViewModel vm)
-        => vm.IsWorkspacePanelOpen || vm.IsBrowserOpen || vm.IsDiffOpen || vm.IsPlanOpen;
+    private static bool AnyIslandOpen(ChatViewModel vm) => vm.IsWorkspacePanelOpen;
 
     // ── View-model observation (one-way) ─────────────────────────────────────────────
 
@@ -426,9 +425,7 @@ public sealed class PresenceController : IDisposable
                 break;
 
             case nameof(ChatViewModel.IsWorkspacePanelOpen):
-            case nameof(ChatViewModel.IsBrowserOpen):
-            case nameof(ChatViewModel.IsDiffOpen):
-            case nameof(ChatViewModel.IsPlanOpen):
+            case nameof(ChatViewModel.WorkspacePage):
                 HandleSplitChanged(vm);
                 break;
 
@@ -564,9 +561,9 @@ public sealed class PresenceController : IDisposable
         if (_vm is not { } vm)
             return;
 
-        var deliverables = vm.WorkspaceDeliverables.Count;
-        var changes = vm.WorkspaceChanges.Count;
-        var sources = vm.WorkspaceSources.Count;
+        var deliverables = vm.WorkspaceFiles.TotalCount;
+        var changes = vm.WorkspaceEdits.TotalCount;
+        var sources = vm.WorkspaceSources.TotalCount;
 
         var newDeliverable = deliverables > _deliverableCount;
         var newChange = changes > _changeCount;
@@ -595,9 +592,9 @@ public sealed class PresenceController : IDisposable
 
     private void SeedWorkspaceBaseline(ChatViewModel vm)
     {
-        _deliverableCount = vm.WorkspaceDeliverables.Count;
-        _changeCount = vm.WorkspaceChanges.Count;
-        _sourceCount = vm.WorkspaceSources.Count;
+        _deliverableCount = vm.WorkspaceFiles.TotalCount;
+        _changeCount = vm.WorkspaceEdits.TotalCount;
+        _sourceCount = vm.WorkspaceSources.TotalCount;
     }
 
     // ── Rendering the field from observed state ──────────────────────────────────────
@@ -1062,19 +1059,13 @@ public sealed class PresenceController : IDisposable
     }
 
     /// <summary>
-    /// Returns the normalized (0..1) centre of the currently open island — preferring the specific
-    /// open panel, falling back to the empty region to the right of the chat. Null until the island
-    /// has actually taken its space (so the companion never blooms at a stale spot).
+    /// Returns the normalized (0..1) centre of the open Workspace panel, falling back to the empty
+    /// region to the right of the chat. Null until the panel has actually taken its space (so the
+    /// companion never blooms at a stale spot).
     /// </summary>
     private Point? TryGetIslandFocus(ChatViewModel vm)
     {
-        var name = vm.IsBrowserOpen ? "BrowserIsland"
-            : vm.IsDiffOpen ? "DiffIsland"
-            : vm.IsPlanOpen ? "PlanIsland"
-            : vm.IsWorkspacePanelOpen ? "WorkspaceRail"
-            : null;
-
-        if (name is not null && TryGetControlFocus(name, 0.5, 0.1, 0.9) is { } centre)
+        if (vm.IsWorkspacePanelOpen && TryGetControlFocus("WorkspacePanel", 0.5, 0.1, 0.9) is { } centre)
             return centre;
 
         return TryGetChatRightRegion();

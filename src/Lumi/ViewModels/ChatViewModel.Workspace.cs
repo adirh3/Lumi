@@ -1,40 +1,47 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Lumi.Localization;
 using Lumi.Services;
 using StrataTheme.Controls;
 
 namespace Lumi.ViewModels;
 
 /// <summary>
-/// Companion "Workspace" panel data: a first-class, tabbed, searchable index of the current chat's
-/// key landmarks — user messages, deliverable files, assistant links, web sources, an activity
-/// timeline (intents + searches) that can jump to the transcript, and the files Lumi changed.
-/// Aggregated from the chat's messages so the transcript stays a clean conversation while these stay
-/// glanceable.
+/// What the Workspace panel is showing. <see cref="Overview"/> is the at-a-glance home; every other
+/// page is a focused view that opens beside the chat inside the same panel.
+/// </summary>
+public enum WorkspacePage
+{
+    Overview,
+    Plan,
+    Agents,
+    GitChanges,
+    Diff,
+    Skill,
+    FilePreview,
+    Browser,
+}
+
+/// <summary>
+/// The chat's Workspace: one side panel that shows everything Lumi did in the chat at a glance —
+/// the plan, agents, git changes, delivered files, edits, skills, links, sources, your messages and
+/// the activity timeline — searchable in one place, each row jumping to the transcript or opening a
+/// focused page. A category bar keeps every kind one click away: it narrows the overview to that
+/// kind's full list. Aggregated from the chat so the transcript stays a clean conversation.
+/// <para>The panel's pages and header are owned by the view (<c>WorkspacePanelController</c>), which
+/// mirrors only the open state and current page here, for the header toggle and the presence layer.</para>
 /// </summary>
 public partial class ChatViewModel
 {
-    // ── Tab identifiers ──
-    public const int WorkspaceTabDeliverables = 0;
-    public const int WorkspaceTabSources = 1;
-    public const int WorkspaceTabActivity = 2;
-    public const int WorkspaceTabChanges = 3;
-    public const int WorkspaceTabMessages = 4;
-    public const int WorkspaceTabLinks = 5;
+    private const int PlanPreviewSteps = 3;
 
-    // ── Backing (unfiltered) sets ──
-    private readonly List<FileAttachmentItem> _allDeliverables = [];
-    private readonly List<SourceItem> _allSources = [];
-    private readonly List<SourceItem> _allLinks = [];
-    private readonly List<WorkspaceActivityItem> _allActivities = [];
-    private readonly List<FileChangeItem> _allChanges = [];
-    private readonly List<WorkspaceUserMessageItem> _allUserMessages = [];
     private readonly Dictionary<Guid, CachedAssistantLinks> _assistantLinkCache = [];
 
     // Reverse index (activity seed → owning turn StableId), rebuilt with the panel. The activity
@@ -46,70 +53,222 @@ public partial class ChatViewModel
     private static readonly string[] TurnSeedPrefixes = { "turn:tool:", "turn:question:", "turn:message:" };
     private static readonly string[] ItemSeedPrefixes = { "tool:", "subagent:", "question:", "message:error:" };
 
-    // ── Displayed (search-filtered) collections the view binds to ──
-    public ObservableCollection<FileAttachmentItem> WorkspaceDeliverables { get; } = [];
-    public ObservableCollection<SourceItem> WorkspaceSources { get; } = [];
-    public ObservableCollection<SourceItem> WorkspaceLinks { get; } = [];
-    public ObservableCollection<WorkspaceActivityItem> WorkspaceActivities { get; } = [];
-    public ObservableCollection<FileChangeItem> WorkspaceChanges { get; } = [];
-    public ObservableCollection<WorkspaceUserMessageItem> WorkspaceUserMessages { get; } = [];
+    // ── Overview sections (newest first) ──
+    public WorkspaceSection<SubagentToolCallItem> WorkspaceAgents { get; } = new(WorkspaceCategory.Agents, 2,
+        static (run, q) => Contains(run.DisplayName, q) || Contains(run.Title, q) || Contains(run.ModelDisplayName, q));
+    public WorkspaceSection<GitFileChangeViewModel> WorkspaceGitFiles { get; } = new(WorkspaceCategory.Changes, 3,
+        static (file, q) => Contains(file.RelativePath, q));
+    public WorkspaceSection<FileAttachmentItem> WorkspaceFiles { get; } = new(WorkspaceCategory.Files, 3,
+        static (file, q) => Contains(file.FileName, q) || Contains(file.FilePath, q));
+    public WorkspaceSection<FileChangeItem> WorkspaceEdits { get; } = new(WorkspaceCategory.Edits, 3,
+        static (change, q) => Contains(change.FileName, q) || Contains(change.FilePath, q));
+    public WorkspaceSection<SkillChipItem> WorkspaceSkills { get; } = new(WorkspaceCategory.Skills, 3,
+        static (skill, q) => Contains(skill.Name, q) || Contains(skill.Description, q));
+    public WorkspaceSection<SourceItem> WorkspaceLinks { get; } = new(WorkspaceCategory.Links, 3, MatchesSource);
+    public WorkspaceSection<SourceItem> WorkspaceSources { get; } = new(WorkspaceCategory.Sources, 3, MatchesSource);
+    public WorkspaceSection<WorkspaceUserMessageItem> WorkspaceMessages { get; } = new(WorkspaceCategory.Messages, 3,
+        static (message, q) => Contains(message.Preview, q) || Contains(message.MetaText, q) || Contains(message.NumberLabel, q));
+    public WorkspaceSection<WorkspaceActivityItem> WorkspaceActivity { get; } = new(WorkspaceCategory.Activity, 3,
+        static (activity, q) => Contains(activity.Title, q) || Contains(activity.Subtitle, q));
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasWorkspaceContent))]
-    private bool _hasWorkspaceDeliverables;
+    /// <summary>Sections holding what this chat produced. Git is the repository's state, so it is
+    /// searched with the rest but never counts as chat content (it must not auto-open the panel).</summary>
+    private IWorkspaceSection[] ChatContentSections => _chatContentSections ??=
+    [
+        WorkspaceAgents, WorkspaceFiles, WorkspaceEdits, WorkspaceSkills,
+        WorkspaceLinks, WorkspaceSources, WorkspaceMessages, WorkspaceActivity,
+    ];
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasWorkspaceContent))]
-    private bool _hasWorkspaceSources;
+    /// <summary>Every section the search runs over. A new section only needs to be listed here.</summary>
+    private IWorkspaceSection[] WorkspaceSections => _workspaceSections ??= [.. ChatContentSections, WorkspaceGitFiles];
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasWorkspaceContent))]
-    private bool _hasWorkspaceLinks;
+    private IWorkspaceSection[]? _chatContentSections;
+    private IWorkspaceSection[]? _workspaceSections;
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasWorkspaceContent))]
-    private bool _hasWorkspaceActivities;
+    /// <summary>True when this chat produced anything the overview lists (drives auto-open).</summary>
+    public bool HasWorkspaceContent => HasPlan || ChatContentSections.Any(static section => section.TotalCount > 0);
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasWorkspaceContent))]
-    private bool _hasWorkspaceChanges;
+    /// <summary>Nothing to show at all: not from this chat, not from the repository, no browser.</summary>
+    public bool ShowWorkspaceEmptyState => !HasWorkspaceContent && !HasWorkspaceGit && !ShowBrowserToggle;
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasWorkspaceContent))]
-    private bool _hasWorkspaceUserMessages;
+    /// <summary>True when an error was recorded this chat (the presence layer answers new errors).</summary>
+    [ObservableProperty] private bool _hasErrorActivities;
 
-    [ObservableProperty] private string _workspaceDeliverablesCountLabel = "0";
-    [ObservableProperty] private string _workspaceSourcesCountLabel = "0";
-    [ObservableProperty] private string _workspaceLinksCountLabel = "0";
-    [ObservableProperty] private string _workspaceActivitiesCountLabel = "0";
-    [ObservableProperty] private string _workspaceChangesCountLabel = "0";
-    [ObservableProperty] private string _workspaceUserMessagesCountLabel = "0";
+    /// <summary>Raised after the workspace sections change so the view can re-evaluate visibility.</summary>
+    public event Action? WorkspaceContentChanged;
 
-    /// <summary>True when the panel has anything worth showing.</summary>
-    public bool HasWorkspaceContent =>
-        HasWorkspaceDeliverables || HasWorkspaceSources || HasWorkspaceLinks || HasWorkspaceActivities || HasWorkspaceChanges || HasWorkspaceUserMessages;
+    // ── Category bar: every kind of content one click away ──
 
-    // ── Active tab ──
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsDeliverablesTabSelected))]
-    [NotifyPropertyChangedFor(nameof(IsSourcesTabSelected))]
-    [NotifyPropertyChangedFor(nameof(IsLinksTabSelected))]
-    [NotifyPropertyChangedFor(nameof(IsActivityTabSelected))]
-    [NotifyPropertyChangedFor(nameof(IsChangesTabSelected))]
-    [NotifyPropertyChangedFor(nameof(IsMessagesTabSelected))]
-    private int _workspaceSelectedTab = WorkspaceTabDeliverables;
+    /// <summary>The chips above the overview, in display order. A new kind of content is one chip
+    /// here plus its availability and count in <see cref="RefreshWorkspaceCategories"/>.</summary>
+    public IReadOnlyList<WorkspaceCategoryChip> WorkspaceCategories { get; } =
+    [
+        new(WorkspaceCategory.All, Loc.Workspace_All),
+        new(WorkspaceCategory.Plan, Loc.Workspace_Plan, opensPage: true),
+        new(WorkspaceCategory.Agents, Loc.Workspace_Agents),
+        new(WorkspaceCategory.Changes, Loc.Workspace_Changes),
+        new(WorkspaceCategory.Files, Loc.Workspace_Files),
+        new(WorkspaceCategory.Edits, Loc.Workspace_Edits),
+        new(WorkspaceCategory.Skills, Loc.Workspace_Skills),
+        new(WorkspaceCategory.Links, Loc.Workspace_Links),
+        new(WorkspaceCategory.Sources, Loc.Workspace_Sources),
+        new(WorkspaceCategory.Messages, Loc.Workspace_Messages),
+        new(WorkspaceCategory.Activity, Loc.Workspace_Activity),
+        new(WorkspaceCategory.Browser, Loc.Browser_Title, opensPage: true),
+    ];
 
-    public bool IsDeliverablesTabSelected => WorkspaceSelectedTab == WorkspaceTabDeliverables;
-    public bool IsSourcesTabSelected => WorkspaceSelectedTab == WorkspaceTabSources;
-    public bool IsLinksTabSelected => WorkspaceSelectedTab == WorkspaceTabLinks;
-    public bool IsActivityTabSelected => WorkspaceSelectedTab == WorkspaceTabActivity;
-    public bool IsChangesTabSelected => WorkspaceSelectedTab == WorkspaceTabChanges;
-    public bool IsMessagesTabSelected => WorkspaceSelectedTab == WorkspaceTabMessages;
+    /// <summary>The kind the overview is narrowed to; <see cref="WorkspaceCategory.All"/> shows everything.</summary>
+    [ObservableProperty] private WorkspaceCategory _workspaceCategory = WorkspaceCategory.All;
 
-    partial void OnWorkspaceSelectedTabChanged(int value) => UpdateWorkspaceSearchState();
+    partial void OnWorkspaceCategoryChanged(WorkspaceCategory value)
+    {
+        foreach (var section in WorkspaceSections)
+            section.SetFocus(value);
 
+        NotifyWorkspaceVisibilityChanged();
+    }
+
+    /// <summary>A chip click: narrow to that kind (again for everything), or open the plan / browser.</summary>
     [RelayCommand]
-    private void SelectWorkspaceTab(int index) => WorkspaceSelectedTab = index;
+    private void SelectWorkspaceCategory(WorkspaceCategory category)
+    {
+        switch (category)
+        {
+            case WorkspaceCategory.Plan:
+                OpenWorkspacePlan();
+                break;
+            case WorkspaceCategory.Browser:
+                RequestShowBrowser();
+                break;
+            default:
+                WorkspaceCategory = category == WorkspaceCategory ? WorkspaceCategory.All : category;
+                break;
+        }
+    }
+
+    private void RefreshWorkspaceCategories()
+    {
+        // A kind that emptied (a cleared or rebuilt chat) hands the overview back to everything.
+        if (WorkspaceCategory != WorkspaceCategory.All && !IsWorkspaceCategoryAvailable(WorkspaceCategory))
+        {
+            WorkspaceCategory = WorkspaceCategory.All; // re-enters through NotifyWorkspaceVisibilityChanged
+            return;
+        }
+
+        foreach (var chip in WorkspaceCategories)
+        {
+            chip.IsAvailable = IsWorkspaceCategoryAvailable(chip.Category);
+            chip.IsSelected = chip.Category == WorkspaceCategory;
+            chip.CountLabel = SectionFor(chip.Category)?.CountLabel;
+            chip.IsLive = chip.Category == WorkspaceCategory.Agents && HasRunningSubagents;
+        }
+    }
+
+    private bool IsWorkspaceCategoryAvailable(WorkspaceCategory category) => category switch
+    {
+        WorkspaceCategory.All => true,
+        WorkspaceCategory.Plan => HasPlan,
+        WorkspaceCategory.Changes => HasWorkspaceGit,
+        WorkspaceCategory.Browser => ShowBrowserToggle,
+        _ => SectionFor(category)?.TotalCount > 0,
+    };
+
+    private IWorkspaceSection? SectionFor(WorkspaceCategory category)
+        => Array.Find(WorkspaceSections, section => section.Category == category);
+
+    // ── Plan at a glance ──
+    [ObservableProperty] private string _planTitle = "";
+    [ObservableProperty] private string? _planSummaryText;
+    [ObservableProperty] private string? _planProgressLabel;
+    [ObservableProperty] private double _planProgress;
+    [ObservableProperty] private bool _hasPlanProgress;
+    public ObservableCollection<WorkspacePlanStep> PlanSteps { get; } = [];
+    public bool HasPlanSteps => PlanSteps.Count > 0;
+
+    /// <summary>A plan written as prose (no bullets) previews its first line instead.</summary>
+    public bool HasPlanSummaryText => !HasPlanSteps && !string.IsNullOrWhiteSpace(PlanSummaryText);
+
+    public bool ShowWorkspacePlan => HasPlan
+        && WorkspaceCategory == WorkspaceCategory.All
+        && (!HasWorkspaceSearch || Contains(PlanContent, WorkspaceSearchText.Trim()));
+
+    private void RefreshWorkspacePlan()
+    {
+        var summary = WorkspacePlanSummary.Parse(HasPlan ? PlanContent : null);
+        PlanTitle = summary.Title ?? Loc.Plan_Title;
+        PlanSummaryText = summary.Summary;
+        HasPlanProgress = summary.HasTasks;
+        PlanProgress = summary.HasTasks ? summary.CompletedCount * 100d / summary.TaskCount : 0;
+        PlanProgressLabel = summary.HasTasks
+            ? string.Format(Loc.Culture, Loc.Workspace_PlanProgress, summary.CompletedCount, summary.TaskCount)
+            : null;
+
+        PlanSteps.Clear();
+        foreach (var step in summary.UpcomingSteps(PlanPreviewSteps))
+            PlanSteps.Add(step);
+
+        OnPropertyChanged(nameof(HasPlanSteps));
+        OnPropertyChanged(nameof(HasPlanSummaryText));
+        NotifyWorkspaceVisibilityChanged();
+    }
+
+    partial void OnHasPlanChanged(bool value) => RefreshWorkspacePlan();
+
+    // ── Git changes at a glance ──
+    /// <summary>Summary of the repository's working-tree changes (branch, totals, kinds).</summary>
+    [ObservableProperty] private GitChangesViewModel? _workspaceGit;
+
+    public bool HasWorkspaceGit => IsCodingProject && WorkspaceGit is not null;
+    public bool ShowWorkspaceGit => HasWorkspaceGit && WorkspaceGitFiles.IsShown;
+
+    private void OnGitChangedFilesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        // A git refresh empties the list, waits for git and refills it. Summarize once it settles
+        // (see OnIsRefreshingGitStatusChanged) so the card and its chip don't blink on every refresh.
+        if (!IsRefreshingGitStatus)
+            RefreshWorkspaceGit();
+    }
+
+    private void RefreshWorkspaceGit()
+    {
+        var files = GitChangedFiles.ToList();
+        WorkspaceGitFiles.SetItems(files);
+        WorkspaceGit = files.Count == 0
+            ? null
+            : new GitChangesViewModel(files.Select(static file => file.Change), ResolveGitRootPath(), GitBranch, IsWorktreeMode);
+        NotifyWorkspaceVisibilityChanged();
+    }
+
+    private string ResolveGitRootPath()
+        => GitService.FindRepoRoot(GetEffectiveWorkingDirectory()) ?? GetEffectiveWorkingDirectory();
+
+    // ── Agents at a glance ──
+    private void RefreshWorkspaceAgents()
+    {
+        // Running agents lead so live work is visible without scrolling; then newest first.
+        var runs = SubagentRuns;
+        var ordered = new List<SubagentToolCallItem>(runs.Count);
+        for (var i = runs.Count - 1; i >= 0; i--)
+        {
+            if (runs[i].IsInProgress)
+                ordered.Add(runs[i]);
+        }
+
+        for (var i = runs.Count - 1; i >= 0; i--)
+        {
+            if (!runs[i].IsInProgress)
+                ordered.Add(runs[i]);
+        }
+
+        // Runs update many times a second while agents stream; only a first/last run can change what
+        // the rest of the workspace shows. The category bar still follows the count and live dot.
+        var hadAgents = WorkspaceAgents.TotalCount > 0;
+        WorkspaceAgents.SetItems(ordered);
+        if (hadAgents != (WorkspaceAgents.TotalCount > 0) || HasWorkspaceSearch)
+            NotifyWorkspaceVisibilityChanged();
+        else
+            RefreshWorkspaceCategories();
+    }
 
     // ── Search ──
     [ObservableProperty]
@@ -118,70 +277,96 @@ public partial class ChatViewModel
 
     public bool HasWorkspaceSearch => !string.IsNullOrWhiteSpace(WorkspaceSearchText);
 
-    /// <summary>True when a search is active but the selected tab has no matching rows.</summary>
+    /// <summary>True when a search is active but nothing in the workspace matches it.</summary>
     [ObservableProperty] private bool _workspaceSearchHasNoMatches;
 
-    partial void OnWorkspaceSearchTextChanged(string value) => ApplyWorkspaceFilter();
+    partial void OnWorkspaceSearchTextChanged(string value) => ApplyWorkspaceSearch();
 
     [RelayCommand]
     private void ClearWorkspaceSearch() => WorkspaceSearchText = "";
 
-    // ── Activity kind filter (chips inside the Activity tab) ──
-    public const int ActivityFilterAll = -1;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsActivityFilterAll))]
-    [NotifyPropertyChangedFor(nameof(IsActivityFilterIntent))]
-    [NotifyPropertyChangedFor(nameof(IsActivityFilterSearch))]
-    [NotifyPropertyChangedFor(nameof(IsActivityFilterSubagent))]
-    [NotifyPropertyChangedFor(nameof(IsActivityFilterQuestion))]
-    [NotifyPropertyChangedFor(nameof(IsActivityFilterError))]
-    private int _workspaceActivityFilter = ActivityFilterAll;
-
-    public bool IsActivityFilterAll => WorkspaceActivityFilter == ActivityFilterAll;
-    public bool IsActivityFilterIntent => WorkspaceActivityFilter == (int)WorkspaceActivityKind.Intent;
-    public bool IsActivityFilterSearch => WorkspaceActivityFilter == (int)WorkspaceActivityKind.Search;
-    public bool IsActivityFilterSubagent => WorkspaceActivityFilter == (int)WorkspaceActivityKind.Subagent;
-    public bool IsActivityFilterQuestion => WorkspaceActivityFilter == (int)WorkspaceActivityKind.Question;
-    public bool IsActivityFilterError => WorkspaceActivityFilter == (int)WorkspaceActivityKind.Error;
-
-    // Which kinds exist in this chat (drives which filter chips are offered).
-    [ObservableProperty] private bool _hasIntentActivities;
-    [ObservableProperty] private bool _hasSearchActivities;
-    [ObservableProperty] private bool _hasSubagentActivities;
-    [ObservableProperty] private bool _hasQuestionActivities;
-    [ObservableProperty] private bool _hasErrorActivities;
-
-    /// <summary>Only show the filter strip when there is more than one kind to slice between.</summary>
-    [ObservableProperty] private bool _showActivityFilters;
-
-    partial void OnWorkspaceActivityFilterChanged(int value) => ApplyWorkspaceFilter();
-
-    [RelayCommand]
-    private void SelectActivityFilter(int kind) => WorkspaceActivityFilter = kind;
-
-    // ── Open/closed toggle (first-class; persisted app-wide) ──
-
-    /// <summary>The toggle is a core chat affordance, always offered when a chat is open.</summary>
-    public bool ShowWorkspaceToggle => true;
-
-    /// <summary>Effective visibility, pushed from the view so the toggle button can reflect state.</summary>
-    [ObservableProperty] private bool _isWorkspacePanelOpen;
-
-    [RelayCommand]
-    private void ToggleWorkspacePanel()
+    private void ApplyWorkspaceSearch()
     {
-        var newOpen = !IsWorkspacePanelOpen;
-        _dataStore.Data.Settings.WorkspacePanelOpen = newOpen;
-        _dataStore.Save();
-        WorkspacePanelPreferenceChanged?.Invoke();
+        foreach (var section in WorkspaceSections)
+            section.SetQuery(WorkspaceSearchText);
+
+        NotifyWorkspaceVisibilityChanged();
     }
 
-    /// <summary>Raised after the workspace collections change so the view can re-evaluate visibility/width gating.</summary>
-    public event Action? WorkspaceContentChanged;
+    private void NotifyWorkspaceVisibilityChanged()
+    {
+        RefreshWorkspaceCategories();
+
+        WorkspaceSearchHasNoMatches = HasWorkspaceSearch
+            && !ShowWorkspacePlan
+            && !ShowWorkspaceGit
+            && !ChatContentSections.Any(static section => section.IsShown);
+
+        OnPropertyChanged(nameof(HasWorkspaceContent));
+        OnPropertyChanged(nameof(ShowWorkspaceEmptyState));
+        OnPropertyChanged(nameof(ShowWorkspacePlan));
+        OnPropertyChanged(nameof(HasWorkspaceGit));
+        OnPropertyChanged(nameof(ShowWorkspaceGit));
+    }
+
+    // ── Panel state (mirrored from the view) ──
+
+    /// <summary>Effective visibility of the panel, pushed from the view so the toggle reflects it.</summary>
+    [ObservableProperty] private bool _isWorkspacePanelOpen;
 
     /// <summary>
-    /// Rebuilds the workspace panel from the current chat's messages and transcript turns. Cheap and
+    /// The page the panel last showed, pushed from the view for ambient layers (the presence glow).
+    /// The header itself reads the view's own <see cref="WorkspaceHeader"/>, since two windows can
+    /// show this chat on different pages.
+    /// </summary>
+    [ObservableProperty] private WorkspacePage _workspacePage = WorkspacePage.Overview;
+
+    /// <summary>The header toggle stands in for the old agents button, so it names live agents too.</summary>
+    public string WorkspaceToggleToolTip => HasRunningSubagents
+        ? $"{Loc.Workspace_Title} · {SubagentRunsSummary}"
+        : Loc.Workspace_Title;
+
+    /// <summary>Raised when the header toggle is clicked; the view decides between open and close.</summary>
+    public event Action? WorkspaceToggleRequested;
+
+    [RelayCommand]
+    private void ToggleWorkspacePanel() => WorkspaceToggleRequested?.Invoke();
+
+    /// <summary>Persists whether the user keeps the workspace open (app-wide).</summary>
+    internal void SaveWorkspacePanelPreference(bool open)
+    {
+        if (_dataStore.Data.Settings.WorkspacePanelOpen == open)
+            return;
+
+        _dataStore.Data.Settings.WorkspacePanelOpen = open;
+        _dataStore.Save();
+    }
+
+    // ── Overview → pages ──
+    [RelayCommand]
+    private void OpenWorkspacePlan()
+    {
+        if (HasPlan)
+            PlanShowRequested?.Invoke();
+    }
+
+    [RelayCommand]
+    private void OpenWorkspaceAgents() => ShowSubagentIndex();
+
+    [RelayCommand]
+    private void OpenWorkspaceGitFile(GitFileChangeViewModel? file) => RequestGitChanges(file?.FullPath);
+
+    private void InitializeWorkspace()
+    {
+        GitChangedFiles.CollectionChanged += OnGitChangedFilesChanged;
+        foreach (var section in WorkspaceSections)
+            section.ShowAllRequested = category => WorkspaceCategory = category;
+
+        RefreshWorkspacePlan();
+    }
+
+    /// <summary>
+    /// Rebuilds the workspace sections from the current chat's messages and transcript turns. Cheap and
     /// idempotent — safe to call after a transcript rebuild and whenever a turn completes.
     /// </summary>
     internal void RebuildWorkspacePanel()
@@ -236,34 +421,25 @@ public partial class ChatViewModel
             }
         }
 
-        var changes = CollectChangedFiles();
         PruneAssistantLinkCache(activeAssistantMessageIds);
 
-        ReplaceAll(_allDeliverables, deliverables);
-        ReplaceAll(_allSources, sources);
-        ReplaceAll(_allLinks, links);
-        ReplaceAll(_allActivities, activities);
-        ReplaceAll(_allChanges, changes);
-        ReplaceAll(_allUserMessages, userMessages);
+        // The overview answers "what just happened", so every list reads newest first.
+        deliverables.Reverse();
+        sources.Reverse();
+        links.Reverse();
+        activities.Reverse();
+        userMessages.Reverse();
 
-        HasWorkspaceDeliverables = _allDeliverables.Count > 0;
-        HasWorkspaceSources = _allSources.Count > 0;
-        HasWorkspaceLinks = _allLinks.Count > 0;
-        HasWorkspaceActivities = _allActivities.Count > 0;
-        HasWorkspaceChanges = _allChanges.Count > 0;
-        HasWorkspaceUserMessages = _allUserMessages.Count > 0;
+        WorkspaceFiles.SetItems(deliverables);
+        WorkspaceEdits.SetItems(CollectChangedFiles());
+        WorkspaceSkills.SetItems(CollectSkills());
+        WorkspaceLinks.SetItems(links);
+        WorkspaceSources.SetItems(sources);
+        WorkspaceMessages.SetItems(userMessages);
+        WorkspaceActivity.SetItems(activities);
+        HasErrorActivities = activities.Any(static activity => activity.Kind == WorkspaceActivityKind.Error);
 
-        WorkspaceDeliverablesCountLabel = _allDeliverables.Count.ToString();
-        WorkspaceSourcesCountLabel = _allSources.Count.ToString();
-        WorkspaceLinksCountLabel = _allLinks.Count.ToString();
-        WorkspaceActivitiesCountLabel = _allActivities.Count.ToString();
-        WorkspaceChangesCountLabel = _allChanges.Count.ToString();
-        WorkspaceUserMessagesCountLabel = _allUserMessages.Count.ToString();
-
-        RecomputeActivityKindAvailability();
-        EnsureValidSelectedTab();
-        ApplyWorkspaceFilter();
-
+        NotifyWorkspaceVisibilityChanged();
         WorkspaceContentChanged?.Invoke();
     }
 
@@ -291,46 +467,40 @@ public partial class ChatViewModel
             ? turnStableId
             : null;
 
-    /// <summary>Tracks which activity kinds exist so the view shows only the relevant filter chips.</summary>
-    private void RecomputeActivityKindAvailability()
-    {
-        HasIntentActivities = _allActivities.Any(a => a.Kind == WorkspaceActivityKind.Intent);
-        HasSearchActivities = _allActivities.Any(a => a.Kind == WorkspaceActivityKind.Search);
-        HasSubagentActivities = _allActivities.Any(a => a.Kind == WorkspaceActivityKind.Subagent);
-        HasQuestionActivities = _allActivities.Any(a => a.Kind == WorkspaceActivityKind.Question);
-        HasErrorActivities = _allActivities.Any(a => a.Kind == WorkspaceActivityKind.Error);
-
-        var distinctKinds = _allActivities.Select(a => a.Kind).Distinct().Count();
-        ShowActivityFilters = distinctKinds > 1;
-
-        // Drop a filter that no longer has any rows.
-        if (WorkspaceActivityFilter != ActivityFilterAll
-            && !_allActivities.Any(a => (int)a.Kind == WorkspaceActivityFilter))
-        {
-            WorkspaceActivityFilter = ActivityFilterAll;
-        }
-    }
-
-    /// <summary>Latest state of every file Lumi created or edited this chat, de-duplicated by path.</summary>
+    /// <summary>Latest state of every file Lumi created or edited this chat, most recently touched first.</summary>
     private List<FileChangeItem> CollectChangedFiles()
-    {
-        var byPath = new Dictionary<string, FileChangeItem>(StringComparer.OrdinalIgnoreCase);
-        var order = new List<string>();
+        => LatestFirst(
+            TranscriptTurns
+                .SelectMany(static turn => turn.Items.OfType<FileChangesSummaryItem>())
+                .SelectMany(static summary => summary.FileChanges),
+            static change => change.FilePath);
 
-        foreach (var turn in TranscriptTurns)
-        {
-            foreach (var summary in turn.Items.OfType<FileChangesSummaryItem>())
+    /// <summary>Skills attached to a message or loaded mid-turn, newest first, one row per skill.</summary>
+    private List<SkillChipItem> CollectSkills()
+        => LatestFirst(
+            TranscriptTurns.SelectMany(static turn => turn.Items).SelectMany(static item => item switch
             {
-                foreach (var change in summary.FileChanges)
-                {
-                    if (!byPath.ContainsKey(change.FilePath))
-                        order.Add(change.FilePath);
-                    byPath[change.FilePath] = change; // keep the most recent occurrence
-                }
-            }
+                UserMessageItem user => user.SkillChips,
+                SkillLoadedItem loaded => [loaded.Chip],
+                _ => Enumerable.Empty<SkillChipItem>(),
+            }),
+            static chip => chip.Name);
+
+    /// <summary>The last occurrence of each key (paths and names compare case-insensitively), most recent first.</summary>
+    private static List<T> LatestFirst<T>(IEnumerable<T> items, Func<T, string?> keyOf)
+    {
+        var latest = new Dictionary<string, (T Item, int Touched)>(StringComparer.OrdinalIgnoreCase);
+        var touched = 0;
+        foreach (var item in items)
+        {
+            if (keyOf(item) is { } key && !string.IsNullOrWhiteSpace(key))
+                latest[key] = (item, touched++);
         }
 
-        return order.Select(path => byPath[path]).ToList();
+        return latest.Values
+            .OrderByDescending(static entry => entry.Touched)
+            .Select(static entry => entry.Item)
+            .ToList();
     }
 
     /// <summary>
@@ -495,84 +665,6 @@ public partial class ChatViewModel
         }
     }
 
-    private void EnsureValidSelectedTab()
-    {
-        if (TabHasContent(WorkspaceSelectedTab))
-            return;
-
-        foreach (var tab in new[] { WorkspaceTabDeliverables, WorkspaceTabSources, WorkspaceTabLinks, WorkspaceTabMessages, WorkspaceTabActivity, WorkspaceTabChanges })
-        {
-            if (TabHasContent(tab))
-            {
-                WorkspaceSelectedTab = tab;
-                return;
-            }
-        }
-
-        WorkspaceSelectedTab = WorkspaceTabDeliverables;
-    }
-
-    private bool TabHasContent(int tab) => tab switch
-    {
-        WorkspaceTabDeliverables => HasWorkspaceDeliverables,
-        WorkspaceTabSources => HasWorkspaceSources,
-        WorkspaceTabLinks => HasWorkspaceLinks,
-        WorkspaceTabMessages => HasWorkspaceUserMessages,
-        WorkspaceTabActivity => HasWorkspaceActivities,
-        WorkspaceTabChanges => HasWorkspaceChanges,
-        _ => false,
-    };
-
-    private void ApplyWorkspaceFilter()
-    {
-        var q = WorkspaceSearchText?.Trim() ?? "";
-        var hasQuery = q.Length > 0;
-
-        ReplaceAll(WorkspaceDeliverables, hasQuery
-            ? _allDeliverables.Where(d => Contains(d.FileName, q) || Contains(d.FilePath, q)).ToList()
-            : _allDeliverables);
-        ReplaceAll(WorkspaceSources, hasQuery
-            ? _allSources.Where(s => Contains(s.Title, q) || Contains(s.Domain, q) || Contains(s.Url, q)).ToList()
-            : _allSources);
-        ReplaceAll(WorkspaceLinks, hasQuery
-            ? _allLinks.Where(l => Contains(l.Title, q) || Contains(l.Domain, q) || Contains(l.Url, q)).ToList()
-            : _allLinks);
-        ReplaceAll(WorkspaceUserMessages, hasQuery
-            ? _allUserMessages.Where(m => Contains(m.Preview, q) || Contains(m.MetaText, q) || Contains(m.NumberLabel, q)).ToList()
-            : _allUserMessages);
-        var activitySource = WorkspaceActivityFilter == ActivityFilterAll
-            ? (IEnumerable<WorkspaceActivityItem>)_allActivities
-            : _allActivities.Where(a => (int)a.Kind == WorkspaceActivityFilter);
-        ReplaceAll(WorkspaceActivities, hasQuery
-            ? activitySource.Where(a => Contains(a.Title, q) || Contains(a.Subtitle, q)).ToList()
-            : activitySource.ToList());
-        ReplaceAll(WorkspaceChanges, hasQuery
-            ? _allChanges.Where(c => Contains(c.FileName, q) || Contains(c.FilePath, q)).ToList()
-            : _allChanges);
-
-        UpdateWorkspaceSearchState();
-    }
-
-    private void UpdateWorkspaceSearchState()
-    {
-        if (!HasWorkspaceSearch)
-        {
-            WorkspaceSearchHasNoMatches = false;
-            return;
-        }
-
-        WorkspaceSearchHasNoMatches = WorkspaceSelectedTab switch
-        {
-            WorkspaceTabDeliverables => WorkspaceDeliverables.Count == 0,
-            WorkspaceTabSources => WorkspaceSources.Count == 0,
-            WorkspaceTabLinks => WorkspaceLinks.Count == 0,
-            WorkspaceTabMessages => WorkspaceUserMessages.Count == 0,
-            WorkspaceTabActivity => WorkspaceActivities.Count == 0,
-            WorkspaceTabChanges => WorkspaceChanges.Count == 0,
-            _ => false,
-        };
-    }
-
     private IReadOnlyList<SourceItem> GetAssistantLinks(ChatMessageViewModel message)
     {
         var messageId = message.Message.Id;
@@ -729,21 +821,17 @@ public partial class ChatViewModel
         return -1;
     }
 
+    private static bool MatchesSource(SourceItem source, string query)
+        => Contains(source.Title, query) || Contains(source.Domain, query) || Contains(source.Url, query);
+
     private static bool Contains(string? haystack, string needle)
         => !string.IsNullOrEmpty(haystack) && haystack.Contains(needle, StringComparison.OrdinalIgnoreCase);
-
-    private static void ReplaceAll<T>(ICollection<T> target, IEnumerable<T> desired)
-    {
-        target.Clear();
-        foreach (var item in desired)
-            target.Add(item);
-    }
 
     private readonly record struct AssistantLink(string Title, string Url);
     private sealed record CachedAssistantLinks(string Content, SourceItem[] Links);
 }
 
-/// <summary>A single user prompt indexed in the Workspace panel so long chats can jump between asks.</summary>
+/// <summary>A single user prompt indexed in the Workspace so long chats can jump between asks.</summary>
 public partial class WorkspaceUserMessageItem : ObservableObject
 {
     private readonly Action<string?>? _jumpAction;
@@ -827,7 +915,7 @@ public enum WorkspaceActivityKind
 }
 
 /// <summary>
-/// A single row in the Workspace "Activity" timeline — a meaningful step Lumi took this chat
+/// A single row in the Workspace activity timeline — a meaningful step Lumi took this chat
 /// (stated an intent, ran a web search, delegated to a subagent, asked the user, or hit an error).
 /// Every row can jump to the matching point in the transcript.
 /// </summary>
@@ -841,19 +929,16 @@ public partial class WorkspaceActivityItem : ObservableObject
     public string? TargetTurnStableId { get; }
 
     /// <summary>Per-kind glyph. Icon and tile colors are applied in XAML via theme-token style
-    /// classes (see ChatWorkspaceView.axaml) so they track live theme switches; semantic color
+    /// classes (see WorkspaceOverview.axaml) so they track live theme switches; semantic color
     /// (accent / warning / danger) is reserved for the kinds that carry real meaning, so the
     /// timeline stays calm and professional rather than a rainbow of tiles.</summary>
-    public Geometry KindGeometry { get; }
+    public Geometry KindGeometry => _kindGeometry ??= WorkspaceIcons.For(Kind);
 
-    public bool IsSearch => Kind == WorkspaceActivityKind.Search;
+    private Geometry? _kindGeometry;
+
     public bool IsIntent => Kind == WorkspaceActivityKind.Intent;
-    public bool IsSubagent => Kind == WorkspaceActivityKind.Subagent;
     public bool IsQuestion => Kind == WorkspaceActivityKind.Question;
     public bool IsError => Kind == WorkspaceActivityKind.Error;
-
-    /// <summary>True for the accent-tinted kinds (intent), so the view can color the dot.</summary>
-    public bool IsAccent => Kind == WorkspaceActivityKind.Intent;
 
     public bool CanJump => !string.IsNullOrEmpty(TargetTurnStableId);
 
@@ -864,42 +949,16 @@ public partial class WorkspaceActivityItem : ObservableObject
         Subtitle = KindLabel(kind);
         TargetTurnStableId = targetTurnStableId;
         _jumpAction = jumpAction;
-
-        KindGeometry = SafeParse(KindGlyph(kind));
-    }
-
-    /// <summary>Parses glyph path data, falling back to a simple tile so a bad path can never crash the UI.</summary>
-    private static Geometry SafeParse(string data)
-    {
-        try { return Geometry.Parse(data); }
-        catch { return Geometry.Parse("M7 7h10v10H7z"); }
     }
 
     private static string KindLabel(WorkspaceActivityKind kind) => kind switch
     {
-        WorkspaceActivityKind.Intent => "Intent",
-        WorkspaceActivityKind.Search => "Web search",
-        WorkspaceActivityKind.Subagent => "Subagent",
-        WorkspaceActivityKind.Question => "Question",
-        WorkspaceActivityKind.Error => "Error",
+        WorkspaceActivityKind.Intent => Loc.Workspace_ActivityIntent,
+        WorkspaceActivityKind.Search => Loc.Workspace_ActivitySearch,
+        WorkspaceActivityKind.Subagent => Loc.Workspace_ActivitySubagent,
+        WorkspaceActivityKind.Question => Loc.Workspace_ActivityQuestion,
+        WorkspaceActivityKind.Error => Loc.Workspace_ActivityError,
         _ => "",
-    };
-
-    // Material-grid glyphs (filled, 24-grid). Per-kind color is applied in XAML via theme-token styles.
-    private const string IntentGlyph = "M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z";
-    private const string SearchGlyph = "M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z";
-    private const string SubagentGlyph = "M22 11V3h-7v3H9V3H2v8h7V8h2v10h4v3h7v-8h-7v3h-2V8h2v3z";
-    private const string QuestionGlyph = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z";
-    private const string ErrorGlyph = "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z";
-
-    private static string KindGlyph(WorkspaceActivityKind kind) => kind switch
-    {
-        WorkspaceActivityKind.Intent => IntentGlyph,
-        WorkspaceActivityKind.Search => SearchGlyph,
-        WorkspaceActivityKind.Subagent => SubagentGlyph,
-        WorkspaceActivityKind.Question => QuestionGlyph,
-        WorkspaceActivityKind.Error => ErrorGlyph,
-        _ => SearchGlyph,
     };
 
     [RelayCommand]

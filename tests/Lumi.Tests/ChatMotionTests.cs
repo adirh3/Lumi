@@ -326,6 +326,37 @@ public sealed class ChatMotionTests
     }
 
     [Fact]
+    public async Task Entrance_Delay_HoldsTheHostHiddenUntilItsTurn()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(async () =>
+        {
+            var target = new Border { Width = 180, Height = 60, Background = Brushes.Blue };
+            var window = new Window { Width = 400, Height = 240, Content = new StackPanel { Children = { target } } };
+            try
+            {
+                window.Show();
+                await FlushLayoutAsync(window);
+
+                SlideFadeEntrance.Play(target, duration: TimeSpan.FromMilliseconds(100), delay: TimeSpan.FromMilliseconds(400));
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                await Task.Delay(150);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                Assert.Equal(0, target.Opacity, 3);
+
+                await Task.Delay(600);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                Assert.Equal(1, target.Opacity, 3);
+                Assert.Equal(Matrix.Identity, target.RenderTransform?.Value ?? Matrix.Identity);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task MessageEntrance_IsConsumedOnRealization_AndDoesNotReplayOnRemount()
     {
         using var session = HeadlessTestSession.Start();

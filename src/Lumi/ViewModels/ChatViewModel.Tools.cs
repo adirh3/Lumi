@@ -277,7 +277,7 @@ public partial class ChatViewModel
         ];
     }
 
-    /// <summary>Raised when a browser tool requests the browser panel to be visible. Carries the chat ID.</summary>
+    /// <summary>Raised when a browser tool requests the browser to be visible. Carries the chat ID.</summary>
     public event Action<Guid>? BrowserShowRequested;
 
     /// <summary>Raised when a transcript chip requests opening its linked chat.</summary>
@@ -286,17 +286,17 @@ public partial class ChatViewModel
     /// <summary>True if browser tools have been used in the current session.</summary>
     [ObservableProperty] bool _hasUsedBrowser;
 
-    /// <summary>True when the browser panel is currently visible.</summary>
+    /// <summary>True when the Workspace is showing the browser page.</summary>
     [ObservableProperty] bool _isBrowserOpen;
 
-    /// <summary>Allows the view to request the browser panel to be shown for the current chat.</summary>
+    /// <summary>Allows the view to request the browser page to be shown for the current chat.</summary>
     public void RequestShowBrowser()
     {
         if (CurrentChat is not null)
             BrowserShowRequested?.Invoke(CurrentChat.Id);
     }
 
-    /// <summary>Toggles the browser panel visibility for the current chat.</summary>
+    /// <summary>Toggles the browser page for the current chat.</summary>
     public void ToggleBrowser()
     {
         if (IsBrowserOpen)
@@ -340,14 +340,11 @@ public partial class ChatViewModel
         }
     }
 
-    /// <summary>True when the diff preview panel is currently visible.</summary>
-    [ObservableProperty] bool _isDiffOpen;
-
-    /// <summary>Shows a file diff in the preview island.</summary>
+    /// <summary>Shows a file diff in the Workspace.</summary>
     public void ShowDiff(FileChangeItem item)
         => DiffShowRequested?.Invoke(item);
 
-    /// <summary>Hides the diff preview island.</summary>
+    /// <summary>Closes the Workspace's diff page.</summary>
     public void HideDiff() => DiffHideRequested?.Invoke();
 
     private CancellationTokenSource? _modelSelectionSaveCts;

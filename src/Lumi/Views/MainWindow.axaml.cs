@@ -978,12 +978,7 @@ public partial class MainWindow : Window
         _chatView = _chatWorkspace.ChatView;
         foreach (var svc in vm.ChatVM.ChatBrowserServices.Values)
             svc.SetTheme(vm.IsDarkTheme);
-        HideBrowserPanel();
-        HideDiffPanel();
-        HidePlanPanel();
-        HideSkillPanel();
-        _chatWorkspace?.HideFilePreviewPanel();
-        HideSubagentPanel();
+        _chatWorkspace?.CloseWorkspacePages();
     }
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -1084,13 +1079,8 @@ public partial class MainWindow : Window
                 }
                 else if (args.PropertyName == nameof(MainViewModel.ActiveChatId))
                 {
-                    // Hide browser/diff/plan when switching chats
-                    HideBrowserPanel();
-                    HideDiffPanel();
-                    HidePlanPanel();
-                    HideSkillPanel();
-                    _chatWorkspace?.HideFilePreviewPanel();
-                    HideSubagentPanel();
+                    // Switching chats closes any Workspace page (the overview follows the preference)
+                    _chatWorkspace?.CloseWorkspacePages();
                     Dispatcher.UIThread.Post(() => SyncListBoxSelection(vm.ActiveChatId),
                         DispatcherPriority.Loaded);
                 }
@@ -1197,16 +1187,10 @@ public partial class MainWindow : Window
                 _sidebarPanels[i]!.IsVisible = i == index;
         }
 
-        // Hide/show browser/diff when navigating away from / back to chat
+        // Leaving the chat closes Workspace pages: the native browser can't float over other pages
         if (index != 0)
         {
-            // Leaving chat — fully close preview panels
-            HideBrowserPanel();
-            HideDiffPanel();
-            HidePlanPanel();
-            HideSkillPanel();
-            _chatWorkspace?.HideFilePreviewPanel();
-            HideSubagentPanel();
+            _chatWorkspace?.CloseWorkspacePages();
         }
         else if (_chatWorkspace?.IsBrowserOpen == true)
         {
@@ -3364,25 +3348,4 @@ public partial class MainWindow : Window
                 break;
         }
     }
-
-    private void ShowBrowserPanel(Guid chatId) => _chatWorkspace?.ShowBrowserPanel(chatId);
-    private void HideBrowserPanel() => _chatWorkspace?.HideBrowserPanel();
-
-    /// <summary>Whether the diff panel is currently visible.</summary>
-    private bool IsDiffOpen => _chatWorkspace?.IsDiffOpen == true;
-
-    private void ShowDiffPanel(FileChangeItem fileChange) => _chatWorkspace?.ShowDiffPanel(fileChange);
-    private void HideDiffPanel() => _chatWorkspace?.HideDiffPanel();
-    private void ShowGitChangesPanel(GitChangesViewModel changes)
-        => _chatWorkspace?.ShowGitChangesPanel(changes);
-
-    private bool IsPlanOpen => _chatWorkspace?.IsPlanOpen == true;
-    private void ShowPlanPanel() => _chatWorkspace?.ShowPlanPanel();
-    private void HidePlanPanel() => _chatWorkspace?.HidePlanPanel();
-
-    private bool IsSkillOpen => _chatWorkspace?.IsSkillOpen == true;
-    private void ShowSkillPanel() => _chatWorkspace?.ShowSkillPanel();
-    private void HideSkillPanel() => _chatWorkspace?.HideSkillPanel();
-
-    private void HideSubagentPanel() => _chatWorkspace?.HideSubagentPanel();
 }

@@ -23,7 +23,7 @@ namespace Lumi.Tests;
 public sealed class ChatWorkspaceViewTests
 {
     [Fact]
-    public async Task WorkspaceHostsChatAndPreviewIslands()
+    public async Task WorkspaceHostsChatAndOneWorkspacePanel()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -39,7 +39,7 @@ public sealed class ChatWorkspaceViewTests
                 DataStore = dataStore,
                 ShowInternalTitle = false,
                 UseChatIslandChrome = false,
-                PreviewIslandMargin = new Thickness(0, 8, 8, 8),
+                WorkspacePanelMargin = new Thickness(0, 8, 8, 8),
             };
             var window = new Window
             {
@@ -56,11 +56,15 @@ public sealed class ChatWorkspaceViewTests
                 Assert.Same(chatVm, workspace.DataContext);
                 Assert.NotNull(workspace.ChatView);
                 Assert.False(workspace.ChatView!.ShowInternalTitle);
-                Assert.Equal(new Thickness(0, 8, 8, 8), workspace.PreviewIslandMargin);
+                Assert.Equal(new Thickness(0, 8, 8, 8), workspace.WorkspacePanelMargin);
                 Assert.NotNull(workspace.FindControl<Grid>("WorkspaceGrid"));
-                Assert.NotNull(workspace.FindControl<Border>("BrowserIsland"));
-                Assert.NotNull(workspace.FindControl<Border>("DiffIsland"));
-                Assert.NotNull(workspace.FindControl<Border>("PlanIsland"));
+                Assert.NotNull(workspace.FindControl<Border>("WorkspacePanel"));
+                Assert.NotNull(workspace.FindControl<WorkspaceOverview>("WorkspaceOverview"));
+                Assert.NotNull(workspace.FindControl<ContentControl>("WorkspacePageHost"));
+                // Plans, agents, diffs and previews now open inside the Workspace, not beside it.
+                Assert.Null(workspace.FindControl<Border>("PlanIsland"));
+                Assert.Null(workspace.FindControl<Border>("SubagentIsland"));
+                Assert.Null(workspace.FindControl<Border>("WorkspaceRail"));
                 Assert.False(workspace.ChatView!.UseShellChrome);
                 Assert.Contains("flat-window", workspace.ChatView!.FindControl<StrataTheme.Controls.StrataChatShell>("ChatShell")!.Classes);
             }
@@ -73,7 +77,7 @@ public sealed class ChatWorkspaceViewTests
     }
 
     [Fact]
-    public async Task WorkspacePreviewMethodsAreSafeAcrossRetargets()
+    public async Task WorkspacePageMethodsAreSafeAcrossRetargets()
     {
         using var session = HeadlessTestSession.Start();
 
@@ -99,18 +103,14 @@ public sealed class ChatWorkspaceViewTests
             window.Show();
             try
             {
-                workspace.HideBrowserPanel();
-                workspace.HideDiffPanel();
-                workspace.HidePlanPanel();
+                workspace.CloseWorkspacePages();
                 Assert.False(workspace.IsBrowserOpen);
-                Assert.False(workspace.IsDiffOpen);
-                Assert.False(workspace.IsPlanOpen);
+                Assert.Equal(WorkspacePage.Overview, workspace.WorkspacePage);
 
                 workspace.DataContext = nextChatVm;
-                workspace.HideBrowserPanel();
-                workspace.HideDiffPanel();
-                workspace.HidePlanPanel();
+                workspace.CloseWorkspacePages();
                 Assert.Same(nextChatVm, workspace.DataContext);
+                Assert.Equal(WorkspacePage.Overview, workspace.WorkspacePage);
             }
             finally
             {
@@ -121,7 +121,7 @@ public sealed class ChatWorkspaceViewTests
     }
 
     [Fact]
-    public void WorkspaceIndexesUserMessagesInMessagesTab()
+    public void WorkspaceIndexesUserMessagesNewestFirst()
     {
         Loc.Load("en");
         var dataStore = new DataStore(CreateAppData());
@@ -159,20 +159,14 @@ public sealed class ChatWorkspaceViewTests
 
         chatVm.RebuildTranscript();
 
-        Assert.True(chatVm.HasWorkspaceUserMessages);
+        var messages = chatVm.WorkspaceMessages;
+        Assert.True(messages.HasItems);
         Assert.True(chatVm.HasWorkspaceContent);
-        Assert.True(chatVm.IsMessagesTabSelected);
-        Assert.Equal("2", chatVm.WorkspaceUserMessagesCountLabel);
+        Assert.False(chatVm.ShowWorkspaceEmptyState);
+        Assert.Equal("2", messages.CountLabel);
+        // The overview answers "what just happened", so the latest ask leads; numbers stay chronological.
         Assert.Collection(
-            chatVm.WorkspaceUserMessages,
-            first =>
-            {
-                Assert.Equal("#1", first.NumberLabel);
-                Assert.Equal("First prompt with another line", first.Preview);
-                Assert.Contains("1 file", first.MetaText);
-                Assert.True(first.CanJump);
-                Assert.Equal($"turn:message:{firstId}", first.TargetTurnStableId);
-            },
+            messages.Items,
             second =>
             {
                 Assert.Equal("#2", second.NumberLabel);
@@ -180,12 +174,31 @@ public sealed class ChatWorkspaceViewTests
                 Assert.Contains("1 skill", second.MetaText);
                 Assert.True(second.CanJump);
                 Assert.Equal($"turn:message:{secondId}", second.TargetTurnStableId);
+            },
+            first =>
+            {
+                Assert.Equal("#1", first.NumberLabel);
+                Assert.Equal("First prompt with another line", first.Preview);
+                Assert.Contains("1 file", first.MetaText);
+                Assert.True(first.CanJump);
+                Assert.Equal($"turn:message:{firstId}", first.TargetTurnStableId);
             });
 
         chatVm.WorkspaceSearchText = "auth";
 
-        Assert.Single(chatVm.WorkspaceUserMessages);
-        Assert.Equal("#2", chatVm.WorkspaceUserMessages[0].NumberLabel);
+        Assert.Equal("#2", Assert.Single(messages.Items).NumberLabel);
+        Assert.Equal("1", messages.CountLabel);
+        Assert.False(chatVm.WorkspaceSearchHasNoMatches);
+
+        chatVm.WorkspaceSearchText = "nothing matches this";
+
+        Assert.False(messages.HasItems);
+        Assert.True(chatVm.WorkspaceSearchHasNoMatches);
+
+        chatVm.ClearWorkspaceSearchCommand.Execute(null);
+
+        Assert.Equal(2, messages.Items.Count);
+        Assert.False(chatVm.WorkspaceSearchHasNoMatches);
     }
 
     [Fact]
@@ -202,15 +215,16 @@ public sealed class ChatWorkspaceViewTests
         }));
         chatVm.RebuildTranscript();
 
-        Assert.True(chatVm.HasWorkspaceUserMessages);
-        Assert.Single(chatVm.WorkspaceUserMessages);
+        Assert.True(chatVm.WorkspaceMessages.HasItems);
+        Assert.Single(chatVm.WorkspaceMessages.Items);
 
         chatVm.Messages.Clear();
 
-        Assert.False(chatVm.HasWorkspaceUserMessages);
+        Assert.False(chatVm.WorkspaceMessages.HasItems);
         Assert.False(chatVm.HasWorkspaceContent);
-        Assert.Empty(chatVm.WorkspaceUserMessages);
-        Assert.Equal("0", chatVm.WorkspaceUserMessagesCountLabel);
+        Assert.True(chatVm.ShowWorkspaceEmptyState);
+        Assert.Empty(chatVm.WorkspaceMessages.Items);
+        Assert.Equal("0", chatVm.WorkspaceMessages.CountLabel);
     }
 
     [Fact]
@@ -246,40 +260,38 @@ public sealed class ChatWorkspaceViewTests
 
         chatVm.RebuildTranscript();
 
-        Assert.True(chatVm.HasWorkspaceLinks);
+        var links = chatVm.WorkspaceLinks;
+        Assert.True(links.HasItems);
         Assert.True(chatVm.HasWorkspaceContent);
-        chatVm.WorkspaceSelectedTab = ChatViewModel.WorkspaceTabLinks;
-        Assert.True(chatVm.IsLinksTabSelected);
-        Assert.Equal("3", chatVm.WorkspaceLinksCountLabel);
+        Assert.Equal("3", links.CountLabel);
         Assert.Collection(
-            chatVm.WorkspaceLinks,
-            guide =>
+            links.Items,
+            avalonia =>
             {
-                Assert.Equal("Lumi guide", guide.Title);
-                Assert.Equal("example.com", guide.Domain);
-                Assert.Equal("https://example.com/lumi/guide", guide.Url);
+                Assert.Equal("Avalonia docs", avalonia.Title);
+                Assert.Equal("https://avaloniaui.net/docs", avalonia.Url);
             },
             github =>
             {
                 Assert.Equal("Lumi repository", github.Title);
                 Assert.Equal("https://github.com/adirh3/Lumi", github.Url);
             },
-            avalonia =>
+            guide =>
             {
-                Assert.Equal("Avalonia docs", avalonia.Title);
-                Assert.Equal("https://avaloniaui.net/docs", avalonia.Url);
+                Assert.Equal("Lumi guide", guide.Title);
+                Assert.Equal("example.com", guide.Domain);
+                Assert.Equal("https://example.com/lumi/guide", guide.Url);
             });
 
         chatVm.WorkspaceSearchText = "github";
 
-        Assert.Single(chatVm.WorkspaceLinks);
-        Assert.Equal("github.com", chatVm.WorkspaceLinks[0].Domain);
+        Assert.Equal("github.com", Assert.Single(links.Items).Domain);
 
         chatVm.Messages.Clear();
 
-        Assert.False(chatVm.HasWorkspaceLinks);
-        Assert.Empty(chatVm.WorkspaceLinks);
-        Assert.Equal("0", chatVm.WorkspaceLinksCountLabel);
+        Assert.False(links.HasItems);
+        Assert.Empty(links.Items);
+        Assert.Equal("0", links.CountLabel);
     }
 
     [Fact]
@@ -296,27 +308,27 @@ public sealed class ChatWorkspaceViewTests
         chatVm.Messages.Add(assistantVm);
 
         chatVm.RebuildTranscript();
-        var firstCachedItem = Assert.Single(chatVm.WorkspaceLinks);
+        var firstCachedItem = Assert.Single(chatVm.WorkspaceLinks.Items);
 
         chatVm.RebuildWorkspacePanel();
 
-        Assert.Same(firstCachedItem, Assert.Single(chatVm.WorkspaceLinks));
+        Assert.Same(firstCachedItem, Assert.Single(chatVm.WorkspaceLinks.Items));
 
         assistantVm.Message.Content += "\n[Second](https://example.com/second)";
         assistantVm.NotifyContentChanged();
         chatVm.RebuildWorkspacePanel();
 
-        Assert.Equal(2, chatVm.WorkspaceLinks.Count);
-        Assert.NotSame(firstCachedItem, chatVm.WorkspaceLinks[0]);
-        var updatedCachedItem = chatVm.WorkspaceLinks[0];
+        Assert.Equal(2, chatVm.WorkspaceLinks.Items.Count);
+        var updatedFirst = chatVm.WorkspaceLinks.Items.Single(link => link.Url == "https://example.com/first");
+        Assert.NotSame(firstCachedItem, updatedFirst);
 
         chatVm.Messages.Clear();
-        Assert.Empty(chatVm.WorkspaceLinks);
+        Assert.Empty(chatVm.WorkspaceLinks.Items);
 
         chatVm.Messages.Add(assistantVm);
         chatVm.RebuildWorkspacePanel();
 
-        Assert.NotSame(updatedCachedItem, chatVm.WorkspaceLinks[0]);
+        Assert.NotSame(updatedFirst, chatVm.WorkspaceLinks.Items.Single(link => link.Url == "https://example.com/first"));
     }
 
     [Fact]
@@ -336,7 +348,7 @@ public sealed class ChatWorkspaceViewTests
         Assert.Contains("<views:ChatWorkspaceView x:Name=\"DetachedChatView\"", chatWindowXaml);
         Assert.Contains("UseChatIslandChrome=\"False\"", chatWindowXaml);
         Assert.Contains("ShowInternalTitle=\"False\"", chatWindowXaml);
-        Assert.Contains("PreviewIslandMargin=\"0,8,8,8\"", chatWindowXaml);
+        Assert.Contains("WorkspacePanelMargin=\"0,8,8,8\"", chatWindowXaml);
         Assert.Contains("RowDefinitions=\"38,*\"", chatWindowXaml);
         Assert.Contains("Grid.Row=\"1\"", chatWindowXaml);
         Assert.Contains("x:Name=\"TitleDragRegion\"", chatWindowXaml);
@@ -351,13 +363,20 @@ public sealed class ChatWorkspaceViewTests
             chatWindowXaml.IndexOf("x:Name=\"DetachedChatView\"", StringComparison.Ordinal));
         var workspaceXaml = File.ReadAllText(Path.Combine(root, "src", "Lumi", "Views", "ChatWorkspaceView.axaml"));
         Assert.Contains("UseShellChrome=\"{Binding UseChatIslandChrome", workspaceXaml);
-        Assert.Contains("x:Name=\"WsTabLinks\"", workspaceXaml);
-        Assert.Contains("ItemsSource=\"{Binding WorkspaceLinks}\"", workspaceXaml);
-        Assert.Contains("x:Name=\"WsTabMessages\"", workspaceXaml);
-        Assert.Contains("ItemsSource=\"{Binding WorkspaceUserMessages}\"", workspaceXaml);
+        Assert.Contains("<views:WorkspaceOverview x:Name=\"WorkspaceOverview\"", workspaceXaml);
+        Assert.Contains("x:Name=\"WorkspacePageHost\"", workspaceXaml);
+        var overviewXaml = File.ReadAllText(Path.Combine(root, "src", "Lumi", "Views", "WorkspaceOverview.axaml"));
+        Assert.Contains("Section=\"{Binding WorkspaceLinks}\"", overviewXaml);
+        Assert.Contains("Section=\"{Binding WorkspaceMessages}\"", overviewXaml);
+        Assert.Contains("Command=\"{Binding OpenWorkspacePlanCommand}\"", overviewXaml);
+        Assert.Contains("Command=\"{Binding OpenWorkspaceAgentsCommand}\"", overviewXaml);
+        Assert.Contains("Command=\"{Binding ShowGitChangesCommand}\"", overviewXaml);
         var chatViewXaml = File.ReadAllText(Path.Combine(root, "src", "Lumi", "Views", "ChatView.axaml"));
         Assert.Contains("StrataChatShell.flat-window /template/ Border#PART_Root", chatViewXaml);
         Assert.Contains("StrataChatShell.flat-window /template/ Border#PART_HeaderChrome", chatViewXaml);
+        // Agents live in the Workspace now: the header keeps one Workspace toggle that carries the live count.
+        Assert.DoesNotContain("SubagentToggleButton", chatViewXaml);
+        Assert.Contains("x:Name=\"WorkspaceToggleButton\"", chatViewXaml);
         Assert.DoesNotContain("x:Name=\"BrowserIsland\"", chatWindowXaml);
         Assert.DoesNotContain("x:Name=\"DiffIsland\"", chatWindowXaml);
         Assert.DoesNotContain("x:Name=\"PlanIsland\"", chatWindowXaml);

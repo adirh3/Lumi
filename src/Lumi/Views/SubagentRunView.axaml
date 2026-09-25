@@ -45,22 +45,6 @@
       <Setter Property="Margin" Value="2,2,2,0" />
     </Style>
 
-    <Style Selector="Button.run-nav">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="Padding" Value="8,4" />
-      <Setter Property="MinHeight" Value="0" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
-      <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-    </Style>
-    <Style Selector="Button.run-nav PathIcon">
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-    </Style>
-    <Style Selector="Button.run-nav:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-    </Style>
-
     <!-- Header/footer rules that separate chrome from the transcript column -->
     <Style Selector="Border.run-rule">
       <Setter Property="Height" Value="1" />
@@ -68,18 +52,6 @@
       <Setter Property="Opacity" Value="0.7" />
     </Style>
 
-    <!-- "2 of 12 running" chip beside the island title -->
-    <Style Selector="Border.run-count">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
-      <Setter Property="Padding" Value="7,2" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-    <Style Selector="Border.run-count TextBlock">
-      <Setter Property="FontSize" Value="9.5" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-    </Style>
     <!-- Navigating between the agent index and one run reads as forward/back: the arriving pane
          eases in from the side it came from. Driven by a property selector so the animation replays
          every time that pane is shown again, which a plain Transition cannot do (a pane restored
@@ -115,10 +87,10 @@
   </UserControl.Styles>
 
   <UserControl.DataTemplates>
-    <!-- The run island renders TranscriptTurns built by the chat's own TranscriptBuilder, so tool
+    <!-- The Agents page renders TranscriptTurns built by the chat's own TranscriptBuilder, so tool
          calls group, reasoning folds and every card matches Lumi's transcript. Only the message
          bubbles are re-declared here: a delegated agent has no attachments, sources or fork/edit
-         affordances, and the island is a narrow column, so these are the same Strata controls with
+         affordances, and the page is a narrow column, so these are the same Strata controls with
          the chat's extras left out. Everything else resolves from Application.DataTemplates. -->
     <DataTemplate DataType="vm:UserMessageItem">
       <StackPanel Spacing="4" HorizontalAlignment="Right" MaxWidth="380">
@@ -199,7 +171,7 @@
     </DataTemplate>
 
     <!-- An agent this run delegated to in turn: identity and outcome, without a second nesting
-         level of transcripts inside the island. -->
+         level of transcripts inside the page. -->
     <DataTemplate DataType="vm:SubagentToolCallItem">
       <sc:StrataAgentRun Classes="compact" Focusable="False"
                          AgentName="{Binding DisplayName}"
@@ -233,68 +205,10 @@
     </DataTemplate>
   </UserControl.DataTemplates>
 
-  <!-- One gutter value governs the whole island so header, list and transcript share a single
-       left/right measure and nothing runs into the edge. -->
+  <!-- One gutter value governs the whole page so the list and the transcript share a single
+       left/right measure and nothing runs into the edge. The Workspace header above names the page
+       ("Agents" or the open agent) and owns back/close. -->
   <DockPanel ClipToBounds="True">
-    <!-- ── Title bar ──────────────────────────────────────────────── -->
-    <StackPanel DockPanel.Dock="Top">
-      <Grid ColumnDefinitions="Auto,*,Auto" Margin="14,10,10,10" ColumnSpacing="10">
-        <Border Grid.Column="0" Width="24" Height="24" CornerRadius="8"
-                Background="{DynamicResource Brush.AccentSubtle}" VerticalAlignment="Center">
-          <PathIcon Width="12" Height="12"
-                    Foreground="{DynamicResource Brush.AccentDefault}"
-                    Data="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
-        </Border>
-
-        <!-- DockPanel, not StackPanel: a StackPanel measures children with unbounded width in the
-             stacking direction, so a long title pushed the count pill under the close button. -->
-        <DockPanel Grid.Column="1" VerticalAlignment="Center" LastChildFill="False">
-          <TextBlock Text="{loc:Str Subagent_AllRuns}"
-                     DockPanel.Dock="Left"
-                     IsVisible="{Binding IsSubagentIndexVisible}"
-                     FontWeight="SemiBold" FontSize="12.5"
-                     VerticalAlignment="Center"
-                     TextTrimming="CharacterEllipsis" />
-          <!-- In detail mode the pinned run card below carries the identity, so the title bar just
-               names the surface — no duplicated agent metadata. -->
-          <TextBlock Text="{loc:Str Subagent_RunTitle}"
-                     DockPanel.Dock="Left"
-                     IsVisible="{Binding !IsSubagentIndexVisible}"
-                     FontWeight="SemiBold" FontSize="12.5"
-                     VerticalAlignment="Center"
-                     TextTrimming="CharacterEllipsis" />
-          <Border Classes="run-count" DockPanel.Dock="Left" Margin="8,0,0,0"
-                  IsVisible="{Binding IsSubagentIndexVisible}">
-            <TextBlock Text="{Binding SubagentRunsSummary}" />
-          </Border>
-        </DockPanel>
-
-        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-          <Button Classes="run-nav"
-                  x:Name="BackToIndexButton"
-                  IsVisible="{Binding !IsSubagentIndexVisible}"
-                  Command="{Binding BackToSubagentIndexCommand}"
-                  ToolTip.Tip="{loc:Str Subagent_BackToList}">
-            <StackPanel Orientation="Horizontal" Spacing="4">
-              <PathIcon Width="10" Height="10"
-                        Data="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
-              <TextBlock Text="{loc:Str Subagent_BackToList}" FontSize="10.5" VerticalAlignment="Center" />
-            </StackPanel>
-          </Button>
-          <Button x:Name="CloseSubagentButton"
-                  Classes="subtle"
-                  Padding="6" MinHeight="0" MinWidth="0"
-                  Command="{Binding CloseSubagentRunCommand}"
-                  ToolTip.Tip="{loc:Str Subagent_CloseRun}">
-            <PathIcon Width="13" Height="13"
-                      Foreground="{DynamicResource Brush.TextSecondary}"
-                      Data="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-          </Button>
-        </StackPanel>
-      </Grid>
-      <Border Classes="run-rule" />
-    </StackPanel>
-
     <!-- ── Read-only footer ───────────────────────────────────────── -->
     <StackPanel DockPanel.Dock="Bottom" IsVisible="{Binding !IsSubagentIndexVisible}">
       <Border Classes="run-rule" />
@@ -316,7 +230,7 @@
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto">
         <!-- Gutters live on the content, not on the ScrollViewer: Padding only offsets the arrange
-             pass, so children keep measuring against the full viewport and spill past the island
+             pass, so children keep measuring against the full viewport and spill past the page
              edge. A Margin is subtracted during measure, which is what actually constrains them. -->
         <StackPanel Spacing="6" Margin="14,12,14,12">
           <TextBlock Text="{loc:Str Subagent_NoRuns}"

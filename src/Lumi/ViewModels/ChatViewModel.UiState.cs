@@ -60,10 +60,11 @@ public partial class ChatViewModel
     // ── Plan (server may still generate plans) ──
     [ObservableProperty] private bool _hasPlan;
     [ObservableProperty] private string? _planContent;
-    [ObservableProperty] private bool _isPlanOpen;
 
     partial void OnPlanContentChanged(string? value)
     {
+        RefreshWorkspacePlan();
+
         if (CurrentChat is null || string.Equals(CurrentChat.PlanContent, value, StringComparison.Ordinal))
             return;
 
@@ -92,7 +93,6 @@ public partial class ChatViewModel
     }
 
     // ── Skill preview (opened from a transcript skill chip) ──
-    [ObservableProperty] private bool _isSkillOpen;
     [ObservableProperty] private string? _skillPreviewContent;
     [ObservableProperty] private string? _skillPreviewTitle;
 
@@ -107,7 +107,11 @@ public partial class ChatViewModel
 
     // ── Coding Project / Git ──
     [ObservableProperty] private bool _isCodingProject;
-    partial void OnIsCodingProjectChanged(bool value) => OnPropertyChanged(nameof(ShowInfoStrip));
+    partial void OnIsCodingProjectChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowInfoStrip));
+        NotifyWorkspaceVisibilityChanged();
+    }
     [ObservableProperty] private string? _gitBranch;
     [ObservableProperty] private int _gitChangedFileCount;
     [ObservableProperty] private bool _isRefreshingGitStatus;
@@ -1150,6 +1154,7 @@ public partial class ChatViewModel
     partial void OnHasUsedBrowserChanged(bool value)
     {
         OnPropertyChanged(nameof(ShowBrowserToggle));
+        NotifyWorkspaceVisibilityChanged();
     }
 
     partial void OnProjectBadgeTextChanged(string? value)
@@ -1183,6 +1188,8 @@ public partial class ChatViewModel
         OnPropertyChanged(nameof(ShowGitStatusBadge));
         OnPropertyChanged(nameof(GitChangesLabel));
         OnPropertyChanged(nameof(GitBranchLabel));
+        if (!value)
+            RefreshWorkspaceGit();
     }
 
     partial void OnSelectedAgentNameChanged(string? value)
@@ -1713,10 +1720,11 @@ public partial class ChatViewModel
             _gitStatusDirectory = normalizedWorkDir;
 
             // Reset stale change data immediately; keep the branch visible while refreshing
-            // the same coding context so the strip does not flicker blank.
+            // the same coding context so the strip does not flicker blank. Mark the refresh first:
+            // the Workspace keeps showing the last git answer until this one settles.
+            IsRefreshingGitStatus = true;
             GitChangedFileCount = 0;
             GitChangedFiles.Clear();
-            IsRefreshingGitStatus = true;
 
             var branchTask = GitService.GetCurrentBranchAsync(workDir);
             var changesTask = GitService.GetChangedFilesAsync(workDir);
@@ -2258,17 +2266,22 @@ public partial class ChatViewModel
     }
 
     [RelayCommand]
-    private void ShowGitChanges()
+    private void ShowGitChanges() => RequestGitChanges(openFilePath: null);
+
+    /// <summary>Opens the git changes page, optionally drilled straight into one file's diff.</summary>
+    private void RequestGitChanges(string? openFilePath)
     {
         if (GitChangedFiles.Count == 0)
             return;
 
-        var rootPath = GitService.FindRepoRoot(GetEffectiveWorkingDirectory()) ?? GetEffectiveWorkingDirectory();
         GitChangesShowRequested?.Invoke(new GitChangesViewModel(
             GitChangedFiles.Select(static f => f.Change),
-            rootPath,
+            ResolveGitRootPath(),
             GitBranch,
-            IsWorktreeMode));
+            IsWorktreeMode)
+        {
+            InitialFilePath = openFilePath,
+        });
     }
 
     [RelayCommand]

@@ -1,0 +1,1048 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sa="using:StrataTheme.Animation"
+             xmlns:vm="using:Lumi.ViewModels"
+             xmlns:views="using:Lumi.Views"
+             xmlns:conv="using:Lumi.Converters"
+             xmlns:sc="using:StrataTheme.Controls"
+             xmlns:loc="using:Lumi.Localization"
+             x:Class="Lumi.Views.WorkspaceOverview"
+             x:DataType="vm:ChatViewModel"
+             x:CompileBindings="True">
+
+  <!-- The Workspace home: everything Lumi did in this chat at a glance. Live status first (plan,
+       agents, git), then what it produced (files, edits, skills), what it read (links, sources) and
+       where things happened (your messages, the activity timeline). A category bar that never
+       scrolls away puts every kind one click from its full list, and one search filters it all.
+       A new list is a WorkspaceSection + category chip on the view-model and one WorkspaceSectionView below. -->
+
+  <UserControl.Resources>
+    <conv:ChartBrushConverter x:Key="ChartBrush" />
+
+
+    <!-- Shared chrome for every list section: header, rows, "Show all" (narrows to the section). -->
+    <ControlTheme x:Key="{x:Type views:WorkspaceSectionView}" TargetType="views:WorkspaceSectionView">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <StackPanel Spacing="2">
+            <Grid ColumnDefinitions="Auto,Auto,*" Margin="6,0,6,3"
+                  IsVisible="{Binding !Section.IsFocused, RelativeSource={RelativeSource TemplatedParent}}">
+              <PathIcon Grid.Column="0" Classes="ws-section-icon" Data="{TemplateBinding Icon}" />
+              <TextBlock Grid.Column="1" Classes="ws-section-title" Text="{TemplateBinding Title}" />
+              <Border Grid.Column="2" Classes="ws-count">
+                <TextBlock Text="{Binding Section.CountLabel, RelativeSource={RelativeSource TemplatedParent}}" />
+              </Border>
+            </Grid>
+            <ItemsControl ItemsSource="{Binding Section.Items, RelativeSource={RelativeSource TemplatedParent}}"
+                          ItemTemplate="{TemplateBinding ItemTemplate}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="1" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+            </ItemsControl>
+            <Button Classes="ws-more"
+                    IsVisible="{Binding Section.HasMore, RelativeSource={RelativeSource TemplatedParent}}"
+                    Command="{Binding Section.ShowAllCommand, RelativeSource={RelativeSource TemplatedParent}}">
+              <TextBlock Text="{Binding Section.ShowAllLabel, RelativeSource={RelativeSource TemplatedParent}}" />
+            </Button>
+          </StackPanel>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <!-- ── Category bar: calm tabs on a whisper of surface; the selected kind wears the Strata
+         line (the same gradient pipe as a Strata tab), drawn in from its centre ── -->
+    <Style Selector="Button.ws-chip">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="8,0,10,0" />
+      <Setter Property="Margin" Value="0,0,4,4" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="RenderTransformOrigin" Value="50%,50%" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.16" Easing="CubicEaseOut" />
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+        </Transitions>
+      </Setter>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Panel>
+            <Border Name="PART_Surface"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    Background="{DynamicResource Brush.SubtleHover}"
+                    Opacity="0.55">
+              <Border.Transitions>
+                <Transitions>
+                  <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+                  <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.2" />
+                  <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.15" />
+                </Transitions>
+              </Border.Transitions>
+            </Border>
+            <ContentPresenter Name="PART_ContentPresenter"
+                              Content="{TemplateBinding Content}"
+                              Padding="{TemplateBinding Padding}"
+                              Foreground="{TemplateBinding Foreground}"
+                              VerticalContentAlignment="Center" />
+            <Border Name="PART_Pipe"
+                    Height="2" Margin="10,0,10,1"
+                    VerticalAlignment="Bottom"
+                    CornerRadius="1"
+                    Background="{DynamicResource Brush.StratumLine}"
+                    Opacity="0"
+                    RenderTransformOrigin="50%,50%"
+                    RenderTransform="scaleX(0)"
+                    IsHitTestVisible="False">
+              <Border.Transitions>
+                <Transitions>
+                  <DoubleTransition Property="Opacity" Duration="0:0:0.2" Easing="CubicEaseOut" />
+                  <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.34" Easing="CubicEaseOut" />
+                </Transitions>
+              </Border.Transitions>
+            </Border>
+          </Panel>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.ws-chip:pointerover">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+      <Setter Property="RenderTransform" Value="translateY(-1px)" />
+    </Style>
+    <Style Selector="Button.ws-chip:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.ws-chip:pressed">
+      <Setter Property="RenderTransform" Value="scale(0.96)" />
+    </Style>
+    <Style Selector="Button.ws-chip:focus-visible /template/ Border#PART_Surface">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="BoxShadow" Value="0 0 0 2 #40818CF8" />
+    </Style>
+    <Style Selector="Button.ws-chip.selected">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.ws-chip.selected /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.ws-chip.selected:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
+    </Style>
+    <Style Selector="Button.ws-chip.selected /template/ Border#PART_Pipe">
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="RenderTransform" Value="scaleX(1)" />
+    </Style>
+    <Style Selector="PathIcon.ws-chip-icon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.ws-chip:pointerover PathIcon.ws-chip-icon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.ws-chip.selected PathIcon.ws-chip-icon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <!-- Agents at work: the glyph itself breathes in accent, like the header's live badge. -->
+    <Style Selector="Button.ws-chip.live PathIcon.ws-chip-icon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+      <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
+      <Setter Property="sa:LifecycleOpacityPulse.ToOpacity" Value="0.45" />
+      <Setter Property="sa:LifecycleOpacityPulse.Duration" Value="0:0:1.4" />
+      <Setter Property="sa:LifecycleOpacityPulse.Easing" Value="SineEaseInOut" />
+      <Setter Property="sa:LifecycleOpacityPulse.IsActive" Value="True" />
+    </Style>
+    <Style Selector="TextBlock.ws-chip-title">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <!-- Counts sit in a small badge, like the section headers' counts. -->
+    <Style Selector="Border.ws-chip-count">
+      <Setter Property="MinWidth" Value="18" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="Padding" Value="5,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+    </Style>
+    <Style Selector="Border.ws-chip-count > TextBlock">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.ws-chip.selected Border.ws-chip-count">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
+    </Style>
+    <Style Selector="Button.ws-chip.selected Border.ws-chip-count > TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <!-- Plan / Browser open their page: a small chevron says so. -->
+    <Style Selector="PathIcon.ws-chip-open">
+      <Setter Property="Width" Value="12" />
+      <Setter Property="Height" Value="12" />
+      <Setter Property="Margin" Value="-3,0,-4,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+
+    <!-- ── Rows: flat, hover-lit, whole-row hit area ── -->
+    <Style Selector="Button.ws-row">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="8,6" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <ContentPresenter Name="PART_ContentPresenter"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}"
+                            Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            HorizontalContentAlignment="Stretch"
+                            VerticalContentAlignment="Center">
+            <ContentPresenter.Transitions>
+              <Transitions>
+                <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.15" />
+              </Transitions>
+            </ContentPresenter.Transitions>
+          </ContentPresenter>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.ws-row:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    </Style>
+    <Style Selector="Button.ws-row:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    </Style>
+    <Style Selector="Button.ws-row:disabled">
+      <Setter Property="Cursor" Value="Arrow" />
+      <Setter Property="Opacity" Value="0.6" />
+    </Style>
+
+    <!-- ── Status cards (plan, git): a raised surface that opens a page ── -->
+    <Style Selector="Button.ws-card">
+      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceCard}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="12,11" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Interactive}" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Name="PART_Card"
+                  Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="{TemplateBinding CornerRadius}"
+                  BoxShadow="0 1 2 0 #0A000000">
+            <Border.Transitions>
+              <Transitions>
+                <BrushTransition Property="BorderBrush" Duration="0:0:0.15" />
+                <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.15" />
+              </Transitions>
+            </Border.Transitions>
+            <ContentPresenter Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              Padding="{TemplateBinding Padding}"
+                              HorizontalContentAlignment="Stretch"
+                              VerticalContentAlignment="Center" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.ws-card:pointerover /template/ Border#PART_Card">
+      <Setter Property="Background" Value="{DynamicResource Brush.SurfaceCardHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
+      <Setter Property="BoxShadow" Value="0 4 14 0 #14000000" />
+    </Style>
+    <Style Selector="Button.ws-card:pressed /template/ Border#PART_Card">
+      <Setter Property="RenderTransform" Value="scale(0.99)" />
+    </Style>
+
+    <!-- ── Section headers ── -->
+    <Style Selector="PathIcon.ws-section-icon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="Margin" Value="0,0,6,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="TextBlock.ws-section-title">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Border.ws-count">
+      <Setter Property="Margin" Value="7,0,0,0" />
+      <Setter Property="Padding" Value="6,0" />
+      <Setter Property="MinWidth" Value="18" />
+      <Setter Property="Height" Value="17" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    </Style>
+    <Style Selector="Border.ws-count > TextBlock">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+
+    <!-- A section header that opens its page (Agents) -->
+    <Style Selector="Button.ws-link">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="6,3" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <ContentPresenter Name="PART_ContentPresenter"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}"
+                            Content="{TemplateBinding Content}"
+                            HorizontalContentAlignment="Stretch"
+                            VerticalContentAlignment="Center" />
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.ws-link:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    </Style>
+    <Style Selector="Button.ws-link:pointerover PathIcon.ws-chevron">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+
+    <!-- "Show all 12": narrows the overview to that kind -->
+    <Style Selector="Button.ws-more">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="8,4" />
+      <Setter Property="Margin" Value="2,1,0,0" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <ContentPresenter Name="PART_ContentPresenter"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}"
+                            Content="{TemplateBinding Content}"
+                            VerticalContentAlignment="Center">
+            <ContentPresenter.Transitions>
+              <Transitions>
+                <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.12" />
+              </Transitions>
+            </ContentPresenter.Transitions>
+          </ContentPresenter>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.ws-more TextBlock">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button.ws-more:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+
+    <!-- ── Text roles ── -->
+    <Style Selector="TextBlock.ws-kicker">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="TextBlock.ws-title">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="TextBlock.ws-row-title">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="TextBlock.ws-meta">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="TextBlock.ws-stat">
+      <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.ws-stat.added">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+    </Style>
+    <Style Selector="TextBlock.ws-stat.removed">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
+    <Style Selector="PathIcon.ws-chevron">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    </Style>
+    <Style Selector="Button.ws-card:pointerover PathIcon.ws-chevron">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="PathIcon.ws-trailing">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <!-- Row affordances (jump / open) appear on hover so resting rows stay calm. -->
+    <Style Selector="Button.ws-row:pointerover PathIcon.ws-trailing">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+
+    <!-- ── Tiles ── -->
+    <!-- A soft wash, not a box: the glyph carries the row, the tile only seats it. -->
+    <Style Selector="Border.ws-tile">
+      <Setter Property="Width" Value="30" />
+      <Setter Property="Height" Value="30" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+    </Style>
+    <Style Selector="Border.ws-tile PathIcon">
+      <Setter Property="Width" Value="18" />
+      <Setter Property="Height" Value="18" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Border.ws-tile.accent">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+    <Style Selector="Border.ws-tile.accent PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Border.ws-tile.success PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+    </Style>
+    <Style Selector="Border.ws-tile.warning PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
+    </Style>
+    <Style Selector="Border.ws-tile.danger">
+      <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
+    </Style>
+    <Style Selector="Border.ws-tile.danger PathIcon">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
+    <Style Selector="Border.ws-number > TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+
+    <!-- ── Git status badges (M / A / D / R / U / S) ── -->
+    <Style Selector="Border.ws-git-badge">
+      <Setter Property="Width" Value="20" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Base}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    </Style>
+    <Style Selector="Border.ws-git-badge > TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Border.ws-git-badge.added, Border.ws-git-badge.untracked">
+      <Setter Property="Background" Value="{DynamicResource Brush.SuccessSubtle}" />
+    </Style>
+    <Style Selector="Border.ws-git-badge.added > TextBlock, Border.ws-git-badge.untracked > TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+    </Style>
+    <Style Selector="Border.ws-git-badge.deleted">
+      <Setter Property="Background" Value="{DynamicResource Brush.DangerSubtle}" />
+    </Style>
+    <Style Selector="Border.ws-git-badge.deleted > TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.DangerDefault}" />
+    </Style>
+    <Style Selector="Border.ws-git-badge.renamed">
+      <Setter Property="Background" Value="{DynamicResource Brush.WarningSubtle}" />
+    </Style>
+    <Style Selector="Border.ws-git-badge.renamed > TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
+    </Style>
+    <Style Selector="Border.ws-git-badge.submodule">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+    </Style>
+    <Style Selector="Border.ws-git-badge.submodule > TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+
+    <!-- ── Plan steps: the card lists what is still open, so a task is an empty box ── -->
+    <Style Selector="Border.ws-step">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderStrong}" />
+    </Style>
+    <!-- Branch pill -->
+    <Style Selector="Border.ws-pill">
+      <Setter Property="Padding" Value="7,1" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid>
+    <!-- Empty: nothing produced yet -->
+    <StackPanel x:Name="WsEmptyState"
+                IsVisible="{Binding ShowWorkspaceEmptyState}"
+                VerticalAlignment="Center" HorizontalAlignment="Center"
+                Spacing="11" Margin="28,0,28,40">
+      <Border Width="48" Height="48" HorizontalAlignment="Center"
+              CornerRadius="14"
+              Background="{DynamicResource Brush.AccentSubtle}">
+        <PathIcon Width="26" Height="26" Foreground="{DynamicResource Brush.AccentDefault}"
+                  Data="{x:Static vm:WorkspaceIcons.Workspace}" />
+      </Border>
+      <TextBlock Text="{loc:Str Workspace_EmptyTitle}" Classes="body-strong" HorizontalAlignment="Center" />
+      <TextBlock Text="{loc:Str Workspace_EmptyBody}"
+                 Classes="caption" Foreground="{DynamicResource Brush.TextTertiary}"
+                 TextAlignment="Center" TextWrapping="Wrap" MaxWidth="240" />
+    </StackPanel>
+
+    <DockPanel IsVisible="{Binding !ShowWorkspaceEmptyState}">
+      <!-- One search across every section. Focus draws the Strata line, as in the composer. -->
+      <TextBox x:Name="WsSearchBox" Classes="line-focus" DockPanel.Dock="Top" Margin="12,2,12,10"
+               MinHeight="34" Padding="8,0,6,0" FontSize="12.5"
+               CornerRadius="{DynamicResource Radius.Interactive}"
+               Background="{DynamicResource Brush.Surface0}"
+               PlaceholderText="{loc:Str Workspace_SearchPlaceholder}"
+               Text="{Binding WorkspaceSearchText}">
+        <TextBox.BorderBrush>
+          <SolidColorBrush Color="{DynamicResource Color.TextPrimary}" Opacity="0.07" />
+        </TextBox.BorderBrush>
+        <TextBox.InnerLeftContent>
+          <PathIcon Width="16" Height="16" Margin="10,0,0,0"
+                    Foreground="{DynamicResource Brush.TextTertiary}"
+                    Data="{x:Static vm:WorkspaceIcons.Search}" />
+        </TextBox.InnerLeftContent>
+        <TextBox.InnerRightContent>
+          <Button Classes="subtle" Padding="4" Margin="0,0,5,0" MinHeight="0" MinWidth="0"
+                  x:Name="WsClearSearch"
+                  VerticalAlignment="Center"
+                  IsVisible="{Binding HasWorkspaceSearch}"
+                  Command="{Binding ClearWorkspaceSearchCommand}"
+                  ToolTip.Tip="{loc:Str Workspace_ClearSearch}"
+                  AutomationProperties.Name="{loc:Str Workspace_ClearSearch}">
+            <PathIcon Width="12" Height="12" Foreground="{DynamicResource Brush.TextTertiary}"
+                      Data="{x:Static vm:WorkspaceIcons.Dismiss}" />
+          </Button>
+        </TextBox.InnerRightContent>
+      </TextBox>
+
+      <!-- Every kind of content, one click away: a chip narrows the overview to that kind's full list
+           (the plan and the browser open their page). Docked, so it never scrolls away. -->
+      <ItemsControl x:Name="WsCategoryBar" DockPanel.Dock="Top" Margin="11,0,7,8"
+                    ItemsSource="{Binding WorkspaceCategories}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate DataType="vm:WorkspaceCategoryChip">
+            <Button x:Name="WsCategoryChip" Classes="ws-chip"
+                    Classes.selected="{Binding IsSelected}"
+                    Classes.live="{Binding IsLive}"
+                    IsVisible="{Binding IsAvailable}"
+                    Command="{Binding $parent[views:WorkspaceOverview].((vm:ChatViewModel)DataContext).SelectWorkspaceCategoryCommand}"
+                    CommandParameter="{Binding Category}"
+                    AutomationProperties.Name="{Binding Title}">
+              <StackPanel Orientation="Horizontal" Spacing="5">
+                <PathIcon Classes="ws-chip-icon" Data="{Binding Icon}" />
+                <TextBlock Classes="ws-chip-title" Text="{Binding Title}" />
+                <Border Classes="ws-chip-count" IsVisible="{Binding HasCount}">
+                  <TextBlock Text="{Binding CountLabel}" />
+                </Border>
+                <PathIcon Classes="ws-chip-open" IsVisible="{Binding OpensPage}" Data="{x:Static vm:WorkspaceIcons.Chevron}" />
+              </StackPanel>
+            </Button>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+      <ScrollViewer x:Name="WsScroller" Classes="hover-scroll"
+                    VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel x:Name="WsContent" Margin="10,0,10,16" Spacing="16">
+
+          <!-- No search matches -->
+          <StackPanel IsVisible="{Binding WorkspaceSearchHasNoMatches}"
+                      HorizontalAlignment="Center" Margin="0,28,0,0" Spacing="4">
+            <TextBlock Text="{loc:Str Workspace_NoMatchesTitle}" Classes="body-strong" HorizontalAlignment="Center" />
+            <TextBlock Text="{loc:Str Workspace_NoMatchesBody}" Classes="caption"
+                       Foreground="{DynamicResource Brush.TextTertiary}" HorizontalAlignment="Center" />
+          </StackPanel>
+
+          <!-- ── Plan ── -->
+          <Button x:Name="WsPlanCard" Classes="ws-card"
+                  IsVisible="{Binding ShowWorkspacePlan}"
+                  Command="{Binding OpenWorkspacePlanCommand}"
+                  ToolTip.Tip="{loc:Str Workspace_OpenPlan}"
+                  AutomationProperties.Name="{loc:Str Workspace_OpenPlan}">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <Border Classes="ws-tile accent">
+                  <PathIcon Data="{x:Static vm:WorkspaceIcons.Plan}" />
+                </Border>
+                <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" Spacing="1">
+                  <TextBlock Classes="ws-kicker" Text="{loc:Str Workspace_Plan}" />
+                  <TextBlock Classes="ws-title" Text="{Binding PlanTitle}" />
+                </StackPanel>
+                <PathIcon Grid.Column="2" Classes="ws-chevron" Data="{x:Static vm:WorkspaceIcons.Chevron}" />
+              </Grid>
+              <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasPlanProgress}">
+                <ProgressBar Grid.Column="0" Minimum="0" Maximum="100" Height="4" MinHeight="4"
+                             VerticalAlignment="Center" Value="{Binding PlanProgress}" />
+                <TextBlock Grid.Column="1" Classes="ws-meta" Margin="10,0,0,0"
+                           Text="{Binding PlanProgressLabel}" />
+              </Grid>
+              <ItemsControl ItemsSource="{Binding PlanSteps}" IsVisible="{Binding HasPlanSteps}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="vm:WorkspacePlanStep">
+                    <Grid ColumnDefinitions="14,*">
+                      <Border Classes="ws-step" IsVisible="{Binding IsTask}" />
+                      <Border Width="5" Height="5" CornerRadius="{DynamicResource Radius.Full}"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              Background="{DynamicResource Brush.TextTertiary}"
+                              IsVisible="{Binding IsBullet}" />
+                      <TextBlock Grid.Column="1" Margin="9,0,0,0" FontSize="12"
+                                 VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                 Foreground="{DynamicResource Brush.TextSecondary}"
+                                 Text="{Binding Text}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock IsVisible="{Binding HasPlanSummaryText}"
+                         Text="{Binding PlanSummaryText}"
+                         FontSize="12" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
+                         Foreground="{DynamicResource Brush.TextSecondary}" />
+            </StackPanel>
+          </Button>
+
+          <!-- ── Agents: running first; the header opens every run ── -->
+          <StackPanel IsVisible="{Binding WorkspaceAgents.IsShown}" Spacing="4">
+            <Button x:Name="WsAgentsHeader" Classes="ws-link"
+                    Command="{Binding OpenWorkspaceAgentsCommand}"
+                    ToolTip.Tip="{loc:Str Workspace_OpenAgents}"
+                    AutomationProperties.Name="{loc:Str Workspace_OpenAgents}">
+              <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                <PathIcon Grid.Column="0" Classes="ws-section-icon" Data="{x:Static vm:WorkspaceIcons.Agents}" />
+                <TextBlock Grid.Column="1" Classes="ws-section-title" Text="{loc:Str Workspace_Agents}" />
+                <TextBlock Grid.Column="2" Classes="ws-meta" Margin="8,0" VerticalAlignment="Center"
+                           Text="{Binding SubagentRunsSummary}" />
+                <PathIcon Grid.Column="3" Classes="ws-chevron" Data="{x:Static vm:WorkspaceIcons.Chevron}" />
+              </Grid>
+            </Button>
+            <ItemsControl ItemsSource="{Binding WorkspaceAgents.Items}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="5" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:SubagentToolCallItem">
+                  <Button Classes="ws-row" x:Name="WsAgentRow" Padding="0" Command="{Binding OpenRunCommand}"
+                          ToolTip.Tip="{loc:Str Subagent_OpenTranscriptTip}">
+                    <sc:StrataAgentRun Classes="compact" Focusable="False"
+                                       AgentName="{Binding DisplayName}"
+                                       Title="{Binding Title}"
+                                       Initial="{Binding Initial}"
+                                       AccentBrush="{Binding AccentIndex, Converter={StaticResource ChartBrush}}"
+                                       ModelName="{Binding ModelDisplayName}"
+                                       Activity="{Binding LatestActivityText}"
+                                       Status="{Binding Status}"
+                                       StatusLabel="{Binding StatusText}"
+                                       DurationMs="{Binding DurationMs}"
+                                       RunningSince="{Binding StartedAt}"
+                                       ProgressValue="{Binding ProgressValue}" />
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Button Classes="ws-more" IsVisible="{Binding WorkspaceAgents.HasMore}"
+                    Command="{Binding WorkspaceAgents.ShowAllCommand}">
+              <TextBlock Text="{Binding WorkspaceAgents.ShowAllLabel}" />
+            </Button>
+          </StackPanel>
+
+          <!-- ── Git changes: summary card opens the review page; rows open one file ── -->
+          <StackPanel IsVisible="{Binding ShowWorkspaceGit}" Spacing="4">
+            <Button x:Name="WsGitCard" Classes="ws-card"
+                    Command="{Binding ShowGitChangesCommand}"
+                    ToolTip.Tip="{loc:Str Workspace_OpenGitChanges}"
+                    AutomationProperties.Name="{loc:Str Workspace_OpenGitChanges}">
+              <ContentControl Content="{Binding WorkspaceGit}">
+                <ContentControl.ContentTemplate>
+                  <DataTemplate DataType="vm:GitChangesViewModel">
+                    <StackPanel Spacing="9">
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                        <Border Classes="ws-tile accent">
+                          <PathIcon Data="{x:Static vm:WorkspaceIcons.Changes}" />
+                        </Border>
+                        <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" Spacing="1">
+                          <TextBlock Classes="ws-kicker" Text="{loc:Str Workspace_GitChanges}" />
+                          <TextBlock Classes="ws-title" Text="{Binding TotalFilesLabel}" />
+                        </StackPanel>
+                        <Border Grid.Column="2" Classes="ws-pill" Margin="0,0,8,0"
+                                IsVisible="{Binding HasBranch}"
+                                ToolTip.Tip="{Binding BranchLabel}">
+                          <StackPanel Orientation="Horizontal" Spacing="4">
+                            <PathIcon Width="12" Height="12" VerticalAlignment="Center"
+                                      Foreground="{DynamicResource Brush.TextTertiary}"
+                                      Data="{x:Static vm:WorkspaceIcons.Changes}" />
+                            <TextBlock FontFamily="{DynamicResource Font.FamilyMono}" FontSize="11"
+                                       MaxWidth="96" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource Brush.TextSecondary}"
+                                       Text="{Binding BranchLabel}" />
+                          </StackPanel>
+                        </Border>
+                        <PathIcon Grid.Column="3" Classes="ws-chevron" Data="{x:Static vm:WorkspaceIcons.Chevron}" />
+                      </Grid>
+                      <Grid ColumnDefinitions="Auto,Auto,Auto,*" IsVisible="{Binding HasTotalStats}">
+                        <TextBlock Grid.Column="0" Classes="ws-stat added" Text="{Binding TotalAddedLabel}" />
+                        <TextBlock Grid.Column="1" Classes="ws-stat removed" Margin="6,0,10,0"
+                                   Text="{Binding TotalRemovedLabel}" />
+                        <Border Grid.Column="2" Width="96" Height="4" VerticalAlignment="Center" ClipToBounds="True"
+                                CornerRadius="{DynamicResource Radius.Full}"
+                                Background="{DynamicResource Brush.Surface2}">
+                          <StackPanel Orientation="Horizontal">
+                            <Border Background="{DynamicResource Brush.SuccessDefault}" Width="{Binding AddedBarWidth}" />
+                            <Border Background="{DynamicResource Brush.DangerDefault}" Width="{Binding RemovedBarWidth}" />
+                          </StackPanel>
+                        </Border>
+                        <TextBlock Grid.Column="3" Classes="ws-meta" Margin="10,0,0,0" VerticalAlignment="Center"
+                                   Text="{Binding KindBreakdownLabel}" />
+                      </Grid>
+                    </StackPanel>
+                  </DataTemplate>
+                </ContentControl.ContentTemplate>
+              </ContentControl>
+            </Button>
+            <ItemsControl ItemsSource="{Binding WorkspaceGitFiles.Items}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="1" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:GitFileChangeViewModel">
+                  <Button Classes="ws-row" x:Name="WsGitRow" Padding="8,5"
+                          Command="{Binding $parent[views:WorkspaceOverview].((vm:ChatViewModel)DataContext).OpenWorkspaceGitFileCommand}"
+                          CommandParameter="{Binding}"
+                          ToolTip.Tip="{Binding PathTooltip}"
+                          views:FileDrag.FilePath="{Binding FullPath}">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                      <Border Classes="ws-git-badge"
+                              Classes.added="{Binding IsAdded}"
+                              Classes.untracked="{Binding IsUntracked}"
+                              Classes.deleted="{Binding IsDeleted}"
+                              Classes.renamed="{Binding IsRenamed}"
+                              Classes.submodule="{Binding IsSubmodulePointer}">
+                        <TextBlock Text="{Binding KindIcon}" />
+                      </Border>
+                      <StackPanel Grid.Column="1" Margin="9,0,8,0" VerticalAlignment="Center">
+                        <TextBlock Classes="ws-row-title" Text="{Binding FileName}" />
+                        <TextBlock Classes="ws-meta" Text="{Binding Directory}"
+                                   IsVisible="{Binding Directory, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                      </StackPanel>
+                      <TextBlock Grid.Column="2" Classes="ws-stat added" Text="{Binding AddedCell}" />
+                      <TextBlock Grid.Column="3" Classes="ws-stat removed" Margin="6,0,0,0" Text="{Binding RemovedCell}" />
+                    </Grid>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Button Classes="ws-more" IsVisible="{Binding WorkspaceGitFiles.HasMore}"
+                    Command="{Binding WorkspaceGitFiles.ShowAllCommand}">
+              <TextBlock Text="{Binding WorkspaceGitFiles.ShowAllLabel}" />
+            </Button>
+          </StackPanel>
+
+          <!-- ── Files Lumi delivered ── -->
+          <views:WorkspaceSectionView x:Name="WsFiles"
+                                      IsVisible="{Binding WorkspaceFiles.IsShown}"
+                                      Title="{loc:Str Workspace_Files}"
+                                      Icon="{x:Static vm:WorkspaceIcons.Files}"
+                                      Section="{Binding WorkspaceFiles}">
+            <views:WorkspaceSectionView.ItemTemplate>
+              <DataTemplate DataType="vm:FileAttachmentItem">
+                <Grid ColumnDefinitions="*,Auto">
+                  <Button Classes="ws-row" x:Name="WsFileRow" Command="{Binding OpenCommand}" ToolTip.Tip="{Binding FilePath}"
+                          views:FileDrag.FilePath="{Binding FilePath}">
+                    <Button.ContextMenu>
+                      <ContextMenu x:CompileBindings="False">
+                        <MenuItem Header="{loc:Str FileMenu_Open}" Command="{Binding OpenCommand}">
+                          <MenuItem.Icon>
+                            <PathIcon Width="16" Height="16" Data="{x:Static vm:WorkspaceIcons.OpenExternal}" />
+                          </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="{loc:Str FileMenu_ShowInFolder}" Command="{Binding ShowInFolderCommand}">
+                          <MenuItem.Icon>
+                            <PathIcon Width="16" Height="16" Data="{x:Static vm:WorkspaceIcons.ShowInFolder}" />
+                          </MenuItem.Icon>
+                        </MenuItem>
+                        <Separator />
+                        <MenuItem Header="{loc:Str FileMenu_Copy}" Command="{Binding CopyCommand}">
+                          <MenuItem.Icon>
+                            <PathIcon Width="16" Height="16" Data="{x:Static vm:WorkspaceIcons.Copy}" />
+                          </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="{loc:Str FileMenu_CopyPath}" Command="{Binding CopyPathCommand}">
+                          <MenuItem.Icon>
+                            <PathIcon Width="16" Height="16" Data="{x:Static vm:WorkspaceIcons.Links}" />
+                          </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="{loc:Str FileMenu_CopyName}" Command="{Binding CopyNameCommand}">
+                          <MenuItem.Icon>
+                            <PathIcon Width="16" Height="16" Data="{x:Static vm:WorkspaceIcons.Rename}" />
+                          </MenuItem.Icon>
+                        </MenuItem>
+                      </ContextMenu>
+                    </Button.ContextMenu>
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                      <Border Classes="ws-tile" Width="32" Height="32" ClipToBounds="True">
+                        <Image Width="19" Height="19" Source="{Binding IconImage}" Stretch="Uniform" />
+                      </Border>
+                      <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" Spacing="1">
+                        <TextBlock Classes="ws-row-title" FontWeight="SemiBold" Text="{Binding FileName}" />
+                        <TextBlock Classes="ws-meta" Text="{Binding FileSize}" />
+                      </StackPanel>
+                      <PathIcon Grid.Column="2" Classes="ws-trailing" Data="{x:Static vm:WorkspaceIcons.OpenExternal}" />
+                    </Grid>
+                  </Button>
+                  <Button Grid.Column="1" x:Name="WsFilePreviewButton" Classes="file-preview-action" Padding="6" Margin="4,0,2,0"
+                          Width="30" Height="28" VerticalAlignment="Center" MinWidth="0" MinHeight="0"
+                          Command="{Binding $parent[views:WorkspaceOverview].((vm:ChatViewModel)DataContext).OpenFilePreviewCommand}"
+                          CommandParameter="{Binding FilePath}"
+                          ToolTip.Tip="{loc:Str Preview_Open}" AutomationProperties.Name="{loc:Str Preview_Open}">
+                    <Viewbox Width="16" Height="16">
+                      <Canvas Width="16" Height="16" IsHitTestVisible="False">
+                        <Path Data="{DynamicResource Icon.FilePreview}"
+                              StrokeThickness="1.4" StrokeLineCap="Round"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                      </Canvas>
+                    </Viewbox>
+                  </Button>
+                </Grid>
+              </DataTemplate>
+            </views:WorkspaceSectionView.ItemTemplate>
+          </views:WorkspaceSectionView>
+
+          <!-- ── Files Lumi created or edited (open the diff) ── -->
+          <views:WorkspaceSectionView x:Name="WsEdits"
+                                      IsVisible="{Binding WorkspaceEdits.IsShown}"
+                                      Title="{loc:Str Workspace_Edits}"
+                                      Icon="{x:Static vm:WorkspaceIcons.Edits}"
+                                      Section="{Binding WorkspaceEdits}">
+            <views:WorkspaceSectionView.ItemTemplate>
+              <DataTemplate DataType="vm:FileChangeItem">
+                <Button Classes="ws-row" x:Name="WsEditRow" Command="{Binding ShowDiffCommand}"
+                        ToolTip.Tip="{Binding FilePath}"
+                        views:FileDrag.FilePath="{Binding FilePath}">
+                  <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                    <Border Classes="ws-tile" Classes.success="{Binding IsCreate}">
+                      <Panel>
+                        <PathIcon IsVisible="{Binding IsCreate}" Data="{x:Static vm:WorkspaceIcons.FileAdded}" />
+                        <PathIcon IsVisible="{Binding !IsCreate}" Data="{x:Static vm:WorkspaceIcons.Edits}" />
+                      </Panel>
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" Spacing="1">
+                      <TextBlock Classes="ws-row-title" FontWeight="SemiBold" Text="{Binding FileName}" />
+                      <TextBlock Classes="ws-meta" Text="{Binding ActionLabel}" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="2" Classes="ws-stat added" Text="{Binding StatsAdded}" />
+                    <TextBlock Grid.Column="3" Classes="ws-stat removed" Margin="6,0,0,0"
+                               Text="{Binding StatsRemoved}" IsVisible="{Binding HasRemovals}" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </views:WorkspaceSectionView.ItemTemplate>
+          </views:WorkspaceSectionView>
+
+          <!-- ── Skills Lumi used ── -->
+          <views:WorkspaceSectionView x:Name="WsSkills"
+                                      IsVisible="{Binding WorkspaceSkills.IsShown}"
+                                      Title="{loc:Str Workspace_Skills}"
+                                      Icon="{x:Static vm:WorkspaceIcons.Skills}"
+                                      Section="{Binding WorkspaceSkills}">
+            <views:WorkspaceSectionView.ItemTemplate>
+              <DataTemplate DataType="vm:SkillChipItem">
+                <Button Classes="ws-row" x:Name="WsSkillRow" Command="{Binding OpenCommand}"
+                        ToolTip.Tip="{loc:Str Workspace_OpenSkill}">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Border Classes="ws-tile accent">
+                      <PathIcon Data="{x:Static vm:WorkspaceIcons.Skills}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" Spacing="1">
+                      <TextBlock Classes="ws-row-title" FontWeight="SemiBold" Text="{Binding Name}" />
+                      <TextBlock Classes="ws-meta" Text="{Binding Description}"
+                                 IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
+                    <PathIcon Grid.Column="2" Classes="ws-trailing" Data="{x:Static vm:WorkspaceIcons.Chevron}" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </views:WorkspaceSectionView.ItemTemplate>
+          </views:WorkspaceSectionView>
+
+          <!-- ── Links in Lumi's answers ── -->
+          <views:WorkspaceSectionView x:Name="WsLinks"
+                                      IsVisible="{Binding WorkspaceLinks.IsShown}"
+                                      Title="{loc:Str Workspace_Links}"
+                                      Icon="{x:Static vm:WorkspaceIcons.Links}"
+                                      Section="{Binding WorkspaceLinks}">
+            <views:WorkspaceSectionView.ItemTemplate>
+              <DataTemplate DataType="vm:SourceItem">
+                <Button Classes="ws-row" x:Name="WsLinkRow" Command="{Binding OpenCommand}" ToolTip.Tip="{Binding Url}">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Border Classes="ws-tile">
+                      <PathIcon Foreground="{DynamicResource Brush.AccentDefault}"
+                                Data="{x:Static vm:WorkspaceIcons.Links}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" Spacing="1">
+                      <TextBlock Classes="ws-row-title" Text="{Binding Title}"
+                                 TextWrapping="Wrap" MaxLines="2" />
+                      <TextBlock Classes="ws-meta" Text="{Binding Domain}" />
+                    </StackPanel>
+                    <PathIcon Grid.Column="2" Classes="ws-trailing" Data="{x:Static vm:WorkspaceIcons.OpenExternal}" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </views:WorkspaceSectionView.ItemTemplate>
+          </views:WorkspaceSectionView>
+
+          <!-- ── Web sources ── -->
+          <views:WorkspaceSectionView x:Name="WsSources"
+                                      IsVisible="{Binding WorkspaceSources.IsShown}"
+                                      Title="{loc:Str Workspace_Sources}"
+                                      Icon="{x:Static vm:WorkspaceIcons.Sources}"
+                                      Section="{Binding WorkspaceSources}">
+            <views:WorkspaceSectionView.ItemTemplate>
+              <DataTemplate DataType="vm:SourceItem">
+                <Button Classes="ws-row" x:Name="WsSourceRow" Command="{Binding OpenCommand}" ToolTip.Tip="{Binding Url}">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Border Width="26" Height="26" Margin="2,0" VerticalAlignment="Center"
+                            CornerRadius="{DynamicResource Radius.Full}" Background="{Binding AccentBrush}">
+                      <TextBlock Text="{Binding InitialLetter}" FontSize="12" FontWeight="Bold" Foreground="White"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" Spacing="1">
+                      <TextBlock Classes="ws-row-title" Text="{Binding Title}" />
+                      <TextBlock Classes="ws-meta" Text="{Binding Domain}" />
+                    </StackPanel>
+                    <PathIcon Grid.Column="2" Classes="ws-trailing" Data="{x:Static vm:WorkspaceIcons.OpenExternal}" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </views:WorkspaceSectionView.ItemTemplate>
+          </views:WorkspaceSectionView>
+
+          <!-- ── Your messages (jump between asks in long chats) ── -->
+          <views:WorkspaceSectionView x:Name="WsMessages"
+                                      IsVisible="{Binding WorkspaceMessages.IsShown}"
+                                      Title="{loc:Str Workspace_Messages}"
+                                      Icon="{x:Static vm:WorkspaceIcons.Messages}"
+                                      Section="{Binding WorkspaceMessages}">
+            <views:WorkspaceSectionView.ItemTemplate>
+              <DataTemplate DataType="vm:WorkspaceUserMessageItem">
+                <Button Classes="ws-row" x:Name="WsMessageRow" Command="{Binding JumpCommand}" IsEnabled="{Binding CanJump}"
+                        ToolTip.Tip="{loc:Str Workspace_JumpToMessage}">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Border Classes="ws-tile accent ws-number" VerticalAlignment="Top" Margin="0,1,0,0">
+                      <TextBlock Text="{Binding NumberLabel}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" Spacing="2">
+                      <TextBlock Classes="ws-meta" FontWeight="SemiBold" Text="{Binding MetaText}" />
+                      <TextBlock Classes="ws-row-title" Text="{Binding Preview}"
+                                 TextWrapping="Wrap" MaxLines="2" />
+                    </StackPanel>
+                    <PathIcon Grid.Column="2" Classes="ws-trailing" IsVisible="{Binding CanJump}"
+                              Data="{x:Static vm:WorkspaceIcons.Jump}" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </views:WorkspaceSectionView.ItemTemplate>
+          </views:WorkspaceSectionView>
+
+          <!-- ── Activity: intents, searches, subagents, questions, errors ── -->
+          <views:WorkspaceSectionView x:Name="WsActivity"
+                                      IsVisible="{Binding WorkspaceActivity.IsShown}"
+                                      Title="{loc:Str Workspace_Activity}"
+                                      Icon="{x:Static vm:WorkspaceIcons.Activity}"
+                                      Section="{Binding WorkspaceActivity}">
+            <views:WorkspaceSectionView.ItemTemplate>
+              <DataTemplate DataType="vm:WorkspaceActivityItem">
+                <Button Classes="ws-row" x:Name="WsActivityRow" Command="{Binding JumpCommand}" IsEnabled="{Binding CanJump}"
+                        ToolTip.Tip="{loc:Str Workspace_JumpToStep}">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <!-- Calm uniform tile + monochrome icon; semantic color only where it carries meaning -->
+                    <Border Classes="ws-tile"
+                            Classes.accent="{Binding IsIntent}"
+                            Classes.warning="{Binding IsQuestion}"
+                            Classes.danger="{Binding IsError}">
+                      <PathIcon Data="{Binding KindGeometry}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" Spacing="2">
+                      <TextBlock Classes="ws-meta" FontWeight="SemiBold" Text="{Binding Subtitle}" />
+                      <TextBlock Classes="ws-row-title" Text="{Binding Title}"
+                                 TextWrapping="Wrap" MaxLines="2" />
+                    </StackPanel>
+                    <PathIcon Grid.Column="2" Classes="ws-trailing" IsVisible="{Binding CanJump}"
+                              Data="{x:Static vm:WorkspaceIcons.Jump}" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </views:WorkspaceSectionView.ItemTemplate>
+          </views:WorkspaceSectionView>
+
+        </StackPanel>
+      </ScrollViewer>
+    </DockPanel>
+  </Grid>
+</UserControl>

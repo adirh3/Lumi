@@ -1371,21 +1371,21 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     public event Action<Guid, string>? ChatTitleChanged;
      public event Action? BrowserHideRequested;
 
-    /// <summary>Raised when a file-edit tool wants to show a diff in the preview island.</summary>
+    /// <summary>Raised when a file-edit tool wants to show a diff in the Workspace.</summary>
     public event Action<FileChangeItem>? DiffShowRequested;
-    /// <summary>Raised to hide the diff preview island.</summary>
+    /// <summary>Raised to close the Workspace's diff and git changes pages.</summary>
     public event Action? DiffHideRequested;
-    /// <summary>Raised when the user clicks the plan card to open it in the right panel.</summary>
+    /// <summary>Raised when the plan should open in the Workspace (plan card, plan created/updated).</summary>
     public event Action? PlanShowRequested;
 
     /// <summary>Raised when a model/effort change in a new chat updates the global default selection.</summary>
     public event Action<string, string?, string?>? DefaultModelSelectionChanged;
-    /// <summary>Raised to hide the plan preview island.</summary>
+    /// <summary>Raised to close the Workspace's plan page.</summary>
     public event Action? PlanHideRequested;
 
-    /// <summary>Raised when the user clicks a transcript skill chip to open it in the right panel.</summary>
+    /// <summary>Raised when the user clicks a skill chip to open it in the Workspace.</summary>
     public event Action? SkillShowRequested;
-    /// <summary>Raised to hide the skill preview island.</summary>
+    /// <summary>Raised to close the Workspace's skill page.</summary>
     public event Action? SkillHideRequested;
 
     /// <summary>Raised when the LLM calls ask_question. Args: questionId, question, options (JSON array string), allowFreeText.</summary>
@@ -1481,9 +1481,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     /// <summary>Raised when a Workspace activity item asks to scroll the transcript to a turn (by StableId).</summary>
     public event Action<string>? WorkspaceJumpToTurnRequested;
 
-    /// <summary>Raised when the Workspace panel open/closed preference changes so the view re-evaluates visibility.</summary>
-    public event Action? WorkspacePanelPreferenceChanged;
-
     public ChatViewModel(
         DataStore dataStore,
         CopilotService copilotService,
@@ -1571,6 +1568,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _copilotService.SessionDeletedRemotely += OnSessionDeletedRemotely;
 
         InitializeMvvmUiState();
+        InitializeWorkspace();
     }
 
     internal ChatEventHub ChatEvents => _chatEvents;
@@ -2835,7 +2833,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Opens a loaded skill's markdown in the right-side preview island (same surface as the plan).
+    /// Opens a loaded skill's markdown as the Workspace's skill page.
     /// Invoked when the user clicks a skill chip in the transcript.
     /// </summary>
     public void OpenSkillPreview(SkillReference? skill)
@@ -2913,6 +2911,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         SubagentRunHideRequested?.Invoke();
         CloseFilePreview();
         HasUsedBrowser = false;
+        WorkspaceCategory = WorkspaceCategory.All;
 
         // Detach from the visible chat; inactive chat state is released later when it is safe.
         _activeSession = null;
@@ -2966,8 +2965,6 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         // Reset plan/SDK agent state
         HasPlan = false;
         PlanContent = null;
-        IsPlanOpen = false;
-        IsSkillOpen = false;
         SkillPreviewContent = null;
         ResetSubagentRunState();
         SelectedSdkAgentName = null;
