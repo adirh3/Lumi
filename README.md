@@ -286,6 +286,15 @@ dotnet build src/Lumi/Lumi.csproj
 cd src/Lumi && dotnet run
 ```
 
+Normal Quit (including the macOS application menu and tray menu) and Settings
+restart keep the UI dispatcher running until cleanup and the final data save
+complete. Repeated Quit requests do not start another cleanup or skip that save.
+The updater retains its separate bounded shutdown watchdog.
+
+```bash
+dotnet test tests/Lumi.Tests/Lumi.Tests.csproj --filter "FullyQualifiedName~AppShutdownTests|FullyQualifiedName~UpdateServiceSafetyTests.UpdateShutdown"
+```
+
 The composer's real-pixel animation checks run in an isolated Skia test process;
 the ordinary drawing-free headless suite skips them to avoid mixing graphics backends:
 
