@@ -17,6 +17,7 @@ using Lumi.Services;
 using Lumi.Services.Capabilities;
 using Lumi.ViewModels;
 using Xunit;
+using CurrentToolMetadata = GitHub.Copilot.Rpc.CurrentToolMetadata;
 
 namespace Lumi.Tests;
 
@@ -918,6 +919,823 @@ public sealed class ChatViewModelLeakTests
             TimeSpan.FromMilliseconds(25));
 
         Assert.Equal(1, releaseCount);
+    }
+
+    [Theory]
+    [InlineData(-32_001, null)]
+    [InlineData(null, "-32001")]
+    public void McpCatalogRecovery_ExactSessionLossRequiresCodeAndMessage(int? statusCode, string? errorCode)
+    {
+        Assert.True(ChatViewModel.IsExactMcpSessionLoss(statusCode, errorCode, " Session not found "));
+    }
+
+    [Theory]
+    [InlineData(-32_001, null, "Session terminated")]
+    [InlineData(-32_000, null, "Session not found")]
+    [InlineData(null, "-32600", "Session not found")]
+    [InlineData(null, null, "MCP error -32001: Session not found")]
+    public void McpCatalogRecovery_UnrelatedToolErrorsDoNotTriggerExactSignal(
+        int? statusCode,
+        string? errorCode,
+        string message)
+    {
+        Assert.False(ChatViewModel.IsExactMcpSessionLoss(statusCode, errorCode, message));
+    }
+
+    [Theory]
+    [InlineData(-32_002, null)]
+    [InlineData(null, "-32002")]
+    public void McpCatalogRecovery_FrontendRediscoveryRequiresExactCodeAndMessage(
+        int? statusCode,
+        string? errorCode)
+    {
+        Assert.True(ChatViewModel.IsMcpFrontendRediscoveryRequired(
+            statusCode,
+            errorCode,
+            McpStdioServerConnection.FrontendRediscoveryRequiredMessage));
+        Assert.Equal(
+            ChatViewModel.McpCatalogRecoverySignal.FrontendRediscoveryRequired,
+            ChatViewModel.ClassifyMcpCatalogRecoverySignal(
+                statusCode,
+                errorCode,
+                McpStdioServerConnection.FrontendRediscoveryRequiredMessage));
+    }
+
+    [Fact]
+#pragma warning disable GHCP001 // CurrentToolMetadata is the SDK's only model-facing catalog identity.
+    public void McpCatalogBaseline_RecordsOnlyProvidersWithModelVisibleTools()
+    {
+        var providers = ChatViewModel.ExtractVisibleMcpProviders(
+        [
+            new CurrentToolMetadata { Name = "built_in" },
+            new CurrentToolMetadata { Name = "alpha_one", McpServerName = "alpha", McpToolName = "one" },
+            new CurrentToolMetadata { Name = "alpha_two", McpServerName = "alpha", McpToolName = "two" }
+        ]);
+
+        var evaluation = ChatViewModel.EvaluateMcpCatalog([], ["alpha", "zero-tools"], providers);
+
+        Assert.Equal(["alpha"], evaluation.UpdatedBaseline);
+        Assert.Empty(evaluation.MissingProviders);
+    }
+
+    [Fact]
+    public void McpCatalogBaseline_ToolChangesWithinPresentProviderAreLegitimate()
+    {
+        var before = ChatViewModel.ExtractVisibleMcpProviders(
+        [
+            new CurrentToolMetadata { Name = "alpha_old", McpServerName = "alpha", McpToolName = "old" }
+        ]);
+        var after = ChatViewModel.ExtractVisibleMcpProviders(
+        [
+            new CurrentToolMetadata { Name = "alpha_new", McpServerName = "alpha", McpToolName = "new" }
+        ]);
+
+        var baseline = ChatViewModel.EvaluateMcpCatalog([], ["alpha"], before).UpdatedBaseline;
+        var evaluation = ChatViewModel.EvaluateMcpCatalog(baseline, ["alpha"], after);
+
+        Assert.Equal(["alpha"], evaluation.UpdatedBaseline);
+        Assert.Empty(evaluation.MissingProviders);
+    }
+#pragma warning restore GHCP001
+
+    [Fact]
+    public void McpCatalogBaseline_NewSelectionIsNotStaleAndDeselectionIsIgnored()
+    {
+        var newSelection = ChatViewModel.EvaluateMcpCatalog(
+            ["alpha"],
+            ["alpha", "new-provider"],
+            ["alpha"]);
+        var deselected = ChatViewModel.EvaluateMcpCatalog(
+            ["alpha"],
+            [],
+            []);
+
+        Assert.Empty(newSelection.MissingProviders);
+        Assert.DoesNotContain("new-provider", newSelection.UpdatedBaseline);
+        Assert.Empty(deselected.MissingProviders);
+        Assert.Empty(deselected.UpdatedBaseline);
+    }
+
+    [Theory]
+    [InlineData((int)ChatViewModel.McpCatalogRecoverySignal.ToolsListChanged)]
+    [InlineData((int)ChatViewModel.McpCatalogRecoverySignal.SessionResumed)]
+    public async Task McpCatalogRecovery_NonExactSignalsAlwaysReconcile(int signalValue)
+    {
+        var signal = (ChatViewModel.McpCatalogRecoverySignal)signalValue;
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chat = new Chat { Title = "mcp refresh", CopilotSessionId = "sid-refresh" };
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        var reads = new Queue<IReadOnlySet<string>?>();
+        reads.Enqueue(ProviderSet("alpha"));
+        reads.Enqueue(ProviderSet("alpha"));
+        var reconcileCount = 0;
+        var replacementCount = 0;
+        var operations = CatalogOperations(
+            () => ProviderSet("alpha"),
+            reads,
+            reconcile: _ =>
+            {
+                reconcileCount++;
+                return Task.CompletedTask;
+            },
+            replace: _ =>
+            {
+                replacementCount++;
+                return Task.CompletedTask;
+            });
+
+        Assert.True(vm.TryScheduleMcpCatalogReconciliation(
+            chat, session, signal, operations));
+        await vm.AwaitMcpCatalogRecoveryAsync(chat.Id, CancellationToken.None);
+
+        Assert.Equal(1, reconcileCount);
+        Assert.Equal(0, replacementCount);
+        Assert.Contains(
+            "alpha",
+            GetField<Dictionary<Guid, HashSet<string>>>(vm, "_visibleMcpProviderBaselines")[chat.Id]);
+        Assert.False(vm.HasPendingMcpCatalogRecovery(chat.Id));
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+    }
+
+    [Theory]
+    [InlineData((int)ChatViewModel.McpCatalogRecoverySignal.ToolsListChanged)]
+    [InlineData((int)ChatViewModel.McpCatalogRecoverySignal.SessionResumed)]
+    public async Task McpCatalogRecovery_InitialLazySignalsDeferUntilPostSendObservation(int signalValue)
+    {
+        var signal = (ChatViewModel.McpCatalogRecoverySignal)signalValue;
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chat = new Chat { Title = "lazy discovery", CopilotSessionId = "sid-lazy" };
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        using var proxyLease = SetLazyMcpSession(vm, session);
+        var operationCount = 0;
+        var operations = new ChatViewModel.McpCatalogRecoveryOperations(
+            () =>
+            {
+                operationCount++;
+                return ProviderSet("alpha", "beta");
+            },
+            _ =>
+            {
+                operationCount++;
+                return Task.FromResult<IReadOnlySet<string>?>(ProviderSet("alpha"));
+            },
+            _ =>
+            {
+                operationCount++;
+                return Task.CompletedTask;
+            },
+            _ =>
+            {
+                operationCount++;
+                return Task.CompletedTask;
+            });
+
+        Assert.False(vm.TryScheduleMcpCatalogReconciliation(chat, session, signal, operations));
+        Assert.False(vm.TryScheduleMcpCatalogReconciliation(chat, session, signal, operations));
+
+        Assert.Equal(0, operationCount);
+        Assert.False(vm.HasPendingMcpCatalogRecovery(chat.Id));
+        Assert.Contains(
+            chat.Id,
+            GetField<HashSet<Guid>>(vm, "_postSendMcpCatalogObservations"));
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+    }
+
+    [Fact]
+    public async Task McpCatalogRecovery_EstablishedLazyProviderDisappearanceStillReplacesSession()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chat = new Chat { Title = "lazy stale provider", CopilotSessionId = "sid-lazy-stale" };
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        using var proxyLease = SetLazyMcpSession(vm, session);
+        SetMcpProviderBaseline(vm, chat.Id, "alpha");
+        var reads = new Queue<IReadOnlySet<string>?>();
+        reads.Enqueue(ProviderSet());
+        reads.Enqueue(ProviderSet());
+        var reconcileCount = 0;
+        var replacementCount = 0;
+        var operations = CatalogOperations(
+            () => ProviderSet("alpha"),
+            reads,
+            reconcile: _ =>
+            {
+                reconcileCount++;
+                return Task.CompletedTask;
+            },
+            replace: _ =>
+            {
+                replacementCount++;
+                return Task.CompletedTask;
+            });
+
+        Assert.True(vm.TryScheduleMcpCatalogReconciliation(
+            chat,
+            session,
+            ChatViewModel.McpCatalogRecoverySignal.ToolsListChanged,
+            operations));
+        await vm.AwaitMcpCatalogRecoveryAsync(chat.Id, CancellationToken.None);
+
+        Assert.Equal(1, reconcileCount);
+        Assert.Equal(1, replacementCount);
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+    }
+
+    [Fact]
+    public async Task McpCatalogRecovery_ProviderReturnsDuringReconciliationWithoutReplacement()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chat = new Chat { Title = "mcp recovery", CopilotSessionId = "sid-stale" };
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        SetMcpProviderBaseline(vm, chat.Id, "alpha");
+        var reads = new Queue<IReadOnlySet<string>?>();
+        reads.Enqueue(ProviderSet());
+        reads.Enqueue(ProviderSet("alpha"));
+        var reconcileCount = 0;
+        var replacementCount = 0;
+
+        var operations = CatalogOperations(
+            () => ProviderSet("alpha"),
+            reads,
+            reconcile: _ =>
+            {
+                reconcileCount++;
+                return Task.CompletedTask;
+            },
+            replace: _ =>
+            {
+                replacementCount++;
+                return Task.CompletedTask;
+            });
+
+        Assert.True(vm.TryScheduleMcpCatalogReconciliation(
+            chat, session, ChatViewModel.McpCatalogRecoverySignal.ToolsListChanged, operations));
+        await vm.AwaitMcpCatalogRecoveryAsync(chat.Id, CancellationToken.None);
+
+        Assert.Equal(1, reconcileCount);
+        Assert.Equal(0, replacementCount);
+        Assert.Contains(
+            "alpha",
+            GetField<Dictionary<Guid, HashSet<string>>>(vm, "_visibleMcpProviderBaselines")[chat.Id]);
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+    }
+
+    [Fact]
+    public async Task McpCatalogRecovery_SameProviderToolChangesReconcileWithoutReplacement()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chat = new Chat { Title = "mcp schema refresh", CopilotSessionId = "sid-schema" };
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        SetMcpProviderBaseline(vm, chat.Id, "alpha");
+        var reads = new Queue<IReadOnlySet<string>?>();
+        reads.Enqueue(ProviderSet("alpha"));
+        reads.Enqueue(ProviderSet("alpha"));
+        var reconcileCount = 0;
+        var replacementCount = 0;
+        var operations = CatalogOperations(
+            () => ProviderSet("alpha"),
+            reads,
+            reconcile: _ =>
+            {
+                reconcileCount++;
+                return Task.CompletedTask;
+            },
+            replace: _ =>
+            {
+                replacementCount++;
+                return Task.CompletedTask;
+            });
+
+        Assert.True(vm.TryScheduleMcpCatalogReconciliation(
+            chat, session, ChatViewModel.McpCatalogRecoverySignal.ToolsListChanged, operations));
+        await vm.AwaitMcpCatalogRecoveryAsync(chat.Id, CancellationToken.None);
+
+        Assert.Equal(1, reconcileCount);
+        Assert.Equal(0, replacementCount);
+        Assert.Contains(
+            "alpha",
+            GetField<Dictionary<Guid, HashSet<string>>>(vm, "_visibleMcpProviderBaselines")[chat.Id]);
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+    }
+
+    [Theory]
+    [InlineData((int)ChatViewModel.McpCatalogRecoverySignal.ExactSessionLoss)]
+    [InlineData((int)ChatViewModel.McpCatalogRecoverySignal.FrontendRediscoveryRequired)]
+    public async Task McpCatalogRecovery_ReplacementSignalsRotateEvenWhenProviderRemainsVisible(
+        int signalValue)
+    {
+        var signal = (ChatViewModel.McpCatalogRecoverySignal)signalValue;
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chat = new Chat { Title = "mcp stale schema", CopilotSessionId = "sid-stale-schema" };
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        SetMcpProviderBaseline(vm, chat.Id, "alpha");
+        var reads = new Queue<IReadOnlySet<string>?>();
+        reads.Enqueue(ProviderSet("alpha"));
+        reads.Enqueue(ProviderSet("alpha"));
+        var replacementCount = 0;
+        var operations = CatalogOperations(
+            () => ProviderSet("alpha"),
+            reads,
+            replace: _ =>
+            {
+                replacementCount++;
+                return Task.CompletedTask;
+            });
+
+        Assert.True(vm.TryScheduleMcpCatalogReconciliation(chat, session, signal, operations));
+        await vm.AwaitMcpCatalogRecoveryAsync(chat.Id, CancellationToken.None);
+
+        Assert.Equal(1, replacementCount);
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+    }
+
+    [Fact]
+    public async Task McpCatalogRecovery_PublishedBarrierBlocksSendBeforeUiSchedulesRecovery()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chat = new Chat { Title = "mcp dispatcher gap", CopilotSessionId = "sid-dispatcher-gap" };
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        var barrier = vm.PublishMcpCatalogRecoveryBarrier(chat.Id, session);
+        var sendBarrier = vm.AwaitMcpCatalogRecoveryAsync(chat.Id, CancellationToken.None);
+
+        Assert.False(sendBarrier.IsCompleted);
+
+        var recoveryStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRecovery = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads = new Queue<IReadOnlySet<string>?>();
+        reads.Enqueue(ProviderSet("alpha"));
+        reads.Enqueue(ProviderSet("alpha"));
+        var operations = CatalogOperations(
+            () => ProviderSet("alpha"),
+            reads,
+            reconcile: async cancellationToken =>
+            {
+                recoveryStarted.TrySetResult();
+                await releaseRecovery.Task.WaitAsync(cancellationToken);
+            });
+
+        vm.ScheduleMcpCatalogRecoveryFromBarrier(
+            chat,
+            session,
+            ChatViewModel.McpCatalogRecoverySignal.ToolsListChanged,
+            barrier,
+            operations);
+        await recoveryStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(sendBarrier.IsCompleted);
+
+        releaseRecovery.TrySetResult();
+        await sendBarrier.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(vm.HasPendingMcpCatalogRecovery(chat.Id));
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+    }
+
+    [Fact]
+    public async Task McpCatalogRecovery_SharedBarrierWaitsForEveryPublishedSignal()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chat = new Chat { Title = "mcp shared barrier", CopilotSessionId = "sid-shared-barrier" };
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+
+        var first = vm.PublishMcpCatalogRecoveryBarrier(chat.Id, session);
+        var second = vm.PublishMcpCatalogRecoveryBarrier(chat.Id, session);
+        var sendBarrier = vm.AwaitMcpCatalogRecoveryAsync(chat.Id, CancellationToken.None);
+
+        Assert.Same(first, second);
+        vm.CompleteMcpCatalogRecoveryBarrier(chat.Id, first);
+        Assert.False(sendBarrier.IsCompleted);
+
+        vm.CompleteMcpCatalogRecoveryBarrier(chat.Id, second);
+        await sendBarrier.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(vm.HasPendingMcpCatalogRecovery(chat.Id));
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+    }
+
+    [Fact]
+    public void McpProviderStatus_OnlyFailureDegradesAndConnectedClearsIt()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chat = new Chat { Title = "mcp status" };
+        SetMcpProviderBaseline(vm, chat.Id, "alpha");
+        using var plan = new McpSessionPlan(
+            [],
+            [],
+            SelectedRuntimeServerNames: ProviderSet("alpha"));
+        GetField<Dictionary<Guid, McpSessionPlan>>(vm, "_sessionMcpPlans")[chat.Id] = plan;
+
+        Assert.False(ChatViewModel.IsMcpProviderFailureStatus(McpServerStatus.Pending));
+        Assert.False(ChatViewModel.IsMcpProviderFailureStatus(McpServerStatus.NotConfigured));
+        Assert.False(ChatViewModel.IsMcpProviderFailureStatus(McpServerStatus.NeedsAuth));
+        InvokePrivate(vm, "RecordMcpProviderStatus", chat.Id, "alpha", McpServerStatus.Pending);
+        InvokePrivate(vm, "RecordMcpProviderStatus", chat.Id, "alpha", McpServerStatus.NeedsAuth);
+        Assert.False(vm.HasMcpCatalogDegradation(chat.Id));
+
+        Assert.True(ChatViewModel.IsMcpProviderFailureStatus(McpServerStatus.Failed));
+        InvokePrivate(vm, "RecordMcpProviderStatus", chat.Id, "alpha", McpServerStatus.Failed);
+        Assert.True(vm.HasMcpCatalogDegradation(chat.Id));
+
+        InvokePrivate(vm, "RecordMcpProviderStatus", chat.Id, "alpha", McpServerStatus.Connected);
+        Assert.False(vm.HasMcpCatalogDegradation(chat.Id));
+        vm.Dispose();
+    }
+
+    [Fact]
+    public async Task McpCatalogRecovery_StrongerSignalCoalescesIntoSingleReplacement()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chat = new Chat { Title = "mcp recovery", CopilotSessionId = "sid-stale" };
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var readCount = 0;
+        var replacementCount = 0;
+
+        var operations = new ChatViewModel.McpCatalogRecoveryOperations(
+            () => ProviderSet("alpha"),
+            async cancellationToken =>
+            {
+                Interlocked.Increment(ref readCount);
+                started.TrySetResult();
+                await finish.Task.WaitAsync(cancellationToken);
+                return ProviderSet("alpha");
+            },
+            _ => Task.CompletedTask,
+            _ =>
+            {
+                Interlocked.Increment(ref replacementCount);
+                return Task.CompletedTask;
+            });
+
+        Assert.True(vm.TryScheduleMcpCatalogReconciliation(
+            chat, session, ChatViewModel.McpCatalogRecoverySignal.ToolsListChanged, operations));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(vm.TryScheduleMcpCatalogReconciliation(
+            chat, session, ChatViewModel.McpCatalogRecoverySignal.ExactSessionLoss, operations));
+
+        var barrier = vm.AwaitMcpCatalogRecoveryAsync(chat.Id, CancellationToken.None);
+        Assert.False(barrier.IsCompleted);
+        finish.TrySetResult();
+        await barrier.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, readCount);
+        Assert.Equal(1, replacementCount);
+        Assert.False(vm.HasPendingMcpCatalogRecovery(chat.Id));
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+    }
+
+    [Fact]
+    public async Task McpCatalogRecovery_ReplacementSignalRunsAgainstPublishedReplacement()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chat = new Chat { Title = "mcp replacement rerun", CopilotSessionId = "sid-stale" };
+        var failedSession = CreateDetachedSession(chat.CopilotSessionId);
+        var replacementSession = CreateDetachedSession("sid-replacement");
+        var cache = GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache");
+        cache[chat.Id] = failedSession;
+        SetMcpProviderBaseline(vm, chat.Id, "alpha");
+
+        var replacementReads = new Queue<IReadOnlySet<string>?>();
+        replacementReads.Enqueue(ProviderSet("alpha"));
+        replacementReads.Enqueue(ProviderSet("alpha"));
+        var replacementReconcileCount = 0;
+        var replacementOperations = CatalogOperations(
+            () => ProviderSet("alpha"),
+            replacementReads,
+            reconcile: _ =>
+            {
+                replacementReconcileCount++;
+                return Task.CompletedTask;
+            });
+
+        var failedReads = new Queue<IReadOnlySet<string>?>();
+        failedReads.Enqueue(ProviderSet());
+        failedReads.Enqueue(ProviderSet());
+        var replacementCount = 0;
+        var failedOperations = CatalogOperations(
+            () => ProviderSet("alpha"),
+            failedReads,
+            replace: _ =>
+            {
+                replacementCount++;
+                cache[chat.Id] = replacementSession;
+                Assert.False(vm.TryScheduleMcpCatalogReconciliation(
+                    chat,
+                    replacementSession,
+                    ChatViewModel.McpCatalogRecoverySignal.ToolsListChanged,
+                    replacementOperations));
+                return Task.CompletedTask;
+            });
+
+        Assert.True(vm.TryScheduleMcpCatalogReconciliation(
+            chat,
+            failedSession,
+            ChatViewModel.McpCatalogRecoverySignal.ToolsListChanged,
+            failedOperations));
+        await vm.AwaitMcpCatalogRecoveryAsync(chat.Id, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, replacementCount);
+        Assert.Equal(1, replacementReconcileCount);
+        Assert.False(vm.HasPendingMcpCatalogRecovery(chat.Id));
+        Assert.Same(replacementSession, cache[chat.Id]);
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+    }
+
+    [Fact]
+    public async Task McpCatalogRecovery_CleanupCancelsInFlightWork()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "mcp cleanup", CopilotSessionId = "sid-stale" };
+        dataStore.Data.Chats.Add(chat);
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var operations = new ChatViewModel.McpCatalogRecoveryOperations(
+            () => ProviderSet("alpha"),
+            async cancellationToken =>
+            {
+                started.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return ProviderSet();
+            },
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
+
+        Assert.True(vm.TryScheduleMcpCatalogReconciliation(
+            chat, session, ChatViewModel.McpCatalogRecoverySignal.ExactSessionLoss, operations));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var barrier = vm.AwaitMcpCatalogRecoveryAsync(chat.Id, CancellationToken.None);
+
+        vm.CleanupSession(chat.Id);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => barrier.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.False(vm.HasPendingMcpCatalogRecovery(chat.Id));
+        await DrainSessionReleaseAsync(vm, chat.Id);
+        vm.Dispose();
+    }
+
+    [Fact]
+    public async Task McpCatalogRecovery_ExactLossFailureRetainsBaselineForNextSendRetry()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chat = new Chat { Title = "mcp recovery", CopilotSessionId = "sid-stale" };
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        SetMcpProviderBaseline(vm, chat.Id, "alpha");
+        var reads = new Queue<IReadOnlySet<string>?>();
+        reads.Enqueue(ProviderSet("alpha"));
+        var operations = CatalogOperations(
+            () => ProviderSet("alpha"),
+            reads,
+            reconcile: _ => throw new IOException("catalog unavailable"));
+
+        Assert.True(vm.TryScheduleMcpCatalogReconciliation(
+            chat,
+            session,
+            ChatViewModel.McpCatalogRecoverySignal.ExactSessionLoss,
+            out var failedRecovery,
+            operations));
+
+        await Assert.ThrowsAsync<IOException>(() => failedRecovery!);
+        Assert.True(vm.HasMcpCatalogDegradation(chat.Id));
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+    }
+
+    [Fact]
+    public async Task McpCatalogRecovery_FinalToolDisappearanceReplacesAtMostOnceUntilProviderReturns()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chat = new Chat { Title = "mcp zero tools", CopilotSessionId = "sid-zero-tools" };
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        SetMcpProviderBaseline(vm, chat.Id, "alpha");
+        var reads = new Queue<IReadOnlySet<string>?>();
+        reads.Enqueue(ProviderSet());
+        reads.Enqueue(ProviderSet());
+        reads.Enqueue(ProviderSet());
+        reads.Enqueue(ProviderSet());
+        reads.Enqueue(ProviderSet("alpha"));
+        reads.Enqueue(ProviderSet("alpha"));
+        var replacementCount = 0;
+        var operations = CatalogOperations(
+            () => ProviderSet("alpha"),
+            reads,
+            replace: _ =>
+            {
+                replacementCount++;
+                return Task.CompletedTask;
+            });
+
+        Assert.True(vm.TryScheduleMcpCatalogReconciliation(
+            chat, session, ChatViewModel.McpCatalogRecoverySignal.ToolsListChanged, operations));
+        await vm.AwaitMcpCatalogRecoveryAsync(chat.Id, CancellationToken.None);
+        Assert.Equal(1, replacementCount);
+        Assert.False(vm.HasMcpCatalogDegradation(chat.Id));
+        Assert.DoesNotContain(
+            "alpha",
+            GetField<Dictionary<Guid, HashSet<string>>>(vm, "_visibleMcpProviderBaselines")[chat.Id]);
+
+        Assert.True(vm.TryScheduleMcpCatalogReconciliation(
+            chat, session, ChatViewModel.McpCatalogRecoverySignal.ProviderDegradedBeforeSend, operations));
+        await vm.AwaitMcpCatalogRecoveryAsync(chat.Id, CancellationToken.None);
+        Assert.Equal(1, replacementCount);
+
+        Assert.True(vm.TryScheduleMcpCatalogReconciliation(
+            chat, session, ChatViewModel.McpCatalogRecoverySignal.ToolsListChanged, operations));
+        await vm.AwaitMcpCatalogRecoveryAsync(chat.Id, CancellationToken.None);
+        Assert.Equal(1, replacementCount);
+        Assert.Contains(
+            "alpha",
+            GetField<Dictionary<Guid, HashSet<string>>>(vm, "_visibleMcpProviderBaselines")[chat.Id]);
+
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, chat.Id);
+    }
+
+    [Fact]
+    public async Task McpCatalogRecovery_InactiveChatReplacementPreservesDisplayedSession()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var displayedChat = new Chat { Title = "displayed", CopilotSessionId = "sid-displayed" };
+        var recoveringChat = new Chat { Title = "recovering", CopilotSessionId = "sid-recovering" };
+        dataStore.Data.Chats.Add(displayedChat);
+        dataStore.Data.Chats.Add(recoveringChat);
+        vm.CurrentChat = displayedChat;
+
+        var displayedSession = CreateDetachedSession(displayedChat.CopilotSessionId);
+        var failedSession = CreateDetachedSession(recoveringChat.CopilotSessionId);
+        var replacementSession = CreateDetachedSession("sid-recovered");
+        var cache = GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache");
+        cache[displayedChat.Id] = displayedSession;
+        cache[recoveringChat.Id] = failedSession;
+        SetPrivateField(vm, "_activeSession", displayedSession);
+        SetPrivateField(vm, "_activeSessionProviderSignature", "displayed-provider");
+        GetField<Dictionary<Guid, string?>>(vm, "_sessionProviderSignatures")[displayedChat.Id] =
+            "displayed-provider";
+        SetMcpProviderBaseline(vm, recoveringChat.Id, "alpha");
+        var reads = new Queue<IReadOnlySet<string>?>();
+        reads.Enqueue(ProviderSet());
+        reads.Enqueue(ProviderSet());
+        using var replacementPlan = new McpSessionPlan([], []);
+        var operations = CatalogOperations(
+            () => ProviderSet("alpha"),
+            reads,
+            replace: _ =>
+            {
+                Assert.True(vm.TryPublishSession(
+                    replacementSession,
+                    recoveringChat,
+                    Environment.CurrentDirectory,
+                    replacementPlan,
+                    pendingPlan: null,
+                    afterSubscribe: () => InvokePrivate(
+                        vm,
+                        "RecordSessionProviderSignature",
+                        recoveringChat,
+                        "recovering-provider")));
+                return Task.CompletedTask;
+            });
+
+        Assert.True(vm.TryScheduleMcpCatalogReconciliation(
+            recoveringChat,
+            failedSession,
+            ChatViewModel.McpCatalogRecoverySignal.ToolsListChanged,
+            operations));
+        await vm.AwaitMcpCatalogRecoveryAsync(recoveringChat.Id, CancellationToken.None);
+
+        Assert.Same(displayedSession, GetField<CopilotSession>(vm, "_activeSession"));
+        Assert.Equal(
+            "displayed-provider",
+            GetField<string>(vm, "_activeSessionProviderSignature"));
+        Assert.Same(replacementSession, cache[recoveringChat.Id]);
+        vm.Dispose();
+        await DrainSessionReleaseAsync(vm, displayedChat.Id);
+        await DrainSessionReleaseAsync(vm, recoveringChat.Id);
+    }
+
+    [Fact]
+    public void McpCatalogRecovery_CancellationPreservesPendingTranscriptReplay()
+    {
+        var vm = new ChatViewModel(CreateDataStore(), TestCopilot.Shared);
+        var chatId = Guid.NewGuid();
+        GetField<HashSet<Guid>>(vm, "_mcpCatalogRecoveryReplayPending").Add(chatId);
+
+        vm.CancelMcpCatalogRecovery(chatId);
+
+        Assert.True(vm.HasPendingMcpCatalogRecoveryReplay(chatId));
+        vm.Dispose();
+    }
+
+    [Fact]
+    public void McpCatalogRecovery_ReconnectPreservesReplayAndRetainedConversation()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "mcp reconnect replay" };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "Remember the alpha request." });
+        chat.Messages.Add(new ChatMessage { Role = "assistant", Content = "Alpha is ready." });
+        dataStore.Data.Chats.Add(chat);
+        GetField<HashSet<Guid>>(vm, "_mcpCatalogRecoveryReplayPending").Add(chat.Id);
+
+        InvokePrivate(vm, "ResetAfterCopilotReconnect");
+
+        Assert.True(vm.HasPendingMcpCatalogRecoveryReplay(chat.Id));
+        Assert.True(InvokePrivateStatic<bool>(
+            typeof(ChatViewModel),
+            "ShouldReplayTranscriptAfterSessionReset",
+            false,
+            "sid-empty-replacement",
+            "sid-empty-replacement",
+            chat.Messages.Count,
+            vm.HasPendingMcpCatalogRecoveryReplay(chat.Id)));
+        var replay = InvokePrivateStatic<string>(
+            typeof(ChatViewModel),
+            "BuildSessionRecoveryReplayPrompt",
+            chat.Messages.ToList(),
+            "Continue after reconnect.");
+        Assert.Contains("Remember the alpha request.", replay);
+        Assert.Contains("Alpha is ready.", replay);
+        Assert.Contains("Continue after reconnect.", replay);
+        vm.Dispose();
+    }
+
+    [Fact]
+    public async Task McpCatalogReplacement_PreservesChatMessagesAndReleasesProxyLeaseOnce()
+    {
+        var dataStore = CreateDataStore();
+        var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "mcp state", CopilotSessionId = "sid-stale" };
+        var originalMessage = new ChatMessage { Role = "user", Content = "Keep this conversation" };
+        chat.Messages.Add(originalMessage);
+        dataStore.Data.Chats.Add(chat);
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(vm, "_sessionCache")[chat.Id] = session;
+        var releaseCount = 0;
+        GetField<Dictionary<CopilotSession, McpProxySessionLease>>(vm, "_mcpProxyLeasesBySession")[session] =
+            new McpProxySessionLease(
+            [
+                new McpProxyRuntime.SessionRegistrationLease(
+                    () => Interlocked.Increment(ref releaseCount),
+                    new McpHttpServerConfig { Url = "http://127.0.0.1/mcp/replacement" })
+            ]);
+
+        InvokePrivate(vm, "DetachPersistedSession", chat, session.SessionId);
+        await DrainSessionReleaseAsync(vm, chat.Id);
+
+        Assert.Same(originalMessage, Assert.Single(chat.Messages));
+        Assert.Null(chat.CopilotSessionId);
+        Assert.Equal(1, releaseCount);
+        Assert.Empty(GetField<Dictionary<CopilotSession, McpProxySessionLease>>(vm, "_mcpProxyLeasesBySession"));
+        vm.Dispose();
+    }
+
+    [Fact]
+    public void McpCatalogRecoveryReplay_DoesNotReplayFailedToolCall()
+    {
+        var retainedContext = new List<ChatMessage>
+        {
+            new() { Role = "user", Content = "Use the provider" },
+            new() { Role = "assistant", Content = "I will try it." },
+            new()
+            {
+                Role = "tool",
+                ToolName = "old_provider_tool",
+                Content = """{"dangerousSideEffect":true}""",
+                ToolOutput = "-32001 Session not found"
+            }
+        };
+
+        var replay = InvokePrivateStatic<string>(
+            typeof(ChatViewModel),
+            "BuildSessionRecoveryReplayPrompt",
+            retainedContext,
+            "Use the recovered tool");
+
+        Assert.Contains("Use the provider", replay);
+        Assert.Contains("Use the recovered tool", replay);
+        Assert.DoesNotContain("old_provider_tool", replay);
+        Assert.DoesNotContain("dangerousSideEffect", replay);
+        Assert.DoesNotContain("-32001", replay);
     }
 
     [Fact]
@@ -2064,7 +2882,7 @@ public sealed class ChatViewModelLeakTests
     [Fact]
     public void FinalizeTerminalReasoningMessage_ClearsStreamingState()
     {
-         var reasoningMessage = new ChatMessage
+        var reasoningMessage = new ChatMessage
         {
             Role = "reasoning",
             Content = "thinking",
@@ -3047,6 +3865,58 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public void BuildTransportRecoverySendOptions_RebuildsExactlyOneSafeReplayEnvelope()
+    {
+        var retainedContext = new List<ChatMessage>
+        {
+            new() { Role = "user", Content = "Prior request that must survive." },
+            new() { Role = "assistant", Content = "Prior safe answer." },
+            new()
+            {
+                Role = "tool",
+                ToolName = "unsafe_side_effect",
+                Content = """{"deleteEverything":true}""",
+                ToolOutput = "-32001 Session not found"
+            }
+        };
+        const string latestPrompt = "Continue with the recovered provider.";
+        var alreadyReplayFormatted = InvokePrivateStatic<string>(
+            typeof(ChatViewModel),
+            "BuildSessionRecoveryReplayPrompt",
+            retainedContext,
+            latestPrompt);
+        var failedSendOptions = new GitHub.Copilot.MessageOptions
+        {
+            Prompt = alreadyReplayFormatted
+        };
+
+        var recoveredSendOptions = ChatViewModel.BuildTransportRecoverySendOptions(
+            failedSendOptions,
+            retainedContext,
+            latestPrompt,
+            skillDirectives: "",
+            promptAdditions: "");
+
+        Assert.Equal(
+            1,
+            recoveredSendOptions.Prompt.Split(
+                "The previous backend chat session is unavailable.",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            recoveredSendOptions.Prompt.Split(
+                "Prior request that must survive.",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            recoveredSendOptions.Prompt.Split(latestPrompt, StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("unsafe_side_effect", recoveredSendOptions.Prompt);
+        Assert.DoesNotContain("deleteEverything", recoveredSendOptions.Prompt);
+        Assert.DoesNotContain("-32001", recoveredSendOptions.Prompt);
+        Assert.Equal(alreadyReplayFormatted, failedSendOptions.Prompt);
+    }
+
+    [Fact]
     public void ShouldReplayTranscriptAfterSessionReset_WhenSessionIsRecreated_ReturnsTrue()
     {
         var result = InvokePrivateStatic<bool>(
@@ -3055,7 +3925,8 @@ public sealed class ChatViewModelLeakTests
             false,
             "session-1",
             "session-2",
-            2);
+            2,
+            false);
 
         Assert.True(result);
     }
@@ -3069,7 +3940,8 @@ public sealed class ChatViewModelLeakTests
             false,
             "session-1",
             "session-1",
-            2);
+            2,
+            false);
 
         Assert.False(result);
     }
@@ -3571,6 +4443,13 @@ public sealed class ChatViewModelLeakTests
         typeof(CopilotSession)
             .GetField("<SessionId>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(session, sessionId);
+        var eventHandlersField = typeof(CopilotSession)
+            .GetField("_eventHandlers", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        eventHandlersField.SetValue(
+            session,
+            eventHandlersField.FieldType
+                .GetField("Empty", BindingFlags.Public | BindingFlags.Static)!
+                .GetValue(null));
         // This object never ran its constructor, so its finalizer (which calls RemoveFromClient on a
         // null client) would NRE and crash the test host during GC.RunFinalizers at shutdown. We drive
         // disposal explicitly in these tests, so suppress the real finalizer.
@@ -3728,6 +4607,41 @@ public sealed class ChatViewModelLeakTests
                 Content = content
             }
         };
+
+    private static IReadOnlySet<string> ProviderSet(params string[] providers)
+        => providers.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private static void SetMcpProviderBaseline(
+        ChatViewModel vm,
+        Guid chatId,
+        params string[] providers)
+        => GetField<Dictionary<Guid, HashSet<string>>>(vm, "_visibleMcpProviderBaselines")[chatId] =
+            providers.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private static McpProxySessionLease SetLazyMcpSession(
+        ChatViewModel vm,
+        CopilotSession session)
+    {
+        var proxyLease = new McpProxySessionLease([], usesLazyInitialization: true);
+        GetField<Dictionary<CopilotSession, McpProxySessionLease>>(
+            vm,
+            "_mcpProxyLeasesBySession")[session] = proxyLease;
+        return proxyLease;
+    }
+
+    private static ChatViewModel.McpCatalogRecoveryOperations CatalogOperations(
+        Func<IReadOnlySet<string>> selected,
+        Queue<IReadOnlySet<string>?> reads,
+        Func<CancellationToken, Task>? reconcile = null,
+        Func<CancellationToken, Task>? replace = null)
+        => new(
+            selected,
+            _ => Task.FromResult(
+                reads.Count > 0
+                    ? reads.Dequeue()
+                    : throw new InvalidOperationException("No MCP catalog snapshot was queued.")),
+            reconcile ?? (_ => Task.CompletedTask),
+            replace ?? (_ => Task.CompletedTask));
 
 #pragma warning disable CS0618 // ParentToolCallId is deprecated in GitHub.Copilot.SDK 1.0.1 with no replacement; test fixture mirrors the runtime sub-agent payload.
     private static AssistantMessageEvent CreateAssistantMessageEvent(

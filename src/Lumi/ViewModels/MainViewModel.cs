@@ -405,6 +405,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             _chatSessionStore.ApplyToSurfaces(surface => surface.InvalidateMcpSession());
         };
+        SettingsVM.McpRuntimeConfigurationChanged += () =>
+        {
+            _chatSessionStore.ApplyToSurfaces(surface => surface.InvalidateMcpSession());
+        };
         SettingsVM.ByokConfigurationChanged += () =>
         {
             InjectByokModels();

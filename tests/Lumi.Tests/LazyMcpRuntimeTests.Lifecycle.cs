@@ -213,6 +213,209 @@ public sealed partial class LazyMcpRuntimeTests
     }
 
     [SkippableFact]
+    public async Task ToolCallPreflight_RemainsLazyUntilFirstBusinessCall_AndUsesUncachedProbe()
+    {
+        using var fake = new FakeMcp();
+        await fake.PrimeAsync();
+        var listsBefore = fake.Messages("tools/list").Length;
+        await using var runtime = new McpProxyRuntime(fake.CacheDirectory);
+        var remote = runtime.Register(fake.Definition(
+            toolCallPreflightPolicy: McpToolCallPreflightPolicy.ToolsListSessionHealth));
+
+        AssertSuccess(await fake.InitializeAsync(remote.Url));
+        AssertSuccess(await fake.RequestAsync(remote.Url, "tools/list"));
+        AssertSuccess(await fake.RequestAsync(remote.Url, "ping"));
+        Assert.Single(fake.Starts);
+        Assert.Equal(listsBefore, fake.Messages("tools/list").Length);
+
+        AssertSuccess(await fake.RequestAsync(remote.Url, "tools/call",
+            new { name = "echo", arguments = new { value = "first" } }));
+        Assert.Equal(2, fake.Starts.Length);
+        Assert.Equal(listsBefore + 2, fake.Messages("tools/list").Length);
+        Assert.Single(fake.Messages("tools/call"));
+    }
+
+    [SkippableFact]
+    public async Task ToolCallPreflight_RepairsWarmExpiredSessionBeforeSingleDispatch()
+    {
+        using var fake = new FakeMcp();
+        await fake.PrimeAsync();
+        await using var runtime = new McpProxyRuntime(fake.CacheDirectory);
+        var remote = runtime.Register(fake.Definition(
+            toolCallPreflightPolicy: McpToolCallPreflightPolicy.ToolsListSessionHealth));
+        AssertSuccess(await fake.InitializeAsync(remote.Url));
+        AssertSuccess(await fake.RequestAsync(remote.Url, "tools/call",
+            new { name = "echo", arguments = new { value = "warm" } }));
+        var listsBeforeExpiry = fake.Messages("tools/list").Length;
+
+        fake.SetBehavior("discovery-session-lost");
+        AssertSuccess(await fake.RequestAsync(remote.Url, "tools/call",
+            new { name = "echo", arguments = new { value = "after-expiry" } }));
+
+        Assert.Equal(3, fake.Starts.Length);
+        Assert.Equal(listsBeforeExpiry + 2, fake.Messages("tools/list").Length);
+        Assert.Equal(["warm", "after-expiry"], fake.Messages("tools/call")
+            .Select(message => message.GetProperty("params").GetProperty("arguments")
+                .GetProperty("value").GetString()));
+    }
+
+    [SkippableFact]
+    public async Task ToolCallPreflight_ConcurrentExpiredCallsCoordinateOneRepair()
+    {
+        using var fake = new FakeMcp();
+        await fake.PrimeAsync();
+        await using var runtime = new McpProxyRuntime(fake.CacheDirectory);
+        var remote = runtime.Register(fake.Definition(
+            toolCallPreflightPolicy: McpToolCallPreflightPolicy.ToolsListSessionHealth));
+        AssertSuccess(await fake.InitializeAsync(remote.Url));
+        AssertSuccess(await fake.RequestAsync(remote.Url, "tools/call",
+            new { name = "echo", arguments = new { value = "warm" } }));
+
+        fake.SetBehavior("discovery-session-lost");
+        var calls = Enumerable.Range(0, 2).Select(index =>
+            fake.RequestAsync(remote.Url, "tools/call",
+                new { name = "echo", arguments = new { value = $"concurrent-{index}" } })).ToArray();
+        var responses = await Task.WhenAll(calls);
+
+        Assert.All(responses, AssertSuccess);
+        Assert.Equal(3, fake.Starts.Length);
+        Assert.Equal(3, fake.Messages("tools/call").Length);
+        Assert.Equal(2, fake.Messages("tools/call")
+            .Count(message => message.GetProperty("params").GetProperty("arguments")
+                .GetProperty("value").GetString()!.StartsWith("concurrent-", StringComparison.Ordinal)));
+    }
+
+    [SkippableFact]
+    public async Task ToolCallPreflight_ChangedReplacementCatalogBlocksBusinessDispatch()
+    {
+        using var fake = new FakeMcp();
+        await fake.PrimeAsync();
+        await using var runtime = new McpProxyRuntime(fake.CacheDirectory);
+        var remote = runtime.Register(fake.Definition(
+            toolCallPreflightPolicy: McpToolCallPreflightPolicy.ToolsListSessionHealth));
+        AssertSuccess(await fake.InitializeAsync(remote.Url));
+        AssertSuccess(await fake.RequestAsync(remote.Url, "tools/call",
+            new { name = "echo", arguments = new { value = "warm" } }));
+
+        fake.SetBehavior("recovery-selected-missing");
+        var response = await fake.RequestAsync(remote.Url, "tools/call",
+            new { name = "echo", arguments = new { value = "blocked" } });
+
+        AssertError(response);
+        Assert.Equal(
+            McpStdioServerConnection.FrontendRediscoveryRequiredCode,
+            response.GetProperty("error").GetProperty("code").GetInt32());
+        Assert.Equal(
+            McpStdioServerConnection.FrontendRediscoveryRequiredMessage,
+            response.GetProperty("error").GetProperty("message").GetString());
+        Assert.Single(fake.Messages("tools/call"));
+        Assert.Equal(3, fake.Starts.Length);
+    }
+
+    [SkippableFact]
+    public async Task ToolCallPreflight_CancellationBeforeDispatchNeverCallsTool()
+    {
+        using var fake = new FakeMcp("slow-list");
+        await using var connection = new McpStdioServerConnection(
+            fake.Definition(
+                lazy: false,
+                toolCallPreflightPolicy: McpToolCallPreflightPolicy.ToolsListSessionHealth),
+            new McpDiscoveryCache(fake.CacheDirectory));
+        var client = new McpDiscoverySession(useLazyInitialization: false);
+        Assert.NotNull(await connection.HandleClientMessageAsync(
+            client,
+            """{"jsonrpc":"2.0","id":"initialize","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}""",
+            CancellationToken.None));
+        var callsBefore = fake.Messages("tools/call").Length;
+        var listsBefore = fake.Messages("tools/list").Length;
+
+        using var cancellation = new CancellationTokenSource();
+        var pending = connection.HandleClientMessageAsync(
+            client,
+            """{"jsonrpc":"2.0","id":"cancelled","method":"tools/call","params":{"name":"echo","arguments":{"value":"cancelled"}}}""",
+            cancellation.Token);
+        await fake.WaitForMessageCountAsync("tools/list", listsBefore + 1);
+        cancellation.Cancel();
+        var response = await pending;
+        Assert.NotNull(response);
+        using var document = JsonDocument.Parse(response);
+        AssertError(document.RootElement);
+        Assert.Equal(callsBefore, fake.Messages("tools/call").Length);
+        File.WriteAllText(Path.Combine(fake.Root, "continue-list"), "");
+    }
+
+    [SkippableFact]
+    public async Task ToolCallPreflight_PostDispatchSessionLossIsNeverReplayed()
+    {
+        using var fake = new FakeMcp();
+        await fake.PrimeAsync();
+        await using var runtime = new McpProxyRuntime(fake.CacheDirectory);
+        var remote = runtime.Register(fake.Definition(
+            toolCallPreflightPolicy: McpToolCallPreflightPolicy.ToolsListSessionHealth));
+        AssertSuccess(await fake.InitializeAsync(remote.Url));
+        fake.SetBehavior("call-session-lost");
+
+        var response = await fake.RequestAsync(remote.Url, "tools/call",
+            new { name = "echo", arguments = new { value = "uncertain" } });
+
+        AssertError(response);
+        Assert.Contains("outcome is unknown", response.GetProperty("error").GetProperty("message").GetString());
+        Assert.Single(fake.Messages("tools/call"));
+        Assert.Equal(3, fake.Starts.Length);
+        AssertSuccess(await fake.RequestAsync(remote.Url, "tools/call",
+            new { name = "echo", arguments = new { value = "next" } }));
+        Assert.Equal(2, fake.Messages("tools/call").Length);
+    }
+
+    [SkippableFact]
+    public async Task ToolCallPreflight_ValidatesToolAdvertisedOnLaterPaginationPage()
+    {
+        using var fake = new FakeMcp("paginated-later-tool");
+        await using var runtime = new McpProxyRuntime(fake.CacheDirectory);
+        var remote = runtime.Register(fake.Definition(
+            toolCallPreflightPolicy: McpToolCallPreflightPolicy.ToolsListSessionHealth));
+        AssertSuccess(await fake.InitializeAsync(remote.Url));
+        var firstPage = await fake.RequestAsync(remote.Url, "tools/list", new { });
+        AssertSuccess(firstPage);
+        Assert.Equal("page-2", firstPage.GetProperty("result").GetProperty("nextCursor").GetString());
+        AssertSuccess(await fake.RequestAsync(
+            remote.Url,
+            "tools/list",
+            new { cursor = "page-2" }));
+
+        AssertSuccess(await fake.RequestAsync(remote.Url, "tools/call",
+            new { name = "echo", arguments = new { value = "later-page" } }));
+
+        Assert.Single(fake.Messages("tools/call"));
+        Assert.Equal(4, fake.Messages("tools/list").Length);
+    }
+
+    [SkippableFact]
+    public async Task ToolCallPreflight_BlocksToolFromUnfetchedPaginationPage()
+    {
+        using var fake = new FakeMcp("paginated-later-tool");
+        await using var runtime = new McpProxyRuntime(fake.CacheDirectory);
+        var remote = runtime.Register(fake.Definition(
+            toolCallPreflightPolicy: McpToolCallPreflightPolicy.ToolsListSessionHealth));
+        AssertSuccess(await fake.InitializeAsync(remote.Url));
+        var firstPage = await fake.RequestAsync(remote.Url, "tools/list", new { });
+        AssertSuccess(firstPage);
+        Assert.Equal("page-2", firstPage.GetProperty("result").GetProperty("nextCursor").GetString());
+
+        var response = await fake.RequestAsync(remote.Url, "tools/call",
+            new { name = "echo", arguments = new { value = "not-advertised" } });
+
+        AssertError(response);
+        Assert.Equal(
+            McpStdioServerConnection.FrontendRediscoveryRequiredCode,
+            response.GetProperty("error").GetProperty("code").GetInt32());
+        Assert.Equal(
+            McpStdioServerConnection.FrontendRediscoveryRequiredMessage,
+            response.GetProperty("error").GetProperty("message").GetString());
+        Assert.Empty(fake.Messages("tools/call"));
+    }
+
+    [SkippableFact]
     public async Task TimeoutChangesReuseDiscoveryButRetainDistinctRegistrationTimeouts()
     {
         using var fake = new FakeMcp();

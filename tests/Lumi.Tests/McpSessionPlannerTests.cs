@@ -10,6 +10,45 @@ namespace Lumi.Tests;
 
 public sealed class McpSessionPlannerTests
 {
+    [Theory]
+    [InlineData("agency", new[] { "mcp", "mail" }, true)]
+    [InlineData("AGENCY.EXE", new[] { "MCP", "calendar" }, true)]
+    [InlineData(@"C:\tools\agency.exe", new[] { "mcp", "mail", "--verbose" }, true)]
+    [InlineData("agency.exe", new[] { "mcp" }, false)]
+    [InlineData("agency.exe", new[] { "other", "mail" }, false)]
+    [InlineData("node", new[] { "mcp", "mail" }, false)]
+    public void ToolCallPreflightPolicy_OptsInOnlyAgencyMcpProviders(
+        string command,
+        string[] args,
+        bool expected)
+    {
+        var policy = McpSessionPlanner.GetToolCallPreflightPolicy(command, args);
+
+        Assert.Equal(expected, policy.HasFlag(McpToolCallPreflightPolicy.ToolsListSessionHealth));
+        Assert.Equal(expected, policy.HasFlag(McpToolCallPreflightPolicy.AgencyNotDispatchedSignal));
+    }
+
+    [Fact]
+    public async Task ToolCallPreflightPolicy_GivesEagerFrontendsDistinctContractsOnSharedBackend()
+    {
+        await using var runtime = new McpProxyRuntime();
+        var definition = new McpProxyServerDefinition(
+            "test:agency-contracts",
+            "agency-contracts",
+            new McpStdioServerConfig { Command = "agency.exe", Args = ["mcp", "mail"] },
+            ToolCallPreflightPolicy: AgencyMcpSessionRecovery.Policy);
+
+        using var first = runtime.AcquireSessionRegistration(definition);
+        using var second = runtime.AcquireSessionRegistration(definition);
+
+        Assert.NotEqual(first.ServerConfig.Url, second.ServerConfig.Url);
+        Assert.Equal(
+            new Uri(first.ServerConfig.Url).AbsolutePath,
+            new Uri(second.ServerConfig.Url).AbsolutePath);
+        Assert.StartsWith("?client=", new Uri(first.ServerConfig.Url).Query);
+        Assert.StartsWith("?client=", new Uri(second.ServerConfig.Url).Query);
+    }
+
     [Fact]
     public async Task LazyInitialization_RequiresProxyAndIsBoundToNewSessionConfiguration()
     {
@@ -23,11 +62,13 @@ public sealed class McpSessionPlannerTests
         Assert.Null(McpSessionPlanner.SelectProxyRuntime(data.Settings, runtime));
         using var direct = McpSessionPlanner.Build(data, @"C:\repo", EmptyCatalog(), new Chat(), null, null);
         Assert.IsType<McpStdioServerConfig>(direct.Servers["local"]);
+        Assert.Null(direct.ProxyLease);
 
         data.Settings.UseMcpProxy = true;
         using var lazy = McpSessionPlanner.Build(data, @"C:\repo", EmptyCatalog(), new Chat(), null, null,
             McpSessionPlanner.SelectProxyRuntime(data.Settings, runtime));
         var lazyConfig = Assert.IsType<McpHttpServerConfig>(lazy.Servers["local"]);
+        Assert.True(lazy.ProxyLease?.UsesLazyInitialization);
         var expected = runtime.Register(new McpProxyServerDefinition(
             $"lumi:{server.Id}", server.Name,
             new McpStdioServerConfig
@@ -43,6 +84,7 @@ public sealed class McpSessionPlannerTests
         data.Settings.UseLazyMcpInitialization = false;
         using var eager = McpSessionPlanner.Build(data, @"C:\repo", EmptyCatalog(), new Chat(), null, null, runtime);
         var eagerConfig = Assert.IsType<McpHttpServerConfig>(eager.Servers["local"]);
+        Assert.False(eager.ProxyLease?.UsesLazyInitialization);
         Assert.Equal(new Uri(lazyConfig.Url).AbsolutePath, new Uri(eagerConfig.Url).AbsolutePath);
         Assert.Empty(new Uri(eagerConfig.Url).Query);
         data.Settings.UseLazyMcpInitialization = true;
@@ -182,6 +224,8 @@ public sealed class McpSessionPlannerTests
 
         Assert.IsType<McpStdioServerConfig>(servers["filesystem"]);
         Assert.IsType<McpHttpServerConfig>(servers["jira"]);
+        Assert.Contains("filesystem", plan.GetSelectedRuntimeServerNames());
+        Assert.Contains("jira", plan.GetSelectedRuntimeServerNames());
         Assert.Null(plan.DetachProxyLease());
     }
 
@@ -220,6 +264,8 @@ public sealed class McpSessionPlannerTests
         Assert.Equal(["read_file"], proxiedLocal.Tools);
         var nativeRemote = Assert.IsType<McpHttpServerConfig>(servers["jira"]);
         Assert.Equal("https://example.test/mcp", nativeRemote.Url);
+        Assert.Contains("filesystem", plan.GetSelectedRuntimeServerNames());
+        Assert.Contains("jira", plan.GetSelectedRuntimeServerNames());
         using var proxyLease = plan.DetachProxyLease();
         Assert.NotNull(proxyLease);
     }

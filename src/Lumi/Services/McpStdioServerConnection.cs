@@ -12,6 +12,9 @@ namespace Lumi.Services;
 
 internal sealed partial class McpStdioServerConnection : IAsyncDisposable
 {
+    internal const int FrontendRediscoveryRequiredCode = -32_002;
+    internal const string FrontendRediscoveryRequiredMessage =
+        "MCP frontend rediscovery required. No tool was called.";
     private const int InitializeTimeoutMilliseconds = 45_000;
     private const int DiagnosticLineLimit = 8;
     private const int DiagnosticLineMaxLength = 500;
@@ -130,8 +133,52 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
                 try
                 {
                     var (response, processGeneration) = await ForwardRequestAsync(client, message, cancellationToken).ConfigureAwait(false);
+                    if (string.Equals(method, "tools/call", StringComparison.Ordinal)
+                        && _definition.ToolCallPreflightPolicy.HasFlag(
+                            McpToolCallPreflightPolicy.AgencyNotDispatchedSignal)
+                        && AgencyMcpSessionRecovery.IsTrustedNotDispatchedResponse(response))
+                    {
+                        try
+                        {
+                            await RecoverToolCallSessionAsync(
+                                client,
+                                message,
+                                processGeneration,
+                                cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            Trace.TraceWarning(
+                                "MCP server '{0}' reported that a business call was not dispatched, "
+                                + "but replacement validation failed: {1}",
+                                _definition.Name,
+                                ex.Message);
+                        }
+
+                        return JsonRpc.ReplaceId(response, clientId);
+                    }
+
                     if (!IsRecoverableSessionLossResponse(response))
                         return JsonRpc.ReplaceId(response, clientId);
+
+                    if (string.Equals(method, "tools/call", StringComparison.Ordinal))
+                    {
+                        string? recoveryError = null;
+                        try
+                        {
+                            await RecoverToolCallSessionAsync(
+                                client,
+                                message,
+                                processGeneration,
+                                cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            recoveryError = ex.Message;
+                        }
+
+                        return BuildUnknownToolCallOutcome(clientId, method, recoveryError);
+                    }
 
                     await RecoverExpiredServerSessionAsync(processGeneration, cancellationToken).ConfigureAwait(false);
                     if (!canRetryAfterInterruption || attempt >= SessionRecoveryRetryLimit)
@@ -151,10 +198,65 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
                 -32000,
                 $"MCP server '{_definition.Name}' restarted while '{method ?? "unknown"}' was in flight. Its outcome is unknown, so Lumi did not retry it.");
         }
+        catch (McpFrontendRediscoveryRequiredException)
+        {
+            return JsonRpc.Error(
+                clientId,
+                FrontendRediscoveryRequiredCode,
+                FrontendRediscoveryRequiredMessage);
+        }
         catch (Exception ex)
         {
             return JsonRpc.Error(clientId, -32000, ex.Message);
         }
+    }
+
+    private async Task RecoverToolCallSessionAsync(
+        McpDiscoverySession client,
+        JsonElement clientMessage,
+        int observedGeneration,
+        CancellationToken cancellationToken)
+    {
+        var toolName = GetToolCallName(client, clientMessage);
+        using var initializeCts = CreateInitializeTimeoutSource(cancellationToken);
+        var initializeCt = initializeCts.Token;
+        await _lifecycleLock.WaitAsync(initializeCt).ConfigureAwait(false);
+        try
+        {
+            await RecoverExpiredServerSessionUnderLockAsync(
+                observedGeneration,
+                initializeCt,
+                async recoveryCt =>
+                {
+                    if (!await ProbeToolCallSessionHealthUnderLockAsync(
+                            client,
+                            toolName,
+                            recoveryCt).ConfigureAwait(false))
+                    {
+                        throw new IOException(
+                            $"MCP server '{_definition.Name}' replacement session was not available.");
+                    }
+                }).ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycleLock.Release();
+        }
+    }
+
+    private string BuildUnknownToolCallOutcome(
+        JsonElement clientId,
+        string? method,
+        string? recoveryError)
+    {
+        var recoveryStatus = string.IsNullOrWhiteSpace(recoveryError)
+            ? "The provider session was recovered and validated."
+            : $"Provider session recovery failed: {recoveryError}";
+        return JsonRpc.Error(
+            clientId,
+            -32000,
+            $"MCP server '{_definition.Name}' lost its session while '{method ?? "unknown"}' was in flight. "
+            + $"Its outcome is unknown, so Lumi did not retry it. {recoveryStatus}");
     }
 
     public async ValueTask DisposeAsync()
@@ -238,6 +340,7 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
                             continue;
                         client.InitializeResult = cached.InitializeResult;
                         client.ToolsResult = cached.ToolsResult;
+                        client.RecordAdvertisedTools(cached.ToolsResult);
                         Volatile.Write(ref client.AdvertisedRevision, refreshRevision);
                         Trace.TraceInformation("MCP server '{0}' is using cached discovery; backend startup is deferred.", _definition.Name);
                         return McpDiscoveryCache.CreateProxyInitializeResult(cached.InitializeResult);
@@ -348,7 +451,10 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
         }
     }
 
-    private async Task RecoverExpiredServerSessionUnderLockAsync(int observedGeneration, CancellationToken cancellationToken)
+    private async Task RecoverExpiredServerSessionUnderLockAsync(
+        int observedGeneration,
+        CancellationToken cancellationToken,
+        Func<CancellationToken, Task>? validateRecoveredSession = null)
     {
         ThrowIfDisposed();
 
@@ -356,6 +462,8 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
         {
             if (recoveryError is not null)
                 throw new IOException(recoveryError);
+            if (validateRecoveredSession is not null)
+                await validateRecoveredSession(cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -363,7 +471,11 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
         if (observedGeneration != Volatile.Read(ref _processGeneration)
             && _initializeResult is not null
             && IsProcessRunning(_process))
+        {
+            if (validateRecoveredSession is not null)
+                await validateRecoveredSession(cancellationToken).ConfigureAwait(false);
             return;
+        }
 
         var attempts = Interlocked.Increment(ref _sessionRecoveryAttempts);
         try
@@ -376,6 +488,8 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
             var initializedResult = await SendInitializeWithRetryAsync(initParams, cancellationToken).ConfigureAwait(false);
             await SendNotificationAsync("notifications/initialized", null, cancellationToken).ConfigureAwait(false);
             _initializeResult = initializedResult;
+            if (validateRecoveredSession is not null)
+                await validateRecoveredSession(cancellationToken).ConfigureAwait(false);
             _sessionRecoveryOutcomes[observedGeneration] = null;
             var successes = Interlocked.Increment(ref _sessionRecoverySuccesses);
             Trace.TraceInformation(

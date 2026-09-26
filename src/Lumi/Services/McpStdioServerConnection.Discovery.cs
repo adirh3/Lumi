@@ -9,6 +9,10 @@ namespace Lumi.Services;
 
 internal sealed partial class McpStdioServerConnection : IAsyncDisposable
 {
+    private sealed class McpFrontendRediscoveryRequiredException : InvalidOperationException
+    {
+    }
+
     private void BindInitializeProfile(JsonElement parameters)
     {
         if (_initializeParams is { } bound)
@@ -56,8 +60,7 @@ internal sealed partial class McpStdioServerConnection : IAsyncDisposable
     private void ThrowDiscoveryChanged(McpDiscoverySession client)
     {
         client.MarkNeedsRediscovery();
-        throw new InvalidOperationException(
-            $"MCP server '{_definition.Name}' changed its advertised discovery. No tool was called. Reconnect the MCP client to rediscover its tools.");
+        throw new McpFrontendRediscoveryRequiredException();
     }
 
     private bool IsCurrentDiscovery(int generation, long revision)

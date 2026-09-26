@@ -100,8 +100,8 @@ public sealed class McpSettleTests
 
     [Theory]
     [InlineData(false, 180)]
-    [InlineData(true, 60)]
-    public void ResolveMcpSessionSetupTimeout_ExtendsOnlyProxyMode(bool usesProxy, int expectedSeconds)
+    [InlineData(true, 180)]
+    public void ResolveMcpSessionSetupTimeout_AllowsThreeMinutesForBothModes(bool usesProxy, int expectedSeconds)
         => Assert.Equal(
             TimeSpan.FromSeconds(expectedSeconds),
             ChatViewModel.ResolveMcpSessionSetupTimeout(usesProxy));
