@@ -242,6 +242,8 @@ public partial class SettingsViewModel
             return;
 
         _dataStore.Data.Settings.RemoteAccessEnabled = value;
+        if (value && UseDevTunnelForMobile)
+            _remoteServer?.EnsureDevTunnelId();
         _dataStore.MarkRemoteSecurityChanged();
         _ = PersistRemoteSettingsAsync();
 
@@ -308,7 +310,10 @@ public partial class SettingsViewModel
         ResetMobileOnboarding();
         _dataStore.Data.Settings.RemoteUseDevTunnel = value;
         if (value)
+        {
             _dataStore.Data.Settings.RemoteAllowInsecureLan = false;
+            _remoteServer?.EnsureDevTunnelId();
+        }
         _dataStore.MarkRemoteSecurityChanged();
         _ = PersistRemoteSettingsAsync();
         if (RemoteAccessEnabled)
