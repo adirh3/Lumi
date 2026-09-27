@@ -5120,7 +5120,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return !string.Equals(
                 cachedSession.SessionId,
                 chat.CopilotSessionId,
-                StringComparison.Ordinal);
+                StringComparison.Ordinal)
+                || !IsCachedSessionProviderConsistentWithSelection(chat.Id, cachedSession);
         }
         catch (ObjectDisposedException)
         {

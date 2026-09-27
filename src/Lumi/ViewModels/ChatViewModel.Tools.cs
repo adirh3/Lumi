@@ -352,6 +352,15 @@ public partial class ChatViewModel
 
     partial void OnSelectedModelChanged(string? value)
     {
+        if (!_suppressModelSelectionSideEffects && !IsEditingMessage
+            && !string.IsNullOrWhiteSpace(value)
+            && CurrentChat is { Messages.Count: 0 } emptyChat
+            && !string.Equals(emptyChat.LastModelUsed, value, StringComparison.Ordinal)
+            && (ByokConfigHelper.IsByokModel(value) || ByokConfigHelper.IsByokModel(emptyChat.LastModelUsed)))
+        {
+            emptyChat.LastReasoningEffortUsed = null;
+        }
+
         UpdateQualityLevels(value);
         UpdateContextWindowTiers(value);
         if (CurrentChat is { } activeChat)
@@ -393,11 +402,12 @@ public partial class ChatViewModel
         if (CurrentChat is null || CurrentChat.Messages.Count == 0)
         {
             _dataStore.Data.Settings.PreferredModel = value;
-            _dataStore.Data.Settings.ReasoningEffort = reasoningEffort ?? string.Empty;
+            if (!ByokConfigHelper.IsByokModel(value))
+                _dataStore.Data.Settings.ReasoningEffort = reasoningEffort ?? string.Empty;
             if (contextTier is not null)
                 _dataStore.Data.Settings.ContextWindowTier = contextTier;
             _dataStore.Save();
-            DefaultModelSelectionChanged?.Invoke(value, reasoningEffort, contextTier);
+            DefaultModelSelectionChanged?.Invoke(value, _dataStore.Data.Settings.ReasoningEffort, contextTier);
         }
 
         if (CurrentChat is { } chat)

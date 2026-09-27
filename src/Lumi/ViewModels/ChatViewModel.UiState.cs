@@ -856,7 +856,10 @@ public partial class ChatViewModel
                 _dataStore.Save();
             }
 
-            DefaultModelSelectionChanged?.Invoke(SelectedModel ?? string.Empty, GetPersistedReasoningEffortPreference(), contextTier);
+            var defaultEffort = Lumi.Services.ByokConfigHelper.IsByokModel(SelectedModel)
+                ? _dataStore.Data.Settings.ReasoningEffort
+                : GetPersistedReasoningEffortPreference();
+            DefaultModelSelectionChanged?.Invoke(SelectedModel ?? string.Empty, defaultEffort, contextTier);
             return;
         }
 

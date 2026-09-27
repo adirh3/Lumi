@@ -309,7 +309,7 @@ public sealed class SettingsViewModelCredentialStoreTests
     {
         var data = new AppData();
         data.Settings.ReasoningEffort = "high";
-        data.Settings.PreferredModel = "byok:model-1";
+        data.Settings.PreferredModel = "native:model";
         using var vm = CreateVm(data: data);
 
         vm.UpdateModelCapabilities(
@@ -330,6 +330,10 @@ public sealed class SettingsViewModelCredentialStoreTests
             new HashSet<string> { "byok:model-1" },
             merge: true);
 
+        vm.PreferredModel = "byok:model-1";
+        Assert.Equal("high", data.Settings.ReasoningEffort);
+        vm.SyncDefaultModelSelectionFromChat("byok:model-1", "high", "long");
+        Assert.Equal("high", data.Settings.ReasoningEffort);
         Assert.Equal(["Low", "High"], vm.QualityLevels!);
         Assert.Equal("Low", vm.SelectedQuality);
         Assert.Equal(["Default", "Long"], vm.ContextWindowTiers!);

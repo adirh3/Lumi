@@ -82,10 +82,9 @@ internal static class ModelSelectionHelper
             if (string.IsNullOrWhiteSpace(model.Id))
                 continue;
 
-            if (model.SupportedReasoningEfforts is { Count: > 0 })
-                reasoningEfforts[model.Id] = model.SupportedReasoningEfforts
-                    .Where(static effort => !string.IsNullOrWhiteSpace(effort))
-                    .ToList();
+            reasoningEfforts[model.Id] = (model.SupportedReasoningEfforts ?? [])
+                .Where(static effort => !string.IsNullOrWhiteSpace(effort))
+                .ToList();
 
             if (!string.IsNullOrWhiteSpace(model.DefaultReasoningEffort))
                 defaultEfforts[model.Id] = model.DefaultReasoningEffort!;

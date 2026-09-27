@@ -428,7 +428,8 @@ public sealed class ByokModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Maximum number of input (prompt) tokens allowed for a turn — caps the context window.
+    /// Maximum number of input (prompt) tokens used as the prompt/input and compaction cap,
+    /// distinct from the total context capacity in <c>ModelCapabilities.Limits.MaxContextWindowTokens</c>.
     /// <c>null</c> (the default) means "inherit the provider/SDK default". Applied through
     /// <c>ProviderConfig.MaxPromptTokens</c>.
     /// </summary>

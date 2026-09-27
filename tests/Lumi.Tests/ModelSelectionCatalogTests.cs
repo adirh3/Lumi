@@ -19,6 +19,21 @@ namespace Lumi.Tests;
 public sealed class ModelSelectionCatalogTests
 {
     [Fact]
+    public async Task KnownByokModelWithoutReasoning_DoesNotUsePreloadFallback()
+    {
+        using var session = HeadlessTestSession.Start();
+        await session.Dispatch(() =>
+        {
+            var viewModel = CreateViewModel(out _);
+            const string modelId = "byok:endpoint:model";
+            Assert.Equal("high", viewModel.ResolveReasoningEffortForModel("high", modelId));
+            viewModel.UpdateModelCapabilities([new ModelInfo { Id = modelId }], merge: true);
+            Assert.Null(viewModel.ResolveReasoningEffortForModel("high", modelId));
+            Assert.Null(viewModel.QualityLevels);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task UpdateModelCapabilities_ByokMergeKeepsCopilotModelCapabilities()
     {
         using var session = HeadlessTestSession.Start();
@@ -114,6 +129,9 @@ public sealed class ModelSelectionCatalogTests
                 Chats = [chat]
             };
             var viewModel = new ChatViewModel(new DataStore(data), TestCopilot.Shared);
+            SeedCatalog(viewModel);
+            string? notifiedEffort = null;
+            viewModel.DefaultModelSelectionChanged += (_, effort, _) => notifiedEffort = effort;
             const string byokId = "byok:endpoint:model";
             viewModel.UpdateModelCapabilities(
                 [new ModelInfo
@@ -121,15 +139,25 @@ public sealed class ModelSelectionCatalogTests
                     Id = byokId,
                     SupportedReasoningEfforts = ["low", "high"],
                     DefaultReasoningEffort = "low"
-                }]);
+                }], new HashSet<string> { byokId }, merge: true);
             await viewModel.LoadChatAsync(chat);
             viewModel.SelectedModel = byokId;
 
             selectedQuality = viewModel.SelectedQuality;
             resolvedDefault = viewModel.ResolvePersistedReasoningEffortForChat(chat, byokId);
+            Assert.Equal("high", data.Settings.ReasoningEffort);
+            Assert.Equal("high", notifiedEffort);
+            viewModel.SelectedContextWindowTier = "Long";
+            Assert.Equal("high", notifiedEffort);
+            viewModel.SelectedModel = "gpt-5.5";
+            Assert.Equal("High", viewModel.SelectedQuality);
+            viewModel.SelectedModel = byokId;
 
             viewModel.SelectedQuality = "High";
             resolvedExplicitChoice = viewModel.ResolvePersistedReasoningEffortForChat(chat, byokId);
+            viewModel.SelectedQuality = "Low";
+            Assert.Equal("low", data.Settings.ReasoningEffort);
+            Assert.Equal("low", notifiedEffort);
         }, CancellationToken.None);
 
         Assert.Equal("Low", selectedQuality);

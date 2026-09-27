@@ -1038,7 +1038,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         UpdateQualityLevels(value);
         UpdateContextWindowTiers(value);
         var resolvedEffort = GetSelectedReasoningEffort() ?? string.Empty;
-        if (ReasoningEffort != resolvedEffort)
+        if (!Lumi.Services.ByokConfigHelper.IsByokModel(value) && ReasoningEffort != resolvedEffort)
         {
             ReasoningEffort = resolvedEffort;
             return;
@@ -1137,11 +1137,13 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         if (string.IsNullOrWhiteSpace(model))
             return;
 
-        var normalizedEffort = ModelSelectionHelper.NormalizeEffort(
-            reasoningEffort,
-            model,
-            _modelReasoningEfforts,
-            _modelDefaultEfforts) ?? string.Empty;
+        var normalizedEffort = Lumi.Services.ByokConfigHelper.IsByokModel(model)
+            ? reasoningEffort ?? string.Empty
+            : ModelSelectionHelper.NormalizeEffort(
+                reasoningEffort,
+                model,
+                _modelReasoningEfforts,
+                _modelDefaultEfforts) ?? string.Empty;
 
         if (PreferredModel != model)
             PreferredModel = model;
