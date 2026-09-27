@@ -191,8 +191,8 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Test browser runtime cache
-        run: node --test tests/Lumi.Mobile.Tests/BrowserRuntimeCache.test.mjs
+      - name: Test browser runtime cache and recovery
+        run: node --test tests/Lumi.Mobile.Tests/BrowserRuntimeCache.test.mjs tests/Lumi.Mobile.Tests/BrowserRecovery.test.mjs
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4

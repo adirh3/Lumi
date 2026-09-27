@@ -136,8 +136,16 @@ Chat data, pairing tokens, API responses, and sign-in pages are not put in this
 cache. If storage is unavailable or full, startup uses the normal verified
 download. The PC and its authenticated tunnel must still be reachable. The first
 launch, a new runtime build, or cleared browser storage still requires a download.
-Run the focused loader tests with
-`node --test tests/Lumi.Mobile.Tests/BrowserRuntimeCache.test.mjs` (Node.js 22+).
+
+If the browser loses Lumi's graphics context (for example after backgrounding),
+the PWA shows a **Reload Lumi** recovery screen instead of leaving a blank canvas.
+Startup/runtime errors also remain visible after the initial splash is hidden.
+Reload is an explicit action: it does not clear browser pairing or cached assets,
+but may discard unsent text. Saved chats remain on the PC.
+
+Run the focused browser tests with
+`node --test tests/Lumi.Mobile.Tests/BrowserRuntimeCache.test.mjs tests/Lumi.Mobile.Tests/BrowserRecovery.test.mjs`
+(Node.js 22+).
 
 When Microsoft sign-in returns a top-level browser navigation to a Lumi API URL,
 the server sends the browser to `/app/` instead of displaying the raw pairing

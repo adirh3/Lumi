@@ -2,6 +2,26 @@ const safeAreaProbe = document.createElement('div');
 safeAreaProbe.className = 'safe-area-probe';
 document.documentElement.appendChild(safeAreaProbe);
 
+export function showBrowserRecovery(message) {
+    document.getElementById('lumi-recovery-message').textContent = message;
+    document.getElementById('lumi-recovery').hidden = false;
+}
+
+export function configureBrowserRecovery() {
+    document.getElementById('lumi-reload').addEventListener('click', () => {
+        globalThis.location.reload();
+    });
+    // Context-loss events do not bubble. Listen on the host before Avalonia creates its canvas.
+    document.getElementById('out').addEventListener('webglcontextlost', event => {
+        if (event.target.tagName !== 'CANVAS'
+            || !event.target.classList.contains('avalonia-canvas'))
+            return;
+
+        console.error('[Lumi] The browser graphics context was lost.');
+        showBrowserRecovery('Your browser stopped displaying Lumi. Reload to reconnect.');
+    }, true);
+}
+
 export function getOrigin() {
     return globalThis.location.origin;
 }

@@ -1,15 +1,15 @@
 import {
+    configureBrowserRecovery,
     configureNativeTextInputs,
-    publishViewportInsets
+    publishViewportInsets,
+    showBrowserRecovery
 } from './browserHost.js';
+
+configureBrowserRecovery();
 
 const showFatalError = error => {
     console.error(error);
-    const splash = document.querySelector('.lumi-splash');
-    if (!splash)
-        return;
-    splash.querySelector('span').textContent =
-        `Lumi could not start: ${error?.message || error}`;
+    showBrowserRecovery(`Lumi could not start: ${error?.message || error}`);
 };
 
 window.addEventListener('error', event => showFatalError(event.error || event.message));
