@@ -34,6 +34,132 @@ public sealed class ModelSelectionCatalogTests
     }
 
     [Fact]
+    public async Task ResolveReasoningEffortForModel_PreservesNativeEffort_WhenOnlyByokCatalogInjected()
+    {
+        // Startup injects BYOK picker tokens (merge:true) before the native SDK catalog arrives, so
+        // the capability map is non-empty while native models are still unresolvable. Those BYOK
+        // entries must not be mistaken for a loaded native catalog: the stored native effort stays
+        // preserved until the authoritative catalog lands (owner-reproduced high → null regression).
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            var viewModel = CreateViewModel(out _);
+
+            viewModel.UpdateModelCapabilities(
+                [
+                    new ModelInfo { Id = "byok:endpoint:no-reasoning" },
+                    new ModelInfo
+                    {
+                        Id = "byok:endpoint:with-reasoning",
+                        SupportedReasoningEfforts = ["low", "high"],
+                        DefaultReasoningEffort = "low"
+                    }
+                ],
+                merge: true);
+
+            Assert.Equal("high", viewModel.ResolveReasoningEffortForModel("high", "gpt-5.5"));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ResolveReasoningEffortForModel_KeepsNativeEffort_ThroughByokThenNativeCatalog()
+    {
+        // Mirrors the real startup order: InjectByokModels() (merge:true) runs in InitializeAsync
+        // before RefreshCopilotStateAsync applies the SDK catalog (merge:false). The stored native
+        // effort survives the BYOK injection window and resolves against the catalog once it lands;
+        // a native model absent from the loaded catalog is retired and drops the effort.
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            var viewModel = CreateViewModel(out _);
+            Assert.Equal("high", viewModel.ResolveReasoningEffortForModel("high", "gpt-5.5"));
+
+            viewModel.UpdateModelCapabilities(
+                [new ModelInfo { Id = "byok:endpoint:model", SupportedReasoningEfforts = ["low"] }],
+                merge: true);
+            Assert.Equal("high", viewModel.ResolveReasoningEffortForModel("high", "gpt-5.5"));
+
+            SeedCatalog(viewModel);
+            Assert.Equal("high", viewModel.ResolveReasoningEffortForModel("high", "gpt-5.5"));
+            Assert.Null(viewModel.ResolveReasoningEffortForModel("high", "retired-model"));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ResolveReasoningEffortForModel_DropsEffort_ForUnknownByokModel()
+    {
+        // The local BYOK config catalog is synchronous and authoritative: once it has been applied,
+        // a BYOK token missing from the map is genuinely unknown (e.g. a deleted entry), not a
+        // not-yet-loaded catalog, so the stored effort is dropped instead of forwarded unsupported
+        // to the endpoint. Before any injection the preload fallback still preserves it.
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            var viewModel = CreateViewModel(out _);
+            Assert.Equal(
+                "high",
+                viewModel.ResolveReasoningEffortForModel("high", "byok:endpoint:deleted"));
+
+            viewModel.UpdateModelCapabilities(
+                [new ModelInfo { Id = "byok:endpoint:current" }],
+                merge: true);
+
+            Assert.Null(viewModel.ResolveReasoningEffortForModel("high", "byok:endpoint:deleted"));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task CopyModelCatalogFrom_CarriesNativeCatalogLoadedFlag()
+    {
+        // Background orchestration/job surfaces are seeded via CopyModelCatalogFrom rather than a
+        // live SDK update. A seeded surface must treat the copied catalog as authoritative: an
+        // unknown native model drops the stored effort instead of preserving it forever.
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            var source = CreateViewModel(out _);
+            SeedCatalog(source);
+            var target = CreateViewModel(out _);
+            Assert.Equal("high", target.ResolveReasoningEffortForModel("high", "retired-model"));
+
+            target.CopyModelCatalogFrom(source);
+
+            Assert.Null(target.ResolveReasoningEffortForModel("high", "retired-model"));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task CopyModelCatalogFrom_CarriesByokCatalogLoadedFlag()
+    {
+        // A surface can also be seeded while only the synchronous BYOK config has been applied —
+        // the source never received a native SDK catalog. The copy must carry the BYOK-loaded flag
+        // too: on the seeded surface an unknown BYOK token is a deleted entry and drops the stored
+        // effort, the copied BYOK map stays live, and native efforts remain preserved because the
+        // source's native catalog never loaded.
+        using var session = HeadlessTestSession.Start();
+
+        await session.Dispatch(() =>
+        {
+            var source = CreateViewModel(out _);
+            source.UpdateModelCapabilities(
+                [new ModelInfo { Id = "byok:endpoint:current", SupportedReasoningEfforts = ["low"] }],
+                merge: true);
+            var target = CreateViewModel(out _);
+            Assert.Equal("high", target.ResolveReasoningEffortForModel("high", "byok:endpoint:deleted"));
+
+            target.CopyModelCatalogFrom(source);
+
+            Assert.Null(target.ResolveReasoningEffortForModel("high", "byok:endpoint:deleted"));
+            Assert.Equal("low", target.ResolveReasoningEffortForModel("high", "byok:endpoint:current"));
+            Assert.Equal("high", target.ResolveReasoningEffortForModel("high", "gpt-5.5"));
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task UpdateModelCapabilities_ByokMergeKeepsCopilotModelCapabilities()
     {
         using var session = HeadlessTestSession.Start();

@@ -222,6 +222,20 @@ public partial class ChatViewModel
     private Dictionary<string, ModelOptionMetadata> _modelOptionMetadata = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// True once the authoritative (merge:false) SDK model catalog has been applied to this surface.
+    /// Startup injects synchronous BYOK entries first, so a non-empty capability map is not proof
+    /// that native models are resolvable yet.
+    /// </summary>
+    private bool _nativeModelCatalogLoaded;
+
+    /// <summary>
+    /// True once any supplementary (merge:true) BYOK catalog has been applied to this surface. The
+    /// local BYOK config is synchronous, so after it has spoken, a BYOK token absent from the map is
+    /// genuinely unknown rather than not-yet-loaded.
+    /// </summary>
+    private bool _byokModelCatalogLoaded;
+
+    /// <summary>
     /// Rich rows for the composer's model picker: the same models as <see cref="AvailableModels"/>,
     /// pinned favorites first, each carrying the metadata its badges render.
     /// <see cref="SelectedModel"/> stays a plain id — the picker resolves an option back to it.
@@ -369,10 +383,12 @@ public partial class ChatViewModel
             if (longContextModelIds is not null)
                 mergedLongContextIds.UnionWith(longContextModelIds);
             _modelsWithLongContext = mergedLongContextIds;
+            _byokModelCatalogLoaded = true;
         }
         else
         {
             _modelsWithLongContext = CopyModelIdSet(longContextModelIds);
+            _nativeModelCatalogLoaded = true;
         }
         ModelCatalogVersion++;
         OnPropertyChanged(nameof(ModelCatalogVersion));
@@ -455,6 +471,8 @@ public partial class ChatViewModel
         _modelOptionMetadata = new Dictionary<string, ModelOptionMetadata>(
             source._modelOptionMetadata,
             StringComparer.OrdinalIgnoreCase);
+        _nativeModelCatalogLoaded = source._nativeModelCatalogLoaded;
+        _byokModelCatalogLoaded = source._byokModelCatalogLoaded;
         UpdateQualityLevels(SelectedModel);
         UpdateContextWindowTiers(SelectedModel);
         RebuildModelOptions();
@@ -670,12 +688,15 @@ public partial class ChatViewModel
     }
 
     // Resolves a reasoning effort against a model's capabilities. ModelSelectionHelper.NormalizeEffort returns
-    // null in two very different situations: (a) the model catalog has not loaded yet, and (b) a known model has
-    // no reasoning-effort support (e.g. claude-sonnet-4.5). These must be treated differently. Before the catalog
-    // loads we preserve the caller's stored effort so a pre-load selection/override isn't lost; once the catalog
-    // is known, a null means the model genuinely has no effort support, so we drop the effort rather than forward
-    // an unsupported value to the SDK. Forwarding it errors the turn on session setup and, on a mid-session model
-    // switch, is swallowed and silently keeps the previous model — which would defeat a manage_chats model override.
+    // null in three very different situations: (a) a known model has no reasoning-effort support (e.g.
+    // claude-sonnet-4.5), (b) a BYOK model unknown to the already-applied local catalog — that catalog is
+    // synchronous and authoritative, so unknown genuinely means no efforts — and (c) a native model unknown to
+    // this surface, which can only mean the authoritative SDK catalog has not been applied yet (startup injects
+    // BYOK entries first, so a non-empty map is not proof it loaded). Only (c) preserves the stored effort, and
+    // only until the SDK catalog arrives; afterwards a native model absent from the catalog is retired/pinned.
+    // Anywhere else we drop the effort rather than forward an unsupported value to the SDK: forwarding it errors
+    // the turn on session setup and, on a mid-session model switch, is swallowed and silently keeps the previous
+    // model — which would defeat a manage_chats model override.
     internal string? ResolveReasoningEffortForModel(string? storedEffort, string? modelId)
     {
         var normalized = ModelSelectionHelper.NormalizeEffort(
@@ -686,7 +707,14 @@ public partial class ChatViewModel
         if (normalized is not null)
             return normalized;
 
-        return _modelReasoningEfforts.Count == 0 ? storedEffort : null;
+        if (!string.IsNullOrWhiteSpace(modelId)
+            && (_modelReasoningEfforts.ContainsKey(modelId)
+                || (Lumi.Services.ByokConfigHelper.IsByokModel(modelId) && _byokModelCatalogLoaded)))
+        {
+            return null;
+        }
+
+        return _nativeModelCatalogLoaded ? null : storedEffort;
     }
 
     // Resolves a context-window tier against a specific model, mirroring ResolveReasoningEffortForModel.
