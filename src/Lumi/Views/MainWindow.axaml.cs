@@ -55,6 +55,10 @@ public partial class MainWindow : Window
     private Border? _windowContentRoot;
     private Control?[] _pages = [];
     private Panel?[] _sidebarPanels = [];
+    private Border? _capabilityDropOverlay;
+
+    /// <summary>Skills, Lumis and MCP Servers: the pages that accept a dropped capability to import.</summary>
+    private static readonly int[] CapabilityPageIndices = [3, 4, 6];
     private Button?[] _navButtons = [];
     private Button?[] _railNavButtons = [];
     private Panel? _renameOverlay;
@@ -298,6 +302,13 @@ public partial class MainWindow : Window
 
         ApplyAgentAutomationLandmarks();
 
+        _capabilityDropOverlay = this.FindControl<Border>("CapabilityDropOverlay");
+        foreach (var index in CapabilityPageIndices)
+        {
+            WireCapabilityDropTarget(_pages[index]);
+            WireCapabilityDropTarget(_sidebarPanels[index]);
+        }
+
         AddHandler(PointerPressedEvent, OnWindowPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
 
         WireNavHoverEvents();
@@ -407,6 +418,53 @@ public partial class MainWindow : Window
                 AutomationProperties.SetHelpText(control, "Stable Lumi page landmark for coding agents and MCP diagnostics.");
             }
         }
+    }
+
+    // ── Drop a SKILL.md, Lumi pack or MCP config onto Skills / Lumis / MCP Servers to import it ──
+
+    private void WireCapabilityDropTarget(Control? target)
+    {
+        if (target is null)
+            return;
+
+        DragDrop.SetAllowDrop(target, true);
+        target.AddHandler(DragDrop.DragEnterEvent, OnCapabilityDragOver);
+        target.AddHandler(DragDrop.DragOverEvent, OnCapabilityDragOver);
+        target.AddHandler(DragDrop.DragLeaveEvent, OnCapabilityDragLeave);
+        target.AddHandler(DragDrop.DropEvent, OnCapabilityDrop);
+    }
+
+    private bool CanImportDrop(DragEventArgs e)
+        => DataContext is MainViewModel { ImportVM.IsOpen: false } vm
+           && CapabilityPageIndices.Contains(vm.SelectedNavIndex)
+           && CapabilityDropSupport.CanAccept(e);
+
+    private void OnCapabilityDragOver(object? sender, DragEventArgs e)
+    {
+        var accepted = CanImportDrop(e);
+        e.DragEffects = accepted ? DragDropEffects.Copy : DragDropEffects.None;
+        if (_capabilityDropOverlay is not null)
+            _capabilityDropOverlay.IsVisible = accepted;
+    }
+
+    private void OnCapabilityDragLeave(object? sender, DragEventArgs e)
+    {
+        if (_capabilityDropOverlay is not null && sender is Control target && !CapabilityDropSupport.IsInside(target, e))
+            _capabilityDropOverlay.IsVisible = false;
+    }
+
+    private async void OnCapabilityDrop(object? sender, DragEventArgs e)
+    {
+        if (_capabilityDropOverlay is not null)
+            _capabilityDropOverlay.IsVisible = false;
+        if (!CanImportDrop(e) || DataContext is not MainViewModel vm)
+            return;
+
+        e.Handled = true;
+        if (CapabilityDropSupport.GetItem(e) is { } item)
+            await vm.ImportVM.OpenWithStorageItemAsync(item);
+        else if (CapabilityDropSupport.GetText(e) is { } text)
+            vm.ImportVM.OpenWithText(text, Loc.Import_FromDrop);
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)

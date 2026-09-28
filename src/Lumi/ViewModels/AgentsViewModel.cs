@@ -15,6 +15,17 @@ public partial class AgentsViewModel : ObservableObject
 
     public event Action? AgentsChanged;
 
+    /// <summary>
+    /// Raised to open the share sheet for a Lumi; the shell owns the sheet. The flag is true when the
+    /// open editor holds edits that the shared (saved) version does not include.
+    /// </summary>
+    public event Action<LumiAgent, bool>? ShareRequested;
+
+    private string? _editorBaseline;
+
+    /// <summary>Raised to open the import sheet; the shell owns the sheet.</summary>
+    public event Action? ImportRequested;
+
     [ObservableProperty] private LumiAgent? _selectedAgent;
     [ObservableProperty] private bool _isEditing;
     [ObservableProperty] private string _editName = "";
@@ -75,6 +86,7 @@ public partial class AgentsViewModel : ObservableObject
          RefreshAvailableSkills(selectedAgent);
          RefreshAvailableMcpServers(selectedAgent);
          RefreshAvailableTools(selectedAgent);
+         _editorBaseline = CaptureEditor();
      }
 
     private void RefreshList()
@@ -153,6 +165,19 @@ public partial class AgentsViewModel : ObservableObject
         ("analyze_project", "Analyze Project", "Coding", "Analyze project architecture, tech stack, and structure."),
     ];
 
+    /// <summary>Friendly name for a Lumi tool id (legacy ids included); unknown ids are shown as written.</summary>
+    internal static string GetToolDisplayName(string toolName)
+    {
+        var runtimeName = ToolDisplayHelper.ToRuntimeToolName(toolName);
+        foreach (var (name, displayName, _, _) in KnownTools)
+        {
+            if (string.Equals(name, runtimeName, StringComparison.Ordinal))
+                return displayName;
+        }
+
+        return toolName;
+    }
+
     private void RefreshAvailableTools(LumiAgent? agent)
     {
         AvailableTools.Clear();
@@ -202,8 +227,20 @@ public partial class AgentsViewModel : ObservableObject
          RefreshAvailableSkills(value);
          RefreshAvailableMcpServers(value);
          RefreshAvailableTools(value);
+         _editorBaseline = CaptureEditor();
          IsEditing = true;
      }
+
+    private string CaptureEditor()
+        => string.Join(
+            '\u001F',
+            EditName,
+            EditDescription,
+            EditSystemPrompt,
+            EditIconGlyph,
+            string.Join(',', AvailableSkills.Where(static s => s.IsSelected).Select(static s => s.SkillId)),
+            string.Join(',', AvailableMcpServers.Where(static s => s.IsSelected).Select(static s => s.McpServerId)),
+            string.Join(',', AvailableTools.Where(static t => t.IsSelected).Select(static t => t.ToolName)));
 
      private void SyncEditorFromAgent(LumiAgent agent)
      {
@@ -318,6 +355,20 @@ public partial class AgentsViewModel : ObservableObject
         if (SelectedAgent is not null)
             DeleteAgent(SelectedAgent);
     }
+
+    [RelayCommand]
+    private void ShareAgent(LumiAgent? agent)
+    {
+        agent ??= SelectedAgent;
+        if (agent is null)
+            return;
+
+        var hasUnsavedEdits = IsEditing && ReferenceEquals(agent, SelectedAgent) && CaptureEditor() != _editorBaseline;
+        ShareRequested?.Invoke(agent, hasUnsavedEdits);
+    }
+
+    [RelayCommand]
+    private void Import() => ImportRequested?.Invoke();
 
     partial void OnSearchQueryChanged(string value) => RefreshList();
 }

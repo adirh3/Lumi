@@ -1,0 +1,107 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Lumi.ViewModels"
+             x:Class="Lumi.Views.CapabilityCardView"
+             x:DataType="vm:CapabilityCardViewModel"
+             x:CompileBindings="True">
+
+  <!-- The capability "ticket": identity on top, a perforated tear line, and a stub that says how it
+       travels and what it carries. Same card on the share side and on the import side. -->
+  <Border x:Name="CardRoot"
+          CornerRadius="16"
+          Background="{Binding CardBackground}"
+          BorderBrush="{Binding CardBorder}"
+          BorderThickness="1"
+          ClipToBounds="True">
+    <Grid RowDefinitions="Auto,Auto">
+      <DockPanel Margin="18,18,18,16">
+        <Border DockPanel.Dock="Left"
+                Width="56" Height="56"
+                CornerRadius="16"
+                Margin="0,0,16,0"
+                VerticalAlignment="Top"
+                Background="{Binding GlyphBackground}"
+                BorderBrush="{Binding GlyphBorder}"
+                BorderThickness="1">
+          <TextBlock Text="{Binding Glyph}"
+                     FontSize="28"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center" />
+        </Border>
+
+        <StackPanel Spacing="4" VerticalAlignment="Center">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Border Background="{Binding AccentTint}"
+                    CornerRadius="{DynamicResource Radius.Full}"
+                    Padding="8,2,8,3">
+              <TextBlock Text="{Binding KindLabel}"
+                         FontSize="10.5"
+                         FontWeight="SemiBold"
+                         Foreground="{Binding Accent}" />
+            </Border>
+            <Border BorderBrush="{Binding CardBorder}"
+                    BorderThickness="1"
+                    CornerRadius="{DynamicResource Radius.Full}"
+                    Padding="8,1,8,2">
+              <TextBlock Text="{Binding FormatLabel}"
+                         FontSize="10.5"
+                         FontFamily="{DynamicResource Font.FamilyMono}"
+                         Foreground="{DynamicResource Brush.TextSecondary}" />
+            </Border>
+          </StackPanel>
+          <TextBlock x:Name="CardName"
+                     Text="{Binding Name}"
+                     FontSize="18"
+                     FontWeight="SemiBold"
+                     Foreground="{DynamicResource Brush.TextPrimary}"
+                     TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{Binding Description}"
+                     IsVisible="{Binding HasDescription}"
+                     FontSize="{DynamicResource Font.SizeCaption}"
+                     Foreground="{DynamicResource Brush.TextSecondary}"
+                     TextWrapping="Wrap"
+                     MaxLines="2"
+                     TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+      </DockPanel>
+
+      <!-- Tear line with ticket notches cut out of both edges. -->
+      <Grid Grid.Row="1" RowDefinitions="Auto,Auto">
+        <Panel Height="14" Margin="0,-7,0,-7">
+          <Line StartPoint="18,7" EndPoint="2000,7"
+                Stroke="{Binding CardBorder}"
+                StrokeThickness="1"
+                StrokeDashArray="3,3"
+                Margin="0,0,18,0"
+                ClipToBounds="True" />
+          <Ellipse Width="14" Height="14"
+                   HorizontalAlignment="Left"
+                   Margin="-7,0,0,0"
+                   Fill="{DynamicResource Brush.SurfaceOverlay}"
+                   Stroke="{Binding CardBorder}"
+                   StrokeThickness="1" />
+          <Ellipse Width="14" Height="14"
+                   HorizontalAlignment="Right"
+                   Margin="0,0,-7,0"
+                   Fill="{DynamicResource Brush.SurfaceOverlay}"
+                   Stroke="{Binding CardBorder}"
+                   StrokeThickness="1" />
+        </Panel>
+        <DockPanel Grid.Row="1" Margin="18,10,18,12">
+          <TextBlock DockPanel.Dock="Right"
+                     Text="{Binding FooterLabel}"
+                     FontSize="11"
+                     Foreground="{DynamicResource Brush.TextTertiary}"
+                     VerticalAlignment="Center"
+                     Margin="12,0,0,0" />
+          <TextBlock Text="{Binding ContentsLabel}"
+                     FontSize="11"
+                     FontWeight="Medium"
+                     Foreground="{DynamicResource Brush.TextSecondary}"
+                     TextTrimming="CharacterEllipsis"
+                     VerticalAlignment="Center" />
+        </DockPanel>
+      </Grid>
+    </Grid>
+  </Border>
+</UserControl>

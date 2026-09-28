@@ -6,6 +6,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
 
 namespace Lumi.Services;
@@ -49,6 +50,24 @@ public static class ClipboardHelper
         catch
         {
             /* clipboard can be transiently locked by another process — ignore */
+        }
+    }
+
+    /// <summary>Reads plain text from the system clipboard; null when it has none or cannot be read.</summary>
+    public static async Task<string?> GetTextAsync()
+    {
+        var clipboard = ActiveTopLevel()?.Clipboard;
+        if (clipboard is null)
+            return null;
+
+        try
+        {
+            return await ClipboardExtensions.TryGetTextAsync(clipboard);
+        }
+        catch
+        {
+            /* clipboard can be transiently locked by another process — treat as empty */
+            return null;
         }
     }
 

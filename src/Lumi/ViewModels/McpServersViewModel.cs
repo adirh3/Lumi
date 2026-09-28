@@ -30,6 +30,17 @@ public partial class McpServersViewModel : ObservableObject
     /// <summary>Raised when MCP server config changes (add/edit/delete/toggle) so chat sessions can be invalidated.</summary>
     public event Action? McpConfigChanged;
 
+    /// <summary>
+    /// Raised to open the share sheet for a server; the shell owns the sheet. The flag is true when the
+    /// open editor holds edits that the shared (saved) version does not include.
+    /// </summary>
+    public event Action<McpServer, bool>? ShareRequested;
+
+    private string? _editorBaseline;
+
+    /// <summary>Raised to open the import sheet; the shell owns the sheet.</summary>
+    public event Action? ImportRequested;
+
     [ObservableProperty] private McpServer? _selectedServer;
     [ObservableProperty] private bool _isEditing;
     [ObservableProperty] private bool _isBrowsing;
@@ -179,7 +190,24 @@ public partial class McpServersViewModel : ObservableObject
              EditNpxPackage = "";
              EditServerArgs = "";
          }
+
+         _editorBaseline = CaptureEditor();
      }
+
+    private string CaptureEditor()
+        => string.Join(
+            '\u001F',
+            EditName,
+            EditDescription,
+            EditServerTypeIndex,
+            EditCommand,
+            EditArgs,
+            EditNpxPackage,
+            EditServerArgs,
+            EditUrl,
+            EditEnvVars,
+            EditHeaders,
+            EditIsEnabled);
 
      private void RefreshCatalogInstallState()
      {
@@ -282,6 +310,20 @@ public partial class McpServersViewModel : ObservableObject
         RefreshList();
         McpConfigChanged?.Invoke();
     }
+
+    [RelayCommand]
+    private void ShareServer(McpServer? server)
+    {
+        server ??= SelectedServer;
+        if (server is null)
+            return;
+
+        var hasUnsavedEdits = IsEditing && ReferenceEquals(server, SelectedServer) && CaptureEditor() != _editorBaseline;
+        ShareRequested?.Invoke(server, hasUnsavedEdits);
+    }
+
+    [RelayCommand]
+    private void Import() => ImportRequested?.Invoke();
 
     partial void OnSearchQueryChanged(string value) => RefreshList();
 

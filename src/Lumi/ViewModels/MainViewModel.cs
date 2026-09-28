@@ -15,6 +15,7 @@ using Lumi.Localization;
 using Lumi.Models;
 using Lumi.Remote.Protocol;
 using Lumi.Services;
+using Lumi.Services.Sharing;
 
 namespace Lumi.ViewModels;
 
@@ -193,6 +194,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public ProjectsViewModel ProjectsVM { get; }
     public MemoriesViewModel MemoriesVM { get; }
     public McpServersViewModel McpServersVM { get; }
+
+    /// <summary>The share sheet for skills, Lumis and MCP servers (one per window).</summary>
+    public ShareSheetViewModel ShareVM { get; }
+
+    /// <summary>The import sheet: SKILL.md, Lumi packs and MCP configs, with a receipt before anything is added.</summary>
+    public ImportSheetViewModel ImportVM { get; }
+
     public ChatTagsViewModel ChatTagsVM { get; }
     public LibraryViewModel LibraryVM { get; }
     public SettingsViewModel SettingsVM { get; }
@@ -304,6 +312,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ProjectsVM = new ProjectsViewModel(dataStore, projectGitSyncService);
         MemoriesVM = new MemoriesViewModel(dataStore);
         McpServersVM = new McpServersViewModel(dataStore);
+        ShareVM = new ShareSheetViewModel(dataStore);
+        ImportVM = new ImportSheetViewModel(dataStore);
         LibraryVM = new LibraryViewModel(
             dataStore,
             async chatId => await OpenChatByIdAsync(chatId),
@@ -434,6 +444,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
             _chatSessionStore.ApplyMcpConfigurationChange();
             RefreshFeatureManagementUi();
         };
+
+        SkillsVM.ShareRequested += ShareVM.OpenFor;
+        AgentsVM.ShareRequested += ShareVM.OpenFor;
+        McpServersVM.ShareRequested += ShareVM.OpenFor;
+        SkillsVM.ImportRequested += ImportVM.Open;
+        AgentsVM.ImportRequested += ImportVM.Open;
+        McpServersVM.ImportRequested += ImportVM.Open;
+        ImportVM.Imported += OnCapabilitiesImported;
+        ImportVM.OpenItemRequested += OpenImportedCapability;
+        ImportVM.ChatWithLumiRequested += StartChatWithImportedLumi;
         LoadProjects();
         SubscribeChatRunningState();
         RefreshChatList();
@@ -1030,6 +1050,63 @@ public partial class MainViewModel : ObservableObject, IDisposable
         Projects.Clear();
         foreach (var p in _dataStore.Data.Projects.OrderBy(p => p.Name))
             Projects.Add(p);
+    }
+
+    /// <summary>
+    /// An import can add skills, a Lumi and MCP servers in one step; refresh every chat surface the
+    /// same way the individual editors do when they save one of those.
+    /// </summary>
+    private void OnCapabilitiesImported(ImportOutcome outcome)
+    {
+        _chatSessionStore.ApplyToSurfaces(surface =>
+        {
+            if (outcome.AddedSkills.Count > 0)
+                surface.InvalidateSystemPromptSession();
+            if (outcome.AddedLumi is not null)
+                surface.InvalidateAgentSession();
+            surface.RefreshComposerCatalogs();
+        });
+
+        if (outcome.AddedMcpServers.Count > 0)
+            _chatSessionStore.ApplyMcpConfigurationChange();
+
+        RefreshFeatureManagementUi();
+    }
+
+    private void OpenImportedCapability(SharedCapabilityKind kind, Guid id)
+    {
+        switch (kind)
+        {
+            case SharedCapabilityKind.Skill when _dataStore.Data.Skills.FirstOrDefault(skill => skill.Id == id) is { } skill:
+                SelectedNavIndex = 3;
+                if (!SkillsVM.Skills.Contains(skill))
+                    SkillsVM.SearchQuery = "";
+                SkillsVM.SelectedSkill = skill;
+                break;
+
+            case SharedCapabilityKind.Lumi when _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == id) is { } agent:
+                SelectedNavIndex = 4;
+                if (!AgentsVM.Agents.Contains(agent))
+                    AgentsVM.SearchQuery = "";
+                AgentsVM.SelectedAgent = agent;
+                break;
+
+            case SharedCapabilityKind.McpServer when _dataStore.Data.McpServers.FirstOrDefault(server => server.Id == id) is { } server:
+                SelectedNavIndex = 6;
+                if (!McpServersVM.Servers.Contains(server))
+                    McpServersVM.SearchQuery = "";
+                McpServersVM.SelectedServer = server;
+                break;
+        }
+    }
+
+    private void StartChatWithImportedLumi(Guid agentId)
+    {
+        if (_dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == agentId) is not { } agent)
+            return;
+
+        NewChatCommand.Execute(null);
+        ChatVM.SelectAgentByName(agent.Name);
     }
 
     private void RefreshFeatureManagementUi(bool refreshJobs = true, bool preserveJobsEditor = false)

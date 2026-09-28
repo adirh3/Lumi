@@ -50,6 +50,17 @@
           <!-- Header + actions row -->
           <DockPanel Margin="0,0,0,16">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+              <Button x:Name="ShareMcpServerButton" Classes="subtle motion-action" Padding="12,7" MinHeight="0"
+                      Command="{Binding ShareServerCommand}"
+                      CommandParameter="{Binding SelectedServer}"
+                      IsVisible="{Binding SelectedServer, Converter={x:Static ObjectConverters.IsNotNull}}"
+                      ToolTip.Tip="{loc:Str Share_ButtonTooltip}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <PathIcon Data="{StaticResource Icon.Share}" Width="13" Height="13"
+                            Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <TextBlock Text="{loc:Str Share_Button}" />
+                </StackPanel>
+              </Button>
               <Button Classes="accent motion-action" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
                       Command="{Binding SaveServerCommand}" />
               <Button Classes="subtle motion-action" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
@@ -246,20 +257,30 @@
 
       <!-- Empty state -->
       <StackPanel Classes="motion-surface"
-                  HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Opacity="0.35">
+                  HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14">
         <StackPanel.IsVisible>
           <MultiBinding Converter="{x:Static BoolConverters.And}">
             <Binding Path="!IsEditing" />
             <Binding Path="!IsBrowsing" />
           </MultiBinding>
         </StackPanel.IsVisible>
-        <PathIcon Data="{StaticResource Icon.Plug}" Width="28" Height="28"
-                  Foreground="{DynamicResource Brush.TextSecondary}" HorizontalAlignment="Center" />
-        <StackPanel Spacing="2" HorizontalAlignment="Center">
-          <TextBlock Text="{loc:Str Empty_SelectMcpServer}" HorizontalAlignment="Center" />
-          <TextBlock Text="Select a server or browse the catalog" Classes="caption tertiary"
-                     HorizontalAlignment="Center" />
+        <StackPanel Spacing="10" Opacity="0.35">
+          <PathIcon Data="{StaticResource Icon.Plug}" Width="28" Height="28"
+                    Foreground="{DynamicResource Brush.TextSecondary}" HorizontalAlignment="Center" />
+          <StackPanel Spacing="2" HorizontalAlignment="Center">
+            <TextBlock Text="{loc:Str Empty_SelectMcpServer}" HorizontalAlignment="Center" />
+            <TextBlock Text="Select a server or browse the catalog" Classes="caption tertiary"
+                       HorizontalAlignment="Center" />
+          </StackPanel>
         </StackPanel>
+        <Button x:Name="McpEmptyImportButton" Classes="subtle" HorizontalAlignment="Center"
+                Padding="12,6" MinHeight="0" Command="{Binding ImportCommand}">
+          <StackPanel Orientation="Horizontal" Spacing="7">
+            <PathIcon Data="{StaticResource Icon.Import}" Width="13" Height="13"
+                      Foreground="{DynamicResource Brush.AccentDefault}" />
+            <TextBlock Text="{loc:Str Import_EmptyHint}" Foreground="{DynamicResource Brush.TextSecondary}" />
+          </StackPanel>
+        </Button>
       </StackPanel>
   </Panel>
 </UserControl>

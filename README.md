@@ -9,6 +9,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Streaming chat** — Real-time streamed responses with tool call visualization, reasoning display, and typing indicators
 - **Agents (Lumis)** — Create custom agent personas with their own system prompts, skills, and tools
 - **Skills** — Reusable capability definitions in markdown that teach the assistant new abilities
+- **Sharing** — Share skills, Lumis and MCP servers as plain-text files anyone can read; import them (or any `SKILL.md` / MCP config) with a receipt of exactly what gets added
 - **Projects** — Organize chats with custom instructions that shape Lumi's behavior
 - **Memories** — Persistent facts extracted from conversations, remembered across all sessions
 - **Context awareness** — Lumi assembles context from the active project, agent, time of day, user name, skills, and memories into every interaction
@@ -16,6 +17,25 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Charts** — Inline interactive charts (line, bar, donut, pie) rendered in chat
 - **Localization** — English and Hebrew, with easy extension to other languages
 - **Desktop notifications** — Toast notifications when responses complete in the background
+
+### Sharing skills, Lumis and MCP servers
+
+**Share** (editor header, or right-click an item) opens a card with a receipt of what leaves the
+computer. A skill is shared as a standard Agent Skills `SKILL.md` (slug `name`, Lumi's display name
+and icon under `metadata`), so it works in Claude Code, Codex, Cursor and Gemini CLI; **Send to**
+installs it as `<skills folder>/<name>/SKILL.md` for those tools when they are present, and
+**Save to folder** writes the same layout anywhere (for example a repo's `.github/skills`). A Lumi or
+MCP server becomes a `*.lumi.md` capability pack: readable markdown whose tagged code blocks carry the
+Lumi, its skills and its MCP servers (as a standard `mcpServers` config).
+
+Secrets never travel: environment variable and header values are left out (only their names are
+shared), and credentials inlined into arguments or URLs are replaced with `<REDACTED>`. **Import**
+(sidebar, empty state, or drop a file on the Skills, Lumis or MCP Servers page) accepts Lumi packs,
+any `SKILL.md` or skill folder, and MCP JSON from Claude Desktop, VS Code or a README. It shows a
+receipt first — the exact commands and URLs, the keys you will need to add, and anything reused or
+renamed — and adds nothing until you confirm. Imported MCP servers arrive turned off with empty
+values, invisible characters that could hide instructions are removed, and existing items are never
+overwritten.
 
 ### Unread chats
 

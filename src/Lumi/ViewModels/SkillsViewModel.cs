@@ -15,6 +15,17 @@ public partial class SkillsViewModel : ObservableObject
 
     public event Action? SkillsChanged;
 
+    /// <summary>
+    /// Raised to open the share sheet for a skill; the shell owns the sheet. The flag is true when the
+    /// open editor holds edits that the shared (saved) version does not include.
+    /// </summary>
+    public event Action<Skill, bool>? ShareRequested;
+
+    private string? _editorBaseline;
+
+    /// <summary>Raised to open the import sheet; the shell owns the sheet.</summary>
+    public event Action? ImportRequested;
+
     [ObservableProperty] private Skill? _selectedSkill;
     [ObservableProperty] private bool _isEditing;
     [ObservableProperty] private string _editName = "";
@@ -109,7 +120,10 @@ public partial class SkillsViewModel : ObservableObject
          EditDescription = skill.Description;
          EditContent = skill.Content;
          EditIconGlyph = skill.IconGlyph;
+         _editorBaseline = CaptureEditor();
      }
+
+    private string CaptureEditor() => string.Join('\u001F', EditName, EditDescription, EditContent, EditIconGlyph);
 
     [RelayCommand]
     private void SaveSkill()
@@ -165,6 +179,20 @@ public partial class SkillsViewModel : ObservableObject
         RefreshList();
         SkillsChanged?.Invoke();
     }
+
+    [RelayCommand]
+    private void ShareSkill(Skill? skill)
+    {
+        skill ??= SelectedSkill;
+        if (skill is null)
+            return;
+
+        var hasUnsavedEdits = IsEditing && ReferenceEquals(skill, SelectedSkill) && CaptureEditor() != _editorBaseline;
+        ShareRequested?.Invoke(skill, hasUnsavedEdits);
+    }
+
+    [RelayCommand]
+    private void Import() => ImportRequested?.Invoke();
 
     partial void OnSearchQueryChanged(string value) => RefreshList();
 }
