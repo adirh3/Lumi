@@ -212,7 +212,15 @@ public static class CapabilityPackWriter
     private static string EmptyValueObject(IReadOnlyList<string> keys, string indent)
         => "{\n" + string.Join(",\n", keys.Select(key => indent + "  " + PackText.Quote(key) + ": \"\"")) + "\n" + indent + "}";
 
-    private static string WritePack(CapabilityPack pack)
+    /// <summary>
+    /// The smallest text that still reads back to the same pack: a skill's SKILL.md, or a Lumi pack
+    /// without the human-readable prose (front matter and tagged blocks only). This is what a chat
+    /// code carries; the readers never needed the prose.
+    /// </summary>
+    public static string WriteCompact(CapabilityShare share)
+        => share.Pack.Format == CapabilityPackFormat.SkillMarkdown ? share.Text : WritePack(share.Pack, compact: true);
+
+    private static string WritePack(CapabilityPack pack, bool compact = false)
     {
         var builder = new StringBuilder();
         builder.Append("---\n");
@@ -224,6 +232,9 @@ public static class CapabilityPackWriter
         if (!string.IsNullOrWhiteSpace(pack.IconGlyph))
             builder.Append("icon: ").Append(PackText.Quote(pack.IconGlyph)).Append('\n');
         builder.Append("---\n\n");
+
+        if (compact)
+            return AppendBlocks(builder, pack, prose: false);
 
         builder.Append("# ").Append(pack.IconGlyph).Append(' ').Append(PackText.SingleLine(pack.Name)).Append("\n\n");
         if (!string.IsNullOrWhiteSpace(pack.Description))
@@ -241,21 +252,33 @@ public static class CapabilityPackWriter
         }
 
         builder.Append('\n');
+        return AppendBlocks(builder, pack, prose: true);
+    }
 
+    private static string AppendBlocks(StringBuilder builder, CapabilityPack pack, bool prose)
+    {
         if (pack.Lumi is { } lumi)
         {
-            builder.Append("## ").Append(lumi.IconGlyph).Append(' ').Append(PackText.SingleLine(lumi.Name)).Append(" · Lumi\n\n");
+            if (prose)
+                builder.Append("## ").Append(lumi.IconGlyph).Append(' ').Append(PackText.SingleLine(lumi.Name)).Append(" · Lumi\n\n");
             PackText.AppendFence(builder, "markdown " + LumiBlockTag, WriteLumiDocument(lumi));
         }
 
         foreach (var skill in pack.Skills)
         {
-            builder.Append("## ").Append(skill.IconGlyph).Append(' ').Append(PackText.SingleLine(skill.Name)).Append(" · Skill\n\n");
+            if (prose)
+                builder.Append("## ").Append(skill.IconGlyph).Append(' ').Append(PackText.SingleLine(skill.Name)).Append(" · Skill\n\n");
             PackText.AppendFence(builder, "markdown " + SkillBlockTag, WriteSkillMarkdown(skill));
         }
 
         foreach (var server in pack.McpServers)
         {
+            if (!prose)
+            {
+                PackText.AppendFence(builder, "json " + McpBlockTag, WriteMcpConfig([server]));
+                continue;
+            }
+
             builder.Append("## 🔌 ").Append(PackText.SingleLine(server.Name)).Append(" · MCP server\n\n");
             builder.Append(server.IsRemote ? "Connects to: " : "Runs on your computer: ")
                 .Append(PackText.InlineCode(server.CommandLine)).Append("\n\n");

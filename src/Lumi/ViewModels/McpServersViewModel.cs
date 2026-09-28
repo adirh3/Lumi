@@ -36,7 +36,11 @@ public partial class McpServersViewModel : ObservableObject
     /// </summary>
     public event Action<McpServer, bool>? ShareRequested;
 
+    /// <summary>Raised for one-click "Copy for chat"; the flag has the same meaning as for <see cref="ShareRequested"/>.</summary>
+    public event Action<McpServer, bool>? CopyForChatRequested;
+
     private string? _editorBaseline;
+    private bool _restoringSelection;
 
     /// <summary>Raised to open the import sheet; the shell owns the sheet.</summary>
     public event Action? ImportRequested;
@@ -76,27 +80,41 @@ public partial class McpServersViewModel : ObservableObject
 
      public void RefreshFromStore()
      {
+         // Rebuilding the list clears the sidebar's selection, and through its two-way binding the
+         // open server. Put it back quietly afterwards: the editor stays attached, the page stays in
+         // the editor or the catalog as it was, and edits in progress are kept.
+         var open = SelectedServer;
+         var hasUnsavedEdits = IsEditing && CaptureEditor() != _editorBaseline;
          RefreshList();
          RefreshCatalogInstallState();
 
-         if (SelectedServer is null)
+         if (open is null)
              return;
 
-         var selectedServer = _dataStore.Data.McpServers.FirstOrDefault(server => server.Id == SelectedServer.Id);
-         if (selectedServer is null)
+         var stored = _dataStore.Data.McpServers.FirstOrDefault(server => server.Id == open.Id);
+         if (stored is null)
          {
              SelectedServer = null;
              IsEditing = false;
              return;
          }
 
-         if (!ReferenceEquals(SelectedServer, selectedServer))
-         {
-             SelectedServer = selectedServer;
-             return;
-         }
+         RestoreSelection(stored);
+         if (!hasUnsavedEdits)
+             SyncEditorFromServer(stored);
+     }
 
-         SyncEditorFromServer(selectedServer);
+     private void RestoreSelection(McpServer server)
+     {
+         _restoringSelection = true;
+         try
+         {
+             SelectedServer = server;
+         }
+         finally
+         {
+             _restoringSelection = false;
+         }
      }
 
     private void RefreshList()
@@ -151,7 +169,7 @@ public partial class McpServersViewModel : ObservableObject
 
      partial void OnSelectedServerChanged(McpServer? value)
      {
-         if (value is null) return;
+         if (value is null || _restoringSelection) return;
          SyncEditorFromServer(value);
 
          IsBrowsing = false;
@@ -320,6 +338,17 @@ public partial class McpServersViewModel : ObservableObject
 
         var hasUnsavedEdits = IsEditing && ReferenceEquals(server, SelectedServer) && CaptureEditor() != _editorBaseline;
         ShareRequested?.Invoke(server, hasUnsavedEdits);
+    }
+
+    [RelayCommand]
+    private void CopyServerForChat(McpServer? server)
+    {
+        server ??= SelectedServer;
+        if (server is null)
+            return;
+
+        var hasUnsavedEdits = IsEditing && ReferenceEquals(server, SelectedServer) && CaptureEditor() != _editorBaseline;
+        CopyForChatRequested?.Invoke(server, hasUnsavedEdits);
     }
 
     [RelayCommand]

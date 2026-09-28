@@ -201,6 +201,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>The import sheet: SKILL.md, Lumi packs and MCP configs, with a receipt before anything is added.</summary>
     public ImportSheetViewModel ImportVM { get; }
 
+    /// <summary>"Copied for chat" confirmations and the offer to preview a Lumi code found on the clipboard.</summary>
+    public CapabilityNoticeViewModel NoticeVM { get; }
+
     public ChatTagsViewModel ChatTagsVM { get; }
     public LibraryViewModel LibraryVM { get; }
     public SettingsViewModel SettingsVM { get; }
@@ -314,6 +317,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         McpServersVM = new McpServersViewModel(dataStore);
         ShareVM = new ShareSheetViewModel(dataStore);
         ImportVM = new ImportSheetViewModel(dataStore);
+        NoticeVM = new CapabilityNoticeViewModel(
+            dataStore,
+            ClipboardHelper.GetTextAsync,
+            () => IsOnboarded && !ImportVM.IsOpen && !ShareVM.IsOpen);
         LibraryVM = new LibraryViewModel(
             dataStore,
             async chatId => await OpenChatByIdAsync(chatId),
@@ -454,6 +461,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ImportVM.Imported += OnCapabilitiesImported;
         ImportVM.OpenItemRequested += OpenImportedCapability;
         ImportVM.ChatWithLumiRequested += StartChatWithImportedLumi;
+        SkillsVM.CopyForChatRequested += (skill, unsaved) => _ = CopyForChatAsync(ShareVM.QuickCopyForChatAsync(skill, unsaved));
+        AgentsVM.CopyForChatRequested += (agent, unsaved) => _ = CopyForChatAsync(ShareVM.QuickCopyForChatAsync(agent, unsaved));
+        McpServersVM.CopyForChatRequested += (server, unsaved) => _ = CopyForChatAsync(ShareVM.QuickCopyForChatAsync(server, unsaved));
+        NoticeVM.PreviewRequested += text => ImportVM.OpenWithText(text, Loc.Import_FromClipboard);
         LoadProjects();
         SubscribeChatRunningState();
         RefreshChatList();
@@ -1098,6 +1109,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 McpServersVM.SelectedServer = server;
                 break;
         }
+    }
+
+    private async Task CopyForChatAsync(Task<CapabilityPack?> copy)
+    {
+        if (await copy is not { } pack)
+            return;
+
+        NoticeVM.ShowCopied(CapabilityCardViewModel.ForPack(pack, ""));
     }
 
     private void StartChatWithImportedLumi(Guid agentId)

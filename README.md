@@ -9,7 +9,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 - **Streaming chat** — Real-time streamed responses with tool call visualization, reasoning display, and typing indicators
 - **Agents (Lumis)** — Create custom agent personas with their own system prompts, skills, and tools
 - **Skills** — Reusable capability definitions in markdown that teach the assistant new abilities
-- **Sharing** — Share skills, Lumis and MCP servers as plain-text files anyone can read; import them (or any `SKILL.md` / MCP config) with a receipt of exactly what gets added
+- **Sharing** — Share skills, Lumis and MCP servers as plain-text files anyone can read, or as a compact code for Teams/Slack that Lumi picks up from the clipboard; import them (or any `SKILL.md` / MCP config) with a receipt of exactly what gets added
 - **Projects** — Organize chats with custom instructions that shape Lumi's behavior
 - **Memories** — Persistent facts extracted from conversations, remembered across all sessions
 - **Context awareness** — Lumi assembles context from the active project, agent, time of day, user name, skills, and memories into every interaction
@@ -36,6 +36,17 @@ receipt first — the exact commands and URLs, the keys you will need to add, an
 renamed — and adds nothing until you confirm. Imported MCP servers arrive turned off with empty
 values, invisible characters that could hide instructions are removed, and existing items are never
 overwritten.
+
+**Copy for chat** (editor header, share card, or right-click) is the quickest way to hand something to
+a teammate in Teams, Slack or any chat. It copies a short message with a *Lumi code*: `lumi1.` followed
+by the same redacted text, Brotli-compressed and base64url-encoded behind a 4-byte SHA-256 check, in a
+code block (rich HTML for editors that support it, a fenced block for everything else). Codes are about
+half the size of the text, survive wrapping and chat formatting, and a code that was cut short is
+reported as damaged instead of being half-imported. When the teammate copies it and switches back to
+Lumi, a notice offers **Preview**, which opens the same import receipt. Lumi only reads the clipboard
+when its window is activated, only looks for its own codes and packs, never offers your own copies or
+things you already have, and can be turned off under **Settings › General › Sharing** (off by default
+on macOS, which warns when apps read the clipboard).
 
 ### Unread chats
 

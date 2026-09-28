@@ -1141,6 +1141,12 @@ public class UserSettings
     public bool MinimizeToTray { get; set; }
     public string GlobalHotkey { get; set; } = "";
     public bool NotificationsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Offer to preview a Lumi code or pack found on the clipboard when Lumi is activated. Off by
+    /// default on macOS, which can warn the user whenever an app reads the clipboard on its own.
+    /// </summary>
+    public bool OfferCopiedCapabilities { get; set; } = !OperatingSystem.IsMacOS();
     public string DismissedUpdateBannerToken { get; set; } = "";
 
     // ── Appearance ──

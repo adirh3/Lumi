@@ -16,7 +16,10 @@ public enum PackReadError
     InvalidJson,
     NoMcpServers,
     NewerVersion,
-    EmptyPack
+    EmptyPack,
+
+    /// <summary>A Lumi chat code that was cut short or altered on the way.</summary>
+    DamagedCode
 }
 
 public sealed record PackReadResult(CapabilityPack? Pack, PackReadError Error, string? Detail = null)
@@ -64,11 +67,28 @@ public static class CapabilityPackReader
         }
     }
 
-    private static PackReadResult ReadCore(string text, string? sourcePath)
+    private static PackReadResult ReadCore(string text, string? sourcePath, bool allowCode = true)
     {
         var normalized = PackText.NormalizeNewlines(text).Trim().TrimStart('\uFEFF').Trim();
         if (PackText.TryUnwrapSingleFence(normalized, out var inner))
             normalized = inner.Trim();
+
+        // A chat code wraps the same text in a compact, chat-proof form and may arrive with the
+        // message around it (title line, code fence). A document that merely mentions a code — a
+        // SKILL.md about Lumi, say — is read as the document it is.
+        var isDocument = normalized.StartsWith('{') || normalized.StartsWith("---", StringComparison.Ordinal);
+        if (!isDocument && allowCode && ShareCode.Contains(normalized))
+        {
+            var code = ShareCode.Decode(normalized);
+            return code.Status switch
+            {
+                ShareCodeStatus.Decoded when code.Text!.Length > MaxTextLength => PackReadResult.Fail(PackReadError.TooLarge),
+                ShareCodeStatus.Decoded => ReadCore(code.Text!, sourcePath: null, allowCode: false),
+                ShareCodeStatus.NewerVersion => PackReadResult.Fail(PackReadError.NewerVersion),
+                ShareCodeStatus.Damaged => PackReadResult.Fail(PackReadError.DamagedCode),
+                _ => PackReadResult.Fail(PackReadError.NotRecognized)
+            };
+        }
 
         if (normalized.StartsWith('{'))
             return ReadMcpConfig(normalized);

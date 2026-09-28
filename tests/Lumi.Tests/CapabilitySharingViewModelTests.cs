@@ -252,6 +252,88 @@ public sealed class CapabilitySharingViewModelTests
         Assert.True(sheet.Items.Single(item => item.Kind == SharedCapabilityKind.McpServer).IsReused);
     }
 
+    /// <summary>
+    /// The sidebar lists clear their selection when their items are rebuilt and push that through the
+    /// two-way SelectedItem binding; this mimics it so the view models see what they see in the app.
+    /// </summary>
+    private static void ClearSelectionOnRebuild(MainViewModel vm)
+    {
+        vm.SkillsVM.Skills.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
+                vm.SkillsVM.SelectedSkill = null;
+        };
+        vm.AgentsVM.Agents.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
+                vm.AgentsVM.SelectedAgent = null;
+        };
+        vm.McpServersVM.Servers.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
+                vm.McpServersVM.SelectedServer = null;
+        };
+    }
+
+    private static void ImportStandupNotes(MainViewModel vm)
+    {
+        vm.ImportVM.Open();
+        vm.ImportVM.LoadText("---\nname: standup-notes\ndescription: Standups.\n---\n\nSummarise.\n", "Clipboard");
+        vm.ImportVM.ConfirmCommand.Execute(null);
+    }
+
+    [Fact]
+    public void Import_KeepsOpenEditorsAttachedAndTheirEditsInProgress()
+    {
+        var (store, agent) = StoreWithResearchLumi();
+        var skill = store.Data.Skills.Single();
+        var server = store.Data.McpServers.Single();
+        var vm = new MainViewModel(store, TestCopilot.Shared, new UpdateService());
+        ClearSelectionOnRebuild(vm);
+        vm.SkillsVM.SelectedSkill = skill;
+        vm.AgentsVM.SelectedAgent = agent;
+        vm.McpServersVM.SelectedServer = server;
+        vm.SkillsVM.EditContent = "Always cite, with links.";
+        vm.AgentsVM.EditSystemPrompt = "Research very carefully.";
+        vm.AgentsVM.AvailableSkills.Single().IsSelected = false;
+
+        ImportStandupNotes(vm);
+
+        Assert.Same(skill, vm.SkillsVM.SelectedSkill);
+        Assert.True(vm.SkillsVM.IsEditing);
+        Assert.Equal("Always cite, with links.", vm.SkillsVM.EditContent);
+        Assert.Same(agent, vm.AgentsVM.SelectedAgent);
+        Assert.Equal("Research very carefully.", vm.AgentsVM.EditSystemPrompt);
+        Assert.False(vm.AgentsVM.AvailableSkills.Single(item => item.Name == "Citations").IsSelected);
+        Assert.Contains(vm.AgentsVM.AvailableSkills, item => item.Name == "Standup Notes" && !item.IsSelected);
+        Assert.Same(server, vm.McpServersVM.SelectedServer);
+
+        vm.SkillsVM.SaveSkillCommand.Execute(null);
+        var saved = Assert.Single(store.Data.Skills, item => item.Name == "Citations");
+        Assert.Equal("Always cite, with links.", saved.Content);
+    }
+
+    [Fact]
+    public void Refresh_LeavesAClosedEditorClosedAndShowsWhatIsStored()
+    {
+        var (store, _) = StoreWithResearchLumi();
+        var skill = store.Data.Skills.Single();
+        var vm = new MainViewModel(store, TestCopilot.Shared, new UpdateService());
+        ClearSelectionOnRebuild(vm);
+        vm.SkillsVM.SelectedSkill = skill;
+        vm.SkillsVM.CancelEditCommand.Execute(null);
+
+        skill.Content = "Changed elsewhere.";
+        vm.SkillsVM.RefreshFromStore();
+
+        Assert.False(vm.SkillsVM.IsEditing);
+        Assert.Same(skill, vm.SkillsVM.SelectedSkill);
+
+        vm.SkillsVM.SelectedSkill = null;
+        vm.SkillsVM.SelectedSkill = skill;
+        Assert.Equal("Changed elsewhere.", vm.SkillsVM.EditContent);
+    }
+
     [Fact]
     public void MainViewModel_RoutesShareAndImportAndRefreshesTheLibraryAfterImport()
     {

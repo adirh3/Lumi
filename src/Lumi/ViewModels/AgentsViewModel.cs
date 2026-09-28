@@ -21,7 +21,11 @@ public partial class AgentsViewModel : ObservableObject
     /// </summary>
     public event Action<LumiAgent, bool>? ShareRequested;
 
+    /// <summary>Raised for one-click "Copy for chat"; the flag has the same meaning as for <see cref="ShareRequested"/>.</summary>
+    public event Action<LumiAgent, bool>? CopyForChatRequested;
+
     private string? _editorBaseline;
+    private bool _restoringSelection;
 
     /// <summary>Raised to open the import sheet; the shell owns the sheet.</summary>
     public event Action? ImportRequested;
@@ -56,13 +60,21 @@ public partial class AgentsViewModel : ObservableObject
 
      public void RefreshFromStore()
      {
+         // Rebuilding the list clears the sidebar's selection, and through its two-way binding the
+         // open Lumi. Put it back quietly afterwards: the editor stays attached, stays open or closed
+         // as it was, and keeps edits in progress, including skill, server and tool choices.
+         var open = SelectedAgent;
+         var hasUnsavedEdits = IsEditing && CaptureEditor() != _editorBaseline;
+         var chosenSkills = AvailableSkills.Where(static s => s.IsSelected).Select(static s => s.SkillId).ToHashSet();
+         var chosenServers = AvailableMcpServers.Where(static s => s.IsSelected).Select(static s => s.McpServerId).ToHashSet();
+         var chosenTools = AvailableTools.Where(static t => t.IsSelected).Select(static t => t.ToolName).ToHashSet(StringComparer.Ordinal);
          RefreshList();
 
-         var selectedAgent = SelectedAgent is null
+         var stored = open is null
              ? null
-             : _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == SelectedAgent.Id);
+             : _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == open.Id);
 
-         if (SelectedAgent is not null && selectedAgent is null)
+         if (open is not null && stored is null)
          {
              SelectedAgent = null;
              IsEditing = false;
@@ -72,21 +84,41 @@ public partial class AgentsViewModel : ObservableObject
              return;
          }
 
-         if (selectedAgent is not null)
-         {
-             if (!ReferenceEquals(SelectedAgent, selectedAgent))
-             {
-                 SelectedAgent = selectedAgent;
-                 return;
-             }
+         if (stored is not null)
+             RestoreSelection(stored);
 
-             SyncEditorFromAgent(selectedAgent);
+         // The lists are rebuilt either way so newly added skills and servers can be chosen.
+         RefreshAvailableSkills(stored);
+         RefreshAvailableMcpServers(stored);
+         RefreshAvailableTools(stored);
+
+         if (hasUnsavedEdits)
+         {
+             foreach (var skill in AvailableSkills)
+                 skill.IsSelected = chosenSkills.Contains(skill.SkillId);
+             foreach (var server in AvailableMcpServers)
+                 server.IsSelected = chosenServers.Contains(server.McpServerId);
+             foreach (var tool in AvailableTools)
+                 tool.IsSelected = chosenTools.Contains(tool.ToolName);
+             return;
          }
 
-         RefreshAvailableSkills(selectedAgent);
-         RefreshAvailableMcpServers(selectedAgent);
-         RefreshAvailableTools(selectedAgent);
+         if (stored is not null)
+             SyncEditorFromAgent(stored);
          _editorBaseline = CaptureEditor();
+     }
+
+     private void RestoreSelection(LumiAgent agent)
+     {
+         _restoringSelection = true;
+         try
+         {
+             SelectedAgent = agent;
+         }
+         finally
+         {
+             _restoringSelection = false;
+         }
      }
 
     private void RefreshList()
@@ -222,7 +254,7 @@ public partial class AgentsViewModel : ObservableObject
 
      partial void OnSelectedAgentChanged(LumiAgent? value)
      {
-         if (value is null) return;
+         if (value is null || _restoringSelection) return;
          SyncEditorFromAgent(value);
          RefreshAvailableSkills(value);
          RefreshAvailableMcpServers(value);
@@ -365,6 +397,17 @@ public partial class AgentsViewModel : ObservableObject
 
         var hasUnsavedEdits = IsEditing && ReferenceEquals(agent, SelectedAgent) && CaptureEditor() != _editorBaseline;
         ShareRequested?.Invoke(agent, hasUnsavedEdits);
+    }
+
+    [RelayCommand]
+    private void CopyAgentForChat(LumiAgent? agent)
+    {
+        agent ??= SelectedAgent;
+        if (agent is null)
+            return;
+
+        var hasUnsavedEdits = IsEditing && ReferenceEquals(agent, SelectedAgent) && CaptureEditor() != _editorBaseline;
+        CopyForChatRequested?.Invoke(agent, hasUnsavedEdits);
     }
 
     [RelayCommand]

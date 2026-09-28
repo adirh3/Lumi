@@ -89,6 +89,7 @@ public sealed class GlobalSearchService
         new("Start Minimized", "General", 1),
         new("Close to Tray", "General", 1),
         new("Enable Notifications", "General", 1),
+        new("Detect Copied Capabilities", "General", 1),
         new("Global Hotkey", "General", 1),
         new("Use Lumi on iPhone", "Mobile", 2),
         new("Dark Mode", "Appearance", 3),

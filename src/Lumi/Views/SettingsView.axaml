@@ -178,6 +178,13 @@
           </sc:StrataSetting>
         </sc:StrataSettingGroup>
 
+        <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Sharing}">
+          <sc:StrataSetting Header="{loc:Str Setting_OfferCopiedCapabilities}" Description="{loc:Str SettingDesc_OfferCopiedCapabilities}"
+                            IsModified="{Binding IsOfferCopiedCapabilitiesModified}">
+            <ToggleSwitch x:Name="OfferCopiedCapabilitiesToggle" IsChecked="{Binding OfferCopiedCapabilities}" />
+          </sc:StrataSetting>
+        </sc:StrataSettingGroup>
+
         <sc:StrataSettingGroup Header="{loc:Str SettingsGroup_Keyboard}" IsVisible="{Binding IsGlobalHotkeyAvailable}">
           <sc:StrataSetting Header="{loc:Str Setting_GlobalHotkey}" Description="{loc:Str SettingDesc_GlobalHotkey}"
                             IsModified="{Binding IsGlobalHotkeyModified}">

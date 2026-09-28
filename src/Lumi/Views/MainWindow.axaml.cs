@@ -1082,6 +1082,9 @@ public partial class MainWindow : Window
             // Wire search overlay result selection
             vm.SearchOverlayVM.ResultSelected += result => OnSearchResultSelected(vm, result);
 
+            // Coming back to Lumi with a teammate's Lumi code on the clipboard offers a preview.
+            Activated += (_, _) => _ = vm.NoticeVM.CheckClipboardAsync();
+
             // Keep native title-bar geometry aligned with the layout-scaled content.
             vm.SettingsVM.PropertyChanged += (_, args) =>
             {

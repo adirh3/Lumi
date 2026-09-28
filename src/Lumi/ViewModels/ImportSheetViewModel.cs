@@ -561,6 +561,7 @@ public partial class ImportSheetViewModel : ObservableObject
         PackReadError.NoMcpServers => Loc.Import_ErrorNoServers,
         PackReadError.NewerVersion => Loc.Import_ErrorNewer,
         PackReadError.EmptyPack => Loc.Import_ErrorEmptyPack,
+        PackReadError.DamagedCode => Loc.Import_ErrorDamagedCode,
         _ => Loc.Import_ErrorNotRecognized
     };
 

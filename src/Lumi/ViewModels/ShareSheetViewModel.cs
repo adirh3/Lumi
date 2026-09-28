@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Net;
 using System.Text;
 using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -68,6 +69,14 @@ public partial class ShareSheetViewModel : ObservableObject
     [ObservableProperty] private CapabilityCardViewModel? _card;
     [ObservableProperty] private bool _isCopied;
     [ObservableProperty] private bool _isConfigCopied;
+    [ObservableProperty] private bool _isChatCopied;
+
+    /// <summary>The chat code is long enough that some chat apps may refuse the message.</summary>
+    [ObservableProperty] private bool _isChatCodeLong;
+
+    [ObservableProperty] private string _chatCodeSize = "";
+    [ObservableProperty] private string _chatCodeNote = "";
+    [ObservableProperty] private string _copyTextLabel = "";
     [ObservableProperty] private bool _isSkill;
     [ObservableProperty] private bool _isMcpServer;
     [ObservableProperty] private string _interopText = "";
@@ -127,7 +136,14 @@ public partial class ShareSheetViewModel : ObservableObject
         IsMcpServer = pack.Kind == SharedCapabilityKind.McpServer;
         IsCopied = false;
         IsConfigCopied = false;
+        IsChatCopied = false;
         IsPreviewExpanded = false;
+        CopyTextLabel = IsSkill ? Loc.Share_CopySkillMd : Loc.Share_CopyText;
+        _chatCode = null;
+        var code = ChatCode;
+        ChatCodeSize = PackText.FormatSize(code);
+        IsChatCodeLong = code.Length > ShareCode.LongCodeThreshold;
+        ChatCodeNote = IsChatCodeLong ? string.Format(CultureInfo.CurrentCulture, Loc.Share_ChatCodeLong, ChatCodeSize) : "";
         StatusMessage = null;
         IsStatusError = false;
         SuggestedFileName = IsSkill ? CapabilityPackWriter.SkillFileName : share.FileName;
@@ -260,11 +276,128 @@ public partial class ShareSheetViewModel : ObservableObject
         if (_share is null)
             return;
 
+        CapabilityNoticeViewModel.RememberOwnCopy(_share.Text);
         await ClipboardHelper.CopyTextAsync(_share.Text);
         IsConfigCopied = false;
+        IsChatCopied = false;
         IsCopied = true;
         await ResetCopiedAsync(++_copyGeneration);
     }
+
+    /// <summary>
+    /// The chat hand-off: a title line and the compact code in a code block, as rich text for
+    /// Teams, Outlook and Slack and as a fenced block for everything else.
+    /// </summary>
+    [RelayCommand]
+    private async Task CopyForChat()
+    {
+        if (_share is null)
+            return;
+
+        await CopyChatSnippetAsync(_share.Pack, ChatCode);
+        IsCopied = false;
+        IsConfigCopied = false;
+        IsChatCopied = true;
+        SetStatus(Loc.Share_ChatCopiedStatus);
+        await ResetCopiedAsync(++_copyGeneration);
+    }
+
+    private string? _chatCode;
+
+    /// <summary>Encoded on first use per share; a Lumi pack is encoded without its human-readable prose.</summary>
+    private string ChatCode => _chatCode ??= _share is null ? "" : ShareCode.Encode(CapabilityPackWriter.WriteCompact(_share));
+
+    private static async Task CopyChatSnippetAsync(CapabilityPack pack, string code)
+    {
+        var (text, html) = ComposeChatSnippet(pack, code);
+        CapabilityNoticeViewModel.RememberOwnCopy(text);
+        await ClipboardHelper.CopyTextAndHtmlAsync(text, html);
+    }
+
+    /// <summary>
+    /// What lands in the chat: who it is for and what to do with it, then the code in a code block
+    /// (which Teams and most chat apps give a Copy button).
+    /// </summary>
+    internal static (string Text, string Html) ComposeChatSnippet(CapabilityPack pack, string code)
+    {
+        var card = CapabilityCardViewModel.ForPack(pack, "");
+        var kind = pack.Kind switch
+        {
+            SharedCapabilityKind.Skill => Loc.ChatSnippet_KindSkill,
+            SharedCapabilityKind.Lumi => Loc.ChatSnippet_KindLumi,
+            _ => Loc.ChatSnippet_KindMcp
+        };
+        var description = PackText.SingleLine(card.Description, 160);
+
+        var text = new StringBuilder();
+        text.Append(card.Glyph).Append(' ').Append(card.Name).Append(" · ").Append(kind).Append('\n');
+        if (description.Length > 0)
+            text.Append(description).Append('\n');
+        text.Append(Loc.ChatSnippet_Hint).Append('\n');
+        text.Append("```lumi\n").Append(code).Append("\n```\n");
+
+        var html = new StringBuilder();
+        html.Append("<p>").Append(WebUtility.HtmlEncode(card.Glyph)).Append(" <b>").Append(WebUtility.HtmlEncode(card.Name))
+            .Append("</b> · ").Append(WebUtility.HtmlEncode(kind));
+        if (description.Length > 0)
+            html.Append("<br>").Append(WebUtility.HtmlEncode(description));
+        html.Append("<br><i>").Append(WebUtility.HtmlEncode(Loc.ChatSnippet_Hint)).Append("</i></p>");
+        html.Append("<pre><code>").Append(code).Append("</code></pre>");
+
+        return (text.ToString(), AsciiHtml(html.ToString()));
+    }
+
+    /// <summary>
+    /// Every non-ASCII character as a numeric entity: some Windows apps read clipboard HTML in the
+    /// ANSI code page, and an all-ASCII fragment looks the same to every one of them.
+    /// </summary>
+    private static string AsciiHtml(string html)
+    {
+        var builder = new StringBuilder(html.Length + 32);
+        for (var i = 0; i < html.Length; i++)
+        {
+            var ch = html[i];
+            if (ch < 128)
+            {
+                builder.Append(ch);
+                continue;
+            }
+
+            var codePoint = char.IsSurrogatePair(html, i) ? char.ConvertToUtf32(ch, html[++i]) : ch;
+            builder.Append("&#").Append(codePoint.ToString(CultureInfo.InvariantCulture)).Append(';');
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// One-click "Copy for chat" from a list. Anything the sharer should look at first — credentials
+    /// that were removed from arguments, text that looks like a key, local paths, unsaved edits —
+    /// opens the share sheet instead. Returns what was copied, or null when the sheet opened.
+    /// </summary>
+    public Task<CapabilityPack?> QuickCopyForChatAsync(Skill skill, bool hasUnsavedEdits = false)
+        => QuickCopyAsync(CapabilityPackWriter.ForSkill(skill), Loc.Share_TitleSkill, hasUnsavedEdits);
+
+    public Task<CapabilityPack?> QuickCopyForChatAsync(LumiAgent agent, bool hasUnsavedEdits = false)
+        => QuickCopyAsync(CapabilityPackWriter.ForLumi(agent, _dataStore.Data), Loc.Share_TitleLumi, hasUnsavedEdits);
+
+    public Task<CapabilityPack?> QuickCopyForChatAsync(McpServer server, bool hasUnsavedEdits = false)
+        => QuickCopyAsync(CapabilityPackWriter.ForMcpServer(server), Loc.Share_TitleMcp, hasUnsavedEdits);
+
+    private async Task<CapabilityPack?> QuickCopyAsync(CapabilityShare share, string title, bool hasUnsavedEdits)
+    {
+        if (hasUnsavedEdits || NeedsReview(share.Findings))
+        {
+            Load(share, title, hasUnsavedEdits);
+            return null;
+        }
+
+        await CopyChatSnippetAsync(share.Pack, ShareCode.Encode(CapabilityPackWriter.WriteCompact(share)));
+        return share.Pack;
+    }
+
+    internal static bool NeedsReview(IReadOnlyList<ShareFinding> findings)
+        => findings.Any(static finding => finding.Kind != ShareFindingKind.SecretValueRemoved);
 
     [RelayCommand]
     private async Task CopyConfig()
@@ -274,6 +407,7 @@ public partial class ShareSheetViewModel : ObservableObject
 
         await ClipboardHelper.CopyTextAsync(CapabilityPackWriter.WriteMcpConfig(_share.Pack.McpServers));
         IsCopied = false;
+        IsChatCopied = false;
         IsConfigCopied = true;
         await ResetCopiedAsync(++_copyGeneration);
     }
@@ -286,6 +420,7 @@ public partial class ShareSheetViewModel : ObservableObject
 
         IsCopied = false;
         IsConfigCopied = false;
+        IsChatCopied = false;
     }
 
     [RelayCommand]

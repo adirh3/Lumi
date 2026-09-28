@@ -21,7 +21,11 @@ public partial class SkillsViewModel : ObservableObject
     /// </summary>
     public event Action<Skill, bool>? ShareRequested;
 
+    /// <summary>Raised for one-click "Copy for chat"; the flag has the same meaning as for <see cref="ShareRequested"/>.</summary>
+    public event Action<Skill, bool>? CopyForChatRequested;
+
     private string? _editorBaseline;
+    private bool _restoringSelection;
 
     /// <summary>Raised to open the import sheet; the shell owns the sheet.</summary>
     public event Action? ImportRequested;
@@ -47,26 +51,40 @@ public partial class SkillsViewModel : ObservableObject
 
      public void RefreshFromStore()
      {
+         // Rebuilding the list clears the sidebar's selection, and through its two-way binding the
+         // open skill. Put it back quietly afterwards: the editor stays attached, stays open or closed
+         // as it was, and keeps edits in progress. Without edits it shows what is stored now.
+         var open = SelectedSkill;
+         var hasUnsavedEdits = IsEditing && CaptureEditor() != _editorBaseline;
          RefreshList();
 
-         if (SelectedSkill is null)
+         if (open is null)
              return;
 
-         var selectedSkill = _dataStore.Data.Skills.FirstOrDefault(skill => skill.Id == SelectedSkill.Id);
-         if (selectedSkill is null)
+         var stored = _dataStore.Data.Skills.FirstOrDefault(skill => skill.Id == open.Id);
+         if (stored is null)
          {
              SelectedSkill = null;
              IsEditing = false;
              return;
          }
 
-         if (!ReferenceEquals(SelectedSkill, selectedSkill))
-         {
-             SelectedSkill = selectedSkill;
-             return;
-         }
+         RestoreSelection(stored);
+         if (!hasUnsavedEdits)
+             SyncEditorFromSkill(stored);
+     }
 
-         SyncEditorFromSkill(selectedSkill);
+     private void RestoreSelection(Skill skill)
+     {
+         _restoringSelection = true;
+         try
+         {
+             SelectedSkill = skill;
+         }
+         finally
+         {
+             _restoringSelection = false;
+         }
      }
 
     private void RefreshList()
@@ -109,7 +127,7 @@ public partial class SkillsViewModel : ObservableObject
 
      partial void OnSelectedSkillChanged(Skill? value)
      {
-         if (value is null) return;
+         if (value is null || _restoringSelection) return;
          SyncEditorFromSkill(value);
          IsEditing = true;
      }
@@ -189,6 +207,17 @@ public partial class SkillsViewModel : ObservableObject
 
         var hasUnsavedEdits = IsEditing && ReferenceEquals(skill, SelectedSkill) && CaptureEditor() != _editorBaseline;
         ShareRequested?.Invoke(skill, hasUnsavedEdits);
+    }
+
+    [RelayCommand]
+    private void CopySkillForChat(Skill? skill)
+    {
+        skill ??= SelectedSkill;
+        if (skill is null)
+            return;
+
+        var hasUnsavedEdits = IsEditing && ReferenceEquals(skill, SelectedSkill) && CaptureEditor() != _editorBaseline;
+        CopyForChatRequested?.Invoke(skill, hasUnsavedEdits);
     }
 
     [RelayCommand]
