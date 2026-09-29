@@ -360,7 +360,10 @@ public partial class ChatViewModel
                 : [],
             ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
             SteerDelivery = MessageSteerState.Queued,
-            CanSendNowWhenQueued = IsChatRuntimeActive(chatId)
+            CanSendNowWhenQueued = IsChatRuntimeActive(chatId),
+            // Composer sends carry no author override (remote and orchestrated ones always do), so
+            // only they take the composer's pending reply.
+            ReplyTo = authorOverride is null ? TakePendingReply(chatId) : null
         };
 
         if (CurrentChat?.Id == chatId)

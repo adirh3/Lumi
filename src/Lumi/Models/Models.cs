@@ -79,6 +79,12 @@ public class ChatMessage
     public List<SearchSource> Sources { get; set; } = [];
     public List<SkillReference> ActiveSkills { get; set; } = [];
     /// <summary>
+    /// The earlier assistant message (or the excerpt of it) this user message replies to, or null for
+    /// an ordinary message. The quote travels with the message so the model receives it on every
+    /// send, resend, and transcript replay.
+    /// </summary>
+    public MessageReply? ReplyTo { get; set; }
+    /// <summary>
     /// Recovery decision captured from a structured session error. Persisted so reopening a chat
     /// does not have to infer behavior from localized display text.
     /// </summary>
@@ -140,6 +146,7 @@ public class ChatMessage
         HasMcpSelection = HasMcpSelection,
         Attachments = [..Attachments],
         FailureDisposition = FailureDisposition,
+        ReplyTo = ReplyTo?.Clone(),
         ActiveSkills = [..ActiveSkills.Select(static s => new SkillReference
         {
             Name = s.Name,
@@ -170,6 +177,34 @@ public class ChatMessage
         ToolDurationMs = Math.Max(0, (finishedAt - startedAt).TotalMilliseconds);
         return true;
     }
+}
+
+/// <summary>
+/// Links a user message to the earlier assistant message it replies to. <see cref="Quote"/> is the
+/// excerpt the user selected (<see cref="IsSelection"/>), or the opening of the whole message when
+/// the reply targets the message itself.
+/// </summary>
+public sealed class MessageReply
+{
+    /// <summary>Id of the assistant message being replied to.</summary>
+    public Guid MessageId { get; set; }
+
+    /// <summary>The quoted text shown with the reply and sent to the model.</summary>
+    public string Quote { get; set; } = "";
+
+    /// <summary>True when <see cref="Quote"/> is a user-selected excerpt rather than the whole message.</summary>
+    public bool IsSelection { get; set; }
+
+    /// <summary>Display name of the replied-to message's author (e.g. "Lumi" or an agent name).</summary>
+    public string? Author { get; set; }
+
+    public MessageReply Clone() => new()
+    {
+        MessageId = MessageId,
+        Quote = Quote,
+        IsSelection = IsSelection,
+        Author = Author
+    };
 }
 
 public class SkillReference

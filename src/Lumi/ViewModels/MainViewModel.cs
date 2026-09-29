@@ -1722,7 +1722,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             // editable draft. Set after navigation, and only if the fork is what actually opened —
             // otherwise the draft would land in whichever chat is on screen.
             if (opened && plan.ComposerPrefill is { Length: > 0 } draft)
-                ChatVM.SetComposerDraft(draft);
+                ChatVM.SetComposerDraft(draft, plan.ComposerReply);
 
             return fork;
         }

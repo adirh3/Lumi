@@ -92,7 +92,8 @@ public partial class ChatViewModel
             Role = "user",
             Content = prompt,
             Author = authorOverride ?? _dataStore.Data.Settings.UserName ?? Loc.Author_You,
-            ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames)
+            ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
+            ReplyTo = consumeComposerPrompt ? TakePendingReply(chatId) : null
         };
 
         if (attachments is { Count: > 0 })
@@ -156,7 +157,7 @@ public partial class ChatViewModel
 
             var sendOptions = new MessageOptions
             {
-                Prompt = skillDirectives + prompt + BuildSendPromptAdditions(targetChat: activeChat),
+                Prompt = skillDirectives + ComposeModelPrompt(prompt, userMsg) + BuildSendPromptAdditions(targetChat: activeChat),
                 Mode = GitHub.Copilot.Rpc.SendMode.Immediate.Value
             };
             ApplyMessageAttachments(sendOptions, attachments);

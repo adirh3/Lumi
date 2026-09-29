@@ -643,6 +643,81 @@
       <Setter Property="BorderThickness" Value="2" />
       <Setter Property="BoxShadow" Value="0 0 0 2 #20818CF8" />
     </Style>
+
+    <!-- ── Reply to ────────────────────────────────────────────────────
+         A sent reply quotes its source inside the user bubble; the composer shows the pending quote. -->
+    <Style Selector="Button.reply-quote">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.reply-quote /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Button.reply-quote:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.reply-quote:pressed /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.reply-quote Border.reply-quote-tint">
+      <Setter Property="Background" Value="{DynamicResource Brush.ChatUserBubbleSelection}" />
+      <Setter Property="Opacity" Value="0.38" />
+      <Setter Property="Transitions">
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+        </Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Button.reply-quote:pointerover Border.reply-quote-tint">
+      <Setter Property="Opacity" Value="0.62" />
+    </Style>
+    <Style Selector="Button.reply-quote Border.reply-quote-bar">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+
+    <Style Selector="Border.composer-reply">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+    <Style Selector="Border.composer-reply-bar">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+    </Style>
+    <Style Selector="Button.composer-reply-body">
+      <Setter Property="Padding" Value="10,7,8,8" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.composer-reply-body /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+    <Style Selector="Button.composer-reply-body:pointerover /template/ Border#PART_Surface">
+      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
+    </Style>
+    <Style Selector="Button.composer-reply-close">
+      <Setter Property="Width" Value="22" />
+      <Setter Property="Height" Value="22" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="Margin" Value="0,6,6,0" />
+    </Style>
+
+    <!-- Jump-to-source: the replied-to message briefly glows so the eye lands on it. -->
+    <Style Selector="sc|StrataChatMessage.reply-flash /template/ Border#PART_Bubble">
+      <Setter Property="Background" Value="#26818CF8" />
+      <Setter Property="BoxShadow" Value="0 0 0 8 #26818CF8" />
+      <Setter Property="CornerRadius" Value="4" />
+    </Style>
   </UserControl.Styles>
 
   <UserControl.DataTemplates>
@@ -750,6 +825,46 @@
           </sc:StrataChatMessage.Transitions>
           <sc:StrataChatMessage.Content>
             <StackPanel Spacing="6">
+              <!-- Reply quote: what this message replies to. Clicking it jumps back to the source. -->
+              <ContentControl Content="{Binding DisplayReply}"
+                              IsVisible="{Binding HasReply}"
+                              HorizontalContentAlignment="Stretch">
+                <ContentControl.DataTemplates>
+                  <DataTemplate DataType="vm:UserMessageItem">
+                    <Button Classes="subtle reply-quote"
+                            Command="{Binding OpenReplySourceCommand}"
+                            ToolTip.Tip="{loc:Str Chat_ShowReplySource}"
+                            AutomationProperties.Name="{loc:Str Chat_ShowReplySource}">
+                      <Panel>
+                        <Border Classes="reply-quote-tint" />
+                        <Grid ColumnDefinitions="3,*">
+                          <Border Classes="reply-quote-bar" />
+                          <StackPanel Grid.Column="1" Spacing="1" Margin="8,5,10,6">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                              <PathIcon Width="10" Height="10"
+                                        VerticalAlignment="Center"
+                                        Foreground="{DynamicResource Brush.ChatUserBubbleTextSecondary}"
+                                        Data="{x:Static sc:StrataChatMessage.ReplyIconGeometry}" />
+                              <TextBlock Text="{Binding ReplyAuthor}"
+                                         FontSize="11.5"
+                                         FontWeight="SemiBold"
+                                         VerticalAlignment="Center"
+                                         Foreground="{DynamicResource Brush.ChatUserBubbleText}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding ReplyPreview}"
+                                       FontSize="12.5"
+                                       LineHeight="17"
+                                       MaxLines="2"
+                                       TextWrapping="Wrap"
+                                       TextTrimming="CharacterEllipsis"
+                                       Foreground="{DynamicResource Brush.ChatUserBubbleTextSecondary}" />
+                          </StackPanel>
+                        </Grid>
+                      </Panel>
+                    </Button>
+                  </DataTemplate>
+                </ContentControl.DataTemplates>
+              </ContentControl>
               <lc:TranscriptTextContent Text="{Binding Content}" />
               <ItemsControl ItemsSource="{Binding DisplayAttachments}"
                             IsVisible="{Binding HasAttachments}"
@@ -824,6 +939,10 @@
                             Timestamp="{Binding TimestampText}"
                             CanFork="True"
                             ForkMenuHeader="{loc:Str Menu_ForkFromHere}"
+                            CanReply="{Binding CanReply}"
+                            ReplyLabel="{loc:Str Chat_Reply}"
+                            ReplySelectionLabel="{loc:Str Chat_ReplyToSelection}"
+                            IsReplySource="{Binding IsReplySource}"
                             IsStreaming="{Binding IsStreaming}">
         <sc:StrataChatMessage.Content>
           <StackPanel Spacing="6">
@@ -2299,23 +2418,69 @@
           </DataTemplate>
         </sc:StrataChatComposer.SelectedModelTemplate>
         <sc:StrataChatComposer.AttachmentContent>
-          <sc:StrataAttachmentList ShowAddButton="False"
-                                   ItemsSource="{Binding PendingAttachmentItems}"
-                                   IsVisible="{Binding HasPendingAttachments}">
-            <sc:StrataAttachmentList.ItemTemplate>
-              <DataTemplate DataType="vm:FileAttachmentItem">
-                <sc:StrataFileAttachment FileName="{Binding FileName}"
-                                         FileSize="{Binding FileSize}"
-                                         IconImage="{Binding IconImage}"
-                                         Status="Completed"
-                                         IsCompact="True"
-                                         views:FileDrag.FilePath="{Binding FilePath}"
-                                         IsRemovable="{Binding IsRemovable}"
-                                         RemoveCommand="{Binding RemoveCommand}"
-                                         Margin="0,0,6,4" />
-              </DataTemplate>
-            </sc:StrataAttachmentList.ItemTemplate>
-          </sc:StrataAttachmentList>
+          <StackPanel>
+            <!-- Reply card: the quote the next message replies to. Click to revisit it; Esc or × dismisses. -->
+            <Border x:Name="ComposerReplyCard"
+                    Classes="composer-reply"
+                    IsVisible="{Binding HasPendingReply}"
+                    Margin="4,2,4,6">
+              <Grid ColumnDefinitions="3,*,Auto">
+                <Border Classes="composer-reply-bar" />
+                <Button Grid.Column="1"
+                        Classes="subtle composer-reply-body"
+                        Command="{Binding JumpToPendingReplySourceCommand}"
+                        ToolTip.Tip="{loc:Str Chat_ShowReplySource}"
+                        AutomationProperties.Name="{Binding PendingReplyTitle}">
+                  <StackPanel Spacing="2">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Width="11" Height="11"
+                                VerticalAlignment="Center"
+                                Foreground="{DynamicResource Brush.AccentDefault}"
+                                Data="{x:Static sc:StrataChatMessage.ReplyIconGeometry}" />
+                      <TextBlock Text="{Binding PendingReplyTitle}"
+                                 FontSize="12"
+                                 FontWeight="SemiBold"
+                                 VerticalAlignment="Center"
+                                 Foreground="{DynamicResource Brush.AccentDefault}" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding PendingReplyPreview}"
+                               FontSize="12.5"
+                               LineHeight="17"
+                               MaxLines="2"
+                               TextWrapping="Wrap"
+                               TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource Brush.TextSecondary}" />
+                  </StackPanel>
+                </Button>
+                <Button Grid.Column="2"
+                        Classes="subtle composer-reply-close"
+                        Command="{Binding CancelReplyCommand}"
+                        ToolTip.Tip="{loc:Str Chat_CancelReply}"
+                        AutomationProperties.Name="{loc:Str Chat_CancelReply}">
+                  <PathIcon Width="9" Height="9"
+                            Foreground="{DynamicResource Brush.TextTertiary}"
+                            Data="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                </Button>
+              </Grid>
+            </Border>
+            <sc:StrataAttachmentList ShowAddButton="False"
+                                     ItemsSource="{Binding PendingAttachmentItems}"
+                                     IsVisible="{Binding HasPendingAttachments}">
+              <sc:StrataAttachmentList.ItemTemplate>
+                <DataTemplate DataType="vm:FileAttachmentItem">
+                  <sc:StrataFileAttachment FileName="{Binding FileName}"
+                                           FileSize="{Binding FileSize}"
+                                           IconImage="{Binding IconImage}"
+                                           Status="Completed"
+                                           IsCompact="True"
+                                           views:FileDrag.FilePath="{Binding FilePath}"
+                                           IsRemovable="{Binding IsRemovable}"
+                                           RemoveCommand="{Binding RemoveCommand}"
+                                           Margin="0,0,6,4" />
+                </DataTemplate>
+              </sc:StrataAttachmentList.ItemTemplate>
+            </sc:StrataAttachmentList>
+          </StackPanel>
         </sc:StrataChatComposer.AttachmentContent>
       </sc:StrataChatComposer>
     </StackPanel>

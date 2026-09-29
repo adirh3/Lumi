@@ -29,6 +29,7 @@ public class TranscriptBuilder
     private readonly Action<SubagentToolCallItem>? _openSubagentRunAction;
     private readonly Action? _subagentRunsChanged;
     private readonly Func<string, string>? _resolveFilePath;
+    private readonly Action<MessageReply>? _openReplySourceAction;
     private static readonly StringComparer FilePathComparer = OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase
         : StringComparer.Ordinal;
@@ -123,7 +124,8 @@ public class TranscriptBuilder
         Func<ChatMessageViewModel, Task>? sendSteeredNowAsync = null,
         Action<SubagentToolCallItem>? openSubagentRunAction = null,
         Action? subagentRunsChanged = null,
-        Func<string, string>? resolveFilePath = null)
+        Func<string, string>? resolveFilePath = null,
+        Action<MessageReply>? openReplySourceAction = null)
     {
         _dataStore = dataStore;
         _showDiffAction = showDiffAction;
@@ -138,6 +140,7 @@ public class TranscriptBuilder
         _openSubagentRunAction = openSubagentRunAction;
         _subagentRunsChanged = subagentRunsChanged;
         _resolveFilePath = resolveFilePath;
+        _openReplySourceAction = openReplySourceAction;
     }
 
     /// <summary>
@@ -1426,7 +1429,8 @@ public class TranscriptBuilder
                 msg => _beginEditMessageAction(msg),
                 (msg, edited) => _ = _resendFromMessageAction(msg, edited),
                 _openSkillAction,
-                _sendSteeredNowAsync);
+                _sendSteeredNowAsync,
+                _openReplySourceAction);
             if (!IsRebuildingTranscript && _dataStore.Data.Settings.ShowAnimations)
                 userItem.RequestEntranceAnimation();
             AppendToCurrentTurn(userItem, TurnStableIdFor($"message:{msgVm.Message.Id}"));
