@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-
 namespace Lumi.Services.Sharing;
 
 /// <summary>What a share is about. Drives the card, the suggested file name and where an import lands.</summary>
@@ -101,7 +99,7 @@ public sealed class CapabilityPack
     public SharedLumi? Lumi { get; init; }
     public IReadOnlyList<SharedMcpServer> McpServers { get; init; } = [];
 
-    /// <summary>Reader observations worth telling the user (fields Lumi ignores, dangling references, …).</summary>
+    /// <summary>Reader observations worth telling the user (dangling references, skipped entries).</summary>
     public IReadOnlyList<PackNote> Notes { get; init; } = [];
 }
 
@@ -111,10 +109,7 @@ public enum PackNoteKind
     MissingReference,
 
     /// <summary>An MCP config entry could not be understood (no command or URL) and was skipped.</summary>
-    SkippedServer,
-
-    /// <summary>The pack was written by a newer Lumi; fields this version does not know were ignored.</summary>
-    NewerFormat
+    SkippedServer
 }
 
 public sealed record PackNote(PackNoteKind Kind, string Detail);

@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using Lumi.Models;
@@ -238,7 +237,14 @@ public static class CapabilityPackWriter
 
         builder.Append("# ").Append(pack.IconGlyph).Append(' ').Append(PackText.SingleLine(pack.Name)).Append("\n\n");
         if (!string.IsNullOrWhiteSpace(pack.Description))
-            builder.Append(PackText.SingleLine(pack.Description)).Append("\n\n");
+        {
+            // Escaped so a description such as "~~~ magic ~~~" cannot open a code fence that would
+            // swallow the tagged blocks below it.
+            var description = PackText.SingleLine(pack.Description);
+            if (description[0] is '`' or '~')
+                builder.Append('\\');
+            builder.Append(description).Append("\n\n");
+        }
 
         builder.Append("> **Lumi capability pack** · ").Append(DescribeContents(pack)).Append('\n');
         builder.Append(">\n");

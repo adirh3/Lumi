@@ -1,5 +1,4 @@
 using System.Buffers;
-using System.Collections.Generic;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
@@ -50,7 +49,7 @@ public static partial class ShareCode
     private const int BrotliQuality = 11;
     private const int BrotliWindow = 22;
 
-    /// <summary>A decoded pack is plain text a person wrote; anything bigger is refused before it is inflated.</summary>
+    /// <summary>A decoded pack is plain text a person wrote; inflating stops (and the code is refused) at this size.</summary>
     private const int MaxDecodedBytes = CapabilityPackReader.MaxTextLength * 3;
 
     [GeneratedRegex(@"(?<![A-Za-z0-9])lumi(\d{1,3})\.", RegexOptions.CultureInvariant)]

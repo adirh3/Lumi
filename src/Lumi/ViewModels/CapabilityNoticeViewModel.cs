@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-using System.Linq;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -16,8 +14,9 @@ namespace Lumi.ViewModels;
 ///
 /// <para>Detection is deliberately modest: it runs when the window is activated and the clipboard has
 /// changed, looks only for Lumi's own formats, never offers what this Lumi copied itself, what you
-/// already have, or what you already declined, and keeps nothing but a hash of the last clipboard
-/// text in memory. It only ever opens the import preview; nothing is added without it.</para>
+/// already have, or what you already declined, and remembers only a hash of the last clipboard text
+/// (plus the offered text while its offer is showing). It only ever opens the import preview; nothing
+/// is added without it.</para>
 /// </summary>
 public partial class CapabilityNoticeViewModel : ObservableObject
 {
@@ -94,15 +93,15 @@ public partial class CapabilityNoticeViewModel : ObservableObject
             _lastClipboardHash = hash;
 
             // The clipboard moved on, so an offer for what used to be on it no longer applies.
-            if (IsShown && IsOffer && hash != _offerHash)
-                IsShown = false;
+            if (hash != _offerHash)
+                HideOffer();
 
             if (hash is not { } current || IsOwnCopy(current) || _handled.Contains(current) || !LooksLikeLumiCapability(text!))
                 return;
 
             // Decoding is bounded, but it is still work that has no place on the UI thread.
             var result = await Task.Run(() => CapabilityPackReader.Read(text));
-            if (!result.Success || hash != _lastClipboardHash || !_canOffer() || IsAlreadyInLibrary(result.Pack!))
+            if (!result.Success || !_canOffer() || IsAlreadyInLibrary(result.Pack!))
                 return;
 
             var card = CapabilityCardViewModel.ForPack(result.Pack!, "");
@@ -148,10 +147,21 @@ public partial class CapabilityNoticeViewModel : ObservableObject
                && trimmed.AsSpan(0, Math.Min(trimmed.Length, 400)).Contains("lumi-pack:", StringComparison.Ordinal);
     }
 
+    /// <summary>Hides an offer that no longer applies, for example because it was imported another way.</summary>
+    public void HideOffer()
+    {
+        if (!IsOffer)
+            return;
+
+        IsShown = false;
+        _offerText = null;
+    }
+
     /// <summary>A brief confirmation that hides itself.</summary>
     public void ShowCopied(CapabilityCardViewModel card)
     {
         var generation = ++_generation;
+        _offerText = null;
         Card = card;
         Title = string.Format(CultureInfo.CurrentCulture, Loc.Notice_CopiedTitle, card.Name);
         Detail = Loc.Notice_CopiedDetail;
@@ -175,7 +185,7 @@ public partial class CapabilityNoticeViewModel : ObservableObject
 
         if (_offerHash is { } hash)
             _handled.Add(hash);
-        IsShown = false;
+        HideOffer();
         PreviewRequested?.Invoke(text);
     }
 
@@ -184,6 +194,6 @@ public partial class CapabilityNoticeViewModel : ObservableObject
     {
         if (IsOffer && _offerHash is { } hash)
             _handled.Add(hash);
-        IsShown = false;
+        HideOffer();
     }
 }

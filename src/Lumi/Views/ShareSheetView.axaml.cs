@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
@@ -19,13 +17,13 @@ public partial class ShareSheetView : UserControl
     {
         AvaloniaXamlLoader.Load(this);
 
-        // Land keyboard focus on Copy when the sheet opens, so Enter copies and Escape closes.
+        // Land keyboard focus on Copy for chat when the sheet opens, so Enter copies and Escape closes.
         if (this.FindControl<StrataDialog>("ShareDialog") is { } dialog)
         {
             dialog.PropertyChanged += (_, e) =>
             {
                 if (e.Property == StrataDialog.IsDialogOpenProperty && dialog.IsDialogOpen)
-                    Dispatcher.UIThread.Post(() => this.FindControl<Button>("ShareCopyButton")?.Focus(), DispatcherPriority.Loaded);
+                    Dispatcher.UIThread.Post(() => this.FindControl<Button>("ShareCopyForChatButton")?.Focus(), DispatcherPriority.Loaded);
             };
         }
     }

@@ -1081,6 +1081,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (outcome.AddedMcpServers.Count > 0)
             _chatSessionStore.ApplyMcpConfigurationChange();
 
+        // An offer for what is on the clipboard is stale now: it was just imported, or passed over.
+        NoticeVM.HideOffer();
         RefreshFeatureManagementUi();
     }
 
@@ -1093,13 +1095,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 if (!SkillsVM.Skills.Contains(skill))
                     SkillsVM.SearchQuery = "";
                 SkillsVM.SelectedSkill = skill;
-                break;
-
-            case SharedCapabilityKind.Lumi when _dataStore.Data.Agents.FirstOrDefault(agent => agent.Id == id) is { } agent:
-                SelectedNavIndex = 4;
-                if (!AgentsVM.Agents.Contains(agent))
-                    AgentsVM.SearchQuery = "";
-                AgentsVM.SelectedAgent = agent;
                 break;
 
             case SharedCapabilityKind.McpServer when _dataStore.Data.McpServers.FirstOrDefault(server => server.Id == id) is { } server:

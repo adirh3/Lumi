@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using Avalonia.Media;
@@ -55,7 +54,6 @@ public partial class ImportItemViewModel : ObservableObject
     public bool HasPreview => Preview.Length > 0;
     public bool IsReused => Status == ImportItemStatus.Reused;
     public bool IsRenamed => Status == ImportItemStatus.Renamed;
-    public bool IsNew => Status == ImportItemStatus.New;
     public IBrush Accent => CapabilityCardViewModel.AccentFor(Kind);
     public IBrush AccentTint => CapabilityCardViewModel.TintFor(Kind);
 
@@ -172,15 +170,11 @@ public partial class ImportSheetViewModel : ObservableObject
     {
         Reset();
         IsOpen = true;
-        _ = ProbeClipboardAsync(_openGeneration);
-    }
 
-    /// <summary>Opens straight to the receipt for a dropped or opened file.</summary>
-    public void OpenWithFile(string path)
-    {
-        Reset();
-        IsOpen = true;
-        LoadFile(path);
+        // The same setting as the offer on activation: macOS can warn whenever an app reads the
+        // clipboard by itself, and the Paste button still reads it on request.
+        if (_dataStore.Data.Settings.OfferCopiedCapabilities)
+            _ = ProbeClipboardAsync(_openGeneration);
     }
 
     public void OpenWithText(string text, string sourceLabel)
@@ -285,7 +279,7 @@ public partial class ImportSheetViewModel : ObservableObject
                 return;
             }
 
-            // A UTF-8 character is at least one byte, so anything this large cannot be under the text limit.
+            // No character takes more than four bytes in UTF-8, so a file this large is over the text limit.
             if (info.Length > CapabilityPackReader.MaxTextLength * 4L)
             {
                 ShowError(Loc.Import_ErrorTooLarge);

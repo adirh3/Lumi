@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 
@@ -43,6 +42,12 @@ public static class CapabilityPackReader
     public const int MaxTextLength = 2 * 1024 * 1024;
 
     private const int MaxCompanionFiles = 200;
+
+    /// <summary>
+    /// Skills plus MCP servers in one pack or config. Real ones hold a handful; the bound keeps a
+    /// crafted one (tens of thousands of entries) from tying up the UI while it is read and planned.
+    /// </summary>
+    internal const int MaxItems = 200;
 
     public static PackReadResult Read(string? text, string? sourcePath = null)
     {
@@ -200,7 +205,11 @@ public static class CapabilityPackReader
                     break;
 
                 case CapabilityPackWriter.McpBlockTag:
-                    foreach (var server in ParseMcpServers(block.Content, notes, out _, out _))
+                    var blockServers = ParseMcpServers(block.Content, notes, out var blockError, out _);
+                    if (blockError == PackReadError.TooLarge)
+                        return PackReadResult.Fail(PackReadError.TooLarge);
+
+                    foreach (var server in blockServers)
                     {
                         if (!servers.Any(existing => existing.Name.Equals(server.Name, StringComparison.OrdinalIgnoreCase)))
                             servers.Add(server);
@@ -212,6 +221,9 @@ public static class CapabilityPackReader
                     lumi ??= ReadLumiDocument(block.Content);
                     break;
             }
+
+            if (skills.Count + servers.Count > MaxItems)
+                return PackReadResult.Fail(PackReadError.TooLarge);
         }
 
         if (lumi is null && skills.Count == 0 && servers.Count == 0)
@@ -337,7 +349,10 @@ public static class CapabilityPackReader
                 || TryGetObject(root, "servers", out map)
                 || (TryGetObject(root, "mcp", out var mcp) && TryGetObject(mcp, "servers", out map)))
             {
-                AddServers(map, servers, notes);
+                if (map.GetPropertyCount() > MaxItems)
+                    error = PackReadError.TooLarge;
+                else
+                    AddServers(map, servers, notes);
             }
             else if (LooksLikeServer(root))
             {
@@ -348,7 +363,10 @@ public static class CapabilityPackReader
             else if (root.EnumerateObject().Any()
                      && root.EnumerateObject().All(static property => property.Value.ValueKind == JsonValueKind.Object && LooksLikeServer(property.Value)))
             {
-                AddServers(root, servers, notes);
+                if (root.GetPropertyCount() > MaxItems)
+                    error = PackReadError.TooLarge;
+                else
+                    AddServers(root, servers, notes);
             }
             else
             {

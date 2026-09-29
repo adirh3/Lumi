@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Globalization;
 using Lumi.Models;
 
@@ -121,7 +120,7 @@ public static class CapabilityImporter
         var plannedSkillFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var source in pack.Skills)
         {
-            var name = SafeName(Clean(source.Name), PackText.HumanizeName(source.Slug));
+            var name = SafeName(Clean(source.Name), Clean(PackText.HumanizeName(source.Slug)));
             var description = SafeDescription(Clean(source.Description));
             var content = PackText.NormalizeNewlines(Clean(source.Content)).Trim();
 

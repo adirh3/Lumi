@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -10,8 +9,8 @@ namespace Lumi.Services.Sharing;
 /// and header VALUES never reach this class (the pack model has no field for them); what it catches
 /// are the secrets people inline elsewhere: connection-string passwords, <c>?api_key=</c> query
 /// parameters, <c>--token=…</c> flags, <c>Authorization: Bearer …</c> header arguments and well-known
-/// token formats. It also spots text that should not travel unnoticed: paths on this computer, and
-/// invisible characters that can hide instructions from the person reviewing an import.
+/// token formats. It also spots paths on this computer, which should not travel unnoticed.
+/// (Invisible characters that can hide instructions are removed on import by <see cref="HiddenText"/>.)
 /// </summary>
 public static partial class SecretRedactor
 {
@@ -313,8 +312,8 @@ public static partial class SecretRedactor
         if (value.Length == 0)
             return value;
 
-        // Only a value that starts with a scheme is a URL. A connection string can carry a URL in
-        // one of its pairs (Endpoint=sb://…;SharedAccessKey=…) and must still be checked pair by pair.
+        // Only a value that starts with a scheme is a URL (jdbc:postgresql://… included). A connection
+        // string can carry a URL in one of its pairs (Endpoint=sb://…;SharedAccessKey=…).
         var schemeEnd = value.IndexOf("://", StringComparison.Ordinal);
         var isUrl = schemeEnd > 0 && IsUrlScheme(value.AsSpan(0, schemeEnd));
 
@@ -344,8 +343,11 @@ public static partial class SecretRedactor
             }
         }
 
-        // Server=…;User Id=…;Password=… connection strings (and a single API_KEY=… pair).
-        if (!isUrl && value.Contains('='))
+        // Server=…;User Id=…;Password=… connection strings, a single KEY=value pair, and the
+        // ;-separated options some URLs carry (sqlserver://host;password=…). A pair whose name says
+        // nothing can still hold a URL with credentials: DATABASE_URL=postgres://user:pw@db/app.
+        var result = value;
+        if (value.Contains('='))
         {
             var pairs = value.Split(';');
             var changed = false;
@@ -356,33 +358,45 @@ public static partial class SecretRedactor
                     continue;
 
                 var name = pairs[i][..eq].Trim();
-                if (IsIdentifier(name.Replace(" ", "", StringComparison.Ordinal).AsSpan())
-                    && ShouldRedactValue(name, pairs[i][(eq + 1)..]))
+                if (!IsIdentifier(name.Replace(" ", "", StringComparison.Ordinal).AsSpan()))
+                    continue;
+
+                var pairValue = pairs[i][(eq + 1)..];
+                if (ShouldRedactValue(name, pairValue))
                 {
                     pairs[i] = pairs[i][..(eq + 1)] + Placeholder;
                     redacted.Add(name);
+                    changed = true;
+                    continue;
+                }
+
+                var safePairValue = RedactUrl(pairValue, out var pairChanged);
+                if (pairChanged)
+                {
+                    pairs[i] = pairs[i][..(eq + 1)] + safePairValue;
+                    redacted.Add(DescribeUrl(pairValue));
                     changed = true;
                 }
             }
 
             if (changed)
-                return RedactEmbeddedTokens(string.Join(';', pairs), redacted);
+                result = string.Join(';', pairs);
         }
 
-        var safeUrl = RedactUrl(value, out var urlChanged);
+        var safeUrl = RedactUrl(result, out var urlChanged);
         if (urlChanged)
         {
-            redacted.Add(DescribeUrl(value));
-            return RedactEmbeddedTokens(safeUrl, redacted);
+            redacted.Add(DescribeUrl(result));
+            result = safeUrl;
         }
 
-        if (LooksLikeKnownToken(value))
+        if (ReferenceEquals(result, value) && LooksLikeKnownToken(value))
         {
             redacted.Add(MaskSample(value));
             return Placeholder;
         }
 
-        return RedactEmbeddedTokens(value, redacted);
+        return RedactEmbeddedTokens(result, redacted);
     }
 
     /// <summary>Final safety net: a well-known token format anywhere inside a value is replaced.</summary>
@@ -447,16 +461,17 @@ public static partial class SecretRedactor
 
             case JsonValueKind.String:
                 var text = element.GetString() ?? "";
-                if (text.Length > 0 && text != Placeholder && !IsEnvironmentReference(text)
-                    && (sensitive || LooksLikeKnownToken(text)))
+                if (sensitive && text.Length > 0 && text != Placeholder && !IsEnvironmentReference(text))
                 {
                     writer.WriteStringValue(Placeholder);
                     return true;
                 }
 
-                var embedded = KnownTokenPattern().Replace(text, match => ContainsDigit(match.Value) ? Placeholder : match.Value);
-                writer.WriteStringValue(embedded);
-                return !ReferenceEquals(embedded, text) && embedded != text;
+                // Any other string is checked like an argument: {"db":{"url":"postgres://user:pw@…"}}.
+                // The caller reports the whole JSON value as redacted, so the labels are not needed.
+                var safe = RedactValue(text, []);
+                writer.WriteStringValue(safe);
+                return !ReferenceEquals(safe, text);
 
             case JsonValueKind.Number when sensitive:
                 writer.WriteStringValue(Placeholder);
@@ -541,9 +556,10 @@ public static partial class SecretRedactor
         if (scheme.IsEmpty || !char.IsAsciiLetter(scheme[0]))
             return false;
 
+        // ':' allows compound schemes such as jdbc:postgresql.
         foreach (var ch in scheme)
         {
-            if (!(char.IsAsciiLetterOrDigit(ch) || ch is '+' or '-' or '.'))
+            if (!(char.IsAsciiLetterOrDigit(ch) || ch is '+' or '-' or '.' or ':'))
                 return false;
         }
 

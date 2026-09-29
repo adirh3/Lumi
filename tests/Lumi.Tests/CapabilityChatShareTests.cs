@@ -536,6 +536,21 @@ public sealed class CapabilityChatShareTests
     }
 
     [Fact]
+    public void MainViewModel_AnImportHidesAClipboardOfferThatNoLongerApplies()
+    {
+        var store = NewStore();
+        var vm = new MainViewModel(store, TestCopilot.Shared, new UpdateService());
+        vm.NoticeVM.IsOffer = true;
+        vm.NoticeVM.IsShown = true;
+
+        vm.ImportVM.OpenWithText(SnippetFor(CapabilityPackWriter.ForSkill(TeammateSkill())), "Clipboard");
+        vm.ImportVM.ConfirmCommand.Execute(null);
+
+        Assert.Contains(store.Data.Skills, skill => skill.Name == "Standup Notes");
+        Assert.False(vm.NoticeVM.IsShown);
+    }
+
+    [Fact]
     public void Setting_IsOnByDefaultExceptOnMacAndSurvivesSaving()
     {
         Assert.Equal(!OperatingSystem.IsMacOS(), new UserSettings().OfferCopiedCapabilities);

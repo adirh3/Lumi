@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -173,7 +172,7 @@ internal static partial class PackText
     [GeneratedRegex(@"^ {0,3}(`{3,}|~{3,})(.*)$", RegexOptions.CultureInvariant)]
     private static partial Regex FenceOpenPattern();
 
-    public readonly record struct FencedBlock(string? Tag, string Info, string Content);
+    public readonly record struct FencedBlock(string? Tag, string Content);
 
     /// <summary>
     /// Every fenced code block in a markdown document, in order. Untagged blocks are returned too so a
@@ -200,7 +199,7 @@ internal static partial class PackText
             var content = string.Join('\n', lines[(i + 1)..Math.Min(end, lines.Length)]);
             var tag = info.Split(' ', StringSplitOptions.RemoveEmptyEntries)
                 .FirstOrDefault(static token => token.StartsWith("lumi:", StringComparison.OrdinalIgnoreCase));
-            yield return new FencedBlock(tag?.ToLowerInvariant(), info, content);
+            yield return new FencedBlock(tag?.ToLowerInvariant(), content);
             i = end;
         }
     }

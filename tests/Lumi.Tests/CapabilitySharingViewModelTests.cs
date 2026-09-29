@@ -65,7 +65,7 @@ public sealed class CapabilitySharingViewModelTests
         var store = NewStore();
         var skill = new Skill { Name = "Word Creator", Description = "Docs.", Content = "Use python-docx." };
         store.Data.Skills.Add(skill);
-        var sheet = new ShareSheetViewModel(store, () => [new SkillToolTarget("claude-code", "Claude Code", skillsRoot)]);
+        var sheet = new ShareSheetViewModel(store, () => [new SkillToolTarget("Claude Code", skillsRoot)]);
         try
         {
             sheet.OpenFor(skill);
@@ -192,7 +192,8 @@ public sealed class CapabilitySharingViewModelTests
         sheet.OpenItemRequested += (kind, id) => opened = (kind, id);
         try
         {
-            sheet.OpenWithFile(path);
+            sheet.Open();
+            sheet.LoadFile(path);
 
             Assert.True(sheet.IsReviewing);
             Assert.Equal("pdf-processing/SKILL.md", sheet.Card!.FooterLabel.Split(" · ")[0]);

@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Globalization;
 using Avalonia.Media;
 using Lumi.Localization;

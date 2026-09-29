@@ -1,11 +1,10 @@
-using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
 namespace Lumi.Services.Sharing;
 
 /// <summary>An agent tool on this computer that reads Agent Skills from a personal skills folder.</summary>
-public sealed record SkillToolTarget(string Id, string DisplayName, string SkillsDirectory);
+public sealed record SkillToolTarget(string DisplayName, string SkillsDirectory);
 
 public enum SkillTargetState
 {
@@ -39,12 +38,12 @@ public static class SkillToolTargets
 {
     private const int MaxAttempts = 100;
 
-    private static readonly (string Id, string DisplayName, string Folder, string? HomeVariable)[] KnownTools =
+    private static readonly (string DisplayName, string Folder, string? HomeVariable)[] KnownTools =
     [
-        ("claude-code", "Claude Code", ".claude", "CLAUDE_CONFIG_DIR"),
-        ("codex", "Codex", ".codex", "CODEX_HOME"),
-        ("gemini-cli", "Gemini CLI", ".gemini", null),
-        ("cursor", "Cursor", ".cursor", null)
+        ("Claude Code", ".claude", "CLAUDE_CONFIG_DIR"),
+        ("Codex", ".codex", "CODEX_HOME"),
+        ("Gemini CLI", ".gemini", null),
+        ("Cursor", ".cursor", null)
     ];
 
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
@@ -59,14 +58,14 @@ public static class SkillToolTargets
         if (string.IsNullOrWhiteSpace(home))
             return targets;
 
-        foreach (var (id, displayName, folder, homeVariable) in KnownTools)
+        foreach (var (displayName, folder, homeVariable) in KnownTools)
         {
             var configured = homeVariable is null ? null : readEnvironment(homeVariable);
             var root = string.IsNullOrWhiteSpace(configured) ? Path.Combine(home, folder) : configured.Trim();
             try
             {
                 if (Directory.Exists(root))
-                    targets.Add(new SkillToolTarget(id, displayName, Path.Combine(root, "skills")));
+                    targets.Add(new SkillToolTarget(displayName, Path.Combine(root, "skills")));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
             {

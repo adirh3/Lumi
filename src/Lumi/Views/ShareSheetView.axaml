@@ -1,6 +1,5 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:sa="using:StrataTheme.Animation"
              xmlns:vm="using:Lumi.ViewModels"
              xmlns:views="using:Lumi.Views"
              xmlns:sc="using:StrataTheme.Controls"
@@ -14,8 +13,6 @@
     <SolidColorBrush x:Key="Tint.SafeBorder" Color="{DynamicResource Palette.Success500}" Opacity="0.32" />
     <SolidColorBrush x:Key="Tint.Caution" Color="{DynamicResource Palette.Warning500}" Opacity="0.12" />
     <SolidColorBrush x:Key="Tint.CautionBorder" Color="{DynamicResource Palette.Warning500}" Opacity="0.45" />
-    <SolidColorBrush x:Key="Tint.Info" Color="{DynamicResource Color.AccentDefault}" Opacity="0.10" />
-    <SolidColorBrush x:Key="Tint.InfoBorder" Color="{DynamicResource Color.AccentDefault}" Opacity="0.32" />
     <StreamGeometry x:Key="Share.Copy">M8 3h9a2 2 0 0 1 2 2v11h-2V5H8V3zm-3 4h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm0 2v10h9V9H5z</StreamGeometry>
     <StreamGeometry x:Key="Share.Chat">M4 4H20A1 1 0 0 1 21 5V16A1 1 0 0 1 20 17H9L5 20.5V17H4A1 1 0 0 1 3 16V5A1 1 0 0 1 4 4ZM5 6V15H7V16.5L8.7 15H19V6Z</StreamGeometry>
     <StreamGeometry x:Key="Share.Check">M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z</StreamGeometry>

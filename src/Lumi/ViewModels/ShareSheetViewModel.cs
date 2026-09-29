@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Net;
@@ -111,8 +110,6 @@ public partial class ShareSheetViewModel : ObservableObject
     /// <summary>The exact text that is copied or saved.</summary>
     public string ShareText => _share?.Text ?? "";
 
-    public CapabilityShare? Share => _share;
-
     private SharedSkill? SharedSkill => _share?.Pack.Format == CapabilityPackFormat.SkillMarkdown ? _share.Pack.Skills[0] : null;
 
     public void OpenFor(Skill skill, bool hasUnsavedEdits = false)
@@ -178,7 +175,6 @@ public partial class ShareSheetViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(ShareText));
-        OnPropertyChanged(nameof(Share));
         IsOpen = true;
     }
 

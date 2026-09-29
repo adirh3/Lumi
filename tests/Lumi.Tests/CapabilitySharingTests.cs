@@ -152,6 +152,21 @@ public sealed class CapabilitySharingTests
         => Assert.Equal(expected, CapabilityPackReader.Read(text).Error);
 
     [Fact]
+    public void Read_RefusesPacksWithMoreItemsThanAnyoneShares()
+    {
+        var servers = string.Join(",", Enumerable.Range(0, CapabilityPackReader.MaxItems + 1)
+            .Select(i => $"\"s{i}\": {{\"command\": \"npx\"}}"));
+        var skills = string.Concat(Enumerable.Range(0, CapabilityPackReader.MaxItems + 1)
+            .Select(i => $"```markdown lumi:skill\n---\nname: skill-{i}\n---\n\nBody {i}.\n```\n\n"));
+
+        Assert.Equal(PackReadError.TooLarge, CapabilityPackReader.Read("{\"mcpServers\": {" + servers + "}}").Error);
+        Assert.Equal(PackReadError.TooLarge, CapabilityPackReader.Read("{" + servers + "}").Error);
+        Assert.Equal(
+            PackReadError.TooLarge,
+            CapabilityPackReader.Read("---\nlumi-pack: 1\nkind: lumi\nname: \"Many\"\n---\n\n" + skills).Error);
+    }
+
+    [Fact]
     public void Read_RejectsOversizedInputBeforeParsing()
         => Assert.Equal(
             PackReadError.TooLarge,
@@ -320,6 +335,22 @@ public sealed class CapabilitySharingTests
         Assert.Equal(agent.SystemPrompt, pack.Lumi!.SystemPrompt);
     }
 
+    [Theory]
+    [InlineData("~~~ magic helper ~~~")]
+    [InlineData("```js expert")]
+    public void ShareLumi_ADescriptionThatLooksLikeACodeFenceStillReadsBack(string description)
+    {
+        var (data, agent) = ResearchLumi();
+        agent.Description = description;
+
+        var pack = CapabilityPackReader.Read(CapabilityPackWriter.ForLumi(agent, data).Text).Pack!;
+
+        Assert.Equal(SharedCapabilityKind.Lumi, pack.Kind);
+        Assert.Equal(description, pack.Description);
+        Assert.Equal(2, pack.Skills.Count);
+        Assert.Equal(2, pack.McpServers.Count);
+    }
+
     [Fact]
     public void ReadLumiPack_NotesReferencesThePackDoesNotInclude()
     {
@@ -438,6 +469,40 @@ public sealed class CapabilitySharingTests
         Assert.Contains("--env=GITHUB_TOKEN=<REDACTED>", redacted);
         Assert.Contains("--header=Authorization: <REDACTED>", redacted);
         Assert.True(removed.Count >= 8);
+    }
+
+    [Fact]
+    public void ShareMcp_RedactsCredentialsInUrlsInsidePairsJdbcUrlsAndJsonArguments()
+    {
+        string[] args =
+        [
+            "-e", "DATABASE_URL=postgres://app:pairUrlSecret1@db/app",
+            "--env=REDIS_URL=redis://:redisSecret2@cache:6379",
+            "API_URL=https://h.example.com/api?api_key=queryInPairSecret3",
+            "jdbc:postgresql://h/db?user=u&password=jdbcQuerySecret4",
+            "jdbc:mysql://root:jdbcUserInfoSecret5@h/db",
+            "sqlserver://h:1433;database=d;user=sa;password=prismaSecret6",
+            "{\"db\":{\"url\":\"postgres://u:jsonUrlSecret7@h/db\"},\"mode\":\"ro\"}",
+            "{\"connectionString\":\"Server=x;Password=jsonConnSecret8\"}"
+        ];
+
+        var redacted = SecretRedactor.RedactArguments(args, out var removed);
+        var joined = string.Join(" ", redacted);
+
+        foreach (var secret in new[]
+                 {
+                     "pairUrlSecret1", "redisSecret2", "queryInPairSecret3", "jdbcQuerySecret4",
+                     "jdbcUserInfoSecret5", "prismaSecret6", "jsonUrlSecret7", "jsonConnSecret8"
+                 })
+        {
+            Assert.DoesNotContain(secret, joined);
+        }
+
+        Assert.Contains("DATABASE_URL=postgres://app:<REDACTED>@db/app", redacted);
+        Assert.Contains("--env=REDIS_URL=redis://:<REDACTED>@cache:6379", redacted);
+        Assert.Contains("sqlserver://h:1433;database=d;user=sa;password=<REDACTED>", redacted);
+        Assert.Contains("\"mode\":\"ro\"", joined);
+        Assert.Equal(8, removed.Count);
     }
 
     [Fact]
@@ -653,6 +718,18 @@ public sealed class CapabilitySharingTests
         Assert.Equal("Hidden", imported.Name);
         Assert.Equal("Be helpful. " + flag + " " + family, imported.Content);
         Assert.Equal(9, plan.HiddenCharactersRemoved);
+    }
+
+    [Fact]
+    public void Import_CleansTheNameItFallsBackTo()
+    {
+        var pack = CapabilityPackReader.Read(
+            "---\nname: \"re\u202Eport\"\nmetadata:\n  lumi-name: \"\u200B\"\n---\n\nSummarise the week.\n").Pack!;
+        var store = NewStore();
+
+        CapabilityImporter.Apply(CapabilityImporter.Plan(pack, store), store);
+
+        Assert.Equal("Report", Assert.Single(store.Data.Skills).Name);
     }
 
     [Fact]
