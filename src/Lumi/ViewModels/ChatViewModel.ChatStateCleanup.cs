@@ -164,6 +164,9 @@ public partial class ChatViewModel
             _currentChatTitleSource = null;
         }
 
+        // The launchpad watches shared chats and the event hub while shown; release them for the same reason.
+        _launchpad?.Shutdown();
+
         lock (_chatLoadSync)
         {
             _chatLoadRequestId++;
@@ -725,6 +728,7 @@ public partial class ChatViewModel
         foreach (var pendingQuestion in pendingQuestions)
             pendingQuestion.TrySetCanceled();
 
+        chat.IsAwaitingInput = false;
         return ExpireUnansweredQuestions(chat);
     }
 

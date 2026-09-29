@@ -1452,10 +1452,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         Dispatcher.UIThread.Post(() =>
         {
+            // Mirror first: even a surface disposed meanwhile must not leave the chat flagged as waiting.
+            var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
+            if (chat is not null)
+                chat.IsAwaitingInput = HasPendingQuestion(chatId);
+
             if (_isDisposed)
                 return;
 
-            var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
             if (chat is not null
                 && completion?.Task.IsCompletedSuccessfully != true
                 && ExpireUnansweredQuestions(chat, questionId))
@@ -1471,11 +1475,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void ClearPendingQuestionTracking()
     {
+        List<Guid> waitingChatIds;
         lock (_pendingQuestionsSync)
         {
+            waitingChatIds = _pendingQuestionChatIds.Values.Distinct().ToList();
             _pendingQuestions.Clear();
             _pendingQuestionChatIds.Clear();
         }
+
+        foreach (var chat in _dataStore.Data.Chats.Where(chat => waitingChatIds.Contains(chat.Id)))
+            chat.IsAwaitingInput = false;
     }
 
     /// <summary>Raised when the view should rebuild DataTemplates (e.g. settings changed).</summary>

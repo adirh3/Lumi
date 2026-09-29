@@ -34,7 +34,7 @@ Lumi is a cross-platform Avalonia desktop app — a personal agentic assistant t
 
 - Modern and alive — animated components, responsive interactions, StrataTheme design system.
 - Not bloated — main interface focuses on chats with clean navigation.
-- Welcome experience — elegant welcome panel with suggestion chips.
+- Welcome experience — the new-chat launchpad (`LaunchpadViewModel`, `ChatView.Launchpad.cs`) greets the user for the time of day, says what needs them across all chats (questions, replies, work in progress), lists chats worth picking up, offers the setups they usually start with (project, checkout, agent, model) and time-aware starters. It only observes chats and the store while a chat view is in the new-chat state.
 - Transparency — tool calls grouped with friendly names, reasoning tokens displayed, streaming indicators.
 - Dedicated management — agents, skills, projects each have master-detail CRUD with search.
 

@@ -502,6 +502,7 @@ public class Chat : INotifyPropertyChanged
     private ChatTag? _tag;
     private bool _isRunning;
     private bool _isSessionActive;
+    private bool _isAwaitingInput;
     private bool _hasUnreadMessages;
     private bool _isPinned;
     private bool _showProjectBadge;
@@ -703,6 +704,19 @@ public class Chat : INotifyPropertyChanged
 
     [JsonIgnore]
     public bool HasBackgroundActivity => IsSessionActive && !IsRunning;
+
+    /// <summary>Runtime-only: the assistant is blocked on a question it asked the user.</summary>
+    [JsonIgnore]
+    public bool IsAwaitingInput
+    {
+        get => _isAwaitingInput;
+        set
+        {
+            if (_isAwaitingInput == value) return;
+            _isAwaitingInput = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsAwaitingInput)));
+        }
+    }
 
     /// <summary>Runtime-only flag for an unseen reply or a chat manually marked as unread.</summary>
     [JsonIgnore]

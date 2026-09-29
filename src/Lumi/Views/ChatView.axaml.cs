@@ -233,6 +233,8 @@ public partial class ChatView : UserControl
         if (searchPrevBtn is not null) searchPrevBtn.Click += (_, _) => NavigateSearchMatch(-1);
         if (searchNextBtn is not null) searchNextBtn.Click += (_, _) => NavigateSearchMatch(1);
         if (searchCloseBtn is not null) searchCloseBtn.Click += (_, _) => CloseSearch();
+
+        InitializeLaunchpad();
     }
 
     private void ApplyShellChrome()
@@ -297,12 +299,14 @@ public partial class ChatView : UserControl
         }
 
         QueueWorktreeToggleHighlightUpdate();
+        UpdateLaunchpadActivation();
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
         Dispatcher.UIThread.Post(EnsureTranscriptScrollViewer, DispatcherPriority.Loaded);
+        UpdateLaunchpadActivation();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -329,6 +333,7 @@ public partial class ChatView : UserControl
 
     private void UnsubscribeFromViewModel()
     {
+        DeactivateLaunchpad();
         _backgroundActivityButton?.Flyout?.Hide();
         if (_subscribedVm is null) return;
         _subscribedVm.ScrollToEndRequested -= OnScrollToEndRequested;
@@ -889,6 +894,9 @@ public partial class ChatView : UserControl
         {
             _backgroundActivityButton?.Flyout?.Hide();
         }
+
+        if (e.PropertyName == nameof(ChatViewModel.IsWelcomeVisible))
+            UpdateLaunchpadActivation();
 
         if (e.PropertyName == nameof(ChatViewModel.IsChatSurfaceLoading))
             SetTranscriptMaterialized(!(_subscribedVm?.IsChatSurfaceLoading ?? false));
