@@ -263,14 +263,24 @@ git submodule update --init --recursive
 ### Build & Run
 
 The Copilot SDK is a normal NuGet dependency. `NuGet.Config` restores the versioned,
-unofficial `Lumi.Copilot.SDK` package from the checked-in `vendor/nuget` feed; all
-other packages come from NuGet.org. No SDK submodule, source build, patch step, feed
-credentials, or Node.js installation is needed to build Lumi.
+unofficial `Lumi.Copilot.SDK` package from the checked-in `vendor/nuget` feed.
+Other packages except the patched Avalonia core come from NuGet.org. No SDK
+submodule, source build, patch step, feed credentials, or Node.js installation
+is needed to build Lumi.
 
 The package preserves native in-memory skill loading while the generic provider API
 is proposed upstream in [github/copilot-sdk#2672](https://github.com/github/copilot-sdk/pull/2672).
 See [package provenance](vendor/nuget/README.md) for the exact source commit and checksum.
 Lumi's skill storage and editing behavior are unchanged.
+
+`Directory.Build.targets` pins the core `Avalonia` package to the vendored
+`12.1.2.2` build throughout the project-reference graph, including Strata. It fixes
+input-method notifications exposing partially updated selections and empty
+selection geometry reaching the text-line renderer. Official Avalonia peer
+packages remain at `12.1.2`; no Strata input guard or runtime patch is used.
+See [Avalonia patch provenance and reproduction](vendor/avalonia/12.1.2.2/README.md).
+When switching an existing build to the patched package, use a clean rebuild
+(`dotnet build src/Lumi/Lumi.csproj -t:Rebuild`) or a fresh `--artifacts-path`.
 
 **GitHub sign-in:** The custom SDK package supplies one checksum-pinned, matching
 official full Copilot CLI during build and publish. Lumi needs no separate CLI

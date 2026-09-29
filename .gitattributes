@@ -20,3 +20,6 @@
 *.jpeg binary
 *.gif binary
 *.svg text
+
+# Keep checksum-pinned vendor build inputs byte-for-byte identical on every platform.
+vendor/avalonia/12.1.2.2/** -text -whitespace

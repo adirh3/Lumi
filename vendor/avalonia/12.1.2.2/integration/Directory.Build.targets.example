@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <AvaloniaCoreVersion>12.1.2.2</AvaloniaCoreVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Update="Avalonia" Version="[$(AvaloniaCoreVersion)]" />
+  </ItemGroup>
+</Project>
