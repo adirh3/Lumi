@@ -1,10 +1,18 @@
-# Vendored Copilot SDK package
+# Vendored NuGet packages
+
+- **Lumi.Copilot.SDK** — the unofficial SDK/full CLI package documented below.
+- **Avalonia.Native 12.1.3.1-lumi.1** — the paired managed/native macOS no-active-display
+  timer fix. See [its provenance, license, rebuild instructions and verification
+  limits](Avalonia.Native.README.md). It is separate from Avalonia 12.1.3's official
+  native-teardown fix.
+
+## Vendored Copilot SDK package
 
 `Lumi.Copilot.SDK` is an **unofficial, temporary prerelease build** of the GitHub
 Copilot .NET SDK with the native in-memory skill provider proposed upstream and
 package-owned full CLI acquisition. It is not an official GitHub release.
 
-## Provenance
+### Provenance
 
 - Package: `Lumi.Copilot.SDK` version `1.0.14-preview.1.lumi.2`
 - Source: [adirh3/copilot-sdk at 4a33b2c](https://github.com/adirh3/copilot-sdk/tree/4a33b2cf5ff7993a58d50aa80a8be008660bf0b7)
@@ -22,7 +30,7 @@ All managed assemblies and XML documentation are byte-for-byte identical to
 and the official SDK package together. `.lumi.2` replaces only package build assets
 and metadata; it does not alter SDK authentication or skill-provider code.
 
-## Consuming and updating
+### Consuming and updating
 
 Normal `dotnet restore`, `dotnet build`, and publish use this feed and the package's
 build targets automatically. No separate Lumi acquisition task, import, or opt-out
@@ -36,7 +44,7 @@ The default is full-CLI stdio/TCP hosting, not FFI/in-process hosting. The publi
 The CLI's own extraction-cache and storage behavior is unchanged; no second
 runtime or separate Node.js installation is shipped.
 
-## Reproducing the package
+### Reproducing the package
 
 The package contains all replacement sources in `build/FullCli/`, its
 `build/Lumi.Copilot.SDK.targets`, `tools/repack.py`, and focused package tests.

@@ -99,9 +99,10 @@ public partial class App : Application
             {
                 var mainWindows = _windows.ToList();
 
-                if (hideWindows)
+                foreach (var window in mainWindows)
                 {
-                    foreach (var window in mainWindows)
+                    window.IsEnabled = false;
+                    if (hideWindows)
                         window.Hide();
                 }
 
@@ -188,34 +189,50 @@ public partial class App : Application
 #endif
             }
 
-            void CleanupForShutdown(bool isUpdateRestart)
+            void CleanupForUpdateRestart()
             {
                 if (_isShuttingDown)
                     return;
 
-                PrepareForShutdown(isUpdateRestart);
+                PrepareForShutdown(restartExpected: true);
                 _isShuttingDown = true;
-                if (isUpdateRestart)
-                {
-                    updateShutdownCoordinator.Run(
-                        () => DisposeUiState(hideWindows: true),
-                        DisposeServicesAsync);
-                    return;
-                }
-
-                DisposeUiState(hideWindows: false);
-                Task.Run(DisposeServicesAsync).GetAwaiter().GetResult();
+                updateShutdownCoordinator.Run(
+                    () => DisposeUiState(hideWindows: true),
+                    DisposeServicesAsync);
             }
 
-            // Task.Run avoids deadlocking the UI thread if _writeLock is held by
-            // an in-flight fire-and-forget save that needs the dispatcher to complete.
-            desktop.ShutdownRequested += (_, _) => CleanupForShutdown(isUpdateRestart: false);
+            desktop.ShutdownRequested += async (_, args) =>
+            {
+                args.Cancel = true;
+                if (_isShuttingDown)
+                    return;
+
+                PrepareForShutdown();
+                _isShuttingDown = true;
+                try
+                {
+                    await RunShutdownCleanupAsync(
+                        () => DisposeUiState(hideWindows: false),
+                        DisposeServicesAsync);
+                }
+                catch (Exception ex)
+                {
+                    Trace.TraceError($"[Shutdown] Cleanup failed: {ex}");
+                }
+                finally
+                {
+                    desktop.Shutdown();
+                }
+            };
             desktop.Exit += (_, _) => PrepareForShutdown();
             updateService.RestartRequested += () => Dispatcher.UIThread.Post(() =>
             {
+                if (_isShuttingDown)
+                    return;
+
                 try
                 {
-                    CleanupForShutdown(isUpdateRestart: true);
+                    CleanupForUpdateRestart();
                 }
                 finally
                 {
@@ -648,8 +665,7 @@ public partial class App : Application
             {
                 if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
                 {
-                    PrepareForShutdown();
-                    desktop.Shutdown();
+                    desktop.TryShutdown();
                 }
             };
 
@@ -968,6 +984,21 @@ public partial class App : Application
     private void OnDetachedChatTitleChanged(Guid chatId, string title)
     {
         Dispatcher.UIThread.Post(() => _mainViewModel?.RefreshChatList());
+    }
+
+    internal static async Task RunShutdownCleanupAsync(Action disposeUiState, Func<Task> disposeServicesAsync)
+    {
+        // Return from the native Quit callback before cleanup and keep pumping the dispatcher
+        // while pending saves and service continuations complete.
+        await Task.Yield();
+        try
+        {
+            disposeUiState();
+        }
+        finally
+        {
+            await Task.Run(disposeServicesAsync);
+        }
     }
 
     internal void PrepareForShutdown(bool restartExpected = false)
