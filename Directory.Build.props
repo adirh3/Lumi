@@ -1,6 +1,10 @@
 <Project>
   <PropertyGroup>
     <!-- Keep the Avalonia package family aligned; update this value for future upgrades. -->
-    <AvaloniaVersion>12.1.2</AvaloniaVersion>
+    <AvaloniaVersion>12.1.3</AvaloniaVersion>
+    <!-- Paired managed/native macOS display-link fallback; see vendor/nuget/Avalonia.Native.README.md. -->
+    <AvaloniaNativeVersion>12.1.3.1-lumi.1</AvaloniaNativeVersion>
+    <!-- DataGrid is released separately from the core Avalonia packages. -->
+    <AvaloniaDataGridVersion>12.1.2</AvaloniaDataGridVersion>
   </PropertyGroup>
 </Project>

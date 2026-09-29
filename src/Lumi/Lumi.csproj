@@ -50,8 +50,10 @@
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="$(AvaloniaVersion)" />
     <PackageReference Include="Avalonia.Desktop" Version="$(AvaloniaVersion)" />
+    <!-- Keep the vendored managed DLL and native dylib together; do not override only one binary. -->
+    <PackageReference Include="Avalonia.Native" Version="[$(AvaloniaNativeVersion)]" />
     <PackageReference Include="Avalonia.Themes.Simple" Version="$(AvaloniaVersion)" />
-    <PackageReference Include="Avalonia.Controls.DataGrid" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="$(AvaloniaDataGridVersion)" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Lumi.Copilot.SDK" Version="1.0.14-preview.1.lumi.2" />
     <PackageReference Include="StreamJsonRpc" Version="2.25.29" />

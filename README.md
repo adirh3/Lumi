@@ -234,7 +234,7 @@ fail explicitly; startup failures include the recent captured output.
 ## Tech Stack
 
 - **.NET 11** with C#
-- **Avalonia UI 12.0.4** — cross-platform desktop framework
+- **Avalonia UI 12.1.3** — cross-platform desktop framework
 - **CommunityToolkit.Mvvm 8.4** — MVVM source generators
 - **GitHub Copilot SDK** — agentic LLM backend
 - **[StrataTheme](https://github.com/adirh3/Strata)** — custom UI component library
@@ -263,9 +263,11 @@ git submodule update --init --recursive
 ### Build & Run
 
 The Copilot SDK is a normal NuGet dependency. `NuGet.Config` restores the versioned,
-unofficial `Lumi.Copilot.SDK` package from the checked-in `vendor/nuget` feed; all
-other packages come from NuGet.org. No SDK submodule, source build, patch step, feed
-credentials, or Node.js installation is needed to build Lumi.
+unofficial `Lumi.Copilot.SDK` and `Avalonia.Native` packages from the checked-in
+`vendor/nuget` feed; other packages come from NuGet.org. Normal restore, build and
+publish use the pinned packages without version overrides. No SDK submodule,
+dependency source build, patch step, feed credentials, or Node.js installation is
+needed to build Lumi.
 
 The package preserves native in-memory skill loading while the generic provider API
 is proposed upstream in [github/copilot-sdk#2672](https://github.com/github/copilot-sdk/pull/2672).
@@ -290,6 +292,21 @@ Normal Quit (including the macOS application menu and tray menu) and Settings
 restart keep the UI dispatcher running until cleanup and the final data save
 complete. Repeated Quit requests do not start another cleanup or skip that save.
 The updater retains its separate bounded shutdown watchdog.
+
+Avalonia 12.1.3 also releases the native macOS platform before .NET 11 runtime
+teardown, preventing the "quit unexpectedly" crash caused by late dispatcher
+callbacks ([AvaloniaUI/Avalonia#22200](https://github.com/AvaloniaUI/Avalonia/pull/22200)).
+
+Separately, the unofficial `Avalonia.Native 12.1.3.1-lumi.1` package addresses
+startup when macOS has no active display: failed CoreVideo display-link
+registration/start uses Avalonia's managed render timer rather than aborting
+initialization. It retries native vsync after display reconfiguration, without
+waking the display or waiting for one. This is based on the **unmerged**
+[AvaloniaUI/Avalonia#21453](https://github.com/AvaloniaUI/Avalonia/pull/21453), not
+the official 12.1.3 shutdown fix. Its managed DLL and universal native dylib must
+ship together. The other core Avalonia packages stay official 12.1.3; separately
+released DataGrid stays 12.1.2. See [native package provenance, rebuilding and
+verification limits](vendor/nuget/Avalonia.Native.README.md).
 
 ```bash
 dotnet test tests/Lumi.Tests/Lumi.Tests.csproj --filter "FullyQualifiedName~AppShutdownTests|FullyQualifiedName~UpdateServiceSafetyTests.UpdateShutdown"
