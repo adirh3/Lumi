@@ -418,6 +418,8 @@ public sealed class RemoteEndToEndTests
                     rig.Server.BeginPairing(),
                     CancellationToken.None);
                 Assert.True(pair.Ok, pair.Error);
+                var originalToken = Assert.IsType<string>(rig.Client.Token);
+                var originalPort = rig.Server.Port;
 
                 var firstTranscript = Assert.IsType<RemoteTranscript>(
                     await rig.Client.GetTranscriptAsync(chatId, CancellationToken.None));
@@ -425,6 +427,7 @@ public sealed class RemoteEndToEndTests
 
                 rig.Server.Stop();
                 rig.Server.Start();
+                Assert.Equal(originalPort, rig.Server.Port);
 
                 var secondHello = Assert.IsType<RemoteHello>(
                     await rig.Client.HelloAsync(rig.BaseUrl, CancellationToken.None));
@@ -432,6 +435,9 @@ public sealed class RemoteEndToEndTests
                     await rig.Client.GetTranscriptAsync(chatId, CancellationToken.None));
 
                 Assert.NotEqual(firstHello.InstanceId, secondHello.InstanceId);
+                Assert.Equal(originalToken, rig.Client.Token);
+                Assert.Equal(originalToken, Assert.Single(rig.DataStore.SnapshotRemotePairedDevices()).Token);
+                Assert.True(secondHello.IsPaired);
                 Assert.Equal(secondHello.InstanceId, secondTranscript.RevisionEpoch);
                 Assert.NotEqual(firstTranscript.RevisionEpoch, secondTranscript.RevisionEpoch);
             },

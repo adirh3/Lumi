@@ -51,7 +51,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
     private readonly RemoteCommandRouter _router;
     private readonly RemoteHttpListener _listener;
     private readonly RemoteWebAppHandler _webApp;
-    private readonly RemoteDevTunnelHost _devTunnel = new();
+    private readonly RemoteDevTunnelHost _devTunnel;
     private readonly FileSearchService _fileSearchService = new();
     private readonly Func<IReadOnlySet<IPAddress>> _tailscaleAddressProvider;
     private readonly ConcurrentDictionary<Guid, RemoteEventClient> _streams = new();
@@ -118,6 +118,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         _router = new RemoteCommandRouter(dataStore, main);
         _listener = new RemoteHttpListener(HandleAsync, PreflightRequest);
         _webApp = new RemoteWebAppHandler(RemoteWebAssetProvider.TryCreate());
+        _devTunnel = new RemoteDevTunnelHost(dataStore);
         _devTunnel.StateChanged += OnDevTunnelStateChanged;
         _ownsPersistentSecurityState = !dataStore.UsesPersistentStorage || TryAcquireServerOwnership();
         _securityStateReady = !dataStore.UsesPersistentStorage;
@@ -221,7 +222,7 @@ public sealed class LumiRemoteServer : IAsyncDisposable
 
         _instanceId = Guid.NewGuid().ToString("N");
         var configured = _dataStore.Data.Settings.RemoteAccessPort;
-        var port = configured > 0 ? configured : RemoteProtocol.DefaultPort;
+        var port = ResolveListenPort(_dataStore.Data.Settings);
         EnsurePrivateDirectory(GetMobileUploadRoot());
 
         try
@@ -257,6 +258,13 @@ public sealed class LumiRemoteServer : IAsyncDisposable
         StateChanged?.Invoke();
         _ = InitializeRuntimeStateAsync();
     }
+
+    internal static int ResolveListenPort(UserSettings settings) =>
+        settings.RemoteAccessPort > 0
+            ? settings.RemoteAccessPort
+            : settings.RemoteUseDevTunnel && settings.RemoteDevTunnel is { } tunnel
+                ? tunnel.Port
+                : RemoteProtocol.DefaultPort;
 
     public void Stop()
     {

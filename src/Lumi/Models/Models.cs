@@ -1251,6 +1251,8 @@ public class UserSettings
     /// <summary>Use an owner-only Microsoft Dev Tunnel with a loopback-only listener instead of LAN/Tailscale.</summary>
     public bool RemoteUseDevTunnel { get; set; }
 
+    public RemoteDevTunnelRegistration? RemoteDevTunnel { get; set; }
+
     /// <summary>Devices that completed pairing and hold a long-lived token.</summary>
     public List<RemotePairedDevice> RemotePairedDevices { get; set; } = [];
 
@@ -1259,6 +1261,14 @@ public class UserSettings
     [JsonIgnore] public double? QuotaUsedRequests { get; set; }
     [JsonIgnore] public double? QuotaEntitlementRequests { get; set; }
     [JsonIgnore] public string? QuotaResetDate { get; set; }
+}
+
+public sealed record RemoteDevTunnelRegistration
+{
+    public string TunnelId { get; init; } = "";
+    public string OwnerObjectId { get; init; } = "";
+    public string OwnerTenantId { get; init; } = "";
+    public int Port { get; init; }
 }
 
 /// <summary>A phone or tablet that has been authorized to control this Lumi desktop.</summary>

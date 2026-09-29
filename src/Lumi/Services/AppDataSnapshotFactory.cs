@@ -100,6 +100,7 @@ internal static class AppDataSnapshotFactory
                 RemoteAccessPort = settings.RemoteAccessPort,
                 RemoteAllowInsecureLan = settings.RemoteAllowInsecureLan,
                 RemoteUseDevTunnel = settings.RemoteUseDevTunnel,
+                RemoteDevTunnel = settings.RemoteDevTunnel,
                 RemotePairedDevices = settings.RemotePairedDevices
                     .Select(CloneRemotePairedDevice)
                     .ToList(),
@@ -222,6 +223,7 @@ internal static class AppDataSnapshotFactory
                 currentSnapshot.Settings.RemoteAccessPort = persistedSnapshot.Settings.RemoteAccessPort;
                 currentSnapshot.Settings.RemoteAllowInsecureLan = persistedSnapshot.Settings.RemoteAllowInsecureLan;
                 currentSnapshot.Settings.RemoteUseDevTunnel = persistedSnapshot.Settings.RemoteUseDevTunnel;
+                currentSnapshot.Settings.RemoteDevTunnel = persistedSnapshot.Settings.RemoteDevTunnel;
                 currentSnapshot.Settings.RemotePairedDevices = persistedSnapshot.Settings.RemotePairedDevices
                     .Select(CloneRemotePairedDevice)
                     .ToList();
@@ -272,6 +274,7 @@ internal static class AppDataSnapshotFactory
             currentSnapshot.Settings.RemoteAccessPort = persistedSnapshot.Settings.RemoteAccessPort;
             currentSnapshot.Settings.RemoteAllowInsecureLan = persistedSnapshot.Settings.RemoteAllowInsecureLan;
             currentSnapshot.Settings.RemoteUseDevTunnel = persistedSnapshot.Settings.RemoteUseDevTunnel;
+            currentSnapshot.Settings.RemoteDevTunnel = persistedSnapshot.Settings.RemoteDevTunnel;
             currentSnapshot.Settings.RemotePairedDevices = persistedSnapshot.Settings.RemotePairedDevices
                 .Select(CloneRemotePairedDevice)
                 .ToList();

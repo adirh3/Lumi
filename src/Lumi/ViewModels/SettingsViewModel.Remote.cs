@@ -148,6 +148,8 @@ public partial class SettingsViewModel
         DevTunnelStatusText = server switch
         {
             { DevTunnelError: { } error } => error,
+            { DevTunnelOrigin: not null, DevTunnelAccount: { } account, DevTunnelSetupMessage: { } notice } =>
+                $"{Loc.Get("Remote_DevTunnelReady", account)} {notice}",
             { DevTunnelOrigin: not null, DevTunnelAccount: { } account } =>
                 Loc.Get("Remote_DevTunnelReady", account),
             { DevTunnelSetupMessage: { } message } => message,

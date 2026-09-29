@@ -116,10 +116,13 @@ the system credential-store dependencies required by Microsoft's CLI (such as
 `libsecret`); Lumi does not install system packages with administrator privileges.
 For other systems, an existing CLI on `PATH` remains usable.
 
-Lumi creates its own new tunnel and verifies that **both the tunnel and its port
-have no additional access grants before hosting**. It never enables anonymous,
-organization/tenant-wide, or shared-token access, and never reuses an existing
-tunnel with unknown permissions. All PWA assets and API routes are behind
+Lumi creates its own tunnel once and saves its ID, Microsoft owner identity, and
+local port in its existing settings. Later launches reuse only that saved tunnel,
+under the same Microsoft account, and verify that **both the tunnel and its port
+have no additional access grants before hosting**. Reuse also requires that the
+tunnel exposes only Lumi's original HTTP port. Lumi never selects the CLI's
+last-used tunnel or enables anonymous, organization/tenant-wide, or shared-token
+access. All PWA assets and API routes are behind
 Microsoft's sign-in gate; paired-device bearer authentication, expiry/attempt
 limits on pairing, and device revocation remain in force.
 
@@ -170,10 +173,27 @@ accessible**: Microsoft authenticates and authorizes the tunnel owner first.
 HTTPS terminates at Microsoft's gateway and the relay connection to the PC is
 encrypted; this is not Tailscale's device-to-device WireGuard trust model.
 Do not manually broaden the managed tunnel's access rules or issue/share tunnel
-access tokens. Keep the PC and Lumi running. Turning off phone access or switching
-transport stops the owned relay and removes its tunnel; unused tunnel resources
-expire after one day if cleanup cannot reach Microsoft. Restarting creates a new
-link, which also requires fresh browser pairing for that origin.
+access tokens. Keep the PC and Lumi running. Turning off phone access, switching
+transport, or quitting stops the owned relay but retains the private tunnel.
+Restarting under the same account reuses the same address and leaves paired-device
+tokens unchanged, so a home-screen shortcut does not need replacing after normal
+restarts. A busy or changed saved port is reported rather than publishing a new
+address. Microsoft sign-in and browser storage retention remain browser-controlled.
+
+The tunnel uses Microsoft's maximum **30-day sliding inactivity window**; this is
+not a guaranteed permanent reservation. If Microsoft explicitly reports that the
+saved tunnel no longer exists, Lumi creates a replacement and displays a notice to
+update the home-screen link. Pairing can be needed at that new browser origin.
+Network, permission, and sign-in failures do not silently replace the saved tunnel.
+Upgrading from a build that deleted its tunnel on exit may require one final
+shortcut update and browser pairing. Existing desktop device tokens are preserved.
+
+The focused `RemoteDevTunnelTests`, `RemoteDevTunnelCliTests`, and
+`AppDataSnapshotFactoryTests` cover link ownership, persistence, and failure paths.
+The opt-in `LivePrivateTunnelKeepsTheSameOriginAfterStoppingAndRestarting` test
+requires `LUMI_DEVTUNNEL_INTEGRATION=1` and an already installed, Microsoft-signed-in
+CLI. It creates one separate owner-only test tunnel, checks its URL across host
+shutdown and settings reload, then deletes only that test tunnel.
 
 Dev Tunnels is a Microsoft preview service without a production SLA. This mode
 is for the **PWA**, not the native Android transport. Existing Tailscale and

@@ -12,16 +12,333 @@ namespace Lumi.Tests;
 public sealed class RemoteDevTunnelTests
 {
     [Fact]
-    public void NewTunnelArgumentsCannotGrantAccessOrReuseAnotherTunnel()
+    public void NewTunnelArgumentsReservePrivateAccessForThirtyDays()
     {
         Assert.Equal(
-            ["create", "--expiration", "1d", "--description", "Lumi private web app",
+            ["create", "--expiration", "30d", "--description", "Lumi private web app",
                 "--host-header", "localhost", "--origin-header", "unchanged", "--json"],
             RemoteDevTunnelHost.CreateArguments);
         Assert.Equal(
             ["host", "owned-tunnel.uks1", "--host-header", "localhost", "--origin-header", "unchanged"],
             RemoteDevTunnelHost.HostArguments("owned-tunnel.uks1"));
         Assert.False(new UserSettings().RemoteUseDevTunnel);
+    }
+
+    private static readonly (string Username, string ObjectId, string TenantId) Owner =
+        ("owner@example.com", "owner-id", "tenant-id");
+
+    private static RemoteDevTunnelRegistration SavedTunnel(string id = "owned-tunnel.uks1") => new()
+    {
+        TunnelId = id,
+        OwnerObjectId = Owner.ObjectId,
+        OwnerTenantId = Owner.TenantId,
+        Port = 49001
+    };
+
+    private static string SuccessfulCliResponse(string[] arguments) => arguments[0] switch
+    {
+        "create" => """{"tunnel":{"tunnelId":"owned-tunnel.uks1"}}""",
+        "show" => JsonSerializer.Serialize(new
+        {
+            tunnel = new
+            {
+                tunnelId = arguments[1],
+                ports = new[] { new { portNumber = 49001, protocol = "http" } }
+            }
+        }),
+        "access" => """{"accessControlEntries":[]}""",
+        "user" =>
+            """{"status":"Logged in","provider":"microsoft","username":"owner@example.com","objectId":"owner-id","tenantId":"tenant-id"}""",
+        "port" or "update" or "delete" => "{}",
+        _ => throw new InvalidOperationException($"Unexpected CLI command: {arguments[0]}")
+    };
+
+    [Fact]
+    public async Task SavedTunnelAndDeviceTokenSurviveNewHostAndSettingsRoundTrip()
+    {
+        var store = new DataStore(new AppData
+        {
+            Settings = new UserSettings
+            {
+                RemoteUseDevTunnel = true,
+                RemotePairedDevices = [new RemotePairedDevice { DeviceId = "phone", Token = "same-token" }]
+            }
+        });
+        var commands = new List<string>();
+        Task<string> RunCli(string[] arguments, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            commands.Add(string.Join(' ', arguments));
+            return Task.FromResult(SuccessfulCliResponse(arguments));
+        }
+
+        await using (var firstHost = new RemoteDevTunnelHost(store))
+        {
+            var first = await firstHost.PrepareTunnelAsync(49001, Owner, RunCli, CancellationToken.None);
+            Assert.Equal(SavedTunnel(), first.Registration);
+            Assert.False(first.Replaced);
+        }
+        var json = JsonSerializer.Serialize(store.CreateIndexSnapshot(), AppDataJsonContext.Default.AppData);
+        var restored = new DataStore(JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData)!);
+        commands.Clear();
+
+        await using (var restartedHost = new RemoteDevTunnelHost(restored))
+        {
+            var restarted = await restartedHost.PrepareTunnelAsync(49001, Owner, RunCli, CancellationToken.None);
+            Assert.Equal(SavedTunnel(), restarted.Registration);
+            Assert.False(restarted.Replaced);
+        }
+
+        Assert.Equal(
+            [
+                "show owned-tunnel.uks1 --json",
+                "access list owned-tunnel.uks1 --json",
+                "access list owned-tunnel.uks1 -p 49001 --json",
+                "user show --json",
+                "update owned-tunnel.uks1 --expiration 30d --json"
+            ], commands);
+        Assert.Equal("same-token", Assert.Single(restored.SnapshotRemotePairedDevices()).Token);
+    }
+
+    [Theory]
+    [InlineData("other-owner", "tenant-id", 49001)]
+    [InlineData("owner-id", "other-tenant", 49001)]
+    [InlineData("owner-id", "tenant-id", 49002)]
+    public async Task DifferentAccountOrPortCannotReplaceASavedTunnel(string owner, string tenant, int port)
+    {
+        var store = new DataStore(new AppData { Settings = new UserSettings { RemoteDevTunnel = SavedTunnel() } });
+        await using var host = new RemoteDevTunnelHost(store);
+        var commands = 0;
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            host.PrepareTunnelAsync(port, ("owner@example.com", owner, tenant), (arguments, token) =>
+            {
+                commands++;
+                return Task.FromResult(SuccessfulCliResponse(arguments));
+            }, CancellationToken.None));
+
+        Assert.Equal(0, commands);
+        Assert.Equal(SavedTunnel(), store.SnapshotRemoteDevTunnel());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReuseRechecksTunnelAndPortAccessBeforeAnyUpdate(bool portAccess)
+    {
+        var store = new DataStore(new AppData { Settings = new UserSettings { RemoteDevTunnel = SavedTunnel() } });
+        await using var host = new RemoteDevTunnelHost(store);
+        var commands = new List<string>();
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            host.PrepareTunnelAsync(49001, Owner, (arguments, token) =>
+            {
+                commands.Add(arguments[0]);
+                return Task.FromResult(arguments[0] == "access" && arguments.Contains("-p") == portAccess
+                    ? """{"accessControlEntries":[{"type":"Anonymous","scopes":["connect"]}]}"""
+                    : SuccessfulCliResponse(arguments));
+            }, CancellationToken.None));
+
+        Assert.DoesNotContain("create", commands);
+        Assert.DoesNotContain("update", commands);
+        Assert.DoesNotContain("delete", commands);
+        Assert.Equal(SavedTunnel(), store.SnapshotRemoteDevTunnel());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedOrCanceledLookupDoesNotReplaceTheSavedLink(bool canceled)
+    {
+        var store = new DataStore(new AppData { Settings = new UserSettings { RemoteDevTunnel = SavedTunnel() } });
+        await using var host = new RemoteDevTunnelHost(store);
+        var commands = new List<string>();
+        var preparation = host.PrepareTunnelAsync(49001, Owner, (arguments, token) =>
+        {
+            commands.Add(arguments[0]);
+            return Task.FromException<string>(canceled
+                ? new OperationCanceledException()
+                : new HttpRequestException("Connection unavailable"));
+        }, CancellationToken.None);
+        if (canceled)
+            await Assert.ThrowsAsync<OperationCanceledException>(() => preparation);
+        else
+            await Assert.ThrowsAsync<HttpRequestException>(() => preparation);
+
+        Assert.Equal(["show"], commands);
+        Assert.Equal(SavedTunnel(), store.SnapshotRemoteDevTunnel());
+    }
+
+    [Fact]
+    public async Task ConfirmedMissingTunnelReplacesOnlyTheLinkNotThePairing()
+    {
+        var store = new DataStore(new AppData
+        {
+            Settings = new UserSettings
+            {
+                RemoteDevTunnel = SavedTunnel("expired-tunnel.uks1"),
+                RemotePairedDevices = [new RemotePairedDevice { DeviceId = "phone", Token = "same-token" }]
+            }
+        });
+        await using var host = new RemoteDevTunnelHost(store);
+        var result = await host.PrepareTunnelAsync(49001, Owner, (arguments, token) =>
+            arguments[0] == "show"
+                ? Task.FromException<string>(new RemoteDevTunnelNotFoundException("Tunnel not found"))
+                : Task.FromResult(SuccessfulCliResponse(arguments)), CancellationToken.None);
+
+        Assert.True(result.Replaced);
+        Assert.Equal(SavedTunnel(), result.Registration);
+        Assert.Equal(SavedTunnel(), store.SnapshotRemoteDevTunnel());
+        Assert.Equal("same-token", Assert.Single(store.SnapshotRemotePairedDevices()).Token);
+    }
+
+    [Fact]
+    public async Task AccountSwitchDuringReuseDoesNotUpdateOrSaveTheTunnel()
+    {
+        var store = new DataStore(new AppData { Settings = new UserSettings { RemoteDevTunnel = SavedTunnel() } });
+        await using var host = new RemoteDevTunnelHost(store);
+        var saved = false;
+        store.IndexSaved += () => saved = true;
+        var commands = new List<string>();
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            host.PrepareTunnelAsync(49001, Owner, (arguments, token) =>
+            {
+                commands.Add(arguments[0]);
+                var result = SuccessfulCliResponse(arguments);
+                return Task.FromResult(arguments[0] == "user" ? result.Replace("owner-id", "other-owner") : result);
+            }, CancellationToken.None));
+
+        Assert.False(saved);
+        Assert.DoesNotContain("update", commands);
+        Assert.Equal(SavedTunnel(), store.SnapshotRemoteDevTunnel());
+    }
+
+    [Fact]
+    public async Task FailedFirstSetupCleansUpOnlyItsUnregisteredTunnel()
+    {
+        var store = new DataStore(new AppData());
+        await using var host = new RemoteDevTunnelHost(store);
+        var commands = new List<string[]>();
+        await Assert.ThrowsAsync<IOException>(() =>
+            host.PrepareTunnelAsync(49001, Owner, (arguments, token) =>
+            {
+                commands.Add(arguments);
+                return arguments[0] == "port"
+                    ? Task.FromException<string>(new IOException("Port setup failed"))
+                    : Task.FromResult(SuccessfulCliResponse(arguments));
+            }, CancellationToken.None));
+
+        Assert.Equal(["create", "port", "delete"], commands.Select(arguments => arguments[0]).ToArray());
+        Assert.Equal(["delete", "owned-tunnel.uks1"], commands[^1]);
+        Assert.Null(store.SnapshotRemoteDevTunnel());
+    }
+
+    [SkippableFact]
+    public async Task LivePrivateTunnelKeepsTheSameOriginAfterStoppingAndRestarting()
+    {
+        Skip.If(Environment.GetEnvironmentVariable("LUMI_DEVTUNNEL_INTEGRATION") != "1",
+            "Opt-in: requires an installed, Microsoft-authenticated CLI; creates and deletes one private test tunnel.");
+        var cli = await RemoteDevTunnelCli.EnsureAvailableAsync(
+            _ => Task.FromResult(false), _ => { }, CancellationToken.None);
+        Assert.NotNull(cli);
+        _ = RemoteDevTunnelHost.ParseMicrosoftIdentity(
+            await RemoteDevTunnelCli.RunAsync(cli, ["user", "show", "--json"], CancellationToken.None));
+
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var store = new DataStore(new AppData
+        {
+            Settings = new UserSettings
+            {
+                RemoteUseDevTunnel = true,
+                RemotePairedDevices = [new RemotePairedDevice { DeviceId = "test-phone", Token = "synthetic-token" }]
+            }
+        });
+        try
+        {
+            string firstOrigin;
+            await using (var first = new RemoteDevTunnelHost(store))
+            {
+                first.Start(port);
+                firstOrigin = await WaitForOriginAsync(first);
+            }
+            var saved = Assert.IsType<RemoteDevTunnelRegistration>(store.SnapshotRemoteDevTunnel());
+            RemoteDevTunnelHost.RequireSavedTunnelPort(
+                await RemoteDevTunnelCli.RunAsync(cli, ["show", saved.TunnelId, "--json"], CancellationToken.None),
+                saved);
+            var json = JsonSerializer.Serialize(store.CreateIndexSnapshot(), AppDataJsonContext.Default.AppData);
+            var restored = new DataStore(JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData)!);
+
+            await using (var restarted = new RemoteDevTunnelHost(restored))
+            {
+                var restoredPort = LumiRemoteServer.ResolveListenPort(restored.Data.Settings);
+                Assert.Equal(port, restoredPort);
+                restarted.Start(restoredPort);
+                Assert.Equal(firstOrigin, await WaitForOriginAsync(restarted));
+                Assert.Equal(saved, restored.SnapshotRemoteDevTunnel());
+                Assert.Equal("synthetic-token", Assert.Single(restored.SnapshotRemotePairedDevices()).Token);
+
+                using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
+                using var response = await http.GetAsync(firstOrigin + "/app/");
+                Assert.Equal(HttpStatusCode.Found, response.StatusCode);
+            }
+            RemoteDevTunnelHost.RequireSavedTunnelPort(
+                await RemoteDevTunnelCli.RunAsync(cli, ["show", saved.TunnelId, "--json"], CancellationToken.None),
+                saved);
+        }
+        finally
+        {
+            if (store.SnapshotRemoteDevTunnel() is { } created)
+                await RemoteDevTunnelCli.RunAsync(cli, ["delete", created.TunnelId], CancellationToken.None);
+        }
+
+        static async Task<string> WaitForOriginAsync(RemoteDevTunnelHost host)
+        {
+            var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(2);
+            while (DateTime.UtcNow < deadline)
+            {
+                var state = host.State;
+                Assert.Null(state.Error);
+                Assert.False(state.RequiresInstallConfirmation);
+                if (state.Origin is { } origin)
+                    return origin;
+                await Task.Delay(100);
+            }
+            throw new TimeoutException("The private test tunnel did not become ready.");
+        }
+    }
+
+    [Theory]
+    [InlineData("""{"tunnel":{"tunnelId":"other.uks1","ports":[{"portNumber":49001,"protocol":"http"}]}}""")]
+    [InlineData("""{"tunnel":{"tunnelId":"owned-tunnel.uks1","ports":[]}}""")]
+    [InlineData("""{"tunnel":{"tunnelId":"owned-tunnel.uks1","ports":[{"portNumber":49002,"protocol":"http"}]}}""")]
+    [InlineData("""{"tunnel":{"tunnelId":"owned-tunnel.uks1","ports":[{"portNumber":49001,"protocol":"http"},{"portNumber":22,"protocol":"ssh"}]}}""")]
+    public void ChangedTunnelOrExtraPortsAreNotHosted(string json) =>
+        Assert.Throws<InvalidOperationException>(() =>
+            RemoteDevTunnelHost.RequireSavedTunnelPort(json, SavedTunnel()));
+
+    [Fact]
+    public void OnlyAnExplicitMissingTunnelResponseAllowsReplacement()
+    {
+        Assert.Throws<RemoteDevTunnelNotFoundException>(() => RemoteDevTunnelCli.ParseCommandResult(
+            ["show", "owned-tunnel.uks1", "--json"], 2, "", "Tunnel not found in uks1: owned-tunnel"));
+        Assert.Throws<InvalidOperationException>(() => RemoteDevTunnelCli.ParseCommandResult(
+            ["show", "owned-tunnel.uks1", "--json"], 1, "", "Network unavailable"));
+        Assert.Throws<InvalidOperationException>(() => RemoteDevTunnelCli.ParseCommandResult(
+            ["show", "owned-tunnel.uks1", "--json"], 2, "", "Access denied"));
+        Assert.Throws<InvalidOperationException>(() => RemoteDevTunnelCli.ParseCommandResult(
+            ["access", "list", "owned-tunnel.uks1"], 2, "", "Tunnel not found in uks1: owned-tunnel"));
+    }
+
+    [Fact]
+    public void PrivateLinkReusesItsSavedPortWithoutChangingOtherTransports()
+    {
+        var settings = new UserSettings { RemoteUseDevTunnel = true, RemoteDevTunnel = SavedTunnel() };
+        Assert.Equal(49001, LumiRemoteServer.ResolveListenPort(settings));
+        settings.RemoteAccessPort = 49002;
+        Assert.Equal(49002, LumiRemoteServer.ResolveListenPort(settings));
+        settings.RemoteAccessPort = 0;
+        settings.RemoteUseDevTunnel = false;
+        Assert.Equal(Lumi.Remote.Protocol.RemoteProtocol.DefaultPort, LumiRemoteServer.ResolveListenPort(settings));
     }
 
     [Fact]
