@@ -43,7 +43,12 @@ $isolatedClasses = @(
     "Lumi.Tests.AnimationLifecycleRegressionTests",
     "Lumi.Tests.ChatViewClipboardTests",
     "Lumi.Tests.ChatViewScrollBehaviorTests",
-    "Lumi.Tests.SearchOverlayLayoutTests"
+    "Lumi.Tests.SearchOverlayLayoutTests",
+    # Capability sharing tests. They need no isolation themselves; running them in their own hosts
+    # keeps every existing class in the batch it had, since regrouping batches makes CI flaky.
+    "Lumi.Tests.CapabilityChatShareTests",
+    "Lumi.Tests.CapabilitySharingTests",
+    "Lumi.Tests.CapabilitySharingViewModelTests"
 ) | Where-Object { $classes -contains $_ }
 $batchedClasses = @($classes | Where-Object { $_ -notin $isolatedClasses })
 $batchCount = [Math]::Ceiling($batchedClasses.Count / $BatchSize)
