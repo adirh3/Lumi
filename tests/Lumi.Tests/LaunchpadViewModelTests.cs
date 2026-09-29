@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -97,6 +99,207 @@ public sealed class LaunchpadViewModelTests
         // A setup shapes one chat; it is not a change of the user's defaults.
         Assert.Equal("gpt-5.4", defaultModel);
         Assert.Equal("high", defaultEffort);
+    }
+
+    [Fact]
+    public async Task Setup_ModelTuningDoesNotPublishOrSaveNewDefaults()
+    {
+        using var session = HeadlessTestSession.Start();
+        int defaultsPublished = 0;
+        string? defaultModel = null, defaultEffort = null, defaultTier = null;
+        string? selectedEffort = null, selectedTier = null;
+
+        await session.Dispatch(() =>
+        {
+            Loc.Load("en");
+            var project = new Project { Name = "Lumi" };
+            var data = NewData();
+            data.Projects.Add(project);
+            data.Chats.Add(UsedChat(project, null, 1));
+            data.Chats.Add(UsedChat(project, null, 2));
+
+            using var surface = NewSurface(data);
+            surface.UpdateModelCapabilities(
+                [new ModelInfo { Id = "claude-opus-5", SupportedReasoningEfforts = ["low", "high", "max"] }],
+                new HashSet<string> { "claude-opus-5" },
+                merge: true);
+            surface.DefaultModelSelectionChanged += (_, _, _) => defaultsPublished++;
+            var launchpad = surface.Launchpad;
+            launchpad.Activate();
+            try
+            {
+                launchpad.Setups.Single().SelectCommand.Execute(null);
+                surface.SelectedQuality = Loc.Quality_Low;
+                surface.SelectedContextWindowTier = Loc.ContextWindow_Long;
+                selectedEffort = surface.SelectedQuality;
+                selectedTier = surface.SelectedContextWindowTier;
+                defaultModel = data.Settings.PreferredModel;
+                defaultEffort = data.Settings.ReasoningEffort;
+                defaultTier = data.Settings.ContextWindowTier;
+            }
+            finally
+            {
+                launchpad.Deactivate();
+            }
+        }, CancellationToken.None);
+
+        Assert.Equal(Loc.Quality_Low, selectedEffort);
+        Assert.Equal(Loc.ContextWindow_Long, selectedTier);
+        Assert.Equal(0, defaultsPublished);
+        Assert.Equal("gpt-5.4", defaultModel);
+        Assert.Equal("high", defaultEffort);
+        Assert.Equal(ModelContextWindowTiers.Default, defaultTier);
+    }
+
+    [Fact]
+    public async Task Setup_ModelWithoutEffortsIsGroupedAndCanBeUndone()
+    {
+        using var session = HeadlessTestSession.Start();
+        bool activeAfterApply = false, activeAfterUndo = true;
+        string? setupEffort = "unexpected", qualityAfterApply = "unexpected", restoredModel = null;
+
+        await session.Dispatch(() =>
+        {
+            Loc.Load("en");
+            var project = new Project { Name = "Docs" };
+            var data = NewData();
+            data.Settings.ReasoningEffort = "medium";
+            data.Projects.Add(project);
+            var first = UsedChat(project, null, 1);
+            var second = UsedChat(project, null, 2);
+            first.LastModelUsed = second.LastModelUsed = "claude-sonnet-4.5";
+            first.LastReasoningEffortUsed = "high";
+            second.LastReasoningEffortUsed = "medium";
+            data.Chats.AddRange([first, second]);
+
+            using var surface = NewSurface(data);
+            surface.UpdateModelCapabilities([new ModelInfo { Id = "claude-sonnet-4.5" }], merge: true);
+            surface.ApplyAvailableModels(["gpt-5.4", "claude-opus-5", "claude-sonnet-4.5"], "gpt-5.4");
+            var launchpad = surface.Launchpad;
+            launchpad.Activate();
+            try
+            {
+                var setup = launchpad.Setups.Single();
+                setupEffort = setup.Spec.Effort;
+                setup.SelectCommand.Execute(null);
+                activeAfterApply = setup.IsActive;
+                qualityAfterApply = surface.SelectedQuality;
+                setup.SelectCommand.Execute(null);
+                activeAfterUndo = setup.IsActive;
+                restoredModel = surface.SelectedModel;
+            }
+            finally
+            {
+                launchpad.Deactivate();
+            }
+        }, CancellationToken.None);
+
+        Assert.Null(setupEffort);
+        Assert.Null(qualityAfterApply);
+        Assert.True(activeAfterApply);
+        Assert.False(activeAfterUndo);
+        Assert.Equal("gpt-5.4", restoredModel);
+    }
+
+    [Fact]
+    public async Task Setups_RefreshProjectAndAgentEditsAfterAnIndexSave()
+    {
+        using var session = HeadlessTestSession.Start();
+        string? renamedTitle = null, renamedMeta = null;
+        Guid? remainingProject = Guid.Empty, remainingAgent = Guid.Empty;
+
+        await session.Dispatch(async () =>
+        {
+            Loc.Load("en");
+            var project = new Project { Name = "Lumi" };
+            var agent = new LumiAgent { Name = "Coding Lumi" };
+            var data = NewData();
+            data.Projects.Add(project);
+            data.Agents.Add(agent);
+            data.Chats.Add(UsedChat(project, agent, 1));
+            data.Chats.Add(UsedChat(project, agent, 2));
+            var store = new DataStore(data);
+            using var surface = new ChatViewModel(store, TestCopilot.Shared);
+            var launchpad = surface.Launchpad;
+            launchpad.Activate();
+            try
+            {
+                project.Name = "Lumi App";
+                agent.Name = "Developer";
+                await Task.Run(() => store.SaveAsync());
+                Dispatcher.UIThread.RunJobs();
+                renamedTitle = launchpad.Setups.Single().Title;
+                renamedMeta = launchpad.Setups.Single().Meta;
+
+                data.Projects.Clear();
+                data.Agents.Clear();
+                await Task.Run(() => store.SaveAsync());
+                Dispatcher.UIThread.RunJobs();
+                remainingProject = launchpad.Setups.Single().Spec.ProjectId;
+                remainingAgent = launchpad.Setups.Single().Spec.AgentId;
+            }
+            finally
+            {
+                launchpad.Deactivate();
+            }
+        }, CancellationToken.None);
+
+        Assert.Equal("Lumi App", renamedTitle);
+        Assert.StartsWith("Developer · ", renamedMeta, StringComparison.Ordinal);
+        Assert.Null(remainingProject);
+        Assert.Null(remainingAgent);
+    }
+
+    [Fact]
+    public async Task Setup_UndoRestoresTheSelectedExistingWorktree()
+    {
+        using var session = HeadlessTestSession.Start();
+        var root = Path.Combine(Path.GetTempPath(), $"lumi-launchpad-worktree-{Guid.NewGuid():N}");
+        var repo = Path.Combine(root, "repo");
+        var worktree = Path.Combine(root, "existing");
+        Directory.CreateDirectory(repo);
+        try
+        {
+            RunGit(repo, "init", "--quiet");
+            RunGit(repo, "-c", "user.name=Lumi Tests", "-c", "user.email=test@example.com",
+                "commit", "--quiet", "--allow-empty", "-m", "initial");
+            RunGit(repo, "worktree", "add", "--quiet", "-b", "existing-work", worktree);
+
+            string? clearedPath = "unexpected", restoredPath = null, restoredBranch = null;
+            bool restoredMode = false;
+            await session.Dispatch(async () =>
+            {
+                Loc.Load("en");
+                var project = new Project { Name = "Lumi", WorkingDirectory = repo };
+                var data = NewData();
+                data.Projects.Add(project);
+                using var surface = NewSurface(data);
+                surface.SetProjectId(project.Id);
+                await surface.RefreshCodingProjectState();
+                await surface.SelectExistingWorktreeCommand.ExecuteAsync(worktree);
+                Dispatcher.UIThread.RunJobs();
+
+                var localSetup = new LaunchpadSetupSpec(project.Id, null, false, "claude-opus-5", "max");
+                await surface.ToggleLaunchpadSetupAsync(localSetup, isActive: false);
+                clearedPath = surface.WorktreePath;
+                await surface.ToggleLaunchpadSetupAsync(localSetup, isActive: true);
+                Dispatcher.UIThread.RunJobs();
+                restoredPath = surface.WorktreePath;
+                restoredMode = surface.IsWorktreeMode;
+                restoredBranch = surface.GitBranch;
+            }, CancellationToken.None);
+
+            Assert.Null(clearedPath);
+            Assert.Equal(worktree, restoredPath);
+            Assert.True(restoredMode);
+            Assert.Equal("existing-work", restoredBranch);
+        }
+        finally
+        {
+            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+                File.SetAttributes(file, FileAttributes.Normal);
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
@@ -295,4 +498,26 @@ public sealed class LaunchpadViewModelTests
         CreatedAt = DateTimeOffset.Now.AddDays(-daysAgo),
         UpdatedAt = DateTimeOffset.Now.AddDays(-daysAgo),
     };
+
+    private static void RunGit(string directory, params string[] arguments)
+    {
+        var start = new ProcessStartInfo("git")
+        {
+            WorkingDirectory = directory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        foreach (var argument in arguments)
+            start.ArgumentList.Add(argument);
+        start.Environment["GIT_CONFIG_GLOBAL"] = Path.Combine(directory, ".lumi-test-global-gitconfig");
+        start.Environment["GIT_CONFIG_NOSYSTEM"] = "1";
+        using var process = Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        process.WaitForExit();
+        Task.WhenAll(output, error).GetAwaiter().GetResult();
+        Assert.True(process.ExitCode == 0, error.Result);
+    }
 }
