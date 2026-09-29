@@ -464,6 +464,25 @@ public sealed class SystemPromptBuilderTests
         Assert.Contains("## Window Automation (UI Automation)", prompt);
         Assert.Contains("lumi_browser_open", prompt);
         Assert.Contains("ui_inspect", prompt);
+        Assert.Contains("ui_do(title, steps, observe?, allowForeground?)", prompt);
+        Assert.Contains("Background-first", prompt);
+        Assert.Contains("ui_screenshot", prompt);
+        Assert.Contains("ui_click_at", prompt);
+        Assert.Contains("without activating the window", prompt);
+        Assert.Contains("Minimized target windows are restored without activation", prompt);
+        Assert.Contains("call `ui_inspect` with that app's title immediately", prompt);
+        Assert.Contains("`expand`/`collapse`", prompt);
+        Assert.Contains("`click` with `value` `double` or `right`", prompt);
+        Assert.Contains("reaches rows a virtualized list has not created yet", prompt);
+        Assert.Contains("session is disconnected or locked", prompt);
+        Assert.Contains("do not scroll them into view first", prompt);
+        Assert.Contains("An enabled game-specific Play button", prompt);
+        Assert.Contains("stops at the first failure", prompt);
+        Assert.Contains("Do not run desktop action calls in parallel", prompt);
+        Assert.Contains("Do not guess unknown control names or IDs", prompt);
+        Assert.Contains("relevant visible controls at every depth", prompt);
+        Assert.Contains("A changed selection highlight is not proof of navigation", prompt);
+        Assert.Contains("avoid todo/checkpoint/artifact bookkeeping", prompt);
 
         // PowerShell / COM / winget / WMI techniques are Windows-only.
         Assert.Contains("via PowerShell or Python", prompt);
@@ -513,6 +532,9 @@ public sealed class SystemPromptBuilderTests
         Assert.DoesNotContain("lumi_browser_open", prompt);
         Assert.DoesNotContain("ui_inspect", prompt);
         Assert.DoesNotContain("ui_list_windows", prompt);
+        Assert.DoesNotContain("ui_do", prompt);
+        Assert.DoesNotContain("ui_screenshot", prompt);
+        Assert.DoesNotContain("ui_click_at", prompt);
 
         // Windows-only shell/automation techniques must NOT leak.
         Assert.DoesNotContain("via PowerShell or Python", prompt);

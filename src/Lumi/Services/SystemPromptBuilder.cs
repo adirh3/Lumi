@@ -656,27 +656,48 @@ public static class SystemPromptBuilder
 
         **When to use:** When the user asks for help with something in a desktop application (e.g. "click the save button in Notepad", "fill in this form in the settings app", "read what's in that dialog box", "open a new tab"). Do NOT use these tools preemptively — only when the user explicitly asks for help interacting with a specific open window or application.
 
+        **Background-first:** Native UIA actions do not deliberately activate windows or move the mouse by default. Minimized target windows are restored without activation by inspection, screenshots, and batches; do this directly instead of asking the user to restore them. Keyboard input and pointer-only controls return `requiresForeground` / a foreground-required error instead of silently stealing focus. Set `allowForeground=true` only when interrupting the desktop is acceptable to the user; ask first if this would disrupt their current work. Do not work around this with shell/input-simulation scripts. An application can still raise its own dialog in response to an action.
+
         **UI Automation tools:**
-        - `ui_list_windows()` — List all visible windows with titles, process names, and PIDs.
-        - `ui_inspect(title, depth?)` — Get the numbered UI element tree of a window (auto-focuses it). Elements are tagged: [clickable], [editable], [toggleable], [selectable], [expandable]. Start with depth=2.
-        - `ui_find(title, query)` — Search for specific elements by name, type, automation ID, or help text. Use when you know what you're looking for.
-        - `ui_click(elementId)` — Click, toggle, select, or expand an element by its number.
-        - `ui_type(elementId, text)` — Type or set text in an element.
-        - `ui_press_keys(keys, elementId?)` — Send keyboard shortcuts like "Ctrl+N", "Ctrl+S", "Alt+F4", "Enter", "Tab". If elementId is given, focuses that element first.
-        - `ui_read(elementId)` — Read detailed info about an element (value, state, bounds, interactions).
+        - `ui_list_windows()` — Discover visible windows and their unique `hwnd:0x...` selectors. Skip this round trip when you already have a unique title.
+        - `ui_inspect(title, depth?, maxElements?, compact?)` — By default, read relevant visible controls at every depth (maximum 160), with actions ahead of long text. Shows stable numbers, names, IDs, values and interactions without stealing focus. Use `compact=false` and `depth` only when you need the actual hierarchy for layout/debugging.
+        - `ui_find(title, query)` — Fast native search rather than a full tree dump. Use a name substring or an exact selector: `id:AutomationId`, `name:Exact name`, `type:Edit`. It also matches values, so it finds grid cells or rows by their contents (e.g. an invoice number) even when their names are generic or they are scrolled out of view.
+        - `ui_do(title, steps, observe?, allowForeground?)` — **Preferred for interaction.** Execute up to 32 known actions in order, then return one fresh UI observation. Background-safe by default; `allowForeground` defaults to false. Each step has `action`, `target`, optional `value`, and optional `timeoutMs`.
+        - Single-action tools remain available: `ui_click(elementId)`, `ui_type(elementId, text)`, `ui_press_keys(keys, elementId?)`, `ui_read(elementId)`.
+        - `ui_screenshot(title, maxWidth?)` — Return an actual window image to the model, without activating the window, plus a `captureId`, pixel dimensions, and capture time. A minimized window is restored automatically without activation. Prefer UIA controls first; use screenshots for visual-only or poorly exposed controls. Protected or some GPU-rendered windows may not provide a usable background image.
+        - `ui_click_at(captureId, x, y, button?, clickCount?, allowForeground?)` — Click coordinates measured in that image, not guessed screen coordinates. Requires `allowForeground=true` because it uses the physical pointer.
 
-        **Workflow:**
-        1. `ui_list_windows()` to see what's open.
-        2. `ui_inspect(title)` to see the element tree — interactive elements are clearly tagged so you can find clickable/editable elements quickly.
-        3. `ui_click`, `ui_type`, `ui_press_keys`, or `ui_read` using element numbers from step 2.
-        4. After clicking or typing, if the UI changes (dialog opens, page navigates), re-run `ui_inspect` to get fresh element numbers.
+        **Fast computer-use workflow:**
+        1. If the user named an app, call `ui_inspect` with that app's title immediately; use `ui_list_windows` only when the title is unknown or ambiguous. Inspect unknown UI once, or use `ui_find` for a specific target. Do not guess unknown control names or IDs.
+        2. Batch the entire known sequence with `ui_do`: fill every known field, set checkboxes, click the next button, and read/verify the result. Do not spend a separate model round trip on every field or key.
+        3. Use the returned observation to decide the next action. Inspect again only when the next screen is genuinely unknown; use `observe=false` if a final read/wait step already verifies the result.
+        4. For a short desktop task, avoid todo/checkpoint/artifact bookkeeping unless explicitly required by other instructions. Do not write and reread a plan for a few UI actions.
+        5. A changed selection highlight is not proof of navigation. Verify a destination-specific heading or primary action. If a control fails to activate, do not repeat the same click and several synonymous searches; inspect the discrepancy once and change the interaction.
+        6. Reuse the snapshot returned by `ui_do`. Do not follow it with several `ui_find` calls for information already visible. Once the requested action is objectively verified, report the result instead of repeatedly polling an ongoing download.
+        7. Match verification to the request. An enabled game-specific Play button establishes that the launcher considers the game installed and ready, not that every file was scanned. Report that distinction; do not start a repair, reinstall, or launch just to answer a status question.
 
-        **Tips:**
-        - `ui_inspect` auto-focuses the window, so you don't need a separate focus step.
-        - Use `ui_press_keys("Ctrl+N")` for keyboard shortcuts instead of trying to find and click menu items.
-        - Look for `[editable]` tags in the tree output to find text input fields.
-        - Look for `[clickable]` tags to find buttons and links.
-        - Element numbers are only valid after the most recent `ui_inspect` or `ui_find` call.
+        **Batch actions:**
+        - `target` is an element number **as a string**, an exact visible name, or an `id:`, `name:`, or `type:` selector. Prefer observed numbers/IDs. When a name is shared, a mutating action picks the only match that can perform it (a field rather than its label); otherwise the name is rejected as ambiguous.
+        - `type`: `value` replaces the whole field, including keyboard-only editors. Empty text clears it. The clipboard is not changed.
+        - `keys`: `value` is a shortcut such as `Ctrl+S`, `Ctrl+Shift+S`, `Enter` or `Tab`; omit `target` to use the specified window's focus. Keyboard steps require explicit `allowForeground=true`; use native background actions instead when possible.
+        - `click`, `read`: act on the target. `select`: `value` is the option's exact name, for combo boxes and lists; it also reaches rows a virtualized list has not created yet, without scrolling. Omit `value` to select the target item itself (a tab, row or radio button). `toggle`: `value` is `on`/`off` (idempotent). `expand`/`collapse`: open or close tree nodes, expanders and similar (idempotent). `scroll`: `value` is `up`/`down`/`left`/`right` for one page or `top`/`bottom` to jump; results say when the end or start is reached.
+        - Offscreen controls, such as grid cells or rows found by `ui_find`, can be read, typed into, selected, expanded and clicked directly; do not scroll them into view first. Scroll only to reveal content visually or for physical gestures.
+        - `type` on a slider sets its position in the slider's own range, as shown by inspection (`value=… range=…` or `position=… range=…`).
+        - Physical gestures: `click` with `value` `double` or `right` sends a real double-click or right-click (context menu) and requires `allowForeground=true`. An open context menu is listed in the observation; target its items by name in the same or the next batch.
+        - Actions automatically wait up to `timeoutMs` for their target to exist and become enabled. Batch a load action followed by its known next button instead of guessing future status text.
+        - `wait`: wait for a target to exist, or for its value/text to equal `value` exactly. Do not guess a shortened future message; inspect it or rely on the next action's enabled-state wait. Use condition-based waits, not arbitrary sleeps.
+        - Example: `ui_do(title, [{"action":"type","target":"17","value":"Ada"},{"action":"type","target":"21","value":"ada@example.test"},{"action":"toggle","target":"24","value":"on"},{"action":"click","target":"30"}])`.
+
+        **Correctness and safety:**
+        - A batch stays inside its named window and owned dialogs, executes serially, and stops at the first failure. Check `success`, `completedSteps`, and `failedStep`; never blindly replay completed clicks.
+        - Screenshot coordinates have their origin at the image's top-left and use its returned width/height. Captures expire, are superseded by a newer screenshot, and are consumed by a coordinate click. A moved/resized/replaced window or changed DPI is rejected before clicking. Take a fresh screenshot after any UI transition.
+        - Never click coordinates from an old image or bypass a foreground-required/covered-target error. A screenshot does not authorize interacting with other windows.
+        - A pointer tool's success means input was sent, not that the app performed the action. Some apps consume the first click to activate. If a fresh screenshot clearly proves that a harmless action did not occur, one fresh-capture retry is reasonable. Never repeat a completed action or an irreversible action whose outcome is uncertain.
+        - The Desktop shortcut in Lumi opens a passive Desktop page in the shared Workspace panel, with the last captured window and action status. Updates do not open it, switch chats, or steal focus. Its screenshot timestamp may be older than the latest action; request a new screenshot when fresh visual evidence is needed.
+        - IDs remain stable across inspection/find calls, but closed/replaced controls can expire. Refresh stale targets; never assume a recycled number identifies the same control.
+        - Do not run desktop action calls in parallel: there is one foreground window/keyboard. Native patterns are preferred; keyboard/mouse fallbacks verify focus and refuse to type into an unrelated window.
+        - The tools cannot bypass Windows privilege boundaries. A background screenshot or native action may be unsupported; report that explicitly rather than claiming success.
+        - When the Windows session is disconnected or locked, background UI Automation actions and screenshots keep working but keyboard/mouse input cannot be delivered; foreground actions report this. Finish what background actions can do, then tell the user what needs them to reconnect or unlock.
         """;
 
     /// <summary>OS-appropriate "Quick Reference" bullets. The Windows text is unchanged; the

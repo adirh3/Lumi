@@ -339,6 +339,258 @@ try {
 }
 ```
 
+### Windows computer-use automation
+
+Windows desktop tools use native UI Automation patterns, cached UI properties,
+and provider-side search. By default, `ui_inspect` returns relevant visible
+controls at every depth, with actions before long text and stable control numbers.
+Deep layout wrappers therefore do not hide an app's navigation or primary action.
+Use `compact=false` with `depth` for a hierarchical layout/debugging tree.
+`ui_find` searches a specific name, `id:AutomationId`, or `type:ControlType`.
+Window titles must be unique; inspect a named app directly instead of listing all
+windows first. `ui_list_windows` also supplies explicit `hwnd:0x...` selectors and
+minimized state for windows with the same title. Inspection, screenshots, and
+batches restore minimized targets with `SW_SHOWNOACTIVATE`; routine window state
+is recovered automatically without asking the user to restore it manually.
+
+Desktop actions are **background-first**: native value, invoke/default-action,
+toggle, selection, and scroll patterns do not deliberately activate windows or
+move the pointer. Some applications may still raise their own dialogs. A control
+that needs physical input reports that foreground permission is required instead
+of silently interrupting the user. `ui_press_keys` and keyboard steps require
+`allowForeground=true`; pointer-only fallbacks require the same explicit opt-in.
+
+Prefer `ui_do` for a known sequence rather than a separate model turn per field:
+
+```json
+{
+  "title": "Order entry",
+  "steps": [
+    { "action": "type", "target": "17", "value": "Morgan" },
+    { "action": "toggle", "target": "24", "value": "on" },
+    { "action": "click", "target": "30" }
+  ]
+}
+```
+
+The numbers must come from an actual inspection. Steps support `click`, `type`
+(replace text, including keyboard-only editors, or set a slider position in its
+own range), `keys`, `read`, `select`, `toggle`, `expand`/`collapse`, `scroll`
+(`up`/`down`/`left`/`right` by page, or `top`/`bottom`), and condition-based
+`wait`. `select` finds combo-box and list options without opening the drop-down,
+including rows a virtualized WPF/UWP list has not created yet; click-by-name
+realizes such rows too. `click` with `value` `double` or `right` sends a physical
+double-click or right-click and needs `allowForeground=true`; an opened context
+menu is listed in the observation, and its items can be targeted. `ui_find` also
+matches values, so grid cells and rows are found by their contents. A batch validates its arguments before
+acting, runs serially within one window and its owned dialogs, stops on the first
+failure, and returns per-step timings plus one final observation. Set
+`observe=false` when a final read/wait already verifies the outcome. Inspect the
+state before retrying a failed step: it may have partially applied. Keyboard and
+mouse fallbacks check foreground ownership; bulk text input leaves the clipboard
+unchanged. Closed or evicted controls expire rather than having their numbers
+reassigned. These tools do not bypass elevated-app permissions or inaccessible
+canvas-only UIs.
+
+Windows' UI Automation client blocks for about two seconds on each mutating
+pattern call (select, toggle, invoke, expand, set value) when the target cannot
+take focus: in a disconnected or locked session, and for Win32 controls whose
+built-in proxies try to focus the window. Lumi therefore uses native control
+messages for Win32 edits, buttons, combo boxes, list boxes, tabs, trackbars and
+scroll bars, and the element's MSAA (LegacyIAccessible) interface for
+selection, presses, checkboxes, tree/expander expansion and grid-cell values.
+Each fast path sends the owner notifications a user action would, is verified,
+and falls back to the UIA pattern. In a disconnected or locked session, background
+actions and screenshots keep working, while physical input reports why it cannot
+be delivered instead of claiming success.
+
+Actions wait within their step timeout for a known target to become enabled; a
+load action can therefore be followed directly by its known Apply button. Explicit
+text waits still compare exact values, not guessed message prefixes. WinForms
+menu items require foreground permission and verified pointer activation because
+their accessibility Invoke callback can otherwise block a modal file dialog.
+
+Native tab controls switch through the control itself, which notifies its owner
+like a click; web-backed tabs use their default action. Physical activation
+remains an explicit fallback.
+Verify a destination-specific heading or primary action, not just the selection
+highlight. The snapshot returned by `ui_do` is normally enough for the next
+decision; avoid repeated equivalent searches.
+
+#### Window screenshots and the Desktop workspace page
+
+`ui_screenshot(title, maxWidth)` returns an actual PNG image to the model plus a
+capture ID, timestamp, and image dimensions. It asks the application to render its
+window without bringing it to the foreground; it does not capture other windows
+covering it. Minimized windows are restored without activation. Protected or some
+GPU-rendered applications may not supply a usable background capture.
+
+For visually exposed controls without useful UIA metadata, use
+`ui_click_at(captureId, x, y, allowForeground: true)`. Coordinates are pixels in
+the returned image, with the origin at the top-left, not arbitrary screen
+coordinates. Clicks reject changed window identity, position, size or DPI,
+out-of-image points, blocked windows and covered targets. Captures expire after
+two minutes, are superseded by a newer screenshot, and are consumed by a
+coordinate click. Take a fresh screenshot after changing the UI. This fallback
+uses the real mouse and can interrupt the user; prefer native background actions.
+
+After desktop automation is used, the **Desktop** shortcut opens a read-only page
+in the shared **Workspace** panel, with the last screenshot, target window,
+action and status. It is not an embedded remote window or a live video stream.
+Explicit opening requests a fresh snapshot; further action snapshots update an
+already visible Desktop page. Closing it preserves the last frame but subsequent
+updates do not reopen it or navigate away from another page. Each host owns and
+releases its decoded image; screenshot bytes stay in memory rather than being
+added to saved chat data.
+
+#### Validating computer use from the repository
+
+One command builds what it needs and runs every automated layer, reporting each
+test and benchmark scenario individually (`summary.json` under the output folder):
+
+```powershell
+# Contract tests, real-desktop native tests, and real-model benchmarks (default tiers)
+pwsh tools\automation\Invoke-UIAutomationValidation.ps1
+
+# Only the fast, model-free layers, or a model subset repeated three times
+pwsh tools\automation\Invoke-UIAutomationValidation.ps1 -Tiers Contracts,Native
+pwsh tools\automation\Invoke-UIAutomationValidation.ps1 -Tiers Model -Scenarios tree,grid,wpf -Iterations 3
+```
+
+- **Contracts** — tool contracts, prompt guidance, schemas and Desktop preview
+  tests; the headless preview UI tests run in their own test host.
+- **Native** — `UIAutomationDesktopTests` against disposable WinForms and WPF
+  fixtures, including per-step speed limits that catch missed background paths.
+  When no Notepad window is open, the command also prepares a disposable file for
+  the real-Notepad test and closes that window afterwards if it saved cleanly.
+- **Model** — builds Debug Lumi into `.mcp-run`, launches it with an isolated,
+  seeded app-data folder (never your real chats, memories or settings; it reuses
+  the machine's Copilot sign-in), runs every benchmark scenario with
+  `gpt-6-sol`/`low` by default, and then closes only that instance by PID.
+- **BattleNet** (opt-in) — tests against a real, signed-in Battle.net; add
+  `-BattleNetNavigation` for the navigation benchmark.
+
+Skips and unattempted items never count as passes: the exit code is 0 only when
+everything selected passed (2 when something was skipped; `-AllowSkips` accepts
+that). Physical-input tests and scenarios need an unlocked, connected, idle
+desktop and skip with the reason otherwise; background ones also run while the
+session is disconnected or locked, which is itself a supported way to use Lumi.
+
+#### Repeatable Windows desktop benchmarks
+
+Run on an idle interactive desktop against an **isolated Debug Lumi instance**
+that is signed into Copilot (the validation command above does this for you).
+The suite creates a fresh chat for every case and never sends to an existing
+chat. The cases cover:
+
+- An eight-field native order form and a modal preferences dialog.
+- A searchable 200-item catalog and an actual scroll-to-end acknowledgment.
+- Unicode document editing through a real Windows Save As dialog and menu.
+- An asynchronous report that must become ready before its action is enabled.
+- Reading a reference and transferring it into a separate owned window.
+- Expanding a collapsed, checkable tree to a nested city without checking rows (`tree`).
+- Finding an offscreen invoice by value in a data grid and editing a cell (`grid`).
+- A modal setup wizard with radio buttons, a spinner, a slider and gated Next (`wizard`).
+- Recovering from an error message box by using its suggestion (`recovery`).
+- Archiving a file through a right-click context menu and confirmation (`context-menu`).
+- A WPF app with a 2,000-row virtualized list, slider, expander and combo box (`wpf`).
+- Real Windows Notepad editing and exact saved-file verification (`notepad`).
+- Real Windows Calculator arithmetic, verified from its display (`calculator`).
+- Screenshot-only identification and a coordinate click on a painted target, and
+  double-click/right-click delivery on painted targets (`vision`, `vision-gestures`).
+
+The fixtures use installed Windows
+PowerShell/WinForms and independent state/file assertions; the model cannot pass
+by merely claiming completion. Visual cases require screenshots before and after
+the action plus exact native click counters and the independently generated code.
+A visual workflow may recover once with a fresh screenshot and a new capture ID;
+all attempts remain in timings and `usedAdditionalAttempt` distinguishes recovery
+from one-shot completion. The actual delivered click counts remain exact. Missing
+tool output is never treated as proof that an attempted click was rejected.
+
+```powershell
+.\tools\automation\Run-UIAutomationBenchmarks.ps1 `
+  -LumiProcessId <debug-pid> -OutputDirectory .mcp-run\uia-benchmarks `
+  -Label baseline -Model gpt-6-sol -ReasoningEffort low -TimeoutSeconds 240
+
+# Run the same command against the improved Debug PID with -Label improved.
+.\tools\automation\Compare-UIAutomationBenchmarks.ps1 `
+  -ResultPath <baseline-run-directory>,<improved-run-directory>
+```
+
+For repeated native-form measurements, add `-FixtureOnly -Iterations 3` to both
+runs, or select a small cohort with `-Scenarios document,delayed,scroll,transfer`.
+`-FixtureOnly` excludes the real apps (Notepad and Calculator). Physical-input
+cases (`notepad`, `document`, `context-menu`, and the vision cases) need an
+unlocked, connected desktop; unavailable input is recorded as a skip, never a pass.
+
+The real apps never touch a window the user opened. Notepad opens the temporary
+file in a new window when no Notepad window is visible, or as a tab in a window
+left by an earlier benchmark (titled `Lumi-UI-Bench-…`); any other open Notepad
+window means the case is skipped. `-NotepadWindowHandle <handle>` still selects
+an explicitly prepared test-only window (Notepad's **File > New window**). The
+runner never closes Notepad windows or kills its process. Calculator is skipped
+when it is already running; otherwise the runner launches it, addresses only that
+window by its `hwnd:` selector, and closes that window afterwards.
+
+On a timeout the suite stops scheduling work. If the chat is still active or its
+state cannot be confirmed, its native fixture is retained too: stop that test
+chat before closing its target. This prevents a still-running model from sending
+input after its intended window has been removed.
+
+`results.json` is authoritative: it includes failures/skips, exact prompts and
+model settings, independent assertions, fresh-chat end-to-end time, tool-call
+counts, and recorded tool durations. End-to-end time includes model/network and
+session-startup latency; it is **not** a native-input latency measurement.
+Unavailable tool outputs/timings remain null. The comparer refuses speedup claims
+for mismatched contracts, incomplete measurements, or cohorts containing failures.
+Artifacts remain local and may contain visible window titles. The UI-only prompt
+is audited, not a sandbox.
+Internal `checkpoint.md` bookkeeping is permitted and counted; it cannot satisfy
+any desktop task's independent success assertions.
+
+These are representative workflows, not a guarantee for every desktop app.
+The native regression suite also exercises wrong-window/duplicate-title
+rejection, disabled and stale controls, partial failures, bounded waits,
+minimized recovery, foreground preservation, long Unicode text, and screenshot
+invalidation. Unsupported native providers, protected/elevated windows, and
+applications that do not render capturable content remain explicit limitations.
+
+Focused native regression tests use the same disposable fixture and are opt-in:
+
+```powershell
+$env:LUMI_UI_AUTOMATION_DESKTOP_TESTS = "1"
+dotnet test tests\Lumi.Tests\Lumi.Tests.csproj `
+  --filter "FullyQualifiedName~UIAutomationDesktopTests"
+Remove-Item Env:\LUMI_UI_AUTOMATION_DESKTOP_TESTS
+```
+
+For the real Battle.net navigation regression, keep Battle.net open and run:
+
+```powershell
+$env:LUMI_BATTLENET_UI_TESTS = "1"
+dotnet test tests\Lumi.Tests\Lumi.Tests.csproj `
+  --filter "FullyQualifiedName~BattleNetAutomationTests"
+Remove-Item Env:\LUMI_BATTLENET_UI_TESTS
+
+.\tools\automation\Run-BattleNetNavigationBenchmark.ps1 `
+  -LumiProcessId <debug-pid> -OutputDirectory .mcp-run\battlenet-benchmarks `
+  -Label before -Iterations 2
+```
+
+Repeat the benchmark against the fixed Debug PID with `-Label after`. Both use
+the same `gpt-6-sol` / `low` prompt and start on Diablo IV. They only navigate to
+Heroes of the Storm and read its primary action; they never press Install, Play,
+Update, Pause, or Uninstall. Actual content is verified independently of the
+selected-tab flag. The native test additionally checks that the default
+observation includes the destination's deeply nested primary action. The script
+loads FlaUI from the built validation output by default; use `-BinaryDirectory`
+to select another existing Lumi Debug output directory.
+
+Do not run desktop tests or benchmarks concurrently: Windows has one shared
+foreground window and keyboard. Non-Windows builds neither expose nor advertise
+the desktop tools.
+
 ### Windows Installer
 
 Windows releases use the standard Velopack installer with the branded

@@ -146,6 +146,8 @@ public partial class ChatViewModel
             return;
 
         _isDisposed = true;
+        ResetDesktopPreview();
+        _uiAutomation.Dispose();
         if (_ownsCapabilityCatalog)
             _capabilityCatalog.Dispose();
         _copilotService.Reconnected -= OnCopilotReconnected;

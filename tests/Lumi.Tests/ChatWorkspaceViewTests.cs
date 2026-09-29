@@ -61,10 +61,12 @@ public sealed class ChatWorkspaceViewTests
                 Assert.NotNull(workspace.FindControl<Border>("WorkspacePanel"));
                 Assert.NotNull(workspace.FindControl<WorkspaceOverview>("WorkspaceOverview"));
                 Assert.NotNull(workspace.FindControl<ContentControl>("WorkspacePageHost"));
+                Assert.NotNull(workspace.ChatView.FindControl<Button>("DesktopPreviewButton"));
                 // Plans, agents, diffs and previews now open inside the Workspace, not beside it.
                 Assert.Null(workspace.FindControl<Border>("PlanIsland"));
                 Assert.Null(workspace.FindControl<Border>("SubagentIsland"));
                 Assert.Null(workspace.FindControl<Border>("WorkspaceRail"));
+                Assert.Null(workspace.FindControl<Border>("DesktopIsland"));
                 Assert.False(workspace.ChatView!.UseShellChrome);
                 Assert.Contains("flat-window", workspace.ChatView!.FindControl<StrataTheme.Controls.StrataChatShell>("ChatShell")!.Classes);
             }

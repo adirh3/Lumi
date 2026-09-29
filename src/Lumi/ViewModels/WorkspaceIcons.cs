@@ -112,6 +112,9 @@ public static class WorkspaceIcons
     public static Geometry Rename => Glyph(
         "M11.5 2C11.7761 2 12 2.22386 12 2.5C12 2.77614 11.7761 3 11.5 3H10.5V17H11.5C11.7761 17 12 17.2239 12 17.5C12 17.7761 11.7761 18 11.5 18H8.5C8.22386 18 8 17.7761 8 17.5C8 17.2239 8.22386 17 8.5 17H9.5V3H8.5C8.22386 3 8 2.77614 8 2.5C8 2.22386 8.22386 2 8.5 2H11.5ZM8.5 5H5C3.89543 5 3 5.89543 3 7V13C3 14.1046 3.89543 15 5 15H8.5V16H5C3.34315 16 2 14.6569 2 13V7C2 5.34315 3.34315 4 5 4H8.5V5ZM15 4C16.6569 4 18 5.34315 18 7V13C18 14.6569 16.6569 16 15 16H11.5V15H15C16.1046 15 17 14.1046 17 13V7C17 5.89543 16.1046 5 15 5H11.5V4H15Z");
 
+    public static Geometry Desktop => Glyph(
+        "M3.5 3A1.5 1.5 0 0 0 2 4.5V12.5A1.5 1.5 0 0 0 3.5 14H8V16H5.5A0.5 0.5 0 0 0 5.5 17H14.5A0.5 0.5 0 0 0 14.5 16H12V14H16.5A1.5 1.5 0 0 0 18 12.5V4.5A1.5 1.5 0 0 0 16.5 3H3.5ZM3 4.5A0.5 0.5 0 0 1 3.5 4H16.5A0.5 0.5 0 0 1 17 4.5V12.5A0.5 0.5 0 0 1 16.5 13H3.5A0.5 0.5 0 0 1 3 12.5V4.5ZM9 14H11V16H9V14Z");
+
     public static Geometry For(WorkspacePage page) => page switch
     {
         WorkspacePage.Plan => Plan,
@@ -121,6 +124,7 @@ public static class WorkspaceIcons
         WorkspacePage.Skill => Skills,
         WorkspacePage.FilePreview => File,
         WorkspacePage.Browser => Browser,
+        WorkspacePage.Desktop => Desktop,
         _ => Workspace,
     };
 
@@ -137,6 +141,7 @@ public static class WorkspaceIcons
         WorkspaceCategory.Messages => Messages,
         WorkspaceCategory.Activity => Activity,
         WorkspaceCategory.Browser => Browser,
+        WorkspaceCategory.Desktop => Desktop,
         _ => Workspace,
     };
 

@@ -1028,6 +1028,7 @@ public partial class MainWindow : Window
                 vm.SelectedNavIndex = 0;
         };
         _chatWorkspace.CanShowBrowserPanel = chatId => vm.ActiveChatId == chatId;
+        _chatWorkspace.CanShowDesktopPanel = chatId => vm.ActiveChatId == chatId && vm.SelectedNavIndex == 0;
         _chatWorkspace.DataStore = vm.DataStore;
 
         if (!ReferenceEquals(_chatWorkspace.DataContext, vm.ChatVM))
@@ -1129,6 +1130,7 @@ public partial class MainWindow : Window
                     if (vm.SelectedNavIndex == 0)
                     {
                         vm.ChatVM.RefreshComposerCatalogs();
+                        _chatWorkspace?.RestoreDesktopPanel();
 
                         Dispatcher.UIThread.Post(() =>
                         {
@@ -1142,6 +1144,7 @@ public partial class MainWindow : Window
                 {
                     // Switching chats closes any Workspace page (the overview follows the preference)
                     _chatWorkspace?.CloseWorkspacePages();
+                    _chatWorkspace?.RestoreDesktopPanel();
                     Dispatcher.UIThread.Post(() => SyncListBoxSelection(vm.ActiveChatId),
                         DispatcherPriority.Loaded);
                 }
