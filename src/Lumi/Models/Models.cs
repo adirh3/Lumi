@@ -699,6 +699,7 @@ public class Chat : INotifyPropertyChanged
 public class Project : INotifyPropertyChanged
 {
     private bool _isRunning;
+    private int _chatCount;
     private List<string> _additionalContextDirectories = [];
 
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -723,6 +724,14 @@ public class Project : INotifyPropertyChanged
     {
         get => _isRunning;
         set { if (_isRunning == value) return; _isRunning = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRunning))); }
+    }
+
+    /// <summary>Runtime-only number of chats in this project, shown next to it in the Projects sidebar.</summary>
+    [JsonIgnore]
+    public int ChatCount
+    {
+        get => _chatCount;
+        set { if (_chatCount == value) return; _chatCount = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ChatCount))); }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

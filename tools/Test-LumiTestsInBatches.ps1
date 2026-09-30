@@ -50,6 +50,9 @@ $isolatedClasses = @(
     "Lumi.Tests.CapabilityChatShareTests",
     "Lumi.Tests.CapabilitySharingTests",
     "Lumi.Tests.CapabilitySharingViewModelTests",
+    # Keep the existing batch boundaries unchanged when adding the management-page tests.
+    "Lumi.Tests.ManagementPagesViewModelTests",
+    "Lumi.Tests.ManagementPagesUiTests",
     # Windows computer-use tests run in their own hosts for the same reason.
     "Lumi.Tests.BattleNetAutomationTests",
     "Lumi.Tests.DesktopPreviewTests",

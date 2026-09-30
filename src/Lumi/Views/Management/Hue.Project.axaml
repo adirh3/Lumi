@@ -1,0 +1,22 @@
+<!-- Page hue for Projects: slate blue. Deliberately muted: it only tints identity glyphs (page tile, item
+     tiles, empty states) and a barely-there header wash; everything else on the page stays neutral
+     and uses Lumi's own accent for selection and focus. -->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="Mg.Hue" Color="#8FB4D4" />
+      <LinearGradientBrush x:Key="Mg.HueWash" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#0D8FB4D4" />
+        <GradientStop Offset="1" Color="#008FB4D4" />
+      </LinearGradientBrush>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="Mg.Hue" Color="#3D6F99" />
+      <LinearGradientBrush x:Key="Mg.HueWash" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#0A3D6F99" />
+        <GradientStop Offset="1" Color="#003D6F99" />
+      </LinearGradientBrush>
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

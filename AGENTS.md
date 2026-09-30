@@ -36,7 +36,7 @@ Lumi is a cross-platform Avalonia desktop app — a personal agentic assistant t
 - Not bloated — main interface focuses on chats with clean navigation.
 - Welcome experience — elegant welcome panel with suggestion chips.
 - Transparency — tool calls grouped with friendly names, reasoning tokens displayed, streaming indicators.
-- Dedicated management — agents, skills, projects each have master-detail CRUD with search.
+- Dedicated management — projects, skills, Lumis, memories and MCP servers each open on an overview gallery (stats, sort, search, cards) and a full-page editor with a floating save bar.
 
 ## Architecture
 
@@ -273,7 +273,7 @@ Keep the debug window open only until the user has confirmed the work is done. O
 - **Chat transcript is built in code-behind** (`ChatView.axaml.cs`), not with data templates. New message types need a case in `AddMessageControl()`
 - **System prompt assembly** — new context sources should extend `SystemPromptBuilder.Build()`
 - **Tool display names** — add friendly mappings in `ChatView.axaml.cs` `GetFriendlyToolDisplay()` and `ChatViewModel.cs` `FormatToolDisplayName()`
-- **CRUD ViewModels** follow identical master-detail pattern — `SelectedX`, `IsEditing`, `EditX` properties, `New/Edit/Save/Cancel/Delete` commands
+- **Management pages** (Projects, Skills, Lumis, Memories, MCP) share one pattern — `SelectedX`, `IsEditing`, `EditX` properties, card collections for the overview, `HasUnsavedChanges`/`ShowSaveBar`, `Save` (keeps the item open), `DiscardChanges`, `RequestDelete`/`ConfirmDelete`, `CloseDetail`. Views reuse `Views/Management/ManagementStyles.axaml` and take their colour from one `Hue.*.axaml`; sidebars bind `SelectedItem` one way and open items through `OnManagementListSelectionChanged`
 - **Strata controls** — always use Strata UI components for chat elements. Inspect the StrataTheme source for API
 - **Modify StrataTheme when needed** — if a UI change makes more sense as a StrataTheme feature or fix (new control, new property, style tweak, bug fix), go ahead and make the change directly in the `Strata/` submodule. Don't work around library limitations in Lumi when the right fix belongs in Strata.
 - **No over-engineering** — this is a personal app, keep implementations simple and direct

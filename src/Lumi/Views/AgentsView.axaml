@@ -1,252 +1,637 @@
 <UserControl xmlns="https://github.com/avaloniaui"
-             xmlns:sa="using:StrataTheme.Animation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Lumi.ViewModels"
-             xmlns:models="using:Lumi.Models"
              xmlns:sc="using:StrataTheme.Controls"
+             xmlns:controls="using:Lumi.Views.Controls"
              xmlns:loc="using:Lumi.Localization"
              x:Class="Lumi.Views.AgentsView"
              x:DataType="vm:AgentsViewModel"
              x:CompileBindings="True">
 
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Lumi.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </UserControl.Resources>
+
   <UserControl.Styles>
-    <Style Selector="ScrollViewer.motion-surface, StackPanel.motion-surface">
-      <Setter Property="Opacity" Value="0" />
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
-        </Transitions>
-      </Setter>
+    <StyleInclude Source="avares://Lumi/Views/Management/ManagementStyles.axaml" />
+    <!-- Lumis are people, so their avatar is round everywhere on this page. -->
+    <Style Selector="Border.mg-tile.avatar">
+      <Setter Property="CornerRadius" Value="20" />
     </Style>
-    <Style Selector="ScrollViewer.motion-surface[IsVisible=true], StackPanel.motion-surface[IsVisible=true]">
-      <Setter Property="Opacity" Value="1" />
+    <Style Selector="Border.mg-tile.avatar.lg">
+      <Setter Property="CornerRadius" Value="36" />
     </Style>
-    <Style Selector="Button.motion-action">
-      <Setter Property="Transitions">
-        <Transitions>
-          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
-          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.12" />
-          <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
-        </Transitions>
-      </Setter>
-    </Style>
-
-    <Style Selector="TextBlock.field-label">
-      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
-      <Setter Property="FontWeight" Value="Medium" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
-      <Setter Property="Margin" Value="0,0,0,4" />
-    </Style>
-
-    <Style Selector="TextBlock.section-label">
-      <Setter Property="FontSize" Value="{DynamicResource Font.SizeCaption}" />
+    <Style Selector="TextBlock.mg-group-title">
+      <Setter Property="FontSize" Value="12" />
       <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
-      <Setter Property="Margin" Value="0,0,0,6" />
-      <Setter Property="LetterSpacing" Value="0.5" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-
-    <!-- Toggle pill -->
-    <Style Selector="ToggleButton.pill">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSubtle}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="14" />
-      <Setter Property="Padding" Value="10,4,10,5" />
+    <Style Selector="Button.mg-pick-open">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Width" Value="24" />
+      <Setter Property="Height" Value="24" />
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="MinWidth" Value="0" />
-      <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+      <Setter Property="CornerRadius" Value="7" />
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Transitions">
         <Transitions>
-          <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.15" />
-          <BrushTransition Property="BorderBrush" Duration="0:0:0.15" />
-          <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+          <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
         </Transitions>
       </Setter>
     </Style>
-    <Style Selector="ToggleButton.pill:pointerover">
-      <Setter Property="Background" Value="{DynamicResource Brush.Surface2}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
+    <Style Selector="ToggleButton.mg-pick:pointerover Button.mg-pick-open">
+      <Setter Property="Opacity" Value="1" />
     </Style>
-    <Style Selector="ToggleButton.pill:checked">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtle}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
-      <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
-    </Style>
-    <Style Selector="ToggleButton.pill:checked:pointerover">
-      <Setter Property="Background" Value="{DynamicResource Brush.AccentSubtleHover}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+    <Style Selector="Button.mg-pick-open PathIcon">
+      <Setter Property="Width" Value="10" />
+      <Setter Property="Height" Value="10" />
+      <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
     </Style>
   </UserControl.Styles>
 
   <Panel>
-      <!-- Editor form -->
-      <ScrollViewer Classes="motion-surface"
-                    IsVisible="{Binding IsEditing}"
-                    HorizontalScrollBarVisibility="Disabled"
-                    VerticalScrollBarVisibility="Auto">
-        <StackPanel Spacing="0" Margin="24,16,24,20">
 
-          <!-- Header + actions row -->
-          <DockPanel Margin="0,0,0,12">
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-              <Button x:Name="CopyAgentForChatButton" Classes="subtle motion-action" Padding="12,7" MinHeight="0"
+    <!-- ══════════════════════════ OVERVIEW ══════════════════════════ -->
+    <Panel x:Name="LumisOverview" Classes="mg-surface" IsVisible="{Binding !IsEditing}">
+      <Border Classes="mg-wash" />
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="32,30,32,40" Spacing="24">
+
+          <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+            <Border Grid.RowSpan="2" Classes="mg-tile" Width="48" Height="48" CornerRadius="24" Margin="0,0,16,0" VerticalAlignment="Top">
+              <PathIcon Classes="mg-glyph" Data="{StaticResource Icon.Sparkle}" Width="22" Height="22" />
+            </Border>
+            <DockPanel Grid.Column="1" MinHeight="48">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="16,0,0,0">
+                <Button Classes="mg-button" Command="{Binding ImportCommand}" ToolTip.Tip="{loc:Str Import_Tooltip}">
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <PathIcon Data="{StaticResource Icon.Import}" />
+                    <TextBlock Text="{loc:Str Mg_Import}" />
+                  </StackPanel>
+                </Button>
+                <Button x:Name="LumisNewButton" Classes="mg-button accent" Command="{Binding NewAgentCommand}">
+                  <StackPanel Orientation="Horizontal" Spacing="7">
+                    <PathIcon Data="{StaticResource Icon.Plus}" />
+                    <TextBlock Text="{loc:Str Lumis_New}" />
+                  </StackPanel>
+                </Button>
+              </StackPanel>
+              <TextBlock Classes="mg-page-title" Text="{loc:Str Lumis_Title}" VerticalAlignment="Center" />
+            </DockPanel>
+            <TextBlock Grid.Row="1" Grid.Column="1" Classes="mg-page-lede" Margin="0,2,0,0" Text="{loc:Str Lumis_Lede}" />
+          </Grid>
+
+          <DockPanel IsVisible="{Binding HasAnyAgents}">
+            <Border DockPanel.Dock="Right" Classes="mg-segmented" VerticalAlignment="Bottom">
+              <StackPanel Orientation="Horizontal" Spacing="2">
+                <Button Classes="mg-segment" Classes.selected="{Binding IsSortedByName}"
+                        Command="{Binding SortByNameCommand}" Content="{loc:Str Mg_SortName}" />
+                <Button Classes="mg-segment" Classes.selected="{Binding IsSortedByRecent}"
+                        Command="{Binding SortByRecentCommand}" Content="{loc:Str Mg_SortRecent}" />
+              </StackPanel>
+            </Border>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Border Classes="mg-stat">
+                <StackPanel Spacing="1">
+                  <TextBlock Classes="mg-stat-value" Text="{Binding TotalCountText}" />
+                  <TextBlock Classes="mg-stat-label" Text="{loc:Str Lumis_StatTotal}" />
+                </StackPanel>
+              </Border>
+              <Border Classes="mg-stat">
+                <StackPanel Spacing="1">
+                  <TextBlock Classes="mg-stat-value" Text="{Binding ChatsWithLumisText}" />
+                  <TextBlock Classes="mg-stat-label" Text="{loc:Str Lumis_StatChats}" />
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </DockPanel>
+
+          <Border Classes="mg-chip hue" HorizontalAlignment="Left" IsVisible="{Binding IsSearching}" Padding="12,5,6,5">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <PathIcon Data="{StaticResource Icon.Search}" />
+              <TextBlock Text="{Binding SearchQuery}" MaxWidth="320" TextTrimming="CharacterEllipsis" />
+              <Button Classes="subtle" Padding="4" MinHeight="0" CornerRadius="{DynamicResource Radius.Full}"
+                      Command="{Binding ClearSearchCommand}" ToolTip.Tip="{loc:Str Mg_ClearSearch}">
+                <PathIcon Data="{StaticResource Icon.Close}" Width="8" Height="8" />
+              </Button>
+            </StackPanel>
+          </Border>
+
+          <ItemsControl x:Name="LumisGallery" ItemsSource="{Binding AgentCards}" IsVisible="{Binding HasResults}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <controls:AdaptiveGridPanel MinItemWidth="260" ColumnSpacing="14" RowSpacing="14" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:AgentCard">
+                <Button Classes="mg-card" Command="{Binding OpenCommand}" ToolTip.Tip="{Binding Name}">
+                  <Border Classes="mg-card-frame">
+                    <DockPanel>
+                      <StackPanel DockPanel.Dock="Bottom">
+                        <Border Classes="mg-card-divider" />
+                        <WrapPanel Orientation="Horizontal" ItemSpacing="12" LineSpacing="4">
+                          <DockPanel>
+                            <PathIcon DockPanel.Dock="Left" Margin="0,0,5,0" Classes="mg-meta-icon" Data="{StaticResource Icon.Bolt}" />
+                            <TextBlock Classes="mg-meta" Text="{Binding SkillsLabel}" />
+                          </DockPanel>
+                          <DockPanel>
+                            <PathIcon DockPanel.Dock="Left" Margin="0,0,5,0" Classes="mg-meta-icon" Data="{StaticResource Icon.Plug}" />
+                            <TextBlock Classes="mg-meta" Text="{Binding ServersLabel}" />
+                          </DockPanel>
+                          <DockPanel>
+                            <PathIcon DockPanel.Dock="Left" Margin="0,0,5,0" Classes="mg-meta-icon" Data="{StaticResource Icon.Wrench}" />
+                            <TextBlock Classes="mg-meta" Text="{Binding ToolsLabel}" />
+                          </DockPanel>
+                        </WrapPanel>
+                      </StackPanel>
+                      <DockPanel DockPanel.Dock="Top">
+                        <Button DockPanel.Dock="Right" Classes="mg-button subtle" Padding="10,5" VerticalAlignment="Top"
+                                Command="{Binding ChatCommand}" ToolTip.Tip="{loc:Str Lumis_StartChat}">
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource Icon.Chat}" Width="12" Height="12" />
+                            <TextBlock Text="{loc:Str Lumis_StartChat}" FontSize="12" />
+                          </StackPanel>
+                        </Button>
+                        <Border Classes="mg-tile avatar">
+                          <TextBlock Classes="mg-glyph" Text="{Binding Glyph}" />
+                        </Border>
+                      </DockPanel>
+                      <StackPanel Spacing="5" Margin="0,12,0,0">
+                        <DockPanel>
+                          <Border DockPanel.Dock="Right" Classes="mg-chip" Padding="7,1,7,2" Margin="8,0,0,0"
+                                  IsVisible="{Binding IsBuiltIn}">
+                            <TextBlock Text="{loc:Str Mg_BuiltIn}" FontSize="10.5" />
+                          </Border>
+                          <TextBlock Classes="mg-card-title" Text="{Binding Name}" />
+                        </DockPanel>
+                        <TextBlock Classes="mg-card-text" Text="{Binding Summary}" IsVisible="{Binding HasSummary}" />
+                        <TextBlock Classes="mg-card-text placeholder" Text="{loc:Str Mg_NoDescription}" IsVisible="{Binding !HasSummary}" />
+                        <DockPanel Margin="0,2,0,0">
+                          <PathIcon DockPanel.Dock="Left" Margin="0,0,5,0" Classes="mg-meta-icon" Data="{StaticResource Icon.Chat}" />
+                          <TextBlock Classes="mg-meta" Text="{Binding ChatCountLabel}" />
+                        </DockPanel>
+                      </StackPanel>
+                    </DockPanel>
+                  </Border>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <StackPanel IsVisible="{Binding ShowNoResults}" Spacing="8" Margin="0,40,0,0" HorizontalAlignment="Center">
+            <TextBlock Classes="mg-empty-title" Text="{Binding NoResultsText}" />
+            <TextBlock Classes="mg-empty-text" Text="{loc:Str Mg_NoResultsHint}" />
+            <Button Classes="mg-button" HorizontalAlignment="Center" Margin="0,6,0,0"
+                    Command="{Binding ClearSearchCommand}" Content="{loc:Str Mg_ClearSearch}" />
+          </StackPanel>
+
+          <StackPanel IsVisible="{Binding ShowEmptyState}" Spacing="12" Margin="0,48,0,0" HorizontalAlignment="Center">
+            <Border Classes="mg-empty-hero" CornerRadius="38">
+              <PathIcon Data="{StaticResource Icon.Sparkle}" />
+            </Border>
+            <TextBlock Classes="mg-empty-title" Text="{loc:Str Lumis_EmptyTitle}" Margin="0,6,0,0" />
+            <TextBlock Classes="mg-empty-text" Text="{loc:Str Lumis_EmptyText}" />
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,8,0,0">
+              <Button x:Name="LumisEmptyImportButton" Classes="mg-button" Command="{Binding ImportCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <PathIcon Data="{StaticResource Icon.Import}" />
+                  <TextBlock Text="{loc:Str Import_EmptyHint}" />
+                </StackPanel>
+              </Button>
+              <Button Classes="mg-button accent" Command="{Binding NewAgentCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <PathIcon Data="{StaticResource Icon.Plus}" />
+                  <TextBlock Text="{loc:Str Lumis_New}" />
+                </StackPanel>
+              </Button>
+            </StackPanel>
+          </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+    </Panel>
+
+    <!-- ══════════════════════════ DETAIL ══════════════════════════ -->
+    <Panel x:Name="LumiDetail" Classes="mg-surface" IsVisible="{Binding IsEditing}">
+      <DockPanel>
+        <Border DockPanel.Dock="Top" Classes="mg-topbar">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" IsVisible="{Binding !IsNewAgent}">
+              <Button x:Name="StartLumiChatButton" Classes="mg-button accent" Command="{Binding StartChatCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <PathIcon Data="{StaticResource Icon.Chat}" />
+                  <TextBlock Text="{loc:Str Lumis_StartChat}" />
+                </StackPanel>
+              </Button>
+              <Button x:Name="CopyAgentForChatButton" Classes="mg-button"
                       Command="{Binding CopyAgentForChatCommand}"
                       CommandParameter="{Binding SelectedAgent}"
-                      IsVisible="{Binding SelectedAgent, Converter={x:Static ObjectConverters.IsNotNull}}"
                       ToolTip.Tip="{loc:Str Share_CopyForChatTooltip}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                  <PathIcon Data="{StaticResource Icon.CopyForChat}" Width="13" Height="13"
-                            Foreground="{DynamicResource Brush.TextSecondary}" />
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <PathIcon Data="{StaticResource Icon.CopyForChat}" />
                   <TextBlock Text="{loc:Str Share_CopyForChat}" />
                 </StackPanel>
               </Button>
-              <Button x:Name="ShareLumiButton" Classes="subtle motion-action" Padding="12,7" MinHeight="0"
+              <Button x:Name="ShareLumiButton" Classes="mg-button"
                       Command="{Binding ShareAgentCommand}"
                       CommandParameter="{Binding SelectedAgent}"
-                      IsVisible="{Binding SelectedAgent, Converter={x:Static ObjectConverters.IsNotNull}}"
                       ToolTip.Tip="{loc:Str Share_ButtonTooltip}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                  <PathIcon Data="{StaticResource Icon.Share}" Width="13" Height="13"
-                            Foreground="{DynamicResource Brush.TextSecondary}" />
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <PathIcon Data="{StaticResource Icon.Share}" />
                   <TextBlock Text="{loc:Str Share_Button}" />
                 </StackPanel>
               </Button>
-              <Button Classes="accent motion-action" Content="{loc:Str Common_Save}" Padding="18,7" MinHeight="0"
-                      Command="{Binding SaveAgentCommand}" />
-              <Button Classes="subtle motion-action" Content="{loc:Str Common_Cancel}" Padding="18,7" MinHeight="0"
-                      Command="{Binding CancelEditCommand}" />
-              <Button Classes="subtle motion-action" Padding="10,7" MinHeight="0"
-                      Command="{Binding DeleteSelectedAgentCommand}"
-                      IsVisible="{Binding SelectedAgent, Converter={x:Static ObjectConverters.IsNotNull}}"
-                      ToolTip.Tip="{loc:Str Menu_Delete}">
-                <PathIcon Data="{StaticResource Icon.Trash}" Width="14" Height="14"
-                          Foreground="{DynamicResource Brush.TextTertiary}" />
+              <Button x:Name="DeleteLumiButton" Classes="mg-icon-button subtle"
+                      Command="{Binding RequestDeleteCommand}" ToolTip.Tip="{loc:Str Menu_Delete}">
+                <PathIcon Data="{StaticResource Icon.Trash}" />
               </Button>
             </StackPanel>
-            <TextBlock Text="{loc:Str Editor_Lumi}" Classes="subtitle" VerticalAlignment="Center" />
+            <DockPanel>
+              <Button DockPanel.Dock="Left" x:Name="LumiBackButton" Classes="subtle mg-back" Command="{Binding CloseDetailCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <PathIcon Data="{StaticResource Icon.ChevronLeft}" />
+                  <TextBlock Text="{loc:Str Lumis_Title}" />
+                </StackPanel>
+              </Button>
+              <TextBlock DockPanel.Dock="Left" Classes="mg-crumb" Text="/" Margin="2,0,6,0" />
+              <TextBlock Classes="mg-crumb current" Text="{Binding DetailTitle}" />
+            </DockPanel>
           </DockPanel>
+        </Border>
 
-          <!-- Icon + Name row -->
-          <DockPanel Margin="0,0,0,8">
-            <Button x:Name="AgentIconPickerButton" DockPanel.Dock="Left" Classes="subtle" Margin="0,0,10,0"
-                    Padding="0" MinHeight="0" MinWidth="0" CornerRadius="{DynamicResource Radius.Base}"
-                    Width="36" Height="36" Cursor="Hand"
-                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
-              <Button.Flyout>
-                <Flyout Placement="BottomEdgeAlignedLeft">
-                  <sc:StrataIconPicker SelectedIcon="{Binding EditIconGlyph, Mode=TwoWay}"
-                                       IconSelected="OnIconSelected" />
-                </Flyout>
-              </Button.Flyout>
-              <TextBlock Text="{Binding EditIconGlyph, FallbackValue=✦}" FontSize="18"
-                         HorizontalAlignment="Center" VerticalAlignment="Center" />
-            </Button>
-            <TextBox Text="{Binding EditName}" PlaceholderText="{loc:Str Watermark_AgentName}" />
-          </DockPanel>
+        <ScrollViewer x:Name="LumiDetailScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="40,32,40,120" MaxWidth="940" Spacing="20">
 
-          <!-- Description -->
-          <TextBox Text="{Binding EditDescription}" Margin="0,0,0,8"
-                   PlaceholderText="{loc:Str Watermark_AgentDescription}" />
+            <!-- Hero -->
+            <DockPanel>
+              <Button x:Name="AgentIconPickerButton" DockPanel.Dock="Left" Classes="mg-tile-button"
+                      Margin="0,0,22,0" ToolTip.Tip="{loc:Str Mg_ChangeIcon}">
+                <Button.Flyout>
+                  <Flyout Placement="BottomEdgeAlignedLeft">
+                    <sc:StrataIconPicker SelectedIcon="{Binding EditIconGlyph, Mode=TwoWay}"
+                                         IconSelected="OnIconSelected" />
+                  </Flyout>
+                </Button.Flyout>
+                <Panel>
+                  <Border Classes="mg-tile lg avatar">
+                    <TextBlock Classes="mg-glyph" Text="{Binding EditIconGlyph, FallbackValue=✦}" />
+                  </Border>
+                  <Border Classes="mg-tile-edit" Width="24" Height="24" CornerRadius="12"
+                          HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-2,-2"
+                          Background="{DynamicResource Brush.SurfaceOverlay}"
+                          BorderBrush="{DynamicResource Brush.BorderDefault}" BorderThickness="1">
+                    <PathIcon Data="{StaticResource Icon.Rename}" Width="11" Height="11"
+                              Foreground="{DynamicResource Brush.TextSecondary}" />
+                  </Border>
+                </Panel>
+              </Button>
+              <StackPanel Spacing="2" VerticalAlignment="Center">
+                <TextBox x:Name="LumiNameInput" Classes="mg-title-input" Text="{Binding EditName}"
+                         PlaceholderText="{loc:Str Lumis_NamePlaceholder}" />
+                <TextBox Classes="mg-lede-input" Text="{Binding EditDescription}"
+                         PlaceholderText="{loc:Str Lumis_DescriptionPlaceholder}" />
+                <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6" Margin="0,8,0,0">
+                  <Border Classes="mg-chip accent" IsVisible="{Binding IsBuiltInAgent}">
+                    <TextBlock Text="{loc:Str Mg_BuiltIn}" />
+                  </Border>
+                  <Border Classes="mg-chip accent" IsVisible="{Binding IsLearningAgent}">
+                    <TextBlock Text="{loc:Str Lumis_Learning}" />
+                  </Border>
+                  <Border Classes="mg-chip hue">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Bolt}" />
+                      <TextBlock Text="{Binding SkillsChipText}" />
+                    </StackPanel>
+                  </Border>
+                  <Border Classes="mg-chip hue">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Plug}" />
+                      <TextBlock Text="{Binding ServersChipText}" />
+                    </StackPanel>
+                  </Border>
+                  <Border Classes="mg-chip hue">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Wrench}" />
+                      <TextBlock Text="{Binding ToolsChipText}" />
+                    </StackPanel>
+                  </Border>
+                  <Border Classes="mg-chip" IsVisible="{Binding !IsNewAgent}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Chat}" />
+                      <TextBlock Text="{Binding ChatCountLabel}" />
+                    </StackPanel>
+                  </Border>
+                  <Border Classes="mg-chip" IsVisible="{Binding !IsNewAgent}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <PathIcon Data="{StaticResource Icon.Clock}" />
+                      <TextBlock Text="{Binding CreatedLabel}" />
+                    </StackPanel>
+                  </Border>
+                </WrapPanel>
+              </StackPanel>
+            </DockPanel>
 
-          <!-- System Prompt -->
-          <TextBlock Text="{loc:Str Field_SystemPrompt}" Classes="field-label" />
-          <TextBox Text="{Binding EditSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap"
-                   MinHeight="68" MaxHeight="360"
-                   VerticalContentAlignment="Top"
-                   PlaceholderText="{loc:Str Watermark_AgentSystemPrompt}" />
-
-          <Separator Margin="0,10,0,8" />
-
-          <!-- Skills -->
-          <TextBlock Text="{loc:Str Field_Skills}" Classes="section-label" />
-          <ItemsControl ItemsSource="{Binding AvailableSkills}">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate>
-                <WrapPanel Orientation="Horizontal" />
-              </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:SkillToggle">
-                <ToggleButton Classes="pill" IsChecked="{Binding IsSelected}"
-                              ToolTip.Tip="{Binding Description}" Margin="0,0,6,6">
-                  <StackPanel Orientation="Horizontal" Spacing="5">
-                    <TextBlock Text="{Binding IconGlyph}" FontSize="12" VerticalAlignment="Center" />
-                    <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeCaption}"
-                               VerticalAlignment="Center" />
+            <!-- Instructions -->
+            <Border Classes="mg-section">
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <Border DockPanel.Dock="Right" Classes="mg-segmented" Margin="12,0,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="2">
+                      <Button Classes="mg-segment" Classes.selected="{Binding IsPreviewingPrompt}" Command="{Binding ShowPreviewCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <PathIcon Data="{StaticResource Icon.Eye}" />
+                          <TextBlock Text="{loc:Str Mg_Preview}" />
+                        </StackPanel>
+                      </Button>
+                      <Button Classes="mg-segment" Classes.selected="{Binding !IsPreviewingPrompt}" Command="{Binding ShowEditorCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <PathIcon Data="{StaticResource Icon.Rename}" />
+                          <TextBlock Text="{loc:Str Mg_Edit}" />
+                        </StackPanel>
+                      </Button>
+                    </StackPanel>
+                  </Border>
+                  <DockPanel>
+                    <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                      <PathIcon Data="{StaticResource Icon.Document}" />
+                    </Border>
+                    <StackPanel Spacing="1">
+                      <TextBlock Classes="mg-section-title" Text="{loc:Str Lumis_Instructions}" />
+                      <TextBlock Classes="mg-section-caption" Text="{loc:Str Lumis_InstructionsCaption}" />
+                    </StackPanel>
+                  </DockPanel>
+                </DockPanel>
+                <Panel IsVisible="{Binding IsPreviewingPrompt}">
+                  <StackPanel Spacing="10" IsVisible="{Binding HasPrompt}">
+                    <Panel>
+                      <Border Classes="mg-inset" Padding="20,16" Classes.mg-clipped="{Binding IsPreviewClipped}">
+                        <sc:StrataMarkdown Markdown="{Binding PreviewPrompt}" IsInline="True" />
+                      </Border>
+                      <Border Classes="mg-fade" IsVisible="{Binding IsPreviewClipped}" />
+                    </Panel>
+                    <Button Classes="subtle mg-text-button" HorizontalAlignment="Center" IsVisible="{Binding IsPreviewLong}"
+                            Command="{Binding TogglePreviewExpandedCommand}">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="{Binding PreviewToggleText}" />
+                        <PathIcon Classes="mg-chevron" Classes.flipped="{Binding IsPreviewExpanded}" Data="{StaticResource Icon.ChevronDown}" />
+                      </StackPanel>
+                    </Button>
                   </StackPanel>
-                </ToggleButton>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-          <TextBlock Text="{loc:Str Agent_NoSkills}" Classes="caption tertiary"
-                     IsVisible="{Binding !AvailableSkills.Count}" />
+                  <Button Classes="mg-pill-link" HorizontalAlignment="Stretch" IsVisible="{Binding !HasPrompt}"
+                          Command="{Binding ShowEditorCommand}">
+                    <Border Classes="mg-empty-note">
+                      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                        <PathIcon Data="{StaticResource Icon.Rename}" Width="12" Height="12"
+                                  Foreground="{DynamicResource Brush.TextTertiary}" />
+                        <TextBlock Classes="mg-section-caption" Text="{loc:Str Skills_EmptyInstructions}" />
+                      </StackPanel>
+                    </Border>
+                  </Button>
+                </Panel>
+                <TextBox x:Name="LumiPromptEditor" Classes="mg-editor" IsVisible="{Binding !IsPreviewingPrompt}"
+                         Text="{Binding EditSystemPrompt}" MinHeight="220"
+                         PlaceholderText="{loc:Str Watermark_AgentSystemPrompt}" />
+              </StackPanel>
+            </Border>
 
-          <Separator Margin="0,6,0,8" />
+            <!-- Skills -->
+            <Border Classes="mg-section">
+              <Border.Resources>
+                <ResourceDictionary>
+                  <ResourceDictionary.MergedDictionaries>
+                    <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Skill.axaml" />
+                  </ResourceDictionary.MergedDictionaries>
+                </ResourceDictionary>
+              </Border.Resources>
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <TextBlock DockPanel.Dock="Right" Classes="mg-meta" Text="{Binding SkillsCountText}" />
+                  <DockPanel>
+                    <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                      <PathIcon Data="{StaticResource Icon.Bolt}" />
+                    </Border>
+                    <StackPanel Spacing="1">
+                      <TextBlock Classes="mg-section-title" Text="{loc:Str Lumis_Skills}" />
+                      <TextBlock Classes="mg-section-caption" Text="{loc:Str Lumis_SkillsCaption}" />
+                    </StackPanel>
+                  </DockPanel>
+                </DockPanel>
+                <ItemsControl ItemsSource="{Binding AvailableSkills}" IsVisible="{Binding HasAvailableSkills}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <controls:AdaptiveGridPanel MinItemWidth="250" ColumnSpacing="8" RowSpacing="8" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SkillToggle">
+                      <ToggleButton Classes="mg-pick" IsChecked="{Binding IsSelected}" ToolTip.Tip="{Binding Description}">
+                        <DockPanel>
+                          <Border DockPanel.Dock="Right" Classes="mg-check" Margin="8,0,0,0">
+                            <PathIcon Data="{StaticResource Icon.Check}" />
+                          </Border>
+                          <Button DockPanel.Dock="Right" Classes="subtle mg-pick-open" Margin="6,0,0,0"
+                                  Command="{Binding $parent[UserControl].((vm:AgentsViewModel)DataContext).OpenSkillCommand}"
+                                  CommandParameter="{Binding}" ToolTip.Tip="{loc:Str Lumis_OpenSkill}">
+                            <PathIcon Data="{StaticResource Icon.ChevronRight}" />
+                          </Button>
+                          <Border DockPanel.Dock="Left" Classes="mg-tile sm" Margin="0,0,10,0" VerticalAlignment="Center">
+                            <TextBlock Classes="mg-glyph" Text="{Binding IconGlyph}" />
+                          </Border>
+                          <StackPanel Spacing="1" VerticalAlignment="Center">
+                            <TextBlock Classes="mg-pick-title" Text="{Binding Name}" />
+                            <TextBlock Classes="mg-pick-text" Text="{Binding Description}" IsVisible="{Binding HasDescription}" />
+                          </StackPanel>
+                        </DockPanel>
+                      </ToggleButton>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Border Classes="mg-empty-note" IsVisible="{Binding !HasAvailableSkills}">
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Lumis_NoSkillsYet}" />
+                </Border>
+              </StackPanel>
+            </Border>
 
-          <!-- MCP Servers -->
-          <TextBlock Text="{loc:Str Field_McpServers}" Classes="section-label" />
-          <ItemsControl ItemsSource="{Binding AvailableMcpServers}">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate>
-                <WrapPanel Orientation="Horizontal" />
-              </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:McpServerToggle">
-                <ToggleButton Classes="pill" IsChecked="{Binding IsSelected}" Margin="0,0,6,6">
-                  <TextBlock Text="{Binding Name}" FontSize="{DynamicResource Font.SizeCaption}"
-                             VerticalAlignment="Center" />
-                </ToggleButton>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-          <TextBlock Text="{loc:Str Agent_NoMcpServers}" Classes="caption tertiary"
-                     IsVisible="{Binding !AvailableMcpServers.Count}" />
+            <!-- MCP servers -->
+            <Border Classes="mg-section">
+              <Border.Resources>
+                <ResourceDictionary>
+                  <ResourceDictionary.MergedDictionaries>
+                    <ResourceInclude Source="avares://Lumi/Views/Management/Hue.Mcp.axaml" />
+                  </ResourceDictionary.MergedDictionaries>
+                </ResourceDictionary>
+              </Border.Resources>
+              <StackPanel Spacing="14">
+                <DockPanel>
+                  <TextBlock DockPanel.Dock="Right" Classes="mg-meta" Text="{Binding ServersCountText}" />
+                  <DockPanel>
+                    <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                      <PathIcon Data="{StaticResource Icon.Plug}" />
+                    </Border>
+                    <StackPanel Spacing="1">
+                      <TextBlock Classes="mg-section-title" Text="{loc:Str Lumis_Servers}" />
+                      <TextBlock Classes="mg-section-caption" Text="{loc:Str Lumis_ServersCaption}" />
+                    </StackPanel>
+                  </DockPanel>
+                </DockPanel>
+                <ItemsControl ItemsSource="{Binding AvailableMcpServers}" IsVisible="{Binding HasAvailableServers}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <controls:AdaptiveGridPanel MinItemWidth="250" ColumnSpacing="8" RowSpacing="8" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:McpServerToggle">
+                      <ToggleButton Classes="mg-pick" IsChecked="{Binding IsSelected}" ToolTip.Tip="{Binding Description}">
+                        <DockPanel>
+                          <Border DockPanel.Dock="Right" Classes="mg-check" Margin="8,0,0,0">
+                            <PathIcon Data="{StaticResource Icon.Check}" />
+                          </Border>
+                          <Button DockPanel.Dock="Right" Classes="subtle mg-pick-open" Margin="6,0,0,0"
+                                  Command="{Binding $parent[UserControl].((vm:AgentsViewModel)DataContext).OpenMcpServerCommand}"
+                                  CommandParameter="{Binding}" ToolTip.Tip="{loc:Str Lumis_OpenServer}">
+                            <PathIcon Data="{StaticResource Icon.ChevronRight}" />
+                          </Button>
+                          <Panel DockPanel.Dock="Left" Margin="0,0,10,0" VerticalAlignment="Center">
+                            <Border Classes="mg-tile sm">
+                              <PathIcon Classes="mg-glyph" Data="{StaticResource Icon.Plug}" />
+                            </Border>
+                            <Ellipse Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-2,-2"
+                                     Fill="{DynamicResource Brush.SuccessDefault}" Stroke="{DynamicResource Brush.Background}"
+                                     StrokeThickness="1.5" IsVisible="{Binding IsServerEnabled}" />
+                          </Panel>
+                          <StackPanel Spacing="1" VerticalAlignment="Center">
+                            <TextBlock Classes="mg-pick-title" Text="{Binding Name}" />
+                            <TextBlock Classes="mg-pick-text" Text="{Binding Description}" IsVisible="{Binding HasDescription}" />
+                          </StackPanel>
+                        </DockPanel>
+                      </ToggleButton>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Border Classes="mg-empty-note" IsVisible="{Binding !HasAvailableServers}">
+                  <TextBlock Classes="mg-section-caption" Text="{loc:Str Lumis_NoServersYet}" />
+                </Border>
+              </StackPanel>
+            </Border>
 
-          <Separator Margin="0,6,0,8" />
-
-          <!-- Tools -->
-          <TextBlock Text="{loc:Str Field_Tools}" Classes="section-label" />
-          <TextBlock Text="{loc:Str Agent_ToolsHint}" Classes="caption tertiary"
-                     TextWrapping="Wrap" Margin="0,0,0,6" />
-          <ItemsControl ItemsSource="{Binding AvailableTools}">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate>
-                <WrapPanel Orientation="Horizontal" />
-              </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:ToolToggle">
-                <ToggleButton Classes="pill" IsChecked="{Binding IsSelected}"
-                              ToolTip.Tip="{Binding Description}" Margin="0,0,6,6">
-                  <TextBlock Text="{Binding DisplayName}" FontSize="{DynamicResource Font.SizeCaption}"
-                             VerticalAlignment="Center" />
-                </ToggleButton>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </StackPanel>
-      </ScrollViewer>
-
-      <!-- Empty state -->
-      <StackPanel Classes="motion-surface"
-                  IsVisible="{Binding !IsEditing}"
-                  HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14">
-        <StackPanel Spacing="6" Opacity="0.4">
-          <TextBlock Text="✦" FontSize="32" HorizontalAlignment="Center" />
-          <TextBlock Text="{loc:Str Empty_SelectLumi}" FontSize="{DynamicResource Font.SizeBody}"
-                     HorizontalAlignment="Center" />
-        </StackPanel>
-        <Button x:Name="LumisEmptyImportButton" Classes="subtle" HorizontalAlignment="Center"
-                Padding="12,6" MinHeight="0" Command="{Binding ImportCommand}">
-          <StackPanel Orientation="Horizontal" Spacing="7">
-            <PathIcon Data="{StaticResource Icon.Import}" Width="13" Height="13"
-                      Foreground="{DynamicResource Brush.AccentDefault}" />
-            <TextBlock Text="{loc:Str Import_EmptyHint}" Foreground="{DynamicResource Brush.TextSecondary}" />
+            <!-- Tools -->
+            <Border Classes="mg-section">
+              <StackPanel Spacing="16">
+                <DockPanel>
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <TextBlock Classes="mg-meta" Text="{Binding ToolsCountText}" />
+                    <Button Classes="subtle mg-text-button" Content="{Binding ToggleAllToolsText}"
+                            Command="{Binding ToggleAllToolsCommand}" />
+                  </StackPanel>
+                  <DockPanel>
+                    <Border DockPanel.Dock="Left" Classes="mg-section-icon">
+                      <PathIcon Data="{StaticResource Icon.Wrench}" />
+                    </Border>
+                    <StackPanel Spacing="1">
+                      <TextBlock Classes="mg-section-title" Text="{loc:Str Lumis_Tools}" />
+                      <TextBlock Classes="mg-section-caption" Text="{loc:Str Lumis_ToolsCaption}" />
+                    </StackPanel>
+                  </DockPanel>
+                </DockPanel>
+                <ItemsControl ItemsSource="{Binding ToolGroups}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <StackPanel Spacing="16" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ToolGroup">
+                      <StackPanel Spacing="8">
+                        <DockPanel>
+                          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock Classes="mg-meta" Text="{Binding CountText}" />
+                            <Button Classes="subtle mg-text-button" Command="{Binding ToggleAllCommand}">
+                              <Panel>
+                                <TextBlock Text="{loc:Str Lumis_SelectAll}" IsVisible="{Binding !AllSelected}" />
+                                <TextBlock Text="{loc:Str Lumis_ClearAll}" IsVisible="{Binding AllSelected}" />
+                              </Panel>
+                            </Button>
+                          </StackPanel>
+                          <TextBlock Classes="mg-group-title" Text="{Binding DisplayName}" />
+                        </DockPanel>
+                        <ItemsControl ItemsSource="{Binding Tools}">
+                          <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                              <controls:AdaptiveGridPanel MinItemWidth="220" ColumnSpacing="8" RowSpacing="8" />
+                            </ItemsPanelTemplate>
+                          </ItemsControl.ItemsPanel>
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ToolToggle">
+                              <ToggleButton Classes="mg-pick" Padding="11,8" IsChecked="{Binding IsSelected}" ToolTip.Tip="{Binding Description}">
+                                <DockPanel>
+                                  <Border DockPanel.Dock="Right" Classes="mg-check" Margin="8,0,0,0">
+                                    <PathIcon Data="{StaticResource Icon.Check}" />
+                                  </Border>
+                                  <StackPanel Spacing="1" VerticalAlignment="Center">
+                                    <TextBlock Classes="mg-pick-title" Text="{Binding DisplayName}" FontSize="12.5" />
+                                    <TextBlock Classes="mg-pick-text" Text="{Binding Description}" />
+                                  </StackPanel>
+                                </DockPanel>
+                              </ToggleButton>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
           </StackPanel>
-        </Button>
-      </StackPanel>
+        </ScrollViewer>
+      </DockPanel>
+
+      <Border x:Name="LumiSaveBar" Classes="mg-floatbar" IsVisible="{Binding ShowSaveBar}">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+          <DockPanel VerticalAlignment="Center">
+            <Ellipse DockPanel.Dock="Left" Classes="mg-dot" Fill="{DynamicResource Brush.AccentDefault}" Margin="0,0,9,0" />
+            <TextBlock DockPanel.Dock="Right" x:Name="LumiSaveHint" Classes="mg-floatbar-hint" Text="Ctrl+S" Margin="9,0,0,0" />
+            <TextBlock Classes="mg-floatbar-text" Text="{Binding SaveBarText}" TextTrimming="CharacterEllipsis" />
+          </DockPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+            <Button Classes="subtle mg-button" Content="{Binding DiscardButtonText}" Command="{Binding DiscardChangesCommand}" />
+            <Button x:Name="SaveLumiButton" Classes="accent mg-button" Content="{Binding SaveButtonText}"
+                    Command="{Binding SaveAgentCommand}" IsEnabled="{Binding CanSave}" />
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <Border Classes="mg-floatbar danger" IsVisible="{Binding IsConfirmingDelete}">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+          <DockPanel VerticalAlignment="Center">
+            <PathIcon DockPanel.Dock="Left" Data="{StaticResource Icon.Trash}" Width="13" Height="13"
+                      Foreground="{DynamicResource Brush.DangerDefault}" Margin="0,0,9,0" />
+            <TextBlock Classes="mg-floatbar-text" Text="{Binding DeleteConfirmText}" MaxWidth="420"
+                       TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding DeleteConfirmText}" />
+          </DockPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+            <Button Classes="subtle mg-button" Content="{loc:Str Common_Cancel}" Command="{Binding CancelDeleteCommand}" />
+            <Button Classes="danger mg-button" Content="{loc:Str Mg_Delete}" Command="{Binding ConfirmDeleteCommand}" />
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <Border Classes="mg-saved-toast" IsVisible="{Binding ShowSavedToast}">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <PathIcon Data="{StaticResource Icon.Check}" Width="12" Height="12"
+                    Foreground="{DynamicResource Brush.SuccessDefault}" />
+          <TextBlock Text="{loc:Str Mg_Saved}" FontSize="12.5" FontWeight="Medium"
+                     Foreground="{DynamicResource Brush.TextPrimary}" />
+        </StackPanel>
+      </Border>
+    </Panel>
   </Panel>
 </UserControl>

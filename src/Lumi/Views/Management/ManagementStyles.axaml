@@ -1,0 +1,1109 @@
+<!--
+  Shared design language for the management pages (Projects, Skills, Lumis, Memories, MCP servers).
+  Included per page rather than at window scope, so none of these selectors are evaluated for the
+  chat transcript.
+
+  Colour is used sparingly, the way the rest of Lumi uses it: surfaces, borders and states are
+  neutral, selection and focus use Lumi's own accent, and the page's hue (Mg.Hue, from one
+  Hue.*.axaml per page) only tints identity glyphs and a barely-there header wash.
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:sa="using:StrataTheme.Animation">
+
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="Mg.CardBackground" Color="#09FFFFFF" />
+          <SolidColorBrush x:Key="Mg.CardBackgroundHover" Color="#0FFFFFFF" />
+          <SolidColorBrush x:Key="Mg.CardBorder" Color="#12FFFFFF" />
+          <SolidColorBrush x:Key="Mg.CardBorderHover" Color="#24FFFFFF" />
+          <SolidColorBrush x:Key="Mg.SectionBackground" Color="#06FFFFFF" />
+          <SolidColorBrush x:Key="Mg.InputBackground" Color="#0BFFFFFF" />
+          <SolidColorBrush x:Key="Mg.CodeBackground" Color="#2E000000" />
+          <SolidColorBrush x:Key="Mg.Divider" Color="#10FFFFFF" />
+          <SolidColorBrush x:Key="Mg.FloatBackground" Color="#F22A2A31" />
+          <SolidColorBrush x:Key="Mg.SegmentSelected" Color="#24FFFFFF" />
+          <SolidColorBrush x:Key="Mg.SegmentTrack" Color="#0BFFFFFF" />
+          <SolidColorBrush x:Key="Mg.TileBackground" Color="#0DFFFFFF" />
+          <SolidColorBrush x:Key="Mg.TileBorder" Color="#14FFFFFF" />
+          <SolidColorBrush x:Key="Mg.SelectedBackground" Color="#1C818CF8" />
+          <SolidColorBrush x:Key="Mg.SelectedBorder" Color="#4D818CF8" />
+          <SolidColorBrush x:Key="Mg.SuccessBackground" Color="#1F10B981" />
+          <SolidColorBrush x:Key="Mg.WarningBackground" Color="#1FF59E0B" />
+          <LinearGradientBrush x:Key="Mg.InsetFade" StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Offset="0" Color="#001F1F24" />
+            <GradientStop Offset="1" Color="#FF1F1F24" />
+          </LinearGradientBrush>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="Mg.CardBackground" Color="#FFFFFFFF" />
+          <SolidColorBrush x:Key="Mg.CardBackgroundHover" Color="#FFFFFFFF" />
+          <SolidColorBrush x:Key="Mg.CardBorder" Color="#FFE8E8ED" />
+          <SolidColorBrush x:Key="Mg.CardBorderHover" Color="#FFD3D3DB" />
+          <SolidColorBrush x:Key="Mg.SectionBackground" Color="#FFFBFBFC" />
+          <SolidColorBrush x:Key="Mg.InputBackground" Color="#FFFFFFFF" />
+          <SolidColorBrush x:Key="Mg.CodeBackground" Color="#FFF6F6F8" />
+          <SolidColorBrush x:Key="Mg.Divider" Color="#FFEEEEF2" />
+          <SolidColorBrush x:Key="Mg.FloatBackground" Color="#FAFFFFFF" />
+          <SolidColorBrush x:Key="Mg.SegmentSelected" Color="#FFFFFFFF" />
+          <SolidColorBrush x:Key="Mg.SegmentTrack" Color="#FFEEEEF2" />
+          <SolidColorBrush x:Key="Mg.TileBackground" Color="#FFF4F4F7" />
+          <SolidColorBrush x:Key="Mg.TileBorder" Color="#FFE8E8ED" />
+          <SolidColorBrush x:Key="Mg.SelectedBackground" Color="#0F4F46E5" />
+          <SolidColorBrush x:Key="Mg.SelectedBorder" Color="#474F46E5" />
+          <SolidColorBrush x:Key="Mg.SuccessBackground" Color="#1A10B981" />
+          <SolidColorBrush x:Key="Mg.WarningBackground" Color="#1CD97706" />
+          <LinearGradientBrush x:Key="Mg.InsetFade" StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Offset="0" Color="#00F6F6F8" />
+            <GradientStop Offset="1" Color="#FFF6F6F8" />
+          </LinearGradientBrush>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Styles.Resources>
+
+  <!-- Galleries and choice grids never scroll, so they must not clip: a lifted card and its
+       shadow would otherwise be cut off at the top and sides. The same goes for the buttons that
+       wrap a card or a tile, which Avalonia clips to their bounds by default. -->
+  <Style Selector="ItemsControl">
+    <Setter Property="ClipToBounds" Value="False" />
+  </Style>
+  <Style Selector="Button.mg-card, Button.mg-tile-button, Button.mg-pill-link">
+    <Setter Property="ClipToBounds" Value="False" />
+  </Style>
+
+  <!-- ══════════════════════════ Surfaces that fade in ══════════════════════════ -->
+  <!-- Overview and detail swap in place; a short cross-fade reads as one surface changing mode. -->
+  <Style Selector="Panel.mg-surface">
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="RenderTransform" Value="translateY(6px)" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.2" Easing="CubicEaseOut" />
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.26" Easing="0.2,0 0,1" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Panel.mg-surface[IsVisible=true]">
+    <Setter Property="Opacity" Value="1" />
+    <Setter Property="RenderTransform" Value="translateY(0)" />
+  </Style>
+
+  <!-- ══════════════════════════ Page header ══════════════════════════ -->
+  <Style Selector="Border.mg-wash">
+    <Setter Property="Height" Value="200" />
+    <Setter Property="VerticalAlignment" Value="Top" />
+    <Setter Property="IsHitTestVisible" Value="False" />
+    <Setter Property="Background" Value="{DynamicResource Mg.HueWash}" />
+  </Style>
+  <Style Selector="TextBlock.mg-page-title">
+    <Setter Property="FontSize" Value="24" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="LetterSpacing" Value="-0.2" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="TextBlock.mg-page-lede">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="LineHeight" Value="19" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="MaxWidth" Value="620" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+  </Style>
+  <Style Selector="TextBlock.mg-eyebrow">
+    <Setter Property="FontSize" Value="10.5" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="LetterSpacing" Value="0.9" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+  <Style Selector="TextBlock.mg-section-title">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="TextBlock.mg-section-caption">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="LineHeight" Value="17" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="TextBlock.mg-meta">
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="TextWrapping" Value="NoWrap" />
+  </Style>
+  <Style Selector="TextBlock.mg-mono">
+    <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
+    <Setter Property="FontSize" Value="11.5" />
+  </Style>
+  <Style Selector="PathIcon.mg-meta-icon">
+    <Setter Property="Width" Value="11" />
+    <Setter Property="Height" Value="11" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+
+  <!-- ══════════════════════════ Identity tiles ══════════════════════════ -->
+  <Style Selector="Border.mg-tile">
+    <Setter Property="Width" Value="40" />
+    <Setter Property="Height" Value="40" />
+    <Setter Property="CornerRadius" Value="11" />
+    <Setter Property="Background" Value="{DynamicResource Mg.TileBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.TileBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="VerticalAlignment" Value="Top" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+  </Style>
+  <Style Selector="Border.mg-tile.sm">
+    <Setter Property="Width" Value="30" />
+    <Setter Property="Height" Value="30" />
+    <Setter Property="CornerRadius" Value="9" />
+  </Style>
+  <Style Selector="Border.mg-tile.lg">
+    <Setter Property="Width" Value="72" />
+    <Setter Property="Height" Value="72" />
+    <Setter Property="CornerRadius" Value="20" />
+  </Style>
+  <Style Selector="Border.mg-tile TextBlock.mg-glyph">
+    <Setter Property="FontSize" Value="18" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Mg.Hue}" />
+  </Style>
+  <Style Selector="Border.mg-tile.sm TextBlock.mg-glyph">
+    <Setter Property="FontSize" Value="14" />
+  </Style>
+  <Style Selector="Border.mg-tile.lg TextBlock.mg-glyph">
+    <Setter Property="FontSize" Value="34" />
+  </Style>
+  <Style Selector="Border.mg-tile PathIcon.mg-glyph">
+    <Setter Property="Width" Value="17" />
+    <Setter Property="Height" Value="17" />
+    <Setter Property="Foreground" Value="{DynamicResource Mg.Hue}" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.mg-tile.sm PathIcon.mg-glyph">
+    <Setter Property="Width" Value="13" />
+    <Setter Property="Height" Value="13" />
+  </Style>
+  <Style Selector="Border.mg-tile.lg PathIcon.mg-glyph">
+    <Setter Property="Width" Value="30" />
+    <Setter Property="Height" Value="30" />
+  </Style>
+
+  <!-- The hero tile doubles as the icon picker: it lifts and shows a pencil on hover. -->
+  <Style Selector="Button.mg-tile-button">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="VerticalAlignment" Value="Top" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <ContentPresenter Content="{TemplateBinding Content}" />
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Button.mg-tile-button Border.mg-tile">
+    <Setter Property="RenderTransform" Value="scale(1)" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Easing="BackEaseOut" />
+        <BrushTransition Property="BorderBrush" Duration="0:0:0.16" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.mg-tile-button:pointerover Border.mg-tile">
+    <Setter Property="RenderTransform" Value="scale(1.03)" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorderHover}" />
+  </Style>
+  <Style Selector="Button.mg-tile-button Border.mg-tile-edit">
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.16" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.mg-tile-button:pointerover Border.mg-tile-edit">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+
+  <!-- ══════════════════════════ Chips ══════════════════════════ -->
+  <Style Selector="Border.mg-chip">
+    <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+    <Setter Property="Background" Value="{DynamicResource Mg.TileBackground}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Padding" Value="9,3,10,4" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.mg-chip TextBlock">
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="MaxWidth" Value="280" />
+  </Style>
+  <Style Selector="Border.mg-chip PathIcon">
+    <Setter Property="Width" Value="11" />
+    <Setter Property="Height" Value="11" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <!-- The one fact that matters most on a page: brighter text, icon in the page's hue. -->
+  <Style Selector="Border.mg-chip.hue TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="Border.mg-chip.hue PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Mg.Hue}" />
+  </Style>
+  <Style Selector="Border.mg-chip.accent">
+    <Setter Property="Background" Value="{DynamicResource Mg.SelectedBackground}" />
+  </Style>
+  <Style Selector="Border.mg-chip.accent TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="Border.mg-chip.accent PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+  </Style>
+  <Style Selector="Border.mg-chip.success">
+    <Setter Property="Background" Value="{DynamicResource Mg.SuccessBackground}" />
+  </Style>
+  <Style Selector="Border.mg-chip.success TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="Border.mg-chip.success PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.SuccessDefault}" />
+  </Style>
+  <Style Selector="Border.mg-chip.warning">
+    <Setter Property="Background" Value="{DynamicResource Mg.WarningBackground}" />
+  </Style>
+  <Style Selector="Border.mg-chip.warning TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
+  </Style>
+  <Style Selector="Border.mg-chip.warning PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.WarningDefault}" />
+  </Style>
+  <Style Selector="Ellipse.mg-dot">
+    <Setter Property="Width" Value="7" />
+    <Setter Property="Height" Value="7" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+
+  <!-- ══════════════════════════ Stats strip ══════════════════════════ -->
+  <!-- Quiet figures rather than boxed tiles: a number with its label, side by side. -->
+  <Style Selector="Border.mg-stat">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0,0,22,0" />
+  </Style>
+  <Style Selector="TextBlock.mg-stat-value">
+    <Setter Property="FontSize" Value="20" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="TextBlock.mg-stat-label">
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+
+  <!-- ══════════════════════════ Buttons ══════════════════════════ -->
+  <!-- Strata's base TextBlock style pins every TextBlock to the body size and primary colour, so
+       text inside these buttons is styled directly rather than inherited from the button. -->
+  <Style Selector="Button.mg-button">
+    <Setter Property="Padding" Value="12,7" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+  <Style Selector="Button.mg-button TextBlock">
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+  <Style Selector="Button.mg-button PathIcon">
+    <Setter Property="Width" Value="13" />
+    <Setter Property="Height" Value="13" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.mg-button:not(.accent) PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="Button.mg-button.accent PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+  </Style>
+  <Style Selector="Button.mg-icon-button">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Width" Value="32" />
+    <Setter Property="Height" Value="32" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.mg-icon-button PathIcon">
+    <Setter Property="Width" Value="14" />
+    <Setter Property="Height" Value="14" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="Button.mg-back">
+    <Setter Property="Padding" Value="8,5,12,5" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="CornerRadius" Value="9" />
+  </Style>
+  <Style Selector="Button.mg-back PathIcon">
+    <Setter Property="Width" Value="12" />
+    <Setter Property="Height" Value="12" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="RenderTransform" Value="translateX(0)" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="CubicEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.mg-back:pointerover PathIcon">
+    <Setter Property="RenderTransform" Value="translateX(-2px)" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="Button.mg-back TextBlock">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="Button.mg-back:pointerover TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+
+  <!-- Small inline action, e.g. "Select all" or "Show everything", in Lumi's link colour. -->
+  <Style Selector="Button.mg-text-button">
+    <Setter Property="Padding" Value="8,3" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="CornerRadius" Value="7" />
+  </Style>
+  <Style Selector="Button.mg-text-button TextBlock">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+  </Style>
+  <Style Selector="Button.mg-text-button PathIcon">
+    <Setter Property="Width" Value="10" />
+    <Setter Property="Height" Value="10" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="PathIcon.mg-chevron">
+    <Setter Property="RenderTransform" Value="rotate(0deg)" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="CubicEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="PathIcon.mg-chevron.flipped">
+    <Setter Property="RenderTransform" Value="rotate(180deg)" />
+  </Style>
+
+  <!-- Link-like button for relationships ("Used by", chats, folders). -->
+  <Style Selector="Button.mg-pill-link">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <ContentPresenter Content="{TemplateBinding Content}" />
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Button.mg-pill-link Border.mg-chip">
+    <Setter Property="Transitions">
+      <Transitions>
+        <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.14" />
+        <BrushTransition Property="BorderBrush" Duration="0:0:0.14" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.mg-pill-link:pointerover Border.mg-chip">
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorderHover}" />
+    <Setter Property="Background" Value="{DynamicResource Mg.CardBackgroundHover}" />
+  </Style>
+  <Style Selector="Button.mg-pill-link:pointerover Border.mg-chip TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+
+  <!-- ══════════════════════════ Segmented control ══════════════════════════ -->
+  <Style Selector="Border.mg-segmented">
+    <Setter Property="Background" Value="{DynamicResource Mg.SegmentTrack}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="2" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.mg-segment">
+    <Setter Property="Padding" Value="11,4" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <Style Selector="Button.mg-segment /template/ Border#PART_Surface">
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.16" Easing="CubicEaseOut" />
+        <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.16" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.mg-segment:pointerover /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+  </Style>
+  <Style Selector="Button.mg-segment:pointerover /template/ Border#PART_Aurora">
+    <Setter Property="Opacity" Value="0" />
+  </Style>
+  <Style Selector="Button.mg-segment.selected /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Mg.SegmentSelected}" />
+    <Setter Property="BoxShadow" Value="0 1 3 0 #2E000000" />
+  </Style>
+  <Style Selector="Button.mg-segment.selected:pointerover /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Mg.SegmentSelected}" />
+    <Setter Property="BoxShadow" Value="0 1 3 0 #2E000000" />
+  </Style>
+  <Style Selector="Button.mg-segment TextBlock">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+  <Style Selector="Button.mg-segment:pointerover TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="Button.mg-segment.selected TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="Button.mg-segment PathIcon">
+    <Setter Property="Width" Value="11" />
+    <Setter Property="Height" Value="11" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+  <Style Selector="Button.mg-segment.selected PathIcon">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+
+  <!-- ══════════════════════════ Filter chips ══════════════════════════ -->
+  <Style Selector="Button.mg-filter">
+    <Setter Property="Padding" Value="11,5" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+    <Setter Property="Background" Value="{DynamicResource Mg.CardBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+  </Style>
+  <Style Selector="Button.mg-filter /template/ Border#PART_Surface">
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+  </Style>
+  <Style Selector="Button.mg-filter:pointerover /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Mg.CardBackgroundHover}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorderHover}" />
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+  </Style>
+  <Style Selector="Button.mg-filter:pointerover /template/ Border#PART_Aurora">
+    <Setter Property="Opacity" Value="0" />
+  </Style>
+  <Style Selector="Button.mg-filter.selected">
+    <Setter Property="Background" Value="{DynamicResource Mg.SelectedBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.SelectedBorder}" />
+  </Style>
+  <Style Selector="Button.mg-filter.selected:pointerover /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Mg.SelectedBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.SelectedBorder}" />
+  </Style>
+  <Style Selector="Button.mg-filter TextBlock">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.mg-filter:pointerover TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="Button.mg-filter.selected TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="Button.mg-filter TextBlock.mg-filter-count">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+  </Style>
+  <Style Selector="Button.mg-filter.selected TextBlock.mg-filter-count">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentDefault}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <!-- ══════════════════════════ Cards ══════════════════════════ -->
+  <Style Selector="Button.mg-card">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="VerticalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Stretch" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <ContentPresenter Content="{TemplateBinding Content}"
+                          HorizontalContentAlignment="Stretch"
+                          VerticalContentAlignment="Stretch" />
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Border.mg-card-frame">
+    <Setter Property="Background" Value="{DynamicResource Mg.CardBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Padding" Value="16,15,16,14" />
+    <Setter Property="RenderTransform" Value="translateY(0)" />
+    <Setter Property="BoxShadow" Value="0 1 2 0 #08000000" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.16" />
+        <BrushTransition Property="BorderBrush" Duration="0:0:0.16" />
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="CubicEaseOut" />
+        <BoxShadowsTransition Property="BoxShadow" Duration="0:0:0.2" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.mg-card:pointerover Border.mg-card-frame">
+    <Setter Property="Background" Value="{DynamicResource Mg.CardBackgroundHover}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorderHover}" />
+    <Setter Property="RenderTransform" Value="translateY(-2px)" />
+    <Setter Property="BoxShadow" Value="0 12 28 -14 #59000000" />
+  </Style>
+  <Style Selector="Button.mg-card:pressed Border.mg-card-frame">
+    <Setter Property="RenderTransform" Value="translateY(0) scale(0.99)" />
+  </Style>
+  <Style Selector="Button.mg-card:focus-visible Border.mg-card-frame">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+  </Style>
+  <Style Selector="Button.mg-card.muted Border.mg-card-frame">
+    <Setter Property="Opacity" Value="0.62" />
+  </Style>
+  <Style Selector="Button.mg-card.muted:pointerover Border.mg-card-frame">
+    <Setter Property="Opacity" Value="0.9" />
+  </Style>
+  <!-- The arrow on a card only appears when it is hovered, as the "open" affordance. -->
+  <Style Selector="Button.mg-card PathIcon.mg-card-arrow">
+    <Setter Property="Width" Value="12" />
+    <Setter Property="Height" Value="12" />
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="RenderTransform" Value="translateX(-4px)" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.16" />
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="CubicEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.mg-card:pointerover PathIcon.mg-card-arrow">
+    <Setter Property="Opacity" Value="1" />
+    <Setter Property="RenderTransform" Value="translateX(0)" />
+  </Style>
+  <Style Selector="TextBlock.mg-card-title">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="TextBlock.mg-card-text">
+    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="LineHeight" Value="18" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="MaxLines" Value="2" />
+  </Style>
+  <Style Selector="TextBlock.mg-card-text.placeholder">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="FontStyle" Value="Italic" />
+  </Style>
+  <Style Selector="Border.mg-card-divider">
+    <Setter Property="Height" Value="1" />
+    <Setter Property="Background" Value="{DynamicResource Mg.Divider}" />
+    <Setter Property="Margin" Value="0,12,0,10" />
+  </Style>
+
+  <!-- A quiet "discover more" card, for the MCP catalog. -->
+  <Style Selector="Border.mg-card-frame.create">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+  </Style>
+  <Style Selector="Button.mg-card:pointerover Border.mg-card-frame.create">
+    <Setter Property="Background" Value="{DynamicResource Mg.CardBackground}" />
+    <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    <Setter Property="RenderTransform" Value="translateY(0)" />
+  </Style>
+  <Style Selector="Button.mg-card Border.mg-create-plus">
+    <Setter Property="Width" Value="38" />
+    <Setter Property="Height" Value="38" />
+    <Setter Property="CornerRadius" Value="11" />
+    <Setter Property="Background" Value="{DynamicResource Mg.TileBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.TileBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="Button.mg-card Border.mg-create-plus PathIcon">
+    <Setter Property="Width" Value="15" />
+    <Setter Property="Height" Value="15" />
+    <Setter Property="Foreground" Value="{DynamicResource Mg.Hue}" />
+  </Style>
+
+  <!-- ══════════════════════════ Sections (detail pages) ══════════════════════════ -->
+  <Style Selector="Border.mg-section">
+    <Setter Property="Background" Value="{DynamicResource Mg.SectionBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Padding" Value="20,16,20,20" />
+  </Style>
+  <Style Selector="Border.mg-section-icon">
+    <Setter Property="Width" Value="28" />
+    <Setter Property="Height" Value="28" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Margin" Value="0,0,12,0" />
+    <Setter Property="Background" Value="{DynamicResource Mg.TileBackground}" />
+    <Setter Property="VerticalAlignment" Value="Top" />
+  </Style>
+  <Style Selector="Border.mg-section-icon PathIcon">
+    <Setter Property="Width" Value="13" />
+    <Setter Property="Height" Value="13" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.mg-inset">
+    <Setter Property="Background" Value="{DynamicResource Mg.CodeBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="14,12" />
+  </Style>
+  <Style Selector="Border.mg-empty-note">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="16,14" />
+  </Style>
+
+  <!-- Long rendered previews start folded, with a fade into the inset, so the sections below them
+       stay in reach. -->
+  <Style Selector="Border.mg-inset.mg-clipped">
+    <Setter Property="MaxHeight" Value="340" />
+    <Setter Property="ClipToBounds" Value="True" />
+  </Style>
+  <Style Selector="Border.mg-fade">
+    <Setter Property="Height" Value="96" />
+    <Setter Property="VerticalAlignment" Value="Bottom" />
+    <Setter Property="Margin" Value="1,0,1,1" />
+    <Setter Property="CornerRadius" Value="0,0,11,11" />
+    <Setter Property="IsHitTestVisible" Value="False" />
+    <Setter Property="Background" Value="{DynamicResource Mg.InsetFade}" />
+  </Style>
+
+  <!-- ══════════════════════════ Detail top bar ══════════════════════════ -->
+  <Style Selector="Border.mg-topbar">
+    <Setter Property="Padding" Value="20,12,20,12" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.Divider}" />
+  </Style>
+  <Style Selector="TextBlock.mg-crumb">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.mg-crumb.current">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+
+  <!-- ══════════════════════════ Inputs ══════════════════════════ -->
+  <!-- Title and lede are edited in place: they read as text until hovered or focused. -->
+  <Style Selector="TextBox.mg-title-input, TextBox.mg-lede-input">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Margin" Value="-9,0,0,0" />
+  </Style>
+  <Style Selector="TextBox.mg-title-input">
+    <Setter Property="FontSize" Value="24" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Padding" Value="8,2,8,3" />
+  </Style>
+  <Style Selector="TextBox.mg-lede-input">
+    <Setter Property="FontSize" Value="13.5" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+    <Setter Property="Padding" Value="8,4" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="TextBox.mg-title-input /template/ Border#FocusAccentBar, TextBox.mg-lede-input /template/ Border#FocusAccentBar">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="TextBox.mg-title-input:pointerover /template/ Border#PART_Border, TextBox.mg-lede-input:pointerover /template/ Border#PART_Border">
+    <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+  <Style Selector="TextBox.mg-title-input:focus-within /template/ Border#PART_Border, TextBox.mg-lede-input:focus-within /template/ Border#PART_Border">
+    <Setter Property="Background" Value="{DynamicResource Mg.InputBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.SelectedBorder}" />
+    <Setter Property="BoxShadow" Value="0 0 0 3 #14818CF8" />
+  </Style>
+
+  <!-- Regular form fields: one calm ring instead of Strata's stacked focus treatments. -->
+  <Style Selector="TextBox.mg-field">
+    <Setter Property="Background" Value="{DynamicResource Mg.InputBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="11,8" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+  <Style Selector="TextBox.mg-field.mono">
+    <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
+    <Setter Property="FontSize" Value="12.5" />
+  </Style>
+  <Style Selector="TextBox.mg-field /template/ Border#FocusAccentBar">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="TextBox.mg-field:pointerover /template/ Border#PART_Border">
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorderHover}" />
+  </Style>
+  <Style Selector="TextBox.mg-field:focus-within /template/ Border#PART_Border">
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.SelectedBorder}" />
+    <Setter Property="BoxShadow" Value="0 0 0 3 #14818CF8" />
+  </Style>
+
+  <!-- Long-form instructions editor. Monospace so markdown structure stays visible while typing. -->
+  <Style Selector="TextBox.mg-editor">
+    <Setter Property="Background" Value="{DynamicResource Mg.CodeBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="16,14" />
+    <Setter Property="FontFamily" Value="{DynamicResource Font.FamilyMono}" />
+    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="LineHeight" Value="20" />
+    <Setter Property="AcceptsReturn" Value="True" />
+    <Setter Property="AcceptsTab" Value="True" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="VerticalContentAlignment" Value="Top" />
+    <Setter Property="MinHeight" Value="260" />
+  </Style>
+  <Style Selector="TextBox.mg-editor /template/ Border#FocusAccentBar">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="TextBox.mg-editor:pointerover /template/ Border#PART_Border">
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorderHover}" />
+  </Style>
+  <Style Selector="TextBox.mg-editor:focus-within /template/ Border#PART_Border">
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.SelectedBorder}" />
+    <Setter Property="BoxShadow" Value="0 0 0 3 #0F818CF8" />
+  </Style>
+  <!-- Prose variant for text people write rather than markup, like a memory. -->
+  <Style Selector="TextBox.mg-editor.prose">
+    <Setter Property="FontFamily" Value="{DynamicResource Font.Family}" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="LineHeight" Value="22" />
+    <Setter Property="AcceptsTab" Value="False" />
+    <Setter Property="MinHeight" Value="150" />
+  </Style>
+
+  <!-- Search inside a page header. -->
+  <Style Selector="TextBox.mg-search">
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="CornerRadius" Value="11" />
+    <Setter Property="Padding" Value="10,8,34,8" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Background" Value="{DynamicResource Mg.InputBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBox.mg-search /template/ Border#FocusAccentBar">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="TextBox.mg-search:pointerover /template/ Border#PART_Border">
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorderHover}" />
+  </Style>
+  <Style Selector="TextBox.mg-search:focus-within /template/ Border#PART_Border">
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.SelectedBorder}" />
+    <Setter Property="BoxShadow" Value="0 0 0 3 #14818CF8" />
+  </Style>
+
+  <!-- ══════════════════════════ Selectable tiles (Lumi editor) ══════════════════════════ -->
+  <Style Selector="ToggleButton.mg-pick">
+    <Setter Property="Padding" Value="10,9" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="VerticalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Stretch" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Background" Value="{DynamicResource Mg.CardBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorder}" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Name="PART_Surface"
+                Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="{TemplateBinding CornerRadius}"
+                Padding="{TemplateBinding Padding}">
+          <Border.Transitions>
+            <Transitions>
+              <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.14" />
+              <BrushTransition Property="BorderBrush" Duration="0:0:0.14" />
+            </Transitions>
+          </Border.Transitions>
+          <ContentPresenter Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            HorizontalContentAlignment="Stretch"
+                            VerticalContentAlignment="Center" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="ToggleButton.mg-pick:pointerover /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Mg.CardBackgroundHover}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.CardBorderHover}" />
+  </Style>
+  <Style Selector="ToggleButton.mg-pick:checked /template/ Border#PART_Surface">
+    <Setter Property="Background" Value="{DynamicResource Mg.SelectedBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.SelectedBorder}" />
+  </Style>
+  <Style Selector="ToggleButton.mg-pick:checked:pointerover /template/ Border#PART_Surface">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+  </Style>
+  <Style Selector="ToggleButton.mg-pick:focus-visible /template/ Border#PART_Surface">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+  </Style>
+  <!-- Round check that fills in when the tile is on. -->
+  <Style Selector="ToggleButton.mg-pick Border.mg-check">
+    <Setter Property="Width" Value="18" />
+    <Setter Property="Height" Value="18" />
+    <Setter Property="CornerRadius" Value="9" />
+    <Setter Property="BorderThickness" Value="1.5" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderStrong}" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.14" />
+        <BrushTransition Property="BorderBrush" Duration="0:0:0.14" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="ToggleButton.mg-pick:checked Border.mg-check">
+    <Setter Property="Background" Value="{DynamicResource Brush.AccentDefault}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentDefault}" />
+  </Style>
+  <Style Selector="ToggleButton.mg-pick Border.mg-check PathIcon">
+    <Setter Property="Width" Value="10" />
+    <Setter Property="Height" Value="10" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextOnAccent}" />
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="RenderTransform" Value="scale(0.4)" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.22" Easing="BackEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="ToggleButton.mg-pick:checked Border.mg-check PathIcon">
+    <Setter Property="Opacity" Value="1" />
+    <Setter Property="RenderTransform" Value="scale(1)" />
+  </Style>
+  <Style Selector="ToggleButton.mg-pick TextBlock.mg-pick-title">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="ToggleButton.mg-pick TextBlock.mg-pick-text">
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="TextWrapping" Value="NoWrap" />
+  </Style>
+
+  <!-- ══════════════════════════ List rows (chats) ══════════════════════════ -->
+  <Style Selector="Button.mg-row">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <ContentPresenter Content="{TemplateBinding Content}" HorizontalContentAlignment="Stretch" />
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Border.mg-row-frame">
+    <Setter Property="Padding" Value="10,9" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <sa:PremultipliedBrushTransition Property="Background" Duration="0:0:0.12" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.mg-row:pointerover Border.mg-row-frame">
+    <Setter Property="Background" Value="{DynamicResource Brush.SubtleHover}" />
+  </Style>
+  <Style Selector="Button.mg-row PathIcon.mg-row-chevron">
+    <Setter Property="Width" Value="11" />
+    <Setter Property="Height" Value="11" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Button.mg-row:pointerover PathIcon.mg-row-chevron">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+
+  <!-- ══════════════════════════ Floating save / confirm bar ══════════════════════════ -->
+  <Style Selector="Border.mg-floatbar">
+    <Setter Property="Background" Value="{DynamicResource Mg.FloatBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="16" />
+    <Setter Property="Padding" Value="16,8,8,8" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Bottom" />
+    <Setter Property="Margin" Value="24,0,24,22" />
+    <Setter Property="BoxShadow" Value="0 18 44 -10 #73000000, 0 2 6 0 #1F000000" />
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="RenderTransform" Value="translateY(14px)" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.3" Easing="0.2,0 0,1" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Border.mg-floatbar[IsVisible=true]">
+    <Setter Property="Opacity" Value="1" />
+    <Setter Property="RenderTransform" Value="translateY(0)" />
+  </Style>
+  <Style Selector="Border.mg-floatbar.danger">
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.DangerDefault}" />
+  </Style>
+  <Style Selector="Border.mg-floatbar TextBlock.mg-floatbar-text">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.mg-floatbar TextBlock.mg-floatbar-hint">
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextTertiary}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+
+  <!-- "Saved" confirmation that briefly replaces the bar. -->
+  <Style Selector="Border.mg-saved-toast">
+    <Setter Property="Background" Value="{DynamicResource Mg.FloatBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderDefault}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Radius.Full}" />
+    <Setter Property="Padding" Value="12,7,14,7" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Bottom" />
+    <Setter Property="Margin" Value="24,0,24,26" />
+    <Setter Property="IsHitTestVisible" Value="False" />
+    <Setter Property="BoxShadow" Value="0 12 30 -10 #59000000" />
+    <Setter Property="Opacity" Value="0" />
+    <Setter Property="RenderTransform" Value="translateY(10px) scale(0.96)" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <DoubleTransition Property="Opacity" Duration="0:0:0.2" />
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.32" Easing="BackEaseOut" />
+      </Transitions>
+    </Setter>
+  </Style>
+  <Style Selector="Border.mg-saved-toast[IsVisible=true]">
+    <Setter Property="Opacity" Value="1" />
+    <Setter Property="RenderTransform" Value="translateY(0) scale(1)" />
+  </Style>
+
+  <!-- ══════════════════════════ Empty states ══════════════════════════ -->
+  <Style Selector="Border.mg-empty-hero">
+    <Setter Property="Width" Value="76" />
+    <Setter Property="Height" Value="76" />
+    <Setter Property="CornerRadius" Value="22" />
+    <Setter Property="Background" Value="{DynamicResource Mg.TileBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mg.TileBorder}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.mg-empty-hero PathIcon">
+    <Setter Property="Width" Value="28" />
+    <Setter Property="Height" Value="28" />
+    <Setter Property="Foreground" Value="{DynamicResource Mg.Hue}" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.mg-empty-title">
+    <Setter Property="FontSize" Value="17" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="TextAlignment" Value="Center" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="TextBlock.mg-empty-text">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="LineHeight" Value="19" />
+    <Setter Property="MaxWidth" Value="440" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="TextAlignment" Value="Center" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}" />
+  </Style>
+</Styles>

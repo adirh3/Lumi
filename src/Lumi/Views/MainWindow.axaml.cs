@@ -1262,12 +1262,9 @@ public partial class MainWindow : Window
             _chatWorkspace.ShowCurrentBrowserController();
         }
 
-        // When projects tab is shown, update chat counts and refresh selected project chats
-        if (index == 1 && DataContext is MainViewModel vm)
-        {
+        // When projects tab is shown, refresh chat counts and the selected project's chats
+        if (index == 2 && DataContext is MainViewModel vm)
             vm.ProjectsVM.RefreshSelectedProjectChats();
-            Dispatcher.UIThread.Post(() => ApplyProjectChatCounts(vm), DispatcherPriority.Loaded);
-        }
 
         // When settings tab is shown, refresh stats
         if (index == 6 && DataContext is MainViewModel svm)
@@ -1275,13 +1272,6 @@ public partial class MainWindow : Window
             if (svm.SettingsVM.SelectedPageIndex < 0)
                 svm.SettingsVM.SelectedPageIndex = 0;
             svm.SettingsVM.RefreshStats();
-        }
-
-        // When MCP tab is shown and no server is selected/editing, auto-open browse catalog
-        if (index == 5 && DataContext is MainViewModel mcpvm)
-        {
-            if (!mcpvm.McpServersVM.IsEditing && mcpvm.McpServersVM.SelectedServer is null)
-                mcpvm.McpServersVM.BrowseCatalogCommand.Execute(null);
         }
 
         if (sectionChanged && _mainPanel?.IsVisible == true)
@@ -3275,21 +3265,32 @@ public partial class MainWindow : Window
         return geometry is null ? null : new PathIcon { Data = geometry, Width = 14, Height = 14 };
     }
 
-    /// <summary>Sets the chat count TextBlock for each project in the sidebar.</summary>
-    private void ApplyProjectChatCounts(MainViewModel vm)
+    /// <summary>
+    /// The management sidebars follow their page's open item one way, so rebuilding a list or
+    /// filtering it never closes the page. A row the user picks opens that item.
+    /// </summary>
+    private void OnManagementListSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        var sidebarProjects = _sidebarPanels.Length > 2 ? _sidebarPanels[2] : null;
-        if (sidebarProjects is null) return;
+        if (sender is not ListBox list || e.AddedItems.Count != 1)
+            return;
 
-        foreach (var item in sidebarProjects.GetVisualDescendants().OfType<ListBoxItem>())
+        switch (list.DataContext, e.AddedItems[0])
         {
-            if (item.DataContext is not Project project) continue;
-            var countLabel = item.GetVisualDescendants().OfType<TextBlock>()
-                .FirstOrDefault(t => t.Name == "ProjectChatCount");
-            if (countLabel is null) continue;
-
-            var count = vm.ProjectsVM.GetChatCount(project.Id);
-            countLabel.Text = count > 0 ? (count == 1 ? string.Format(Loc.Project_ChatCount, count) : string.Format(Loc.Project_ChatCounts, count)) : "";
+            case (ProjectsViewModel vm, Project project) when !ReferenceEquals(vm.SelectedProject, project):
+                vm.SelectedProject = project;
+                break;
+            case (SkillsViewModel vm, Skill skill) when !ReferenceEquals(vm.SelectedSkill, skill):
+                vm.SelectedSkill = skill;
+                break;
+            case (AgentsViewModel vm, LumiAgent agent) when !ReferenceEquals(vm.SelectedAgent, agent):
+                vm.SelectedAgent = agent;
+                break;
+            case (MemoriesViewModel vm, Memory memory) when !ReferenceEquals(vm.SelectedMemory, memory):
+                vm.SelectedMemory = memory;
+                break;
+            case (McpServersViewModel vm, McpServer server) when !ReferenceEquals(vm.SelectedServer, server):
+                vm.SelectedServer = server;
+                break;
         }
     }
 

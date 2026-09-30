@@ -461,6 +461,25 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ImportVM.Imported += OnCapabilitiesImported;
         ImportVM.OpenItemRequested += OpenImportedCapability;
         ImportVM.ChatWithLumiRequested += StartChatWithImportedLumi;
+        AgentsVM.ChatRequested += agent => StartChatWithImportedLumi(agent.Id);
+        ProjectsVM.NewChatRequested += StartChatInProject;
+        SkillsVM.OpenAgentRequested += OpenLumiPage;
+        McpServersVM.OpenAgentRequested += OpenLumiPage;
+        AgentsVM.OpenSkillRequested += id =>
+        {
+            SelectedNavIndex = 3;
+            SkillsVM.OpenById(id);
+        };
+        AgentsVM.OpenMcpServerRequested += id =>
+        {
+            SelectedNavIndex = 6;
+            McpServersVM.OpenById(id);
+        };
+        MemoriesVM.OpenProjectRequested += id =>
+        {
+            SelectedNavIndex = 2;
+            ProjectsVM.OpenById(id);
+        };
         SkillsVM.CopyForChatRequested += (skill, unsaved) => _ = CopyForChatAsync(ShareVM.QuickCopyForChatAsync(skill, unsaved));
         AgentsVM.CopyForChatRequested += (agent, unsaved) => _ = CopyForChatAsync(ShareVM.QuickCopyForChatAsync(agent, unsaved));
         McpServersVM.CopyForChatRequested += (server, unsaved) => _ = CopyForChatAsync(ShareVM.QuickCopyForChatAsync(server, unsaved));
@@ -1120,7 +1139,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
 
         NewChatCommand.Execute(null);
-        ChatVM.SelectAgentByName(agent.Name);
+        ChatVM.SelectedSdkAgentName = null;
+        ChatVM.SetActiveAgent(agent);
+    }
+
+    private void OpenLumiPage(Guid agentId)
+    {
+        SelectedNavIndex = 4;
+        AgentsVM.OpenById(agentId);
+    }
+
+    /// <summary>"New chat" on a project: the chat list narrows to the project and the draft joins it.</summary>
+    private void StartChatInProject(Project project)
+    {
+        SelectProjectFilter(project);
+        NewChat();
     }
 
     private void RefreshFeatureManagementUi(bool refreshJobs = true, bool preserveJobsEditor = false)
