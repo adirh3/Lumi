@@ -367,6 +367,48 @@ public sealed class ChatViewModelLeakTests
     }
 
     [Fact]
+    public void NeedsSessionSetup_DetectsEditedByokCapabilities()
+    {
+        var dataStore = CreateDataStore();
+        var endpoint = new ByokEndpoint
+        {
+            Name = "Test endpoint",
+            BaseUrl = "https://example.com/v1",
+            ProviderType = "openai",
+            WireApi = "completions",
+            ApiKeyMode = ByokApiKeyMode.None
+        };
+        var model = new ByokModel
+        {
+            EndpointId = endpoint.Id,
+            ModelId = "test-model",
+            DisplayName = "Test model",
+            LongContextWindowTokens = 640_000
+        };
+        dataStore.Data.Settings.ByokEndpoints.Add(endpoint);
+        dataStore.Data.Settings.ByokModels.Add(model);
+        var chat = new Chat
+        {
+            CopilotSessionId = "sid-capabilities",
+            LastModelUsed = ByokConfigHelper.BuildModelToken(model)
+        };
+        dataStore.Data.Chats.Add(chat);
+        using var viewModel = new ChatViewModel(dataStore, TestCopilot.Shared) { CurrentChat = chat };
+        var session = CreateDetachedSession(chat.CopilotSessionId);
+        GetField<Dictionary<Guid, CopilotSession>>(viewModel, "_sessionCache")[chat.Id] = session;
+        var signature = ByokConfigHelper.BuildProviderSignature(
+            ByokConfigHelper.BuildProviderConfig(endpoint, model), model);
+        chat.SessionProviderSignature = signature;
+        GetField<Dictionary<Guid, string?>>(viewModel, "_sessionProviderSignatures")[chat.Id] = signature;
+
+        Assert.False(InvokePrivate<bool>(viewModel, "NeedsSessionSetup", chat));
+        model.LongContextWindowTokens = 800_000;
+        Assert.True(InvokePrivate<bool>(viewModel, "NeedsSessionSetup", chat));
+        model.LongContextWindowTokens = 640_000;
+        Assert.False(InvokePrivate<bool>(viewModel, "NeedsSessionSetup", chat));
+    }
+
+    [Fact]
     public void NeedsSessionSetup_UsesPerChatCacheWhenActivePointerIsTemporarilyNull()
     {
         var dataStore = CreateDataStore();

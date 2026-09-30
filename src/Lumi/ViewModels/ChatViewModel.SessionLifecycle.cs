@@ -2362,11 +2362,14 @@ public partial class ChatViewModel
                     {
                     if (!string.IsNullOrWhiteSpace(modelChange.Data.NewModel))
                     {
-                        // Keep the user's BYOK pick; ignore mid-session server-side swaps.
+                        // Session events report the provider's wire id, while the chat stores a stable byok:<id> token.
                         var chatModelChange = ResolveSelectedModelForChat(chat);
                         if (!string.IsNullOrWhiteSpace(chatModelChange)
                             && ByokConfigHelper.IsByokModel(chatModelChange)
-                            && !string.Equals(chatModelChange, modelChange.Data.NewModel, StringComparison.Ordinal))
+                            && !ByokConfigHelper.MatchesWireModelId(
+                                _dataStore.Data.Settings,
+                                chatModelChange,
+                                modelChange.Data.NewModel))
                         {
                             return;
                         }

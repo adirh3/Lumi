@@ -39,6 +39,43 @@ namespace Lumi.Tests;
 public sealed class DeferredSendQueueTests
 {
     [Fact]
+    public void ByokSteeringSignature_MatchesCapabilitiesAndRejectsChanges()
+    {
+        using var host = DeferredSendHost.Create();
+        using var rpc = new AbortRpc();
+        var endpoint = new ByokEndpoint
+        {
+            Id = "endpoint",
+            Name = "Test endpoint",
+            BaseUrl = "http://localhost:11434/v1",
+            ProviderType = "openai",
+            ApiKeyMode = ByokApiKeyMode.None
+        };
+        var model = new ByokModel
+        {
+            Id = "model",
+            EndpointId = endpoint.Id,
+            ModelId = "wire-model",
+            DisplayName = "Test model",
+            SupportsReasoningEffort = true,
+            SupportedReasoningEfforts = ["low", "high"],
+            DefaultContextWindowTokens = 256_000,
+            LongContextWindowTokens = 640_000
+        };
+        host.DataStore.Data.Settings.ByokEndpoints.Add(endpoint);
+        host.DataStore.Data.Settings.ByokModels.Add(model);
+        host.Chat.LastModelUsed = ByokConfigHelper.BuildModelToken(model);
+        host.AttachSession(rpc);
+        host.RecordProviderSignature(ByokConfigHelper.BuildProviderSignature(
+            ByokConfigHelper.BuildProviderConfig(endpoint, model), model));
+
+        Assert.True(host.IsProviderConsistent(rpc.Session));
+
+        model.LongContextWindowTokens = 800_000;
+        Assert.False(host.IsProviderConsistent(rpc.Session));
+    }
+
+    [Fact]
     public void QueueBusySendPrompt_ShowsTheMessageImmediately_AsQueued()
     {
         using var host = DeferredSendHost.Create();
@@ -1873,6 +1910,12 @@ public sealed class DeferredSendQueueTests
 
         public void RegisterPendingSteer(ChatMessageViewModel message)
             => Invoke("RegisterPendingSteer", Chat.Id, message);
+
+        public void RecordProviderSignature(string? signature)
+            => Invoke("RecordSessionProviderSignature", Chat, signature);
+
+        public bool IsProviderConsistent(CopilotSession session)
+            => (bool)Invoke("IsCachedSessionProviderConsistentWithSelection", Chat.Id, session)!;
 
         public void MarkRuntimeTerminal()
             => typeof(ChatViewModel)
