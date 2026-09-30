@@ -150,6 +150,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>Nav index of the Library page. It is reached from the chat sidebar, not the nav pill.</summary>
     public const int LibraryNavIndex = 8;
 
+    /// <summary>Nav index of the Jobs (automations) page.</summary>
+    private const int JobsNavIndex = 1;
+
     [RelayCommand]
     private void OpenLibrary() => SelectedNavIndex = LibraryNavIndex;
 
@@ -529,6 +532,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.PropertyChanged += OnChatViewModelPropertyChanged;
         chatVm.ComposerProjectFilterRequested += OnComposerProjectFilterRequested;
         chatVm.OpenChatRequested += OnChatOpenChatRequested;
+        chatVm.RevealChatRequested += OnChatRevealChatRequested;
+        chatVm.OpenAutomationsRequested += OnChatOpenAutomationsRequested;
         chatVm.ForkChatRequested += OnChatForkRequested;
     }
 
@@ -540,10 +545,24 @@ public partial class MainViewModel : ObservableObject, IDisposable
         chatVm.PropertyChanged -= OnChatViewModelPropertyChanged;
         chatVm.ComposerProjectFilterRequested -= OnComposerProjectFilterRequested;
         chatVm.OpenChatRequested -= OnChatOpenChatRequested;
+        chatVm.RevealChatRequested -= OnChatRevealChatRequested;
+        chatVm.OpenAutomationsRequested -= OnChatOpenAutomationsRequested;
         chatVm.ForkChatRequested -= OnChatForkRequested;
     }
 
     private void OnChatOpenChatRequested(Guid chatId) => _ = OpenChatByIdAsync(chatId);
+
+    private void OnChatRevealChatRequested(Guid chatId)
+    {
+        var chat = _dataStore.Data.Chats.FirstOrDefault(candidate => candidate.Id == chatId);
+        if (chat is not null)
+            _ = RevealChatAsync(chat);
+    }
+
+    private void OnChatOpenAutomationsRequested() => ShowAutomations();
+
+    /// <summary>Shows the Jobs page, where the user's automations live.</summary>
+    public void ShowAutomations() => SelectedNavIndex = JobsNavIndex;
 
     private void OnChatForkRequested(Chat chat, Guid throughMessageId)
         => _ = ForkChatAsync(chat, throughMessageId);
@@ -1755,7 +1774,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             // editable draft. Set after navigation, and only if the fork is what actually opened —
             // otherwise the draft would land in whichever chat is on screen.
             if (opened && plan.ComposerPrefill is { Length: > 0 } draft)
-                ChatVM.SetComposerDraft(draft);
+                ChatVM.SetComposerDraft(draft, plan.ComposerReply);
 
             return fork;
         }

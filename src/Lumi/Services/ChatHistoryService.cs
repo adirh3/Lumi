@@ -343,7 +343,7 @@ public sealed class ChatHistoryService
         switch (message.Role)
         {
             case "user":
-                return $"User: {Truncate(message.Content.Trim(), MaxMessageChars)}";
+                return $"User: {MessageReplyFormatter.DescribeForTranscript(message.ReplyTo)}{Truncate(message.Content.Trim(), MaxMessageChars)}";
             case "assistant":
             {
                 var speaker = string.IsNullOrWhiteSpace(message.Author) ? "Lumi" : message.Author!.Trim();

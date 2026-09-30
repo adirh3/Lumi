@@ -164,6 +164,9 @@ public partial class ChatViewModel
             _currentChatTitleSource = null;
         }
 
+        // The launchpad watches shared chats and the event hub while shown; release them for the same reason.
+        _launchpad?.Shutdown();
+
         lock (_chatLoadSync)
         {
             _chatLoadRequestId++;
@@ -360,7 +363,10 @@ public partial class ChatViewModel
                 : [],
             ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
             SteerDelivery = MessageSteerState.Queued,
-            CanSendNowWhenQueued = IsChatRuntimeActive(chatId)
+            CanSendNowWhenQueued = IsChatRuntimeActive(chatId),
+            // Composer sends carry no author override (remote and orchestrated ones always do), so
+            // only they take the composer's pending reply.
+            ReplyTo = authorOverride is null ? TakePendingReply(chatId) : null
         };
 
         if (CurrentChat?.Id == chatId)
@@ -722,6 +728,7 @@ public partial class ChatViewModel
         foreach (var pendingQuestion in pendingQuestions)
             pendingQuestion.TrySetCanceled();
 
+        chat.IsAwaitingInput = false;
         return ExpireUnansweredQuestions(chat);
     }
 

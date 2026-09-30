@@ -7,6 +7,7 @@ A personal agentic desktop assistant powered by [GitHub Copilot SDK](https://git
 ## Features
 
 - **Streaming chat** — Real-time streamed responses with tool call visualization, reasoning display, and typing indicators
+- **Reply to** — Ask about a specific part of an answer: select any words in Lumi's reply and tap the floating **Reply** pill (or hover a message and choose **Reply**). The quote rides along above your message, and clicking it jumps back to the highlighted source
 - **Agents (Lumis)** — Create custom agent personas with their own system prompts, skills, and tools
 - **Skills** — Reusable capability definitions in markdown that teach the assistant new abilities
 - **Sharing** — Share skills, Lumis and MCP servers as plain-text files anyone can read, or as a compact code for Teams/Slack that Lumi picks up from the clipboard; import them (or any `SKILL.md` / MCP config) with a receipt of exactly what gets added

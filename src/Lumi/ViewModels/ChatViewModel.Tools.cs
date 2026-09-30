@@ -750,6 +750,8 @@ public partial class ChatViewModel
         if (chat is null)
             return;
 
+        chat.IsAwaitingInput = true;
+
         var toolMessage = chat.Messages.LastOrDefault(message =>
             message.ToolName == "ask_question"
             && message.ToolStatus == "InProgress"

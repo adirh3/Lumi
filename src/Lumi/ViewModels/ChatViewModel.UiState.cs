@@ -760,6 +760,10 @@ public partial class ChatViewModel
 
         if (CurrentChat is null || CurrentChat.Messages.Count == 0)
         {
+            // Tuning a launchpad setup's model must not turn that model into the default.
+            if (IsLaunchpadSetupApplied)
+                return;
+
             if (_dataStore.Data.Settings.ReasoningEffort != persistedEffort)
             {
                 _dataStore.Data.Settings.ReasoningEffort = persistedEffort;
@@ -800,6 +804,9 @@ public partial class ChatViewModel
 
         if (CurrentChat is null || CurrentChat.Messages.Count == 0)
         {
+            if (IsLaunchpadSetupApplied)
+                return;
+
             if (_dataStore.Data.Settings.ContextWindowTier != contextTier)
             {
                 _dataStore.Data.Settings.ContextWindowTier = contextTier;
@@ -1105,6 +1112,7 @@ public partial class ChatViewModel
 
     partial void OnCurrentChatChanged(Chat? value)
     {
+        _launchpadBaseline = null;
         ResetContextDetailsForChatChange(value);
         IsSessionActive = value?.IsSessionActive == true;
         BackgroundActivityText = Loc.Get("Chat_BackgroundActivity");

@@ -885,7 +885,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         string? ChatLastReasoningEffortUsed,
         string? ChatLastContextWindowTierUsed,
         List<Guid> PendingSkillInjections,
-        List<string> PendingExternalSkillInjections);
+        List<string> PendingExternalSkillInjections,
+        MessageReply? PendingReply);
 
     private ComposerEditSnapshot? _preEditComposerSnapshot;
     private ChatMessage? _editingUserMessage;
@@ -956,7 +957,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string? _selectedModel;
     [ObservableProperty] private bool _isEditingMessage;
     [ObservableProperty] private string _editingMessageStatusText = "";
-    public string ComposerPlaceholder => IsEditingMessage ? Loc.Get("Chat_EditPlaceholder") : Loc.Chat_Placeholder;
+    public string ComposerPlaceholder => IsEditingMessage
+        ? Loc.Get("Chat_EditPlaceholder")
+        : HasPendingReply ? Loc.Chat_ReplyPlaceholder : Loc.Chat_Placeholder;
 
     partial void OnIsBusyChanging(bool value)
     {
@@ -1449,10 +1452,14 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         Dispatcher.UIThread.Post(() =>
         {
+            // Mirror first: even a surface disposed meanwhile must not leave the chat flagged as waiting.
+            var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
+            if (chat is not null)
+                chat.IsAwaitingInput = HasPendingQuestion(chatId);
+
             if (_isDisposed)
                 return;
 
-            var chat = _dataStore.Data.Chats.Find(candidate => candidate.Id == chatId);
             if (chat is not null
                 && completion?.Task.IsCompletedSuccessfully != true
                 && ExpireUnansweredQuestions(chat, questionId))
@@ -1468,11 +1475,16 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     private void ClearPendingQuestionTracking()
     {
+        List<Guid> waitingChatIds;
         lock (_pendingQuestionsSync)
         {
+            waitingChatIds = _pendingQuestionChatIds.Values.Distinct().ToList();
             _pendingQuestions.Clear();
             _pendingQuestionChatIds.Clear();
         }
+
+        foreach (var chat in _dataStore.Data.Chats.Where(chat => waitingChatIds.Contains(chat.Id)))
+            chat.IsAwaitingInput = false;
     }
 
     /// <summary>Raised when the view should rebuild DataTemplates (e.g. settings changed).</summary>
@@ -1517,7 +1529,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             subagentRunsChanged: RefreshSubagentRunState,
             resolveFilePath: path => CurrentChat is { } chat
                 ? ResolveWorkspaceFileChangedPath(chat, path)
-                : path);
+                : path,
+            openReplySourceAction: RequestReplySourceJump);
         _transcriptBuilder.SetLiveTarget(_transcriptTurns);
         _transcriptWindow.BindTranscript(_transcriptTurns, "ctor");
         _transcriptWindow.PropertyChanged += OnTranscriptWindowPropertyChanged;
@@ -1716,6 +1729,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
         TranscriptTurns = _transcriptBuilder.Rebuild(Messages, GetCurrentForkOrigin());
         UpdateUserMessageEditState();
+        UpdateReplySourceHighlight();
         _transcriptWindow.BindTranscript(TranscriptTurns, "rebuild");
         _transcriptWindow.ResetToLatest(TranscriptWindowController.DefaultInitialViewportHeight, "rebuild");
 
@@ -3841,6 +3855,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         ClearSuggestions();
 
         PromptText = userMessage.Content;
+        // A reply being edited shows its quote in the composer, where it can be kept or dismissed.
+        PendingReply = userMessage.ReplyTo?.Clone();
         ReplacePendingAttachments(userMessage.Attachments);
         ReplaceActiveSkillsFromMessage(userMessage, syncToChat: false);
         ApplyMessageAgentSelection(userMessage, syncToChatAndSession: false);
@@ -3877,7 +3893,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             CurrentChat?.LastReasoningEffortUsed,
             CurrentChat?.LastContextWindowTierUsed,
             _pendingSkillInjections.ToList(),
-            _pendingExternalSkillInjections.ToList());
+            _pendingExternalSkillInjections.ToList(),
+            PendingReply);
 
     /// <summary>
     /// True when the composer's CURRENT selection (agent, MCP servers, or active skills) differs from
@@ -3924,6 +3941,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
     private void RestoreComposerEditSnapshot(ComposerEditSnapshot snapshot)
     {
         PromptText = snapshot.PromptText;
+        PendingReply = snapshot.PendingReply;
         ReplacePendingAttachments(snapshot.PendingAttachments);
         ReplaceActiveSkills(snapshot.ActiveSkillIds, snapshot.ActiveExternalSkillNames, syncToChat: true);
         // Restore the visible/persisted selection without treating the draft agent as live routing.
@@ -4024,6 +4042,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             .OfType<AttachmentFile>()
             .Select(static attachment => attachment.Path)
             .ToList();
+        // The composer's reply (kept, changed, or dismissed while editing) becomes the edited turn's reply.
+        userMessage.ReplyTo = PendingReply;
         ApplyCurrentComposerSelectionsToMessage(userMessage, selectedReasoningEffort);
         ApplyCurrentComposerSelectionsToChat(CurrentChat, selectedReasoningEffort);
 
@@ -4038,6 +4058,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         IsEditingMessage = false;
         EditingMessageStatusText = string.Empty;
         PromptText = string.Empty;
+        PendingReply = null;
         _chatDrafts.Remove(CurrentChat.Id);
 
         await ResendFromMessageAsync(
@@ -4567,7 +4588,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 ActiveMcpServerNames = new List<string>(ActiveMcpServerNames),
                 HasMcpSelection = true,
                 Attachments = attachments?.OfType<AttachmentFile>().Select(a => a.Path).ToList() ?? [],
-                ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames)
+                ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
+                ReplyTo = consumeComposerPrompt ? TakePendingReply(targetChat.Id) : null
             };
             targetChat.Messages.Add(userMsg);
             Messages.Add(new ChatMessageViewModel(userMsg));
@@ -4587,6 +4609,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         var retainedContext = targetChat.Messages
             .TakeWhile(message => !ReferenceEquals(message, userMsg))
             .ToList();
+        // What the model receives for this message: the typed text, framed with its quote when it is a reply.
+        var modelPrompt = ComposeModelPrompt(prompt, userMsg);
         var promptAdditions = BuildSendPromptAdditions(targetChat: targetChat);
         // Hoisted so the stale-session recovery path below re-applies the same skill directives:
         // the directive text is session-independent, but the recreated session still needs it.
@@ -4732,8 +4756,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 sessionLostSkillLoads,
                 cts.Token);
             var basePrompt = needsReplayPrompt
-                ? BuildSessionRecoveryReplayPrompt(retainedContext, prompt)
-                : prompt;
+                ? BuildSessionRecoveryReplayPrompt(retainedContext, modelPrompt)
+                : modelPrompt;
             sendOptions = new MessageOptions { Prompt = skillDirectives + basePrompt + promptAdditions };
             localUserMessageCount = targetChat.Messages.Count(m => m.Role == "user");
             localAssistantMessageCount = CountCompletedAssistantMessages(targetChat);
@@ -4789,7 +4813,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     targetChat,
                     sessionLostHistory: true,
                     cts.Token);
-                sendOptions.Prompt = skillDirectives + BuildSessionRecoveryReplayPrompt(retainedContext, prompt) + promptAdditions;
+                sendOptions.Prompt = skillDirectives + BuildSessionRecoveryReplayPrompt(retainedContext, modelPrompt) + promptAdditions;
                 var expectedSessionUserMessageCount = await CaptureExpectedSessionUserMessageCountAsync(
                     sendSession,
                     localUserMessageCount,
@@ -6564,6 +6588,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         if (idx < 0) return;
 
         var prompt = userMessage.Content;
+        // The resent turn keeps its reply: the model gets the same quoted framing as the original send.
+        var modelPrompt = ComposeModelPrompt(prompt, userMessage);
         var attachments = attachmentsOverride ?? BuildUserMessageAttachments(userMessage.Attachments);
         var selectedReasoningEffort = userMessage.ReasoningEffort ?? GetPersistedReasoningEffortPreference();
         var selectedContextWindowTier =
@@ -6628,7 +6654,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                     Glyph = skill.Glyph,
                     Description = skill.Description
                 })
-                .ToList()
+                .ToList(),
+            ReplyTo = userMessage.ReplyTo?.Clone()
         };
         CurrentChat.Messages.Add(newUserMsg);
         BeginChatLifecycleTurn(CurrentChat);
@@ -6825,7 +6852,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             var resendPrompt = BuildResendPrompt(
                 retainedContext,
-                prompt,
+                modelPrompt,
                 wasEdited && !historyRewound,
                 shouldReplayPrompt,
                 promptAdditions);
@@ -6872,7 +6899,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 }
                 var resendPrompt2 = BuildResendPrompt(
                     retainedContext,
-                    prompt,
+                    modelPrompt,
                     wasEdited,
                     shouldReplayPrompt: !wasEdited,
                     promptAdditions);
@@ -7084,7 +7111,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             };
 
             if (msg.Role is "user" or "assistant" or "system")
-                lines.Add($"{role}: {msg.Content.Trim()}");
+            {
+                var replyMarker = msg.Role == "user"
+                    ? MessageReplyFormatter.DescribeForTranscript(msg.ReplyTo)
+                    : "";
+                lines.Add($"{role}: {replyMarker}{msg.Content.Trim()}");
+            }
         }
 
         lines.Add("");
