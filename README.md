@@ -58,6 +58,17 @@ opening it. Closed/open envelope icons distinguish the two actions. Opening the
 chat or choosing **Mark all as read** also clears the mark. Like automatic unread
 indicators, these marks last for the current app session.
 
+### Resuming chats after backend history errors
+
+For `400 input item ID does not belong to this connection`, click **Try again** or send
+your next message normally. Lumi replaces the unusable backend session and restores
+context from the saved user, assistant, and system messages as text. The visible
+transcript is kept; native tool/image history is not replayed. This also repairs
+chats whose error was saved by an older Lumi version as a same-session retry, and
+works for background and remote sends without first opening the chat. Unrelated
+errors retain their existing retry behavior; authentication and quota failures
+still require their normal resolution.
+
 ### Desktop motion
 
 The composer keeps its thin Stratum underline, drawing it from left to right on focus and

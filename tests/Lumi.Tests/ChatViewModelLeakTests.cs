@@ -2561,6 +2561,33 @@ public sealed class ChatViewModelLeakTests
         Assert.Equal(SessionFailureDisposition.RebuildSession, persisted.FailureDisposition);
     }
 
+    [Fact]
+    public void HandleSendError_ForeignConnectionInputItem_SchedulesRebuildWithoutLosingTranscript()
+    {
+        var dataStore = CreateDataStore();
+        using var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var question = new ChatMessage { Role = "user", Content = "Remember recovery code MAPLE-42." };
+        var answer = new ChatMessage { Role = "assistant", Content = "I will remember MAPLE-42." };
+        var chat = new Chat { Title = "connection-history", CopilotSessionId = "poisoned-session" };
+        chat.Messages.Add(question);
+        chat.Messages.Add(answer);
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+
+        const string error = "Execution failed: 400 input item ID does not belong to this connection";
+        InvokePrivate(vm, "HandleSendError", new InvalidOperationException(error), false, null!, chat);
+
+        Assert.Contains(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+        Assert.Equal("poisoned-session", chat.CopilotSessionId);
+        Assert.Same(question, chat.Messages[0]);
+        Assert.Same(answer, chat.Messages[1]);
+        Assert.Equal(SessionFailureDisposition.RebuildSession, chat.Messages[^1].FailureDisposition);
+        var item = Assert.IsType<ErrorMessageItem>(Assert.Single(Assert.Single(vm.TranscriptTurns).Items));
+        Assert.True(item.ShowRetryButton);
+        Assert.NotNull(item.RetryCommand);
+        Assert.Contains(error, item.Content, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("Copilot request failed")]
     [InlineData("Failed to persist session events: There is not enough space on the disk. (os error 112)")]
@@ -2818,6 +2845,168 @@ public sealed class ChatViewModelLeakTests
         var item = Assert.IsType<ErrorMessageItem>(Assert.Single(turn.Items));
         Assert.True(item.ShowRetryButton);
         Assert.NotNull(item.RetryCommand);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(SessionFailureDisposition.RetrySameSession)]
+    [InlineData(SessionFailureDisposition.RebuildSession)]
+    public void UpdateStuckChatRetryAffordance_ForeignConnectionInputItem_RecoversPreviouslySavedChat(
+        SessionFailureDisposition? disposition)
+    {
+        var dataStore = CreateDataStore();
+        using var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "saved-connection-error", CopilotSessionId = "poisoned" };
+        var error = new ChatMessage
+        {
+            Role = "error",
+            Content = "Error: Execution failed: 400 input item ID does not belong to this connection (Request ID: 00000-efb73294-fb5e-4a7c-814c-bd5af96f518e)",
+            FailureDisposition = disposition
+        };
+        chat.Messages.Add(error);
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+        vm.Messages.Add(new ChatMessageViewModel(error));
+
+        InvokePrivate(vm, "UpdateStuckChatRetryAffordance");
+
+        Assert.Contains(chat.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+        Assert.Equal("poisoned", chat.CopilotSessionId);
+        var item = Assert.IsType<ErrorMessageItem>(Assert.Single(Assert.Single(vm.TranscriptTurns).Items));
+        Assert.True(item.ShowRetryButton);
+        Assert.NotNull(item.RetryCommand);
+    }
+
+    [Fact]
+    public void ScheduleStoredSessionRecovery_UnshownChat_RebuildsBeforeSendAndKeepsHistory()
+    {
+        var dataStore = CreateDataStore();
+        using var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var displayed = new Chat { Title = "displayed", CopilotSessionId = "healthy-session" };
+        var target = new Chat { Title = "background", CopilotSessionId = "poisoned-session" };
+        var retainedTail = new ChatMessage
+        {
+            Role = "error",
+            Content = "400 input item ID does not belong to this connection",
+            FailureDisposition = SessionFailureDisposition.RetrySameSession
+        };
+        target.Messages.Add(new ChatMessage { Role = "user", Content = "Remember MAPLE-42." });
+        target.Messages.Add(new ChatMessage { Role = "assistant", Content = "Remembered MAPLE-42." });
+        target.Messages.Add(retainedTail);
+        target.Messages.Add(new ChatMessage { Role = "user", Content = "What was the code?" });
+        var originalMessages = target.Messages.ToArray();
+        dataStore.Data.Chats.Add(displayed);
+        dataStore.Data.Chats.Add(target);
+        vm.CurrentChat = displayed;
+
+        InvokePrivate(vm, "ScheduleStoredSessionRecovery", target, target.Messages.Take(3).ToList());
+        Assert.True(InvokePrivate<bool>(vm, "ConsumePendingSessionInvalidation", target));
+
+        Assert.Null(target.CopilotSessionId);
+        Assert.Equal(originalMessages, target.Messages);
+        Assert.Equal("healthy-session", displayed.CopilotSessionId);
+        Assert.Same(displayed, vm.CurrentChat);
+        Assert.DoesNotContain(target.Id, GetField<HashSet<Guid>>(vm, "_pendingSessionInvalidations"));
+
+        var replay = InvokePrivateStatic<string>(
+            typeof(ChatViewModel),
+            "BuildSessionRecoveryReplayPrompt",
+            target.Messages.Take(3).ToList(),
+            target.Messages[^1].Content);
+        Assert.Contains("User: Remember MAPLE-42.", replay);
+        Assert.Contains("Assistant: Remembered MAPLE-42.", replay);
+        Assert.Contains("Latest user message:\nWhat was the code?", replay);
+        Assert.DoesNotContain("input item ID", replay);
+    }
+
+    [Fact]
+    public void ScheduleStoredSessionRecovery_CanceledRecoveryWithTrailingUserMessage_RestoresContextOnNextSend()
+    {
+        var dataStore = CreateDataStore();
+        using var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "canceled-recovery", CopilotSessionId = "poisoned-session" };
+        var error = new ChatMessage
+        {
+            Role = "error",
+            Content = "400 input item ID does not belong to this connection",
+            FailureDisposition = SessionFailureDisposition.RetrySameSession
+        };
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "Remember MAPLE-42." });
+        chat.Messages.Add(new ChatMessage { Role = "assistant", Content = "Remembered MAPLE-42." });
+        chat.Messages.Add(error);
+        dataStore.Data.Chats.Add(chat);
+        vm.CurrentChat = chat;
+
+        InvokePrivate(vm, "ScheduleStoredSessionRecovery", chat, chat.Messages.ToList());
+        Assert.True(InvokePrivate<bool>(vm, "ConsumePendingSessionInvalidation", chat));
+
+        // Session setup completed, but Stop canceled the turn before its replay was sent.
+        chat.CopilotSessionId = "empty-replacement-session";
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "Continue the task." });
+        var retainedContext = chat.Messages.ToList();
+        var nextPrompt = new ChatMessage { Role = "user", Content = "What was the code?" };
+        chat.Messages.Add(nextPrompt);
+        var originalMessages = chat.Messages.ToArray();
+
+        InvokePrivate(vm, "ScheduleStoredSessionRecovery", chat, retainedContext);
+
+        Assert.True(InvokePrivate<bool>(vm, "ConsumePendingSessionInvalidation", chat));
+        Assert.Null(chat.CopilotSessionId);
+        Assert.Equal(originalMessages, chat.Messages);
+        var replay = InvokePrivateStatic<string>(
+            typeof(ChatViewModel), "BuildSessionRecoveryReplayPrompt", retainedContext, nextPrompt.Content);
+        Assert.Contains("Assistant: Remembered MAPLE-42.", replay);
+        Assert.Contains("Latest user message:\nWhat was the code?", replay);
+    }
+
+    [Theory]
+    [InlineData("assistant", SessionFailureDisposition.RetrySameSession)]
+    [InlineData("user", SessionFailureDisposition.RetrySameSession)]
+    [InlineData("error", SessionFailureDisposition.Fatal)]
+    public void ScheduleStoredSessionRecovery_DoesNotRebuildHealthyTailOrFatalError(
+        string role, SessionFailureDisposition disposition)
+    {
+        var dataStore = CreateDataStore();
+        using var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "keep-session", CopilotSessionId = "healthy-session" };
+        var tail = new ChatMessage
+        {
+            Role = role,
+            Content = "input item ID does not belong to this connection",
+            FailureDisposition = disposition
+        };
+
+        InvokePrivate(vm, "ScheduleStoredSessionRecovery", chat, new List<ChatMessage> { tail });
+
+        Assert.False(InvokePrivate<bool>(vm, "ConsumePendingSessionInvalidation", chat));
+        Assert.Equal("healthy-session", chat.CopilotSessionId);
+    }
+
+    [Theory]
+    [InlineData("assistant")]
+    [InlineData("tool")]
+    [InlineData("reasoning")]
+    public void ScheduleStoredSessionRecovery_ActivityAfterOldError_DoesNotRebuildHealthySession(string role)
+    {
+        var dataStore = CreateDataStore();
+        using var vm = new ChatViewModel(dataStore, TestCopilot.Shared);
+        var chat = new Chat { Title = "recovered-session", CopilotSessionId = "healthy-session" };
+        var retainedContext = new List<ChatMessage>
+        {
+            new()
+            {
+                Role = "error",
+                Content = "400 input item ID does not belong to this connection",
+                FailureDisposition = SessionFailureDisposition.RetrySameSession
+            },
+            new() { Role = role, Content = "Recovery activity" },
+            new() { Role = "user", Content = "Continue normally." }
+        };
+
+        InvokePrivate(vm, "ScheduleStoredSessionRecovery", chat, retainedContext);
+
+        Assert.False(InvokePrivate<bool>(vm, "ConsumePendingSessionInvalidation", chat));
+        Assert.Equal("healthy-session", chat.CopilotSessionId);
     }
 
     [Fact]

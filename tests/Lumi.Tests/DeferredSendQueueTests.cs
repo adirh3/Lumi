@@ -1249,6 +1249,45 @@ public sealed class DeferredSendQueueTests
     }
 
     [Fact]
+    public async Task ForeignConnectionInputItem_SessionError_OffersRetryWithRebuild()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(() =>
+        {
+            using var host = DeferredSendHost.Create();
+            using var rpc = new AbortRpc();
+            host.AttachSession(rpc, subscribe: true);
+            host.PrepareFreshTurn();
+            host.MarkRuntimeBusy();
+
+            rpc.Emit(new SessionErrorEvent
+            {
+                Data = new SessionErrorData
+                {
+                    StatusCode = 400,
+                    ErrorType = "query",
+                    Message = "input item ID does not belong to this connection"
+                }
+            });
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.False(host.ViewModel.IsBusy);
+            Assert.False(host.Chat.IsRunning);
+            Assert.Equal(rpc.Session.SessionId, host.Chat.CopilotSessionId);
+            var error = Assert.Single(host.Chat.Messages);
+            Assert.Equal(SessionFailureDisposition.RebuildSession, error.FailureDisposition);
+            var item = Assert.IsType<ErrorMessageItem>(
+                Assert.Single(Assert.Single(host.ViewModel.TranscriptTurns).Items));
+            Assert.True(item.ShowRetryButton);
+            Assert.NotNull(item.RetryCommand);
+            var pending = (HashSet<Guid>)typeof(ChatViewModel)
+                .GetField("_pendingSessionInvalidations", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(host.ViewModel)!;
+            Assert.Contains(host.Chat.Id, pending);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task SteeredParentOutput_StaysOutsideTheRunningChildCard()
     {
         using var ui = HeadlessTestSession.Start();

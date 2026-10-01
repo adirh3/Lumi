@@ -1756,13 +1756,12 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// If the displayed chat is idle and ends on a recoverable error, attach a one-click Retry to the
-    /// trailing error card. Retry keeps the same session by default; only a known poisoned image or a
+    /// trailing error card. Retry keeps the same session by default; only known poisoned history or a
     /// confirmed missing session arms a text-replay rebuild. Fatal errors get no false-hope Retry, and
     /// a card that already carries a retry command is left untouched.
     /// </summary>
     /// <param name="classificationOverride">The authoritative structured classification from the live
-    /// error handler. The reopen path uses the persisted disposition and only reclassifies legacy
-    /// messages that predate it.</param>
+    /// error handler. The reopen path preserves stored decisions except known legacy misclassifications.</param>
     private void UpdateStuckChatRetryAffordance(SendFailureClassification? classificationOverride = null)
     {
         if (CurrentChat is null || IsBusy || IsStreaming)
@@ -1777,13 +1776,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return;
 
         var classification = classificationOverride
-            ?? (lastError.FailureDisposition is { } persistedDisposition
-                ? new SendFailureClassification(persistedDisposition, IsImageError: false)
-                : CopilotService.ClassifySendFailure(
-                    statusCode: null,
-                    errorType: null,
-                    message: lastError.Content,
-                    hasTerminalOverride: false));
+            ?? CopilotService.ClassifyPersistedSendFailure(lastError.FailureDisposition, lastError.Content);
         if (!classification.Recoverable)
             return;
 
@@ -3091,6 +3084,18 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         _activeSession = null;
     }
 
+    private void ScheduleStoredSessionRecovery(Chat chat, IReadOnlyList<ChatMessage> retainedContext)
+    {
+        // A canceled pre-send recovery can leave user bubbles after the saved error.
+        var retainedTail = retainedContext.LastOrDefault(static message => message.Role != "user");
+        if (retainedTail is { Role: "error" }
+            && CopilotService.ClassifyPersistedSendFailure(
+                retainedTail.FailureDisposition, retainedTail.Content).RequiresSessionRebuild)
+        {
+            _pendingSessionInvalidations.Add(chat.Id);
+        }
+    }
+
     private bool ConsumePendingSessionInvalidation(Chat chat)
     {
         if (_pendingSessionInvalidations.Remove(chat.Id))
@@ -3574,6 +3579,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             onAccepted?.Invoke();
 
             var needsSessionSetup = NeedsSessionSetup(targetChat);
+            ScheduleStoredSessionRecovery(targetChat, retainedContext);
             if (ConsumePendingSessionInvalidation(targetChat))
                 needsSessionSetup = true;
 
@@ -4647,6 +4653,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             // pointer and can be temporarily null or point elsewhere while the cached session is still
             // valid. Using it here unnecessarily resumed healthy sessions and reconnected their MCPs.
             var needsSessionSetup = NeedsSessionSetup(targetChat);
+            ScheduleStoredSessionRecovery(targetChat, retainedContext);
             if (ConsumePendingSessionInvalidation(targetChat))
                 needsSessionSetup = true;
 
@@ -6713,6 +6720,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
                 return;
 
             var needsSessionSetup = NeedsSessionSetup(resendChat);
+            ScheduleStoredSessionRecovery(resendChat, retainedContext);
             if (ConsumePendingSessionInvalidation(resendChat))
                 needsSessionSetup = true;
 
