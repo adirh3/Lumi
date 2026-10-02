@@ -504,6 +504,40 @@ public sealed class ChatViewModelAgentRoutingTests
     }
 
     [Fact]
+    public void McpRecoveryReplay_RequeuedSteerSchedulesNormalBusySendDrain()
+    {
+        var chat = CreateChatWithMessage("Recovered steer");
+        using var harness = CreateHarness(new AppData { Chats = [chat] });
+        harness.ViewModel.CurrentChat = chat;
+        var materializedMessage = new Lumi.Models.ChatMessage
+        {
+            Role = "user",
+            Content = "send after MCP replacement"
+        };
+        chat.Messages.Add(materializedMessage);
+        var materializedViewModel = new ChatMessageViewModel(materializedMessage)
+        {
+            SteerState = MessageSteerState.Steering
+        };
+        harness.ViewModel.Messages.Add(materializedViewModel);
+
+        var requeueAfterRecovery = typeof(ChatViewModel).GetMethod(
+            "RequeueMaterializedSteerAfterMcpRecovery",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(requeueAfterRecovery);
+        var drainScheduled = Assert.IsType<bool>(requeueAfterRecovery!.Invoke(
+            harness.ViewModel,
+            [chat.Id, materializedMessage.Content, materializedMessage, materializedViewModel]));
+
+        var queued = GetPrivateField<Dictionary<Guid, List<Lumi.Models.ChatMessage>>>(
+            harness.ViewModel,
+            "_queuedBusySendPrompts");
+        Assert.Same(materializedMessage, Assert.Single(queued[chat.Id]));
+        Assert.Equal(MessageSteerState.Queued, materializedViewModel.SteerState);
+        Assert.True(drainScheduled);
+    }
+
+    [Fact]
     public async Task SendMessage_ActiveByokTurn_GithubSelected_UnderByokOnly_BlocksAndPreservesDraft()
     {
         // Symmetric privacy case: an active BYOK turn, the user selects a GitHub model while

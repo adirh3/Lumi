@@ -386,6 +386,7 @@ public partial class ChatViewModel
         CurrentChat.ActiveMcpServerNames = new List<string>(ActiveMcpServerNames);
         if (userCurated)
             CurrentChat.HasExplicitMcpServerSelection = true;
+        PruneMcpCatalogBaselineToSelection(CurrentChat.Id);
         // The live session is updated by the add/remove callers through the runtime's own
         // enable/disable API; this only persists what the next session is built from.
         QueueSaveChat(CurrentChat, saveIndex: true);

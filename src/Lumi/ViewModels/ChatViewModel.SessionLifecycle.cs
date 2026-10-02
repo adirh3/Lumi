@@ -1281,7 +1281,18 @@ public partial class ChatViewModel
                     break;
 
                 case ToolExecutionCompleteEvent toolEnd:
-                    var shouldReconcileAfterTool = IsRootAgentEvent(toolEnd)
+                    var isRootAgentToolEnd = IsRootAgentEvent(toolEnd);
+                    var toolMcpRecoverySignal = isRootAgentToolEnd
+                        && toolEnd.Data.Success != true
+                            ? ClassifyMcpCatalogRecoverySignal(
+                                statusCode: null,
+                                toolEnd.Data.Error?.Code,
+                                toolEnd.Data.Error?.Message)
+                            : null;
+                    var toolMcpRecoveryBarrier = toolMcpRecoverySignal is not null
+                        ? PublishMcpCatalogRecoveryBarrier(chat.Id, session)
+                        : null;
+                    var shouldReconcileAfterTool = isRootAgentToolEnd
                         && AdjustPendingToolCount(chat.Id, -1);
                     if (shouldReconcileAfterTool)
                         SchedulePostToolReconciliation(chat.Id);
@@ -1297,6 +1308,9 @@ public partial class ChatViewModel
                     else
                         completedToolOutputsByCallId.Remove(toolEnd.Data.ToolCallId);
                     Dispatcher.UIThread.Post(() =>
+                    {
+                    var recoveryScheduled = false;
+                    try
                     {
 #pragma warning disable CS0618 // ParentToolCallId is deprecated in GitHub.Copilot.SDK 1.0.1 with no replacement; still required for sub-agent tool grouping.
                     toolParentById[toolEnd.Data.ToolCallId] = toolEnd.Data.ParentToolCallId;
@@ -1389,6 +1403,27 @@ public partial class ChatViewModel
                                 var command = ToolDisplayHelper.ExtractJsonField(toolMsg.Content, "command") ?? string.Empty;
                                 TrackBackgroundShell(rootToolCallId, command);
                             }
+                        }
+                    }
+
+                    if (toolMcpRecoverySignal is { } recoverySignal
+                        && toolMcpRecoveryBarrier is not null)
+                    {
+                        recoveryScheduled = true;
+                        ScheduleMcpCatalogRecoveryFromBarrier(
+                            chat,
+                            session,
+                            recoverySignal,
+                            toolMcpRecoveryBarrier);
+                    }
+                    }
+                    finally
+                    {
+                        if (!recoveryScheduled && toolMcpRecoveryBarrier is not null)
+                        {
+                            CompleteMcpCatalogRecoveryBarrier(
+                                chat.Id,
+                                toolMcpRecoveryBarrier);
                         }
                     }
                     });
@@ -1693,6 +1728,13 @@ public partial class ChatViewModel
                     break;
 
                 case SessionErrorEvent err when IsRootAgentEvent(evt):
+                    var errorMcpRecoverySignal = ClassifyMcpCatalogRecoverySignal(
+                        err.Data.StatusCode,
+                        err.Data.ErrorCode,
+                        err.Data.Message);
+                    var errorMcpRecoveryBarrier = errorMcpRecoverySignal is not null
+                        ? PublishMcpCatalogRecoveryBarrier(chat.Id, session)
+                        : null;
                     ClearManualStopRequested(chat.Id);
                     ClearPendingTurnTracking(chat.Id);
                     assistantStream.CancelPending();
@@ -1700,6 +1742,9 @@ public partial class ChatViewModel
                     ResetSubagentOutputState();
                     Dispatcher.UIThread.Post(() =>
                     {
+                        var recoveryScheduled = false;
+                        try
+                        {
                         // The callback may already be queued when the session is replaced or the chat
                         // is deleted. Never let that stale event invalidate or recreate persisted data.
                         if (!IsAuthoritativeSession())
@@ -1804,6 +1849,26 @@ public partial class ChatViewModel
                             ScrollToEndRequested?.Invoke();
                         }
                         QueueSaveChat(chat, saveIndex: false, releaseIfInactive: CurrentChat?.Id != chat.Id);
+                        if (errorMcpRecoverySignal is { } recoverySignal
+                            && errorMcpRecoveryBarrier is not null)
+                        {
+                            recoveryScheduled = true;
+                            ScheduleMcpCatalogRecoveryFromBarrier(
+                                chat,
+                                session,
+                                recoverySignal,
+                                errorMcpRecoveryBarrier);
+                        }
+                        }
+                        finally
+                        {
+                            if (!recoveryScheduled && errorMcpRecoveryBarrier is not null)
+                            {
+                                CompleteMcpCatalogRecoveryBarrier(
+                                    chat.Id,
+                                    errorMcpRecoveryBarrier);
+                            }
+                        }
                     });
                     break;
 
@@ -2433,6 +2498,29 @@ public partial class ChatViewModel
                     break;
 
                 case SessionMcpServerStatusChangedEvent mcpStatusChanged:
+                    var statusRecoveryBarrier =
+                        IsMcpProviderFailureStatus(mcpStatusChanged.Data.Status)
+                            ? PublishMcpCatalogRecoveryBarrier(chat.Id, session)
+                            : null;
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        try
+                        {
+                            RecordMcpProviderStatus(
+                                chat.Id,
+                                mcpStatusChanged.Data.ServerName,
+                                mcpStatusChanged.Data.Status);
+                        }
+                        finally
+                        {
+                            if (statusRecoveryBarrier is not null)
+                            {
+                                CompleteMcpCatalogRecoveryBarrier(
+                                    chat.Id,
+                                    statusRecoveryBarrier);
+                            }
+                        }
+                    });
                     // Live MCP lifecycle: keep the composer chip in sync as servers connect, drop, or
                     // need auth mid-conversation, and drive interactive OAuth when a remote server
                     // requests it. Fire-and-forget; the handler marshals its own UI updates.
@@ -2443,6 +2531,17 @@ public partial class ChatViewModel
                         mcpStatusChanged.Data.Status,
                         mcpStatusChanged.Data.Error,
                         CancellationToken.None);
+                    break;
+
+                case McpToolsListChangedEvent:
+                    var toolsChangedBarrier =
+                        PublishMcpCatalogRecoveryBarrier(chat.Id, session);
+                    Dispatcher.UIThread.Post(() =>
+                        ScheduleMcpCatalogRecoveryFromBarrier(
+                            chat,
+                            session,
+                            McpCatalogRecoverySignal.ToolsListChanged,
+                            toolsChangedBarrier));
                     break;
 
                 case SessionPlanChangedEvent planChanged:
@@ -2684,6 +2783,7 @@ public partial class ChatViewModel
             CancelPendingQuestions(chat);
 
         ReleaseSessionResources(chatId, cancelActiveRequest: true);
+        ForgetMcpCatalogState(chatId);
         _runtimeStates.Remove(chatId);
         _pendingWorktreeCreations.Remove(chatId);
         lock (_chatLifecycleEventSync)
@@ -2764,6 +2864,7 @@ public partial class ChatViewModel
 
     private void ResetAfterCopilotReconnect()
     {
+        CancelAllMcpCatalogRecoveries();
         // ChatSessionStore reset the shared catalog before surfaces receive this reconnect event.
         RefreshCapabilities();
 
