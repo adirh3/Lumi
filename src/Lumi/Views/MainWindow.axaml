@@ -1002,15 +1002,42 @@
               </Button>
               <DockPanel DockPanel.Dock="Top" Margin="16,8,16,0" LastChildFill="True">
                 <Button DockPanel.Dock="Right"
-                        x:Name="NewWindowButton"
+                        x:Name="ChatActionsButton"
                         Classes="subtle"
                         Padding="8"
                         MinHeight="0"
                         MinWidth="0"
                         CornerRadius="{DynamicResource Radius.Base}"
-                        ToolTip.Tip="{loc:Str Sidebar_NewWindowTooltip}"
-                        Command="{Binding OpenNewChatInNewWindowCommand}">
-                  <PathIcon Data="{StaticResource Icon.Window}" Width="14" Height="14"
+                        ToolTip.Tip="{loc:Str Chat_Actions}"
+                        AutomationProperties.Name="{loc:Str Chat_Actions}">
+                  <Button.Flyout>
+                    <MenuFlyout>
+                      <MenuItem Header="{loc:Str Sidebar_NewChatInNewWindow}"
+                                Command="{Binding OpenNewChatInNewWindowCommand}">
+                        <MenuItem.Icon>
+                          <PathIcon Data="{StaticResource Icon.Window}" Width="14" Height="14" />
+                        </MenuItem.Icon>
+                      </MenuItem>
+                      <Separator IsVisible="{Binding HasChatActivity}" />
+                      <MenuItem x:Name="PauseAllChatsMenuItem"
+                                Header="{loc:Str Chat_PauseAll}"
+                                IsVisible="{Binding CanPauseAllChats}"
+                                Command="{Binding PauseAllChatsCommand}">
+                        <MenuItem.Icon>
+                          <PathIcon Data="{StaticResource Icon.Pause}" Width="14" Height="14" />
+                        </MenuItem.Icon>
+                      </MenuItem>
+                      <MenuItem x:Name="ResumeAllChatsMenuItem"
+                                Header="{loc:Str Chat_ResumeAll}"
+                                IsVisible="{Binding CanResumeAllChats}"
+                                Command="{Binding ResumeAllChatsCommand}">
+                        <MenuItem.Icon>
+                          <PathIcon Data="{StaticResource Icon.Play}" Width="14" Height="14" />
+                        </MenuItem.Icon>
+                      </MenuItem>
+                    </MenuFlyout>
+                  </Button.Flyout>
+                  <PathIcon Data="M4 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm8 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm8 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" Width="14" Height="14"
                             Foreground="{DynamicResource Brush.TextSecondary}" />
                 </Button>
                 <Button Classes="subtle" HorizontalAlignment="Stretch"
@@ -1252,6 +1279,28 @@
                               <Panel Background="Transparent" DataContextChanged="OnChatRowDataContextChanged">
                                  <Panel.ContextMenu>
                                    <ContextMenu x:CompileBindings="False" Opening="OnChatContextMenuOpening">
+                                     <MenuItem x:Name="PauseChatMenuItem"
+                                               Header="{loc:Str Chat_PauseMenu}"
+                                               IsVisible="{Binding CanPause}"
+                                               Command="{Binding $parent[Window].DataContext.ToggleChatPauseCommand}"
+                                               CommandParameter="{Binding}"
+                                               AutomationProperties.Name="{loc:Str Chat_PauseMenu}"
+                                               ToolTip.Tip="{loc:Str Chat_PauseTooltip}">
+                                       <MenuItem.Icon>
+                                         <PathIcon Data="{StaticResource Icon.Pause}" Width="14" Height="14" />
+                                       </MenuItem.Icon>
+                                     </MenuItem>
+                                     <MenuItem x:Name="ResumeChatMenuItem"
+                                               Header="{loc:Str Chat_ResumeMenu}"
+                                               IsVisible="{Binding IsPaused}"
+                                               Command="{Binding $parent[Window].DataContext.ToggleChatPauseCommand}"
+                                               CommandParameter="{Binding}"
+                                               AutomationProperties.Name="{loc:Str Chat_ResumeMenu}"
+                                               ToolTip.Tip="{loc:Str Chat_ResumeTooltip}">
+                                       <MenuItem.Icon>
+                                         <PathIcon Data="{StaticResource Icon.Play}" Width="14" Height="14" />
+                                       </MenuItem.Icon>
+                                     </MenuItem>
                                      <MenuItem x:Name="TogglePinChatMenuItem"
                                                Header="{loc:Str Menu_Pin}"
                                                Command="{Binding $parent[Window].DataContext.ToggleChatPinCommand}"
@@ -1382,7 +1431,7 @@
                                           Width="6" Height="6" CornerRadius="3"
                                           Background="{DynamicResource Brush.AccentDefault}"
                                           VerticalAlignment="Center" Margin="0,0,7,0"
-                                          IsVisible="{Binding IsRunning}">
+                                          IsVisible="{Binding ShowRunningIndicator}">
                                     <Border.Styles>
                                       <Style Selector="Border#BusyIndicator">
                                         <Setter Property="sa:LifecycleOpacityPulse.FromOpacity" Value="1" />
@@ -1393,6 +1442,16 @@
                                       </Style>
                                     </Border.Styles>
                                   </Border>
+                                  <PathIcon x:Name="PausedChatIndicator"
+                                            DockPanel.Dock="Left"
+                                            Data="{StaticResource Icon.Pause}"
+                                            Width="11" Height="11"
+                                            Margin="0,0,6,0"
+                                            VerticalAlignment="Center"
+                                            Foreground="{DynamicResource Brush.TextSecondary}"
+                                            IsVisible="{Binding IsPaused}"
+                                            AutomationProperties.Name="{loc:Str Chat_Paused}"
+                                            ToolTip.Tip="{loc:Str Chat_PausedIndicatorTooltip}" />
                                   <PathIcon x:Name="PinnedChatIndicator"
                                             DockPanel.Dock="Right"
                                             Data="{StaticResource Icon.Pin}"

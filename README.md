@@ -69,6 +69,36 @@ works for background and remote sends without first opening the chat. Unrelated
 errors retain their existing retry behavior; authentication and quota failures
 still require their normal resolution.
 
+### Pause and resume chats
+
+While a chat is working, **Pause** appears above the composer beside its activity
+and context controls, and in its sidebar context menu. Idle chats have no pause
+control, and the title bar stays clear. A paused chat gets a pause marker and a
+**Resume** panel above the composer; your draft stays editable.
+Messages submitted while paused are visibly queued until the chat resumes.
+The **… Chat actions** menu beside **New Chat** offers **Pause all chats** when
+chats are active and **Resume all chats** when chats are paused, across projects
+and detached windows. These are menu actions, not a standing sidebar toolbar.
+New chats are not automatically paused.
+
+Pause interrupts the SDK's current turn, cancels its attached shell/agent tasks,
+and confirms they are no longer running before showing **Chat paused**.
+Interrupted tool cards settle as **Stopped**; completed tool cards remain
+completed. Tool-completion callbacks are never held open by pause.
+
+Resume uses the SDK's `session.sendMessages` with an **empty message batch**.
+It runs over the existing session history without adding a user message or
+sending a synthetic "continue" prompt. This resumes the task from preserved
+conversation state, not a frozen process instruction pointer; interrupted
+commands may be retried by the agent. Pause during initial setup holds submission
+instead, so the original prompt is still sent only once on resume.
+
+Pause intent and pending continuation are saved with chat metadata. Resume after
+a restart reattaches to that original SDK session and continues its history.
+If the original session cannot be restored, Lumi reports the failure instead of
+silently creating a replacement. Sends from another chat or device are rejected
+with a clear paused-chat message until resumed.
+
 ### Desktop motion
 
 The composer keeps its thin Stratum underline, drawing it from left to right on focus and

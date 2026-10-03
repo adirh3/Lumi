@@ -366,6 +366,8 @@ internal static class AppDataSnapshotFactory
             ForkedFromTitle = source.ForkedFromTitle,
             ForkedFromMessage = source.ForkedFromMessage,
             IsPinned = source.IsPinned,
+            IsPaused = source.IsPaused,
+            PauseNeedsContinuation = source.PauseNeedsContinuation,
         };
     }
 }

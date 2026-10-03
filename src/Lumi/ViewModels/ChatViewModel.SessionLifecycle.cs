@@ -838,7 +838,7 @@ public partial class ChatViewModel
                 ScrollToEndRequested?.Invoke();
             }
 
-            if (!wasBusy)
+            if (!wasBusy || chat.IsPaused)
                 return;
 
             if (!IsChatOnScreen(chat.Id))
@@ -869,6 +869,9 @@ public partial class ChatViewModel
             switch (evt)
             {
                 case AssistantTurnStartEvent turnStart when IsRootAgentEvent(evt):
+                    // Empty-batch continuations have no user.message echo to establish their epoch.
+                    if (runtime.IsContinuationTurn)
+                        sessionTurnSequence = runtime.LifecycleTurnSequence;
                     Volatile.Write(ref runtime.AssistantTurnStarted, true);
                     var isTopLevelTurnStart = assistantTurnBoundaries.Begin(
                         turnStart.Data.TurnId,
@@ -1651,7 +1654,7 @@ public partial class ChatViewModel
                         // In SDK 0.2.2+, session.idle is only emitted once background work is drained.
                         // Clearing IsBusy updates Chat.IsRunning, so keep it on the UI thread.
                         MarkRuntimeTerminal(runtime);
-                        if (IsAuthoritativeSession())
+                        if (IsAuthoritativeSession() && !chat.IsPaused)
                         {
                             // Fallback for abort/recovery paths where no authoritative turn-end arrived.
                             PublishTerminalChatLifecycleEventOnce(chat, ChatLifecycleEventTypes.TurnEnd);
@@ -1937,7 +1940,7 @@ public partial class ChatViewModel
                         }
 
                         runtime.StatusText = Loc.Status_Stopped;
-                        if (IsAuthoritativeSession())
+                        if (IsAuthoritativeSession() && !chat.IsPaused)
                         {
                             PublishTerminalChatLifecycleEventOnce(
                                 chat,
@@ -2529,9 +2532,11 @@ public partial class ChatViewModel
 
     private static void MarkRuntimeTerminal(ChatRuntimeState runtime, string? statusText = null)
     {
+        runtime.PauseGate.CancelWaiters();
         runtime.IsBusy = false;
         runtime.IsStreaming = false;
         runtime.TurnInProgress = false;
+        runtime.IsContinuationTurn = false;
         runtime.HasPendingBackgroundWork = false;
         runtime.ActiveSubagentExecutionDepth = 0;
         Volatile.Write(ref runtime.AssistantTurnStarted, false);
@@ -2539,12 +2544,15 @@ public partial class ChatViewModel
         runtime.ExpectTurnStartUserEcho = false;
         runtime.StatusText = statusText ?? string.Empty;
         runtime.IsSessionActive = false;
+        if (runtime.Chat is { } chat)
+            chat.IsPausePending = chat.IsPaused && runtime.StopOperation is { IsCompleted: false };
     }
 
     private static void MarkAssistantIdle(ChatRuntimeState runtime)
     {
         runtime.IsStreaming = false;
         runtime.TurnInProgress = false;
+        runtime.IsContinuationTurn = false;
         Volatile.Write(ref runtime.AssistantTurnStarted, false);
         runtime.ExpectTurnStartUserEcho = false;
         runtime.StatusText = string.Empty;
@@ -2634,13 +2642,15 @@ public partial class ChatViewModel
     }
 
     private static bool ShouldKeepRuntimeBusyUntilSessionIdle(ChatRuntimeState runtime)
-        => runtime.PendingSessionUserMessageCount > 0
+        => runtime.IsContinuationTurn
+           || runtime.PendingSessionUserMessageCount > 0
            || runtime.ActiveToolCount > 0
            || runtime.ActiveSubagentExecutionDepth > 0
            || runtime.HasPendingBackgroundWork;
 
     private static bool ShouldMarkBackgroundWorkPending(ChatRuntimeState runtime)
-        => runtime.PendingSessionUserMessageCount > 0
+        => runtime.IsContinuationTurn
+           || runtime.PendingSessionUserMessageCount > 0
            || runtime.ActiveToolCount > 0;
 
     private string ResolveWorkspaceFileChangedPath(Chat chat, string path)
@@ -2881,6 +2891,7 @@ public partial class ChatViewModel
             if (chat is not null)
                 ApplyKnownContextTokenLimit(chat, runtime, ResolveSelectedModelForChat(chat), updateDisplayed: false);
             _runtimeStates[chatId] = runtime;
+            TrackChatPauseGate(runtime);
         }
         return runtime;
     }

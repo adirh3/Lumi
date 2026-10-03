@@ -1136,6 +1136,7 @@ public partial class ToolCallItem : ToolCallItemBase
 
 public partial class TerminalPreviewItem : ToolCallItemBase
 {
+    private readonly string _runningToolName;
     [ObservableProperty] private string _toolName;
     [ObservableProperty] private string _command;
     [ObservableProperty] private string _output = "";
@@ -1159,9 +1160,26 @@ public partial class TerminalPreviewItem : ToolCallItemBase
     public TerminalPreviewItem(string toolName, string command, StrataAiToolCallStatus status, string? stableId = null)
         : base(stableId ?? TranscriptIds.Create("terminal"))
     {
+        _runningToolName = toolName;
         _toolName = toolName;
         _command = command;
         _status = status;
+        UpdateToolName();
+    }
+
+    partial void OnStatusChanged(StrataAiToolCallStatus value) => UpdateToolName();
+    partial void OnIsRunningInBackgroundChanged(bool value) => UpdateToolName();
+
+    private void UpdateToolName()
+    {
+        var key = Status switch
+        {
+            StrataAiToolCallStatus.Stopped => "Chat_CommandInterrupted",
+            StrataAiToolCallStatus.Failed => "Chat_CommandFailed",
+            StrataAiToolCallStatus.Completed when !IsRunningInBackground => "Chat_CommandCompleted",
+            _ => null
+        };
+        ToolName = key is null ? _runningToolName : $"{ToolDisplayHelper.GetToolGlyph("powershell")} {Loc.Get(key)}";
     }
 }
 

@@ -21,6 +21,8 @@
          instead of clinging to the edges. On narrow windows it grows to full width. -->
     <x:Double x:Key="Chat.ReadingColumnWidth">900</x:Double>
     <x:Double x:Key="Chat.ToolGroupContentMaxHeight">420</x:Double>
+    <StreamGeometry x:Key="Chat.Icon.Pause">M7 5h4v14H7V5zm6 0h4v14h-4V5z</StreamGeometry>
+    <StreamGeometry x:Key="Chat.Icon.Play">M8 5v14l11-7L8 5z</StreamGeometry>
 
     <!-- Launchpad glass: a lift of the island's own surface, translucent so Lumi's presence glows through -->
     <SolidColorBrush x:Key="Launchpad.CardFill" Color="{DynamicResource Color.Surface2}" Opacity="0.46" />
@@ -1933,7 +1935,7 @@
     <Panel x:Name="ChatPanel" Classes.active="{Binding IsChatVisible}">
       <sc:StrataChatShell x:Name="ChatShell"
                           IsOnline="False"
-                          IsStreaming="{Binding IsStreaming}">
+                          IsStreaming="{Binding IsTranscriptStreaming}">
 
         <sc:StrataChatShell.Header>
           <DockPanel Margin="2,1,2,1" LastChildFill="True">
@@ -2736,7 +2738,94 @@
                         Data="M7 10l5 5 5-5z" />
             </StackPanel>
           </Button>
+          <Button x:Name="PauseChatButton"
+                  Classes="subtle"
+                  IsVisible="{Binding CanPauseChat}"
+                  Command="{Binding TogglePauseCommand}"
+                  ToolTip.Tip="{loc:Str Chat_PauseTooltip}"
+                  AutomationProperties.Name="{loc:Str Chat_Pause}"
+                  AutomationProperties.HelpText="{loc:Str Chat_PauseTooltip}"
+                  Focusable="True"
+                  Padding="8,2"
+                  MinHeight="0"
+                  MinWidth="0"
+                  Height="24"
+                  CornerRadius="{DynamicResource Radius.Interactive}"
+                  VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <PathIcon Width="11" Height="11" Data="{StaticResource Chat.Icon.Pause}" />
+              <TextBlock Text="{loc:Str Chat_Pause}" FontSize="11.5" FontWeight="Medium" />
+            </StackPanel>
+          </Button>
           </StackPanel>
+        </Grid>
+      </Border>
+
+      <Border x:Name="ChatPauseStatusPanel"
+              IsVisible="{Binding IsPaused}"
+              AutomationProperties.Name="{Binding PauseStatusTitle}"
+              AutomationProperties.HelpText="{Binding PauseStatusDescription}"
+              Background="{DynamicResource Brush.SurfaceCard}"
+              BorderBrush="{DynamicResource Brush.BorderSubtle}"
+              BorderThickness="1"
+              CornerRadius="{DynamicResource Radius.Interactive}"
+              Padding="12,9"
+              Margin="0,2,0,4">
+        <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto"
+              ColumnSpacing="9" RowSpacing="4">
+          <Border Grid.Column="0" Grid.RowSpan="2"
+                  Width="28" Height="28" CornerRadius="8"
+                  VerticalAlignment="Top"
+                  Background="{DynamicResource Brush.AccentSubtle}">
+            <PathIcon Width="13" Height="13"
+                      Foreground="{DynamicResource Brush.AccentDefault}"
+                      Data="{StaticResource Chat.Icon.Pause}" />
+          </Border>
+          <TextBlock x:Name="ChatPauseStatusTitle"
+                     Grid.Column="1"
+                     Text="{Binding PauseStatusTitle}"
+                     FontSize="12"
+                     FontWeight="SemiBold"
+                     Foreground="{DynamicResource Brush.TextPrimary}"
+                     VerticalAlignment="Center"
+                     TextTrimming="CharacterEllipsis"
+                     ToolTip.Tip="{Binding PauseStatusTitle}" />
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="5">
+            <Button x:Name="StopPausedChatButton"
+                    Classes="subtle"
+                    Command="{Binding StopGenerationCommand}"
+                    Content="{loc:Str Chat_CancelPausedRun}"
+                    AutomationProperties.Name="{loc:Str Chat_CancelPausedRun}"
+                    Focusable="True"
+                    MinHeight="0"
+                    MinWidth="0"
+                    Padding="8,4"
+                    CornerRadius="7"
+                    FontSize="10.5" />
+            <Button x:Name="ResumeChatButton"
+                    Classes="accent"
+                    Command="{Binding ResumeChatCommand}"
+                    ToolTip.Tip="{loc:Str Chat_ResumeTooltip}"
+                    AutomationProperties.Name="{loc:Str Chat_Resume}"
+                    AutomationProperties.HelpText="{loc:Str Chat_ResumeTooltip}"
+                    Focusable="True"
+                    MinHeight="0"
+                    MinWidth="0"
+                    Padding="9,4"
+                    CornerRadius="7">
+              <StackPanel Orientation="Horizontal" Spacing="5">
+                <PathIcon Width="11" Height="11" Data="{StaticResource Chat.Icon.Play}" />
+                <TextBlock Text="{loc:Str Chat_Resume}" FontSize="11" FontWeight="SemiBold" />
+              </StackPanel>
+            </Button>
+          </StackPanel>
+          <TextBlock x:Name="ChatPauseStatusDescription"
+                     Grid.Column="1" Grid.Row="1" Grid.ColumnSpan="2"
+                     Text="{Binding PauseStatusDescription}"
+                     FontSize="11"
+                     LineHeight="15"
+                     Foreground="{DynamicResource Brush.TextSecondary}"
+                     TextWrapping="Wrap" />
         </Grid>
       </Border>
 
@@ -2744,7 +2833,7 @@
                              Classes.motion-disabled="{Binding !AreAnimationsEnabled}"
                              Placeholder="{Binding ComposerPlaceholder}"
                              PromptText="{Binding PromptText, Mode=TwoWay}"
-                             IsBusy="{Binding IsBusy}"
+                             IsBusy="{Binding IsComposerBusy}"
                              IsEditing="{Binding IsEditingMessage}"
                              CancelEditCommand="{Binding CancelComposerEditCommand}"
                              EditingSubmitLabel="{loc:Str Chat_EditSubmit}"

@@ -503,6 +503,8 @@ public class Chat : INotifyPropertyChanged
     private bool _isRunning;
     private bool _isSessionActive;
     private bool _isAwaitingInput;
+    private bool _isPaused;
+    private bool _isPausePending;
     private bool _hasUnreadMessages;
     private bool _isPinned;
     private bool _showProjectBadge;
@@ -562,6 +564,7 @@ public class Chat : INotifyPropertyChanged
     }
 
     public string? CopilotSessionId { get; set; }
+    public bool PauseNeedsContinuation { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     /// <summary>
@@ -685,6 +688,8 @@ public class Chat : INotifyPropertyChanged
             _isRunning = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRunning)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasBackgroundActivity)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowRunningIndicator)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanPause)));
         }
     }
 
@@ -699,11 +704,45 @@ public class Chat : INotifyPropertyChanged
             _isSessionActive = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSessionActive)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasBackgroundActivity)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanPause)));
         }
     }
 
     [JsonIgnore]
-    public bool HasBackgroundActivity => IsSessionActive && !IsRunning;
+    public bool HasBackgroundActivity => IsSessionActive && !IsRunning && !IsPaused;
+
+    /// <summary>User intent to hold the next safe session step, retained across app restarts.</summary>
+    public bool IsPaused
+    {
+        get => _isPaused;
+        set
+        {
+            if (_isPaused == value) return;
+            _isPaused = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsPaused)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasBackgroundActivity)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowRunningIndicator)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanPause)));
+        }
+    }
+
+    [JsonIgnore]
+    public bool IsPausePending
+    {
+        get => _isPausePending;
+        set
+        {
+            if (_isPausePending == value) return;
+            _isPausePending = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsPausePending)));
+        }
+    }
+
+    [JsonIgnore]
+    public bool ShowRunningIndicator => IsRunning && !IsPaused;
+
+    [JsonIgnore]
+    public bool CanPause => (IsRunning || IsSessionActive) && !IsPaused;
 
     /// <summary>Runtime-only: the assistant is blocked on a question it asked the user.</summary>
     [JsonIgnore]

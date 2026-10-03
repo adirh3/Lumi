@@ -87,7 +87,8 @@ public partial class ChatViewModel
         }
     }
 
-    private static async Task StopRemainingSessionTasksAsync(CopilotSession session, ChatRuntimeState runtime)
+    private static async Task StopRemainingSessionTasksAsync(
+        CopilotSession session, ChatRuntimeState runtime, bool confirmStopped = false)
     {
         // session.abort stops the agent loop, but intentionally leaves attached shells alive.
         var tasks = await session.Rpc.Tasks.ListAsync();
@@ -102,6 +103,13 @@ public partial class ChatViewModel
                 if (remaining.Tasks.Any(task => GetRunningTaskId(task) == id))
                     throw new InvalidOperationException($"Copilot could not stop background task {id}.");
             }
+        }
+
+        if (confirmStopped)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            while ((await session.Rpc.Tasks.ListAsync(timeout.Token)).Tasks.Any(task => GetRunningTaskId(task) is not null))
+                await Task.Delay(100, timeout.Token);
         }
 
         static string? GetRunningTaskId(TaskInfo task) => task switch

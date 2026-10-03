@@ -230,6 +230,27 @@ public sealed class ChatSessionStore : IDisposable
 
     public IReadOnlyList<ChatViewModel> SnapshotSurfaces() => _surfaces.ToArray();
 
+    public async Task<string?> SetChatPausedAsync(Chat chat, bool paused)
+    {
+        ThrowIfDisposed();
+        if (_sessionsByChatId.TryGetValue(chat.Id, out var owner))
+            return await owner.TrySetChatPausedAsync(chat, paused);
+
+        if (!paused && chat.PauseNeedsContinuation)
+        {
+            var surface = await AcquireChatAsync(chat);
+            try { return await surface.TrySetChatPausedAsync(chat, false); }
+            finally { Release(surface); }
+        }
+
+        chat.IsPaused = paused;
+        chat.IsPausePending = false;
+        _dataStore.MarkChatChanged(chat);
+        if (_dataStore.Data.Settings.AutoSaveChats)
+            _ = _dataStore.SaveAsync();
+        return null;
+    }
+
     public void ApplyToSurfaces(Action<ChatViewModel> action)
     {
         foreach (var surface in _surfaces.ToArray())

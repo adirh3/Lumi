@@ -315,7 +315,8 @@ public partial class ChatViewModel
 
         if (existing is not null)
         {
-            var canSendNow = IsChatRuntimeActive(chatId);
+            var canSendNow = IsChatRuntimeActive(chatId)
+                             && _dataStore.Data.Chats.Find(chat => chat.Id == chatId)?.IsPaused != true;
             message.CanSendNowWhenQueued = canSendNow;
             if (ResolveQueuedViewModel(message) is { } viewModel)
                 viewModel.CanSendNowWhenQueued = canSendNow;
@@ -363,7 +364,7 @@ public partial class ChatViewModel
                 : [],
             ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
             SteerDelivery = MessageSteerState.Queued,
-            CanSendNowWhenQueued = IsChatRuntimeActive(chatId),
+            CanSendNowWhenQueued = IsChatRuntimeActive(chatId) && !chat.IsPaused,
             // Composer sends carry no author override (remote and orchestrated ones always do), so
             // only they take the composer's pending reply.
             ReplyTo = authorOverride is null ? TakePendingReply(chatId) : null
@@ -418,6 +419,10 @@ public partial class ChatViewModel
     private async Task DrainQueuedBusySendAsync(Guid chatId)
     {
         if (!_queuedBusySendPrompts.ContainsKey(chatId))
+            return;
+
+        if (_dataStore.Data.Chats.Find(chat => chat.Id == chatId)?.IsPaused == true
+            || (CurrentChat?.Id == chatId && IsPaused))
             return;
 
         if (CurrentChat?.Id != chatId)
@@ -801,6 +806,8 @@ public partial class ChatViewModel
 
     private void ReleaseSessionResources(Guid chatId, bool cancelActiveRequest)
     {
+        if (_runtimeStates.TryGetValue(chatId, out var runtime))
+            runtime.PauseGate.CancelWaiters();
         // Drop any still-pending steer confirmations for this chat. Without this a chat deleted / released
         // while a steer is in flight leaks its entry (and the referenced ChatMessageViewModel), and — because
         // a remote-shutdown keeps CopilotSessionId for resume — a later Retry's turn-start echo could pop the

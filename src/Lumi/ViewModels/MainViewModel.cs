@@ -1208,6 +1208,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             if (_runningStateSubscriptions.Add(chat))
                 chat.PropertyChanged += OnChatRunningChanged;
         }
+        RefreshChatPauseCommands();
     }
 
     private void UnsubscribeChatRunningState()
@@ -1250,13 +1251,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_isDisposed)
             return;
 
-        if (e.PropertyName == nameof(Chat.IsRunning))
+        if (e.PropertyName is nameof(Chat.IsRunning) or nameof(Chat.IsPaused))
             RefreshProjectRunningState();
         else if (e.PropertyName == nameof(Chat.HasUnreadMessages))
             RefreshUnreadState();
-        else if (e.PropertyName != nameof(Chat.IsSessionActive))
+        else if (e.PropertyName is not (nameof(Chat.IsSessionActive)
+            or nameof(Chat.IsPaused) or nameof(Chat.IsPausePending)))
             return;
 
+        RefreshChatPauseCommands();
         if (sender is Chat chat)
             ChatActivityOrReadStateChanged?.Invoke(chat.Id);
     }
@@ -1268,7 +1271,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         var chats = _dataStore.Data.Chats;
         foreach (var project in Projects)
-            project.IsRunning = chats.Any(c => c.ProjectId == project.Id && c.IsRunning);
+            project.IsRunning = chats.Any(c => c.ProjectId == project.Id && c.ShowRunningIndicator);
 
         ProjectRunningStateChanged?.Invoke();
     }
@@ -1284,6 +1287,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public void RefreshChatList()
     {
+        SubscribeChatRunningState();
         _chatLoadLimit = ChatPageSize;
         RebuildChatGroups();
         RefreshUnreadState();

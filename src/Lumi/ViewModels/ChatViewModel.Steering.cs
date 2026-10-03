@@ -425,11 +425,14 @@ public partial class ChatViewModel
 
     private static bool CanSteerImmediately(ChatRuntimeState runtime)
         => !runtime.IsStopping
+           && runtime.Chat?.IsPaused != true
            && !runtime.SendQueuedNowWhenTurnStarts
            && HasSubmittedCopilotTurn(runtime);
 
     private static bool HasSubmittedCopilotTurn(ChatRuntimeState runtime)
-        => runtime.PendingSessionUserMessageCount > 0
+        => runtime.IsContinuationTurn
+           || Volatile.Read(ref runtime.AssistantTurnStarted)
+           || runtime.PendingSessionUserMessageCount > 0
            || runtime.ActiveToolCount > 0
            || Volatile.Read(ref runtime.ActiveSubagentExecutionDepth) > 0
            || runtime.HasPendingBackgroundWork;
@@ -481,6 +484,7 @@ public partial class ChatViewModel
             return;
 
         if (CurrentChat is not { } chat
+            || chat.IsPaused
             || !chat.Messages.Contains(message.Message)
             || !IsChatRuntimeActive(chat.Id))
         {
