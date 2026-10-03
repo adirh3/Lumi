@@ -1,25 +1,29 @@
 import {
+    configureBrowserRecovery,
     configureNativeTextInputs,
-    publishViewportInsets
+    publishViewportInsets,
+    showBrowserRecovery
 } from './browserHost.js';
+
+configureBrowserRecovery();
 
 const showFatalError = error => {
     console.error(error);
-    const splash = document.querySelector('.lumi-splash');
-    if (!splash)
-        return;
-    splash.querySelector('span').textContent =
-        `Lumi could not start: ${error?.message || error}`;
+    showBrowserRecovery(`Lumi could not start: ${error?.message || error}`);
 };
 
 window.addEventListener('error', event => showFatalError(event.error || event.message));
 window.addEventListener('unhandledrejection', event => showFatalError(event.reason));
 
 try {
-    const { dotnet } = await import('./_framework/dotnet.js');
+    const [{ dotnet }, { loadRuntimeResource }] = await Promise.all([
+        import('./_framework/dotnet.js'),
+        import('./runtimeResourceCache.js')
+    ]);
     const runtime = await dotnet
         .withDiagnosticTracing(false)
         .withApplicationArgumentsFromQuery()
+        .withResourceLoader(loadRuntimeResource)
         .create();
     const config = runtime.getConfig();
 

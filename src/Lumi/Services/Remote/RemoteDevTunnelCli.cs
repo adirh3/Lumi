@@ -262,9 +262,21 @@ internal static class RemoteDevTunnelCli
                 cancellationToken,
                 killEntireProcessTree: !isSignIn)
             .ConfigureAwait(false);
-        if (result.ExitCode != 0)
-            throw new InvalidOperationException(Loc.Get("Remote_DevTunnelCliFailed", result.Error.Trim()));
-        return NormalizeOutput(result.Output);
+        return ParseCommandResult(arguments, result.ExitCode, result.Output, result.Error);
+    }
+
+    internal static string ParseCommandResult(string[] arguments, int exitCode, string output, string error)
+    {
+        if (exitCode == 0)
+            return NormalizeOutput(output);
+
+        var message = Loc.Get("Remote_DevTunnelCliFailed", error.Trim());
+        if (arguments.Length >= 2 && arguments[0] == "show" && exitCode == 2
+            && error.TrimStart().StartsWith("Tunnel not found in ", StringComparison.Ordinal))
+        {
+            throw new RemoteDevTunnelNotFoundException(message);
+        }
+        throw new InvalidOperationException(message);
     }
 
     internal static string NormalizeOutput(string output)

@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Lumi.Localization;
+using Lumi.Models;
 
 namespace Lumi.Services.Remote;
 
@@ -19,17 +20,20 @@ internal sealed record RemoteDevTunnelState(
 internal sealed class RemoteDevTunnelHost : IAsyncDisposable
 {
     private readonly object _gate = new();
+    private readonly DataStore _dataStore;
     private CancellationTokenSource? _lifetime;
     private TaskCompletionSource<bool>? _installApproval;
     private Task _worker = Task.CompletedTask;
     private RemoteDevTunnelState _state = new();
+
+    public RemoteDevTunnelHost(DataStore dataStore) => _dataStore = dataStore;
 
     public RemoteDevTunnelState State => Volatile.Read(ref _state);
     public event Action? StateChanged;
 
     internal static string[] CreateArguments =>
     [
-        "create", "--expiration", "1d", "--description", "Lumi private web app",
+        "create", "--expiration", "30d", "--description", "Lumi private web app",
         "--host-header", "localhost", "--origin-header", "unchanged", "--json"
     ];
 
@@ -109,14 +113,12 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
 
     private async Task RunAsync(int port, CancellationTokenSource lifetime)
     {
-        string? tunnelId = null;
         string? account = null;
-        string? executablePath = null;
         try
         {
             var token = lifetime.Token;
             token.ThrowIfCancellationRequested();
-            executablePath = await RemoteDevTunnelCli.EnsureAvailableAsync(
+            var executablePath = await RemoteDevTunnelCli.EnsureAvailableAsync(
                     _ => RequestInstallConfirmationAsync(lifetime),
                     message => Publish(lifetime, new RemoteDevTunnelState(IsStarting: true, SetupMessage: message)),
                     token)
@@ -136,41 +138,14 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
             account = identity.Username;
             Publish(lifetime, new RemoteDevTunnelState(IsStarting: true, Account: account));
 
-            // Always create a new owner-only tunnel. Never reuse a last-used tunnel or grant an ACE.
-            using (var created = JsonDocument.Parse(
-                       await RemoteDevTunnelCli.RunAsync(executablePath, CreateArguments, token).ConfigureAwait(false)))
-            {
-                if (!created.RootElement.TryGetProperty("tunnel", out var tunnel)
-                    || !tunnel.TryGetProperty("tunnelId", out var id)
-                    || id.ValueKind != JsonValueKind.String
-                    || id.GetString() is not { Length: > 0 } value)
-                {
-                    throw new InvalidOperationException(Loc.Get("Remote_DevTunnelInvalidResponse"));
-                }
-                tunnelId = value;
-            }
-
-            await RemoteDevTunnelCli.RunAsync(executablePath,
-                    ["port", "create", tunnelId, "-p", port.ToString(CultureInfo.InvariantCulture),
-                        "--protocol", "http", "--host-header", "localhost",
-                        "--origin-header", "unchanged", "--json"],
+            var prepared = await PrepareTunnelAsync(
+                    port, identity,
+                    (arguments, ct) => RemoteDevTunnelCli.RunAsync(executablePath, arguments, ct),
                     token)
                 .ConfigureAwait(false);
-            RequireOwnerOnlyAccess(
-                await RemoteDevTunnelCli.RunAsync(
-                    executablePath, ["access", "list", tunnelId, "--json"], token).ConfigureAwait(false));
-            RequireOwnerOnlyAccess(
-                await RemoteDevTunnelCli.RunAsync(executablePath,
-                        ["access", "list", tunnelId, "-p", port.ToString(CultureInfo.InvariantCulture), "--json"],
-                        token)
-                    .ConfigureAwait(false));
-
-            var currentIdentity = ParseMicrosoftIdentity(
-                await RemoteDevTunnelCli.RunAsync(executablePath, ["user", "show", "--json"], token).ConfigureAwait(false));
-            if (currentIdentity.ObjectId != identity.ObjectId || currentIdentity.TenantId != identity.TenantId)
-                throw new InvalidOperationException(Loc.Get("Remote_DevTunnelAccountChanged"));
-
-            await HostAsync(executablePath, tunnelId, port, account, lifetime).ConfigureAwait(false);
+            await HostAsync(executablePath, prepared.Registration.TunnelId, port, account, lifetime,
+                    prepared.Replaced ? Loc.Get("Remote_DevTunnelReplaced") : null)
+                .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
         {
@@ -192,20 +167,6 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
         }
         finally
         {
-            if (tunnelId is not null && executablePath is not null)
-            {
-                try
-                {
-                    await RemoteDevTunnelCli.RunAsync(executablePath, ["delete", tunnelId], CancellationToken.None)
-                        .ConfigureAwait(false);
-                }
-                catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException
-                                               or OperationCanceledException)
-                {
-                    // The relay has already stopped; an undeleted private tunnel also expires after a day.
-                    Trace.TraceWarning($"[Remote] Could not remove private Dev Tunnel {tunnelId}: {ex.Message}");
-                }
-            }
             lock (_gate)
             {
                 if (ReferenceEquals(_lifetime, lifetime))
@@ -215,12 +176,135 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
         }
     }
 
+    internal async Task<(RemoteDevTunnelRegistration Registration, bool Replaced)> PrepareTunnelAsync(
+        int port,
+        (string Username, string ObjectId, string TenantId) identity,
+        Func<string[], CancellationToken, Task<string>> runCli,
+        CancellationToken cancellationToken)
+    {
+        var registration = _dataStore.SnapshotRemoteDevTunnel();
+        var reused = false;
+        var replaced = false;
+        string? createdTunnelId = null;
+        var portText = port.ToString(CultureInfo.InvariantCulture);
+        try
+        {
+            if (registration is not null)
+            {
+                if (registration.OwnerObjectId != identity.ObjectId || registration.OwnerTenantId != identity.TenantId)
+                    throw new InvalidOperationException(Loc.Get("Remote_DevTunnelSavedAccount"));
+                if (registration.Port != port)
+                    throw new InvalidOperationException(Loc.Get("Remote_DevTunnelSavedPort", registration.Port));
+                if (string.IsNullOrWhiteSpace(registration.TunnelId))
+                    throw new InvalidOperationException(Loc.Get("Remote_DevTunnelInvalidResponse"));
+
+                try
+                {
+                    var json = await runCli(["show", registration.TunnelId, "--json"], cancellationToken)
+                        .ConfigureAwait(false);
+                    RequireSavedTunnelPort(json, registration);
+                    reused = true;
+                }
+                catch (RemoteDevTunnelNotFoundException ex)
+                {
+                    Trace.TraceWarning($"[Remote] The saved private tunnel expired or was deleted: {ex.Message}");
+                    registration = null;
+                    replaced = true;
+                }
+            }
+
+            if (registration is null)
+            {
+                using var created = JsonDocument.Parse(
+                    await runCli(CreateArguments, cancellationToken).ConfigureAwait(false));
+                if (!created.RootElement.TryGetProperty("tunnel", out var tunnel)
+                    || !tunnel.TryGetProperty("tunnelId", out var id)
+                    || id.ValueKind != JsonValueKind.String
+                    || id.GetString() is not { Length: > 0 } value)
+                {
+                    throw new InvalidOperationException(Loc.Get("Remote_DevTunnelInvalidResponse"));
+                }
+                createdTunnelId = value;
+                registration = new RemoteDevTunnelRegistration
+                {
+                    TunnelId = value,
+                    OwnerObjectId = identity.ObjectId,
+                    OwnerTenantId = identity.TenantId,
+                    Port = port
+                };
+                await runCli(
+                        ["port", "create", value, "-p", portText, "--protocol", "http",
+                            "--host-header", "localhost", "--origin-header", "unchanged", "--json"],
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            RequireOwnerOnlyAccess(
+                await runCli(["access", "list", registration.TunnelId, "--json"], cancellationToken)
+                    .ConfigureAwait(false));
+            RequireOwnerOnlyAccess(
+                await runCli(["access", "list", registration.TunnelId, "-p", portText, "--json"], cancellationToken)
+                    .ConfigureAwait(false));
+            var currentIdentity = ParseMicrosoftIdentity(
+                await runCli(["user", "show", "--json"], cancellationToken).ConfigureAwait(false));
+            if (currentIdentity.ObjectId != identity.ObjectId || currentIdentity.TenantId != identity.TenantId)
+                throw new InvalidOperationException(Loc.Get("Remote_DevTunnelAccountChanged"));
+
+            if (reused)
+            {
+                await runCli(["update", registration.TunnelId, "--expiration", "30d", "--json"], cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            _dataStore.SetRemoteDevTunnel(registration);
+            await _dataStore.SaveAsync(cancellationToken).ConfigureAwait(false);
+            return (registration, replaced);
+        }
+        finally
+        {
+            if (createdTunnelId is not null && _dataStore.SnapshotRemoteDevTunnel()?.TunnelId != createdTunnelId)
+            {
+                try
+                {
+                    await runCli(["delete", createdTunnelId], CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException
+                                               or OperationCanceledException or HttpRequestException)
+                {
+                    Trace.TraceWarning($"[Remote] Could not remove an unregistered private tunnel: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    internal static void RequireSavedTunnelPort(string json, RemoteDevTunnelRegistration registration)
+    {
+        using var document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty("tunnel", out var tunnel)
+            || !tunnel.TryGetProperty("tunnelId", out var id)
+            || id.ValueKind != JsonValueKind.String
+            || id.GetString() != registration.TunnelId
+            || !tunnel.TryGetProperty("ports", out var ports)
+            || ports.ValueKind != JsonValueKind.Array
+            || ports.GetArrayLength() != 1
+            || !ports[0].TryGetProperty("portNumber", out var number)
+            || number.ValueKind != JsonValueKind.Number
+            || !number.TryGetInt32(out var port)
+            || port != registration.Port
+            || !ports[0].TryGetProperty("protocol", out var protocol)
+            || protocol.ValueKind != JsonValueKind.String
+            || protocol.GetString() != "http")
+        {
+            throw new InvalidOperationException(Loc.Get("Remote_DevTunnelChangedPort"));
+        }
+    }
+
     private async Task HostAsync(
         string executablePath,
         string tunnelId,
         int port,
         string account,
-        CancellationTokenSource lifetime)
+        CancellationTokenSource lifetime,
+        string? setupMessage)
     {
         using var startup = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         startup.CancelAfter(TimeSpan.FromSeconds(90));
@@ -244,7 +328,8 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
                 {
                     ready = true;
                     startup.CancelAfter(Timeout.InfiniteTimeSpan);
-                    Publish(lifetime, new RemoteDevTunnelState(Account: account, Origin: origin));
+                    Publish(lifetime, new RemoteDevTunnelState(
+                        Account: account, Origin: origin, SetupMessage: setupMessage));
                 }
             }
 
@@ -346,4 +431,8 @@ internal sealed class RemoteDevTunnelHost : IAsyncDisposable
         Stop();
         await _worker.ConfigureAwait(false);
     }
+}
+
+internal sealed class RemoteDevTunnelNotFoundException(string message) : InvalidOperationException(message)
+{
 }

@@ -143,6 +143,7 @@ jobs:
             "$root\android-install.css",
             "$root\android-install.js",
             "$root\manifest.webmanifest",
+            "$root\runtimeResourceCache.js",
             "$root\_framework\dotnet.js"
           )
           $missing = $required | Where-Object { -not (Test-Path $_) }

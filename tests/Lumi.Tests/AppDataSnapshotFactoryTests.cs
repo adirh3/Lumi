@@ -42,6 +42,7 @@ public class AppDataSnapshotFactoryTests
                 RemoteAccessEnabled = true,
                 RemoteAllowInsecureLan = true,
                 RemoteAccessPort = 47653,
+                RemoteDevTunnel = new RemoteDevTunnelRegistration { TunnelId = "stale.uks1", Port = 47653 },
                 RemotePairedDevices =
                 [
                     new RemotePairedDevice { DeviceId = "stale", Token = "stale-token" }
@@ -53,6 +54,7 @@ public class AppDataSnapshotFactoryTests
             RemoteAccessEnabled = false,
             RemoteAllowInsecureLan = false,
             RemoteAccessPort = 49000,
+            RemoteDevTunnel = new RemoteDevTunnelRegistration { TunnelId = "current.uks1", Port = 49000 },
             RemotePairedDevices =
             [
                 new RemotePairedDevice { DeviceId = "current", Token = "current-token" }
@@ -64,7 +66,51 @@ public class AppDataSnapshotFactoryTests
         Assert.False(store.Data.Settings.RemoteAccessEnabled);
         Assert.False(store.Data.Settings.RemoteAllowInsecureLan);
         Assert.Equal(49000, store.Data.Settings.RemoteAccessPort);
+        Assert.Equal(persisted.RemoteDevTunnel, store.SnapshotRemoteDevTunnel());
         Assert.Equal("current", Assert.Single(store.Data.Settings.RemotePairedDevices).DeviceId);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void SavedTunnelFollowsSecurityOwnershipThroughMergeAndJson(bool hasChats, bool securityDirty)
+    {
+        var current = new AppData
+        {
+            Settings = new UserSettings
+            {
+                RemoteDevTunnel = new RemoteDevTunnelRegistration
+                {
+                    TunnelId = "current.uks1", OwnerObjectId = "owner", OwnerTenantId = "tenant", Port = 49001
+                },
+                RemotePairedDevices = [new RemotePairedDevice { DeviceId = "phone", Token = "current-token" }]
+            }
+        };
+        var persisted = new AppData
+        {
+            Settings = new UserSettings
+            {
+                RemoteDevTunnel = new RemoteDevTunnelRegistration
+                {
+                    TunnelId = "persisted.uks1", OwnerObjectId = "owner", OwnerTenantId = "tenant", Port = 49002
+                },
+                RemotePairedDevices = [new RemotePairedDevice { DeviceId = "phone", Token = "persisted-token" }]
+            }
+        };
+        if (hasChats)
+            persisted.Chats.Add(new Chat());
+        var expected = securityDirty ? current.Settings.RemoteDevTunnel : persisted.Settings.RemoteDevTunnel;
+        var merged = InvokeMergeChatIndexChanges(current, persisted, [], [],
+            remotePairedDevicesDirty: securityDirty);
+        var json = JsonSerializer.Serialize(
+            InvokeCreateIndexSnapshot(merged), AppDataJsonContext.Default.AppData);
+        var restored = JsonSerializer.Deserialize(json, AppDataJsonContext.Default.AppData)!;
+
+        Assert.Equal(expected, restored.Settings.RemoteDevTunnel);
+        Assert.Equal(securityDirty ? "current-token" : "persisted-token",
+            Assert.Single(restored.Settings.RemotePairedDevices).Token);
     }
 
     [Fact]

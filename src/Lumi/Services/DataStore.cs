@@ -313,6 +313,7 @@ public class DataStore
             _data.Settings.RemoteAccessPort = persisted.RemoteAccessPort;
             _data.Settings.RemoteAllowInsecureLan = persisted.RemoteAllowInsecureLan;
             _data.Settings.RemoteUseDevTunnel = persisted.RemoteUseDevTunnel;
+            _data.Settings.RemoteDevTunnel = persisted.RemoteDevTunnel;
             _data.Settings.RemotePairedDevices = persisted.RemotePairedDevices
                 .Select(CloneRemotePairedDevice)
                 .ToList();
@@ -365,6 +366,20 @@ public class DataStore
     }
 
     public void MarkRemotePairedDevicesChanged() => MarkRemoteSecurityChanged();
+
+    internal RemoteDevTunnelRegistration? SnapshotRemoteDevTunnel()
+    {
+        lock (_remoteSecuritySync)
+            return _data.Settings.RemoteDevTunnel;
+    }
+
+    internal void SetRemoteDevTunnel(RemoteDevTunnelRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        lock (_remoteSecuritySync)
+            _data.Settings.RemoteDevTunnel = registration;
+        MarkRemoteSecurityChanged();
+    }
 
     public IReadOnlyList<RemotePairedDevice> SnapshotRemotePairedDevices()
     {
