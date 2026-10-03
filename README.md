@@ -76,6 +76,7 @@ and context controls, and in its sidebar context menu. Idle chats have no pause
 control, and the title bar stays clear. A paused chat gets a pause marker and a
 **Resume** panel above the composer; your draft stays editable.
 Messages submitted while paused are visibly queued until the chat resumes.
+That queue survives app restarts, retaining message order, attachments, and replies.
 The **… Chat actions** menu beside **New Chat** offers **Pause all chats** when
 chats are active and **Resume all chats** when chats are paused, across projects
 and detached windows. These are menu actions, not a standing sidebar toolbar.

@@ -57,6 +57,8 @@ public partial class ChatViewModel
     internal Task<string?> TrySetChatPausedAsync(Chat chat, bool paused)
     {
         var runtime = GetOrCreateRuntimeState(chat.Id);
+        if (runtime.StopOperation is { IsCompleted: false } stopping)
+            return SetPauseAfterTransitionAsync(chat, paused, stopping);
         if (runtime.PauseResumeOperation is { IsCompleted: false } pending)
             return SetPauseAfterTransitionAsync(chat, paused, pending);
 
@@ -194,11 +196,15 @@ public partial class ChatViewModel
         {
             foreach (var message in queued)
             {
+                if (paused)
+                    message.IsPendingPausedSend = true;
                 var canSendNow = !paused && IsChatRuntimeActive(chat.Id);
                 message.CanSendNowWhenQueued = canSendNow;
                 if (ResolveQueuedViewModel(message) is { } viewModel)
                     viewModel.CanSendNowWhenQueued = canSendNow;
             }
+            if (paused)
+                QueueSaveChat(chat, saveIndex: false);
         }
         QueueSaveChatIndex(chat);
         if (!paused)

@@ -236,7 +236,7 @@ public sealed class ChatSessionStore : IDisposable
         if (_sessionsByChatId.TryGetValue(chat.Id, out var owner))
             return await owner.TrySetChatPausedAsync(chat, paused);
 
-        if (!paused && chat.PauseNeedsContinuation)
+        if (!paused && chat.IsPaused)
         {
             var surface = await AcquireChatAsync(chat);
             try { return await surface.TrySetChatPausedAsync(chat, false); }

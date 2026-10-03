@@ -2560,6 +2560,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
                 _suggestionDisplayChatId = chat.Id;
                 chat.HasUnreadMessages = false;
+                RestorePausedSendQueue(chat);
                 SynchronizeDisplayedMessagesFromChat(chat, forceRebuild: true);
                 RestoreSuggestionsForChat(chat);
                 SweepInactiveChatStates();
@@ -2608,6 +2609,8 @@ public partial class ChatViewModel : ObservableObject, IDisposable
 
             if (loadToken.IsCancellationRequested || !IsCurrentChatLoad(requestId, loadCts))
                 return;
+
+            RestorePausedSendQueue(chat);
 
             // Yield so the UI thread can render the loading overlay before heavy synchronous work
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
@@ -5830,6 +5833,9 @@ public partial class ChatViewModel : ObservableObject, IDisposable
         }
         var wasActiveTurn = IsChatRuntimeActive(chatId) || _ctsSources.ContainsKey(chatId);
         var runtime = GetOrCreateRuntimeState(chatId);
+        // Idle events may clear the live shell map before the cancellation RPC acknowledges.
+        var runningBackgroundShells = new Dictionary<string, DateTimeOffset>(
+            runtime.RunningBackgroundShells, StringComparer.Ordinal);
 
         // Record intent before cancellation or AbortAsync can synchronously emit Abort/Idle events.
         // Those handlers read this flag to distinguish a user stop from a broken session.
@@ -5886,7 +5892,7 @@ public partial class ChatViewModel : ObservableObject, IDisposable
             return error;
         }
 
-        var stoppedTools = MarkInProgressToolsStopped(chat);
+        var stoppedTools = MarkToolsStopped(chat, runningBackgroundShells);
         var settledStatus = preservePause ? Loc.Get("Chat_Paused") : Loc.Status_Stopped;
         MarkRuntimeTerminal(runtime, settledStatus);
         if (!preservePause)

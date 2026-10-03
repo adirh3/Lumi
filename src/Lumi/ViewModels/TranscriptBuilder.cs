@@ -2390,7 +2390,8 @@ public class TranscriptBuilder
     /// When cleared, <paramref name="finalDurationMs"/> (if provided) becomes the card's real total
     /// duration instead of the misleadingly-short tool-call launch time.
     /// </summary>
-    public void SetTerminalRunningInBackground(string rootToolCallId, bool running, double? finalDurationMs = null, DateTimeOffset? startedUtc = null)
+    public void SetTerminalRunningInBackground(string rootToolCallId, bool running, double? finalDurationMs = null,
+        DateTimeOffset? startedUtc = null, string? finalStatus = null)
     {
         if (!_terminalPreviewsByToolCallId.TryGetValue(rootToolCallId, out var card))
             return;
@@ -2398,6 +2399,12 @@ public class TranscriptBuilder
         var changed = card.IsRunningInBackground != running;
         var presentationChanged = changed;
         card.IsRunningInBackground = running;
+        if (finalStatus is not null)
+        {
+            var status = MapToolStatus(finalStatus);
+            presentationChanged |= card.Status != status;
+            card.Status = status;
+        }
 
         if (running)
         {
@@ -2421,10 +2428,11 @@ public class TranscriptBuilder
             card.DurationMs = finalDurationMs.Value;
         }
 
-        if (changed)
-            RefreshOwningToolGroup(card);
         if (presentationChanged)
+        {
+            RefreshOwningToolGroup(card);
             FindOwningSubagent(rootToolCallId)?.NotifyRunContentChanged();
+        }
     }
 
     /// <summary>Supplies the async shells still running in the background (root tool-call id →
@@ -2509,6 +2517,8 @@ public class TranscriptBuilder
                             items[i] = promoted;
                             UpdateToolGroupState(promoted);
                         }
+                        else
+                            single.NotifyTerminalPresentationChanged();
                         return;
                 }
             }

@@ -793,6 +793,13 @@ public partial class SingleToolItem : TranscriptItem
     {
         _source = source;
     }
+
+    internal void NotifyTerminalPresentationChanged()
+    {
+        OnPropertyChanged(nameof(Label));
+        OnPropertyChanged(nameof(IsActive));
+        OnPropertyChanged(nameof(Meta));
+    }
 }
 
 // ── Base for items inside a tool group ───────────────

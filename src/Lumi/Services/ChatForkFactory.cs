@@ -262,6 +262,7 @@ public static class ChatForkFactory
         // tool left "InProgress" would spin forever, and an unanswered ask_question card would stay
         // clickable while wired to a session that no longer exists.
         copy.IsStreaming = false;
+        copy.IsPendingPausedSend = false;
         copy.ToolStatus = NormalizeToolStatus(copy.ToolStatus);
         return copy;
     }

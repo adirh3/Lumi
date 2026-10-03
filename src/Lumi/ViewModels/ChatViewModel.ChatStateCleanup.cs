@@ -295,6 +295,23 @@ public partial class ChatViewModel
     private ChatMessageViewModel? ResolveQueuedViewModel(ChatMessage message)
         => Messages.FirstOrDefault(viewModel => ReferenceEquals(viewModel.Message, message));
 
+    private void RestorePausedSendQueue(Chat chat)
+    {
+        if (_queuedBusySendPrompts.ContainsKey(chat.Id))
+            return;
+
+        var pending = chat.Messages.Where(message => message.Role == "user" && message.IsPendingPausedSend).ToList();
+        if (pending.Count == 0)
+            return;
+
+        foreach (var message in pending)
+        {
+            message.SteerDelivery = MessageSteerState.Queued;
+            message.CanSendNowWhenQueued = !chat.IsPaused && IsChatRuntimeActive(chat.Id);
+        }
+        _queuedBusySendPrompts[chat.Id] = pending;
+    }
+
     /// <summary>
     /// Defers a send that could not be steered into a live turn. FIFO, so a second deferred message
     /// cannot overwrite the first. Pass <paramref name="existing"/> to re-defer an already-shown
@@ -364,6 +381,7 @@ public partial class ChatViewModel
                 : [],
             ActiveSkills = BuildSkillReferences(ActiveSkillIds, _activeExternalSkillNames),
             SteerDelivery = MessageSteerState.Queued,
+            IsPendingPausedSend = chat.IsPaused,
             CanSendNowWhenQueued = IsChatRuntimeActive(chatId) && !chat.IsPaused,
             // Composer sends carry no author override (remote and orchestrated ones always do), so
             // only they take the composer's pending reply.
@@ -524,11 +542,16 @@ public partial class ChatViewModel
         if (message.SteerDelivery != MessageSteerState.Queued)
             return;
 
+        var wasPendingPausedSend = message.IsPendingPausedSend;
         // The view model mirrors its state onto the model; without one, the model is all there is.
         if (ResolveQueuedViewModel(message) is { } viewModel)
             viewModel.SteerState = MessageSteerState.Failed;
         else
             message.SteerDelivery = MessageSteerState.Failed;
+
+        if (wasPendingPausedSend
+            && _dataStore.Data.Chats.Find(chat => chat.Messages.Contains(message)) is { } chat)
+            QueueSaveChat(chat, saveIndex: false);
     }
 
     /// <summary>
@@ -777,17 +800,34 @@ public partial class ChatViewModel
     }
 
     private bool MarkInProgressToolsStopped(Chat chat)
+        => MarkToolsStopped(chat, _runtimeStates.TryGetValue(chat.Id, out var runtime)
+            ? runtime.RunningBackgroundShells
+            : EmptyRunningBackgroundShells);
+
+    private bool MarkToolsStopped(Chat chat, IReadOnlyDictionary<string, DateTimeOffset> runningBackgroundShells)
     {
         List<Guid>? stoppedMessageIds = null;
         var stoppedAt = DateTimeOffset.UtcNow;
 
         foreach (var message in chat.Messages)
         {
-            if (message.ToolStatus != "InProgress" || string.IsNullOrWhiteSpace(message.ToolName))
+            DateTimeOffset shellStartedAt = default;
+            var isRunningShell = message.ToolCallId is { } toolCallId
+                                 && runningBackgroundShells.TryGetValue(toolCallId, out shellStartedAt);
+            if ((message.ToolStatus != "InProgress" && !isRunningShell) || string.IsNullOrWhiteSpace(message.ToolName))
                 continue;
 
-            message.MarkToolFinished(stoppedAt);
+            if (isRunningShell)
+            {
+                message.ToolStartedAt = shellStartedAt;
+                message.ToolDurationMs = Math.Max(0, (stoppedAt - shellStartedAt).TotalMilliseconds);
+            }
+            else
+                message.MarkToolFinished(stoppedAt);
             message.ToolStatus = "Stopped";
+            if (CurrentChat?.Id == chat.Id && message.ToolCallId is { } stoppedToolCallId)
+                _transcriptBuilder.SetTerminalRunningInBackground(
+                    stoppedToolCallId, false, message.ToolDurationMs, finalStatus: message.ToolStatus);
             (stoppedMessageIds ??= []).Add(message.Id);
         }
 

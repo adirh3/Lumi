@@ -90,10 +90,24 @@ public class ChatMessage
     /// </summary>
     public SessionFailureDisposition? FailureDisposition { get; set; }
 
+    /// <summary>A local send held by Pause, restored to the FIFO when this chat is loaded.</summary>
+    public bool IsPendingPausedSend { get; set; }
+
+    private MessageSteerState _steerDelivery;
+
     /// <summary>Session-only steer delivery status (not serialized). Set when this message is steered
     /// into a running turn so the badge survives transcript/VM rebuilds within the session.</summary>
     [JsonIgnore]
-    public MessageSteerState SteerDelivery { get; set; }
+    public MessageSteerState SteerDelivery
+    {
+        get => _steerDelivery;
+        set
+        {
+            _steerDelivery = value;
+            if (value != MessageSteerState.Queued)
+                IsPendingPausedSend = false;
+        }
+    }
 
     /// <summary>
     /// Session-only availability for requesting immediate delivery of a locally queued message.
@@ -146,6 +160,7 @@ public class ChatMessage
         HasMcpSelection = HasMcpSelection,
         Attachments = [..Attachments],
         FailureDisposition = FailureDisposition,
+        IsPendingPausedSend = IsPendingPausedSend,
         ReplyTo = ReplyTo?.Clone(),
         ActiveSkills = [..ActiveSkills.Select(static s => new SkillReference
         {

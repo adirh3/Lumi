@@ -14,6 +14,30 @@ namespace Lumi.Tests;
 
 public sealed class TranscriptBuilderToolGroupTests
 {
+    [Fact]
+    public void InterruptedCompletedLaunch_RefreshesItsAlreadyFlattenedPill()
+    {
+        Lumi.Localization.Loc.Load("en");
+        var builder = CreateBuilder();
+        var turns = new ObservableCollection<TranscriptTurn>();
+        builder.SetLiveTarget(turns);
+        var message = CreateToolVm("async-flattened", "powershell", "Completed", "{}");
+        builder.ProcessMessageToTranscript(message);
+        builder.CloseCurrentToolGroup();
+        var pill = Assert.IsType<SingleToolItem>(Assert.Single(turns[0].Items));
+        var notifications = new List<string?>();
+        pill.PropertyChanged += (_, args) => notifications.Add(args.PropertyName);
+
+        builder.SetTerminalRunningInBackground("async-flattened", false, 1500, finalStatus: "Stopped");
+
+        Assert.Contains("Command interrupted", pill.Label);
+        Assert.Equal("1.5s", pill.Meta);
+        Assert.Contains(nameof(SingleToolItem.Label), notifications);
+        Assert.Contains(nameof(SingleToolItem.Meta), notifications);
+        Assert.Contains(nameof(SingleToolItem.IsActive), notifications);
+        Assert.False(pill.IsActive);
+    }
+
     [Theory]
     [InlineData("Stopped", "Command interrupted")]
     [InlineData("Completed", "Ran command")]

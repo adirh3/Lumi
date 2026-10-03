@@ -280,7 +280,7 @@ public sealed class ChatPauseTests
                 Assert.False(current.IsPaused);
                 Assert.False(pause.IsVisible);
                 Assert.True(resume.IsVisible);
-                resume.Command!.Execute(resume.CommandParameter);
+                await vm.ToggleChatPauseCommand.ExecuteAsync(resume.CommandParameter);
                 Assert.False(target.IsPaused);
                 Assert.Same(current, vm.ChatVM.CurrentChat);
                 menu.Close();
@@ -327,7 +327,7 @@ public sealed class ChatPauseTests
 
                 Assert.False(pause.IsVisible);
                 Assert.True(resume.IsVisible);
-                resume.Command!.Execute(null);
+                await vm.ResumeAllChatsCommand.ExecuteAsync(null);
                 Dispatcher.UIThread.RunJobs();
                 Assert.True(pause.IsVisible);
                 Assert.False(resume.IsVisible);
@@ -384,7 +384,7 @@ public sealed class ChatPauseTests
     public async Task PauseAll_IsAcrossProjects_AndDoesNotPauseIdleHistoryOrFutureChats()
     {
         using var ui = HeadlessTestSession.Start();
-        await ui.Dispatch(() =>
+        await ui.Dispatch(async () =>
         {
             Loc.Load("en");
             var first = new Chat { IsSessionActive = true, ProjectId = Guid.NewGuid() };
@@ -403,7 +403,7 @@ public sealed class ChatPauseTests
             Assert.True(vm.ResumeAllChatsCommand.CanExecute(null));
             Assert.True(vm.HasChatActivity);
 
-            vm.ResumeAllChatsCommand.Execute(null);
+            await vm.ResumeAllChatsCommand.ExecuteAsync(null);
             Assert.False(first.IsPaused);
             Assert.False(background.IsPaused);
             Assert.False(vm.ResumeAllChatsCommand.CanExecute(null));
@@ -461,6 +461,30 @@ public sealed class ChatPauseTests
             Assert.True(secondSurface.IsPaused);
             Assert.Empty(first.Messages);
             Assert.Empty(second.Messages);
+        }, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Store_ResumingUnopenedPausedChat_LoadsItsPendingMessages()
+    {
+        using var ui = HeadlessTestSession.Start();
+        await ui.Dispatch(async () =>
+        {
+            var chat = new Chat { IsPaused = true };
+            var loaded = 0;
+            using var registry = new ChatSurfaceRegistry();
+            using var store = new ChatSessionStore(new DataStore(CreateData(chat)), TestCopilot.Shared, registry,
+                (surface, target) =>
+                {
+                    loaded++;
+                    surface.CurrentChat = target;
+                    return Task.CompletedTask;
+                });
+
+            Assert.Null(await store.SetChatPausedAsync(chat, false));
+
+            Assert.Equal(1, loaded);
+            Assert.False(chat.IsPaused);
         }, CancellationToken.None);
     }
 
