@@ -14,14 +14,78 @@ public sealed class RemoteDevTunnelTests
     [Fact]
     public void NewTunnelArgumentsCannotGrantAccessOrReuseAnotherTunnel()
     {
+        const string requestedTunnelId = "lumi-0123456789abcdef0123456789abcdef";
         Assert.Equal(
-            ["create", "--expiration", "1d", "--description", "Lumi private web app",
+            ["create", requestedTunnelId, "--expiration", "1d", "--description",
+                RemoteDevTunnelHost.TunnelDescription,
                 "--host-header", "localhost", "--origin-header", "unchanged", "--json"],
-            RemoteDevTunnelHost.CreateArguments);
+            RemoteDevTunnelHost.CreateArguments(requestedTunnelId));
         Assert.Equal(
             ["host", "owned-tunnel.uks1", "--host-header", "localhost", "--origin-header", "unchanged"],
             RemoteDevTunnelHost.HostArguments("owned-tunnel.uks1"));
         Assert.False(new UserSettings().RemoteUseDevTunnel);
+    }
+
+    [Fact]
+    public void ClusterQualifiedTunnelRoutePinsRecreationAndRejectsRelocation()
+    {
+        const string baseId = "lumi-0123456789abcdef0123456789abcdef";
+        const string routedId = baseId + ".uks1";
+        Assert.Equal(
+            ["create", baseId, "--service-uri", "https://uks1.rel.tunnels.api.visualstudio.com",
+                "--expiration", "1d", "--description", RemoteDevTunnelHost.TunnelDescription,
+                "--host-header", "localhost", "--origin-header", "unchanged", "--json"],
+            RemoteDevTunnelHost.CreateArguments(routedId));
+        Assert.Equal(routedId, RemoteDevTunnelHost.RequireExpectedTunnelId(routedId, routedId));
+        Assert.Throws<InvalidOperationException>(() =>
+            RemoteDevTunnelHost.RequireExpectedTunnelId(baseId + ".euw", routedId));
+        Assert.Throws<InvalidOperationException>(() =>
+            RemoteDevTunnelHost.CreateArguments(routedId + ".invalid"));
+        Assert.Equal(
+            "https://lumi-0123456789abcdef0123456789abcdef-47654.uks1.devtunnels.ms",
+            RemoteDevTunnelHost.FindWebOrigin(
+                "Hosting port 47654 at https://lumi-0123456789abcdef0123456789abcdef-47654.uks1.devtunnels.ms/",
+                47654));
+    }
+
+    [Fact]
+    public void ProfileTunnelIdIsStableFormatAndOnlyMatchesLumiOwnedTunnel()
+    {
+        var requestedTunnelId = RemoteDevTunnelHost.CreateProfileTunnelId();
+        Assert.True(RemoteDevTunnelHost.IsValidProfileTunnelId(requestedTunnelId));
+        Assert.True(RemoteDevTunnelHost.IsValidProfileTunnelId(requestedTunnelId + ".uks1"));
+        Assert.False(RemoteDevTunnelHost.IsValidProfileTunnelId(""));
+        Assert.False(RemoteDevTunnelHost.IsValidProfileTunnelId("lumi-not-a-guid"));
+        Assert.False(RemoteDevTunnelHost.IsValidProfileTunnelId(requestedTunnelId + ".uks1.invalid"));
+
+        var json = $$"""
+            {
+              "tunnels": [
+                {
+                  "tunnelId": "{{requestedTunnelId}}.uks1",
+                  "description": "Someone else's tunnel"
+                },
+                {
+                  "tunnelId": "other-tunnel.uks1",
+                  "description": "Lumi private web app"
+                },
+                {
+                  "tunnelId": "{{requestedTunnelId}}.uks1",
+                  "description": "Lumi private web app"
+                }
+              ]
+            }
+            """;
+
+        Assert.Equal(
+            $"{requestedTunnelId}.uks1",
+            RemoteDevTunnelHost.FindExistingProfileTunnelId(json, requestedTunnelId));
+        Assert.Equal(
+            $"{requestedTunnelId}.uks1",
+            RemoteDevTunnelHost.FindExistingProfileTunnelId(json, $"{requestedTunnelId}.uks1"));
+        Assert.Null(
+            RemoteDevTunnelHost.FindExistingProfileTunnelId(json, $"{requestedTunnelId}.euw"));
+        Assert.Null(RemoteDevTunnelHost.FindExistingProfileTunnelId(json, "lumi-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
     }
 
     [Fact]
@@ -164,18 +228,25 @@ public sealed class RemoteDevTunnelTests
     {
         var persisted = new AppData
         {
-            Settings = new UserSettings { RemoteUseDevTunnel = true }
+            Settings = new UserSettings
+            {
+                RemoteUseDevTunnel = true,
+                RemoteDevTunnelId = "lumi-0123456789abcdef0123456789abcdef"
+            }
         };
         if (hasChats)
             persisted.Chats.Add(new Chat());
         var snapshot = AppDataSnapshotFactory.CreateIndexSnapshot(persisted);
         Assert.True(snapshot.Settings.RemoteUseDevTunnel);
+        Assert.Equal(persisted.Settings.RemoteDevTunnelId, snapshot.Settings.RemoteDevTunnelId);
         var merged = AppDataSnapshotFactory.MergeChatIndexChanges(
             new AppData(), snapshot, new HashSet<Guid>(), new HashSet<Guid>(), false);
         Assert.True(merged.Settings.RemoteUseDevTunnel);
+        Assert.Equal(persisted.Settings.RemoteDevTunnelId, merged.Settings.RemoteDevTunnelId);
 
         var store = new DataStore(new AppData());
         store.ApplyRemoteSecuritySnapshot(snapshot.Settings);
         Assert.True(store.Data.Settings.RemoteUseDevTunnel);
+        Assert.Equal(persisted.Settings.RemoteDevTunnelId, store.Data.Settings.RemoteDevTunnelId);
     }
 }
